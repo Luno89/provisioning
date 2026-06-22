@@ -1,0 +1,3 @@
+# `azurerm_automation_powershell72_module`
+
+Refer to the Terraform Registry for docs: [`azurerm_automation_powershell72_module`](https://registry.terraform.io/providers/hashicorp/azurerm/3.117.1/docs/resources/automation_powershell72_module).

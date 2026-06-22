@@ -1,0 +1,16 @@
+{
+  "stacks": {
+    "Local-odoo": {
+      "annotations": [
+      ],
+      "constructPath": "Local-odoo",
+      "dependencies": [
+      ],
+      "name": "Local-odoo",
+      "stackMetadataPath": "stacks/Local-odoo/metadata.json",
+      "synthesizedStackPath": "stacks/Local-odoo/cdk.tf.json",
+      "workingDirectory": "stacks/Local-odoo"
+    }
+  },
+  "version": "0.20.12"
+}

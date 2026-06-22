@@ -1,0 +1,14 @@
+[
+  {
+    "id": "83855c68-0daa-4cfc-8c85-5cea90ef7aba",
+    "name": "Odoo-Local-19_v2",
+    "clusterId": "4a546575-c028-4017-9273-c87cbcd680e2",
+    "strategy": "native",
+    "status": "running",
+    "lastLogPath": "/home/luno/Code/provisioning/apps/backend/data/logs/Odoo-Local-19_v2-deploy-1781489794779.log",
+    "modules": [
+      "sale_delivery_split_date"
+    ],
+    "url": "http://localhost:8069"
+  }
+]

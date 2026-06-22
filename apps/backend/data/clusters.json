@@ -1,0 +1,10 @@
+[
+  {
+    "id": "4a546575-c028-4017-9273-c87cbcd680e2",
+    "name": "c-760",
+    "provider": "k3d",
+    "status": "healthy",
+    "lastLogPath": "/home/luno/Code/provisioning/apps/backend/data/logs/c-760-1781445543544.log",
+    "kubeconfigPath": "/home/luno/.kube/config"
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "name": "provisioning",
+  "version": "1.0.0",
+  "description": "Multi-Cloud Provisioning Platform",
+  "private": true,
+  "scripts": {
+    "first-time": "./scripts/setup.sh",
+    "dev": "concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\"",
+    "clean-dev": "ps aux | grep -E 'vite|tsx|cdktf|concurrently' | grep \"$(pwd)\" | grep -v grep | awk '{print $2}' | xargs -r kill -9",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "concurrently": "^8.2.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.17.0"
+  }
+}

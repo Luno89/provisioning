@@ -1,0 +1,43 @@
+
+⠋  [1mStarting[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠹  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠸  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠼  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠴  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠦  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠧  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠇  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠏  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠹  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠸  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+
+0 Stacks destroying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-47beaea2[39m[22m  chdir(2) failed.: No such file or directory
+
+
+0 Stacks destroying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G
+
+0 Stacks destroying     0 Stacks done     1 Stack waiting
+Error: terraform init failed with exit code 1
+
+--- EXECUTION FAILED (Exit Code 1) ---
