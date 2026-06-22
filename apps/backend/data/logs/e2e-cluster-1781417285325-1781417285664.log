@@ -1,0 +1,143 @@
+[36mINFO[0m[0000] portmapping '8069:8069' targets the loadbalancer: defaulting to [servers:*:proxy agents:*:proxy] 
+[36mINFO[0m[0000] Prep: Network                                
+[36mINFO[0m[0000] Created network 'k3d-e2e-cluster-1781417285325' 
+[36mINFO[0m[0000] Created image volume k3d-e2e-cluster-1781417285325-images 
+[36mINFO[0m[0000] Starting new tools node...                   
+[36mINFO[0m[0000] Starting node 'k3d-e2e-cluster-1781417285325-tools' 
+[36mINFO[0m[0001] Creating node 'k3d-e2e-cluster-1781417285325-server-0' 
+[36mINFO[0m[0001] Creating LoadBalancer 'k3d-e2e-cluster-1781417285325-serverlb' 
+[36mINFO[0m[0001] Using the k3d-tools node to gather environment information 
+[36mINFO[0m[0001] HostIP: using network gateway 172.21.0.1 address 
+[36mINFO[0m[0001] Starting cluster 'e2e-cluster-1781417285325' 
+[36mINFO[0m[0001] Starting servers...                          
+[36mINFO[0m[0001] Starting node 'k3d-e2e-cluster-1781417285325-server-0' 
+[36mINFO[0m[0004] All agents already running.                  
+[36mINFO[0m[0004] Starting helpers...                          
+[36mINFO[0m[0004] Starting node 'k3d-e2e-cluster-1781417285325-serverlb' 
+[36mINFO[0m[0010] Injecting records for hostAliases (incl. host.k3d.internal) and for 2 network members into CoreDNS configmap... 
+[36mINFO[0m[0012] Cluster 'e2e-cluster-1781417285325' created successfully! 
+[36mINFO[0m[0012] You can now use it like this:                
+kubectl cluster-info
+
+⠋  [1mStarting[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠹  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠸  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠼  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠴  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠦  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠧  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[GK3D Cluster logic would be instantiated here.
+
+
+⠧  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠇  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠏  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  [0m[1mInitializing the backend...[0m
+
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  [0m[32m
+                           Successfully configured the backend "local"! Terraform will automatically
+                           use this backend unless the backend configuration changes.[0m
+                           [0m[1mInitializing provider plugins...[0m
+                           - Finding hashicorp/helm versions matching "2.17.0"...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Finding hashicorp/kubernetes versions matching "2.38.0"...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Installing hashicorp/helm v2.17.0...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Installed hashicorp/helm v2.17.0 (signed by HashiCorp)
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Installing hashicorp/kubernetes v2.38.0...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Installed hashicorp/kubernetes v2.38.0 (signed by HashiCorp)
+                           Terraform has created a lock file [1m.terraform.lock.hcl[0m to record the provider
+                           selections it made above. Include this file in your version control repository
+                           so that Terraform can guarantee to make the same selections by default when
+                           you run "terraform init" in the future.[0m
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  [0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+                           [0m[32m
+                           You may now begin working with Terraform. Try running "terraform plan" to see
+                           any changes that are required for your infrastructure. All Terraform commands
+                           should now work.
+
+                           If you ever set or change modules or backend configuration for Terraform,
+                           rerun this command to reinitialize your working directory. If you forget, other
+                           commands will detect it and remind you to do so if necessary.[0m
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Fetching hashicorp/helm 2.17.0 for linux_amd64...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Retrieved hashicorp/helm 2.17.0 for linux_amd64 (signed by HashiCorp)
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Fetching hashicorp/kubernetes 2.38.0 for linux_amd64...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  - Retrieved hashicorp/kubernetes 2.38.0 for linux_amd64 (signed by HashiCorp)
+                           - Obtained hashicorp/helm checksums for linux_amd64; All checksums for this platform were already tracked in the lock file
+                           - Obtained hashicorp/kubernetes checksums for linux_amd64; All checksums for this platform were already tracked in the lock file
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[91m[2026-06-13T23:08:39.420] [ERROR] default - [39m[31m[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mFailed to update dependency lock file[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mError while writing new dependency lock information to .terraform.lock.hcl:
+[31m│[0m [0mcannot create temporary file to update .terraform.lock.hcl: open
+[31m│[0m [0m./.terraform.lock.hcl1359553954: no such file or directory.
+[31m╵[0m[0m
+[0m[0m
+
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-cluster-1781417285325[39m[22m  [31m[31m╷[0m[0m
+                           [31m│[0m [0m[1m[31mError: [0m[0m[1mFailed to update dependency lock file[0m
+                           [31m│[0m [0m
+                           [31m│[0m [0m[0mError while writing new dependency lock information to .terraform.lock.hcl:
+                           [31m│[0m [0mcannot create temporary file to update .terraform.lock.hcl: open
+                           [31m│[0m [0m./.terraform.lock.hcl1359553954: no such file or directory.
+                           [31m╵[0m[0m
+                           [0m[0m
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+Error: non-zero exit code 1

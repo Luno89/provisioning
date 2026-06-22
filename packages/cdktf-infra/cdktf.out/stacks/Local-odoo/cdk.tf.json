@@ -1,0 +1,87 @@
+{
+  "//": {
+    "metadata": {
+      "backend": "local",
+      "stackName": "Local-odoo",
+      "version": "0.20.12"
+    },
+    "outputs": {
+      "Local-odoo": {
+        "cluster": {
+          "kubeconfig_path": "cluster_kubeconfig_path_9558E5B9"
+        }
+      }
+    }
+  },
+  "output": {
+    "cluster_kubeconfig_path_9558E5B9": {
+      "value": "/tmp/kubeconfig-Local-odoo"
+    }
+  },
+  "provider": {
+    "helm": [
+      {
+        "kubernetes": {
+          "config_path": "/tmp/kubeconfig-Local-odoo"
+        }
+      }
+    ],
+    "kubernetes": [
+      {
+        "config_path": "/tmp/kubeconfig-Local-odoo"
+      }
+    ]
+  },
+  "resource": {
+    "helm_release": {
+      "monitoring_prometheus-stack_F4CBFC9A": {
+        "//": {
+          "metadata": {
+            "path": "Local-odoo/monitoring/prometheus-stack",
+            "uniqueId": "monitoring_prometheus-stack_F4CBFC9A"
+          }
+        },
+        "chart": "kube-prometheus-stack",
+        "name": "kube-prometheus-stack",
+        "namespace": "${kubernetes_namespace.monitoring_monitoring-ns_DCC445AB.metadata[0].name}",
+        "repository": "https://prometheus-community.github.io/helm-charts",
+        "set": [
+          {
+            "name": "grafana.enabled",
+            "value": "true"
+          }
+        ]
+      }
+    },
+    "kubernetes_namespace": {
+      "monitoring_monitoring-ns_DCC445AB": {
+        "//": {
+          "metadata": {
+            "path": "Local-odoo/monitoring/monitoring-ns",
+            "uniqueId": "monitoring_monitoring-ns_DCC445AB"
+          }
+        },
+        "metadata": {
+          "name": "monitoring"
+        }
+      }
+    }
+  },
+  "terraform": {
+    "backend": {
+      "local": {
+        "path": "/home/luno/Code/provisioning/packages/cdktf-infra/terraform.Local-odoo.tfstate"
+      }
+    },
+    "required_providers": {
+      "helm": {
+        "source": "hashicorp/helm",
+        "version": "2.17.0"
+      },
+      "kubernetes": {
+        "source": "hashicorp/kubernetes",
+        "version": "2.38.0"
+      }
+    }
+  }
+}

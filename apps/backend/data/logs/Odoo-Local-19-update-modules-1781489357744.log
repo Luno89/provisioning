@@ -1,0 +1,149 @@
+Validating Odoo module at: /home/luno/Code/odoo-custom-modules/sale_delivery_split_date
+----------------------------------------
+✅ __manifest__.py is a valid dictionary.
+✅ __init__.py syntax is valid.
+✅ models/__init__.py syntax is valid.
+✅ models/sale_order_line.py syntax is valid.
+✅ views/sale_order_views.xml is well-formed.
+----------------------------------------
+🎉 Module sale_delivery_split_date passed all pre-flight checks!
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 154B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/odoo:18.0
+#2 DONE 0.7s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/3] FROM docker.io/library/odoo:18.0@sha256:f0d5dcafc72cacea66ae0ee8d7950d436d19d084ffade089f51e14c98b823803
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 9.75kB done
+#5 DONE 0.0s
+
+#6 [2/3] COPY ./addons /mnt/extra-addons
+#6 CACHED
+
+#7 [3/3] RUN chown -R odoo:odoo /mnt/extra-addons
+#7 CACHED
+
+#8 exporting to image
+#8 exporting layers done
+#8 writing image sha256:21978592acec218f338737fd33a85c0f5c1de74b93154b836d8b18a50ea990e8 done
+#8 naming to docker.io/library/odoo-custom:2b97cb15-1781489357744 done
+#8 DONE 0.0s
+[36mINFO[0m[0000] Importing image(s) into cluster 'c-760'      
+[36mINFO[0m[0000] Starting new tools node...                   
+[36mINFO[0m[0000] Starting node 'k3d-c-760-tools'              
+[36mINFO[0m[0000] Saving 1 image(s) from runtime...            
+[36mINFO[0m[0022] Importing images into nodes...               
+[36mINFO[0m[0022] Importing images from tarball '/k3d/images/k3d-c-760-images-20260614190919.tar' into node 'k3d-c-760-server-0'... 
+[36mINFO[0m[0028] Removing the tarball(s) from image volume... 
+[36mINFO[0m[0029] Removing k3d-tools node...                   
+[36mINFO[0m[0029] Successfully imported image(s)               
+[36mINFO[0m[0029] Successfully imported 1 image(s) into 1 cluster(s) 
+
+⠋  [1mStarting[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠹  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠸  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠼  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠴  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠦  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠧  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠇  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠏  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  [0m[1mInitializing the backend...[0m
+
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  [0m[1mInitializing provider plugins...[0m
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  - Reusing previous version of hashicorp/kubernetes from the dependency lock file
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  - Reusing previous version of hashicorp/helm from the dependency lock file
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  - Using previously-installed hashicorp/helm v2.17.0
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  - Using previously-installed hashicorp/kubernetes v2.38.0
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  [0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+                    [0m[32m
+                    You may now begin working with Terraform. Try running "terraform plan" to see
+                    any changes that are required for your infrastructure. All Terraform commands
+                    should now work.
+
+                    If you ever set or change modules or backend configuration for Terraform,
+                    rerun this command to reinitialize your working directory. If you forget, other
+                    commands will detect it and remind you to do so if necessary.[0m
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G
+
+1 Stack deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33mapp-c-760-2b97cb15[39m[22m  [31m╷[0m[0m
+                    [31m│[0m [0m[1m[31mError: [0m[0m[1mError acquiring the state lock[0m
+                    [31m│[0m [0m
+                    [31m│[0m [0m[0mError message: resource temporarily unavailable
+                    [31m│[0m [0mLock Info:
+                    [31m│[0m [0m  ID:        2af852dd-b0fa-e130-613a-61676a7d8120
+                    [31m│[0m [0m  Path:      /home/luno/Code/provisioning/packages/cdktf-infra/terraform.app-c-760-2b97cb15.tfstate
+                    [31m│[0m [0m  Operation: OperationTypeApply
+                    [31m│[0m [0m  Who:       luno@tallgease
+                    [31m│[0m [0m  Version:   1.9.0
+                    [31m│[0m [0m  Created:   2026-06-15 02:04:05.589488458 +0000 UTC
+                    [31m│[0m [0m  Info:
+                    [31m│[0m [0m
+                    [31m│[0m [0m
+                    [31m│[0m [0mTerraform acquires a state lock to protect the state from being written
+                    [31m│[0m [0mby multiple users at the same time. Please resolve the issue above and try
+                    [31m│[0m [0magain. For most commands, you can disable locking with the "-lock=false"
+                    [31m│[0m [0mflag, but this is not recommended.
+                    [31m╵[0m[0m
+
+
+1 Stack deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     1 Stack done     0 Stacks waiting
+Invoking Terraform CLI failed with exit code 1
+
+--- EXECUTION FAILED (Exit Code 1) ---

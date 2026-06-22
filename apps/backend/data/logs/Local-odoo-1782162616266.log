@@ -1,0 +1,24 @@
+[36mINFO[0m[0001] portmapping '8069:8069' targets the loadbalancer: defaulting to [servers:*:proxy agents:*:proxy] 
+[36mINFO[0m[0001] Prep: Network                                
+[36mINFO[0m[0001] Created network 'k3d-Local-odoo'             
+[36mINFO[0m[0001] Created image volume k3d-Local-odoo-images   
+[36mINFO[0m[0001] Starting new tools node...                   
+[36mINFO[0m[0001] Starting node 'k3d-Local-odoo-tools'         
+[36mINFO[0m[0002] Creating node 'k3d-Local-odoo-server-0'      
+[36mINFO[0m[0002] Creating LoadBalancer 'k3d-Local-odoo-serverlb' 
+[36mINFO[0m[0002] Using the k3d-tools node to gather environment information 
+[36mINFO[0m[0002] HostIP: using network gateway 172.19.0.1 address 
+[36mINFO[0m[0002] Starting cluster 'Local-odoo'                
+[36mINFO[0m[0002] Starting servers...                          
+[36mINFO[0m[0002] Starting node 'k3d-Local-odoo-server-0'      
+[36mINFO[0m[0005] All agents already running.                  
+[36mINFO[0m[0005] Starting helpers...                          
+[36mINFO[0m[0005] Starting node 'k3d-Local-odoo-serverlb'      
+[31mERRO[0m[0005] Failed Cluster Start: Failed to add one or more helper nodes: runtime failed to start node 'k3d-Local-odoo-serverlb': docker failed to start container for node 'k3d-Local-odoo-serverlb': Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint k3d-Local-odoo-serverlb (97127d914aa604a05a89961ab2f53badfaefbeed522db5848bcbb6f5ffa20613): Bind for 0.0.0.0:8069 failed: port is already allocated 
+[31mERRO[0m[0005] Failed to create cluster >>> Rolling Back    
+[36mINFO[0m[0005] Deleting cluster 'Local-odoo'                
+[36mINFO[0m[0005] Deleting cluster network 'k3d-Local-odoo'    
+[36mINFO[0m[0005] Deleting 1 attached volumes...               
+[31mFATA[0m[0005] Cluster creation FAILED, all changes have been rolled back! 
+
+--- EXECUTION FAILED (Exit Code 1) ---

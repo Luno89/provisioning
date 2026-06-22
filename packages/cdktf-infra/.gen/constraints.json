@@ -1,0 +1,10 @@
+{
+  "cdktf": "0.20.12",
+  "providers": {
+    "aws": "~> 5.0",
+    "azurerm": "~> 3.0",
+    "google": "~> 5.0",
+    "helm": "~> 2.0",
+    "kubernetes": "~> 2.0"
+  }
+}
