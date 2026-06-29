@@ -8,7 +8,9 @@ export class RegistryService extends BaseService {
   }
   private FALLBACK_TAGS: Record<string, string[]> = {
     'bitnami/odoo': ['18.0.20250805-debian-12-r8', '17.0.20240805-debian-12-r0', '16.0.20240805-debian-12-r0'],
+    'bitnamilegacy/odoo': ['18.0.20250805-debian-12-r8', '17.0.20240805-debian-12-r0', '16.0.20240805-debian-12-r0'],
     'bitnami/postgresql': ['17.5.0-debian-12-r20', '16.4.0-debian-12-r0', '15.8.0-debian-12-r0'],
+    'bitnamilegacy/postgresql': ['17.5.0-debian-12-r20', '16.4.0-debian-12-r0', '15.8.0-debian-12-r0'],
     'bitnami/nginx': ['1.27.1-debian-12-r2', '1.26.2-debian-12-r0']
   };
 

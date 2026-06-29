@@ -1,6 +1,7 @@
 import { spawn, ChildProcess, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
@@ -18,10 +19,10 @@ const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 
 export interface ExecuteOptions {
-  env?: Record<string, string>;
-  logFile?: string;
-  resourceId?: string; 
-  io?: SocketServer;
+  env?: Record<string, string> | undefined;
+  logFile?: string | undefined;
+  resourceId?: string | undefined; 
+  io?: SocketServer | undefined;
 }
 
 /**
@@ -119,8 +120,46 @@ export class InfrastructureService {
     return stdout;
   }
 
+  async listLocalClusters(): Promise<string[]> {
+    try {
+      const { stdout } = await execAsync(`${path.join(BIN_DIR, 'k3d')} cluster list --no-headers`);
+      return stdout
+        .split('\n')
+        .map(line => line.split(/\s+/)[0])
+        .filter(name => !!name);
+    } catch {
+      return [];
+    }
+  }
+
   async createLocalCluster(name: string, options: ExecuteOptions = {}) {
-    return this.runCommand(path.join(BIN_DIR, 'k3d'), ['cluster', 'create', name, '--wait', '-p', '8069:8069@loadbalancer'], name, options);
+    let resolvConfPath = '/etc/resolv.conf';
+    try {
+      if (existsSync('/run/systemd/resolve/resolv.conf')) {
+        resolvConfPath = '/run/systemd/resolve/resolv.conf';
+      } else if (existsSync('/var/run/systemd/resolve/resolv.conf')) {
+        resolvConfPath = '/var/run/systemd/resolve/resolv.conf';
+      }
+    } catch (e) {}
+
+    const args = [
+      'cluster', 'create', name,
+      '--network', 'host',
+      '--wait',
+      '--k3s-arg', `--resolv-conf=${resolvConfPath}@server:*`
+    ];
+
+    if (resolvConfPath !== '/etc/resolv.conf') {
+      args.push('--volume', `${resolvConfPath}:${resolvConfPath}@server:*`);
+    }
+
+    return this.runCommand(path.join(BIN_DIR, 'k3d'), args, name, {
+      ...options,
+      env: {
+        ...options.env,
+        K3D_FIX_DNS: '0'
+      }
+    });
   }
 
   async deleteLocalCluster(name: string, options: ExecuteOptions = {}) {
@@ -167,7 +206,15 @@ export class InfrastructureService {
   }
 
   private async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
-    const env = { ...process.env, ...options.env, PATH: `${process.env.PATH}:${BIN_DIR}` };
+    const pluginCacheDir = path.join(os.homedir(), '.terraform.d/plugin-cache');
+    await fs.mkdir(pluginCacheDir, { recursive: true });
+
+    const env = { 
+      ...process.env, 
+      ...options.env, 
+      PATH: `${process.env.PATH}:${BIN_DIR}`,
+      TF_PLUGIN_CACHE_DIR: pluginCacheDir
+    };
     const logFile = options.logFile || this.getLogPath(logId);
     const cwd = (options.env as any)?.CD_DIR || CDKTF_DIR;
     await fs.mkdir(LOG_DIR, { recursive: true });

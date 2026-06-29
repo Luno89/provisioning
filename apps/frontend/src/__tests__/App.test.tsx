@@ -49,7 +49,7 @@ describe('App Dashboard', () => {
     appsButton.click();
     
     await waitFor(() => {
-      expect(screen.getByText('Deploy ERP instances.')).toBeInTheDocument();
+      expect(screen.getByText('Deploy application instances.')).toBeInTheDocument();
     });
   });
 });

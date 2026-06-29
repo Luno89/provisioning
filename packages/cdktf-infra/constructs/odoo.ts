@@ -8,6 +8,9 @@ export interface OdooConfig {
   readonly odooTag?: string;
   readonly pgRepo?: string;
   readonly pgTag?: string;
+  readonly dbStorage?: string;
+  readonly webStorage?: string;
+  readonly serviceType?: string;
 }
 
 /**
@@ -28,7 +31,7 @@ function resolveBitnamiImage(inputRepo: string, defaultRepo: string) {
   // Default to Docker Hub but ensure correct namespacing
   return {
     registry: "docker.io",
-    repository: repo.startsWith('bitnami/') ? repo : `bitnami/${repo}`
+    repository: (repo.startsWith('bitnami/') || repo.startsWith('bitnamilegacy/')) ? repo : `bitnami/${repo}`
   };
 }
 
@@ -46,8 +49,10 @@ export class OdooApp extends Construct {
       },
     });
 
+    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
+
     const helmValues: any[] = [
-      { name: "service.type", value: "LoadBalancer" },
+      { name: "service.type", value: serviceType },
       { name: "global.security.allowInsecureImages", value: true },
       
       // Odoo Image
@@ -60,6 +65,13 @@ export class OdooApp extends Construct {
       { name: "postgresql.image.repository", value: pg.repository },
       { name: "postgresql.image.tag", value: config.pgTag || "17.5.0-debian-12-r20" }
     ];
+
+    if (config.dbStorage) {
+      helmValues.push({ name: "postgresql.primary.persistence.size", value: config.dbStorage });
+    }
+    if (config.webStorage) {
+      helmValues.push({ name: "persistence.size", value: config.webStorage });
+    }
 
     new Release(this, "odoo-release", {
       name: "odoo",

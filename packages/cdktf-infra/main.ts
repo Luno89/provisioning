@@ -3,8 +3,18 @@ import { Construct } from "constructs";
 import { BaseCluster } from "./constructs/cluster.js";
 import { OdooApp } from "./constructs/odoo.js";
 import { OdooNativeApp } from "./constructs/odoo-native.js";
+import { WordPressApp } from "./constructs/wordpress.js";
+import { WordPressNativeApp } from "./constructs/wordpress-native.js";
+import { NextcloudApp } from "./constructs/nextcloud.js";
+import { NextcloudNativeApp } from "./constructs/nextcloud-native.js";
+import { AudiobookshelfApp } from "./constructs/audiobookshelf.js";
+import { AudiobookshelfNativeApp } from "./constructs/audiobookshelf-native.js";
+import { PrometheusApp } from "./constructs/prometheus.js";
+import { TemporalApp } from "./constructs/temporal.js";
+import { TraefikApp } from "./constructs/traefik.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { K8sProviderService } from "./lib/k8s-provider-service.js";
+import { VpnConfig } from "./lib/vpn-service.js";
 
 export interface ClusterStackConfig {
   environment: "local" | "k3d" | "aws" | "gcp" | "azure" | "do";
@@ -45,28 +55,136 @@ class AppStack extends TerraformStack {
     
     K8sProviderService.fromEnv(this);
 
-    const strategy = process.env.DEPLOYMENT_STRATEGY || 'helm';
-    // Unique name for isolation (namespace and resource prefixing)
-    const deploymentName = process.env.DEPLOYMENT_NAME || 'odoo';
+    let strategy = process.env.DEPLOYMENT_STRATEGY || 'helm';
+    const appType = process.env.APP_TYPE || 'odoo';
+    if (appType === 'odoo') {
+      strategy = 'native';
+    }
+    const deploymentName = process.env.DEPLOYMENT_NAME || 'app';
+
+    const webRepo = process.env.WEB_IMAGE_REPO || process.env.ODOO_IMAGE_REPO;
+    const webTag = process.env.WEB_IMAGE_TAG || process.env.ODOO_IMAGE_TAG;
+    const dbRepo = process.env.DB_IMAGE_REPO || process.env.POSTGRES_IMAGE_REPO;
+    const dbTag = process.env.DB_IMAGE_TAG || process.env.POSTGRES_IMAGE_TAG;
+
+    const storageDb = process.env.STORAGE_DB;
+    const storageWeb = process.env.STORAGE_WEB;
+    const storageLibrary = process.env.STORAGE_LIBRARY;
+    const storageConfig = process.env.STORAGE_CONFIG;
+    const storageMetadata = process.env.STORAGE_METADATA;
+    const storageServer = process.env.STORAGE_SERVER;
+
+    const vpnEnabled = process.env.VPN_ENABLED === 'true';
+    const vpnProtocol = process.env.VPN_PROTOCOL as 'wireguard' | 'openvpn' | undefined;
+    const vpnConfig = process.env.VPN_CONFIG;
+    const vpnDedicatedIp = process.env.VPN_DEDICATED_IP;
+    const vpnProps: VpnConfig = vpnEnabled ? { vpnEnabled, vpnProtocol: vpnProtocol || 'wireguard', vpnConfig, vpnDedicatedIp } : {};
 
     if (strategy === 'native') {
-      new OdooNativeApp(this, "odoo-native", {
-        namespace: deploymentName,
-        odooRepo: process.env.ODOO_IMAGE_REPO,
-        odooTag: process.env.ODOO_IMAGE_TAG,
-        pgRepo: process.env.POSTGRES_IMAGE_REPO,
-        pgTag: process.env.POSTGRES_IMAGE_TAG,
-        enabledModules: process.env.ENABLED_MODULES,
-        gitRepoPath: process.env.GIT_REPO_PATH,
-      });
+      if (appType === 'wordpress') {
+        new WordPressNativeApp(this, "wordpress-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(dbRepo ? { dbRepo } : {}),
+          ...(dbTag ? { dbTag } : {}),
+          ...(storageDb ? { dbStorage: storageDb } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'nextcloud') {
+        new NextcloudNativeApp(this, "nextcloud-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(dbRepo ? { dbRepo } : {}),
+          ...(dbTag ? { dbTag } : {}),
+          ...(storageDb ? { dbStorage: storageDb } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'audiobookshelf') {
+        new AudiobookshelfNativeApp(this, "audiobookshelf-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageMetadata ? { metadataStorage: storageMetadata } : {}),
+          ...(storageConfig ? { configStorage: storageConfig } : {}),
+          ...(storageLibrary ? { libraryStorage: storageLibrary } : {}),
+          ...vpnProps,
+        });
+      } else {
+        new OdooNativeApp(this, "odoo-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { odooRepo: webRepo } : {}),
+          ...(webTag ? { odooTag: webTag } : {}),
+          ...(dbRepo ? { pgRepo: dbRepo } : {}),
+          ...(dbTag ? { pgTag: dbTag } : {}),
+          ...(process.env.ENABLED_MODULES ? { enabledModules: process.env.ENABLED_MODULES } : {}),
+          ...(process.env.GIT_REPO_PATH ? { gitRepoPath: process.env.GIT_REPO_PATH } : {}),
+          ...(storageDb ? { dbStorage: storageDb } : {}),
+          ...vpnProps,
+        });
+      }
     } else {
-      new OdooApp(this, "odoo-app", {
-        namespace: deploymentName,
-        odooRepo: process.env.ODOO_IMAGE_REPO,
-        odooTag: process.env.ODOO_IMAGE_TAG,
-        pgRepo: process.env.POSTGRES_IMAGE_REPO,
-        pgTag: process.env.POSTGRES_IMAGE_TAG,
-      });
+      if (appType === 'wordpress') {
+        new WordPressApp(this, "wordpress-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(dbRepo ? { dbRepo } : {}),
+          ...(dbTag ? { dbTag } : {}),
+          ...(storageDb ? { dbStorage: storageDb } : {}),
+          ...(storageWeb ? { webStorage: storageWeb } : {}),
+        });
+      } else if (appType === 'nextcloud') {
+        new NextcloudApp(this, "nextcloud-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(dbRepo ? { dbRepo } : {}),
+          ...(dbTag ? { dbTag } : {}),
+          ...(storageDb ? { dbStorage: storageDb } : {}),
+          ...(storageWeb ? { webStorage: storageWeb } : {}),
+        });
+      } else if (appType === 'audiobookshelf') {
+        new AudiobookshelfApp(this, "audiobookshelf-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageMetadata ? { metadataStorage: storageMetadata } : {}),
+          ...(storageConfig ? { configStorage: storageConfig } : {}),
+          ...(storageLibrary ? { libraryStorage: storageLibrary } : {}),
+        });
+      } else if (appType === 'prometheus') {
+        new PrometheusApp(this, "prometheus-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageServer ? { serverStorage: storageServer } : {}),
+        });
+      } else if (appType === 'temporal') {
+        new TemporalApp(this, "temporal-app", {
+          namespace: deploymentName,
+          ...(process.env.TEMPORAL_NAMESPACE ? { namespace: process.env.TEMPORAL_NAMESPACE } : {}),
+          ...(process.env.TEMPORAL_IMAGE ? { image: process.env.TEMPORAL_IMAGE } : {}),
+          ...(process.env.ENABLE_BACKEND !== undefined ? { enableBackend: process.env.ENABLE_BACKEND === 'true' } : {}),
+        });
+      } else if (appType === 'traefik') {
+        new TraefikApp(this, "traefik-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+        });
+      } else {
+        new OdooApp(this, "odoo-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { odooRepo: webRepo } : {}),
+          ...(webTag ? { odooTag: webTag } : {}),
+          ...(dbRepo ? { pgRepo: dbRepo } : {}),
+          ...(dbTag ? { pgTag: dbTag } : {}),
+          ...(storageDb ? { dbStorage: storageDb } : {}),
+          ...(storageWeb ? { webStorage: storageWeb } : {}),
+        });
+      }
     }
   }
 }

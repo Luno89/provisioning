@@ -1,0 +1,25 @@
+# Temporal.io Workflow Orchestrator
+# Run via Docker: docker run --name temporal -p 7233:7233:7233 -p 8233:8233:8233 temporalio/auto-setup:latest
+# Backend Connects: gRPC at localhost:7233
+# Workflow: http://localhost:8233
+version: "3.9"
+
+services:
+  temporal:
+    image: temporalio/auto-setup:latest
+    ports:
+      - "7233:7233"   # gRPC + REST
+      - "8233:8233"   # Web UI
+    restart: unless-stopped
+    environment:
+      - TEMPORAL_DATA_DIR=/home/temporal/temporal/data
+    volumes:
+      - tf-data:/home/temporal/temporal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8233/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  tf-data:

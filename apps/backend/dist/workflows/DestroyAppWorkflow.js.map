@@ -1,0 +1,1 @@
+{"version":3,"file":"DestroyAppWorkflow.js","sourceRoot":"","sources":["../../src/workflows/DestroyAppWorkflow.ts"],"names":[],"mappings":";;AAWA,8DAEC;AAbD;;;;;GAKG;AACH,mDAAuD;AAGvD,MAAM,EAAE,kBAAkB,EAAE,GAAG,IAAA,0BAAe,GAA0C,CAAC;AAElF,KAAK,UAAU,yBAAyB,CAAC,IAAoB;IAClE,OAAO,kBAAkB,CAAC,IAAI,CAAC,CAAC;AAClC,CAAC"}

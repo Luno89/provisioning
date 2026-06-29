@@ -1,0 +1,7 @@
+FROM node:20-alpine
+RUN apk add --no-cache bash
+USER node
+WORKDIR /app
+COPY apps/backend /app/apps/backend
+COPY apps/run-container/workdir /app/apps/run-container/workdir
+CMD ["npx", "tsx", "apps/backend/src/worker.ts", "--start", "${WORKER_CLUSTER_NAME:-provisioning-lunorica}", "--context", "${WORKER_CONTEXT:-local}"]

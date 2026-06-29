@@ -47,8 +47,8 @@ describe('Helm Status Tab', () => {
     const appsBtn = await screen.findByRole('button', { name: /applications/i });
     await user.click(appsBtn);
 
-    // Click Logs for the Odoo deployment
-    const logsBtn = await screen.findByRole('button', { name: /logs/i });
+    // Click Manage for the Odoo deployment
+    const logsBtn = await screen.findByRole('button', { name: /manage/i });
     await user.click(logsBtn);
 
     // Click Helm Status tab

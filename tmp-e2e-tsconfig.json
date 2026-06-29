@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "rootDir": "apps/backend/src",
+    "outDir": "apps/backend/dist",
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": false,
+    "verbatimModuleSyntax": false
+  },
+  "include": ["apps/backend/src/**/*"]
+}

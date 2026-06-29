@@ -1,0 +1,36 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const test_1 = require("@playwright/test");
+exports.default = (0, test_1.defineConfig)({
+    testDir: './tests',
+    fullyParallel: false,
+    forbidOnly: false,
+    retries: 0,
+    workers: 1, // Sequential execution as it provisions/deprovisions clusters
+    reporter: 'line',
+    use: {
+        baseURL: 'http://localhost:5174',
+        trace: 'off',
+        screenshot: 'off',
+        video: 'off',
+    },
+    projects: [
+        {
+            name: 'chromium',
+            use: { ...test_1.devices['Desktop Chrome'] },
+        },
+    ],
+    webServer: [
+        {
+            command: 'PORT=3002 IS_E2E=true NODE_ENV=test npm run dev -w apps/backend',
+            port: 3002,
+            reuseExistingServer: false,
+        },
+        {
+            command: 'VITE_API_BASE=http://localhost:3002/api VITE_SOCKET_URL=http://localhost:3002 npm run dev -w apps/frontend -- --port 5174',
+            port: 5174,
+            reuseExistingServer: false,
+        }
+    ],
+});
+//# sourceMappingURL=playwright.config.js.map

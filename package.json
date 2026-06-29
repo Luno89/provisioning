@@ -4,17 +4,34 @@
   "description": "Multi-Cloud Provisioning Platform",
   "private": true,
   "scripts": {
-    "first-time": "./scripts/setup.sh",
-    "dev": "concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\"",
+    "first-time": "bash scripts/first-time.sh",
+    "dev": "bash scripts/ensure-cluster.sh && npm run first-time -- --deploy && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\"",
     "clean-dev": "ps aux | grep -E 'vite|tsx|cdktf|concurrently' | grep \"$(pwd)\" | grep -v grep | awk '{print $2}' | xargs -r kill -9",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "worker": "docker build -t deployworker.sh -f Dockerfile.worker . && npm run first-time -- --deploy",
+
+    "test":       "npm run test:unit && npm run test:e2e:sync",
+    "test:all":   "npm test && npm run test:infra:integration && npm run test:unit:vpn",
+
+    "test:unit":       "npm run test:unit:frontend && npm run test:unit:backend",
+    "test:unit:frontend":    "npm run test -w apps/frontend",
+    "test:unit:backend":     "npm run test -w apps/backend",
+
+    "test:e2e:sync":    "npm run test:unit && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
+    "test:e2e":         "npm run test:test:e2e:setup && npx playwright test e2e && npm run test:test:e2e:teardown",
+
+    "test:infra:integration": "node tests/infra-integration.ts",
+    "test:unit:vpn":     "node packages/cdktf-infra/lib/vpn-service.spec.js",
+
+    "test:test:e2e:setup":    "bash scripts/test-e2e-setup.sh",
+    "test:test:e2e:teardown": "bash scripts/test-e2e-teardown.sh"
   },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.0.1",
     "concurrently": "^8.2.0",
     "typescript": "^5.0.0"
   },

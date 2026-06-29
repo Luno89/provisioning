@@ -14,11 +14,11 @@ const LOG_DIR = path.join(__dirname, '../../data/logs');
 const BIN_DIR = '/home/luno/Code/provisioning/bin';
 
 export interface ExecuteOptions {
-  env?: Record<string, string>;
-  onLog?: (data: string) => void;
-  logFile?: string;
-  resourceId?: string; 
-  io?: SocketServer;
+  env?: Record<string, string> | undefined;
+  onLog?: ((data: string) => void) | undefined;
+  logFile?: string | undefined;
+  resourceId?: string | undefined; 
+  io?: SocketServer | undefined;
 }
 
 export interface ExecuteResult {

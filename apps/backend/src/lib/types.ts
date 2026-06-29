@@ -5,6 +5,10 @@ export interface ClusterMetadata {
   status: 'provisioning' | 'healthy' | 'failed' | 'destroying';
   kubeconfigPath?: string;
   lastLogPath?: string;
+  temporalWorkflowId?: string;
+  // Temporal-related extensions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
 }
 
 export interface DeploymentMetadata {
@@ -12,8 +16,109 @@ export interface DeploymentMetadata {
   name: string;
   clusterId: string;
   strategy: 'helm' | 'native';
+  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik';
   status: 'deploying' | 'running' | 'failed' | 'destroying';
+  webRepo?: string;
+  webTag?: string;
+  dbRepo?: string;
+  dbTag?: string;
   url?: string;
+  isExposed?: boolean;
+  exposureUrl?: string;
   lastLogPath?: string;
   modules?: string[]; // IDs of enabled custom modules
+  storage?: Record<string, string>;
+  vpnEnabled?: boolean;
+  vpnProtocol?: 'wireguard' | 'openvpn';
+  vpnConfig?: string;
+  vpnDedicatedIp?: string;
+  temporalWorkflowId?: string;
+  // Temporal-related extensions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+// ── Workflow / Task Arg types (used by @temporalio/workflow proxyActivities) ──
+
+export interface ClusterTaskArgs {
+  name:     string;
+  provider: 'k3d' | 'aws' | 'gcp' | 'azure' | 'do';
+  logFile:  string;
+  activityId: string;
+}
+
+export interface ClusterTaskResult {
+  status:      'healthy' | 'failed';
+  msg:         string;
+  kubeconfig?: string;
+  logFile:     string;
+}
+
+export interface DestroyClusterTaskArgs {
+  name:       string;
+  provider:   'k3d' | 'aws' | 'gcp' | 'azure' | 'do';
+  logFile:    string;
+  activityId: string;
+}
+
+export interface DestroyClusterTaskResult {
+  status: string;
+  msg:    string;
+}
+
+export interface DeployAppTaskArgs {
+  name:       string;
+  clusterId:  string;
+  clusterName: string;
+  provider:   'k3d' | 'aws' | 'gcp' | 'azure' | 'do';
+  strategy:   string;
+  appType?:   string;
+  modules?:   string[];
+  odooRepo:   string;
+  odooTag:    string;
+  dbRepo:     string;
+  dbTag:      string;
+  logFile:    string;
+  activityId: string;
+}
+
+export interface DeployAppTaskResult {
+  status:          string;
+  msg:             string;
+  displayUrl:      string;
+  kubeconfig?:     string;
+  logFile:         string;
+}
+
+export interface DestroyAppTaskArgs {
+  name:          string;
+  clusterId:     string;
+  clusterName:   string;
+  provider:      'k3d' | 'aws' | 'gcp' | 'azure' | 'do';
+  strategy:      string;
+  logFile:       string;
+  activityId:    string;
+}
+
+export interface DestroyAppTaskResult {
+  status: string;
+  msg:    string;
+}
+
+export interface ResizeDiskTaskArgs {
+  name:         string;
+  clusterId:    string;
+  clusterName:  string;
+  provider:     'k3d' | 'aws' | 'gcp' | 'azure' | 'do';
+  strategy:     string;
+  appType:      string;
+  storage:      Record<string, string>;
+  logFile:      string;
+  activityId:   string;
+}
+
+export interface ResizeDiskTaskResult {
+  status:  string;
+  msg:     string;
+  logFile: string;
 }
