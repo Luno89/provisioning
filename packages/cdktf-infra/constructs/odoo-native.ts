@@ -4,13 +4,17 @@ import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
+import { VpnConfig, VpnService } from "../lib/vpn-service.js";
 
-export interface OdooNativeConfig {
+export interface OdooNativeConfig extends VpnConfig {
   readonly namespace?: string;
   readonly odooRepo?: string;
   readonly odooTag?: string;
   readonly pgRepo?: string;
   readonly pgTag?: string;
+  readonly dbStorage?: string;
+  readonly enabledModules?: string;
+  readonly gitRepoPath?: string;
 }
 
 export class OdooNativeApp extends Construct {
@@ -20,6 +24,7 @@ export class OdooNativeApp extends Construct {
     const namespaceName = config.namespace || "odoo-native";
     const odooImage = `${config.odooRepo || "library/odoo"}:${config.odooTag || "18.0"}`;
     const pgImage = `${config.pgRepo || "library/postgres"}:${config.pgTag || "16.4"}`;
+    const dbSize = config.dbStorage || "2Gi";
 
     const ns = new Namespace(this, "ns", {
       metadata: {
@@ -46,7 +51,7 @@ export class OdooNativeApp extends Construct {
         accessModes: ["ReadWriteOnce"],
         resources: {
           requests: {
-            storage: "2Gi",
+            storage: dbSize,
           },
         },
       },
@@ -117,12 +122,38 @@ export class OdooNativeApp extends Construct {
       },
       spec: {
         selector: { app: `odoo-db-${id}` },
-        port: [{ port: 5432, targetPort: 5432 }],
+        port: [{ port: 5432, targetPort: "5432" }],
       },
     });
 
+    const podSpec: any = {
+      container: [
+        {
+          name: "odoo",
+          image: odooImage,
+          imagePullPolicy: odooImage.includes('custom') ? "Never" : "IfNotPresent",
+          env: [
+            { name: "HOST", value: "db" },
+            { name: "USER", value: "odoo" },
+            {
+              name: "PASSWORD",
+              valueFrom: {
+                secretKeyRef: {
+                  name: pgSecret.metadata.name,
+                  key: "postgres-password",
+                },
+              },
+            },
+          ],
+          port: [{ containerPort: 8069 }],
+        },
+      ],
+    };
+
+    VpnService.apply(this, ns.metadata.name, podSpec, config);
+
     // Odoo Deployment
-    const odooDeployment = new Deployment(this, "odoo-deployment", {
+    new Deployment(this, "odoo-deployment", {
       metadata: {
         name: "odoo",
         namespace: ns.metadata.name,
@@ -137,30 +168,7 @@ export class OdooNativeApp extends Construct {
           metadata: {
             labels: { app: `odoo-${id}` },
           },
-          spec: {
-            container: [
-              {
-                name: "odoo",
-                image: odooImage,
-                // FIX: Ensure image is used as built, no external pulls for custom images
-                imagePullPolicy: odooImage.includes('custom') ? "Never" : "IfNotPresent",
-                env: [
-                  { name: "HOST", value: "db" },
-                  { name: "USER", value: "odoo" },
-                  {
-                    name: "PASSWORD",
-                    valueFrom: {
-                      secretKeyRef: {
-                        name: pgSecret.metadata.name,
-                        key: "postgres-password",
-                      },
-                    },
-                  },
-                ],
-                port: [{ containerPort: 8069 }],
-              },
-            ],
-          },
+          spec: podSpec,
         },
       },
     });
@@ -173,8 +181,9 @@ export class OdooNativeApp extends Construct {
       spec: {
         type: "LoadBalancer",
         selector: { app: `odoo-${id}` },
-        port: [{ port: 8069, targetPort: 8069 }],
+        port: [{ port: 8069, targetPort: "8069" }],
       },
+      waitForLoadBalancer: false,
     });
   }
 }

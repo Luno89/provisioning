@@ -1,7 +1,12 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, afterEach } from 'vitest';
+import { cleanup } from '@testing-library/react';
 
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
+
+afterEach(() => {
+  cleanup();
+});
 
 // Mock Socket.io
 vi.mock('socket.io-client', () => {
@@ -14,3 +19,4 @@ vi.mock('socket.io-client', () => {
     })),
   };
 });
+

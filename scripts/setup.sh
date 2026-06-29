@@ -78,4 +78,92 @@ if [ ! -f "apps/backend/.env" ]; then
     fi
 fi
 
+# 7. Setup k3d Cluster (if not already running)
+echo "🔄 Setting up k3d cluster..."
+./scripts/cluster.sh create provisioning-lunorica
+NGINX_DATA_DIR="$(pwd)/apps/backend/data/nginx"
+mkdir -p "$NGINX_DATA_DIR/conf.d"
+
+# Create main nginx.conf if not exists
+if [ ! -f "$NGINX_DATA_DIR/nginx.conf" ]; then
+    cat << 'EOF' > "$NGINX_DATA_DIR/nginx.conf"
+user  nginx;
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    include /etc/nginx/conf.d/*.conf;
+}
+EOF
+fi
+
+# Create default site config if not exists
+if [ ! -f "$NGINX_DATA_DIR/conf.d/default.conf" ]; then
+    cat << 'EOF' > "$NGINX_DATA_DIR/conf.d/default.conf"
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location / {
+        default_type text/plain;
+        return 200 "Multi-Cloud Provisioning Platform Nginx Proxy Active\n";
+    }
+}
+EOF
+fi
+
+# Start docker container
+if docker ps -a --format '{{.Names}}' | grep -Eq "^provisioner-nginx$"; then
+    echo "Removing existing provisioner-nginx container..."
+    docker rm -f provisioner-nginx
+fi
+
+PORT_MAP="80:80"
+# Try to see if port 80 is occupied.
+if ss -tln | grep -q ":80 "; then
+    echo "⚠️ Port 80 is already in use on the host. Falling back to port 8000."
+    PORT_MAP="8000:80"
+fi
+
+echo "Starting provisioner-nginx container on port ${PORT_MAP%%:*}..."
+docker run -d \
+    --name provisioner-nginx \
+    --restart always \
+    -p "$PORT_MAP" \
+    -v "$NGINX_DATA_DIR/nginx.conf:/etc/nginx/nginx.conf:ro" \
+    -v "$NGINX_DATA_DIR/conf.d:/etc/nginx/conf.d:rw" \
+    nginx:alpine
+
+# Deploy the worker image
+if [ -f Dockerfile.worker ] || [ "${WPEEK:-0}" = "true" ]; then
+    WPEEK=true docker build -t deployworker.sh -f Dockerfile.worker .
+    docker image inspect deployworker.sh -q | head -n 1
+    ./apps/run-container/deployworkerd.sh --work-dir /tmp/provisioning-workspace
+fi
+
+# Deploy the worker image into the k3d cluster
+if [ -f Dockerfile.worker ] || [ "${WPEEK:-0}" = "true" ]; then
+    docker build -t deployworker.sh -f Dockerfile.worker .
+    docker run -d --name worker jc/local/proviota/glitb/deployworkerd.envfile -l
+fi
+
 echo "✨ Setup complete! You can now run 'npm run dev' to start the platform."
+

@@ -1,15 +1,15 @@
 {
   "stacks": {
-    "Local-odoo": {
+    "app-k3d-Lunorica-local-temporal": {
       "annotations": [
       ],
-      "constructPath": "Local-odoo",
+      "constructPath": "app-k3d-Lunorica-local-temporal",
       "dependencies": [
       ],
-      "name": "Local-odoo",
-      "stackMetadataPath": "stacks/Local-odoo/metadata.json",
-      "synthesizedStackPath": "stacks/Local-odoo/cdk.tf.json",
-      "workingDirectory": "stacks/Local-odoo"
+      "name": "app-k3d-Lunorica-local-temporal",
+      "stackMetadataPath": "stacks/app-k3d-Lunorica-local-temporal/metadata.json",
+      "synthesizedStackPath": "stacks/app-k3d-Lunorica-local-temporal/cdk.tf.json",
+      "workingDirectory": "stacks/app-k3d-Lunorica-local-temporal"
     }
   },
   "version": "0.20.12"

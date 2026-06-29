@@ -1,0 +1,17 @@
+[36mINFO[0m[0000] [ClusterConfig] Hostnetwork selected - disabling injection of docker host into the cluster, server load balancer and setting the api port to the k3s default 
+[36mINFO[0m[0000] [SimpleConfig] Hostnetwork selected - disabling injection of docker host into the cluster, server load balancer and setting the api port to the k3s default 
+[36mINFO[0m[0000] Prep: Network                                
+[36mINFO[0m[0000] Re-using existing network 'host' (7113385435bc53a5f22719dd43f53d82a1d432cd10ed6b844544e76a2cd11617) 
+[36mINFO[0m[0000] Created image volume k3d-test-dns-sandbox-images 
+[36mINFO[0m[0000] Starting new tools node...                   
+[36mINFO[0m[0000] Starting node 'k3d-test-dns-sandbox-tools'   
+[36mINFO[0m[0001] Creating node 'k3d-test-dns-sandbox-server-0' 
+[36mINFO[0m[0001] Using the k3d-tools node to gather environment information 
+[36mINFO[0m[0001] Starting cluster 'test-dns-sandbox'          
+[36mINFO[0m[0001] Starting servers...                          
+[36mINFO[0m[0001] Starting node 'k3d-test-dns-sandbox-server-0' 
+[36mINFO[0m[0003] All agents already running.                  
+[36mINFO[0m[0003] All helpers already running.                 
+[36mINFO[0m[0003] Cluster 'test-dns-sandbox' created successfully! 
+[36mINFO[0m[0003] You can now use it like this:                
+kubectl cluster-info

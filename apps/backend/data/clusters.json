@@ -1,10 +1,9 @@
 [
   {
-    "id": "4a546575-c028-4017-9273-c87cbcd680e2",
-    "name": "c-760",
+    "id": "a71bc13c-e54c-4cfa-9059-0e6b32a0fd41",
+    "name": "Lunorica-local",
     "provider": "k3d",
-    "status": "healthy",
-    "lastLogPath": "/home/luno/Code/provisioning/apps/backend/data/logs/c-760-1781445543544.log",
-    "kubeconfigPath": "/home/luno/.kube/config"
+    "status": "provisioning",
+    "temporalWorkflowId": "cluster-provision-Lunorica-local-1782766427732-4m8g8a"
   }
 ]

@@ -1,0 +1,94 @@
+[36mINFO[0m[0000] [SimpleConfig] Hostnetwork selected - disabling injection of docker host into the cluster, server load balancer and setting the api port to the k3s default 
+[36mINFO[0m[0000] [ClusterConfig] Hostnetwork selected - disabling injection of docker host into the cluster, server load balancer and setting the api port to the k3s default 
+[36mINFO[0m[0000] Prep: Network                                
+[36mINFO[0m[0000] Re-using existing network 'host' (7113385435bc53a5f22719dd43f53d82a1d432cd10ed6b844544e76a2cd11617) 
+[36mINFO[0m[0000] Created image volume k3d-e2e-fleet-986-images 
+[36mINFO[0m[0000] Starting new tools node...                   
+[36mINFO[0m[0000] Starting node 'k3d-e2e-fleet-986-tools'      
+[36mINFO[0m[0001] Creating node 'k3d-e2e-fleet-986-server-0'   
+[36mINFO[0m[0001] Using the k3d-tools node to gather environment information 
+[36mINFO[0m[0001] Starting cluster 'e2e-fleet-986'             
+[36mINFO[0m[0001] Starting servers...                          
+[36mINFO[0m[0001] Starting node 'k3d-e2e-fleet-986-server-0'   
+[36mINFO[0m[0003] All agents already running.                  
+[36mINFO[0m[0003] All helpers already running.                 
+[36mINFO[0m[0003] Cluster 'e2e-fleet-986' created successfully! 
+[36mINFO[0m[0003] You can now use it like this:                
+kubectl cluster-info
+
+⠋  [1mStarting[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠹  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠸  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠼  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠴  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠦  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠧  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠇  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠏  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠋  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠙  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠹  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+⠸  [1mSynthesizing[22m
+[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-fleet-986[39m[22m  [0m[1mInitializing the backend...[0m
+
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-fleet-986[39m[22m  [0m[32m
+               Successfully configured the backend "local"! Terraform will automatically
+               use this backend unless the backend configuration changes.[0m
+               [0m[1mInitializing provider plugins...[0m
+               - Finding hashicorp/helm versions matching "2.17.0"...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-fleet-986[39m[22m  - Finding hashicorp/kubernetes versions matching "2.38.0"...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-fleet-986[39m[22m  - Installing hashicorp/helm v2.17.0...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-fleet-986[39m[22m  - Installing hashicorp/kubernetes v2.38.0...
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-fleet-986[39m[22m  - Installed hashicorp/kubernetes v2.38.0 (signed by HashiCorp)
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[G[1m[33me2e-fleet-986[39m[22m  [31m╷[0m[0m
+               [31m│[0m [0m[1m[31mError: [0m[0m[1mFailed to install provider[0m
+               [31m│[0m [0m
+               [31m│[0m [0m[0mError while installing hashicorp/helm v2.17.0: open
+               [31m│[0m [0m/home/luno/Code/provisioning/.terraform-cache/registry.terraform.io/hashicorp/helm/2.17.0/linux_amd64/terraform-provider-helm_v2.17.0_x5:
+               [31m│[0m [0mtext file busy
+               [31m╵[0m[0m
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+Error: terraform init failed with exit code 1
+
+--- EXECUTION FAILED (Exit Code 1) ---
