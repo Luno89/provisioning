@@ -9,6 +9,7 @@
 
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKER_IMAGE_NAME="deployworker.sh"
 WORKER_WORKDIR=/tmp/provisioning-workspace
 
@@ -17,11 +18,8 @@ docker build -t "${WORKER_IMAGE_NAME}" -f Dockerfile.worker .
 
 echo "  ▶  deploying ${WORKER_IMAGE_NAME}..."
 
-# The worker image runs inside a pod in the k3d cluster with:
-#   - runnercontainer (no inventory, owned by user)
-#   - cluster provision (monitoring + agent stack)
-#   - connect (kubeconfig connection)
-#   - env pointing to RunnerContainer/deployworkerd.envfile template
-
-# Run the worker entry point
-./apps/run-container/workdir/worker-entrypoint.sh
+# Deploy the worker pod via K8s manifests (replaces old run-container entrypoint)
+KUBECTL="${ROOT}/bin/kubectl"
+if ! command -v "$KUBECTL" >/dev/null 2>&1; then KUBECTL=kubectl; fi
+"$KUBECTL" apply -f "${ROOT}/k8s/worker-sa.yaml" --context k3d-provisioning-lunorica 2>/dev/null || true
+"$KUBECTL" apply -f "${ROOT}/k8s/worker-deployment.yaml" --context k3d-provisioning-lunorica

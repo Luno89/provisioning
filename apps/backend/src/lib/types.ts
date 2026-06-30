@@ -14,6 +14,7 @@ export interface ClusterMetadata {
 export interface DeploymentMetadata {
   id: string;
   name: string;
+  deploymentId?: string;
   clusterId: string;
   strategy: 'helm' | 'native';
   appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik';

@@ -1,1 +1,0 @@
-{"version":3,"file":"StorageAdapter.d.ts","sourceRoot":"","sources":["StorageAdapter.ts"],"names":[],"mappings":"AAAA,qBAAa,cAAc;IACzB,MAAM,CAAC,mBAAmB,CAAC,OAAO,EAAE,MAAM,EAAE,QAAQ,EAAE,MAAM,GAAG,MAAM,EAAE;IAiBvE,MAAM,CAAC,aAAa,CAAC,OAAO,EAAE,MAAM,EAAE,QAAQ,EAAE,MAAM,EAAE,OAAO,GAAE,GAAQ,GAAG,MAAM,CAAC,MAAM,EAAE,MAAM,CAAC;CAYnG"}

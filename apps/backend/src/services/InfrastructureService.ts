@@ -56,15 +56,17 @@ export class InfrastructureService {
   async runKubectl(args: string[], kubeconfig?: string) {
     const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
     if (match) {
-      const clusterName = match[1];
+      const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
-      
-      const cleanArgs = [];
+
+      const cleanArgs: string[] = [];
       for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--context') {
+        const arg = args[i];
+        if (arg === undefined) continue;
+        if (arg === '--context') {
           i++; // skip context name
         } else {
-          cleanArgs.push(args[i]);
+          cleanArgs.push(arg);
         }
       }
       
@@ -81,9 +83,9 @@ export class InfrastructureService {
   async runHelm(args: string[], kubeconfig?: string) {
     const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
     if (match) {
-      const clusterName = match[1];
+      const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
-      
+
       // Ensure helm binary exists in the container
       try {
         await execAsync(`docker exec ${containerName} ls /bin/helm`);
@@ -125,8 +127,8 @@ export class InfrastructureService {
       const { stdout } = await execAsync(`${path.join(BIN_DIR, 'k3d')} cluster list --no-headers`);
       return stdout
         .split('\n')
-        .map(line => line.split(/\s+/)[0])
-        .filter(name => !!name);
+        .map(line => (line.split(/\s+/)[0] ?? ''))
+        .filter((name): name is string => !!name);
     } catch {
       return [];
     }
@@ -172,15 +174,17 @@ export class InfrastructureService {
     const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
     let child;
     if (match) {
-      const clusterName = match[1];
+      const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
-      
-      const cleanArgs = [];
+
+      const cleanArgs: string[] = [];
       for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--context') {
+        const arg = args[i];
+        if (arg === undefined) continue;
+        if (arg === '--context') {
           i++; // skip context name
         } else {
-          cleanArgs.push(args[i]);
+          cleanArgs.push(arg);
         }
       }
       
@@ -206,18 +210,18 @@ export class InfrastructureService {
   }
 
   private async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
-    const pluginCacheDir = path.join(os.homedir(), '.terraform.d/plugin-cache');
-    await fs.mkdir(pluginCacheDir, { recursive: true });
-
     const env = { 
       ...process.env, 
       ...options.env, 
       PATH: `${process.env.PATH}:${BIN_DIR}`,
-      TF_PLUGIN_CACHE_DIR: pluginCacheDir
+      CDKTF_DISABLE_PLUGIN_CACHE_ENV: 'true',
     };
+    delete (env as any).TF_PLUGIN_CACHE_DIR;
     const logFile = options.logFile || this.getLogPath(logId);
     const cwd = (options.env as any)?.CD_DIR || CDKTF_DIR;
     await fs.mkdir(LOG_DIR, { recursive: true });
+
+    console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} with env TF_PLUGIN_CACHE_DIR=${env.TF_PLUGIN_CACHE_DIR}`);
 
     return new Promise((resolve, reject) => {
       const child = spawn(cmd, args, { cwd, env });

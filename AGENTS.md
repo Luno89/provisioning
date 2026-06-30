@@ -1,61 +1,92 @@
-# Architectural context
+# provisioning
 
-```typescript
-def __init__(self, name, instruction, ..., api, agent_llm, provider, tools) ...
+Multi-cloud provisioning platform (k3d, k8s, CDKTF). Express backend + React 19 frontend.
+
+## Repo structure
+
+npm workspaces: `apps/*`, `packages/*`
+
+| Path | What |
+|---|---|
+| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, services, socket.io, all routes |
+| `apps/backend/src/lib/db.ts` | `LocalDB` — JSON file persistence at `apps/backend/data/{clusters,deployments}.json` |
+| `apps/backend/src/services/` | Service layer: `InfrastructureService` (kubectl/helm/k3d/docker), `ClusterService`, `AppService`, `TemporalBridge` |
+| `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
+| `apps/backend/src/worker-host.ts` | Host-side Temporal worker — registers cluster provisioning activities (ProvisionClusterActivity, DestroyClusterActivity) |
+| `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — registers app deployment activities (DeployAppActivity, DestroyAppActivity, ResizeDiskActivity). Reads K8s service account for in-cluster auth. |
+| `apps/frontend/src/main.tsx` | React entry |
+| `apps/frontend/src/App.tsx` | ~1365-line monolith — all UI in one component |
+| `packages/cdktf-infra/main.ts` | CDKTF entry — two stack types via `STACK_TYPE=cluster\|app` env var |
+| `bin/` | Pre-downloaded k3d, kubectl, helm binaries |
+| `k8s/` | K8s manifests: ServiceAccount, ClusterRoleBinding, Deployment for in-cluster worker pod |
+
+## Worker architecture
+
+Two Temporal workers share the same task queue (`provisioning-ops-queue`). Activities route to whichever worker registered them:
+
+- **Host worker** (`worker-host.ts`, runs via `npm run dev:worker`): Has Docker, k3d, kubectl, CDKTF access on the host. Handles `ProvisionClusterActivity`, `DestroyClusterActivity`.
+- **In-cluster worker** (`worker-cluster.ts`, runs as a pod in the k3d management cluster): Has Docker socket mounted, K8s service account for in-cluster API access. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
+
+## Commands
+
+```
+npm run dev          # ensure k3d cluster → build+deploy worker pod → concurrently start backend+frontend+host-worker
+npm run clean-dev    # kill all dev processes
+npm run test         # unit (frontend + backend) → e2e (Playwright)
+npm run test:unit    # backend + frontend unit tests (Vitest)
+npm run test:e2e     # Playwright e2e (skips unit preflight)
+npm run test:infra:integration   # full cluster provision → verify → destroy (takes ~5 min)
 ```
 
-This monorepo provisions infrastructure and deploys a modern web/UI across multiple platforms.
-The architecture is:
-
-| Layer | Purpose | Key implementation |
-| --- | --- | --- |
-| **Frontend** | Vue 3 + Vite | UI for cluster management, monitoring, deployments |
-| **Backend** | Express API | API routes, socket.io connections, workflow orchestrations |
-| **Agents** | Session-layer LLM agents | [agents/session-<agent>.ts](agents/session-<agent>.ts) files, each implementing a class with name/instruction description |
-| **Infra** | Terraform / CDK | `packages/cdktf-infra` - Terraform-based deployment infrastructure, uses versioned resources |
-| **Runtime** | Node/TS runtime | CI/CD, execution environments (k3d, openstack) |
-
-**Key conventions**:
-
-- **Session module**: [def __init__(self, name, instruction, ..., api, agent_llm, provider, tools) ...] is the base class. Each AI Agent (e.g., Architect) has its own `session-module` file with an LLM description embedded.
-- **SessionLayer**: OpenAI of session-layer runtime (not direct OpenAI) via `Self + SessionLayer.open()` or `NetworkClient`. The frontend connects to `/session/config` to fetch `defaultInstruction` + prompt, then feeds it to an LLM backend.
-- **Artifact pipeline**: AI agent builds artifacts incrementally. Run `cdktf synth` to generate a plan file (Terraform) which is applied via a Helm chart (not Alpha).
-- **Transit-based auth**: The system uses simple token-based auth. Not RPC-based.
-
-**Pitfalls to avoid**:
-
-- **`.createContext()` + `Object.readSync` + `.prompt_code()` pattern** in the `SessionLayer` code: these return anomalies (not real responses) that cause `parseState()` timeouts. The session hook test showed compile errors (mismatched types, syntax errors) when running compilation. **Don't rely on these for production.**
-- **`pkg/cdktf-infra/lib/session-module.ts`**: careful with how `SessionLayer.open()` is called. It calls `Object.readSync` from stdin with non-interactive mode, which breaks in the test harness.
-- **`pkg/cdktf-infra/lib/session-module.ts`**: `pipeline()` is not async-safe. It returns the *terminal* state, but the session state needs to be fetched by `parseState()`. Compile-time check: the system is stateless (no persistent state until SessionLayer fetch).
-
-**How to build the session layer**:
-1. There's a `/session/config` endpoint:
-```typescript
-export const getVmPath = (session: string) => path.resolve(__dirname, session)
-export const getPromptData = (sessionState: SessionState) => { 
-  return { defaultInstruction: prompt, systemMessages: systemMessages } 
-}
-export const postPrompt = async (body, sessionState) => { ... LLM call without answer }
+Single workspace:
 ```
-2. The session module wraps the frontend with a function:
-```typescript
-export async function __call__(agent: AI, system_prompt: string) { ... }
+npm run test -w apps/backend    # backend unit tests
+npm run test -w apps/frontend   # frontend unit tests
 ```
-3. Use `defaultInstruction` + actual LLM call (no mock). For end-to-end:
-   ```typescript
-   await SessionLayer.open(Self).runAI({ prompt, reply, contextCombined })
-   await SessionLayer.assume(Self).runChain({ context })
-   ```
 
-**Session state/test notes**:
-- **`cdktf synth`**: Generates plan file (Terraform) for Helm/helm-based deployed infrastructure. Execute via `terraform plan` + `helm install`. The plan is not the final artifact; it's the *blue print* that's then applied.
-- **`cdktf synth`**: Timeout error if Terraform CLI is missing (needs `curl -fsSL https://releases.hashicorp.com/terraform/` etc.)
-- **`cdk-synths`**: When `cdktf synth` generates plan errors (e.g., `Module is not defined`), it outputs a valid JSON plan that the agent uses to build the next step.
-- **`cdktf synth`**: Output of `cdktf synth` is a JSON plan. `build()` compiles it via `renderJsonToPlan()`.
-- **`pnpm run build`**: **Does NOT compile AI context**. It only emits the template file `../session-screen.ts` with a `Pipeline.agentId` reference. The **actual prompt generation happens at runtime** (via `SessionLayer`).
+Backend dev: `npm run dev -w apps/backend` (uses `tsx watch`)
+Frontend dev: `npm run dev -w apps/frontend` (Vite)
+Host worker: `npm run dev:worker -w apps/backend` (runs `worker-host.ts`)
+In-cluster worker (manual): `npm run dev:worker:cluster -w apps/backend`
 
-**Be aware**:
+## In-cluster worker lifecycle
 
-- Travis-like tests (`session/.../{test,unit}.ts`) use mocks for AI context but expect the session-module to build artifacts correctly.
-- `pnpm run build` + `pnpm test` → **FAILS**. Test output: `codegen[]: null`. The test process fails because `cdktf synth` has been invoked with non-interactive mode, and the AI context is being read via `Object.readSync` from stdin.
-- Use `cdktf synth` in a real env or with proper CI settings. Skip AI context checks if running in non-interactive mode (or test with `MockSessionLayer` or similar).
+1. `ensure-cluster.sh` creates the k3d management cluster (`provisioning-lunorica`)
+2. `Dockerfile.worker` builds an image containing backend code, CDKTF infra, kubectl/helm binaries
+3. `kubectl apply -f k8s/` creates ServiceAccount + ClusterRoleBinding + Deployment
+4. Worker pod starts, reads K8s service account → sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for CDKTF
+5. Pod mounts `/var/run/docker.sock` for docker-based kubectl/helm (docker exec into k3d server containers)
+
+## TypeScript quirks
+
+- `verbatimModuleSyntax: true` → all relative imports need `.js` extension
+- `exactOptionalPropertyTypes: true` → auto-generated `.gen/` CDKTF files have pre-existing errors; skip them
+- `noUncheckedIndexedAccess: true` → array/tuple access returns `T | undefined`
+
+## Architecture notes
+
+- **No Express Router** — all ~30 routes defined inline in `bootstrap()` (apps/backend/src/index.ts)
+- **No auth** on any route
+- **JSON file DB** — read-modify-write pattern, prone to race conditions under concurrency
+- **Temporal.io is optional** — backend starts without it, falls back gracefully. Start via `docker-compose -f docker-compose.temporal.yml up`
+- **CDKTF stack selection** — env var `STACK_TYPE=cluster` for infra, `STACK_TYPE=app` for apps
+- **k3d for local dev** — cluster named `provisioning-lunorica` managed by `scripts/ensure-cluster.sh`
+- **App auth in-cluster**: `AppStack.fromEnv()` reads `KUBECONFIG`, `K8S_HOST`, `K8S_TOKEN`, `K8S_CA_CERT`. The in-cluster worker sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` from the service account at startup.
+
+## Known bugs / design debt
+
+- `TemporalBridge.updateUserStatus()` was wiping `kubeconfigPath` on workflow completion, causing kubectl to run on the host with stale kubeconfig → `0.0.0.0:6443 connection refused`
+- `apps/backend/src/lib/executor.ts` duplicates `InfrastructureService.ts` with hardcoded paths — dead code
+- Hardcoded secrets in `packages/cdktf-infra/constructs/odoo-native.ts` (and similar constructs)
+- Frontend app defaults (image repos, tags) are hardcoded in `App.tsx` instead of server-driven
+- Shell scripts under `apps/run-container/` are mostly echo messages / dead code (the in-cluster worker is now deployed via `k8s/` manifests)
+
+## Data
+
+All persistent state is JSON files under `apps/backend/data/`. In test/E2E mode, `clusters-test.json` and `deployments-test.json` are used instead.
+
+## Prerequisites
+
+- Docker, k3d, kubectl, helm (or use `bin/` pre-downloaded binaries)
+- Node.js 20+
+- For Temporal workflows: Docker container on port 7233

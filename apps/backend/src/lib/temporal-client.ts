@@ -28,6 +28,7 @@ export async function getTemporalClient(options?: TemporalClientOptions): Promis
   const namespace = options?.namespace ?? 'default'
   shared = new Client({
     connectionAddress: address,
+    namespace,
   })
   return shared
 }
@@ -50,8 +51,9 @@ export async function ensureTemporalClient(): Promise<void> {
 export async function pollWorkflowRun(
   workflowId: string,
   namespace: string = 'default',
-): Promise<R> {
-  const nsKey = namespace ?? 'default'
-  const handle = await getTemporalClient().workflow.getHandle(workflowId, { namespace: nsKey })
+): Promise<any> {
+  const client = await getTemporalClient()
+  const handle = client.workflow.getHandle(workflowId)
   return await handle.describe()
 }
+

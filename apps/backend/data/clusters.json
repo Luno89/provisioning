@@ -1,9 +1,10 @@
 [
   {
-    "id": "a71bc13c-e54c-4cfa-9059-0e6b32a0fd41",
+    "id": "55086295-1abf-4af4-95ec-c7f04719c109",
     "name": "Lunorica-local",
     "provider": "k3d",
     "status": "provisioning",
-    "temporalWorkflowId": "cluster-provision-Lunorica-local-1782766427732-4m8g8a"
+    "lastLogPath": "/home/luno/Code/provisioning/apps/backend/data/logs/1782813343163-qoruszgy2lr-A1.log",
+    "temporalWorkflowId": "cluster-provision-Lunorica-local-1782813343163-54kwi2"
   }
 ]

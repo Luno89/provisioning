@@ -18,7 +18,12 @@ export async function ClusterProvisionWorkflow(args: ClusterTaskArgs): Promise<C
     });
 
     logger.info(`ClusterProvisionWorkflow completed for cluster ${args.name}`);
-    return { status: 'healthy', msg: result, logFile: args.logFile };
+    return {
+      status: 'healthy',
+      msg: result.msg || 'Cluster provisioned',
+      kubeconfig: result.kubeconfigPath,
+      logFile: args.logFile,
+    };
   } catch (err: any) {
     logger.error(`ClusterProvisionWorkflow failed: ${err.message}`);
     return { status: 'failed', msg: err.message || 'Unknown failure' };

@@ -10,7 +10,13 @@
  *   3. Calls client.workflow.start(workflowFn, { workflowId, taskQueue, args: [args] })
  *   4. Returns a WorkflowDeal
  */
-import { Client } from '@temporalio/client'
+import path from 'path';
+import { fileURLToPath } from 'url';
+import type { Client } from '@temporalio/client'
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
 import { LocalDB } from '../lib/db.js'
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js'
@@ -19,7 +25,7 @@ import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkfl
 import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
 import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
-import { Server as SocketServer } from 'socket.io'
+import type { Server as SocketServer } from 'socket.io'
 
 const queue = 'provisioning-ops-queue'
 const WORKFLOW_POLL_INTERVAL = 5000
@@ -38,29 +44,36 @@ async function getDefaultClient(address?: string): Promise<Client> {
   return getTemporalClient({ address })
 }
 
-function updateUserStatus(
+async function updateUserStatus(
   db: LocalDB,
   clusterId: string,
   clusterName: string,
   provider: string,
   status: string,
+  kubeconfigPath?: string,
 ): Promise<void> {
+  const clusters = await db.getClusters();
+  const existing = clusters.find((c: any) => c.id === clusterId);
   return db.saveClusterInfo({
     id: clusterId,
     name: clusterName,
     provider,
     status,
-    temporalWorkflowId: undefined,
+    kubeconfigPath: kubeconfigPath ?? existing?.kubeconfigPath,
+    temporalWorkflowId: existing?.temporalWorkflowId,
+    lastLogPath: existing?.lastLogPath,
   })
 }
 
-function updateDeploymentStatus(
+async function updateDeploymentStatus(
   db: LocalDB,
   deploymentId: string,
   deployment: DeploymentMetadata,
   status: string,
   storage = undefined,
 ): Promise<void> {
+  const deployments = await db.getDeployments();
+  const existing = deployments.find((d: any) => d.id === deploymentId);
   return db.saveDeploymentInfo({
     id: deploymentId,
     name: deployment.name,
@@ -70,8 +83,10 @@ function updateDeploymentStatus(
     status,
     modules: deployment.modules,
     storage,
-    temporalWorkflowId: undefined,
+    temporalWorkflowId: existing?.temporalWorkflowId,
     url: deployment.url,
+    lastLogPath: existing?.lastLogPath ?? deployment.lastLogPath,
+    deploymentId: existing?.deploymentId ?? deployment.deploymentId,
   })
 }
 
@@ -122,15 +137,17 @@ export class TemporalBridge {
 
   async provision(clusterName: string, provider: string): Promise<WorkflowDeal> {
     const wfId = `cluster-provision-${clusterName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const clusterLog = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
-    const activityArgs = { name: clusterName, provider, logFile: clusterLog }
+    const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
+    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const activityArgs = { name: clusterName, provider, logFile: absoluteLogPath }
 
     // Persist cluster row
-    this.db.saveClusterInfo({
+    const savedCluster = await this.db.saveClusterInfo({
       name: clusterName,
       provider,
       status: 'provisioning',
       temporalWorkflowId: wfId,
+      lastLogPath: absoluteLogPath,
     })
 
     const handle = await this.client.workflow.start(ClusterProvisionWorkflow, {
@@ -142,14 +159,22 @@ export class TemporalBridge {
     // Start background poll — updates DB when workflow completes
     const timer = setInterval(async () => {
       const status = await pollWorkflowRun(wfId)
-      if (status && status.status !== 'running') {
+      if (status && status.status?.name !== 'RUNNING') {
         clearInterval(timer)
-        if (status.status === 'failed') {
-          await updateUserStatus(this.db, '', clusterName + '-unknown', provider, 'failed')
-        } else if (status.status === 'terminated' || status.status === 'cancelled') {
-          await updateUserStatus(this.db, '', clusterName + '-unknown', provider, 'destroyed')
+        const name = status.status?.name
+        let kubeconfig: string | undefined
+        if (name === 'COMPLETED') {
+          try {
+            const wfResult = await handle.result()
+            kubeconfig = (wfResult as any).kubeconfig
+          } catch {}
+        }
+        if (name === 'FAILED') {
+          await updateUserStatus(this.db, savedCluster.id, clusterName, provider, 'failed', kubeconfig)
+        } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+          await updateUserStatus(this.db, savedCluster.id, clusterName, provider, 'destroyed')
         } else {
-          await updateUserStatus(this.db, '', clusterName + '-unknown', provider, 'healthy')
+          await updateUserStatus(this.db, savedCluster.id, clusterName, provider, 'healthy', kubeconfig)
         }
       }
     }, WORKFLOW_POLL_INTERVAL)
@@ -166,15 +191,18 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === clusterId)
   if (!cluster) throw new Error('ClusterMetadata not found')
 
+    const logFileName = `${Date.now()}-destroy-${Math.random().toString(36).slice(2)}-B2.log`
+    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const activityArgs = { name: cluster.name, provider: cluster.provider, logFile: absoluteLogPath }
     const wfId = `cluster-destroy-${cluster.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const clusterLog = `${Date.now()}-destroy-${Math.random().toString(36).slice(2)}-B2.log`
-    const activityArgs = { name: cluster.name, provider: cluster.provider, logFile: clusterLog }
 
     this.db.saveClusterInfo({
+      id: cluster.id,
       name: cluster.name,
       provider: cluster.provider,
       status: 'destroying',
       temporalWorkflowId: wfId,
+      lastLogPath: absoluteLogPath,
     })
 
     const handle = await this.client.workflow.start(executeDestroyClusterWorkflow, {
@@ -185,14 +213,13 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const timer = setInterval(async () => {
       const status = await pollWorkflowRun(wfId)
-      if (status && status.status !== 'running') {
+      if (status && status.status?.name !== 'RUNNING') {
         clearInterval(timer)
-        if (status.status === 'failed') {
-          await updateUserStatus(this.db, '', cluster.name, cluster.provider, 'failed')
-        } else if (status.status === 'terminated' || status.status === 'cancelled') {
-          await updateUserStatus(this.db, '', cluster.name, cluster.provider, 'destroyed')
+        const name = status.status?.name
+        if (name === 'FAILED') {
+          await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'failed')
         } else {
-          await updateUserStatus(this.db, '', cluster.name, cluster.provider, 'destroyed')
+          await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'destroyed')
         }
       }
     }, WORKFLOW_POLL_INTERVAL)
@@ -211,36 +238,58 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   async deployApp(config: any): Promise<WorkflowDeal> {
     // Find deployment row by name + clusterId (since config is req.body — may have no DB id)
     const unresolved = await this.db.getDeployments()
-    const [dep] = unresolved.filter((d: DeploymentMetadata) => {
+    let [dep] = unresolved.filter((d: DeploymentMetadata) => {
       if (config.name && d.name === config.name && d.clusterId === config.clusterId) return true
       if (config.id && d.id === config.id) return true
       return false
     })
-    if (!dep) throw new Error('DeploymentMetadata is not found (deployApp)')
+    if (!dep) {
+      dep = {
+        id: config.id || config.name,
+        name: config.name,
+        clusterId: config.clusterId,
+        strategy: config.strategy || 'helm',
+        appType: config.appType || 'odoo',
+        modules: config.modules || [],
+        storage: config.storage || {},
+        webRepo: config.webRepo,
+        webTag: config.webTag,
+        dbRepo: config.dbRepo,
+        dbTag: config.dbTag,
+        url: config.url,
+      }
+    }
 
   const clusters = await this.db.getClusters()
   const [targetCluster] = clusters.filter((c: ClusterMetadata) => c.id === dep.clusterId)
   const wfId = `app-deploy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const taskLog = `${Date.now()}-${Math.random().toString(36).slice(2)}-C3.log`
+  const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-C3.log`
+  const absoluteLogPath = path.join(LOG_DIR, logFileName)
+  const deploymentId = dep.deploymentId || Math.random().toString(36).slice(2, 10);
+  dep.deploymentId = deploymentId;
 
     const activityArgs = {
       name: dep.name,
       clusterId: dep.clusterId,
-      clusterName: cluster?.name || 'unknown',
+      clusterName: targetCluster?.name || 'unknown',
+      provider: targetCluster?.provider || 'k3d',
       strategy: dep.strategy || 'helm',
       appType: dep.appType || 'odoo',
       modules: dep.modules || [],
-      odooRepo: (dep.webRepo as string) || 'library/odoo',
-      odooTag: (dep.webTag as string) || '18.0',
-      dbRepo: (dep.dbRepo as string) || 'library/postgres',
-      dbTag: (dep.dbTag as string) || 'latest',
-      logFile: taskLog,
+      odooRepo: (dep.webRepo as string) || '',
+      odooTag: (dep.webTag as string) || '',
+      dbRepo: (dep.dbRepo as string) || '',
+      dbTag: (dep.dbTag as string) || '',
+      logFile: absoluteLogPath,
+      deploymentId,
     }
 
     this.db.saveDeploymentInfo({
       ...dep,
+      id: dep.id || dep.name,
       status: 'deploying',
       temporalWorkflowId: wfId,
+      lastLogPath: absoluteLogPath,
     })
 
     const handle = await this.client.workflow.start(executeDeployAppWorkflow, {
@@ -252,13 +301,14 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     // Background polling: watch for workflow completion
     const timer = setInterval(async () => {
       const status = await pollWorkflowRun(wfId)
-      if (status && status.status !== 'running') {
+      if (status && status.status?.name !== 'RUNNING') {
         clearInterval(timer)
-        if (status.status === 'failed') {
+        const name = status.status?.name
+        if (name === 'FAILED') {
           await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
-        } else if (status.status === 'terminated' || status.status === 'cancelled') {
+        } else if (name === 'TERMINATED' || name === 'CANCELLED') {
           await updateDeploymentStatus(this.db, dep.id, dep, 'destroyed', dep.storage)
-        } else if (status.status === 'completed') {
+        } else if (name === 'COMPLETED') {
           await updateDeploymentStatus(this.db, dep.id, dep, 'running', dep.storage)
         }
       }
@@ -279,7 +329,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const clusters = await this.db.getClusters()
     const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === dep.clusterId)
     const wfId = `app-destroy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const taskLog = `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`
+    const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`
+    const absoluteLogPath = path.join(LOG_DIR, logFileName)
 
     const activityArgs = {
       name: dep.name,
@@ -287,13 +338,15 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       clusterName: cluster?.name || 'unknown',
       provider: cluster?.provider || 'k3d',
       strategy: dep.strategy || 'helm',
-      logFile: taskLog,
+      logFile: absoluteLogPath,
+      deploymentId: dep.deploymentId || 'default',
     }
 
-    this.db.saveDeploymentInfo({
+     this.db.saveDeploymentInfo({
       ...dep,
       status: 'destroying',
       temporalWorkflowId: wfId,
+      lastLogPath: absoluteLogPath,
     })
 
     const handle = await this.client.workflow.start(executeDestroyAppWorkflow, {
@@ -304,11 +357,12 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const timer = setInterval(async () => {
       const status = await pollWorkflowRun(wfId)
-      if (status && status.status !== 'running') {
+      if (status && status.status?.name !== 'RUNNING') {
         clearInterval(timer)
-        if (status.status === 'failed') {
+        const name = status.status?.name
+        if (name === 'FAILED') {
           await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
-        } else if (status.status === 'terminated' || status.status === 'cancelled' || status.status === 'completed') {
+        } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
           // delete the deployment row
           const deployments = await this.db.getDeployments()
           const arr = deployments.filter((d: any) => d.id !== deploymentId)
@@ -336,7 +390,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const clusters = await this.db.getClusters()
     const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === dep.clusterId)
     const wfId = `resize-disk-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const taskLog = `${Date.now()}-${Math.random().toString(36).slice(2)}-E5.log`
+    const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-E5.log`
+    const absoluteLogPath = path.join(LOG_DIR, logFileName)
 
     const activityArgs = {
       name: dep.name,
@@ -346,7 +401,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       strategy: dep.strategy || 'helm',
       appType: dep.appType || 'odoo',
       storage,
-      logFile: taskLog,
+      logFile: absoluteLogPath,
     }
 
     this.db.saveDeploymentInfo({
@@ -354,6 +409,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       storage: { ...dep.storage, ...storage },
       status: 'deploying',
       temporalWorkflowId: wfId,
+      lastLogPath: absoluteLogPath,
     })
 
     const handle = await this.client.workflow.start(executeResizeDiskWorkflow, {
@@ -364,18 +420,15 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const timer = setInterval(async () => {
       const status = await pollWorkflowRun(wfId)
-      if (status && status.status !== 'running') {
+      if (status && status.status?.name !== 'RUNNING') {
         clearInterval(timer)
-        if (status.status === 'failed') {
-          // delete deployment row
-          const deployments = await this.db.getDeployments()
-          const arr = deployments.filter((d: any) => d.id !== deploymentId)
-          await this.db.saveDeploymentList(arr)
-        } else if (status.status === 'terminated' || status.status === 'cancelled' || status.status === 'completed') {
-          // delete deployment row
-          const deployments = await this.db.getDeployments()
-          const arr = deployments.filter((d: any) => d.id !== deploymentId)
-          await this.db.saveDeploymentList(arr)
+        const name = status.status?.name
+        if (name === 'FAILED') {
+          await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
+        } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+          await updateDeploymentStatus(this.db, dep.id, dep, 'destroyed', dep.storage)
+        } else if (name === 'COMPLETED') {
+          await updateDeploymentStatus(this.db, dep.id, dep, 'running', { ...dep.storage, ...storage })
         }
       }
     }, WORKFLOW_POLL_INTERVAL)
@@ -385,6 +438,71 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       event: 'disk-resize',
       promise: handle.result(),
     }
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // Temporal monitoring / query
+  // ────────────────────────────────────────────────────────────────────
+
+  async listWorkflows(query?: string, pageSize?: number): Promise<any[]> {
+    if (!this.isReady()) return [];
+    try {
+      const iter = this.client.workflow.list({ query, pageSize: pageSize || 50 });
+      const workflows: any[] = [];
+      for await (const wf of iter) {
+        workflows.push({
+          workflowId: wf.workflowId,
+          runId: wf.runId,
+          type: wf.type?.name || wf.type,
+          taskQueue: wf.taskQueue,
+          status: wf.status?.name,
+          startTime: wf.startTime?.toISOString?.() || wf.startTime,
+          closeTime: wf.closeTime?.toISOString?.() || wf.closeTime,
+          historyLength: wf.historyLength,
+        });
+      }
+      return workflows;
+    } catch { return []; }
+  }
+
+  async countWorkflows(query?: string): Promise<number> {
+    if (!this.isReady()) return 0;
+    try {
+      const result = await this.client.workflow.count({ query });
+      return result.count;
+    } catch { return 0; }
+  }
+
+  async describeWorkflow(workflowId: string): Promise<any | null> {
+    if (!this.isReady()) return null;
+    try {
+      const handle = this.client.workflow.getHandle(workflowId);
+      const desc = await handle.describe();
+      return {
+        workflowId: desc.workflowId,
+        runId: desc.runId,
+        type: desc.type?.name || desc.type,
+        taskQueue: desc.taskQueue,
+        status: desc.status?.name,
+        startTime: desc.startTime?.toISOString?.() || desc.startTime,
+        closeTime: desc.closeTime?.toISOString?.() || desc.closeTime,
+        historyLength: desc.historyLength,
+      };
+    } catch { return null; }
+  }
+
+  async getWorkflowHistory(workflowId: string): Promise<any[] | null> {
+    if (!this.isReady()) return null;
+    try {
+      const handle = this.client.workflow.getHandle(workflowId);
+      const history = await handle.fetchHistory();
+      return (history?.events || []).map((e: any) => ({
+        id: e.eventId,
+        type: e.eventType,
+        time: e.eventTime?.toISOString?.() || e.eventTime,
+        attributes: e.attributes ? JSON.stringify(e.attributes).slice(0, 500) : null,
+      }));
+    } catch { return null; }
   }
 
   // ────────────────────────────────────────────────────────────────────

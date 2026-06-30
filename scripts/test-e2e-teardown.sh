@@ -14,7 +14,7 @@ if [ -f "$CLUSTER" ]; then
 fi
 
 # ── stale lock ─────────────────────────────────────────────────
-rm -f "$ROOT/.test-e2e-state/stopped" /dev/null
+rm -f "$ROOT/.test-e2e-state/stopped"
 
 # ── dev servers ────────────────────────────────────────────────
 DEV_STATE="$ROOT/.test-server-state"

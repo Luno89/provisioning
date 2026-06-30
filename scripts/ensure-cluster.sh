@@ -14,12 +14,21 @@ CLUSTER_FILE="${STATE_DIR}/cluster"
 if [ -f "$CLUSTER_FILE" ] && k3d cluster list 2>/dev/null | grep -q "provisioning-lunorica"; then
   CLUSTER="$(cat "$CLUSTER_FILE")"
   echo "  ▶  cluster=${CLUSTER} already running — skipping setup"
-  exit 0
-fi
-
-# Cluster is not running — start it (cluster.sh create will install k3d if needed)
+else
+  # Cluster is not running — start it (cluster.sh create will install k3d if needed)
   "${ROOT}/scripts/cluster.sh" create provisioning-lunorica
 
   # Save state so `npm run dev` can skip
   mkdir -p "$STATE_DIR"
   echo "provisioning-lunorica" > "$CLUSTER_FILE"
+fi
+
+# Build and deploy the in-cluster worker (runs every time; Docker caches layers)
+echo "  ▶  building worker Docker image..."
+docker build -t deployworker.sh -f "${ROOT}/Dockerfile.worker" "${ROOT}"
+
+echo "  ▶  deploying worker pod into cluster..."
+KUBECTL="${ROOT}/bin/kubectl"
+if ! command -v "$KUBECTL" >/dev/null 2>&1; then KUBECTL=kubectl; fi
+"$KUBECTL" apply -f "${ROOT}/k8s/worker-sa.yaml" --context k3d-provisioning-lunorica 2>/dev/null || true
+"$KUBECTL" apply -f "${ROOT}/k8s/worker-deployment.yaml" --context k3d-provisioning-lunorica

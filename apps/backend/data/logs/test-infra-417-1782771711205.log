@@ -1,0 +1,87 @@
+[36mINFO[0m[0000] [SimpleConfig] Hostnetwork selected - disabling injection of docker host into the cluster, server load balancer and setting the api port to the k3s default 
+[36mINFO[0m[0000] [ClusterConfig] Hostnetwork selected - disabling injection of docker host into the cluster, server load balancer and setting the api port to the k3s default 
+[36mINFO[0m[0000] Prep: Network                                
+[36mINFO[0m[0000] Re-using existing network 'host' (7113385435bc53a5f22719dd43f53d82a1d432cd10ed6b844544e76a2cd11617) 
+[36mINFO[0m[0000] Created image volume k3d-test-infra-417-images 
+[36mINFO[0m[0000] Starting new tools node...                   
+[36mINFO[0m[0000] Starting node 'k3d-test-infra-417-tools'     
+[36mINFO[0m[0001] Creating node 'k3d-test-infra-417-server-0'  
+[36mINFO[0m[0001] Using the k3d-tools node to gather environment information 
+[36mINFO[0m[0001] Starting cluster 'test-infra-417'            
+[36mINFO[0m[0001] Starting servers...                          
+[36mINFO[0m[0001] Starting node 'k3d-test-infra-417-server-0'  
+[36mINFO[0m[0003] All agents already running.                  
+[36mINFO[0m[0003] All helpers already running.                 
+[36mINFO[0m[0003] Cluster 'test-infra-417' created successfully! 
+[36mINFO[0m[0003] You can now use it like this:                
+kubectl cluster-info
+
+⠋  Starting
+[2K[1A[2K[1A[2K[G
+⠋  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠙  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠹  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠸  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠼  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠴  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠦  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠧  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠇  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠏  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠋  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠙  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠹  Synthesizing
+[2K[1A[2K[1A[2K[G
+⠸  Synthesizing
+[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[Gtest-infra-417  [0m[1mInitializing the backend...[0m
+
+
+0 Stacks deploying     0 Stacks done     0 Stacks waiting
+[2K[1A[2K[1A[2K[1A[2K[G
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+[2K[1A[2K[1A[2K[1A[2K[Gtest-infra-417  [0m[32m
+                Successfully configured the backend "local"! Terraform will automatically
+                use this backend unless the backend configuration changes.[0m
+                [0m[1mInitializing provider plugins...[0m
+                - Finding hashicorp/kubernetes versions matching "2.38.0"...
+                - Finding hashicorp/helm versions matching "2.17.0"...
+                - Installing hashicorp/kubernetes v2.38.0...
+                - Installing hashicorp/helm v2.17.0...
+                [31m╷[0m[0m
+                [31m│[0m [0m[1m[31mError: [0m[0m[1mFailed to install provider[0m
+                [31m│[0m [0m
+                [31m│[0m [0m[0mError while installing hashicorp/kubernetes v2.38.0: cannot install existing
+                [31m│[0m [0mprovider directory
+                [31m│[0m [0m/home/luno/.terraform.d/plugin-cache/registry.terraform.io/hashicorp/kubernetes/2.38.0/linux_amd64
+                [31m│[0m [0mto itself
+                [31m╵[0m[0m
+                [31m╷[0m[0m
+                [31m│[0m [0m[1m[31mError: [0m[0m[1mFailed to install provider[0m
+                [31m│[0m [0m
+                [31m│[0m [0m[0mError while installing hashicorp/helm v2.17.0: cannot install existing
+                [31m│[0m [0mprovider directory
+                [31m│[0m [0m/home/luno/.terraform.d/plugin-cache/registry.terraform.io/hashicorp/helm/2.17.0/linux_amd64
+                [31m│[0m [0mto itself
+                [31m╵[0m[0m
+
+
+0 Stacks deploying     0 Stacks done     1 Stack waiting
+Error: terraform init failed with exit code 1
+
+--- EXECUTION FAILED (Exit Code 1) ---
