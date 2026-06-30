@@ -1,15 +1,15 @@
 {
   "stacks": {
-    "app-k3d-Lunorica-local-temporal": {
+    "Lunorica-local": {
       "annotations": [
       ],
-      "constructPath": "app-k3d-Lunorica-local-temporal",
+      "constructPath": "Lunorica-local",
       "dependencies": [
       ],
-      "name": "app-k3d-Lunorica-local-temporal",
-      "stackMetadataPath": "stacks/app-k3d-Lunorica-local-temporal/metadata.json",
-      "synthesizedStackPath": "stacks/app-k3d-Lunorica-local-temporal/cdk.tf.json",
-      "workingDirectory": "stacks/app-k3d-Lunorica-local-temporal"
+      "name": "Lunorica-local",
+      "stackMetadataPath": "stacks/Lunorica-local/metadata.json",
+      "synthesizedStackPath": "stacks/Lunorica-local/cdk.tf.json",
+      "workingDirectory": "stacks/Lunorica-local"
     }
   },
   "version": "0.20.12"

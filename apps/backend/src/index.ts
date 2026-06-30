@@ -159,20 +159,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.post('/api/deployments', async (req, res) => {
     try {
       const info = await temporalBridge.deployApp(req.body);
-      // Persist deployment row with status=running
-      const dep: DeploymentMetadata = {
-        id: req.body.name,
-        name: req.body.name,
-        clusterId: req.body.clusterId,
-        strategy: req.body.strategy || 'helm',
-        appType: req.body.appType,
-        status: 'running',
-        modules: req.body.modules,
-        storage: req.body.storage,
-        url: req.body.url,
-        temporalWorkflowId: info.id,
-      };
-      await db.saveDeployment(dep);
       res.status(202).json({
         message: 'Deployment started',
         deploymentName: req.body.name,
@@ -239,7 +225,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.get('/api/registry/tags', async (req, res) => res.json(await registryService.getTags(req.query.repo as string)));
 
   /** ── NGINX config ── */
-  const NGINX_CONF_PATH = path.join(__dirname, 'data/nginx/nginx.conf');
+  const NGINX_CONF_PATH = path.join(__dirname, '../data/nginx/nginx.conf');
 
   app.get('/api/nginx/config', async (req, res) => {
     try { res.json({ content: await fs.readFile(NGINX_CONF_PATH, 'utf-8') }); }
@@ -265,8 +251,58 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ? await clusterService.getById(id)
       : (await appService.getAll()).find((d: any) => d.id === id);
     if (!resource || !resource.lastLogPath) return res.json({ content: 'Initializing...' });
-    try { res.json({ content: await fs.readFile(resource.lastLogPath, 'utf-8') }); }
-    catch { res.json({ content: 'Waiting for logs...' }); }
+    try {
+      const content = await fs.readFile(resource.lastLogPath, 'utf-8');
+      res.json({ content });
+    }
+    catch {
+      res.json({ content: 'Waiting for logs...' });
+    }
+  });
+
+  /** ── TEMPORAL — monitoring ── */
+
+  app.get('/api/temporal/status', async (req, res) => {
+    const ready = temporalBridge.isReady();
+    let version: string | undefined;
+    if (ready) {
+      try {
+        const svc = (temporalBridge as any).client.workflowService;
+        const info = await svc?.getSystemInfo?.();
+        version = info?.serverVersion;
+      } catch {}
+    }
+    res.json({ connected: ready, serverVersion: version });
+  });
+
+  app.get('/api/temporal/workflows', async (req, res) => {
+    const query = req.query.query as string | undefined;
+    const pageSize = parseInt(req.query.pageSize as string, 10) || 50;
+    const workflows = await temporalBridge.listWorkflows(query, pageSize);
+    res.json({ workflows });
+  });
+
+  app.get('/api/temporal/workflows/count', async (req, res) => {
+    const [total, running, completed, failed, timedOut] = await Promise.all([
+      temporalBridge.countWorkflows(''),
+      temporalBridge.countWorkflows('ExecutionStatus="Running"'),
+      temporalBridge.countWorkflows('ExecutionStatus="Completed"'),
+      temporalBridge.countWorkflows('ExecutionStatus="Failed"'),
+      temporalBridge.countWorkflows('ExecutionStatus="TimedOut"'),
+    ]);
+    res.json({ total, running, completed, failed, timedOut });
+  });
+
+  app.get('/api/temporal/workflows/:workflowId', async (req, res) => {
+    const workflow = await temporalBridge.describeWorkflow(req.params.workflowId);
+    if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+    res.json({ workflow });
+  });
+
+  app.get('/api/temporal/workflows/:workflowId/history', async (req, res) => {
+    const events = await temporalBridge.getWorkflowHistory(req.params.workflowId);
+    if (!events) return res.status(404).json({ error: 'Workflow not found' });
+    res.json({ events });
   });
 
   /** ── INIT ── */

@@ -3,17 +3,23 @@
   "version": "1.0.0",
   "description": "",
   "main": "src/index.ts",
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev:worker": "tsx src/worker.ts"
+    "dev:worker": "tsx src/worker-host.ts",
+    "dev:worker:cluster": "tsx src/worker-cluster.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@temporalio/activity": "^1.18.1",
+    "@temporalio/client": "^1.18.1",
+    "@temporalio/worker": "^1.18.1",
+    "@temporalio/workflow": "^1.18.1",
     "axios": "^1.17.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -21,18 +27,14 @@
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "socket.io": "^4.8.3",
+    "tsx": "^4.19.2",
     "uuid": "^14.0.0"
   },
   "devDependencies": {
-    "@temporalio/activity": "^1.18.1",
-    "@temporalio/client": "^1.18.1",
-    "@temporalio/worker": "^1.18.1",
-    "@temporalio/workflow": "^1.18.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/node": "^20.0.0",
     "@types/uuid": "^10.0.0",
-    "tsx": "^4.19.2",
     "typescript": "^5.0.0",
     "vitest": "^4.1.9"
   }

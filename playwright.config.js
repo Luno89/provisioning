@@ -22,14 +22,14 @@ exports.default = (0, test_1.defineConfig)({
     ],
     webServer: [
         {
-            command: 'PORT=3002 IS_E2E=true NODE_ENV=test npm run dev -w apps/backend',
+            command: 'PORT=3002 IS_E2E=true NODE_ENV=test npx concurrently --kill-others "npm run dev -w apps/backend" "npm run dev:worker -w apps/backend" > backend.log 2>&1',
             port: 3002,
-            reuseExistingServer: false,
+            reuseExistingServer: true,
         },
         {
             command: 'VITE_API_BASE=http://localhost:3002/api VITE_SOCKET_URL=http://localhost:3002 npm run dev -w apps/frontend -- --port 5174',
             port: 5174,
-            reuseExistingServer: false,
+            reuseExistingServer: true,
         }
     ],
 });

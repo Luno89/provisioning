@@ -194,6 +194,15 @@ http {
     await expect(row).not.toBeVisible({ timeout: 120000 });
   }
 
+  // TEST 0: Verify Temporal service health
+  test('should verify Temporal service health', async () => {
+    const { Connection } = await import('@temporalio/client');
+    const connection = await Connection.connect();
+    expect(connection).toBeDefined();
+    const status = await connection.workflowService.getSystemInfo({});
+    expect(status).toBeDefined();
+  });
+
   // TEST 1: Provision k3d Cluster
   test('should provision the cluster', async ({ page }) => {
     test.setTimeout(600000); // 10 mins

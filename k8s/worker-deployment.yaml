@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provisioning-worker
+  namespace: default
+  labels:
+    app: provisioning-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: provisioning-worker
+  template:
+    metadata:
+      labels:
+        app: provisioning-worker
+    spec:
+      serviceAccountName: provisioning-worker
+      containers:
+        - name: worker
+          image: deployworker.sh
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TEMPORAL_CONNECTION_ADDRESS
+              value: "host.docker.internal:7233"
+            - name: TEMPORAL_TASK_QUEUE
+              value: "provisioning-ops-queue"
+            - name: IN_CLUSTER
+              value: "true"
+          volumeMounts:
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+      volumes:
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket

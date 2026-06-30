@@ -25,6 +25,7 @@ export interface DeployAppArgs {
   dbRepo: string;
   dbTag: string;
   logFile: string;
+  deploymentId?: string;
 }
 
 export interface DeployAppResult {
@@ -39,7 +40,7 @@ export const deployAppActivityMeta = {
 };
 
 const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-const LIVE_ROOT = path.resolve(__dirname, '../../..');
+const LIVE_ROOT = process.cwd();
 
 export async function DeployAppActivity(
   args: DeployAppArgs,
@@ -49,8 +50,8 @@ export async function DeployAppActivity(
   const logFile = args.logFile;
   const sanitizedName = SANITIZE(args.name);
 
-  const finalOdooRepo = args.odooRepo || `odoo:latest`;
-  const finalOdooTag = args.odooTag || '18.0';
+  const finalOdooRepo = args.odooRepo || (args.appType === 'odoo' ? 'library/odoo' : '');
+  const finalOdooTag = args.odooTag || (args.appType === 'odoo' ? '18.0' : '');
 
   let customImageTag: string | undefined;
 
@@ -80,12 +81,14 @@ export async function DeployAppActivity(
     ? 'http://localhost:8069'
     : 'http://localhost:80';
 
+  const deploymentId = args.deploymentId || uuidv4().slice(0, 8);
+
   const env: Record<string, string> = {
     STACK_TYPE: 'app',
     CLUSTER_NAME: args.clusterName,
     DEPLOYMENT_STRATEGY: args.strategy,
     DEPLOYMENT_NAME: sanitizedName,
-    DEPLOYMENT_ID: uuidv4().slice(0, 8),
+    DEPLOYMENT_ID: deploymentId,
     KUBECONFIG: kubeconfigPath,
     KUBECONFIG_CONTEXT: args.provider === 'k3d' ? `k3d-${args.clusterName}` : '',
     APP_TYPE: args.appType,
@@ -105,7 +108,7 @@ export async function DeployAppActivity(
   };
 
   await infra.deploy(
-    `app-${args.clusterName}-${uuidv4().slice(0, 8)}`,
+    `app-${args.clusterName}-${deploymentId}`,
     { logFile, env },
   );
 

@@ -148,8 +148,8 @@ export class AppService extends BaseService {
                 await this.infra.importImage(cluster.name, customTag, { logFile, io, resourceId: id });
             }
 
-            finalOdooRepo = customTag.split(':')[0];
-            finalOdooTag = customTag.split(':')[1];
+            finalOdooRepo = customTag.split(':')[0] ?? '';
+            finalOdooTag = customTag.split(':')[1] ?? '';
         }
 
         const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);

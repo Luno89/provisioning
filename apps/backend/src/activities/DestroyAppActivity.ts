@@ -13,6 +13,7 @@ export interface DestroyAppArgs {
   provider: string;
   strategy: string;
   logFile: string;
+  deploymentId?: string;
 }
 
 export interface DestroyAppResult {
@@ -30,7 +31,7 @@ export async function DestroyAppActivity(
 ): Promise<DestroyAppResult> {
   const infra = new InfrastructureService();
   const sanitizedName = args.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  const stackName = `app-${args.clusterName}-${uuidv4().slice(0, 8)}`;
+  const stackName = `app-${args.clusterName}-${args.deploymentId || 'default'}`;
   const logFile = args.logFile;
 
   // 1. CDKTF destroy

@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "first-time": "bash scripts/first-time.sh",
-    "dev": "bash scripts/ensure-cluster.sh && npm run first-time -- --deploy && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\"",
-    "clean-dev": "ps aux | grep -E 'vite|tsx|cdktf|concurrently' | grep \"$(pwd)\" | grep -v grep | awk '{print $2}' | xargs -r kill -9",
+    "dev": "bash scripts/ensure-cluster.sh && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\" \"npm run dev:worker -w apps/backend\"",
+    "clean-dev": "ps aux | grep -E 'vite|tsx|cdktf|concurrently|worker' | grep \"$(pwd)\" | grep -v grep | awk '{print $2}' | xargs -r kill -9",
     "worker": "docker build -t deployworker.sh -f Dockerfile.worker . && npm run first-time -- --deploy",
 
     "test":       "npm run test:unit && npm run test:e2e:sync",
