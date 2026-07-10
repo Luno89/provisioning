@@ -2,7 +2,7 @@
 # clean-environment.test.sh — Validates the clean script with fake artifacts.
 set -euo pipefail
 
-ROOT="/home/luno/Code/provisioning"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── Setup fake artifacts ──────────────────────────────────────────────
 echo "▶ Setup fake artifacts..."
@@ -22,7 +22,7 @@ echo "backup" > "$ROOT/packages/cdktf-infra/terraform.test-app.tfstate.backup"
 # ── Run the real script with MAX_CLEAN overridden ─────────────────────
 echo ""
 echo "▶ Running clean-environment.sh"
-bash /home/luno/Code/provisioning/scripts/clean-environment.sh
+bash "$ROOT/scripts/clean-environment.sh"
 RC=$?
 echo ""
 echo "EXIT: $RC"

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
-import { Worker } from '@temporalio/worker';
+import { Worker, NativeConnection } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
@@ -31,19 +31,31 @@ async function setupInClusterAuth() {
 async function main() {
   await setupInClusterAuth();
 
-  const queue = process.env.TEMPORAL_TASK_QUEUE || 'provisioning-ops-queue';
-  console.log(`[ClusterWorker] Starting — taskQueue=${queue}`);
+  const queue = process.env.TEMPORAL_TASK_QUEUE || 'cluster-ops-queue';
+  const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
+  console.log(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
 
-  const worker = await Worker.create({
-    taskQueue: queue,
-    workflowsPath: resolve(__dirname, 'workflows'),
-    activities: {
-      DeployAppActivity,
-      DestroyAppActivity,
-      ResizeDiskActivity,
-    },
-    failFast: true,
-  });
+  let worker;
+  while (true) {
+    try {
+      const connection = await NativeConnection.connect({ address });
+      worker = await Worker.create({
+        connection,
+        taskQueue: queue,
+        workflowsPath: resolve(__dirname, 'workflows'),
+        activities: {
+          DeployAppActivity,
+          DestroyAppActivity,
+          ResizeDiskActivity,
+        },
+        failFast: true,
+      });
+      break;
+    } catch (err: any) {
+      console.warn(`[ClusterWorker] ⚠️ Connection to Temporal server failed: ${err.message}. Retrying in 10s...`);
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+    }
+  }
 
   console.log('[ClusterWorker] ✅ Listening for app deployment tasks');
   await worker.run();

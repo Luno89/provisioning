@@ -27,11 +27,13 @@ import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
 import type { Server as SocketServer } from 'socket.io'
 
-const queue = 'provisioning-ops-queue'
+const HOST_QUEUE = 'host-ops-queue'
+const CLUSTER_QUEUE = 'cluster-ops-queue'
 const WORKFLOW_POLL_INTERVAL = 5000
 
 export interface WorkflowDeal {
   readonly id: string
+  readonly resourceId?: string
   readonly event: string
   promise: Promise<any>
 }
@@ -131,6 +133,121 @@ export class TemporalBridge {
     }
   }
 
+  trackWorkflow(
+    wfId: string,
+    action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize',
+    resourceId: string,
+    resourceName: string,
+    provider: string,
+    meta?: any
+  ) {
+    const timer = setInterval(async () => {
+      try {
+        const status = await pollWorkflowRun(wfId)
+        if (status && status.status?.name !== 'RUNNING') {
+          clearInterval(timer)
+          const name = status.status?.name
+          let kubeconfig: string | undefined
+          if (name === 'COMPLETED' && action === 'cluster-provision') {
+            try {
+              const handle = this.client.workflow.getHandle(wfId)
+              const wfResult = await handle.result()
+              kubeconfig = (wfResult as any).kubeconfig
+            } catch {}
+          }
+
+          if (action === 'cluster-provision') {
+            if (name === 'FAILED') {
+              await updateUserStatus(this.db, resourceId, resourceName, provider, 'failed', kubeconfig)
+            } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+              await updateUserStatus(this.db, resourceId, resourceName, provider, 'destroyed')
+            } else {
+              await updateUserStatus(this.db, resourceId, resourceName, provider, 'healthy', kubeconfig)
+            }
+            if (this.io) this.io.emit('cluster-updated')
+          } else if (action === 'cluster-destroy') {
+            if (name === 'FAILED') {
+              await updateUserStatus(this.db, resourceId, resourceName, provider, 'failed')
+            } else {
+              await updateUserStatus(this.db, resourceId, resourceName, provider, 'destroyed')
+            }
+            if (this.io) this.io.emit('cluster-updated')
+          } else if (action === 'app-deploy') {
+            if (name === 'FAILED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+            } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+            } else if (name === 'COMPLETED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'running', meta?.storage)
+            }
+            if (this.io) this.io.emit('deployment-updated')
+          } else if (action === 'app-destroy') {
+            if (name === 'FAILED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+            } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
+              const deployments = await this.db.getDeployments()
+              const arr = deployments.filter((d: any) => d.id !== resourceId)
+              await this.db.saveDeploymentList(arr)
+            }
+            if (this.io) this.io.emit('deployment-updated')
+          } else if (action === 'app-resize') {
+            const newStorage = { ...meta?.storage, ...meta?.newStorage }
+            if (name === 'FAILED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+            } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+            } else if (name === 'COMPLETED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'running', newStorage)
+            }
+            if (this.io) this.io.emit('deployment-updated')
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[TemporalBridge] Failed polling workflow ${wfId}: ${err.message}`)
+        clearInterval(timer)
+      }
+    }, WORKFLOW_POLL_INTERVAL)
+  }
+
+  async startActiveWorkflowRecovery(): Promise<void> {
+    if (!this.client) {
+      try {
+        this.client = await getDefaultClient()
+      } catch (err: any) {
+        console.warn(`[TemporalBridge] Skipping recovery, Temporal client not ready: ${err.message}`)
+        return
+      }
+    }
+
+    console.log('[TemporalBridge] Running active workflow recovery check...')
+
+    // 1. Recover Clusters
+    const clusters = await this.db.getClusters()
+    for (const cluster of clusters) {
+      if (cluster.status === 'provisioning' || cluster.status === 'destroying') {
+        const wfId = cluster.temporalWorkflowId
+        if (wfId) {
+          const action = cluster.status === 'provisioning' ? 'cluster-provision' : 'cluster-destroy'
+          console.log(`[TemporalBridge] Resuming polling for cluster workflow: ${wfId}`)
+          this.trackWorkflow(wfId, action, cluster.id, cluster.name, cluster.provider)
+        }
+      }
+    }
+
+    // 2. Recover Deployments
+    const deployments = await this.db.getDeployments()
+    for (const dep of deployments) {
+      if (dep.status === 'deploying' || dep.status === 'destroying') {
+        const wfId = dep.temporalWorkflowId
+        if (wfId) {
+          const action = dep.status === 'deploying' ? 'app-deploy' : 'app-destroy'
+          console.log(`[TemporalBridge] Resuming polling for deployment workflow: ${wfId}`)
+          this.trackWorkflow(wfId, action, dep.id, dep.name, '', dep)
+        }
+      }
+    }
+  }
+
   // ────────────────────────────────────────────────────────────────────
   // Cluster lifecycle
   // ────────────────────────────────────────────────────────────────────
@@ -152,35 +269,15 @@ export class TemporalBridge {
 
     const handle = await this.client.workflow.start(ClusterProvisionWorkflow, {
       workflowId: wfId,
-      taskQueue: queue,
+      taskQueue: HOST_QUEUE,
       args: [activityArgs],
     })
 
-    // Start background poll — updates DB when workflow completes
-    const timer = setInterval(async () => {
-      const status = await pollWorkflowRun(wfId)
-      if (status && status.status?.name !== 'RUNNING') {
-        clearInterval(timer)
-        const name = status.status?.name
-        let kubeconfig: string | undefined
-        if (name === 'COMPLETED') {
-          try {
-            const wfResult = await handle.result()
-            kubeconfig = (wfResult as any).kubeconfig
-          } catch {}
-        }
-        if (name === 'FAILED') {
-          await updateUserStatus(this.db, savedCluster.id, clusterName, provider, 'failed', kubeconfig)
-        } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-          await updateUserStatus(this.db, savedCluster.id, clusterName, provider, 'destroyed')
-        } else {
-          await updateUserStatus(this.db, savedCluster.id, clusterName, provider, 'healthy', kubeconfig)
-        }
-      }
-    }, WORKFLOW_POLL_INTERVAL)
+    this.trackWorkflow(wfId, 'cluster-provision', savedCluster.id, clusterName, provider)
 
     return {
       id: wfId,
+      resourceId: savedCluster.id,
       event: 'cluster-provision',
       promise: handle.result(),
     }
@@ -207,22 +304,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const handle = await this.client.workflow.start(executeDestroyClusterWorkflow, {
       workflowId: wfId,
-      taskQueue: queue,
+      taskQueue: HOST_QUEUE,
       args: [activityArgs],
     })
 
-    const timer = setInterval(async () => {
-      const status = await pollWorkflowRun(wfId)
-      if (status && status.status?.name !== 'RUNNING') {
-        clearInterval(timer)
-        const name = status.status?.name
-        if (name === 'FAILED') {
-          await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'failed')
-        } else {
-          await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'destroyed')
-        }
-      }
-    }, WORKFLOW_POLL_INTERVAL)
+    this.trackWorkflow(wfId, 'cluster-destroy', cluster.id, cluster.name, cluster.provider)
 
     return {
       id: wfId,
@@ -294,28 +380,15 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const handle = await this.client.workflow.start(executeDeployAppWorkflow, {
       workflowId: wfId,
-      taskQueue: queue,
+      taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
     })
 
-    // Background polling: watch for workflow completion
-    const timer = setInterval(async () => {
-      const status = await pollWorkflowRun(wfId)
-      if (status && status.status?.name !== 'RUNNING') {
-        clearInterval(timer)
-        const name = status.status?.name
-        if (name === 'FAILED') {
-          await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
-        } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-          await updateDeploymentStatus(this.db, dep.id, dep, 'destroyed', dep.storage)
-        } else if (name === 'COMPLETED') {
-          await updateDeploymentStatus(this.db, dep.id, dep, 'running', dep.storage)
-        }
-      }
-    }, WORKFLOW_POLL_INTERVAL)
+    this.trackWorkflow(wfId, 'app-deploy', dep.id, dep.name, '', dep)
 
     return {
       id: wfId,
+      resourceId: dep.id,
       event: 'app-deploy',
       promise: handle.result(),
     }
@@ -351,25 +424,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const handle = await this.client.workflow.start(executeDestroyAppWorkflow, {
       workflowId: wfId,
-      taskQueue: queue,
+      taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
     })
 
-    const timer = setInterval(async () => {
-      const status = await pollWorkflowRun(wfId)
-      if (status && status.status?.name !== 'RUNNING') {
-        clearInterval(timer)
-        const name = status.status?.name
-        if (name === 'FAILED') {
-          await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
-        } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
-          // delete the deployment row
-          const deployments = await this.db.getDeployments()
-          const arr = deployments.filter((d: any) => d.id !== deploymentId)
-          await this.db.saveDeploymentList(arr)
-        }
-      }
-    }, WORKFLOW_POLL_INTERVAL)
+    this.trackWorkflow(wfId, 'app-destroy', dep.id, dep.name, '', dep)
 
     return {
       id: wfId,
@@ -414,24 +473,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const handle = await this.client.workflow.start(executeResizeDiskWorkflow, {
       workflowId: wfId,
-      taskQueue: queue,
+      taskQueue: CLUSTER_QUEUE,
       args: [activityArgs],
     })
 
-    const timer = setInterval(async () => {
-      const status = await pollWorkflowRun(wfId)
-      if (status && status.status?.name !== 'RUNNING') {
-        clearInterval(timer)
-        const name = status.status?.name
-        if (name === 'FAILED') {
-          await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
-        } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-          await updateDeploymentStatus(this.db, dep.id, dep, 'destroyed', dep.storage)
-        } else if (name === 'COMPLETED') {
-          await updateDeploymentStatus(this.db, dep.id, dep, 'running', { ...dep.storage, ...storage })
-        }
-      }
-    }, WORKFLOW_POLL_INTERVAL)
+    this.trackWorkflow(wfId, 'app-resize', dep.id, dep.name, '', { ...dep, newStorage: storage })
 
     return {
       id: wfId,

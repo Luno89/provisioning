@@ -11,7 +11,7 @@
 #   1 — max iterations hit
 set -uo pipefail
 
-ROOT="/home/luno/Code/provisioning"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-3001}"
 MAX_ITER=15
 VERBOSE=0

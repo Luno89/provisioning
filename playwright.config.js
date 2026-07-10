@@ -22,7 +22,7 @@ exports.default = (0, test_1.defineConfig)({
     ],
     webServer: [
         {
-            command: 'PORT=3002 IS_E2E=true NODE_ENV=test npx concurrently --kill-others "npm run dev -w apps/backend" "npm run dev:worker -w apps/backend" > backend.log 2>&1',
+            command: 'PORT=3002 IS_E2E=true NODE_ENV=test npx concurrently --kill-others "npm run dev -w apps/backend" "npm run dev:worker -w apps/backend" "npm run dev:worker:cluster -w apps/backend" > backend.log 2>&1',
             port: 3002,
             reuseExistingServer: true,
         },

@@ -3,11 +3,12 @@ import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import type { LocalDB } from '../lib/db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { Server as SocketServer } from 'socket.io';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -17,12 +18,38 @@ export class AppExposureService extends BaseService {
   private infra: InfrastructureService;
   private clusters: ClusterService;
   private nginxConfDir: string;
+  private io?: SocketServer;
+  private activeTunnels: Map<string, any> = new Map();
 
-  constructor(db: LocalDB, infra: InfrastructureService, clusters: ClusterService) {
+  private static registeredListeners = false;
+  private static activeServices: AppExposureService[] = [];
+
+  constructor(db: LocalDB, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;
     this.nginxConfDir = path.join(__dirname, '../../data/nginx');
+    this.io = io;
+
+    AppExposureService.activeServices.push(this);
+
+    if (!AppExposureService.registeredListeners) {
+      const globalCleanup = () => {
+        for (const service of AppExposureService.activeServices) {
+          for (const child of service.activeTunnels.values()) {
+            try {
+              child.kill('SIGKILL');
+            } catch {}
+          }
+        }
+      };
+
+      process.on('exit', globalCleanup);
+      process.on('SIGINT', () => { globalCleanup(); process.exit(0); });
+      process.on('SIGTERM', () => { globalCleanup(); process.exit(0); });
+      process.on('SIGUSR2', () => { globalCleanup(); process.exit(0); });
+      AppExposureService.registeredListeners = true;
+    }
   }
 
   private sanitize(name: string) {
@@ -79,10 +106,11 @@ export class AppExposureService extends BaseService {
     return { namespace, backendTarget };
   }
 
-  private buildConfContent(namespace: string, backendTarget: string): string {
+  private buildConfContent(namespace: string, backendTarget: string, tunnelHost?: string): string {
+    const extraHost = tunnelHost ? ` ${tunnelHost}` : '';
     return `server {
     listen 80;
-    server_name ${namespace} ~^${namespace}\\..*$;
+    server_name ${namespace} ~^${namespace}\\..*$${extraHost};
 
     location / {
         resolver 127.0.0.11 valid=10s;
@@ -102,6 +130,69 @@ export class AppExposureService extends BaseService {
 `;
   }
 
+  private async startTunnel(deploymentId: string, namespace: string): Promise<string> {
+    const existing = this.activeTunnels.get(deploymentId);
+    if (existing) {
+      try {
+        existing.kill('SIGKILL');
+      } catch {}
+      this.activeTunnels.delete(deploymentId);
+    }
+
+    const localUrl = `http://${namespace}.localhost:8000`;
+    console.log(`[AppExposureService] Spawning localtunnel for ${namespace} on port 8000...`);
+
+    return new Promise<string>((resolve) => {
+      const child = spawn('npx', ['-y', 'localtunnel', '--port', '8000', '--subdomain', namespace, '--local-host', `${namespace}.localhost`]);
+      this.activeTunnels.set(deploymentId, child);
+
+      let resolved = false;
+
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.warn(`[AppExposureService] Localtunnel for ${namespace} timed out. Falling back to local URL.`);
+          resolve(localUrl);
+        }
+      }, 15000);
+
+      child.stdout.on('data', (data) => {
+        const output = data.toString();
+        console.log(`[Localtunnel stdout] ${output.trim()}`);
+        const match = output.match(/your url is:\s+(https:\/\/[^\s]+)/i);
+        if (match && match[1]) {
+          clearTimeout(timeout);
+          if (!resolved) {
+            resolved = true;
+            const publicUrl = match[1];
+            console.log(`[AppExposureService] Localtunnel established successfully: ${publicUrl}`);
+            resolve(publicUrl);
+          }
+        }
+      });
+
+      child.stderr.on('data', (data) => {
+        console.error(`[Localtunnel stderr] ${data.toString().trim()}`);
+      });
+
+      child.on('close', (code) => {
+        console.log(`[AppExposureService] Localtunnel process for ${namespace} exited with code ${code}`);
+        clearTimeout(timeout);
+        this.activeTunnels.delete(deploymentId);
+      });
+
+      child.on('error', (err) => {
+        console.error(`[AppExposureService] Localtunnel process error: ${err.message}`);
+        clearTimeout(timeout);
+        this.activeTunnels.delete(deploymentId);
+        if (!resolved) {
+          resolved = true;
+          resolve(localUrl);
+        }
+      });
+    });
+  }
+
   async expose(id: string) {
     const deployments = await this.db.getDeployments();
     const dep = deployments.find(d => d.id === id);
@@ -112,8 +203,12 @@ export class AppExposureService extends BaseService {
 
     const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
 
+    // Start tunnel first to get the actual assigned URL
+    const exposureUrl = await this.startTunnel(dep.id, namespace);
+    const tunnelHost = exposureUrl.replace(/^https?:\/\//, '');
+
     const confPath = path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
-    const confContent = this.buildConfContent(namespace, backendTarget);
+    const confContent = this.buildConfContent(namespace, backendTarget, tunnelHost);
     await fs.mkdir(path.dirname(confPath), { recursive: true });
     await fs.writeFile(confPath, confContent);
 
@@ -123,10 +218,10 @@ export class AppExposureService extends BaseService {
       throw new Error(`Failed to reload Nginx container: ${err.message}`);
     }
 
-    const exposureUrl = `http://${namespace}.localhost:8000`;
     dep.isExposed = true;
     dep.exposureUrl = exposureUrl;
     await this.db.saveDeployment(dep);
+    if (this.io) this.io.emit('deployment-updated');
 
     return dep;
   }
@@ -145,12 +240,27 @@ export class AppExposureService extends BaseService {
         }
 
         const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+
+        // Start public tunnel and wait for it
+        const url = await this.startTunnel(dep.id, namespace).catch((err) => {
+          this.logger.error(`Failed to establish sync tunnel for "${dep.name}": ${err.message}`);
+          return `http://${namespace}.localhost:8000`;
+        });
+
+        dep.exposureUrl = url;
+        await this.db.saveDeployment(dep);
+
+        // Write configuration dynamically with assigned tunnel hostname
+        const tunnelHost = url.replace(/^https?:\/\//, '');
         const confPath = path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
-        const confContent = this.buildConfContent(namespace, backendTarget);
+        const confContent = this.buildConfContent(namespace, backendTarget, tunnelHost);
         await fs.mkdir(path.dirname(confPath), { recursive: true });
         await fs.writeFile(confPath, confContent);
         changed = true;
-        this.logger.info(`Synced nginx config for "${dep.name}" -> ${backendTarget}`);
+        this.logger.info(`Synced nginx config for "${dep.name}" -> ${backendTarget} (tunnel: ${tunnelHost})`);
+
+        if (this.io) this.io.emit('deployment-updated');
+
       } catch (err: any) {
         this.logger.error(`Failed to sync nginx config for "${dep.name}": ${err.message}`);
       }
@@ -191,7 +301,14 @@ export class AppExposureService extends BaseService {
 
     const namespace = this.sanitize(dep.name);
 
-    // 1. Remove Nginx configuration file
+    const tunnel = this.activeTunnels.get(id);
+    if (tunnel) {
+      try {
+        tunnel.kill('SIGKILL');
+      } catch {}
+      this.activeTunnels.delete(id);
+    }
+
     const confPath = path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
     try {
       await fs.unlink(confPath);
@@ -199,19 +316,33 @@ export class AppExposureService extends BaseService {
       // Ignore if file doesn't exist
     }
 
-    // 2. Reload Nginx
     try {
       await execAsync('docker exec provisioner-nginx nginx -s reload');
     } catch (err: any) {
       this.logger.error(`Failed to reload Nginx container: ${err.message}`);
     }
 
-
-
-    // 4. Update metadata
     dep.isExposed = false;
     delete dep.exposureUrl;
     await this.db.saveDeployment(dep);
+    if (this.io) this.io.emit('deployment-updated');
+
+    return dep;
+  }
+
+  async updateExposurePath(id: string, exposurePath: string) {
+    const deployments = await this.db.getDeployments();
+    const dep = deployments.find(d => d.id === id);
+    if (!dep) throw new Error('Deployment not found');
+
+    let formattedPath = exposurePath.trim();
+    if (formattedPath && !formattedPath.startsWith('/')) {
+      formattedPath = '/' + formattedPath;
+    }
+
+    dep.exposurePath = formattedPath;
+    await this.db.saveDeployment(dep);
+    if (this.io) this.io.emit('deployment-updated');
 
     return dep;
   }

@@ -1,7 +1,20 @@
-FROM node:20-alpine
-RUN apk add --no-cache bash
-USER node
+FROM node:20-slim
+RUN apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates tar && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+
+# Download kubectl and helm binaries natively for the container's architecture
+RUN mkdir -p /app/bin && \
+    ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
+    curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" -o /app/bin/kubectl && \
+    chmod +x /app/bin/kubectl && \
+    curl -fsSL "https://get.helm.sh/helm-v3.15.1-linux-${ARCH}.tar.gz" -o helm.tar.gz && \
+    tar -zxvf helm.tar.gz && \
+    mv linux-${ARCH}/helm /app/bin/helm && \
+    chmod +x /app/bin/helm && \
+    rm -rf linux-${ARCH} helm.tar.gz
+
+RUN chown -R node:node /app
+USER node
 
 # Copy workspace manifests for dependency install
 COPY --chown=node:node package.json ./
@@ -14,9 +27,6 @@ RUN npm install --workspaces --include-workspace-root --production --ignore-scri
 # Copy source code
 COPY --chown=node:node apps/backend ./apps/backend
 COPY --chown=node:node packages/cdktf-infra ./packages/cdktf-infra
-
-# Copy kubectl and helm binaries
-COPY --chown=node:node bin/kubectl bin/helm /app/bin/
 
 # Copy root tsconfig for tsx resolution
 COPY --chown=node:node tsconfig.json ./

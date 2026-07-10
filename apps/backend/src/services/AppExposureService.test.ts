@@ -19,9 +19,23 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 const mockExec = vi.fn((cmd: string, cb: Function) => cb(null, { stdout: '', stderr: '' }));
+const mockSpawnStdoutOn = vi.fn((event: string, cb: Function) => {
+  if (event === 'data') {
+    setTimeout(() => cb(Buffer.from('your url is: https://myapp.loca.lt\n')), 10);
+  }
+});
+const mockSpawnStderrOn = vi.fn();
+const mockSpawnOn = vi.fn();
+const mockSpawn = vi.fn(() => ({
+  stdout: { on: mockSpawnStdoutOn },
+  stderr: { on: mockSpawnStderrOn },
+  on: mockSpawnOn,
+  kill: vi.fn(),
+}));
 
 vi.mock('node:child_process', () => ({
   exec: mockExec,
+  spawn: mockSpawn,
 }));
 
 vi.mock('node:util', () => ({
@@ -211,7 +225,7 @@ describe('expose', () => {
 
     expect(mockWriteFile).toHaveBeenCalledOnce();
     expect(result.isExposed).toBe(true);
-    expect(result.exposureUrl).toBe('http://myapp.localhost:8000');
+    expect(result.exposureUrl).toBe('https://myapp.loca.lt');
   });
 
   it('throws when not found', async () => {

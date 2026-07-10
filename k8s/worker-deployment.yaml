@@ -22,9 +22,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: TEMPORAL_CONNECTION_ADDRESS
-              value: "host.docker.internal:7233"
+              value: "host.k3d.internal:7233"
             - name: TEMPORAL_TASK_QUEUE
-              value: "provisioning-ops-queue"
+              value: "cluster-ops-queue"
             - name: IN_CLUSTER
               value: "true"
           volumeMounts:

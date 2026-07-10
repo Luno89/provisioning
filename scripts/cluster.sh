@@ -16,53 +16,74 @@
 
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROVISIONER_CLUSTER="${PROVISIONER_CLUSTER:-provisioning-lunorica}"
 
-  run_cluster_create() {
-    # Install k3d if missing
-    if ! command -v k3d >/dev/null 2>&1; then
-      if curl -fsSL https://github.com/k3d-io/k3d/releases/latest/download/k3d-linux-amd64 \
-         -o /tmp/k3d-linux-amd64 \
-         && install -m 0755 /tmp/k3d-linux-amd64 ~/.local/bin/k3d \
-         && echo 'export PATH="$HOME/.local/bin:$PATH" # k3d' >> ~/.bashrc 2>/dev/null || true; then
-        k3d version >/dev/null 2>&1 || true
-        echo "  ✅ installed k3d"
-      else
-        rm -f /tmp/k3d-linux-amd64
-        echo "  ❌ k3d install failed — exiting"
-        return 1
-      fi
-    fi
+K3D="${ROOT}/bin/k3d"
+if [ ! -f "$K3D" ] || ! "$K3D" --version >/dev/null 2>&1; then
+  K3D="k3d"
+fi
 
-    echo "  ▶  provisioning k3d ${1:-${PROVISIONER_CLUSTER:-provisioning-lunorica}}"
-    if k3d cluster create "${1:-${PROVISIONER_CLUSTER:-provisioning-lunorica}}" >/dev/null 2>&1; then
-      echo "  ✅ k3d up"
+KUBECTL="${ROOT}/bin/kubectl"
+if [ ! -f "$KUBECTL" ] || ! "$KUBECTL" version --client >/dev/null 2>&1; then
+  KUBECTL="kubectl"
+fi
+
+run_cluster_create() {
+  # Install k3d if missing
+  if ! command -v "$K3D" >/dev/null 2>&1; then
+    local OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    local ARCH="$(uname -m)"
+    case "$ARCH" in
+      x86_64)       ARCH="amd64" ;;
+      arm64|aarch64) ARCH="arm64" ;;
+    esac
+    if curl -fsSL "https://github.com/k3d-io/k3d/releases/latest/download/k3d-${OS}-${ARCH}" \
+       -o /tmp/k3d-bin \
+       && install -m 0755 /tmp/k3d-bin ~/.local/bin/k3d \
+       && export PATH="$HOME/.local/bin:$PATH" \
+       && echo 'export PATH="$HOME/.local/bin:$PATH" # k3d' >> ~/.bashrc 2>/dev/null || true; then
+      K3D="k3d"
+      "$K3D" version >/dev/null 2>&1 || true
+      echo "  ✅ installed k3d"
     else
-      echo "  ❌ cluster failed — exiting"
+      rm -f /tmp/k3d-bin
+      echo "  ❌ k3d install failed — exiting"
+      return 1
     fi
-  }
+  fi
+
+  echo "  ▶  provisioning k3d ${1:-${PROVISIONER_CLUSTER:-provisioning-lunorica}}"
+  if "$K3D" cluster create "${1:-${PROVISIONER_CLUSTER:-provisioning-lunorica}}" \
+      --agents 1 \
+      -v /var/run/docker.sock:/var/run/docker.sock@all \
+      >/dev/null 2>&1; then
+    echo "  ✅ k3d up"
+  else
+    echo "  ❌ cluster failed — exiting"
+  fi
+}
 
 run_cluster_delete() {
   local cluster_name="${1:-}"
   [[ -z "${cluster_name}" ]] && return 0
-  if k3d cluster list 2>/dev/null | grep -q "$cluster_name"; then
-    k3d cluster delete "$cluster_name" > /dev/null 2>&1 || true
+  if "$K3D" cluster list 2>/dev/null | grep -q "$cluster_name"; then
+    "$K3D" cluster delete "$cluster_name" > /dev/null 2>&1 || true
   fi
 }
 
 run_cluster_delete_all() {
   local cluster_names
-  cluster_names="$(k3d cluster list 2>/dev/null | awk '{print $1}' || true)"
+  cluster_names="$("$K3D" cluster list 2>/dev/null | awk '{print $1}' || true)"
   for cluster in $cluster_names; do
     run_cluster_delete "$cluster"
   done
 }
 
 run_cluster_status() {
-  local cluster_name="$(echo "$cluster_id" | sed 's/-[0-9]*-.*//' | tr -dc 'a-z-')"
   local context
-  context="$(k3d cluster get "$NAME" 2>/dev/null || true)"
-  echo "Cluster ${NAME} context: ${context:-[LOCAL]}"
+  context="$("$K3D" cluster get "$PROVISIONER_CLUSTER" 2>/dev/null || true)"
+  echo "Cluster ${PROVISIONER_CLUSTER} context: ${context:-[LOCAL]}"
   # Log and stdout to both
   tee /tmp/cluster-big-file 2>&1
 }
@@ -73,7 +94,7 @@ cluster_wait_for_ready() {
   # Returns 0/1; the caller decides whether to log or fail
   local cluster_name="${1:?CLUSTER}"
   while true; do
-    if k3d cluster list 2>/dev/null | grep -q "$cluster_name"; then
+    if "$K3D" cluster list 2>/dev/null | grep -q "$cluster_name"; then
       return 0
     fi
     sleep 1
@@ -94,12 +115,12 @@ cluster_until_ready() {
   echo "  ▶  cluster up — waiting for API server + nodes to be ready..."
   while [[ "$(date +%s)" -lt "$deadline" ]]; do
     # Check 1: kubectl get nodes
-    if kubectl get nodes 2>/dev/null | grep -q "Ready"; then
+    if "$KUBECTL" get nodes 2>/dev/null | grep -q "Ready"; then
       echo "  ✅ API server ready"
       return 0
     fi
     # Check 2: k3d cluster get <name>/api-health
-    if k3d cluster get "$cluster_name/api-health" 2>/dev/null | grep -q "OK"; then
+    if "$K3D" cluster get "$cluster_name/api-health" 2>/dev/null | grep -q "OK"; then
       echo "  ✅ API server ready (via k3d)"
       return 0
     fi
@@ -151,9 +172,9 @@ case "${1:-}" in
     run_cluster_status
     ;;
   use)
-    # List running clusters (context = `PROVISIONER_CLUSTER`, name = `<cluster-name-m -cluster-name-m>`)
+    # List running clusters
     cluster_name="${3:-}"
-    context="$(k3d cluster get "$cluster_name" 2>/dev/null || true)"
+    context="$("$K3D" cluster get "$cluster_name" 2>/dev/null || true)"
     echo "Cluster: ${cluster_name} context: ${context:-[LOCAL]}"
     ;;
   workdir|provisioner_state|kubeconfig)

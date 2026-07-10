@@ -1,8 +1,38 @@
-
-# Playwright
+# Node / Playwright
 node_modules/
 /test-results/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# CDKTF / Terraform
+.terraform/
+.terraform-cache/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+*.tfvars
+*.tfvars.json
+cdktf.out/
+.gen/
+
+# Backend runtime data
+/apps/backend/data/*.json
+!/apps/backend/data/*.json.example
+/apps/backend/data/logs/
+/apps/backend/data/nginx/conf.d/*
+!/apps/backend/data/nginx/conf.d/default.conf
+
+# Local config & secrets
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS Metadata
+.DS_Store
+Thumbs.db

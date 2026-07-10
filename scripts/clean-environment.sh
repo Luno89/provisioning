@@ -11,10 +11,15 @@
 
 set -eo pipefail
 
-ROOT="/home/luno/Code/provisioning"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MAX_CLEAN=3  # max clean rounds to converge
 
 CLEAN_TOTAL=0
+
+K3D="${ROOT}/bin/k3d"
+if [ ! -f "$K3D" ] || ! "$K3D" --version >/dev/null 2>&1; then
+  K3D="k3d"
+fi
 
 # ════════════════════════════════════════════════════════════
 
@@ -32,11 +37,11 @@ cleanup_containers() {
 
 cleanup_k3d_clusters() {
   local list_output
-  list_output="$(k3d cluster list --no-headers 2>/dev/null)" || true
+  list_output="$("$K3D" cluster list --no-headers 2>/dev/null)" || true
   [[ -z "$list_output" ]] && return 0
   while read -r c; do
     [[ -z "$c" ]] && continue
-    k3d cluster delete "$c" >/dev/null 2>&1 || true
+    "$K3D" cluster delete "$c" >/dev/null 2>&1 || true
     CLEAN_TOTAL=$((CLEAN_TOTAL+1))
     echo "  ✘ rm k3d cluster: $c"
   done <<< "$list_output"
@@ -121,7 +126,13 @@ cleanup_processes() {
     CLEAN_TOTAL=$((CLEAN_TOTAL+1))
     echo "  ✘ kill process: $p"
   done < <(pgrep -f "k3d-Lunorica-server-0" 2>/dev/null || true)
-  pgrep -f "deployworkerd" 2>/dev/null | xargs -r kill 2>/dev/null || true
+  
+  local PIDS
+  PIDS=$(pgrep -f "deployworkerd" 2>/dev/null || true)
+  if [ -n "$PIDS" ]; then
+    echo "$PIDS" | xargs kill 2>/dev/null || true
+    CLEAN_TOTAL=$((CLEAN_TOTAL+1))
+  fi
 }
 
 # ════════════════════════════════════════════════════════════
