@@ -17,7 +17,7 @@
 
 set -uo pipefail
 
-ROOT="/home/luno/Code/provisioning"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-3001}"
 CLUSTER_NAME=""
 
@@ -66,7 +66,11 @@ else
 fi
 
 # 3. k3d API server reachable (inside k3d server container)
-API_REDIRECT="$(k3d cluster get "${CLUSTER_NAME}/api-health" 2>&1)" || true
+K3D="${ROOT}/bin/k3d"
+if [ ! -f "$K3D" ] || ! "$K3D" --version >/dev/null 2>&1; then
+  K3D="k3d"
+fi
+API_REDIRECT="$("$K3D" cluster get "${CLUSTER_NAME}/api-health" 2>&1)" || true
 if echo "$API_REDIRECT" | grep -qi "ok\|200\|cluster federated"; then
   pass "k3d ${CLUSTER_NAME} //api-health returned OK"
 else

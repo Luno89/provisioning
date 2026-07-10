@@ -38,7 +38,7 @@ export async function ProvisionClusterActivity(
 
   if (args.provider === 'k3d') {
     try {
-      infra.runKubectl(['config', 'unset', 'clusters.k3d-' + args.name]);
+      await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + args.name]);
     } catch {}
 
     await infra.createLocalCluster(args.name, { logFile });
@@ -46,18 +46,45 @@ export async function ProvisionClusterActivity(
     const kubeconfigContent = await infra.getKubeconfig(args.name);
     await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
 
-    // --- Wait for cluster API server to become responsive ---
+    // --- Wait for cluster API server and nodes to become responsive and ready ---
     let ready = false;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 45; i++) {
       try {
-        infra.runKubectl(['get', 'nodes'], kubeconfigPath);
-        ready = true;
-        break;
+        const nodesJson = await infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
+        const nodesObj = JSON.parse(nodesJson);
+        const nodes = nodesObj.items || [];
+        const hasReadyNode = nodes.some((node: any) =>
+          node.status?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True')
+        );
+        if (hasReadyNode) {
+          ready = true;
+          break;
+        }
       } catch {}
+
+      // Check docker logs for file descriptor limit exhaustion inside the Colima/Docker VM
+      if (i > 0 && i % 5 === 0) {
+        try {
+          const containerName = `k3d-${args.name}-server-0`;
+          const { exec } = await import('child_process');
+          const { promisify } = await import('util');
+          const execAsync = promisify(exec);
+          const { stdout, stderr } = await execAsync(`docker logs --tail 200 ${containerName}`);
+          const logs = stdout + '\n' + stderr;
+          if (logs.includes('too many open files') || logs.includes('fsnotify')) {
+            throw new Error(`Docker/Colima VM resource limit exhausted: 'too many open files' in K3s file watcher. Please run 'colima restart' in your terminal to reset the VM limits.`);
+          }
+        } catch (logErr: any) {
+          if (logErr.message.includes('VM resource limit')) {
+            throw logErr;
+          }
+        }
+      }
+
       await new Promise((r) => setTimeout(r, 2000));
     }
     if (!ready) {
-      throw new Error(`Cluster ${args.name} API server did not become ready in time.`);
+      throw new Error(`Cluster ${args.name} did not get a Ready control plane node in time.`);
     }
 
     // --- Patch local-path StorageClass to allow volume expansion ---

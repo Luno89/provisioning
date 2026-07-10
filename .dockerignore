@@ -1,0 +1,8 @@
+node_modules/
+**/node_modules/
+apps/backend/data/
+.k3d-cluster-state/
+.test-server-state/
+.test-e2e-state/
+.git/
+bin/

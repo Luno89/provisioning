@@ -46,8 +46,8 @@ function startHostTunnel(port = 8000) {
     console.error(`Host tunnel server error: ${err.message}`);
   });
 
-  server.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 Host Tunnel Server active on http://0.0.0.0:${port}`);
+  server.listen(port, '::', () => {
+    console.log(`🚀 Host Tunnel Server active on http://[::]:${port}`);
   });
 }
 
@@ -76,12 +76,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
-  const appExposureService = new AppExposureService(db, infraService, clusterService);
+  const appExposureService = new AppExposureService(db, infraService, clusterService, io);
 
   // ── 2. Temporal bridge (HTTP only → sketch → poll DB) ────────────────────
-  const temporalBridge = new TemporalBridge(db);
+  const temporalBridge = new TemporalBridge(db, io);
   try {
     await temporalBridge.start();
+    await temporalBridge.startActiveWorkflowRecovery();
   } catch (e: any) {
     // If Temporal is not reachable, serve the same UI with normal polling
     console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
@@ -92,7 +93,45 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   // ── 3. SOCKET.IO ORCHESTRATION ───────────────────────────────────────────
   io.on('connection', (socket) => {
-    socket.on('join-room', (id) => socket.join(id));
+    const socketTails = new Map<string, any>();
+
+    socket.on('join-room', async (id) => {
+      socket.join(id);
+
+      const existing = socketTails.get(id);
+      if (existing) {
+        existing.kill();
+        socketTails.delete(id);
+      }
+
+      const resource = (await clusterService.getById(id)) || 
+                       (await appService.getAll()).find((d: any) => d.id === id);
+
+      if (resource && resource.lastLogPath) {
+        try {
+          await fs.access(resource.lastLogPath);
+        } catch {
+          await fs.mkdir(path.dirname(resource.lastLogPath), { recursive: true }).catch(() => {});
+          await fs.writeFile(resource.lastLogPath, '').catch(() => {});
+        }
+
+        const tail = spawn('tail', ['-n', '0', '-f', resource.lastLogPath]);
+        socketTails.set(id, tail);
+
+        tail.stdout.on('data', (data) => {
+          socket.emit('log', data.toString());
+        });
+
+        tail.stderr.on('data', (data) => {
+          socket.emit('log', data.toString());
+        });
+
+        tail.on('close', () => {
+          socketTails.delete(id);
+        });
+      }
+    });
+
     socket.on('join-kube-room', (id) => socket.join(`${id}-kube`));
     socket.on('tail-pod', async ({ resourceId, podName, namespace }) => {
       const deployments = await appService.getAll();
@@ -110,8 +149,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (context) args.push('--context', context);
       infraService.streamLogs(resourceId, args, io, `${resourceId}-kube`, kubeconfigPath);
     });
-    socket.on('leave-room', (id) => socket.leave(id));
+
+    socket.on('leave-room', (id) => {
+      socket.leave(id);
+      const tail = socketTails.get(id);
+      if (tail) {
+        tail.kill();
+        socketTails.delete(id);
+      }
+    });
+
     socket.on('leave-kube-room', (id) => { socket.leave(`${id}-kube`); infraService.stopStream(id); });
+
+    socket.on('disconnect', () => {
+      for (const tail of socketTails.values()) {
+        tail.kill();
+      }
+      socketTails.clear();
+    });
   });
 
   // ── 4. ROUTES ────────────────────────────────────────────────────────────
@@ -127,6 +182,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         message: 'Provisioning started',
         clusterName: req.body.name,
         provider: req.body.provider,
+        id: info.resourceId,
         workflowId: info.id,
         state: 'running',
       });
@@ -162,6 +218,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       res.status(202).json({
         message: 'Deployment started',
         deploymentName: req.body.name,
+        id: info.resourceId,
         workflowId: info.id,
         state: 'running',
       });
@@ -195,6 +252,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   app.post('/api/deployments/:id/unexpose', async (req, res) => {
     try { res.json(await appExposureService.unexpose(req.params.id)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.patch('/api/deployments/:id/exposure-path', async (req, res) => {
+    try {
+      const { path } = req.body;
+      res.json(await appExposureService.updateExposurePath(req.params.id, path));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   /** ── MODULES ── */

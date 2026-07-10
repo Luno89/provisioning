@@ -26,6 +26,7 @@ export interface DeploymentMetadata {
   url?: string;
   isExposed?: boolean;
   exposureUrl?: string;
+  exposurePath?: string;
   lastLogPath?: string;
   modules?: string[]; // IDs of enabled custom modules
   storage?: Record<string, string>;

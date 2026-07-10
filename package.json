@@ -4,20 +4,23 @@
   "description": "Multi-Cloud Provisioning Platform",
   "private": true,
   "scripts": {
-    "first-time": "bash scripts/first-time.sh",
-    "dev": "bash scripts/ensure-cluster.sh && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\" \"npm run dev:worker -w apps/backend\"",
-    "clean-dev": "ps aux | grep -E 'vite|tsx|cdktf|concurrently|worker' | grep \"$(pwd)\" | grep -v grep | awk '{print $2}' | xargs -r kill -9",
-    "worker": "docker build -t deployworker.sh -f Dockerfile.worker . && npm run first-time -- --deploy",
+    "setup": "bash scripts/setup.sh",
+    "dev": "bash scripts/ensure-cluster.sh && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\" \"npm run dev:worker -w apps/backend\" \"npm run dev:worker:cluster -w apps/backend\"",
+    "clean-dev": "bash scripts/cleanup-all.sh",
+    "worker": "docker build -t deployworker.sh -f Dockerfile.worker . && bash scripts/first-time.sh --deploy",
 
     "test":       "npm run test:unit && npm run test:e2e:sync",
     "test:all":   "npm test && npm run test:infra:integration && npm run test:unit:vpn",
+
+    "test:alive": "bash scripts/alive.sh",
+    "test:worker": "tsx tests/worker-isolated.ts",
 
     "test:unit":       "npm run test:unit:frontend && npm run test:unit:backend",
     "test:unit:frontend":    "npm run test -w apps/frontend",
     "test:unit:backend":     "npm run test -w apps/backend",
 
-    "test:e2e:sync":    "npm run test:unit && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
-    "test:e2e":         "npm run test:test:e2e:setup && npx playwright test e2e && npm run test:test:e2e:teardown",
+    "test:e2e:sync":    "npm run test:alive && npm run test:unit && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
+    "test:e2e":         "npm run test:alive && npm run test:test:e2e:setup && npx playwright test e2e && npm run test:test:e2e:teardown",
 
     "test:infra:integration": "node tests/infra-integration.ts",
     "test:unit:vpn":     "node packages/cdktf-infra/lib/vpn-service.spec.js",

@@ -152,23 +152,47 @@ export class ClusterService extends BaseService {
           kubeconfigPath = `/tmp/kubeconfig-${name}`;
           await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
 
-          // 4. Wait for cluster API server to be responsive both internally and externally
+          // 4. Wait for cluster API server and nodes to become responsive and ready
           let ready = false;
-          for (let i = 0; i < 30; i++) {
+          for (let i = 0; i < 45; i++) {
             try {
-              // Internal check (inside container)
-              await this.infra.runKubectl(['get', 'nodes'], kubeconfigPath);
-              // External check (from host)
-              await this.infra.runKubectl(['get', 'nodes'], `/tmp/./kubeconfig-${name}`);
-              ready = true;
-              break;
+              const nodesJson = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
+              const nodesObj = JSON.parse(nodesJson);
+              const nodes = nodesObj.items || [];
+              const hasReadyNode = nodes.some((node: any) =>
+                node.status?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True')
+              );
+              if (hasReadyNode) {
+                ready = true;
+                break;
+              }
             } catch (err: any) {
               this.logger.info(`Waiting for cluster ${name} API server: ${err.message}`);
-              await new Promise(resolve => setTimeout(resolve, 2000));
             }
+
+            // Check docker logs for file descriptor limit exhaustion inside the Colima/Docker VM
+            if (i > 0 && i % 5 === 0) {
+              try {
+                const containerName = `k3d-${name}-server-0`;
+                const { exec } = await import('child_process');
+                const { promisify } = await import('util');
+                const execAsync = promisify(exec);
+                const { stdout, stderr } = await execAsync(`docker logs --tail 200 ${containerName}`);
+                const logs = stdout + '\n' + stderr;
+                if (logs.includes('too many open files') || logs.includes('fsnotify')) {
+                  throw new Error(`Docker/Colima VM resource limit exhausted: 'too many open files' in K3s file watcher. Please run 'colima restart' in your terminal to reset the VM limits.`);
+                }
+              } catch (logErr: any) {
+                if (logErr.message.includes('VM resource limit')) {
+                  throw logErr;
+                }
+              }
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
           if (!ready) {
-            throw new Error(`Cluster ${name} API server did not become ready in time.`);
+            throw new Error(`Cluster ${name} did not get a Ready control plane node in time.`);
           }
 
           // Enable volume expansion on default local-path storage class with retries

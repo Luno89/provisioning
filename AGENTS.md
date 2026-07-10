@@ -22,10 +22,12 @@ npm workspaces: `apps/*`, `packages/*`
 
 ## Worker architecture
 
-Two Temporal workers share the same task queue (`provisioning-ops-queue`). Activities route to whichever worker registered them:
+Two separate task queues partition the operations:
+- `host-ops-queue` routes cluster provisioning and destruction workflows/activities to the host worker.
+- `cluster-ops-queue` routes application deployment, deletion, and volume resizing workflows/activities to the cluster worker.
 
-- **Host worker** (`worker-host.ts`, runs via `npm run dev:worker`): Has Docker, k3d, kubectl, CDKTF access on the host. Handles `ProvisionClusterActivity`, `DestroyClusterActivity`.
-- **In-cluster worker** (`worker-cluster.ts`, runs as a pod in the k3d management cluster): Has Docker socket mounted, K8s service account for in-cluster API access. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
+- **Host worker** (`worker-host.ts`, runs via `npm run dev:worker`): Listens to `host-ops-queue`. Has Docker, k3d, kubectl, CDKTF access on the host. Handles `ProvisionClusterActivity`, `DestroyClusterActivity`.
+- **In-cluster worker** (`worker-cluster.ts`, runs as a pod in the k3d management cluster or locally via `npm run dev:worker:cluster`): Listens to `cluster-ops-queue`. Has Docker socket mounted, K8s service account (when in cluster) or kubeconfig (when on host) for API access. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
 
 ## Commands
 
@@ -68,7 +70,7 @@ In-cluster worker (manual): `npm run dev:worker:cluster -w apps/backend`
 - **No Express Router** — all ~30 routes defined inline in `bootstrap()` (apps/backend/src/index.ts)
 - **No auth** on any route
 - **JSON file DB** — read-modify-write pattern, prone to race conditions under concurrency
-- **Temporal.io is optional** — backend starts without it, falls back gracefully. Start via `docker-compose -f docker-compose.temporal.yml up`
+- **Temporal.io is optional** — backend starts without it, falls back gracefully. Start via `docker compose -f docker-compose.temporal.yml up`
 - **CDKTF stack selection** — env var `STACK_TYPE=cluster` for infra, `STACK_TYPE=app` for apps
 - **k3d for local dev** — cluster named `provisioning-lunorica` managed by `scripts/ensure-cluster.sh`
 - **App auth in-cluster**: `AppStack.fromEnv()` reads `KUBECONFIG`, `K8S_HOST`, `K8S_TOKEN`, `K8S_CA_CERT`. The in-cluster worker sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` from the service account at startup.
@@ -90,3 +92,25 @@ All persistent state is JSON files under `apps/backend/data/`. In test/E2E mode,
 - Docker, k3d, kubectl, helm (or use `bin/` pre-downloaded binaries)
 - Node.js 20+
 - For Temporal workflows: Docker container on port 7233
+
+## Testing Escalation Path
+
+The test suite uses a layered approach to verify correct operation and speed up local development debugging:
+
+1. **Level 1: Alive/Infrastructure checks (`npm run test:alive`)**
+   - Verified via `scripts/alive.sh`.
+   - Quickly validates that Docker, K3d (management cluster), Kubernetes API readiness, Temporal.io health, and the in-cluster worker pod are running.
+   - If any foundational component is missing or unhealthy, it fails fast with specific instructions on how to start or fix it.
+   - Runs automatically at the start of E2E runs.
+
+2. **Level 2: Unit tests (`npm run test:unit`)**
+   - Verified via Vitest for frontend components and backend services. Runs in under 5 seconds.
+
+3. **Level 3: Worker Isolation Tests (`npm run test:worker`)**
+   - Verified via `tests/worker-isolated.ts` using `npx tsx`.
+   - Runs the backend services and initiates Temporal workflows (`ClusterProvisionWorkflow`, `AppDeployWorkflow`, etc.) in isolation to verify the full backend-to-worker loop (K3d, CDKTF, Helm, and Kubectl) without browser wrappers or WebServers.
+
+4. **Level 4: Full E2E Tests (`npm run test:e2e`)**
+   - Verified via Playwright browser tests driving the React UI.
+   - Starts both host-side and cluster workers on the host network to support all deployment types.
+

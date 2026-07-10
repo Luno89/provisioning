@@ -65,6 +65,7 @@ function App() {
   
   const [logTab, setLogTab] = useState<'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage'>('general');
   const [storageInputs, setStorageInputs] = useState<Record<string, string>>({});
+  const [exposurePathInput, setExposurePathInput] = useState('');
   const [selectedPod, setSelectedPod] = useState<string | null>(null);
   const [socketLogs, setSocketLogs] = useState<string>('');
   const [kubeLogs, setKubeLogs] = useState<string>('');
@@ -250,6 +251,12 @@ function App() {
     }
   }, [currentDeployment?.id, logTab]);
 
+  useEffect(() => {
+    if (currentDeployment) {
+      setExposurePathInput(currentDeployment.exposurePath || '');
+    }
+  }, [currentDeployment?.id]);
+
   const provisionCluster = useMutation({ mutationFn: (newCluster: any) => axios.post(`${API_BASE}/clusters`, newCluster), onSuccess: (res) => { queryClient.invalidateQueries({ queryKey: ['clusters'] }); setShowClusterModal(false); setShowLogModal({ type: 'cluster', id: res.data.id }); setLogTab('provision'); } });
   
   const deployApp = useMutation({ 
@@ -299,6 +306,13 @@ function App() {
 
   const unexposeApp = useMutation({
     mutationFn: (id: string) => axios.post(`${API_BASE}/deployments/${id}/unexpose`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    }
+  });
+
+  const updateExposurePath = useMutation({
+    mutationFn: ({ id, path }: { id: string, path: string }) => axios.patch(`${API_BASE}/deployments/${id}/exposure-path`, { path }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
     }
@@ -491,8 +505,8 @@ function App() {
                               <span className="font-bold text-xl text-slate-500">{a.name}</span>
                             )}
                             {a.isExposed && a.exposureUrl && (
-                              <a href={a.exposureUrl} target="_blank" rel="noreferrer" className="group flex items-center gap-1 text-xs text-green-400 hover:text-green-300 transition-colors w-fit font-semibold mt-1">
-                                <span>Exposed: {a.exposureUrl}</span>
+                              <a href={a.exposureUrl + (a.exposurePath || '')} target="_blank" rel="noreferrer" className="group flex items-center gap-1 text-xs text-green-400 hover:text-green-300 transition-colors w-fit font-semibold mt-1">
+                                <span>Exposed: {a.exposureUrl}{a.exposurePath || ''}</span>
                                 <ExternalLink size={12} className="opacity-60 group-hover:opacity-100 transition-opacity" />
                               </a>
                             )}
@@ -952,17 +966,58 @@ function App() {
                        </div>
 
                        {currentDeployment.isExposed && currentDeployment.exposureUrl && (
-                         <div className="mt-4 p-5 bg-slate-900/80 border border-slate-700 rounded-xl flex items-center justify-between">
-                           <div>
-                             <div className="text-[10px] font-black uppercase text-green-500 tracking-wider mb-1">Public Access URL</div>
-                             <a href={currentDeployment.exposureUrl} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-base font-bold text-blue-400 hover:text-blue-300 transition-colors">
-                               <span>{currentDeployment.exposureUrl}</span>
-                               <ExternalLink size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
-                             </a>
-                           </div>
-                           <span className="text-xs font-semibold px-3 py-1 rounded bg-green-500/10 text-green-400 border border-green-500/20">Active</span>
-                         </div>
-                       )}
+                          <div className="mt-4 p-6 bg-slate-900/60 border border-slate-700/80 rounded-2xl flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-[10px] font-black uppercase text-green-500 tracking-wider mb-1 flex items-center gap-1.5">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                  Public Access URL
+                                </div>
+                                <a href={currentDeployment.exposureUrl + (currentDeployment.exposurePath || '')} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
+                                  <span>{currentDeployment.exposureUrl}{currentDeployment.exposurePath || ''}</span>
+                                  <ExternalLink size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
+                                </a>
+                              </div>
+                              <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 uppercase tracking-wider">Active</span>
+                            </div>
+
+                            <div className="pt-4 border-t border-slate-800/80 flex flex-col gap-2">
+                              <label htmlFor="exposure-path-input" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Target Route Path</label>
+                              <div className="flex items-center gap-3">
+                                <div className="flex-1 flex items-center bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-300 focus-within:border-blue-500/50 transition-all font-mono">
+                                  <span className="text-slate-600 select-none">{currentDeployment.exposureUrl}</span>
+                                  <input
+                                    id="exposure-path-input"
+                                    type="text"
+                                    placeholder="/path/to/app"
+                                    value={exposurePathInput}
+                                    onChange={(e) => setExposurePathInput(e.target.value)}
+                                    onBlur={() => updateExposurePath.mutate({ id: currentDeployment.id, path: exposurePathInput })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        updateExposurePath.mutate({ id: currentDeployment.id, path: exposurePathInput });
+                                        e.currentTarget.blur();
+                                      }
+                                    }}
+                                    className="flex-1 bg-transparent border-0 focus:ring-0 focus:outline-none p-0 ml-0.5 text-slate-200 font-mono text-xs leading-relaxed"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={updateExposurePath.isPending}
+                                  onClick={() => updateExposurePath.mutate({ id: currentDeployment.id, path: exposurePathInput })}
+                                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 hover:border-slate-600 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                >
+                                  {updateExposurePath.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                                  Save Route
+                                </button>
+                              </div>
+                              <span className="text-[10px] text-slate-500 leading-normal">
+                                Edit the sub-path appended to the exposure URL (e.g. <code>/web/database/selector</code>). Saves automatically on blur or pressing Enter.
+                              </span>
+                            </div>
+                          </div>
+                        )}
                      </div>
                    </div>
                  </div>

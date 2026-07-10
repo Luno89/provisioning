@@ -28,6 +28,10 @@ export interface ExecuteOptions {
 /**
  * Service to handle low-level infrastructure commands.
  */
+function escapeShellArg(arg: string): string {
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
+}
+
 export class InfrastructureService {
   private activeStreams: Map<string, ChildProcess> = new Map();
 
@@ -70,11 +74,13 @@ export class InfrastructureService {
         }
       }
       
-      const { stdout } = await execAsync(`docker exec ${containerName} kubectl ${cleanArgs.join(' ')}`);
+      const escapedArgs = cleanArgs.map(escapeShellArg).join(' ');
+      const { stdout } = await execAsync(`docker exec ${containerName} kubectl ${escapedArgs}`);
       return stdout;
     }
 
-    const { stdout } = await execAsync(`${path.join(BIN_DIR, 'kubectl')} ${args.join(' ')}`, {
+    const escapedArgs = args.map(escapeShellArg).join(' ');
+    const { stdout } = await execAsync(`${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} ${escapedArgs}`, {
       env: { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }
     });
     return stdout;
@@ -90,9 +96,13 @@ export class InfrastructureService {
       try {
         await execAsync(`docker exec ${containerName} ls /bin/helm`);
       } catch {
-        // If not, copy it from host bin/helm
+        // If not, copy it from host bin/helm-linux
         try {
-          await execAsync(`docker cp ${path.join(BIN_DIR, 'helm')} ${containerName}:/bin/helm`);
+          const hostHelmPath = existsSync(path.join(BIN_DIR, 'helm-linux')) 
+            ? path.join(BIN_DIR, 'helm-linux') 
+            : path.join(BIN_DIR, 'helm');
+          await execAsync(`docker cp ${escapeShellArg(hostHelmPath)} ${containerName}:/bin/helm`);
+          await execAsync(`docker exec ${containerName} chmod +x /bin/helm`);
         } catch (err: any) {
           console.error(`Failed to copy helm to container ${containerName}: ${err.message}`);
         }
@@ -100,18 +110,22 @@ export class InfrastructureService {
 
       const cleanArgs = [];
       for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--kube-context') {
+        const arg = args[i];
+        if (arg === undefined) continue;
+        if (arg === '--kube-context') {
           i++; // skip context name
         } else {
-          cleanArgs.push(args[i]);
+          cleanArgs.push(arg);
         }
       }
 
-      const { stdout } = await execAsync(`docker exec -e KUBECONFIG=/etc/rancher/k3s/k3s.yaml ${containerName} helm ${cleanArgs.join(' ')}`);
+      const escapedArgs = cleanArgs.map(escapeShellArg).join(' ');
+      const { stdout } = await execAsync(`docker exec -e KUBECONFIG=/etc/rancher/k3s/k3s.yaml ${containerName} helm ${escapedArgs}`);
       return stdout;
     }
 
-    const { stdout } = await execAsync(`${path.join(BIN_DIR, 'helm')} ${args.join(' ')}`, {
+    const escapedArgs = args.map(escapeShellArg).join(' ');
+    const { stdout } = await execAsync(`${escapeShellArg(path.join(BIN_DIR, 'helm'))} ${escapedArgs}`, {
       env: { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }
     });
     return stdout;
@@ -135,6 +149,16 @@ export class InfrastructureService {
   }
 
   async createLocalCluster(name: string, options: ExecuteOptions = {}) {
+    try {
+      const existing = await this.listLocalClusters();
+      if (existing.includes(name)) {
+        console.log(`[InfrastructureService] Cluster ${name} already exists. Skipping k3d cluster creation.`);
+        return { stdout: `Cluster ${name} already exists.`, logFile: this.getLogPath(name) };
+      }
+    } catch (err: any) {
+      console.warn(`[InfrastructureService] Failed to check existing clusters: ${err.message}`);
+    }
+
     let resolvConfPath = '/etc/resolv.conf';
     try {
       if (existsSync('/run/systemd/resolve/resolv.conf')) {

@@ -1,7 +1,0 @@
-
-> backend@1.0.0 dev
-> tsx watch src/index.ts
-
-◇ injected env (2) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
-🚀 Provisioning Server Active on http://localhost:3002
-🚀 Host Tunnel Server active on http://0.0.0.0:8001
