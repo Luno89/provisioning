@@ -102,5 +102,14 @@ if ! command -v docker-compose >/dev/null 2>&1; then
 fi
 $DOCKER_COMPOSE -f "$ROOT/docker-compose.temporal.yml" down -v >/dev/null 2>&1 || true
 $DOCKER_COMPOSE -f "$ROOT/docker-compose.temporal.yml" up -d >/dev/null 2>&1 || true
+echo "  ▶  Waiting for Temporal server to become healthy..."
+for i in {1..30}; do
+  CONTAINER_STATUS=$(docker ps --filter "name=temporal" --filter "health=healthy" -q)
+  if [ -n "$CONTAINER_STATUS" ]; then
+    echo "  ✅ Temporal server is healthy!"
+    break
+  fi
+  sleep 2
+done
 
 echo "✅ Cleanup complete!"

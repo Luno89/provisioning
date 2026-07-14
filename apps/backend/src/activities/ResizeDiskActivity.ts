@@ -7,6 +7,7 @@ import path from 'path';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { StorageAdapter } from '../services/StorageAdapter.js';
+import { hasCloudCredentials } from '../lib/credential-resolver.js';
 
 export interface ResizeDiskArgs {
   name: string;
@@ -17,6 +18,7 @@ export interface ResizeDiskArgs {
   appType: string;
   storage: Record<string, string>;
   logFile: string;
+  deploymentId?: string;
 }
 
 export interface ResizeDiskResult {
@@ -34,23 +36,30 @@ export async function ResizeDiskActivity(
 ): Promise<ResizeDiskResult> {
   const infra = new InfrastructureService();
   const logFile = args.logFile;
-  const kubeconfigPath = args.provider === 'k3d' ? `/tmp/kubeconfig-${args.clusterName}` : undefined;
+  
+  const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
+  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  const kubeconfigPath = (args.provider === 'k3d' || isMock)
+    ? `/tmp/kubeconfig-${physicalName}`
+    : undefined;
 
   const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage);
 
+  const deploymentId = args.deploymentId || 'default';
+
   const env: Record<string, string> = {
     STACK_TYPE: 'app',
-    CLUSTER_NAME: args.clusterName,
+    CLUSTER_NAME: physicalName,
     DEPLOYMENT_STRATEGY: args.strategy,
     DEPLOYMENT_NAME: args.name.toLowerCase().replace(/[^a-z0-9]*/g, '-'),
-    DEPLOYMENT_ID: uuidv4().slice(0, 8),
+    DEPLOYMENT_ID: deploymentId,
     KUBECONFIG: kubeconfigPath || '',
-    KUBECONFIG_CONTEXT: args.provider === 'k3d' ? `k3d-${args.clusterName}` : '',
+    KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
     APP_TYPE: args.appType,
     ...storageEnv,
   };
 
-  await infra.deploy(`app-${args.clusterName}-${uuidv4().slice(0, 8)}`, { logFile, env });
+  await infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile, env });
 
   return { status: 'resize_complete', msg: `Disk resize requested for ${args.name}` };
 }

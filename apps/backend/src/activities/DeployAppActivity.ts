@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { BuilderService } from '../services/BuilderService.js';
 import { StorageAdapter } from '../services/StorageAdapter.js';
+import { hasCloudCredentials } from '../lib/credential-resolver.js';
 
 export interface DeployAppArgs {
   name: string;
@@ -53,6 +54,9 @@ export async function DeployAppActivity(
   const finalOdooRepo = args.odooRepo || (args.appType === 'odoo' ? 'library/odoo' : '');
   const finalOdooTag = args.odooTag || (args.appType === 'odoo' ? '18.0' : '');
 
+  const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
+  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+
   let customImageTag: string | undefined;
 
   // ── 1. Build custom image if modules are selected ──
@@ -64,7 +68,7 @@ export async function DeployAppActivity(
       { logFile, resourceId: args.clusterId },
     );
     if (customImageTag) {
-      await infra.importImage(args.clusterName, customImageTag, { logFile });
+      await infra.importImage(physicalName, customImageTag, { logFile });
       const [repo, imageTag] = customImageTag.split(':');
       finalOdooRepo = repo || finalOdooRepo;
       finalOdooTag = imageTag || finalOdooTag;
@@ -72,8 +76,8 @@ export async function DeployAppActivity(
   }
 
   // ── 2. Get kubeconfig for k3d clusters ──
-  const kubeconfigPath = args.provider === 'k3d'
-    ? `/tmp/kubeconfig-${args.clusterName}`
+  const kubeconfigPath = (args.provider === 'k3d' || isMock)
+    ? `/tmp/kubeconfig-${physicalName}`
     : path.join(LIVE_ROOT, '.kube/config');
 
   const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, {});
@@ -85,12 +89,12 @@ export async function DeployAppActivity(
 
   const env: Record<string, string> = {
     STACK_TYPE: 'app',
-    CLUSTER_NAME: args.clusterName,
+    CLUSTER_NAME: physicalName,
     DEPLOYMENT_STRATEGY: args.strategy,
     DEPLOYMENT_NAME: sanitizedName,
     DEPLOYMENT_ID: deploymentId,
     KUBECONFIG: kubeconfigPath,
-    KUBECONFIG_CONTEXT: args.provider === 'k3d' ? `k3d-${args.clusterName}` : '',
+    KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
     APP_TYPE: args.appType,
     WEB_IMAGE_REPO: finalOdooRepo || '',
     WEB_IMAGE_TAG: finalOdooTag || '',
@@ -108,7 +112,7 @@ export async function DeployAppActivity(
   };
 
   await infra.deploy(
-    `app-${args.clusterName}-${deploymentId}`,
+    `app-${physicalName}-${deploymentId}`,
     { logFile, env },
   );
 

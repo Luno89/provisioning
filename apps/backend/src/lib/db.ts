@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import type { ClusterMetadata, DeploymentMetadata } from './types.js';
+import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,11 +13,13 @@ export class LocalDB {
   private readonly isTest = process.env.NODE_ENV === 'test' || process.env.IS_E2E === 'true';
   private readonly clustersPath = path.join(DATA_DIR, `${this.isTest ? 'clusters-test' : 'clusters'}.json`);
   private readonly deploymentsPath = path.join(DATA_DIR, `${this.isTest ? 'deployments-test' : 'deployments'}.json`);
+  private readonly usersPath = path.join(DATA_DIR, `${this.isTest ? 'users-test' : 'users'}.json`);
 
   async init(): Promise<void> {
     await fs.mkdir(DATA_DIR, { recursive: true });
     if (!(await this.exists(this.clustersPath))) await fs.writeFile(this.clustersPath, '[]');
     if (!(await this.exists(this.deploymentsPath))) await fs.writeFile(this.deploymentsPath, '[]');
+    if (!(await this.exists(this.usersPath))) await fs.writeFile(this.usersPath, '[]');
   }
 
   private async exists(filePath: string): Promise<boolean> {
@@ -81,6 +83,7 @@ export class LocalDB {
     const d: DeploymentMetadata = {
       id: deployment.id || uuidv4(),
       name: deployment.name || '',
+      deploymentId: deployment.deploymentId,
       clusterId: deployment.clusterId || '',
       strategy: deployment.strategy || 'helm',
       appType: deployment.appType ?? undefined,
@@ -103,5 +106,34 @@ export class LocalDB {
     };
     await this.saveDeployment(d);
     return d;
+  }
+
+  async getUsers(): Promise<UserMetadata[]> {
+    const data = await fs.readFile(this.usersPath, 'utf-8');
+    const parsed = JSON.parse(data);
+    return parsed || [];
+  }
+
+  async saveUser(user: UserMetadata): Promise<void> {
+    const users = await this.getUsers();
+    const idx = users.findIndex(u => u.id === user.id);
+    if (idx >= 0) users[idx] = user;
+    else users.push(user);
+    await fs.writeFile(this.usersPath, JSON.stringify(users, null, 2));
+  }
+
+  async saveUserList(users: UserMetadata[]): Promise<void> {
+    await fs.writeFile(this.usersPath, JSON.stringify(users, null, 2));
+  }
+
+  async getUserByEmail(email: string): Promise<UserMetadata | undefined> {
+    const users = await this.getUsers();
+    const cleanEmail = email.trim().toLowerCase();
+    return users.find(u => u.email.trim().toLowerCase() === cleanEmail);
+  }
+
+  async getUserById(id: string): Promise<UserMetadata | undefined> {
+    const users = await this.getUsers();
+    return users.find(u => u.id === id);
   }
 }

@@ -143,25 +143,29 @@ export class AppService extends BaseService {
             const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
             
             // Import the image into the k3d cluster
-            if (cluster.provider === 'k3d') {
+            const isMock = this.clusters.isMockCloud(cluster);
+            const physicalName = this.clusters.getPhysicalClusterName(cluster);
+            if (cluster.provider === 'k3d' || isMock) {
                 if (io) io.to(id).emit('log', `\n--- IMPORTING IMAGE INTO K3D: ${customTag} ---\n`);
-                await this.infra.importImage(cluster.name, customTag, { logFile, io, resourceId: id });
+                await this.infra.importImage(physicalName, customTag, { logFile, io, resourceId: id });
             }
 
             finalOdooRepo = customTag.split(':')[0] ?? '';
             finalOdooTag = customTag.split(':')[1] ?? '';
         }
 
+        const isMock = this.clusters.isMockCloud(cluster);
+        const physicalName = this.clusters.getPhysicalClusterName(cluster);
         const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
         const storageEnv = StorageAdapter.getStorageEnv(appType, strategy, storage);
         const env: Record<string, string> = {
           STACK_TYPE: 'app',
-          CLUSTER_NAME: cluster.name,
+          CLUSTER_NAME: physicalName,
           DEPLOYMENT_STRATEGY: strategy,
           DEPLOYMENT_NAME: sanitizedName,
           DEPLOYMENT_ID: id.slice(0, 8),
           KUBECONFIG: kubeconfigPath,
-          KUBECONFIG_CONTEXT: cluster.provider === 'k3d' ? `k3d-${cluster.name}` : '',
+          KUBECONFIG_CONTEXT: (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
           APP_TYPE: appType,
           WEB_IMAGE_REPO: finalOdooRepo || '',
           WEB_IMAGE_TAG: finalOdooTag || '',
@@ -180,7 +184,7 @@ export class AppService extends BaseService {
           ...storageEnv
         };
 
-        await this.infra.deploy(`app-${cluster.name}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
+        await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
         const defaultPort = appType === 'odoo' ? '8069' : '80';
         const displayUrl = vpnEnabled && vpnDedicatedIp ? `http://${vpnDedicatedIp}:${defaultPort}` : `http://localhost:${defaultPort}`;
         await this.db.saveDeployment({ ...metadata, status: 'running', url: displayUrl });
@@ -217,20 +221,22 @@ export class AppService extends BaseService {
           const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
           
           // 2. Import into cluster
-          if (cluster?.provider === 'k3d') {
-              await this.infra.importImage(cluster.name, customTag, { logFile, io, resourceId: id });
+          const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
+          const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
+          if (cluster && (cluster.provider === 'k3d' || isMock)) {
+              await this.infra.importImage(physicalName, customTag, { logFile, io, resourceId: id });
           }
 
           const kubeconfigPath = cluster ? await this.clusters.getKubeconfigPath(cluster) : DEFAULT_KUBECONFIG;
           const storageEnv = StorageAdapter.getStorageEnv(appType, dep.strategy, dep.storage || {});
           const env: Record<string, string> = {
             STACK_TYPE: 'app',
-            CLUSTER_NAME: cluster?.name || '',
+            CLUSTER_NAME: physicalName,
             DEPLOYMENT_STRATEGY: dep.strategy,
             DEPLOYMENT_NAME: sanitizedName,
             DEPLOYMENT_ID: id.slice(0, 8),
             KUBECONFIG: kubeconfigPath,
-            KUBECONFIG_CONTEXT: cluster?.provider === 'k3d' ? `k3d-${cluster.name}` : '',
+            KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
             APP_TYPE: appType,
             WEB_IMAGE_REPO: customTag.split(':')[0] || '',
             WEB_IMAGE_TAG: customTag.split(':')[1] || '',
@@ -249,7 +255,7 @@ export class AppService extends BaseService {
             ...storageEnv
           };
   
-          await this.infra.deploy(`app-${cluster?.name}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
+          await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
           await this.db.saveDeployment({ ...updatedMetadata, status: 'running' });
         } catch (err: any) {
           this.logger.error(`Module update failed: ${err.message}`);
@@ -268,7 +274,9 @@ export class AppService extends BaseService {
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = this.sanitize(dep.name);
-        const context = cluster.provider === 'k3d' ? `k3d-${cluster.name}` : undefined;
+        const isMock = this.clusters.isMockCloud(cluster);
+        const physicalName = this.clusters.getPhysicalClusterName(cluster);
+        const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
         const args = ['get', 'pods', '-n', namespace, '-o', 'json'];
         if (context) args.push('--context', context);
 
@@ -291,7 +299,9 @@ export class AppService extends BaseService {
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = this.sanitize(dep.name);
-        const context = cluster.provider === 'k3d' ? `k3d-${cluster.name}` : undefined;
+        const isMock = this.clusters.isMockCloud(cluster);
+        const physicalName = this.clusters.getPhysicalClusterName(cluster);
+        const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
         const releaseName = dep.appType || 'odoo';
         const args = ['status', releaseName, '-n', namespace];
         if (context) args.push('--kube-context', context);
@@ -312,7 +322,9 @@ export class AppService extends BaseService {
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = this.sanitize(dep.name);
-        const context = cluster.provider === 'k3d' ? `k3d-${cluster.name}` : undefined;
+        const isMock = this.clusters.isMockCloud(cluster);
+        const physicalName = this.clusters.getPhysicalClusterName(cluster);
+        const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
         
         const podsArgs = ['get', 'pods', '-n', namespace, '-o', 'wide'];
         const eventsArgs = ['get', 'events', '-n', namespace, '--sort-by=.lastTimestamp', '-o', 'wide'];
@@ -342,21 +354,23 @@ export class AppService extends BaseService {
 
     (async () => {
       try {
+        const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
+        const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
         const kubeconfigPath = cluster ? await this.clusters.getKubeconfigPath(cluster) : DEFAULT_KUBECONFIG;
         const env: Record<string, string> = {
           STACK_TYPE: 'app',
           DEPLOYMENT_STRATEGY: dep.strategy,
           DEPLOYMENT_NAME: this.sanitize(dep.name),
           DEPLOYMENT_ID: id.slice(0, 8),
-          CLUSTER_NAME: cluster?.name || '',
+          CLUSTER_NAME: physicalName,
           KUBECONFIG: kubeconfigPath,
-          KUBECONFIG_CONTEXT: cluster?.provider === 'k3d' ? `k3d-${cluster.name}` : ''
+          KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : ''
         };
 
-        await this.infra.destroy(`app-${cluster?.name}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
+        await this.infra.destroy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
         
         try {
-            const context = cluster?.provider === 'k3d' ? `k3d-${cluster.name}` : undefined;
+            const context = (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : undefined;
             const args = ['delete', 'ns', this.sanitize(dep.name), '--wait=false'];
             if (context) args.push('--context', context);
             await this.infra.runKubectl(args, kubeconfigPath);
@@ -393,18 +407,20 @@ export class AppService extends BaseService {
 
     (async () => {
         try {
+          const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
+          const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
           const kubeconfigPath = cluster ? await this.clusters.getKubeconfigPath(cluster) : DEFAULT_KUBECONFIG;
           
           const storageEnv = StorageAdapter.getStorageEnv(appType, dep.strategy, updatedMetadata.storage);
 
           const env: Record<string, string> = {
             STACK_TYPE: 'app',
-            CLUSTER_NAME: cluster?.name || '',
+            CLUSTER_NAME: physicalName,
             DEPLOYMENT_STRATEGY: dep.strategy,
             DEPLOYMENT_NAME: sanitizedName,
             DEPLOYMENT_ID: id.slice(0, 8),
             KUBECONFIG: kubeconfigPath,
-            KUBECONFIG_CONTEXT: cluster?.provider === 'k3d' ? `k3d-${cluster.name}` : '',
+            KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
             APP_TYPE: appType,
             WEB_IMAGE_REPO: webRepo,
             WEB_IMAGE_TAG: webTag,
@@ -417,7 +433,7 @@ export class AppService extends BaseService {
             ...storageEnv
           };
   
-          await this.infra.deploy(`app-${cluster?.name}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
+          await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
           await this.db.saveDeployment({ ...updatedMetadata, status: 'running' });
         } catch (err: any) {
           this.logger.error(`Disk resize failed: ${err.message}`);

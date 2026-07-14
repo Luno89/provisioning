@@ -113,7 +113,7 @@ async function run() {
       clusterName,
       appType: 'wordpress',
       status: 'running',
-      storage: { sizeGB: 1 },
+      storage: { sizeGB: '1' },
       lastLogPath: appLogFile,
     });
 

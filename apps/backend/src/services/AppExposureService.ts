@@ -3,6 +3,7 @@ import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import type { LocalDB } from '../lib/db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
+import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -56,6 +57,11 @@ export class AppExposureService extends BaseService {
     return name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   }
 
+  private isMockCloud(cluster: ClusterMetadata): boolean {
+    if (cluster.provider === 'k3d') return false;
+    return !hasCloudCredentials(cluster.provider);
+  }
+
   private async buildUpstreamTarget(dep: DeploymentMetadata, cluster: ClusterMetadata): Promise<{namespace: string, backendTarget: string}> {
     const namespace = this.sanitize(dep.name);
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
@@ -87,8 +93,9 @@ export class AppExposureService extends BaseService {
     const portObj = primarySvc.spec?.ports?.find((p: any) => !dbPorts.includes(p.port)) || primarySvc.spec?.ports?.[0];
     const targetPort = portObj?.port || 80;
 
+    const isMock = this.isMockCloud(cluster);
     let backendTarget = '';
-    if (cluster.provider === 'k3d') {
+    if (cluster.provider === 'k3d' || isMock) {
       const nodePort = portObj?.nodePort;
       if (!nodePort) {
         throw new Error(`Service "${svcName}" does not have a nodePort assigned. Cannot expose locally.`);
@@ -259,8 +266,6 @@ export class AppExposureService extends BaseService {
         changed = true;
         this.logger.info(`Synced nginx config for "${dep.name}" -> ${backendTarget} (tunnel: ${tunnelHost})`);
 
-        if (this.io) this.io.emit('deployment-updated');
-
       } catch (err: any) {
         this.logger.error(`Failed to sync nginx config for "${dep.name}": ${err.message}`);
       }
@@ -291,6 +296,10 @@ export class AppExposureService extends BaseService {
       } catch (err: any) {
         this.logger.error(`Failed to reload Nginx after sync: ${err.message}`);
       }
+    }
+
+    if (this.io && exposed.length > 0) {
+      this.io.emit('deployment-updated');
     }
   }
 

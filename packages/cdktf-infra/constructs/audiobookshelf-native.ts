@@ -12,6 +12,7 @@ export interface AudiobookshelfNativeConfig extends VpnConfig {
   readonly metadataStorage?: string;
   readonly configStorage?: string;
   readonly libraryStorage?: string;
+  readonly serviceType?: string;
 }
 
 export class AudiobookshelfNativeApp extends Construct {
@@ -23,6 +24,8 @@ export class AudiobookshelfNativeApp extends Construct {
     const metadataSize = config.metadataStorage || "2Gi";
     const configSize = config.configStorage || "1Gi";
     const librarySize = config.libraryStorage || "5Gi";
+
+    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
 
     const ns = new Namespace(this, "ns", {
       metadata: {
@@ -156,11 +159,10 @@ export class AudiobookshelfNativeApp extends Construct {
         namespace: ns.metadata.name,
       },
       spec: {
-        type: "LoadBalancer",
+        type: serviceType,
         selector: { app: `audiobookshelf-${id}` },
         port: [{ port: 80, targetPort: "80" }],
       },
-      waitForLoadBalancer: false,
     });
   }
 }

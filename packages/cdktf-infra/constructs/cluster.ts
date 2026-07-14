@@ -12,14 +12,10 @@ export class BaseCluster extends Construct {
   constructor(scope: Construct, id: string, config: ClusterConfig) {
     super(scope, id);
 
-    let kubeconfig = "";
-
     const isLocal = config.environment === "local" || config.environment === "k3d";
-    if (isLocal) {
-      kubeconfig = `~/.kube/config`;
-      // Providers are now handled at the Stack level
-    } else {
-      kubeconfig = `/tmp/kubeconfig-${config.name}`;
+    const kubeconfig = process.env.KUBECONFIG_PATH || (isLocal ? "~/.kube/config" : `/tmp/kubeconfig-${config.name}`);
+
+    if (!isLocal) {
       console.log(`${config.environment.toUpperCase()} Cluster logic would be instantiated here.`);
     }
 

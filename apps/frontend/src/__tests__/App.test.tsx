@@ -33,7 +33,7 @@ describe('App Dashboard', () => {
 
   it('renders the sidebar and main header', async () => {
     render(<App />, { wrapper });
-    expect(screen.getByText('Provisioner v2')).toBeInTheDocument();
+    expect(screen.getByText('IANTHE')).toBeInTheDocument();
     expect(screen.getByText('Clusters')).toBeInTheDocument();
     expect(screen.getByText('Applications')).toBeInTheDocument();
   });

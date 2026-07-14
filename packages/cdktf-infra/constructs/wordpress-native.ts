@@ -13,6 +13,7 @@ export interface WordPressNativeConfig extends VpnConfig {
   readonly dbRepo?: string;
   readonly dbTag?: string;
   readonly dbStorage?: string;
+  readonly serviceType?: string;
 }
 
 export class WordPressNativeApp extends Construct {
@@ -23,6 +24,8 @@ export class WordPressNativeApp extends Construct {
     const webImage = `${config.webRepo || "library/wordpress"}:${config.webTag || "6.7-apache"}`;
     const dbImage = `${config.dbRepo || "library/mariadb"}:${config.dbTag || "11.4"}`;
     const dbSize = config.dbStorage || "2Gi";
+
+    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
 
     const ns = new Namespace(this, "ns", {
       metadata: {
@@ -186,11 +189,10 @@ export class WordPressNativeApp extends Construct {
         namespace: ns.metadata.name,
       },
       spec: {
-        type: "LoadBalancer",
+        type: serviceType,
         selector: { app: `wordpress-web-${id}` },
         port: [{ port: 80, targetPort: "80" }],
       },
-      waitForLoadBalancer: false,
     });
   }
 }

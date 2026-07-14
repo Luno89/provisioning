@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Clock, Server, Hash, Play, Square } from 'lucide-react';
+import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Server, Hash, Play } from 'lucide-react';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 
