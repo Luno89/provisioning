@@ -2,6 +2,7 @@ import { BaseService } from './BaseService.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterMetadata } from '../lib/types.js';
 import type { LocalDB } from '../lib/db.js';
+import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
@@ -16,6 +17,18 @@ export class ClusterService extends BaseService {
   constructor(db: LocalDB, infra: InfrastructureService) {
     super(db);
     this.infra = infra;
+  }
+
+  hasCloudCredentials(provider: ClusterMetadata['provider']): boolean {
+    return hasCloudCredentials(provider);
+  }
+
+  isMockCloud(cluster: ClusterMetadata): boolean {
+    return cluster.provider !== 'k3d' && !this.hasCloudCredentials(cluster.provider);
+  }
+
+  getPhysicalClusterName(cluster: ClusterMetadata): string {
+    return this.isMockCloud(cluster) ? `mock-${cluster.provider}-${cluster.name}` : cluster.name;
   }
 
   private async getRealNameservers(): Promise<string[]> {
@@ -51,8 +64,10 @@ export class ClusterService extends BaseService {
   }
 
   async getKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
-    if (cluster.provider === 'k3d') {
-      const dynamicPath = `/tmp/kubeconfig-${cluster.name}`;
+    const isMock = this.isMockCloud(cluster);
+    if (cluster.provider === 'k3d' || isMock) {
+      const physicalName = this.getPhysicalClusterName(cluster);
+      const dynamicPath = `/tmp/kubeconfig-${physicalName}`;
       let exists = false;
       try {
         await fs.access(dynamicPath);
@@ -63,10 +78,10 @@ export class ClusterService extends BaseService {
 
       if (!exists) {
         try {
-          const content = await this.infra.getKubeconfig(cluster.name);
+          const content = await this.infra.getKubeconfig(physicalName);
           await fs.writeFile(dynamicPath, content, 'utf-8');
         } catch (err: any) {
-          this.logger.error(`Failed to dynamically fetch kubeconfig for k3d cluster ${cluster.name}: ${err.message}`);
+          this.logger.error(`Failed to dynamically fetch kubeconfig for cluster ${physicalName}: ${err.message}`);
           return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
         }
       }
@@ -83,17 +98,22 @@ export class ClusterService extends BaseService {
     const cleanClusters: ClusterMetadata[] = [];
     
     for (const cluster of dbClusters) {
-      if (cluster.provider === 'k3d') {
+      const isMock = this.isMockCloud(cluster);
+      if (cluster.provider === 'k3d' || isMock) {
+        const physicalName = this.getPhysicalClusterName(cluster);
         if (cluster.status === 'provisioning') {
           cleanClusters.push(cluster);
           continue;
         }
+        if (cluster.status === 'destroying') {
+          continue;
+        }
         
-        if (activeK3dNames.includes(cluster.name)) {
+        if (activeK3dNames.includes(physicalName)) {
           cleanClusters.push(cluster);
         } else {
           changed = true;
-          this.logger.info(`Detected local k3d cluster ${cluster.name} deleted outside the system. Syncing...`);
+          this.logger.info(`Detected local cluster ${physicalName} deleted outside the system. Syncing...`);
           if (io) {
             io.emit('resource-destroyed', { id: cluster.id, type: 'cluster', name: cluster.name, outOfBand: true });
           }
@@ -104,6 +124,7 @@ export class ClusterService extends BaseService {
             if (deployments.length !== cleanDeployments.length) {
               await this.db.saveDeploymentList(cleanDeployments);
             }
+            await fs.rm(`/tmp/kubeconfig-${physicalName}`, { force: true }).catch(() => {});
           } catch (err: any) {
             this.logger.error(`Failed to clean up deployments for deleted cluster ${cluster.name}: ${err.message}`);
           }
@@ -135,21 +156,28 @@ export class ClusterService extends BaseService {
     (async () => {
       try {
         let kubeconfigPath = DEFAULT_KUBECONFIG;
+        const isMock = this.isMockCloud(metadata);
+        const physicalName = this.getPhysicalClusterName(metadata);
 
-        if (provider === 'k3d') {
+        if (provider === 'k3d' || isMock) {
+          if (isMock && io) {
+            io.to(id).emit('log', `\n--- RUNNING IN MOCK CLOUD MODE (${provider.toUpperCase()}) ---\n`);
+            io.to(id).emit('log', `No credentials found for ${provider.toUpperCase()}. Falling back to local k3d cluster "${physicalName}".\n\n`);
+          }
+
           // 1. Ensure kubeconfig context is clean for this name
           try {
-            await this.infra.runKubectl(['config', 'unset', 'clusters.k3d-' + name]);
+            await this.infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
           } catch {
             // Ignore if it doesn't exist
           }
 
           // 2. Create the physical k3d cluster
-          await this.infra.createLocalCluster(name, { logFile, io, resourceId: id });
+          await this.infra.createLocalCluster(physicalName, { logFile, io, resourceId: id });
 
           // 3. Dynamically fetch kubeconfig from k3d and write to dedicated local file
-          const kubeconfigContent = await this.infra.getKubeconfig(name);
-          kubeconfigPath = `/tmp/kubeconfig-${name}`;
+          const kubeconfigContent = await this.infra.getKubeconfig(physicalName);
+          kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
           await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
 
           // 4. Wait for cluster API server and nodes to become responsive and ready
@@ -167,13 +195,13 @@ export class ClusterService extends BaseService {
                 break;
               }
             } catch (err: any) {
-              this.logger.info(`Waiting for cluster ${name} API server: ${err.message}`);
+              this.logger.info(`Waiting for cluster ${physicalName} API server: ${err.message}`);
             }
 
             // Check docker logs for file descriptor limit exhaustion inside the Colima/Docker VM
             if (i > 0 && i % 5 === 0) {
               try {
-                const containerName = `k3d-${name}-server-0`;
+                const containerName = `k3d-${physicalName}-server-0`;
                 const { exec } = await import('child_process');
                 const { promisify } = await import('util');
                 const execAsync = promisify(exec);
@@ -192,7 +220,7 @@ export class ClusterService extends BaseService {
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
           if (!ready) {
-            throw new Error(`Cluster ${name} did not get a Ready control plane node in time.`);
+            throw new Error(`Cluster ${physicalName} did not get a Ready control plane node in time.`);
           }
 
           // Enable volume expansion on default local-path storage class with retries
@@ -239,7 +267,7 @@ export class ClusterService extends BaseService {
                   if (updatedCorefile !== originalCorefile) {
                     cm.data.Corefile = updatedCorefile;
                     const execAsync = (await import('util')).promisify((await import('child_process')).exec);
-                    const containerName = `k3d-${name}-server-0`;
+                    const containerName = `k3d-${physicalName}-server-0`;
                     const cmJsonString = JSON.stringify(cm).replace(/'/g, "'\\''");
                     await execAsync(`echo '${cmJsonString}' | docker exec -i ${containerName} kubectl replace -f -`);
                     this.logger.info(`Successfully patched coredns ConfigMap`);
@@ -265,17 +293,19 @@ export class ClusterService extends BaseService {
 
           // Give it an additional short stabilization delay
           await new Promise(resolve => setTimeout(resolve, 5000));
+        } else {
+          kubeconfigPath = `/tmp/kubeconfig-${name}`;
         }
 
         const env: Record<string, string> = { 
           STACK_TYPE: 'cluster', 
-          ENV: provider, 
-          CLUSTER_NAME: name,
+          ENV: isMock ? 'local' : provider, 
+          CLUSTER_NAME: physicalName,
           KUBECONFIG_PATH: kubeconfigPath
         };
 
         // 5. Deploy the infrastructure stack (Monitoring, etc.)
-        await this.infra.deploy(name, { logFile, io, resourceId: id, env });
+        await this.infra.deploy(physicalName, { logFile, io, resourceId: id, env });
         await this.db.saveCluster({ ...metadata, status: 'healthy', kubeconfigPath });
       } catch (err: any) {
         this.logger.error(`Provisioning failed: ${err.message}`);
@@ -291,21 +321,30 @@ export class ClusterService extends BaseService {
     if (!cluster) throw new Error('Cluster not found');
 
     const logFile = this.infra.getLogPath(`${cluster.name}-destroy`);
-    await this.db.saveCluster({ ...cluster, status: 'provisioning', lastLogPath: logFile });
+    await this.db.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
 
     (async () => {
       try {
+        const isMock = this.isMockCloud(cluster);
+        const physicalName = this.getPhysicalClusterName(cluster);
+        const kubeconfigPath = await this.getKubeconfigPath(cluster);
+
         // 1. Destroy infrastructure stack
-        await this.infra.destroy(cluster.name, { 
+        await this.infra.destroy(physicalName, { 
           logFile, io, resourceId: id, 
-          env: { STACK_TYPE: 'cluster', ENV: cluster.provider, CLUSTER_NAME: cluster.name }
+          env: { 
+            STACK_TYPE: 'cluster', 
+            ENV: isMock ? 'local' : cluster.provider, 
+            CLUSTER_NAME: physicalName,
+            KUBECONFIG_PATH: kubeconfigPath
+          }
         });
 
         // 2. Delete physical k3d cluster if local
-        if (cluster.provider === 'k3d') {
-            await this.infra.deleteLocalCluster(cluster.name, { logFile, io, resourceId: id });
+        if (cluster.provider === 'k3d' || isMock) {
+            await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
             try {
-                await fs.rm(`/tmp/kubeconfig-${cluster.name}`, { force: true });
+                await fs.rm(kubeconfigPath, { force: true });
             } catch {
                 // Ignore
             }
@@ -325,7 +364,8 @@ export class ClusterService extends BaseService {
     try {
         const cluster = await this.getById(id);
         if (!cluster) throw new Error('Cluster not found');
-        const context = cluster.provider === 'k3d' ? `k3d-${cluster.name}` : undefined;
+        const physicalName = this.getPhysicalClusterName(cluster);
+        const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
         const args = ['get', 'pods', '--all-namespaces', '-o', 'json'];
         if (context) args.push('--context', context);
         
@@ -342,7 +382,8 @@ export class ClusterService extends BaseService {
     try {
         const cluster = await this.getById(id);
         if (!cluster) throw new Error('Cluster not found');
-        const context = cluster.provider === 'k3d' ? `k3d-${cluster.name}` : undefined;
+        const physicalName = this.getPhysicalClusterName(cluster);
+        const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
         const args = ['list', '-A', '-o', 'json'];
         if (context) args.push('--kube-context', context);
         

@@ -13,6 +13,7 @@ import { PrometheusApp } from "./constructs/prometheus.js";
 import { TemporalApp } from "./constructs/temporal.js";
 import { TraefikApp } from "./constructs/traefik.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
+import { IngressStack } from "./constructs/ingress.js";
 import { K8sProviderService } from "./lib/k8s-provider-service.js";
 import { VpnConfig } from "./lib/vpn-service.js";
 
@@ -43,6 +44,7 @@ class ClusterStack extends TerraformStack {
     });
 
     new MonitoringStack(this, "monitoring");
+    new IngressStack(this, "ingress");
   }
 }
 

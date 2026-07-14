@@ -15,6 +15,7 @@ export interface OdooNativeConfig extends VpnConfig {
   readonly dbStorage?: string;
   readonly enabledModules?: string;
   readonly gitRepoPath?: string;
+  readonly serviceType?: string;
 }
 
 export class OdooNativeApp extends Construct {
@@ -25,6 +26,8 @@ export class OdooNativeApp extends Construct {
     const odooImage = `${config.odooRepo || "library/odoo"}:${config.odooTag || "18.0"}`;
     const pgImage = `${config.pgRepo || "library/postgres"}:${config.pgTag || "16.4"}`;
     const dbSize = config.dbStorage || "2Gi";
+
+    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
 
     const ns = new Namespace(this, "ns", {
       metadata: {
@@ -179,11 +182,10 @@ export class OdooNativeApp extends Construct {
         namespace: ns.metadata.name,
       },
       spec: {
-        type: "LoadBalancer",
+        type: serviceType,
         selector: { app: `odoo-${id}` },
         port: [{ port: 8069, targetPort: "8069" }],
       },
-      waitForLoadBalancer: false,
     });
   }
 }

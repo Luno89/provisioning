@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import path from 'path';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
+import { hasCloudCredentials } from '../lib/credential-resolver.js';
 
 export interface DestroyClusterArgs {
   name: string;
@@ -31,21 +32,26 @@ export async function DestroyClusterActivity(
   const infra = new InfrastructureService();
   const logFile = args.logFile;
 
+  const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
+  const physicalName = isMock ? `mock-${args.provider}-${args.name}` : args.name;
+  const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
+
   // 1. Destroy infrastructure stack
-  await infra.destroy(args.name, {
+  await infra.destroy(physicalName, {
     logFile,
     env: {
       STACK_TYPE: 'cluster',
-      ENV: args.provider,
-      CLUSTER_NAME: args.name,
+      ENV: isMock ? 'local' : args.provider,
+      CLUSTER_NAME: physicalName,
+      KUBECONFIG_PATH: kubeconfigPath,
     },
   });
 
   // 2. Delete the physical k3d cluster if applicable
-  if (args.provider === 'k3d') {
-    await infra.deleteLocalCluster(args.name, { logFile });
+  if (args.provider === 'k3d' || isMock) {
+    await infra.deleteLocalCluster(physicalName, { logFile });
     try {
-      await fs.rm(`/tmp/kubeconfig-${args.name}`, { force: true });
+      await fs.rm(kubeconfigPath, { force: true });
     } catch {}
   }
 

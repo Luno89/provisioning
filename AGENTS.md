@@ -32,6 +32,7 @@ Two separate task queues partition the operations:
 ## Commands
 
 ```
+npm run setup        # bootstrap dependencies, install packages, and download pre-bundled binaries
 npm run dev          # ensure k3d cluster → build+deploy worker pod → concurrently start backend+frontend+host-worker
 npm run clean-dev    # kill all dev processes
 npm run test         # unit (frontend + backend) → e2e (Playwright)
@@ -46,7 +47,7 @@ npm run test -w apps/backend    # backend unit tests
 npm run test -w apps/frontend   # frontend unit tests
 ```
 
-Backend dev: `npm run dev -w apps/backend` (uses `tsx watch`)
+Backend dev: `npm run dev -w apps/backend` (uses `tsx watch --exclude data`)
 Frontend dev: `npm run dev -w apps/frontend` (Vite)
 Host worker: `npm run dev:worker -w apps/backend` (runs `worker-host.ts`)
 In-cluster worker (manual): `npm run dev:worker:cluster -w apps/backend`
@@ -114,3 +115,20 @@ The test suite uses a layered approach to verify correct operation and speed up 
    - Verified via Playwright browser tests driving the React UI.
    - Starts both host-side and cluster workers on the host network to support all deployment types.
 
+## Playwright E2E & K3d Execution Gotchas
+
+To avoid unexpected failures during Playwright E2E test runs, keep the following in mind:
+
+1. **Sequential Execution Only (`workers: 1`)**:
+   - Because E2E tests provision/deprovision physical k3d clusters binding to host network ports, the E2E test suite MUST run sequentially. Parallel workers will cause port collisions.
+
+2. **Playwright Worker Restart on Failure**:
+   - When a test fails, Playwright restarts the worker process to avoid state leakage.
+   - The cluster name (`CLUSTER_NAME`) is generated randomly at the file-level (`e2e-fleet-XXX`). 
+   - A worker restart causes the file to reload, generating a *new* `CLUSTER_NAME`. However, already-executed tests (like `should provision the cluster`) are *not* re-run.
+   - Consequently, all subsequent tests will time out looking for a cluster that was never created. If you see a cascade of timeouts following a single failure, inspect the *first* failed test to find the actual bug.
+
+3. **Stale Host-Network Containers crash K3d**:
+   - K3d has a known bug when using `--network host`. If a container from a previous run (e.g., `k3d-isolated-fleet-XXX-server-0`) is not fully deleted and remains on the `host` network, `k3d cluster create` and `k3d cluster delete` will fail to parse the IP prefix of the network and crash with:
+     `failed to parse IP Prefix of network "host"'s member...: ParseAddr(""): unable to parse IP`.
+   - Run `npm run clean-dev` to thoroughly remove any leftover k3d Docker containers and volumes.

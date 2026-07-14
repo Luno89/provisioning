@@ -124,3 +124,51 @@ export interface ResizeDiskTaskResult {
   msg:     string;
   logFile: string;
 }
+
+/** Per-provider encrypted credential blobs stored on the user record */
+export interface AwsCredentials {
+  accessKeyId: string;       // encrypted
+  secretAccessKey: string;   // encrypted
+  region: string;            // plaintext
+}
+
+export interface GcpCredentials {
+  projectId: string;              // plaintext
+  serviceAccountJson: string;     // encrypted (full JSON blob)
+}
+
+export interface AzureCredentials {
+  clientId: string;           // encrypted
+  clientSecret: string;       // encrypted
+  subscriptionId: string;     // plaintext
+  tenantId: string;           // plaintext
+}
+
+export interface DoCredentials {
+  token: string;              // encrypted
+}
+
+export interface CloudCredentials {
+  aws?: AwsCredentials;
+  gcp?: GcpCredentials;
+  azure?: AzureCredentials;
+  do?: DoCredentials;
+}
+
+export type CloudProvider = 'aws' | 'gcp' | 'azure' | 'do';
+
+export interface UserMetadata {
+  id: string;
+  email: string;
+  passwordHash?: string;
+  githubId?: string;
+  googleId?: string;
+  twoFactorEnabled: boolean;
+  twoFactorSecret?: string;
+  twoFactorPhone?: string;
+  twoFactorPreferredMethod?: 'email' | 'sms';
+  emailVerified: boolean;
+  createdAt: string;
+  credentials?: CloudCredentials;
+}
+

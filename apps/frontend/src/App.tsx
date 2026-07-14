@@ -2,11 +2,16 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer } from 'lucide-react';
+import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
+import ServicesPanel from './ServicesPanel.js';
+import Login from './components/Login.js';
+import CloudAccounts from './components/CloudAccounts.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
+
+axios.defaults.withCredentials = true;
 
 const APP_DEFAULTS: Record<string, {
   helm: { webRepo: string; webTag: string; dbRepo: string; dbTag: string };
@@ -54,7 +59,15 @@ const APP_DEFAULTS: Record<string, {
 
 function App() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<'clusters' | 'apps' | 'nginx' | 'temporal'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts'>('clusters');
+  const [user, setUser] = useState<any>(
+    import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
+      ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
+      : null
+  );
+  const [authLoading, setAuthLoading] = useState(
+    import.meta.env?.MODE !== 'test' && import.meta.env?.VITE_IS_E2E !== 'true' && window.location.port !== '5174'
+  );
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
   const [showAppModal, setShowAppModal] = useState(false);
@@ -78,6 +91,50 @@ function App() {
     domain: '',
     maxBodySize: '10G',
   });
+
+  useEffect(() => {
+    fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+      setUser(null);
+      setView('clusters');
+    } catch (err) {
+      console.error('Logout failed', err);
+    }
+  };
+
+  const update2FASettings = async (enabled: boolean, phone?: string, preferredMethod?: 'email' | 'sms') => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/2fa/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled, phone, preferredMethod }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUser((prev: any) => ({
+          ...prev,
+          twoFactorEnabled: data.twoFactorEnabled,
+          twoFactorPhone: data.twoFactorPhone,
+          twoFactorPreferredMethod: data.twoFactorPreferredMethod,
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to update 2FA settings', err);
+    }
+  };
 
   // Unified Wizard State
   const [wizardStep, setWizardStep] = useState(1);
@@ -160,6 +217,9 @@ function App() {
         queryClient.invalidateQueries({ queryKey: ['clusters'] });
         queryClient.invalidateQueries({ queryKey: ['deployments'] });
         setTimeout(() => setNotifications(prev => prev.filter(n => n.nid !== nid)), 5000);
+    });
+    socket.on('deployment-updated', () => {
+        queryClient.invalidateQueries({ queryKey: ['deployments'] });
     });
     return () => { socket.disconnect(); };
   }, [queryClient]);
@@ -414,16 +474,32 @@ function App() {
     setLogTab(type === 'app' ? 'general' : 'provision');
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] text-slate-100 font-sans">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login apiBase={API_BASE} onSuccess={setUser} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex font-sans overflow-hidden">
       <aside className="w-64 bg-slate-800 border-r border-slate-700 p-6 flex flex-col shadow-xl z-20">
-        <div className="flex items-center gap-2 mb-10"><Layout className="text-blue-500" /><h1 className="text-xl font-bold tracking-tight">Provisioner v2</h1></div>
+        <div className="flex items-center gap-2 mb-10"><Layout className="text-blue-500" /><h1 className="text-xl font-bold tracking-tight">IANTHE</h1></div>
         <nav className="space-y-2 flex-1">
           <button onClick={() => setView('clusters')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'clusters' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Cloud size={20} /> Clusters</button>
           <button onClick={() => setView('apps')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'apps' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Server size={20} /> Applications</button>
           <button onClick={() => setView('nginx')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'nginx' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Puzzle size={20} /> Nginx Router</button>
           <button onClick={() => setView('temporal')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'temporal' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Timer size={20} /> Temporal</button>
+          <button onClick={() => setView('services')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'services' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Activity size={20} /> Services</button>
+          <button onClick={() => setView('accounts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'accounts' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Key size={20} /> Cloud Accounts</button>
+          <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Shield size={20} /> Security</button>
         </nav>
+        <button onClick={handleLogout} className="w-full mb-6 flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer text-sm font-bold">Log Out</button>
         <div className="pt-6 border-t border-slate-700 flex items-center gap-3 text-slate-500 text-[10px] uppercase font-black tracking-widest"><Terminal size={14} /> <span>Local Ops Active</span></div>
       </aside>
 
@@ -716,6 +792,82 @@ function App() {
           </section>
         )}
         {view === 'temporal' && <TemporalPanel />}
+        {view === 'services' && <ServicesPanel />}
+        {view === 'accounts' && (
+          <CloudAccounts apiBase={API_BASE} />
+        )}
+
+        {view === 'settings' && (
+          <section className="max-w-xl">
+            <header className="mb-10">
+              <h2 className="text-3xl font-bold">Security & Settings</h2>
+              <p className="text-slate-400">Configure authentication and two-factor (2FA) mechanisms.</p>
+            </header>
+            
+            <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 space-y-6">
+              <div>
+                <h4 className="text-lg font-bold text-white mb-1">User Account Details</h4>
+                <div className="text-sm text-slate-300 space-y-2 mt-3">
+                  <div><strong>Email:</strong> {user.email}</div>
+                  <div><strong>Account ID:</strong> <span className="font-mono text-xs">{user.id}</span></div>
+                  <div><strong>Created:</strong> {new Date(user.createdAt).toLocaleDateString()}</div>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-slate-700">
+                <h4 className="text-lg font-bold text-white mb-4">Two-Factor Authentication (2FA)</h4>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
+                    <div>
+                      <div className="text-sm font-bold text-white">Enable 2FA Protection</div>
+                      <div className="text-xs text-slate-400 mt-0.5">Require a one-time passcode on each sign-in attempt.</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={user.twoFactorEnabled}
+                        onChange={(e) => update2FASettings(e.target.checked, user.twoFactorPhone, user.twoFactorPreferredMethod)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {user.twoFactorEnabled && (
+                    <div className="space-y-4 pt-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Preferred Delivery Method</label>
+                        <select
+                          value={user.twoFactorPreferredMethod || 'email'}
+                          onChange={(e) => update2FASettings(user.twoFactorEnabled, user.twoFactorPhone, e.target.value as any)}
+                          className="block w-full px-4 py-3 bg-slate-900/50 border border-white/5 rounded-2xl text-white focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="email">Email Notification</option>
+                          <option value="sms">SMS Text Message</option>
+                        </select>
+                      </div>
+
+                      {user.twoFactorPreferredMethod === 'sms' && (
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Mobile Phone Number</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. +1234567890"
+                            value={user.twoFactorPhone || ''}
+                            onChange={(e) => update2FASettings(user.twoFactorEnabled, e.target.value, user.twoFactorPreferredMethod)}
+                            className="block w-full px-4 py-3 bg-slate-900/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                          />
+                          <p className="text-[10px] text-slate-500 mt-1">Include country code prefix (e.g. +1).</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       {confirmDestroy && (
@@ -1340,7 +1492,6 @@ function App() {
                 const ns = dep ? dep.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') : '';
                 const serviceName = dep ? (dep.appType === 'prometheus' ? 'prometheus-server' : dep.appType || 'odoo') : '';
                 const port = dep ? (dep.appType === 'odoo' ? '8069' : '80') : '80';
-                const internalDns = `http://${serviceName}.${ns}.svc.cluster.local:${port}`;
                 
                 const generatedConfig = `
     # Proxy configuration for ${dep ? dep.name : ''} (${dep ? dep.appType : ''}) on cluster ${clusterName}

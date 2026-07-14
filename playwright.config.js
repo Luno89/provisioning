@@ -11,7 +11,7 @@ exports.default = (0, test_1.defineConfig)({
     use: {
         baseURL: 'http://localhost:5174',
         trace: 'off',
-        screenshot: 'off',
+        screenshot: 'only-on-failure',
         video: 'off',
     },
     projects: [
@@ -27,7 +27,7 @@ exports.default = (0, test_1.defineConfig)({
             reuseExistingServer: true,
         },
         {
-            command: 'VITE_API_BASE=http://localhost:3002/api VITE_SOCKET_URL=http://localhost:3002 npm run dev -w apps/frontend -- --port 5174',
+            command: 'VITE_IS_E2E=true VITE_API_BASE=http://localhost:3002/api VITE_SOCKET_URL=http://localhost:3002 npm run dev -w apps/frontend -- --port 5174',
             port: 5174,
             reuseExistingServer: true,
         }

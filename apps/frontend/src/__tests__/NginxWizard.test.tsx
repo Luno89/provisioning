@@ -101,7 +101,7 @@ describe('Nginx Ingress Proxy Wizard', () => {
     await waitFor(() => expect(screen.queryByText('Proxy Exposure Wizard')).not.toBeInTheDocument());
 
     // Verify Nginx.conf textarea contains inject block (generic)
-    const textarea = screen.getByPlaceholderText('Loading configuration...');
+    const textarea = screen.getByPlaceholderText('Loading configuration...') as HTMLTextAreaElement;
     expect(textarea.value).toContain('server_name odoo-custom.vpn.local;');
     expect(textarea.value).toContain('proxy_pass http://');
     expect(textarea.value).toMatch(/upstream|proxy_pass/);

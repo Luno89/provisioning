@@ -14,6 +14,7 @@ export class MonitoringStack extends Construct {
             repository: "https://prometheus-community.github.io/helm-charts",
             chart: "kube-prometheus-stack",
             namespace: ns.metadata.name,
+            wait: false,
             set: [
                 {
                     name: "grafana.enabled",

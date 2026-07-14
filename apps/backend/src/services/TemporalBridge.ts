@@ -461,6 +461,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       appType: dep.appType || 'odoo',
       storage,
       logFile: absoluteLogPath,
+      deploymentId: dep.deploymentId || 'default',
     }
 
     this.db.saveDeploymentInfo({

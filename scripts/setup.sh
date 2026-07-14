@@ -284,6 +284,24 @@ docker run -d \
     -v "$NGINX_DATA_DIR/conf.d:/etc/nginx/conf.d:rw" \
     nginx:alpine
 
+# 8. Check Cloud CLIs (Optional, fallback to Mock Cloud Mode if missing)
+echo "☁️ Checking cloud provider command-line tools..."
+if command -v aws &>/dev/null; then
+    echo "  ✅ aws-cli detected"
+else
+    echo "  ℹ️  aws-cli not found (AWS stacks will run in Mock Cloud Mode)"
+fi
+if command -v gcloud &>/dev/null; then
+    echo "  ✅ gcloud-cli detected"
+else
+    echo "  ℹ️  gcloud-cli not found (GCP stacks will run in Mock Cloud Mode)"
+fi
+if command -v doctl &>/dev/null; then
+    echo "  ✅ doctl detected"
+else
+    echo "  ℹ️  doctl not found (DigitalOcean stacks will run in Mock Cloud Mode)"
+fi
+
 # Deploy the worker image into the k3d cluster
 if [ -f Dockerfile.worker ]; then
     echo "🔄 Building worker Docker image..."
@@ -296,6 +314,9 @@ if [ -f Dockerfile.worker ]; then
     ./bin/kubectl apply -f k8s/worker-sa.yaml --context k3d-provisioning-lunorica 2>/dev/null || true
     ./bin/kubectl apply -f k8s/worker-deployment.yaml --context k3d-provisioning-lunorica
 fi
+
+# Initialize .env file
+bash scripts/setup-env.sh
 
 echo "✨ Setup complete! You can now run 'npm run dev' to start the platform."
 

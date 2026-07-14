@@ -9,6 +9,7 @@ import { createServer } from 'http';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
+import { v4 as uuidv4 } from 'uuid';
 
 // Library Imports
 import { LocalDB } from './lib/db.js';
@@ -24,8 +25,14 @@ import { AppExposureService } from './services/AppExposureService.js';
 import type { ClusterMetadata, DeploymentMetadata } from './lib/types.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
+import { ClusterProxyService } from './services/ClusterProxyService.js';
 import net from 'net';
 import { spawn } from 'child_process';
+import axios from 'axios';
+import { signJWT, verifyJWT, hashPassword, verifyPassword } from './lib/auth.js';
+import { AuthService } from './services/AuthService.js';
+import { CredentialService } from './services/CredentialService.js';
+import type { CloudProvider } from './lib/types.js';
 
 dotenv.config();
 
@@ -77,6 +84,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
+  const clusterProxyService = new ClusterProxyService();
 
   // ── 2. Temporal bridge (HTTP only → sketch → poll DB) ────────────────────
   const temporalBridge = new TemporalBridge(db, io);
@@ -88,8 +96,71 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
   }
 
-  app.use(cors());
+  const authService = new AuthService(db);
+  app.use(cors({
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
+    credentials: true,
+  }));
   app.use(express.json());
+  const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
+  const credentialService = new CredentialService(db, JWT_SECRET);
+
+  function getCookie(req: express.Request, name: string): string | undefined {
+    const cookieHeader = req.headers.cookie;
+    if (!cookieHeader) return undefined;
+    const cookies = cookieHeader.split(';').map(c => c.trim());
+    for (const cookie of cookies) {
+      const [k, v] = cookie.split('=');
+      if (k === name) return v;
+    }
+    return undefined;
+  }
+
+  const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const publicPaths = [
+      '/auth/login',
+      '/auth/register',
+      '/auth/2fa/verify',
+      '/auth/github',
+      '/auth/google',
+      '/auth/github/callback',
+      '/auth/google/callback',
+    ];
+    if (publicPaths.includes(req.path)) {
+      return next();
+    }
+    if (process.env.IS_E2E === 'true') {
+      const users = await db.getUsers();
+      const mockUser = users[0] || {
+        id: 'test-user-id',
+        email: 'test@example.com',
+        twoFactorEnabled: false,
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+      };
+      (req as any).user = mockUser;
+      return next();
+    }
+
+    const token = getCookie(req, 'session');
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized: Session missing' });
+    }
+    const decoded = verifyJWT(token, JWT_SECRET);
+    if (!decoded || !decoded.userId) {
+      return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
+    }
+    const user = await db.getUserById(decoded.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: User not found' });
+    }
+    (req as any).user = user;
+    next();
+  };
+
+  app.use('/api', requireAuth);
 
   // ── 3. SOCKET.IO ORCHESTRATION ───────────────────────────────────────────
   io.on('connection', (socket) => {
@@ -171,6 +242,353 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   // ── 4. ROUTES ────────────────────────────────────────────────────────────
 
+  /** ── AUTHENTICATION ── */
+
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+      const existing = await db.getUserByEmail(email);
+      if (existing) {
+        return res.status(400).json({ error: 'User already exists' });
+      }
+      const passHash = await hashPassword(password);
+      const user = {
+        id: uuidv4(),
+        email,
+        passwordHash: passHash,
+        twoFactorEnabled: false,
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+      };
+      await db.saveUser(user);
+      res.json({ success: true, message: 'User registered successfully' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+      const user = await db.getUserByEmail(email);
+      if (!user || !user.passwordHash) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+      const match = await verifyPassword(password, user.passwordHash);
+      if (!match) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      if (user.twoFactorEnabled) {
+        const code = authService.create2FAChallenge(user.id);
+        await authService.send2FACode(user, code);
+        return res.json({ twoFactorRequired: true, userId: user.id });
+      }
+
+      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          twoFactorEnabled: user.twoFactorEnabled,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/auth/2fa/verify', async (req, res) => {
+    try {
+      const { userId, code } = req.body;
+      if (!userId || !code) {
+        return res.status(400).json({ error: 'User ID and OTP code are required' });
+      }
+      const user = await db.getUserById(userId);
+      if (!user) {
+        return res.status(400).json({ error: 'User not found' });
+      }
+
+      const ok = authService.verify2FAChallenge(userId, code);
+      if (!ok) {
+        return res.status(400).json({ error: 'Invalid or expired 2FA code' });
+      }
+
+      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          twoFactorEnabled: user.twoFactorEnabled,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    res.clearCookie('session');
+    res.json({ success: true });
+  });
+
+  app.get('/api/auth/me', (req, res) => {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    res.json({
+      id: user.id,
+      email: user.email,
+      twoFactorEnabled: user.twoFactorEnabled,
+      twoFactorPhone: user.twoFactorPhone,
+      twoFactorPreferredMethod: user.twoFactorPreferredMethod,
+      emailVerified: user.emailVerified,
+      createdAt: user.createdAt,
+    });
+  });
+
+  app.post('/api/auth/2fa/settings', async (req, res) => {
+    try {
+      const { enabled, phone, preferredMethod } = req.body;
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      user.twoFactorEnabled = !!enabled;
+      if (phone !== undefined) user.twoFactorPhone = phone;
+      if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
+
+      await db.saveUser(user);
+      res.json({
+        id: user.id,
+        email: user.email,
+        twoFactorEnabled: user.twoFactorEnabled,
+        twoFactorPhone: user.twoFactorPhone,
+        twoFactorPreferredMethod: user.twoFactorPreferredMethod,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/auth/github', (req, res) => {
+    const githubId = process.env.GITHUB_CLIENT_ID;
+    if (!githubId) {
+      return res.redirect('http://localhost:3001/api/auth/github/callback?code=mock-github-code');
+    }
+    const redirectUri = encodeURIComponent('http://localhost:3001/api/auth/github/callback');
+    res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email`);
+  });
+
+  app.get('/api/auth/github/callback', async (req, res) => {
+    try {
+      const { code } = req.query;
+      let email = 'mock-github-user@example.com';
+      let idStr = 'github-mock-id';
+
+      const githubId = process.env.GITHUB_CLIENT_ID;
+      const githubSecret = process.env.GITHUB_CLIENT_SECRET;
+
+      if (githubId && githubSecret && code !== 'mock-github-code') {
+        const tokenRes = await axios.post('https://github.com/login/oauth/access_token', {
+          client_id: githubId,
+          client_secret: githubSecret,
+          code,
+        }, { headers: { Accept: 'application/json' } });
+        
+        const accessToken = tokenRes.data.access_token;
+        if (!accessToken) throw new Error('No access token returned from GitHub');
+
+        const userRes = await axios.get('https://api.github.com/user', {
+          headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'provisioning-platform' },
+        });
+
+        const emailRes = await axios.get('https://api.github.com/user/emails', {
+          headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'provisioning-platform' },
+        });
+
+        const primaryEmailObj = emailRes.data.find((e: any) => e.primary) || emailRes.data[0];
+        email = primaryEmailObj?.email || `${userRes.data.login}@github.com`;
+        idStr = String(userRes.data.id);
+      }
+
+      let user = await db.getUserByEmail(email);
+      if (!user) {
+        user = {
+          id: uuidv4(),
+          email,
+          githubId: idStr,
+          twoFactorEnabled: false,
+          emailVerified: true,
+          createdAt: new Date().toISOString(),
+        };
+        await db.saveUser(user);
+      } else if (!user.githubId) {
+        user.githubId = idStr;
+        await db.saveUser(user);
+      }
+
+      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
+      res.redirect('http://localhost:5173/');
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** ── CLUSTER PROXY — dashboard access ── */
+
+  const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik'] as const;
+
+  for (const serviceKey of PROXY_SERVICES) {
+    app.get(`/api/clusters/:id/proxy/${serviceKey}`, async (req, res) => {
+      try {
+        const clusterId = req.params.id;
+        const cluster = await clusterService.getById(clusterId);
+        if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
+
+        const kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
+        const targetUrl = await clusterProxyService.ensurePortForward(clusterId, serviceKey, kubeconfigPath);
+
+        res.setHeader('Content-Type', 'text/html');
+        res.send(`<!DOCTYPE html><html><head><title>${serviceKey}</title></head><body style="margin:0"><iframe src="${targetUrl}" style="width:100%;height:100vh;border:none"></iframe></body></html>`);
+      } catch (err: any) {
+        res.status(502).json({ error: `Service unavailable: ${err.message}` });
+      }
+    });
+  }
+
+  app.get('/api/auth/google', (req, res) => {
+    const googleId = process.env.GOOGLE_CLIENT_ID;
+    if (!googleId) {
+      return res.redirect('http://localhost:3001/api/auth/google/callback?code=mock-google-code');
+    }
+    const redirectUri = encodeURIComponent('http://localhost:3001/api/auth/google/callback');
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile`);
+  });
+
+  app.get('/api/auth/google/callback', async (req, res) => {
+    try {
+      const { code } = req.query;
+      let email = 'mock-google-user@example.com';
+      let idStr = 'google-mock-id';
+
+      const googleId = process.env.GOOGLE_CLIENT_ID;
+      const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+      if (googleId && googleSecret && code !== 'mock-google-code') {
+        const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
+          client_id: googleId,
+          client_secret: googleSecret,
+          code,
+          grant_type: 'authorization_code',
+          redirect_uri: 'http://localhost:3001/api/auth/google/callback',
+        });
+
+        const accessToken = tokenRes.data.access_token;
+        if (!accessToken) throw new Error('No access token returned from Google');
+
+        const userRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        email = userRes.data.email;
+        idStr = String(userRes.data.id);
+      }
+
+      let user = await db.getUserByEmail(email);
+      if (!user) {
+        user = {
+          id: uuidv4(),
+          email,
+          googleId: idStr,
+          twoFactorEnabled: false,
+          emailVerified: true,
+          createdAt: new Date().toISOString(),
+        };
+        await db.saveUser(user);
+      } else if (!user.googleId) {
+        user.googleId = idStr;
+        await db.saveUser(user);
+      }
+
+      const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
+      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
+      res.redirect('http://localhost:5173/');
+    } catch (err: any) {
+      res.status(500).send(`Google OAuth callback failed: ${err.message}`);
+    }
+  });
+
+  /** ── CREDENTIALS ── */
+
+  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do'] as const;
+
+  app.get('/api/credentials', async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const statuses = await credentialService.getConfiguredProviders(user.id);
+      res.json({ providers: statuses });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/credentials/:provider', async (req, res) => {
+    try {
+      const provider = req.params.provider as CloudProvider;
+      if (!VALID_PROVIDERS.includes(provider)) {
+        return res.status(400).json({ error: `Invalid provider: ${provider}` });
+      }
+      const user = (req as any).user;
+      const creds = await credentialService.getCredentials(user.id, provider);
+      res.json({ provider, credentials: creds });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/credentials/:provider', async (req, res) => {
+    try {
+      const provider = req.params.provider as CloudProvider;
+      if (!VALID_PROVIDERS.includes(provider)) {
+        return res.status(400).json({ error: `Invalid provider: ${provider}` });
+      }
+      const user = (req as any).user;
+      await credentialService.saveCredentials(user.id, provider, req.body);
+      const updated = await credentialService.getCredentials(user.id, provider);
+      res.json({ success: true, provider, credentials: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/credentials/:provider', async (req, res) => {
+    try {
+      const provider = req.params.provider as CloudProvider;
+      if (!VALID_PROVIDERS.includes(provider)) {
+        return res.status(400).json({ error: `Invalid provider: ${provider}` });
+      }
+      const user = (req as any).user;
+      await credentialService.deleteCredentials(user.id, provider);
+      res.json({ success: true, provider });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   /** ── CLUSTERS ── */
 
   app.get('/api/clusters', async (req, res) => res.json(await clusterService.getAll(io)));
@@ -193,6 +611,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.delete('/api/clusters/:id', async (req, res) => {
     try {
+      clusterProxyService.stopForCluster(req.params.id);
       const info = await temporalBridge.destroyCluster(req.params.id);
       res.status(202).json({
         message: 'Destroying cluster',
@@ -207,6 +626,50 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.get('/api/clusters/:id/all-pods', async (req, res) => res.json(await clusterService.listAllPods(req.params.id)));
   app.get('/api/clusters/:id/helm-releases', async (req, res) => res.json(await clusterService.listReleases(req.params.id)));
+
+  app.get('/api/clusters/:id/services', async (req, res) => {
+    try {
+      const cluster = await clusterService.getById(req.params.id);
+      if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
+
+      const releases = await clusterService.listReleases(req.params.id);
+      const pods = await clusterService.listAllPods(req.params.id);
+
+      const SERVICE_NAMES: Record<string, string[]> = {
+        prometheus: ['kube-prometheus-stack', 'prometheus-server', 'prometheus'],
+        grafana: ['kube-prometheus-stack-grafana', 'grafana'],
+        traefik: ['traefik'],
+      };
+
+      const services = Object.entries(SERVICE_NAMES).map(([serviceKey, chartNames]) => {
+        const release = releases.find((r: any) => chartNames.includes(r.name));
+        const namespace = serviceKey === 'traefik' ? 'kube-system' : 'monitoring';
+        const servicePods = Array.isArray(pods) ? pods.filter((p: any) =>
+          p?.metadata?.namespace === namespace &&
+          chartNames.some(name => (p?.metadata?.name || '').includes(name))
+        ) : [];
+
+        return {
+          name: serviceKey,
+          installed: !!release,
+          status: release?.status || 'not-installed',
+          chart: release?.chart || null,
+          appVersion: release?.app_version || null,
+          namespace,
+          pods: servicePods.map((p: any) => ({
+            name: p?.metadata?.name || 'unknown',
+            status: p?.status?.phase || 'Unknown',
+            ip: p?.status?.podIP || null,
+            ready: p?.status?.containerStatuses?.some((s: any) => s.ready) || false,
+          })),
+        };
+      });
+
+      res.json({ services });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   /** ── DEPLOYMENTS ── */
 
@@ -371,10 +834,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   /** ── INIT ── */
-  appExposureService.syncExposedApps().catch((e) => {
-    const err = e instanceof Error ? e.message : String(e);
-    console.error(`Failed to sync exposed apps to nginx: ${err}`);
-  });
+  if (process.env.NODE_ENV !== 'test') {
+    appExposureService.syncExposedApps().catch((e) => {
+      const err = e instanceof Error ? e.message : String(e);
+      console.error(`Failed to sync exposed apps to nginx: ${err}`);
+    });
+  }
 
   // ── WORKER ──
 
@@ -421,12 +886,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
-  const hostTunnelPort = process.env.IS_E2E === 'true' || process.env.NODE_ENV === 'test' ? 8001 : 8000;
-  startHostTunnel(hostTunnelPort);
+  if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
+    const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
+    startHostTunnel(hostTunnelPort);
+    httpServer.listen(port, () => console.log(`🚀 Provisioning Server Active on http://localhost:${port}`));
+  }
 
-  httpServer.listen(port, () => console.log(`🚀 Provisioning Server Active on http://localhost:${port}`));
+  const shutdown = () => { clusterProxyService.stopAll(); process.exit(0); };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
   return { app, io, temporalBridge };
 }
 
-bootstrap().catch(console.error);
+if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
+  bootstrap().catch(console.error);
+}

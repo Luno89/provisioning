@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+:root {
+  --aws-orange: #FF9900;
+  --gcp-blue: #4285F4;
+  --azure-blue: #0078D4;
+  --do-blue: #0080FF;
+}

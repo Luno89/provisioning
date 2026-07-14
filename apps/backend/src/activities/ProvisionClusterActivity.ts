@@ -10,6 +10,7 @@ import path from 'path';
 import { execSync } from 'child_process';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
+import { hasCloudCredentials } from '../lib/credential-resolver.js';
 
 export interface ProvisionClusterArgs {
   name: string;
@@ -34,16 +35,19 @@ export async function ProvisionClusterActivity(
 ): Promise<ProvisionClusterResult> {
   const infra = new InfrastructureService();
   const logFile = args.logFile;
-  const kubeconfigPath = `/tmp/kubeconfig-${args.name}`;
 
-  if (args.provider === 'k3d') {
+  const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
+  const physicalName = isMock ? `mock-${args.provider}-${args.name}` : args.name;
+  const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
+
+  if (args.provider === 'k3d' || isMock) {
     try {
-      await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + args.name]);
+      await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
     } catch {}
 
-    await infra.createLocalCluster(args.name, { logFile });
+    await infra.createLocalCluster(physicalName, { logFile });
 
-    const kubeconfigContent = await infra.getKubeconfig(args.name);
+    const kubeconfigContent = await infra.getKubeconfig(physicalName);
     await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
 
     // --- Wait for cluster API server and nodes to become responsive and ready ---
@@ -65,7 +69,7 @@ export async function ProvisionClusterActivity(
       // Check docker logs for file descriptor limit exhaustion inside the Colima/Docker VM
       if (i > 0 && i % 5 === 0) {
         try {
-          const containerName = `k3d-${args.name}-server-0`;
+          const containerName = `k3d-${physicalName}-server-0`;
           const { exec } = await import('child_process');
           const { promisify } = await import('util');
           const execAsync = promisify(exec);
@@ -84,7 +88,7 @@ export async function ProvisionClusterActivity(
       await new Promise((r) => setTimeout(r, 2000));
     }
     if (!ready) {
-      throw new Error(`Cluster ${args.name} did not get a Ready control plane node in time.`);
+      throw new Error(`Cluster ${physicalName} did not get a Ready control plane node in time.`);
     }
 
     // --- Patch local-path StorageClass to allow volume expansion ---
@@ -122,7 +126,7 @@ export async function ProvisionClusterActivity(
           );
           if (updated !== cm.data.Corefile) {
             cm.data.Corefile = updated;
-            const containerName = `k3d-${args.name}-server-0`;
+            const containerName = `k3d-${physicalName}-server-0`;
             const cmJsonString = JSON.stringify(cm).replace(/'/g, "'\\''");
             const exec = (await import('child_process')).exec;
             await (await import('util')).promisify(exec)(
@@ -151,11 +155,11 @@ export async function ProvisionClusterActivity(
   // 5. Deploy the infrastructure stack (Monitoring, etc.)
   const env: Record<string, string> = {
     STACK_TYPE: 'cluster',
-    ENV: args.provider,
-    CLUSTER_NAME: args.name,
+    ENV: isMock ? 'local' : args.provider,
+    CLUSTER_NAME: physicalName,
     KUBECONFIG_PATH: kubeconfigPath,
   };
-  await infra.deploy(args.name, { logFile, env });
+  await infra.deploy(physicalName, { logFile, env });
 
   return { status: 'healthy', kubeconfigPath, msg: `Cluster ${args.name} provisioned`, logFile };
 }
