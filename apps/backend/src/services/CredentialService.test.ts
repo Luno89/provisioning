@@ -1,34 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CredentialService } from './CredentialService.js';
 import { encryptValue, decryptValue } from '../lib/crypto.js';
+import { MemoryDB } from '../lib/memory-db.js';
 import type { UserMetadata } from '../lib/types.js';
-
-// Mock LocalDB
-function createMockDB() {
-  let users: UserMetadata[] = [];
-
-  return {
-    async getUserById(id: string) {
-      return users.find((u) => u.id === id);
-    },
-    async saveUser(user: UserMetadata) {
-      const idx = users.findIndex((u) => u.id === user.id);
-      if (idx >= 0) users[idx] = user;
-      else users.push(user);
-    },
-    _addUser(user: UserMetadata) {
-      users.push(user);
-    },
-    _getUsers() {
-      return users;
-    },
-  };
-}
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
 
 describe('CredentialService', () => {
-  let db: ReturnType<typeof createMockDB>;
+  let db: MemoryDB;
   let service: CredentialService;
   const testUser: UserMetadata = {
     id: 'user-1',
@@ -38,10 +17,11 @@ describe('CredentialService', () => {
     createdAt: new Date().toISOString(),
   };
 
-  beforeEach(() => {
-    db = createMockDB();
-    db._addUser({ ...testUser });
-    service = new CredentialService(db as any, TEST_KEY);
+  beforeEach(async () => {
+    db = new MemoryDB();
+    await db.init();
+    await db.saveUser({ ...testUser });
+    service = new CredentialService(db, TEST_KEY);
   });
 
   describe('saveCredentials + getCredentials', () => {
@@ -64,7 +44,7 @@ describe('CredentialService', () => {
         token: 'dop_v1_secret_token_12345',
       });
 
-      const user = db._getUsers().find((u) => u.id === 'user-1');
+      const user = (await db.getUsers()).find((u) => u.id === 'user-1');
       expect(user?.credentials?.do?.token).toBeDefined();
       // The stored value should NOT be the plaintext
       expect(user?.credentials?.do?.token).not.toBe('dop_v1_secret_token_12345');

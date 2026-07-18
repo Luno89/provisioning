@@ -12,14 +12,15 @@
  */
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 import type { Client } from '@temporalio/client'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
-import { LocalDB } from '../lib/db.js'
-import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js'
+import type { Database } from '../lib/db-interface.js'
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata } from '../lib/types.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
 import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
@@ -30,6 +31,8 @@ import type { Server as SocketServer } from 'socket.io'
 const HOST_QUEUE = 'host-ops-queue'
 const CLUSTER_QUEUE = 'cluster-ops-queue'
 const WORKFLOW_POLL_INTERVAL = 5000
+const RECONCILE_INTERVAL = 30000
+const MAX_POLL_FAILURES = 12
 
 export interface WorkflowDeal {
   readonly id: string
@@ -47,7 +50,7 @@ async function getDefaultClient(address?: string): Promise<Client> {
 }
 
 async function updateUserStatus(
-  db: LocalDB,
+  db: Database,
   clusterId: string,
   clusterName: string,
   provider: string,
@@ -68,7 +71,7 @@ async function updateUserStatus(
 }
 
 async function updateDeploymentStatus(
-  db: LocalDB,
+  db: Database,
   deploymentId: string,
   deployment: DeploymentMetadata,
   status: string,
@@ -101,12 +104,56 @@ export const connectToTemporal = async (address: string): Promise<Client> => {
   return c
 }
 
+function inferProgressFromLog(logPath: string): ClusterProgress | null {
+  try {
+    const content = fs.readFileSync(logPath, 'utf-8')
+    const lines = content.split('\n')
+    const steps = [
+      { step: 'deploying-cdktf', keywords: ['Deploying', 'terraform', 'cdktf', 'Apply complete'] },
+      { step: 'installing-traefik', keywords: ['traefik', 'helm.*traefik'] },
+      { step: 'installing-prometheus', keywords: ['prometheus', 'kube-prometheus-stack'] },
+      { step: 'patching-coredns', keywords: ['CoreDNS', 'coredns', 'dns'] },
+      { step: 'patching-storage', keywords: ['StorageClass', 'storageclass', 'volume expansion'] },
+      { step: 'creating-cluster', keywords: ['Creating', 'k3d.*create', 'cluster create'] },
+    ]
+
+    let lastStep = null
+    let lastMessage = ''
+    let lastTimestamp = new Date().toISOString()
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/\x1B\[[0-9;]*m/g, '').trim()
+      if (!cleanLine) continue
+
+      for (const s of steps) {
+        for (const kw of s.keywords) {
+          if (new RegExp(kw, 'i').test(cleanLine)) {
+            lastStep = s.step
+            lastMessage = cleanLine.substring(0, 120)
+            const timeMatch = cleanLine.match(/(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)
+            if (timeMatch) lastTimestamp = timeMatch[1]
+            break
+          }
+        }
+        if (lastStep === s.step) break
+      }
+    }
+
+    if (lastStep) {
+      return { step: lastStep, message: lastMessage, timestamp: lastTimestamp }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export class TemporalBridge {
-  db!: LocalDB
+  db!: Database
   io?: SocketServer
   client!: Client
 
-  constructor(db: LocalDB, io?: SocketServer) {
+  constructor(db: Database, io?: SocketServer) {
     this.db = db
     this.io = io
   }
@@ -141,9 +188,12 @@ export class TemporalBridge {
     provider: string,
     meta?: any
   ) {
+    let consecutiveFailures = 0
     const timer = setInterval(async () => {
       try {
         const status = await pollWorkflowRun(wfId)
+        consecutiveFailures = 0
+
         if (status && status.status?.name !== 'RUNNING') {
           clearInterval(timer)
           const name = status.status?.name
@@ -203,8 +253,13 @@ export class TemporalBridge {
           }
         }
       } catch (err: any) {
-        console.warn(`[TemporalBridge] Failed polling workflow ${wfId}: ${err.message}`)
-        clearInterval(timer)
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_POLL_FAILURES) {
+          clearInterval(timer)
+          console.error(`[TemporalBridge] Workflow ${wfId} polling failed ${consecutiveFailures} times — giving up`)
+        } else {
+          console.warn(`[TemporalBridge] Failed polling workflow ${wfId} (${consecutiveFailures}/${MAX_POLL_FAILURES}): ${err.message}`)
+        }
       }
     }, WORKFLOW_POLL_INTERVAL)
   }
@@ -246,6 +301,97 @@ export class TemporalBridge {
         }
       }
     }
+
+    // 3. Start background reconciliation loop
+    this.startReconciliationLoop()
+  }
+
+  private startReconciliationLoop(): void {
+    const reconcile = async () => {
+      if (!this.client) return
+      try {
+        const clusters = await this.db.getClusters()
+        for (const cluster of clusters) {
+          if (cluster.status !== 'provisioning' && cluster.status !== 'destroying') continue
+          const wfId = cluster.temporalWorkflowId
+          if (!wfId) continue
+
+          // Check Temporal workflow status
+          const wfStatus = await pollWorkflowRun(wfId)
+          const statusName = wfStatus?.status?.name
+          if (!statusName) continue
+
+          // Workflow has completed but DB wasn't updated — reconcile
+          if (statusName !== 'RUNNING') {
+            console.log(`[Reconcile] Cluster ${cluster.name} workflow is ${statusName} but DB says ${cluster.status} — fixing`)
+            const action = cluster.status === 'provisioning' ? 'cluster-provision' : 'cluster-destroy'
+            if (action === 'cluster-provision') {
+              if (statusName === 'FAILED') {
+                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'failed')
+              } else if (statusName === 'TERMINATED' || statusName === 'CANCELLED') {
+                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'destroyed')
+              } else {
+                let kubeconfig: string | undefined
+                try {
+                  const handle = this.client.workflow.getHandle(wfId)
+                  const wfResult = await handle.result()
+                  kubeconfig = (wfResult as any).kubeconfig
+                } catch {}
+                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'healthy', kubeconfig)
+              }
+            } else {
+              if (statusName === 'FAILED') {
+                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'failed')
+              } else {
+                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'destroyed')
+              }
+            }
+            if (this.io) this.io.emit('cluster-updated')
+          }
+
+          // Update progress from log file
+          if (statusName === 'RUNNING' && cluster.lastLogPath) {
+            const progress = inferProgressFromLog(cluster.lastLogPath)
+            if (progress) {
+              await this.db.updateClusterProgress(cluster.id, progress)
+            }
+          }
+        }
+
+        // Reconcile deployments
+        const deployments = await this.db.getDeployments()
+        for (const dep of deployments) {
+          if (dep.status !== 'deploying' && dep.status !== 'destroying') continue
+          const depWfId = dep.temporalWorkflowId
+          if (!depWfId) continue
+
+          const depWfStatus = await pollWorkflowRun(depWfId)
+          const depStatusName = depWfStatus?.status?.name
+          if (!depStatusName) continue
+
+          if (depStatusName !== 'RUNNING') {
+            console.log(`[Reconcile] Deployment ${dep.name} workflow is ${depStatusName} but DB says ${dep.status} — fixing`)
+            const depAction = dep.status === 'deploying' ? 'app-deploy' : 'app-destroy'
+            if (depAction === 'app-deploy') {
+              if (depStatusName === 'FAILED' || depStatusName === 'TERMINATED' || depStatusName === 'CANCELLED') {
+                await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
+              } else {
+                await updateDeploymentStatus(this.db, dep.id, dep, 'running', dep.storage)
+              }
+            } else {
+              const allDeployments = await this.db.getDeployments()
+              await this.db.saveDeploymentList(allDeployments.filter((d: any) => d.id !== dep.id))
+            }
+            if (this.io) this.io.emit('deployment-updated')
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Reconcile] Error: ${err.message}`)
+      }
+    }
+
+    reconcile()
+    setInterval(reconcile, RECONCILE_INTERVAL)
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -265,6 +411,7 @@ export class TemporalBridge {
       status: 'provisioning',
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
+      createdAt: new Date().toISOString(),
     })
 
     const handle = await this.client.workflow.start(ClusterProvisionWorkflow, {

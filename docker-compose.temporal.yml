@@ -39,7 +39,7 @@ services:
     volumes:
       - tf-data:/home/temporal/temporal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8233/health"]
+      test: ["CMD-SHELL", "temporal operator cluster health --address $(ip route | awk \"/default/ { print \\$3 }\"):7233 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30

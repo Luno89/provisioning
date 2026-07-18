@@ -152,14 +152,54 @@ export async function ProvisionClusterActivity(
     await new Promise((r) => setTimeout(r, 5000));
   }
 
-  // 5. Deploy the infrastructure stack (Monitoring, etc.)
+  // 5. Clean up orphaned resources from previous failed deploy attempts
+  try {
+    await infra.runHelm(['uninstall', 'traefik', '-n', 'traefik', '--wait', '--timeout', '5m'], kubeconfigPath);
+  } catch {
+    // No existing traefik release — expected on first run
+  }
+  try {
+    await infra.runHelm(['uninstall', 'traefik', '-n', 'kube-system', '--wait', '--timeout', '5m'], kubeconfigPath);
+  } catch {
+    // No existing traefik release in kube-system
+  }
+  try {
+    await infra.runHelm(['uninstall', 'kube-prometheus-stack', '-n', 'monitoring', '--wait', '--timeout', '5m'], kubeconfigPath);
+  } catch {
+    // No existing prometheus release — expected on first run
+  }
+  try {
+    await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath);
+  } catch {
+    // IngressClass already gone
+  }
+  // Force-remove stale helm annotations from IngressClass if it still exists
+  try {
+    await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath);
+  } catch {}
+  try {
+    await infra.destroy(physicalName, {
+      logFile,
+      env: {
+        STACK_TYPE: 'cluster',
+        ENV: isMock ? 'local' : args.provider,
+        CLUSTER_NAME: physicalName,
+        KUBECONFIG_PATH: kubeconfigPath,
+      },
+    });
+  } catch {
+    // No prior CDKTF state — expected on first run
+  }
+
+  // 6. Deploy the infrastructure stack (Monitoring, etc.)
   const env: Record<string, string> = {
     STACK_TYPE: 'cluster',
     ENV: isMock ? 'local' : args.provider,
     CLUSTER_NAME: physicalName,
     KUBECONFIG_PATH: kubeconfigPath,
   };
-  await infra.deploy(physicalName, { logFile, env });
+  const deployTimeout = (args.provider === 'k3d' || isMock) ? 10 * 60 * 1000 : 25 * 60 * 1000;
+  await infra.deploy(physicalName, { logFile, env, timeout: deployTimeout });
 
   return { status: 'healthy', kubeconfigPath, msg: `Cluster ${args.name} provisioned`, logFile };
 }

@@ -46,4 +46,13 @@ pkill -f "IS_E2E=true.*npm run dev -w apps/backend" 2>/dev/null || true
 pkill -f "npm run dev -w apps/frontend -- --port" 2>/dev/null || true
 sleep 1
 
+# ── MongoDB test database ────────────────────────────────────────
+echo "  ▶  Dropping MongoDB test database..."
+MONGO_URI="${MONGO_TEST_URI:-mongodb://admin:admin@localhost:27017/provisioning_test?authSource=admin}"
+if command -v mongosh >/dev/null 2>&1; then
+  mongosh --quiet "$MONGO_URI" --eval "db.adminCommand({ dropDatabase: 1 })" >/dev/null 2>&1 || true
+elif docker ps --filter "name=mongodb" --filter "status=running" -q | grep -q .; then
+  docker exec "$(docker ps --filter "name=mongodb" -q)" mongosh --quiet "$MONGO_URI" --eval "db.adminCommand({ dropDatabase: 1 })" >/dev/null 2>&1 || true
+fi
+
 echo "  ✖  e2e teardown done"

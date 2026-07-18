@@ -1,12 +1,12 @@
-import type { LocalDB } from '../lib/db.js';
+import type { Database } from '../lib/db-interface.js';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
 
 export class BaseService {
   protected logger = pino(pinoPretty());
-  protected db: LocalDB;
+  protected db: Database;
 
-  constructor(db: LocalDB) {
+  constructor(db: Database) {
     this.db = db;
   }
 }

@@ -5,7 +5,7 @@
  * at rest. Provides CRUD operations plus the resolution chain used by
  * activities and workflows.
  */
-import type { LocalDB } from '../lib/db.js';
+import type { Database } from '../lib/db-interface.js';
 import type { CloudCredentials, CloudProvider, UserMetadata } from '../lib/types.js';
 import { encryptValue, decryptValue, maskSecret } from '../lib/crypto.js';
 import { resolveCloudCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
@@ -36,7 +36,7 @@ export interface ProviderStatus {
 
 export class CredentialService {
   constructor(
-    private readonly db: LocalDB,
+    private readonly db: Database,
     private readonly masterKey: string,
   ) {}
 

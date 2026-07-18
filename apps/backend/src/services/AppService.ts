@@ -2,7 +2,7 @@ import { BaseService } from './BaseService.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
-import type { LocalDB } from '../lib/db.js';
+import type { Database } from '../lib/db-interface.js';
 import type { DeploymentMetadata } from '../lib/types.js';
 import { StorageAdapter } from './StorageAdapter.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -17,7 +17,7 @@ export class AppService extends BaseService {
   private clusters: ClusterService;
   private builder: BuilderService;
 
-  constructor(db: LocalDB, infra: InfrastructureService, clusters: ClusterService, builder: BuilderService) {
+  constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, builder: BuilderService) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;
@@ -27,10 +27,11 @@ export class AppService extends BaseService {
   async getAll(io?: SocketServer) {
     // 1. Force cluster service to sync first, which will also clean up deployments of deleted clusters
     const clusters = await this.clusters.getAll(io);
-    
+
     // 2. Read the current deployments
     const deployments = await this.db.getDeployments();
-    
+    const now = new Date().toISOString();
+
     // Group deployments by clusterId so we only query each cluster once
     const deploymentsByCluster = new Map<string, typeof deployments>();
     for (const dep of deployments) {
@@ -39,37 +40,37 @@ export class AppService extends BaseService {
       }
       deploymentsByCluster.get(dep.clusterId)!.push(dep);
     }
-    
+
     let changed = false;
     const cleanDeployments: typeof deployments = [];
-    
+
     for (const [clusterId, deps] of deploymentsByCluster.entries()) {
       const cluster = clusters.find(c => c.id === clusterId);
       if (!cluster) {
         changed = true;
         continue;
       }
-      
+
       if (cluster.status === 'provisioning') {
-        cleanDeployments.push(...deps);
+        cleanDeployments.push(...deps.map(d => ({ ...d, lastSyncedAt: now })));
         continue;
       }
-      
+
       try {
         const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
         const output = await this.infra.runKubectl(['get', 'ns', '-o', 'json'], kubeconfigPath);
         const data = JSON.parse(output);
         const namespaces = data.items.map((item: any) => item.metadata.name);
-        
+
         for (const dep of deps) {
           if (dep.status === 'deploying' || dep.status === 'destroying') {
-            cleanDeployments.push(dep);
+            cleanDeployments.push({ ...dep, lastSyncedAt: now });
             continue;
           }
-          
+
           const ns = this.sanitize(dep.name);
           if (namespaces.includes(ns)) {
-            cleanDeployments.push(dep);
+            cleanDeployments.push({ ...dep, lastSyncedAt: now });
           } else {
             changed = true;
             this.logger.info(`Detected deployment ${dep.name} namespace ${ns} deleted outside the system. Syncing...`);
@@ -80,15 +81,102 @@ export class AppService extends BaseService {
         }
       } catch (err: any) {
         this.logger.warn(`Failed to sync deployments for cluster ${cluster.name}: ${err.message}. Keeping existing metadata.`);
-        cleanDeployments.push(...deps);
+        cleanDeployments.push(...deps.map(d => ({ ...d, lastSyncedAt: now })));
       }
     }
-    
+
     if (changed) {
       await this.db.saveDeploymentList(cleanDeployments);
     }
-    
+
     return cleanDeployments;
+  }
+
+  async discoverDeployments(clusterId: string): Promise<DeploymentMetadata[]> {
+    const cluster = await this.clusters.getById(clusterId);
+    if (!cluster) throw new Error('Cluster not found');
+
+    const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
+    const dbDeployments = await this.db.getDeployments();
+    const clusterDeployments = dbDeployments.filter(d => d.clusterId === clusterId);
+    const now = new Date().toISOString();
+
+    // Get all namespaces (excluding system ones)
+    const nsOutput = await this.infra.runKubectl(['get', 'ns', '-o', 'json'], kubeconfigPath);
+    const nsData = JSON.parse(nsOutput);
+    const userNamespaces = nsData.items
+      .map((item: any) => item.metadata.name)
+      .filter((n: string) => !n.startsWith('kube-') && n !== 'default' && n !== 'kube-node-lease');
+
+    // Get all helm releases
+    let helmReleases: any[] = [];
+    try {
+      const isMock = this.clusters.isMockCloud(cluster);
+      const physicalName = this.clusters.getPhysicalClusterName(cluster);
+      const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
+      const args = ['list', '-A', '-o', 'json'];
+      if (context) args.push('--kube-context', context);
+      const helmOutput = await this.infra.runHelm(args, kubeconfigPath);
+      helmReleases = JSON.parse(helmOutput);
+    } catch {
+      // Best-effort: helm may not be available
+    }
+
+    const discovered: DeploymentMetadata[] = [];
+
+    for (const ns of userNamespaces) {
+      // Skip if already tracked
+      const alreadyTracked = clusterDeployments.some(d => this.sanitize(d.name) === ns);
+      if (alreadyTracked) continue;
+
+      // Infer appType from helm releases in this namespace
+      const nsReleases = helmReleases.filter((r: any) => r.Namespace === ns);
+      let appType: DeploymentMetadata['appType'] | undefined;
+      let strategy: 'helm' | 'native' = 'native';
+      let webRepo: string | undefined;
+      let webTag: string | undefined;
+      let dbRepo: string | undefined;
+      let dbTag: string | undefined;
+
+      if (nsReleases.length > 0) {
+        strategy = 'helm';
+        const releaseName = nsReleases[0].Chart?.split(':')[0]?.toLowerCase() ?? '';
+        const knownApps = ['odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik'];
+        appType = knownApps.find(a => releaseName.includes(a)) as DeploymentMetadata['appType'] | undefined;
+      } else {
+        // Try to infer from deployment names in the namespace
+        try {
+          const podsOutput = await this.infra.runKubectl(['get', 'pods', '-n', ns, '-o', 'json'], kubeconfigPath);
+          const podsData = JSON.parse(podsOutput);
+          const podNames = podsData.items.map((p: any) => p.metadata.name ?? '').map((n: string) => n.split('-')[0]);
+          const knownApps = ['odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik'];
+          appType = knownApps.find(a => podNames.some((p: string) => p.includes(a))) as DeploymentMetadata['appType'] | undefined;
+        } catch {
+          // Best-effort
+        }
+      }
+
+      const entry: DeploymentMetadata = {
+        id: uuidv4(),
+        name: ns,
+        clusterId,
+        strategy,
+        status: 'running',
+        lastSyncedAt: now,
+      };
+      if (appType) entry.appType = appType;
+      if (webRepo) entry.webRepo = webRepo;
+      if (webTag) entry.webTag = webTag;
+      if (dbRepo) entry.dbRepo = dbRepo;
+      if (dbTag) entry.dbTag = dbTag;
+      discovered.push(entry);
+    }
+
+    if (discovered.length > 0) {
+      await this.db.saveDeploymentList([...dbDeployments, ...discovered]);
+    }
+
+    return discovered;
   }
 
   private sanitize(name: string) {

@@ -47,9 +47,9 @@ inner_iterate() {
   bash "${ROOT}/scripts/clean-environment.sh" 2>>"${ROOT}/logs/loop-dev/${CLUSTER_NAME}/OUT.log"
   echo "" >> "${ROOT}/logs/loop-dev/${CLUSTER_NAME}/OUT.log"
 
-  # 2. Ensure dev workers (first-time) image present
-  mark "first-time.sh --deploy" "spacer"
-  bash "${ROOT}/scripts/first-time.sh --deploy" 2>>"${ROOT}/logs/loop-dev/${CLUSTER_NAME}/OUT.log"
+  # 2. Ensure Temporal is running
+  mark "ensure-temporal.sh" "spacer"
+  bash "${ROOT}/scripts/ensure-temporal.sh" 2>>"${ROOT}/logs/loop-dev/${CLUSTER_NAME}/OUT.log"
   echo "" >> "${ROOT}/logs/loop-dev/${CLUSTER_NAME}/OUT.log"
 
   # 3. Start backend + frontend

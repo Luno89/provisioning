@@ -9,7 +9,9 @@ npm workspaces: `apps/*`, `packages/*`
 | Path | What |
 |---|---|
 | `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, services, socket.io, all routes |
-| `apps/backend/src/lib/db.ts` | `LocalDB` — JSON file persistence at `apps/backend/data/{clusters,deployments}.json` |
+| `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` factory (MongoDB for dev/E2E, MemoryDB for unit tests) |
+| `apps/backend/src/lib/mongo-db.ts` | MongoDB native driver implementation (`mongodb@^6.10.0`) |
+| `apps/backend/src/lib/memory-db.ts` | In-memory mock for unit tests |
 | `apps/backend/src/services/` | Service layer: `InfrastructureService` (kubectl/helm/k3d/docker), `ClusterService`, `AppService`, `TemporalBridge` |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — registers cluster provisioning activities (ProvisionClusterActivity, DestroyClusterActivity) |
@@ -51,6 +53,42 @@ Backend dev: `npm run dev -w apps/backend` (uses `tsx watch --exclude data`)
 Frontend dev: `npm run dev -w apps/frontend` (Vite)
 Host worker: `npm run dev:worker -w apps/backend` (runs `worker-host.ts`)
 In-cluster worker (manual): `npm run dev:worker:cluster -w apps/backend`
+
+## E2E Monitor
+
+Interactive dashboard for debugging E2E tests in real-time:
+
+```bash
+npm run dev &                    # start dev stack first
+npx tsx scripts/e2e-monitor.ts   # launch monitor
+```
+
+Dashboard shows (refreshes every 2s):
+- MongoDB clusters with status and progress step
+- Live log tail from the active provisioning cluster
+- K8s pod status for the active cluster
+- Temporal workflow status
+- k3d cluster list
+- Worker health (host + cluster)
+
+Menu (last line):
+- `0-9, a` — run specific Playwright test
+- `r` — run all non-skipped tests sequentially
+- `t` — terminate running Temporal workflows
+- `c` — cleanup MongoDB test collections
+- `d` — full teardown
+- `l` — show last log lines
+- `q` — quit
+
+## Temporal Sync Architecture
+
+MongoDB stays in sync with Temporal via two mechanisms:
+
+1. **`trackWorkflow()` polling** — polls every 5s per workflow. On transient Temporal errors, retries up to 12 times before giving up (prevents clusters getting stuck in "provisioning" when Temporal is briefly unhealthy).
+
+2. **Background reconciliation loop** — runs every 30s. Scans all clusters in intermediate states (`provisioning`, `destroying`), checks Temporal workflow status directly, and updates MongoDB if the workflow has completed but the DB wasn't updated. Also parses log files to update the `progress` field on clusters.
+
+The `progress` field on `ClusterMetadata` tracks the current provisioning step (e.g., `creating-cluster`, `patching-storage`, `deploying-cdktf`, `installing-traefik`) by parsing the log file.
 
 ## In-cluster worker lifecycle
 

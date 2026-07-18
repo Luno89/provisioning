@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { InfrastructureService } from './InfrastructureService.js';
 import { fileURLToPath } from 'url';
+import type { Database } from '../lib/db-interface.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,7 +13,7 @@ export class BuilderService extends BaseService {
   private infra: InfrastructureService;
   private buildContext = '/tmp/app-build';
 
-  constructor(db: any, infra: InfrastructureService) {
+  constructor(db: Database, infra: InfrastructureService) {
     super(db);
     this.infra = infra;
   }
