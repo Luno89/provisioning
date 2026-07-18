@@ -43,10 +43,17 @@ fi
 echo "  ▶  Removing temporary state files..."
 rm -rf "$ROOT/.test-e2e-state" "$ROOT/.test-server-state" "$ROOT/.k3d-cluster-state" 2>/dev/null || true
 
-# 4. Reset JSON test database files
-echo "  ▶  Resetting test databases..."
-echo "[]" > "$ROOT/apps/backend/data/clusters-test.json" 2>/dev/null || true
-echo "[]" > "$ROOT/apps/backend/data/deployments-test.json" 2>/dev/null || true
+# 4. Reset MongoDB test database
+echo "  ▶  Resetting MongoDB test database..."
+DOCKER_COMPOSE="docker-compose"
+if ! command -v docker-compose >/dev/null 2>&1; then
+  if docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+  elif [ -f "$ROOT/bin/docker-compose" ]; then
+    DOCKER_COMPOSE="$ROOT/bin/docker-compose"
+  fi
+fi
+$DOCKER_COMPOSE -f "$ROOT/docker-compose.mongo.yml" down -v >/dev/null 2>&1 || true
 
 # 4b. Clean up log files
 echo "  ▶  Cleaning up workspace and backend logs..."

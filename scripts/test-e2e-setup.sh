@@ -52,6 +52,18 @@ for i in {1..30}; do
   sleep 2
 done
 
+echo "  ▶  Starting MongoDB for E2E tests..."
+$DOCKER_COMPOSE -f "$ROOT/docker-compose.mongo.yml" up -d >/dev/null 2>&1 || true
+export MONGO_TEST_URI="mongodb://admin:admin@localhost:27017/provisioning_test?authSource=admin"
+echo "  ⏳ Waiting for MongoDB to become healthy..."
+for i in {1..30}; do
+  if true &>/dev/null </dev/tcp/127.0.0.1/27017; then
+    echo "  ✅ MongoDB is healthy!"
+    break
+  fi
+  sleep 2
+done
+
 STOPped="$ROOT/.test-e2e-state/stopped"
 if [ -f "$STOPped" ]; then
   echo "  ⚠️  k3d-Lunorica-local-server-0 already stopped"

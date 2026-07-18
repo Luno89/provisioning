@@ -1,7 +1,7 @@
 import { BaseService } from './BaseService.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
-import type { LocalDB } from '../lib/db.js';
+import type { Database } from '../lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { exec, spawn } from 'child_process';
@@ -25,7 +25,7 @@ export class AppExposureService extends BaseService {
   private static registeredListeners = false;
   private static activeServices: AppExposureService[] = [];
 
-  constructor(db: LocalDB, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer) {
+  constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;

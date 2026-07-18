@@ -62,9 +62,7 @@ cleanup_kubeconfigs() {
 
 cleanup_backend_state() {
   for f in "$ROOT/apps/backend/data/clusters.json" \
-           "$ROOT/apps/backend/data/deployments.json" \
-           "$ROOT/apps/backend/data/clusters-test.json" \
-           "$ROOT/apps/backend/data/deployments-test.json"; do
+            "$ROOT/apps/backend/data/deployments.json"; do
     [[ -f "$f" ]] || continue
     rm -f "$f"
     CLEAN_TOTAL=$((CLEAN_TOTAL+1))

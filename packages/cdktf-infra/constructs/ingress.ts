@@ -28,19 +28,8 @@ export class IngressStack extends Construct {
               type: "ClusterIP",
             },
           },
-          ports: {
-            web: {
-              port: 18080,
-            },
-            websecure: {
-              port: 18443,
-            },
-          },
-          dashboard: {
-            enabled: true,
-            ingressRoute: {
-              enabled: true,
-            },
+          api: {
+            dashboard: true,
           },
         }),
       ],

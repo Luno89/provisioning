@@ -302,19 +302,6 @@ else
     echo "  ℹ️  doctl not found (DigitalOcean stacks will run in Mock Cloud Mode)"
 fi
 
-# Deploy the worker image into the k3d cluster
-if [ -f Dockerfile.worker ]; then
-    echo "🔄 Building worker Docker image..."
-    docker build -t deployworker.sh -f Dockerfile.worker .
-    
-    echo "📥 Importing worker Docker image into k3d..."
-    ./bin/k3d image import deployworker.sh -c provisioning-lunorica
-    
-    echo "⛵ Deploying worker pod into cluster..."
-    ./bin/kubectl apply -f k8s/worker-sa.yaml --context k3d-provisioning-lunorica 2>/dev/null || true
-    ./bin/kubectl apply -f k8s/worker-deployment.yaml --context k3d-provisioning-lunorica
-fi
-
 # Initialize .env file
 bash scripts/setup-env.sh
 

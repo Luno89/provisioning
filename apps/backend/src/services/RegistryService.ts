@@ -1,9 +1,9 @@
 import { BaseService } from './BaseService.js';
 import axios from 'axios';
-import type { LocalDB } from '../lib/db.js';
+import type { Database } from '../lib/db-interface.js';
 
 export class RegistryService extends BaseService {
-  constructor(db: LocalDB) {
+  constructor(db: Database) {
     super(db);
   }
   private FALLBACK_TAGS: Record<string, string[]> = {

@@ -21,8 +21,9 @@ const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 export interface ExecuteOptions {
   env?: Record<string, string> | undefined;
   logFile?: string | undefined;
-  resourceId?: string | undefined; 
+  resourceId?: string | undefined;
   io?: SocketServer | undefined;
+  timeout?: number | undefined;
 }
 
 /**
@@ -234,9 +235,9 @@ export class InfrastructureService {
   }
 
   private async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
-    const env = { 
-      ...process.env, 
-      ...options.env, 
+    const env = {
+      ...process.env,
+      ...options.env,
       PATH: `${process.env.PATH}:${BIN_DIR}`,
       CDKTF_DISABLE_PLUGIN_CACHE_ENV: 'true',
     };
@@ -250,12 +251,30 @@ export class InfrastructureService {
     return new Promise((resolve, reject) => {
       const child = spawn(cmd, args, { cwd, env });
       let stdout = '', stderr = '';
+      let timedOut = false;
 
       const broadcast = (data: string) => {
         if (options.io && options.resourceId) {
             options.io.to(options.resourceId).emit('log', data);
         }
       };
+
+      if (options.timeout) {
+        const timer = setTimeout(() => {
+          timedOut = true;
+          const timeoutMsg = `\n--- COMMAND TIMED OUT after ${options.timeout}ms ---\n`;
+          broadcast(timeoutMsg);
+          fs.appendFile(logFile, timeoutMsg).catch(console.error);
+          child.kill('SIGTERM');
+          setTimeout(() => {
+            if (!child.killed) child.kill('SIGKILL');
+          }, 5000);
+          reject({ message: `Command timed out: ${cmd} after ${options.timeout}ms`, stdout, stderr, logFile });
+        }, options.timeout);
+
+        child.on('close', () => clearTimeout(timer));
+        child.on('error', () => clearTimeout(timer));
+      }
 
       child.stdout.on('data', (data) => {
         const chunk = data.toString();
@@ -272,6 +291,7 @@ export class InfrastructureService {
       });
 
       child.on('close', (code) => {
+        if (timedOut) return;
         if (code === 0) {
             resolve({ stdout, logFile });
         } else {
@@ -282,6 +302,7 @@ export class InfrastructureService {
         }
       });
       child.on('error', (err) => {
+        if (timedOut) return;
           const errorMsg = `\n--- SPAWN ERROR: ${err.message} ---\n`;
           broadcast(errorMsg);
           reject(err);

@@ -12,7 +12,7 @@ import { Server as SocketServer } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 
 // Library Imports
-import { LocalDB } from './lib/db.js';
+import { createDatabase } from './lib/db-interface.js';
 
 // Service Imports
 import { InfrastructureService } from './services/InfrastructureService.js';
@@ -74,7 +74,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const port = process.env.PORT || 3001;
 
   // ── 1. Initialize backend ────────────────────────────────────────────────
-  const db = new LocalDB();
+  const db = createDatabase();
   await db.init();
 
   const infraService = new InfrastructureService();
@@ -621,6 +621,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       });
     } catch (err: any) {
       res.status(503).json({ error: `Temporal cluster destroy unavailable: ${err.message}` });
+    }
+  });
+
+  app.post('/api/clusters/discover', async (req, res) => {
+    try {
+      const discovered = await clusterService.discoverClusters();
+      res.json({ clusters: discovered });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/clusters/:id/discover-deployments', async (req, res) => {
+    try {
+      const discovered = await appService.discoverDeployments(req.params.id);
+      res.json({ deployments: discovered });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

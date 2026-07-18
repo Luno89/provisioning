@@ -5,9 +5,10 @@
   "private": true,
   "scripts": {
     "setup": "bash scripts/setup.sh",
-    "dev": "bash scripts/ensure-cluster.sh && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\" \"npm run dev:worker -w apps/backend\" \"npm run dev:worker:cluster -w apps/backend\"",
+    "dev": "bash scripts/ensure-cluster.sh && bash scripts/ensure-temporal.sh && bash scripts/ensure-mongo.sh && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\" \"npm run dev:worker -w apps/backend\" \"npm run dev:worker:cluster -w apps/backend\"",
     "clean-dev": "bash scripts/cleanup-all.sh",
-    "worker": "docker build -t deployworker.sh -f Dockerfile.worker . && bash scripts/first-time.sh --deploy",
+    "worker": "bash scripts/first-time.sh --deploy",
+    "deploy-worker": "bash scripts/deploy-worker.sh",
 
     "test":       "npm run test:unit && npm run test:e2e:sync",
     "test:all":   "npm test && npm run test:infra:integration && npm run test:unit:vpn",

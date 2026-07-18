@@ -1,11 +1,20 @@
+export interface ClusterProgress {
+  step: string;
+  message: string;
+  timestamp: string;
+}
+
 export interface ClusterMetadata {
   id: string;
   name: string;
   provider: 'k3d' | 'aws' | 'gcp' | 'azure' | 'do';
-  status: 'provisioning' | 'healthy' | 'failed' | 'destroying';
+  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered';
   kubeconfigPath?: string;
   lastLogPath?: string;
   temporalWorkflowId?: string;
+  createdAt?: string;
+  lastSyncedAt?: string;
+  progress?: ClusterProgress;
   // Temporal-related extensions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
@@ -18,7 +27,7 @@ export interface DeploymentMetadata {
   clusterId: string;
   strategy: 'helm' | 'native';
   appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik';
-  status: 'deploying' | 'running' | 'failed' | 'destroying';
+  status: 'deploying' | 'running' | 'failed' | 'destroying' | 'discovered';
   webRepo?: string;
   webTag?: string;
   dbRepo?: string;
@@ -35,6 +44,7 @@ export interface DeploymentMetadata {
   vpnConfig?: string;
   vpnDedicatedIp?: string;
   temporalWorkflowId?: string;
+  lastSyncedAt?: string;
   // Temporal-related extensions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;

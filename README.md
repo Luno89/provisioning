@@ -149,6 +149,25 @@ npm run test -w apps/backend    # backend unit tests
 npm run test -w apps/frontend   # frontend unit tests
 ```
 
+### E2E Monitor
+
+Interactive dashboard for debugging E2E tests in real-time:
+
+```bash
+npm run dev &                    # start dev stack first
+npx tsx scripts/e2e-monitor.ts   # launch monitor
+```
+
+The monitor shows:
+- MongoDB clusters with status and progress step
+- Live log tail from the active provisioning cluster
+- K8s pod status for the active cluster
+- Temporal workflow status
+- k3d cluster list
+- Worker health (host + cluster)
+
+Menu keys: `0-9, a` run specific tests, `r` runs all, `t` terminates workflows, `c` cleans MongoDB, `d` full teardown, `q` quit.
+
 ---
 
 ## 🧹 Useful Commands
@@ -201,5 +220,11 @@ npm workspaces: `apps/*`, `packages/*`
 - **Localtunnel is a free service** — Public URLs may be slow to connect, and the phishing warning appears on every visit. URLs change on backend restart.
 - **No authentication** — All API routes are open. Not intended for production use.
 - **k3d for local development** — The management cluster (`provisioning-lunorica`) is k3d-based. Cloud providers (AWS, GCP, DigitalOcean) are supported but require CLI credentials.
-- **JSON file database** — Read-modify-write pattern; may have race conditions under high concurrency.
 - **Port 80 or 8000 required** — The Nginx proxy container binds to port 80 (falls back to 8000 if occupied).
+
+## 🔄 Temporal Sync
+
+MongoDB stays in sync with Temporal via two mechanisms:
+
+1. **`trackWorkflow()` polling** — polls every 5s per workflow. On transient Temporal errors, retries up to 12 times before giving up.
+2. **Background reconciliation loop** — runs every 30s. Scans all clusters in intermediate states, checks Temporal workflow status directly, and updates MongoDB if the workflow has completed but the DB wasn't updated. Also parses log files to update the `progress` field on clusters.

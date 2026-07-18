@@ -1,7 +1,7 @@
 import { BaseService } from './BaseService.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterMetadata } from '../lib/types.js';
-import type { LocalDB } from '../lib/db.js';
+import type { Database } from '../lib/db-interface.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
@@ -14,7 +14,7 @@ const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
 
-  constructor(db: LocalDB, infra: InfrastructureService) {
+  constructor(db: Database, infra: InfrastructureService) {
     super(db);
     this.infra = infra;
   }
@@ -93,31 +93,39 @@ export class ClusterService extends BaseService {
   async getAll(io?: SocketServer) {
     const dbClusters = await this.db.getClusters();
     const activeK3dNames = await this.infra.listLocalClusters();
-    
+    const now = new Date().toISOString();
+
     let changed = false;
     const cleanClusters: ClusterMetadata[] = [];
-    
+
     for (const cluster of dbClusters) {
       const isMock = this.isMockCloud(cluster);
       if (cluster.provider === 'k3d' || isMock) {
         const physicalName = this.getPhysicalClusterName(cluster);
         if (cluster.status === 'provisioning') {
-          cleanClusters.push(cluster);
+          const recoveryResult = await this.recoverStuckCluster(cluster, physicalName, activeK3dNames);
+          if (recoveryResult) {
+            changed = true;
+            cleanClusters.push(recoveryResult);
+            if (io) io.emit('cluster-updated');
+          } else {
+            cleanClusters.push({ ...cluster, lastSyncedAt: now });
+          }
           continue;
         }
         if (cluster.status === 'destroying') {
           continue;
         }
-        
+
         if (activeK3dNames.includes(physicalName)) {
-          cleanClusters.push(cluster);
+          cleanClusters.push({ ...cluster, lastSyncedAt: now });
         } else {
           changed = true;
           this.logger.info(`Detected local cluster ${physicalName} deleted outside the system. Syncing...`);
           if (io) {
             io.emit('resource-destroyed', { id: cluster.id, type: 'cluster', name: cluster.name, outOfBand: true });
           }
-          
+
           try {
             const deployments = await this.db.getDeployments();
             const cleanDeployments = deployments.filter(d => d.clusterId !== cluster.id);
@@ -130,15 +138,101 @@ export class ClusterService extends BaseService {
           }
         }
       } else {
-        cleanClusters.push(cluster);
+        cleanClusters.push({ ...cluster, lastSyncedAt: now });
       }
     }
-    
+
     if (changed) {
       await this.db.saveClusterList(cleanClusters);
     }
-    
+
     return cleanClusters;
+  }
+
+  private async recoverStuckCluster(
+    cluster: ClusterMetadata,
+    physicalName: string,
+    activeK3dNames: string[],
+  ): Promise<ClusterMetadata | null> {
+    const stuckThreshold = 15 * 60 * 1000;
+    const clusterAge = Date.now() - new Date(cluster.createdAt || cluster.lastSyncedAt || Date.now()).getTime();
+    if (clusterAge < stuckThreshold) return null;
+
+    this.logger.info(`Cluster ${cluster.name} stuck in provisioning for ${Math.round(clusterAge / 60000)}min — recovering...`);
+
+    if (!activeK3dNames.includes(physicalName)) {
+      this.logger.info(`Cluster ${cluster.name} k3d cluster no longer exists — marking as failed`);
+      return { ...cluster, status: 'failed', lastSyncedAt: new Date().toISOString() };
+    }
+
+    try {
+      const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
+      const helmOutput = await this.infra.runHelm(['list', '-A', '-o', 'json'], kubeconfigPath);
+      const releases = JSON.parse(helmOutput);
+      const releaseNames = releases.map((r: any) => r.name);
+      const hasMonitoring = releaseNames.includes('kube-prometheus-stack');
+      const hasTraefik = releaseNames.includes('traefik');
+
+      if (hasMonitoring && hasTraefik) {
+        this.logger.info(`Cluster ${cluster.name} has expected helm releases — marking as healthy`);
+        return { ...cluster, status: 'healthy', lastSyncedAt: new Date().toISOString() };
+      }
+
+      this.logger.info(`Cluster ${cluster.name} missing expected helm releases — marking as failed`);
+      return { ...cluster, status: 'failed', lastSyncedAt: new Date().toISOString() };
+    } catch (err: any) {
+      this.logger.warn(`Failed to verify helm releases for stuck cluster ${cluster.name}: ${err.message}`);
+      return null;
+    }
+  }
+
+  async discoverClusters(): Promise<ClusterMetadata[]> {
+    const k3dNames = await this.infra.listLocalClusters();
+    const dbClusters = await this.db.getClusters();
+    const now = new Date().toISOString();
+    const discovered: ClusterMetadata[] = [];
+
+    for (const k3dName of k3dNames) {
+      const existing = dbClusters.find(
+        c => c.name === k3dName || this.getPhysicalClusterName(c) === k3dName
+      );
+      if (existing) continue;
+
+      const kubeconfigPath = `/tmp/kubeconfig-${k3dName}`;
+      let kubeconfigContent: string;
+      try {
+        kubeconfigContent = await this.infra.getKubeconfig(k3dName);
+        await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
+      } catch (err: any) {
+        this.logger.warn(`Cannot fetch kubeconfig for discovered cluster ${k3dName}: ${err.message}`);
+        continue;
+      }
+
+      let status: 'healthy' | 'failed' = 'failed';
+      try {
+        await this.infra.runKubectl(['get', 'nodes'], kubeconfigPath);
+        status = 'healthy';
+      } catch (err: any) {
+        this.logger.warn(`K8s API ping failed for discovered cluster ${k3dName}: ${err.message}`);
+      }
+
+      const metadata: ClusterMetadata = {
+        id: uuidv4(),
+        name: k3dName,
+        provider: 'k3d',
+        status,
+        kubeconfigPath,
+        lastSyncedAt: now,
+      };
+      discovered.push(metadata);
+    }
+
+    if (discovered.length > 0) {
+      const allClusters = [...dbClusters, ...discovered];
+      await this.db.saveClusterList(allClusters);
+    }
+
+    return discovered;
   }
 
   async getById(id: string) {

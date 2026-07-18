@@ -1,10 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuthService } from './AuthService.js';
-import { LocalDB } from '../lib/db.js';
+import { MemoryDB } from '../lib/memory-db.js';
 import type { UserMetadata } from '../lib/types.js';
 
 describe('AuthService', () => {
-  const dbMock = {} as LocalDB;
+  let dbMock: MemoryDB;
+
+  beforeEach(() => {
+    dbMock = new MemoryDB();
+    dbMock.init();
+  });
 
   it('should create and verify 2FA challenge successfully', () => {
     const authService = new AuthService(dbMock);
