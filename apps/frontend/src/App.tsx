@@ -83,6 +83,9 @@ function App() {
   const [socketLogs, setSocketLogs] = useState<string>('');
   const [kubeLogs, setKubeLogs] = useState<string>('');
   const logEndRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<any>(null);
+  const activeLogRoomRef = useRef<string | null>(null);
+  const activeKubePodRef = useRef<{ id: string; podName: string; namespace: string } | null>(null);
   const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
   const [showNginxWizard, setShowNginxWizard] = useState(false);
   const [nginxWizardStep, setNginxWizardStep] = useState(1);
@@ -205,6 +208,7 @@ function App() {
 
   useEffect(() => {
     const socket = io(SOCKET_URL);
+    socketRef.current = socket;
     socket.on('resource-destroyed', (data) => {
         const nid = Date.now();
         setNotifications(prev => [...prev, { ...data, nid }]);
@@ -221,29 +225,54 @@ function App() {
     socket.on('deployment-updated', () => {
         queryClient.invalidateQueries({ queryKey: ['deployments'] });
     });
+    socket.on('reconnect', () => {
+      if (activeLogRoomRef.current) {
+        socket.emit('join-room', activeLogRoomRef.current);
+      }
+      if (activeKubePodRef.current) {
+        const { id, podName, namespace } = activeKubePodRef.current;
+        socket.emit('join-kube-room', id);
+        socket.emit('tail-pod', { resourceId: id, podName, namespace });
+      }
+    });
     return () => { socket.disconnect(); };
   }, [queryClient]);
 
   useEffect(() => {
-    if (showLogModal) {
-      const socket = io(SOCKET_URL);
+    if (showLogModal && socketRef.current) {
+      const socket = socketRef.current;
+      activeLogRoomRef.current = showLogModal.id;
       socket.emit('join-room', showLogModal.id);
       socket.on('log', (chunk: string) => setSocketLogs(prev => prev + chunk));
-      if (showLogModal.type === 'app' && logTab === 'app' && selectedPod) {
-          socket.emit('join-kube-room', showLogModal.id);
-          const currentNamespace = podResponse?.namespace || 'odoo';
-          socket.emit('tail-pod', { resourceId: showLogModal.id, podName: selectedPod, namespace: currentNamespace });
-          socket.on('kube-log', (chunk: string) => setKubeLogs(prev => prev + chunk));
-      }
       return () => {
         socket.emit('leave-room', showLogModal.id);
-        if (showLogModal.type === 'app') socket.emit('leave-kube-room', showLogModal.id);
-        socket.disconnect();
-        setSocketLogs('');
-        setKubeLogs('');
+        activeLogRoomRef.current = null;
+        socket.off('log');
       };
     }
-  }, [showLogModal, logTab, selectedPod, podResponse, namespace]);
+  }, [showLogModal]);
+
+  useEffect(() => {
+    if (showLogModal?.type === 'app' && logTab === 'app' && selectedPod && socketRef.current) {
+      const socket = socketRef.current;
+      activeKubePodRef.current = { id: showLogModal.id, podName: selectedPod, namespace };
+      socket.emit('join-kube-room', showLogModal.id);
+      socket.emit('tail-pod', { resourceId: showLogModal.id, podName: selectedPod, namespace });
+      socket.on('kube-log', (chunk: string) => setKubeLogs(prev => prev + chunk));
+      return () => {
+        socket.emit('leave-kube-room', showLogModal.id);
+        activeKubePodRef.current = null;
+        socket.off('kube-log');
+      };
+    }
+  }, [showLogModal, logTab, selectedPod, namespace]);
+
+  useEffect(() => {
+    if (!showLogModal) {
+      setSocketLogs('');
+      setKubeLogs('');
+    }
+  }, [showLogModal]);
 
   useEffect(() => { if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [socketLogs, kubeLogs, helmStatus, diagnostics]);
 

@@ -50,6 +50,7 @@ export async function DestroyClusterActivity(
   // 2. Delete the physical k3d cluster if applicable
   if (args.provider === 'k3d' || isMock) {
     await infra.deleteLocalCluster(physicalName, { logFile });
+    await infra.disconnectNginxFromNetwork(physicalName);
     try {
       await fs.rm(kubeconfigPath, { force: true });
     } catch {}

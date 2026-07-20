@@ -166,7 +166,6 @@ To avoid unexpected failures during Playwright E2E test runs, keep the following
    - A worker restart causes the file to reload, generating a *new* `CLUSTER_NAME`. However, already-executed tests (like `should provision the cluster`) are *not* re-run.
    - Consequently, all subsequent tests will time out looking for a cluster that was never created. If you see a cascade of timeouts following a single failure, inspect the *first* failed test to find the actual bug.
 
-3. **Stale Host-Network Containers crash K3d**:
-   - K3d has a known bug when using `--network host`. If a container from a previous run (e.g., `k3d-isolated-fleet-XXX-server-0`) is not fully deleted and remains on the `host` network, `k3d cluster create` and `k3d cluster delete` will fail to parse the IP prefix of the network and crash with:
-     `failed to parse IP Prefix of network "host"'s member...: ParseAddr(""): unable to parse IP`.
-   - Run `npm run clean-dev` to thoroughly remove any leftover k3d Docker containers and volumes.
+3. **Stale K3d Containers**:
+    - If a container from a previous run (e.g., `k3d-isolated-fleet-XXX-server-0`) is not fully deleted, `k3d cluster create` and `k3d cluster delete` may fail.
+    - Run `npm run clean-dev` to thoroughly remove any leftover k3d Docker containers and volumes.

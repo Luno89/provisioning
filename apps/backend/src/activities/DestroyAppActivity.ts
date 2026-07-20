@@ -49,6 +49,7 @@ export async function DestroyAppActivity(
       STACK_TYPE: 'app',
       CLUSTER_NAME: physicalName,
       DEPLOYMENT_STRATEGY: args.strategy,
+      DEPLOYMENT_ID: args.deploymentId || 'default',
       KUBECONFIG: kubeconfigPath || '',
       KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
     },

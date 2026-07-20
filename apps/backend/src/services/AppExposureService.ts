@@ -100,7 +100,8 @@ export class AppExposureService extends BaseService {
       if (!nodePort) {
         throw new Error(`Service "${svcName}" does not have a nodePort assigned. Cannot expose locally.`);
       }
-      backendTarget = `172.17.0.1:${nodePort}`;
+      const serverIp = await this.infra.getK3dServerIp(cluster.name);
+      backendTarget = `${serverIp}:${nodePort}`;
     } else {
       const ingress = primarySvc.status?.loadBalancer?.ingress?.[0];
       const targetIpOrHost = ingress?.ip || ingress?.hostname;

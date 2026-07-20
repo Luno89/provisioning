@@ -5,9 +5,9 @@ import type { Database } from './db-interface.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
 
-function toBsonId(id: string): ObjectId {
+function toBsonId(id: string): ObjectId | string {
   if (ObjectId.isValid(id)) return new ObjectId(id);
-  return new ObjectId();
+  return id;
 }
 
 function fromDoc<T extends { id: string }>(doc: Record<string, any>): T {
@@ -21,7 +21,7 @@ function toDoc<T extends { id: string }>(entity: T): Record<string, any> {
   const { id, ...rest } = entity as any;
   return {
     ...rest,
-    _id: ObjectId.isValid(id) ? new ObjectId(id) : toBsonId(id),
+    _id: id,
   };
 }
 
@@ -104,7 +104,7 @@ export class MongoDB implements Database {
 
   async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
     await this.clusters.updateOne(
-      { _id: toBsonId(clusterId) },
+      { _id: clusterId as any },
       { $set: { progress } }
     );
   }
@@ -180,7 +180,7 @@ export class MongoDB implements Database {
   }
 
   async getUserById(id: string): Promise<UserMetadata | undefined> {
-    const doc = await this.users.findOne({ _id: toBsonId(id) });
+    const doc = await this.users.findOne({ _id: id as any });
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
   }
 }
