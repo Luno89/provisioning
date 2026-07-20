@@ -53,6 +53,7 @@ const mockSaveDeployment = vi.fn();
 const mockGetById = vi.fn();
 const mockGetKubeconfigPath = vi.fn();
 const mockRunKubectl = vi.fn();
+const mockGetK3dServerIp = vi.fn();
 
 let AppExposureService: any;
 
@@ -63,7 +64,7 @@ beforeAll(async () => {
 
 function createService() {
   const db = { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment };
-  const infra = { runKubectl: mockRunKubectl };
+  const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
   const clusters = { getById: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
   return new AppExposureService(db, infra, clusters);
 }
@@ -107,6 +108,7 @@ describe('syncExposedApps', () => {
     mockGetById.mockResolvedValue(mockCluster);
     mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
     mockRunKubectl.mockResolvedValue(svcJson);
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockReaddir.mockResolvedValue(['default.conf', 'myapp.conf', 'old.conf']);
 
     const svc = createService();
@@ -171,8 +173,9 @@ describe('buildUpstreamTarget', () => {
   it('builds target for k3d using NodePort', async () => {
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     const r = await (createService() as any).buildUpstreamTarget(dep, cluster);
-    expect(r).toEqual({ namespace: 'myapp', backendTarget: '172.17.0.1:31301' });
+    expect(r).toEqual({ namespace: 'myapp', backendTarget: '10.0.0.5:31301' });
   });
 
   it('prefers web over DB services', async () => {
@@ -181,8 +184,9 @@ describe('buildUpstreamTarget', () => {
       { metadata: { name: 'm-pg' }, spec: { ports: [{ port: 5432 }] } },
       { metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } },
     ] }));
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     const r = await (createService() as any).buildUpstreamTarget(dep, cluster);
-    expect(r.backendTarget).toBe('172.17.0.1:31301');
+    expect(r.backendTarget).toBe('10.0.0.5:31301');
   });
 
   it('throws when no web services', async () => {
@@ -219,6 +223,7 @@ describe('expose', () => {
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockSaveDeployment.mockResolvedValue(undefined);
 
     const result = await createService().expose('d1');

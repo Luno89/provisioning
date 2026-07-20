@@ -171,7 +171,6 @@ export class InfrastructureService {
 
     const args = [
       'cluster', 'create', name,
-      '--network', 'host',
       '--wait',
       '--k3s-arg', `--resolv-conf=${resolvConfPath}@server:*`
     ];
@@ -180,17 +179,40 @@ export class InfrastructureService {
       args.push('--volume', `${resolvConfPath}:${resolvConfPath}@server:*`);
     }
 
-    return this.runCommand(path.join(BIN_DIR, 'k3d'), args, name, {
+    await this.runCommand(path.join(BIN_DIR, 'k3d'), args, name, {
       ...options,
       env: {
         ...options.env,
         K3D_FIX_DNS: '0'
       }
     });
+
+    try {
+      await execAsync(`docker network connect k3d-${name} provisioner-nginx`);
+    } catch {
+      console.warn(`[InfrastructureService] Could not connect provisioner-nginx to k3d-${name} network`);
+    }
+
+    return { stdout: `Cluster ${name} created.`, logFile: this.getLogPath(name) };
   }
 
   async deleteLocalCluster(name: string, options: ExecuteOptions = {}) {
     return this.runCommand(path.join(BIN_DIR, 'k3d'), ['cluster', 'delete', name], name, options);
+  }
+
+  async getK3dServerIp(clusterName: string): Promise<string> {
+    const { stdout } = await execAsync(
+      `docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' k3d-${clusterName}-server-0`
+    );
+    return stdout.trim();
+  }
+
+  async disconnectNginxFromNetwork(clusterName: string): Promise<void> {
+    try {
+      await execAsync(`docker network disconnect k3d-${clusterName} provisioner-nginx`);
+    } catch {
+      console.warn(`[InfrastructureService] Could not disconnect provisioner-nginx from k3d-${clusterName} network`);
+    }
   }
 
   async streamLogs(resourceId: string, args: string[], io: SocketServer, room: string, kubeconfig?: string) {

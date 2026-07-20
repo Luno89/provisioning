@@ -339,7 +339,7 @@ export class ClusterService extends BaseService {
             this.logger.error(`Failed to patch local-path storage class: ${err.message}`);
           }
 
-          // Patch CoreDNS ConfigMap to resolve systemd-resolved loop in hostnetwork mode
+          // Patch CoreDNS ConfigMap to resolve systemd-resolved DNS loop
           try {
             const dnsList = await this.getRealNameservers();
             this.logger.info(`Patching coredns ConfigMap with nameservers: ${dnsList.join(', ')}`);
@@ -437,6 +437,7 @@ export class ClusterService extends BaseService {
         // 2. Delete physical k3d cluster if local
         if (cluster.provider === 'k3d' || isMock) {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
+            await this.infra.disconnectNginxFromNetwork(physicalName);
             try {
                 await fs.rm(kubeconfigPath, { force: true });
             } catch {
