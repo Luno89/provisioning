@@ -11,12 +11,24 @@ import fs from 'fs/promises';
 
 const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 
+// Name of the always-on management cluster (scripts/cluster.sh — native k3s on Linux, k3d on
+// macOS). Deliberately used as both the synthetic entry's `id` and `name` below: since it's
+// not a mock cluster, getPhysicalClusterName() returns `cluster.name` as-is, so this string
+// doubles as the physicalName every kubeconfig/context-resolution helper already expects —
+// no special-casing needed anywhere downstream.
+const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
+
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
+  private temporalBridge?: any;
 
   constructor(db: Database, infra: InfrastructureService) {
     super(db);
     this.infra = infra;
+  }
+
+  setTemporalBridge(temporalBridge: any) {
+    this.temporalBridge = temporalBridge;
   }
 
   hasCloudCredentials(provider: ClusterMetadata['provider']): boolean {
@@ -65,7 +77,7 @@ export class ClusterService extends BaseService {
 
   async getKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
     const isMock = this.isMockCloud(cluster);
-    if (cluster.provider === 'k3d' || isMock) {
+    if (cluster.gpuEnabled || cluster.provider === 'k3d' || isMock) {
       const physicalName = this.getPhysicalClusterName(cluster);
       const dynamicPath = `/tmp/kubeconfig-${physicalName}`;
       let exists = false;
@@ -78,7 +90,12 @@ export class ClusterService extends BaseService {
 
       if (!exists) {
         try {
-          const content = await this.infra.getKubeconfig(physicalName);
+          // GPU-enabled clusters attach to the shared management cluster (see
+          // ProvisionClusterActivity) rather than owning a real k3d cluster — re-derive from
+          // there instead of `k3d kubeconfig get`, which would fail (no such k3d cluster).
+          const content = cluster.gpuEnabled
+            ? await this.infra.getManagementClusterKubeconfig(physicalName)
+            : await this.infra.getKubeconfig(physicalName);
           await fs.writeFile(dynamicPath, content, 'utf-8');
         } catch (err: any) {
           this.logger.error(`Failed to dynamically fetch kubeconfig for cluster ${physicalName}: ${err.message}`);
@@ -88,6 +105,52 @@ export class ClusterService extends BaseService {
       return dynamicPath;
     }
     return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
+  }
+
+  /**
+   * Synthetic entry for the always-on management cluster — never persisted to the DB (it's
+   * bootstrap infrastructure created by scripts/cluster.sh, not something provisioned through
+   * the normal cluster lifecycle). Read-only in the UI and rejected by delete/abort below.
+   * Status is a live, cheap check (reads the local kubeconfig — no cluster API round trip).
+   */
+  async getSystemClusterEntry(): Promise<ClusterMetadata> {
+    let status: ClusterMetadata['status'] = 'failed';
+    try {
+      await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
+      status = 'healthy';
+    } catch {
+      status = 'failed';
+    }
+    return {
+      id: SYSTEM_CLUSTER_ID,
+      name: SYSTEM_CLUSTER_ID,
+      provider: 'k3d',
+      status,
+      gpuEnabled: true,
+      isSystem: true,
+      lastSyncedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Best-effort, one-shot: install the nvidia-device-plugin on the management cluster if GPU
+   * hardware/toolkit is present on the host. Nothing else does this proactively — it's normally
+   * a side effect of provisioning a GPU-enabled logical cluster (ProvisionClusterActivity), but
+   * the system cluster entry itself is synthetic and never goes through that flow, so without
+   * this, `nvidia.com/gpu` never gets advertised as a resource and the GPU Inspector stays empty
+   * even when the host genuinely has GPUs. Silently no-ops if there's no GPU toolkit on the host.
+   */
+  async ensureSystemClusterGpuReady(): Promise<void> {
+    try {
+      const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
+      const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
+      await fs.writeFile(kubeconfigPath, content, 'utf-8');
+      await this.infra.checkGpuToolkit('nvidia');
+      await this.infra.installGpuDevicePlugin('nvidia', kubeconfigPath);
+      this.logger.info('GPU device plugin ready on the management cluster.');
+    } catch (err: any) {
+      this.logger.info(`Skipping management-cluster GPU device plugin install: ${err.message}`);
+    }
   }
 
   async getAll(io?: SocketServer) {
@@ -100,6 +163,14 @@ export class ClusterService extends BaseService {
 
     for (const cluster of dbClusters) {
       const isMock = this.isMockCloud(cluster);
+      // GPU-enabled clusters attach to the shared management cluster (see ProvisionClusterActivity)
+      // instead of owning a real k3d cluster, so they'll never appear in `activeK3dNames` — treat
+      // them like the cloud-provider branch below (no k3d existence check) instead of letting the
+      // reconciliation loop below think they were "deleted outside the system" and drop them.
+      if (cluster.gpuEnabled) {
+        cleanClusters.push({ ...cluster, lastSyncedAt: now });
+        continue;
+      }
       if (cluster.provider === 'k3d' || isMock) {
         const physicalName = this.getPhysicalClusterName(cluster);
         if (cluster.status === 'provisioning') {
@@ -146,7 +217,8 @@ export class ClusterService extends BaseService {
       await this.db.saveClusterList(cleanClusters);
     }
 
-    return cleanClusters;
+    const systemCluster = await this.getSystemClusterEntry();
+    return [systemCluster, ...cleanClusters];
   }
 
   private async recoverStuckCluster(
@@ -236,6 +308,9 @@ export class ClusterService extends BaseService {
   }
 
   async getById(id: string) {
+    if (id === SYSTEM_CLUSTER_ID) {
+      return this.getSystemClusterEntry();
+    }
     const clusters = await this.db.getClusters();
     return clusters.find((c: any) => c.id === id);
   }
@@ -400,17 +475,19 @@ export class ClusterService extends BaseService {
 
         // 5. Deploy the infrastructure stack (Monitoring, etc.)
         await this.infra.deploy(physicalName, { logFile, io, resourceId: id, env });
+
         await this.db.saveCluster({ ...metadata, status: 'healthy', kubeconfigPath });
       } catch (err: any) {
         this.logger.error(`Provisioning failed: ${err.message}`);
         await this.db.saveCluster({ ...metadata, status: 'failed' });
       }
-    })();
+    })().catch((err: any) => this.logger.error(`Unhandled error during cluster provisioning: ${err.message}`));
 
     return metadata;
   }
 
   async delete(id: string, io?: SocketServer) {
+    if (id === SYSTEM_CLUSTER_ID) throw new Error('The system management cluster cannot be destroyed');
     const cluster = await this.getById(id);
     if (!cluster) throw new Error('Cluster not found');
 
@@ -423,12 +500,27 @@ export class ClusterService extends BaseService {
         const physicalName = this.getPhysicalClusterName(cluster);
         const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
+        // GPU-enabled clusters attach to the shared management cluster rather than owning a
+        // physical cluster or a per-cluster CDKTF stack — nothing to destroy/delete but the
+        // kubeconfig pointer. App-level destroy already cleans up namespaces it created.
+        if (cluster.gpuEnabled) {
+          try {
+            await fs.rm(kubeconfigPath, { force: true });
+          } catch {
+            // Ignore
+          }
+          const clusters = await this.db.getClusters();
+          await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
+          if (io) io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
+          return;
+        }
+
         // 1. Destroy infrastructure stack
-        await this.infra.destroy(physicalName, { 
-          logFile, io, resourceId: id, 
-          env: { 
-            STACK_TYPE: 'cluster', 
-            ENV: isMock ? 'local' : cluster.provider, 
+        await this.infra.destroy(physicalName, {
+          logFile, io, resourceId: id,
+          env: {
+            STACK_TYPE: 'cluster',
+            ENV: isMock ? 'local' : cluster.provider,
             CLUSTER_NAME: physicalName,
             KUBECONFIG_PATH: kubeconfigPath
           }
@@ -452,7 +544,60 @@ export class ClusterService extends BaseService {
         this.logger.error(`Destruction failed: ${err.message}`);
         await this.db.saveCluster({ ...cluster, status: 'failed' });
       }
-    })();
+    })().catch((err: any) => this.logger.error(`Unhandled error during cluster destruction: ${err.message}`));
+  }
+
+  async abort(id: string, io?: SocketServer) {
+    if (id === SYSTEM_CLUSTER_ID) throw new Error('The system management cluster cannot be aborted');
+    const cluster = await this.getById(id);
+    if (!cluster) throw new Error('Cluster not found');
+
+    const logFile = this.infra.getLogPath(`${cluster.name}-abort`);
+    await this.db.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
+
+    (async () => {
+      try {
+        // 1. Terminate any active Temporal workflow for this cluster
+        if (cluster.temporalWorkflowId && this.temporalBridge) {
+          await this.temporalBridge.terminateWorkflow(cluster.temporalWorkflowId, 'User aborted cluster provisioning');
+        }
+
+        const isMock = this.isMockCloud(cluster);
+        const physicalName = this.getPhysicalClusterName(cluster);
+        const kubeconfigPath = await this.getKubeconfigPath(cluster);
+
+        // 2. Delete physical k3d cluster / containers if local. GPU-enabled clusters attach to
+        // the shared management cluster instead of owning one — just drop the kubeconfig.
+        if (cluster.gpuEnabled) {
+          try {
+            await fs.rm(kubeconfigPath, { force: true });
+          } catch {}
+        } else if (cluster.provider === 'k3d' || isMock) {
+          try {
+            await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
+            await this.infra.disconnectNginxFromNetwork(physicalName);
+            await fs.rm(kubeconfigPath, { force: true });
+          } catch (err: any) {
+            this.logger.warn(`Error deleting physical cluster during abort: ${err.message}`);
+          }
+        }
+
+        // 3. Remove cluster from state DB
+        const clusters = await this.db.getClusters();
+        await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
+
+        if (io) {
+          io.to(id).emit('log', '\n--- CLUSTER PROVISIONING ABORTED AND CLEANED UP ---\n');
+          io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
+          io.emit('cluster:updated');
+        }
+      } catch (err: any) {
+        this.logger.error(`Abort failed for cluster ${cluster.name}: ${err.message}`);
+        const clusters = await this.db.getClusters();
+        await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
+        if (io) io.emit('cluster:updated');
+      }
+    })().catch((err: any) => this.logger.error(`Unhandled error during cluster abort: ${err.message}`));
   }
 
   async listAllPods(id: string) {
@@ -488,6 +633,143 @@ export class ClusterService extends BaseService {
     } catch (err: any) {
         this.logger.error(`Failed to list helm releases: ${err.message}`);
         return [];
+    }
+  }
+
+  async getGpuStatus(id: string) {
+    try {
+      const cluster = await this.getById(id);
+      if (!cluster) throw new Error('Cluster not found');
+
+      const kubeconfigPath = await this.getKubeconfigPath(cluster);
+      
+      let nodes: any[] = [];
+      try {
+        const nodesOutput = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
+        nodes = JSON.parse(nodesOutput).items || [];
+      } catch (err: any) {
+        this.logger.warn(`Failed to fetch nodes for GPU status on cluster ${id}: ${err.message}`);
+      }
+
+      let pods: any[] = [];
+      try {
+        pods = await this.listAllPods(id);
+      } catch (err: any) {
+        this.logger.warn(`Failed to fetch pods for GPU status on cluster ${id}: ${err.message}`);
+      }
+
+      const devicePlugins: { vendor: string; name: string; status: string; readyPods: number; desiredPods: number }[] = [];
+      try {
+        const dsOutput = await this.infra.runKubectl(['get', 'daemonsets', '-n', 'kube-system', '-o', 'json'], kubeconfigPath);
+        const dsItems = JSON.parse(dsOutput).items || [];
+        for (const ds of dsItems) {
+          const name = ds.metadata?.name || '';
+          if (name.includes('nvidia-device-plugin') || name.includes('amdgpu-device-plugin')) {
+            const vendor = name.includes('nvidia') ? 'NVIDIA' : 'AMD';
+            const readyPods = ds.status?.numberReady || 0;
+            const desiredPods = ds.status?.desiredNumberScheduled || 0;
+            devicePlugins.push({
+              vendor,
+              name,
+              status: readyPods > 0 && readyPods >= desiredPods ? 'active' : 'degraded',
+              readyPods,
+              desiredPods,
+            });
+          }
+        }
+      } catch {}
+
+      let totalCapacity = 0;
+      let totalAllocatable = 0;
+      let vendor = 'none';
+
+      const nodeSummaries = nodes.map((node: any) => {
+        const nodeName = node.metadata?.name || 'unknown';
+        const capacityObj = node.status?.capacity || {};
+        const allocatableObj = node.status?.allocatable || {};
+
+        const nvidiaCap = parseInt(capacityObj['nvidia.com/gpu'] || '0', 10);
+        const amdCap = parseInt(capacityObj['amd.com/gpu'] || '0', 10);
+
+        const nvidiaAlloc = parseInt(allocatableObj['nvidia.com/gpu'] || '0', 10);
+        const amdAlloc = parseInt(allocatableObj['amd.com/gpu'] || '0', 10);
+
+        const nodeCap = nvidiaCap + amdCap;
+        const nodeAlloc = nvidiaAlloc + amdAlloc;
+
+        if (nvidiaCap > 0) vendor = 'NVIDIA';
+        else if (amdCap > 0 && vendor === 'none') vendor = 'AMD';
+
+        totalCapacity += nodeCap;
+        totalAllocatable += nodeAlloc;
+
+        return {
+          name: nodeName,
+          gpuCapacity: nodeCap,
+          gpuAllocatable: nodeAlloc,
+          nvidiaGpus: nvidiaCap,
+          amdGpus: amdCap,
+        };
+      });
+
+      let totalAllocated = 0;
+      const gpuPods: { name: string; namespace: string; gpus: number; status: string }[] = [];
+
+      for (const pod of pods) {
+        const phase = pod.status?.phase;
+        if (phase === 'Succeeded' || phase === 'Failed') continue;
+
+        const containers = pod.spec?.containers || [];
+        let podGpuCount = 0;
+
+        for (const container of containers) {
+          const limits = container.resources?.limits || {};
+          const requests = container.resources?.requests || {};
+          const gpuReq = parseInt(limits['nvidia.com/gpu'] || requests['nvidia.com/gpu'] || limits['amd.com/gpu'] || requests['amd.com/gpu'] || '0', 10);
+          podGpuCount += gpuReq;
+        }
+
+        if (podGpuCount > 0) {
+          totalAllocated += podGpuCount;
+          gpuPods.push({
+            name: pod.metadata?.name || 'unknown',
+            namespace: pod.metadata?.namespace || 'default',
+            gpus: podGpuCount,
+            status: phase || 'Unknown',
+          });
+        }
+      }
+
+      const availableGpus = Math.max(0, totalAllocatable - totalAllocated);
+      const passthroughEnabled = cluster.gpuEnabled ?? false;
+
+      return {
+        passthroughEnabled,
+        hasGpu: totalCapacity > 0 || passthroughEnabled,
+        vendor,
+        totalCapacity,
+        totalAllocatable,
+        totalAllocated,
+        availableGpus,
+        nodes: nodeSummaries,
+        devicePlugins,
+        gpuPods,
+      };
+    } catch (err: any) {
+      this.logger.error(`Failed to get GPU status for cluster ${id}: ${err.message}`);
+      return {
+        passthroughEnabled: false,
+        hasGpu: false,
+        vendor: 'none',
+        totalCapacity: 0,
+        totalAllocatable: 0,
+        totalAllocated: 0,
+        availableGpus: 0,
+        nodes: [],
+        devicePlugins: [],
+        gpuPods: [],
+        error: err.message,
+      };
     }
   }
 }

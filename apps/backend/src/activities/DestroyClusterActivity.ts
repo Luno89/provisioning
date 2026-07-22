@@ -14,6 +14,7 @@ export interface DestroyClusterArgs {
   name: string;
   provider: string;
   logFile: string;
+  gpuEnabled?: boolean;
 }
 
 export interface DestroyClusterResult {
@@ -35,6 +36,16 @@ export async function DestroyClusterActivity(
   const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
   const physicalName = isMock ? `mock-${args.provider}-${args.name}` : args.name;
   const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
+
+  // GPU-enabled clusters attach to the shared management cluster rather than owning a physical
+  // cluster (see ProvisionClusterActivity) — there's nothing k3d-shaped to tear down. App-level
+  // destroy already cleans up the namespaces/resources an app created; just drop the kubeconfig.
+  if (args.gpuEnabled) {
+    try {
+      await fs.rm(kubeconfigPath, { force: true });
+    } catch {}
+    return { status: 'destroyed', msg: `Cluster ${args.name} detached from the management cluster` };
+  }
 
   // 1. Destroy infrastructure stack
   await infra.destroy(physicalName, {

@@ -28,6 +28,7 @@ if command -v "$K3D" >/dev/null 2>&1 || "$K3D" --version >/dev/null 2>&1; then
   done
 fi
 
+# Note: Host Docker images (e.g. vllm/vllm-openai, odoo, postgres) are intentionally preserved in host image cache to prevent re-downloading.
 # Purge any remaining orphaned containers/volumes that K3d fails to list
 echo "  ▶  Purging all leftover k3d Docker containers and volumes..."
 STALE_CONTS=$(docker ps -a --filter "name=k3d-" -q)
@@ -37,6 +38,16 @@ fi
 STALE_VOLS=$(docker volume ls --filter "name=k3d-" -q)
 if [ -n "$STALE_VOLS" ]; then
   docker volume rm $STALE_VOLS >/dev/null 2>&1 || true
+fi
+
+# 2b. Reset the native k3s management cluster's state (Linux only — on macOS the management
+#     cluster is k3d, already covered by the deletion loop above).
+#
+# clean only removes — it does not reinstall, reconfigure, or restart anything. That's setup's
+# job (sudo bash scripts/setup-gpu.sh, then npm run setup) — see cluster.sh's native_k3s_reset
+# for what this actually does (stop + wipe data-dir, nothing else).
+if [ "$(uname -s)" = "Linux" ]; then
+  "$ROOT/scripts/cluster.sh" reset provisioning-lunorica
 fi
 
 # 3. Clean up lock files and state directories
@@ -120,3 +131,10 @@ for i in {1..30}; do
 done
 
 echo "✅ Cleanup complete!"
+if [ "$(uname -s)" = "Linux" ] && [ -f "/etc/systemd/system/k3s-provisioning-lunorica.service" ]; then
+  echo ""
+  echo "ℹ️  The native k3s management cluster was reset (stopped + state wiped) and is not"
+  echo "   running. Bring it back up with:"
+  echo "     sudo bash scripts/setup-gpu.sh   # only if you have a GPU"
+  echo "     npm run setup"
+fi

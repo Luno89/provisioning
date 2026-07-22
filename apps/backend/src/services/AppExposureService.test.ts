@@ -100,7 +100,7 @@ describe('buildConfContent', () => {
 
 describe('syncExposedApps', () => {
   const mockCluster = { id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const };
-  const mockDep = { id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, exposureUrl: 'http://x' };
+  const mockDep = { id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'http://x' };
   const svcJson = JSON.stringify({ items: [{ metadata: { name: 'm-web' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] });
 
   it('writes conf.d and removes stale configs', async () => {
@@ -120,7 +120,7 @@ describe('syncExposedApps', () => {
   });
 
   it('removes stale configs when no deployments exposed', async () => {
-    mockGetDeployments.mockResolvedValue([{ ...mockDep, isExposed: false }]);
+    mockGetDeployments.mockResolvedValue([{ ...mockDep, isExposed: false, isExposedPublicly: false, isExposedLocally: false }]);
     mockReaddir.mockResolvedValue(['default.conf', 'myapp.conf', 'stale.conf']);
 
     await createService().syncExposedApps();
@@ -202,23 +202,55 @@ describe('buildUpstreamTarget', () => {
   });
 });
 
-describe('unexpose', () => {
-  it('removes conf.d and reloads nginx', async () => {
-    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true }]);
+describe('unexposePublic / unexposeLocal', () => {
+  it('unexposePublic removes conf.d when local exposure is not also active', async () => {
+    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp.loca.lt' }]);
     mockSaveDeployment.mockResolvedValue(undefined);
 
-    const result = await createService().unexpose('d1');
+    const result = await createService().unexposePublic('d1');
 
     expect(mockUnlink).toHaveBeenCalled();
     const saved = mockSaveDeployment.mock.calls[0][0];
     expect(saved.isExposed).toBe(false);
+    expect(saved.isExposedPublicly).toBe(false);
+    expect(saved.publicExposureUrl).toBeUndefined();
     expect(saved.exposureUrl).toBeUndefined();
+    expect(result.isExposed).toBe(false);
+  });
+
+  it('unexposePublic keeps the conf (rewritten) when local exposure is still active', async () => {
+    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp.loca.lt', isExposedLocally: true, localExposureUrl: 'http://myapp.localhost:8000' }]);
+    mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
+    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
+    mockSaveDeployment.mockResolvedValue(undefined);
+
+    const result = await createService().unexposePublic('d1');
+
+    expect(mockUnlink).not.toHaveBeenCalled();
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(result.isExposed).toBe(true);
+    expect(result.isExposedLocally).toBe(true);
+    expect(result.exposureUrl).toBe('http://myapp.localhost:8000');
+  });
+
+  it('unexposeLocal removes conf.d when public exposure is not also active', async () => {
+    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedLocally: true, localExposureUrl: 'http://myapp.localhost:8000' }]);
+    mockSaveDeployment.mockResolvedValue(undefined);
+
+    const result = await createService().unexposeLocal('d1');
+
+    expect(mockUnlink).toHaveBeenCalled();
+    const saved = mockSaveDeployment.mock.calls[0][0];
+    expect(saved.isExposed).toBe(false);
+    expect(saved.isExposedLocally).toBe(false);
     expect(result.isExposed).toBe(false);
   });
 });
 
-describe('expose', () => {
-  it('writes conf.d and reloads nginx', async () => {
+describe('exposePublic / exposeLocal', () => {
+  it('exposePublic writes conf.d, starts a tunnel and reloads nginx', async () => {
     mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
@@ -226,15 +258,34 @@ describe('expose', () => {
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockSaveDeployment.mockResolvedValue(undefined);
 
-    const result = await createService().expose('d1');
+    const result = await createService().exposePublic('d1');
 
     expect(mockWriteFile).toHaveBeenCalledOnce();
     expect(result.isExposed).toBe(true);
+    expect(result.isExposedPublicly).toBe(true);
     expect(result.exposureUrl).toBe('https://myapp.loca.lt');
+  });
+
+  it('exposeLocal writes conf.d without starting a tunnel', async () => {
+    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const }]);
+    mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
+    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
+    mockSaveDeployment.mockResolvedValue(undefined);
+
+    const result = await createService().exposeLocal('d1');
+
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(result.isExposed).toBe(true);
+    expect(result.isExposedLocally).toBe(true);
+    expect(result.exposureUrl).toBe('http://myapp.localhost:8000');
   });
 
   it('throws when not found', async () => {
     mockGetDeployments.mockResolvedValue([]);
-    await expect(createService().expose('x')).rejects.toThrow('Deployment not found');
+    await expect(createService().exposePublic('x')).rejects.toThrow('Deployment not found');
+    await expect(createService().exposeLocal('x')).rejects.toThrow('Deployment not found');
   });
 });

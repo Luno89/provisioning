@@ -3,17 +3,29 @@
 # Multi-Cloud Provisioning Platform - First Time Setup Script
 set -e
 
+# This script must never run as root: it does `npm install` and creates files that need to
+# stay owned by your normal user (running it under sudo leaves node_modules root-owned, which
+# breaks Vite and everything else). Root-only setup (Docker CE on Linux, native k3s) lives in
+# scripts/setup-root.sh — run that first, with sudo, then run this one plain.
+if [ "$(id -u)" -eq 0 ]; then
+    echo "❌ Do not run this script with sudo — it installs npm packages and creates files that"
+    echo "   need to stay owned by your normal user."
+    echo "   Root-only setup lives in a separate script. Run, in order:"
+    echo "     sudo bash scripts/setup-root.sh"
+    echo "     bash scripts/setup.sh"
+    exit 1
+fi
+
 echo "🚀 Starting first-time setup..."
 
-# 1. Check/Install Docker (Required for k3d)
+# 1. Check Docker is installed & running (Required for k3d / the macOS management cluster)
 is_docker_running() {
     docker info &> /dev/null
 }
 
+DETECTED_OS="$(uname -s)"
+
 if ! command -v docker &> /dev/null || ! is_docker_running; then
-    echo "⚠️ Docker is either not installed or not running."
-    
-    DETECTED_OS="$(uname -s)"
     if [ "$DETECTED_OS" = "Darwin" ]; then
         echo "💻 macOS detected. Setting up Colima (open-source Docker runtime alternative)..."
         if ! command -v colima &> /dev/null; then
@@ -25,47 +37,22 @@ if ! command -v docker &> /dev/null || ! is_docker_running; then
                 exit 1
             fi
         fi
-        
+
         # Start Colima if not running
         if ! colima status &>/dev/null; then
             echo "🚀 Starting Colima container runtime..."
             colima start
         fi
-    elif [ "$DETECTED_OS" = "Linux" ]; then
-        echo "🐧 Linux detected. Setting up Docker CE (open-source)..."
-        if ! command -v docker &> /dev/null; then
-            if [ "$EUID" -eq 0 ] || command -v sudo &>/dev/null; then
-                echo "📥 Installing Docker CE using official script..."
-                curl -fsSL https://get.docker.com | sh
-                if command -v systemctl &>/dev/null; then
-                    sudo systemctl start docker || true
-                fi
-            else
-                echo "💡 Please install Docker CE using the official script:"
-                echo "   curl -fsSL https://get.docker.com | sh"
-                exit 1
-            fi
-        else
-            echo "🚀 Attempting to start Docker daemon..."
-            if command -v systemctl &>/dev/null; then
-                sudo systemctl start docker || true
-            elif command -v service &>/dev/null; then
-                sudo service docker start || true
-            else
-                echo "❌ Could not start Docker daemon automatically. Please run: sudo systemctl start docker"
-                exit 1
-            fi
+
+        echo "⏳ Waiting for Docker daemon to become responsive..."
+        sleep 3
+        if ! is_docker_running; then
+            echo "❌ Error: Docker daemon is still not running. Please ensure Colima is active."
+            exit 1
         fi
     else
-        echo "❌ Unsupported OS for automatic Docker installation."
-        exit 1
-    fi
-    
-    # Wait a moment and verify
-    echo "⏳ Waiting for Docker daemon to become responsive..."
-    sleep 3
-    if ! is_docker_running; then
-        echo "❌ Error: Docker daemon is still not running. Please ensure your container runtime is active."
+        echo "❌ Docker is not installed or not running, and installing/starting it needs root."
+        echo "   Run: sudo bash scripts/setup-root.sh"
         exit 1
     fi
 fi
@@ -196,12 +183,32 @@ if [ ! -f "apps/backend/.env" ]; then
     fi
 fi
 
-# 7. Setup k3d Cluster (if not already running)
-echo "🔄 Setting up k3d cluster..."
-if ! ./bin/k3d cluster list 2>/dev/null | grep -q "provisioning-lunorica"; then
+# 7. Setup management cluster
+# This is the step that actually "makes the system cluster" — installing it (setup-root.sh) is
+# necessary but not sufficient; setup isn't done until it's up and Ready.
+# Linux: the native k3s management cluster (GPU-capable, no Docker-in-Docker nesting — see
+#        scripts/cluster.sh for why) must already be installed by scripts/setup-root.sh (needs
+#        root — setup.sh itself never runs as root, see the guard at the top of this file).
+#        Starting it here needs one scoped, interactive sudo prompt (cluster.sh's own
+#        `sudo systemctl start` — nothing else in this script escalates). Idempotent: no-ops if
+#        it's already running (e.g. setup.sh re-run without an intervening clean-dev).
+# macOS: native k3s can't run at all (no Linux kernel) — keep the existing k3d cluster, which
+#        doesn't need root at all (just Docker group membership), so it's created right here.
+if [ "$OS" = "linux" ]; then
+    if [ ! -f "/etc/systemd/system/k3s-provisioning-lunorica.service" ]; then
+        echo "❌ Native k3s management cluster is not installed yet."
+        echo "   Run: sudo bash scripts/setup-root.sh"
+        exit 1
+    fi
+    echo "🔄 Starting native k3s management cluster..."
     ./scripts/cluster.sh create provisioning-lunorica
 else
-    echo "  ▶  cluster provisioning-lunorica already running — skipping creation"
+    echo "🔄 Setting up k3d cluster..."
+    if ! ./bin/k3d cluster list 2>/dev/null | grep -q "provisioning-lunorica"; then
+        ./scripts/cluster.sh create provisioning-lunorica
+    else
+        echo "  ▶  cluster provisioning-lunorica already running — skipping creation"
+    fi
 fi
 NGINX_DATA_DIR="$(pwd)/apps/backend/data/nginx"
 mkdir -p "$NGINX_DATA_DIR/conf.d"

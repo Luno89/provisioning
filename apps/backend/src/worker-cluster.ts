@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import { DeployAppActivity } from './activities/DeployAppActivity.js';
 import { DestroyAppActivity } from './activities/DestroyAppActivity.js';
 import { ResizeDiskActivity } from './activities/ResizeDiskActivity.js';
+import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount';
@@ -47,6 +48,7 @@ async function main() {
           DeployAppActivity,
           DestroyAppActivity,
           ResizeDiskActivity,
+          SyncConfigActivity,
         },
         failFast: true,
       });

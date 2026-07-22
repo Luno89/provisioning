@@ -25,6 +25,9 @@ cdktf.out/
 /apps/backend/data/nginx/conf.d/*
 !/apps/backend/data/nginx/conf.d/default.conf
 
+# k3d node-local storage (bind-mounted host cache for local-path-provisioner PVCs)
+/.k3d-storage/
+
 # Local config & secrets
 .env
 .env.*

@@ -14,15 +14,39 @@ interface ProviderMeta {
   label: string;
   color: string;
   icon: string;
+  docsUrl: string;
   fields: { key: string; label: string; sensitive: boolean; placeholder: string; multiline?: boolean }[];
 }
 
 const PROVIDERS: ProviderMeta[] = [
   {
+    key: 'huggingface',
+    label: 'Hugging Face',
+    color: '#FFD21E',
+    icon: '🤗',
+    docsUrl: 'https://huggingface.co/settings/tokens',
+    fields: [
+      { key: 'hfToken', label: 'Access Token (HF_TOKEN)', sensitive: true, placeholder: 'hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
+      { key: 'defaultModel', label: 'Default Model (Optional)', sensitive: false, placeholder: 'meta-llama/Llama-3.2-3B-Instruct' },
+    ],
+  },
+  {
+    key: 'github',
+    label: 'GitHub',
+    color: '#2DA44E',
+    icon: '🐙',
+    docsUrl: 'https://github.com/settings/tokens',
+    fields: [
+      { key: 'token', label: 'Personal Access Token', sensitive: true, placeholder: 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
+      { key: 'username', label: 'GitHub Username (Optional)', sensitive: false, placeholder: 'octocat' },
+    ],
+  },
+  {
     key: 'aws',
     label: 'Amazon Web Services',
     color: '#FF9900',
     icon: '☁',
+    docsUrl: 'https://console.aws.amazon.com/iam/',
     fields: [
       { key: 'accessKeyId', label: 'Access Key ID', sensitive: false, placeholder: 'AKIAIOSFODNN7EXAMPLE' },
       { key: 'secretAccessKey', label: 'Secret Access Key', sensitive: true, placeholder: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' },
@@ -34,6 +58,7 @@ const PROVIDERS: ProviderMeta[] = [
     label: 'Google Cloud Platform',
     color: '#4285F4',
     icon: '◈',
+    docsUrl: 'https://console.cloud.google.com/iam-admin/serviceaccounts',
     fields: [
       { key: 'projectId', label: 'Project ID', sensitive: false, placeholder: 'my-gcp-project-123' },
       { key: 'serviceAccountJson', label: 'Service Account JSON', sensitive: true, placeholder: '{ "type": "service_account", ... }', multiline: true },
@@ -44,6 +69,7 @@ const PROVIDERS: ProviderMeta[] = [
     label: 'Microsoft Azure',
     color: '#0078D4',
     icon: '◆',
+    docsUrl: 'https://portal.azure.com/',
     fields: [
       { key: 'clientId', label: 'Client ID (App ID)', sensitive: false, placeholder: '00000000-0000-0000-0000-000000000000' },
       { key: 'clientSecret', label: 'Client Secret', sensitive: true, placeholder: 'your-client-secret-value' },
@@ -56,6 +82,7 @@ const PROVIDERS: ProviderMeta[] = [
     label: 'DigitalOcean',
     color: '#0080FF',
     icon: '●',
+    docsUrl: 'https://cloud.digitalocean.com/account/api/tokens',
     fields: [
       { key: 'token', label: 'API Token', sensitive: true, placeholder: 'dop_v1_xxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
     ],
@@ -90,15 +117,39 @@ export default function CloudAccounts({ apiBase }: { apiBase: string }) {
     fetchStatuses();
   }, []);
 
+  const [validating, setValidating] = useState(false);
+  const [valResult, setValResult] = useState<{ valid?: boolean; message?: string } | null>(null);
+
+  const handleTestConnection = async (providerKey: string) => {
+    setValidating(true);
+    setValResult(null);
+    try {
+      const res = await fetch(`${apiBase}/credentials/validate/${providerKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(formData),
+      });
+      const data = await res.json();
+      setValResult({ valid: data.valid, message: data.message });
+    } catch (err: any) {
+      setValResult({ valid: false, message: `Validation failed: ${err.message}` });
+    } finally {
+      setValidating(false);
+    }
+  };
+
   const handleConfigure = (providerKey: string) => {
     setExpandedProvider(providerKey);
     setFormData({});
     setSaveSuccess(null);
+    setValResult(null);
   };
 
   const handleCancel = () => {
     setExpandedProvider(null);
     setFormData({});
+    setValResult(null);
   };
 
   const handleSave = async (providerKey: string) => {
@@ -198,7 +249,18 @@ export default function CloudAccounts({ apiBase }: { apiBase: string }) {
                       {provider.icon}
                     </span>
                     <div>
-                      <h3 className="font-bold text-white text-lg">{provider.label}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-white text-lg">{provider.label}</h3>
+                        <a
+                          href={provider.docsUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-slate-500 hover:text-slate-300 transition-colors"
+                          title="Get API Token / Credentials"
+                        >
+                          <ExternalLink size={14} />
+                        </a>
+                      </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         {isConfigured ? (
                           <>
@@ -279,9 +341,21 @@ export default function CloudAccounts({ apiBase }: { apiBase: string }) {
                     <div className="bg-slate-900/40 rounded-2xl p-6 border border-white/5 space-y-4">
                       {provider.fields.map((field) => (
                         <div key={field.key}>
-                          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                            {field.label}
-                          </label>
+                          <div className="flex justify-between items-center mb-2">
+                            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              {field.label}
+                            </label>
+                            {field.sensitive && (
+                              <a
+                                href={provider.docsUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
+                              >
+                                Get key <ExternalLink size={10} />
+                              </a>
+                            )}
+                          </div>
                           {field.multiline ? (
                             <textarea
                               rows={5}
@@ -301,6 +375,19 @@ export default function CloudAccounts({ apiBase }: { apiBase: string }) {
                           )}
                         </div>
                       ))}
+
+                      {valResult && (
+                        <div
+                          className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                            valResult.valid
+                              ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                              : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                          }`}
+                        >
+                          {valResult.valid ? <Check size={14} /> : <AlertTriangle size={14} />}
+                          <span>{valResult.message}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex gap-3">
@@ -309,6 +396,14 @@ export default function CloudAccounts({ apiBase }: { apiBase: string }) {
                         className="flex-1 py-3 px-4 text-sm font-bold rounded-xl bg-slate-700/50 hover:bg-slate-700 transition-all text-slate-300"
                       >
                         Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTestConnection(provider.key)}
+                        disabled={validating}
+                        className="flex-1 py-3 px-4 text-sm font-bold rounded-xl bg-slate-800 border border-slate-600 hover:bg-slate-700 transition-all text-slate-200 disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {validating ? <Loader2 size={16} className="animate-spin" /> : 'Test Connection'}
                       </button>
                       <button
                         onClick={() => handleSave(provider.key)}

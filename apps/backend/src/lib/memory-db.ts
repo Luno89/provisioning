@@ -94,6 +94,21 @@ export class MemoryDB implements Database {
     if (deployment.vpnConfig !== undefined) d.vpnConfig = deployment.vpnConfig;
     if (deployment.vpnDedicatedIp !== undefined) d.vpnDedicatedIp = deployment.vpnDedicatedIp;
     if (deployment.temporalWorkflowId !== undefined) d.temporalWorkflowId = deployment.temporalWorkflowId;
+    if (deployment.vllmModel !== undefined) d.vllmModel = deployment.vllmModel;
+    if (deployment.vllmGpuCount !== undefined) d.vllmGpuCount = deployment.vllmGpuCount;
+    if (deployment.vllmGpuVendor !== undefined) d.vllmGpuVendor = deployment.vllmGpuVendor;
+    if (deployment.vllmCachePvc !== undefined) d.vllmCachePvc = deployment.vllmCachePvc;
+    if (deployment.vllmHfToken !== undefined) d.vllmHfToken = deployment.vllmHfToken;
+    if (deployment.vllmMaxModelLen !== undefined) d.vllmMaxModelLen = deployment.vllmMaxModelLen;
+    if (deployment.vllmGpuMemUtil !== undefined) d.vllmGpuMemUtil = deployment.vllmGpuMemUtil;
+    if (deployment.vllmExtraArgs !== undefined) d.vllmExtraArgs = deployment.vllmExtraArgs;
+    if (deployment.vllmToolCallingEnabled !== undefined) d.vllmToolCallingEnabled = deployment.vllmToolCallingEnabled;
+    if (deployment.vllmToolCallParser !== undefined) d.vllmToolCallParser = deployment.vllmToolCallParser;
+    if (deployment.vllmServedModelName !== undefined) d.vllmServedModelName = deployment.vllmServedModelName;
+    if (deployment.vllmMaxNumSeqs !== undefined) d.vllmMaxNumSeqs = deployment.vllmMaxNumSeqs;
+    if (deployment.vllmDtype !== undefined) d.vllmDtype = deployment.vllmDtype;
+    if (deployment.vllmEnablePrefixCaching !== undefined) d.vllmEnablePrefixCaching = deployment.vllmEnablePrefixCaching;
+    if (deployment.openWebuiTargetId !== undefined) d.openWebuiTargetId = deployment.openWebuiTargetId;
     await this.saveDeployment(d);
     return d;
   }

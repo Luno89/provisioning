@@ -18,6 +18,8 @@ describe('CloudAccounts', () => {
       ok: true,
       json: async () => ({
         providers: [
+          { provider: 'huggingface', label: 'Hugging Face', configured: false },
+          { provider: 'github', label: 'GitHub', configured: false },
           { provider: 'aws', label: 'Amazon Web Services', configured: false },
           { provider: 'gcp', label: 'Google Cloud Platform', configured: false },
           { provider: 'azure', label: 'Microsoft Azure', configured: false },
@@ -29,6 +31,8 @@ describe('CloudAccounts', () => {
     render(<CloudAccounts apiBase={apiBase} />);
 
     await waitFor(() => {
+      expect(screen.getByText('Hugging Face')).toBeDefined();
+      expect(screen.getByText('GitHub')).toBeDefined();
       expect(screen.getByText('Amazon Web Services')).toBeDefined();
       expect(screen.getByText('Google Cloud Platform')).toBeDefined();
       expect(screen.getByText('Microsoft Azure')).toBeDefined();
@@ -41,6 +45,8 @@ describe('CloudAccounts', () => {
       ok: true,
       json: async () => ({
         providers: [
+          { provider: 'huggingface', label: 'Hugging Face', configured: false },
+          { provider: 'github', label: 'GitHub', configured: false },
           { provider: 'aws', label: 'Amazon Web Services', configured: false },
           { provider: 'gcp', label: 'Google Cloud Platform', configured: false },
           { provider: 'azure', label: 'Microsoft Azure', configured: false },
@@ -53,7 +59,7 @@ describe('CloudAccounts', () => {
 
     await waitFor(() => {
       const notConfigured = screen.getAllByText('Not Configured');
-      expect(notConfigured.length).toBe(4);
+      expect(notConfigured.length).toBe(6);
     });
   });
 
@@ -62,7 +68,9 @@ describe('CloudAccounts', () => {
       ok: true,
       json: async () => ({
         providers: [
-          { provider: 'aws', label: 'Amazon Web Services', configured: true, source: 'user', summary: { AWS_ACCESS_KEY_ID: 'AKIA****MPLE' } },
+          { provider: 'huggingface', label: 'Hugging Face', configured: true, source: 'user', summary: { HF_TOKEN: 'hf_****' } },
+          { provider: 'github', label: 'GitHub', configured: false },
+          { provider: 'aws', label: 'Amazon Web Services', configured: false },
           { provider: 'gcp', label: 'Google Cloud Platform', configured: false },
           { provider: 'azure', label: 'Microsoft Azure', configured: false },
           { provider: 'do', label: 'DigitalOcean', configured: false },
@@ -82,6 +90,8 @@ describe('CloudAccounts', () => {
       ok: true,
       json: async () => ({
         providers: [
+          { provider: 'huggingface', label: 'Hugging Face', configured: false },
+          { provider: 'github', label: 'GitHub', configured: false },
           { provider: 'aws', label: 'Amazon Web Services', configured: false },
           { provider: 'gcp', label: 'Google Cloud Platform', configured: false },
           { provider: 'azure', label: 'Microsoft Azure', configured: false },
@@ -94,7 +104,7 @@ describe('CloudAccounts', () => {
 
     await waitFor(() => {
       const configButtons = screen.getAllByText('Configure');
-      expect(configButtons.length).toBe(4);
+      expect(configButtons.length).toBe(6);
     });
   });
 
@@ -103,6 +113,8 @@ describe('CloudAccounts', () => {
       ok: true,
       json: async () => ({
         providers: [
+          { provider: 'huggingface', label: 'Hugging Face', configured: false },
+          { provider: 'github', label: 'GitHub', configured: false },
           { provider: 'aws', label: 'Amazon Web Services', configured: false },
           { provider: 'gcp', label: 'Google Cloud Platform', configured: false },
           { provider: 'azure', label: 'Microsoft Azure', configured: false },

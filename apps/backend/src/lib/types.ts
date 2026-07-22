@@ -15,6 +15,11 @@ export interface ClusterMetadata {
   createdAt?: string;
   lastSyncedAt?: string;
   progress?: ClusterProgress;
+  gpuEnabled?: boolean;
+  // Marks the synthetic entry representing the always-on management cluster (see
+  // ClusterService.getSystemClusterEntry) — never persisted to the DB, read-only in the UI,
+  // and rejected by destroy/abort on the backend too.
+  isSystem?: boolean;
   // Temporal-related extensions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
@@ -26,16 +31,20 @@ export interface DeploymentMetadata {
   deploymentId?: string;
   clusterId: string;
   strategy: 'helm' | 'native';
-  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik';
+  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'openwebui';
   status: 'deploying' | 'running' | 'failed' | 'destroying' | 'discovered';
   webRepo?: string;
   webTag?: string;
   dbRepo?: string;
   dbTag?: string;
   url?: string;
-  isExposed?: boolean;
-  exposureUrl?: string;
-  exposurePath?: string;
+  isExposed?: boolean; // derived: isExposedLocally || isExposedPublicly
+  exposureUrl?: string; // derived "primary" URL for back-compat consumers: publicExposureUrl || localExposureUrl
+  exposurePath?: string; // target route path, shared by both exposure modes
+  isExposedLocally?: boolean;
+  localExposureUrl?: string;
+  isExposedPublicly?: boolean;
+  publicExposureUrl?: string;
   lastLogPath?: string;
   modules?: string[]; // IDs of enabled custom modules
   storage?: Record<string, string>;
@@ -45,6 +54,23 @@ export interface DeploymentMetadata {
   vpnDedicatedIp?: string;
   temporalWorkflowId?: string;
   lastSyncedAt?: string;
+  // vLLM-specific fields
+  vllmModel?: string;
+  vllmGpuCount?: number;
+  vllmGpuVendor?: 'nvidia' | 'amd';
+  vllmCachePvc?: string;
+  vllmHfToken?: string;
+  vllmMaxModelLen?: number;
+  vllmGpuMemUtil?: number;
+  vllmExtraArgs?: string;
+  vllmToolCallingEnabled?: boolean;
+  vllmToolCallParser?: 'granite-20b-fc' | 'granite' | 'hermes' | 'internlm' | 'jamba' | 'llama3_json' | 'mistral' | 'pythonic';
+  vllmServedModelName?: string;
+  vllmMaxNumSeqs?: number;
+  vllmDtype?: 'auto' | 'half' | 'float16' | 'bfloat16' | 'float' | 'float32';
+  vllmEnablePrefixCaching?: boolean;
+  // Open WebUI-specific fields
+  openWebuiTargetId?: string; // id of the vLLM DeploymentMetadata this instance talks to
   // Temporal-related extensions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
@@ -56,7 +82,7 @@ export interface ClusterTaskArgs {
   name:     string;
   provider: 'k3d' | 'aws' | 'gcp' | 'azure' | 'do';
   logFile:  string;
-  activityId: string;
+  activityId?: string;
 }
 
 export interface ClusterTaskResult {
@@ -158,14 +184,26 @@ export interface DoCredentials {
   token: string;              // encrypted
 }
 
+export interface HuggingFaceCredentials {
+  hfToken: string;            // encrypted
+  defaultModel?: string;      // plaintext
+}
+
+export interface GitHubCredentials {
+  token: string;              // encrypted
+  username?: string;          // plaintext
+}
+
 export interface CloudCredentials {
   aws?: AwsCredentials;
   gcp?: GcpCredentials;
   azure?: AzureCredentials;
   do?: DoCredentials;
+  huggingface?: HuggingFaceCredentials;
+  github?: GitHubCredentials;
 }
 
-export type CloudProvider = 'aws' | 'gcp' | 'azure' | 'do';
+export type CloudProvider = 'aws' | 'gcp' | 'azure' | 'do' | 'huggingface' | 'github';
 
 export interface UserMetadata {
   id: string;

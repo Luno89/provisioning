@@ -18,6 +18,9 @@ export class IngressStack extends Construct {
       chart: "traefik",
       namespace: ns.metadata.name,
       timeout: 600,
+      atomic: true,
+      cleanupOnFail: true,
+      forceUpdate: true,
       values: [
         JSON.stringify({
           ingressClass: {

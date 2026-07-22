@@ -85,9 +85,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const gitModuleService = new GitModuleService(db);
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
   const clusterProxyService = new ClusterProxyService();
+  const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
+
+  // Best-effort background check — see ClusterService.ensureSystemClusterGpuReady for why this
+  // can't just be a side effect of the normal provisioning flow. Never blocks startup.
+  clusterService.ensureSystemClusterGpuReady().catch((err: any) =>
+    console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
+  );
 
   // ── 2. Temporal bridge (HTTP only → sketch → poll DB) ────────────────────
-  const temporalBridge = new TemporalBridge(db, io);
+  const temporalBridge = new TemporalBridge(db, io, JWT_SECRET, clusterService);
+  clusterService.setTemporalBridge(temporalBridge);
+  appService.setTemporalBridge(temporalBridge);
   try {
     await temporalBridge.start();
     await temporalBridge.startActiveWorkflowRecovery();
@@ -104,7 +113,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     credentials: true,
   }));
   app.use(express.json());
-  const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
   const credentialService = new CredentialService(db, JWT_SECRET);
 
   function getCookie(req: express.Request, name: string): string | undefined {
@@ -197,6 +205,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           socket.emit('log', data.toString());
         });
 
+        tail.on('error', (err) => {
+          console.warn(`[log-tail] ${resource.lastLogPath}: ${err.message}`);
+          socketTails.delete(id);
+        });
+
         tail.on('close', () => {
           socketTails.delete(id);
         });
@@ -212,11 +225,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (dep) {
         const cluster = await clusterService.getById(dep.clusterId);
         if (cluster) {
-          if (cluster.provider === 'k3d') context = `k3d-${cluster.name}`;
+          const isMock = clusterService.isMockCloud(cluster);
+          const physicalName = clusterService.getPhysicalClusterName(cluster);
+          if (cluster.provider === 'k3d' || isMock) context = `k3d-${physicalName}`;
           kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
         }
       }
-      const args = ['logs', '-n', namespace || 'default', podName, '--tail=100', '-f'];
+      const args = ['logs', '-n', namespace || 'default', podName, '--all-containers=true', '--tail=100', '-f'];
       if (context) args.push('--context', context);
       infraService.streamLogs(resourceId, args, io, `${resourceId}-kube`, kubeconfigPath);
     });
@@ -534,7 +549,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── CREDENTIALS ── */
 
-  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do'] as const;
+  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do', 'huggingface', 'github'] as const;
 
   app.get('/api/credentials', async (req, res) => {
     try {
@@ -543,6 +558,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       res.json({ providers: statuses });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/credentials/validate/:provider', async (req, res) => {
+    try {
+      const provider = req.params.provider as CloudProvider;
+      if (!VALID_PROVIDERS.includes(provider)) {
+        return res.status(400).json({ error: `Invalid provider: ${provider}` });
+      }
+      const result = await credentialService.validateCredentials(provider, req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ valid: false, error: err.message });
     }
   });
 
@@ -609,9 +637,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  app.post('/api/clusters/:id/abort', async (req, res) => {
+    try {
+      await clusterService.abort(req.params.id, io);
+      res.json({ success: true, message: 'Cluster provisioning abort initiated' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.delete('/api/clusters/:id', async (req, res) => {
+    if (req.params.id === 'provisioning-lunorica') {
+      return res.status(403).json({ error: 'The system management cluster cannot be destroyed' });
+    }
     try {
       clusterProxyService.stopForCluster(req.params.id);
+      const cluster = await clusterService.getById(req.params.id);
+      if (cluster && cluster.status === 'provisioning') {
+        await clusterService.abort(req.params.id, io);
+        return res.json({ success: true, message: 'Cluster provisioning aborted' });
+      }
       const info = await temporalBridge.destroyCluster(req.params.id);
       res.status(202).json({
         message: 'Destroying cluster',
@@ -620,7 +665,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         state: 'running',
       });
     } catch (err: any) {
-      res.status(503).json({ error: `Temporal cluster destroy unavailable: ${err.message}` });
+      // Fallback to clusterService.delete or abort
+      try {
+        await clusterService.abort(req.params.id, io);
+        res.json({ success: true, message: 'Cluster deleted' });
+      } catch (fallbackErr: any) {
+        res.status(503).json({ error: `Cluster destruction unavailable: ${err.message}` });
+      }
     }
   });
 
@@ -644,6 +695,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.get('/api/clusters/:id/all-pods', async (req, res) => res.json(await clusterService.listAllPods(req.params.id)));
   app.get('/api/clusters/:id/helm-releases', async (req, res) => res.json(await clusterService.listReleases(req.params.id)));
+  app.get('/api/clusters/:id/gpu-status', async (req, res) => res.json(await clusterService.getGpuStatus(req.params.id)));
 
   app.get('/api/clusters/:id/services', async (req, res) => {
     try {
@@ -695,7 +747,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/deployments', async (req, res) => {
     try {
-      const info = await temporalBridge.deployApp(req.body);
+      const user = (req as any).user;
+      const info = await temporalBridge.deployApp(req.body, user?.id);
       res.status(202).json({
         message: 'Deployment started',
         deploymentName: req.body.name,
@@ -708,8 +761,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  app.post('/api/deployments/:id/abort', async (req, res) => {
+    try {
+      await appService.abort(req.params.id, io);
+      res.json({ success: true, message: 'App deployment abort initiated' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.delete('/api/deployments/:id', async (req, res) => {
     try {
+      const dep = await appService.getById(req.params.id);
+      if (dep && dep.status === 'deploying') {
+        await appService.abort(req.params.id, io);
+        return res.json({ success: true, message: 'Deployment aborted' });
+      }
       const info = await temporalBridge.destroyApp(req.params.id);
       res.status(202).json({
         message: 'Destroying app',
@@ -718,7 +785,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         state: 'running',
       });
     } catch (err: any) {
-      res.status(503).json({ error: `Temporal app destroy unavailable: ${err.message}` });
+      try {
+        await appService.abort(req.params.id, io);
+        res.json({ success: true, message: 'Deployment deleted' });
+      } catch (fallbackErr: any) {
+        res.status(503).json({ error: `Deployment destruction unavailable: ${err.message}` });
+      }
     }
   });
 
@@ -729,10 +801,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.post('/api/deployments/:id/expose', async (req, res) => {
-    try { res.json(await appExposureService.expose(req.params.id)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+    try {
+      const mode = req.body?.mode === 'local' ? 'local' : 'public';
+      const result = mode === 'local' ? await appExposureService.exposeLocal(req.params.id) : await appExposureService.exposePublic(req.params.id);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
   app.post('/api/deployments/:id/unexpose', async (req, res) => {
-    try { res.json(await appExposureService.unexpose(req.params.id)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+    try {
+      const mode = req.body?.mode === 'local' ? 'local' : 'public';
+      const result = mode === 'local' ? await appExposureService.unexposeLocal(req.params.id) : await appExposureService.unexposePublic(req.params.id);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
   app.patch('/api/deployments/:id/exposure-path', async (req, res) => {
     try {
@@ -763,6 +843,34 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       });
     } catch (err: any) {
       res.status(503).json({ error: `Temporal resize disk unavailable: ${err.message}` });
+    }
+  });
+
+  app.patch('/api/deployments/:id/config', async (req, res) => {
+    try {
+      // Allowlist rather than trusting req.body wholesale — this reaches saveDeploymentInfo(),
+      // and fields like status/temporalWorkflowId are internal state a client should never be
+      // able to overwrite directly.
+      const CONFIGURABLE_FIELDS = [
+        'storage', 'webRepo', 'webTag', 'dbRepo', 'dbTag',
+        'vllmModel', 'vllmGpuCount', 'vllmGpuVendor', 'vllmCachePvc', 'vllmHfToken',
+        'vllmMaxModelLen', 'vllmGpuMemUtil', 'vllmExtraArgs', 'openWebuiTargetId',
+        'vllmToolCallingEnabled', 'vllmToolCallParser', 'vllmServedModelName',
+        'vllmMaxNumSeqs', 'vllmDtype', 'vllmEnablePrefixCaching',
+      ];
+      const patch: Record<string, any> = {};
+      for (const key of CONFIGURABLE_FIELDS) {
+        if (req.body[key] !== undefined) patch[key] = req.body[key];
+      }
+      const info = await temporalBridge.updateConfigAndSync(req.params.id, patch);
+      res.status(202).json({
+        message: 'Config updated, sync started',
+        deploymentId: req.params.id,
+        workflowId: info.id,
+        state: 'running',
+      });
+    } catch (err: any) {
+      res.status(503).json({ error: `Temporal config update unavailable: ${err.message}` });
     }
   });
 

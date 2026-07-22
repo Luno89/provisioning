@@ -93,6 +93,16 @@ function resolveFromUser(
       if (!doC?.token) return null;
       return { DIGITALOCEAN_TOKEN: doC.token };
     }
+    case 'huggingface': {
+      const hf = creds.huggingface;
+      if (!hf?.hfToken) return null;
+      return { HF_TOKEN: hf.hfToken, HUGGING_FACE_HUB_TOKEN: hf.hfToken };
+    }
+    case 'github': {
+      const gh = creds.github;
+      if (!gh?.token) return null;
+      return { GITHUB_TOKEN: gh.token, GH_TOKEN: gh.token };
+    }
     default:
       return null;
   }
@@ -138,6 +148,16 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
       const token = process.env.DIGITALOCEAN_TOKEN || process.env.DO_TOKEN;
       if (!token) return null;
       return { DIGITALOCEAN_TOKEN: token };
+    }
+    case 'huggingface': {
+      const token = process.env.HF_TOKEN || process.env.VLLM_HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN;
+      if (!token) return null;
+      return { HF_TOKEN: token, HUGGING_FACE_HUB_TOKEN: token };
+    }
+    case 'github': {
+      const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      if (!token) return null;
+      return { GITHUB_TOKEN: token, GH_TOKEN: token };
     }
     default:
       return null;

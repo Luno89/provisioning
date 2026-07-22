@@ -16,6 +16,8 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   gcp: ['serviceAccountJson'],
   azure: ['clientId', 'clientSecret'],
   do: ['token'],
+  huggingface: ['hfToken'],
+  github: ['token'],
 };
 
 /** Fields that are stored in plaintext (non-sensitive metadata) */
@@ -24,6 +26,8 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   gcp: ['projectId'],
   azure: ['subscriptionId', 'tenantId'],
   do: [],
+  huggingface: ['defaultModel'],
+  github: ['username'],
 };
 
 export interface ProviderStatus {
@@ -41,12 +45,98 @@ export class CredentialService {
   ) {}
 
   /**
+   * Validate credentials live against provider API.
+   */
+  async validateCredentials(
+    provider: string,
+    creds: Record<string, string>,
+  ): Promise<{ valid: boolean; message: string; details?: any }> {
+    try {
+      if (provider === 'huggingface') {
+        const token = creds.hfToken || creds.token;
+        if (!token) return { valid: false, message: 'Hugging Face Access Token is required.' };
+        const res = await fetch('https://huggingface.co/api/whoami-v2', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        }
+        const data = await res.json();
+        return { valid: true, message: `Authenticated as Hugging Face user @${data.name || data.fullname || 'user'}`, details: data };
+      }
+
+      if (provider === 'github') {
+        const token = creds.token;
+        if (!token) return { valid: false, message: 'GitHub Personal Access Token is required.' };
+        const res = await fetch('https://api.github.com/user', {
+          headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'Antigravity-Provisioning' },
+        });
+        if (!res.ok) {
+          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        }
+        const data = await res.json();
+        return { valid: true, message: `Authenticated as GitHub user @${data.login}`, details: data };
+      }
+
+      if (provider === 'aws') {
+        if (!creds.accessKeyId || !creds.secretAccessKey) {
+          return { valid: false, message: 'AWS Access Key ID and Secret Access Key are required.' };
+        }
+        if (!creds.accessKeyId.startsWith('AKIA') && !creds.accessKeyId.startsWith('ASIA')) {
+          return { valid: false, message: 'AWS Access Key ID format appears invalid.' };
+        }
+        return { valid: true, message: 'AWS credentials format validated.' };
+      }
+
+      if (provider === 'gcp') {
+        if (!creds.serviceAccountJson) {
+          return { valid: false, message: 'GCP Service Account JSON is required.' };
+        }
+        try {
+          const parsed = JSON.parse(creds.serviceAccountJson);
+          if (parsed.type !== 'service_account' || !parsed.project_id) {
+            return { valid: false, message: 'Invalid GCP Service Account JSON structure.' };
+          }
+          return { valid: true, message: `Validated GCP Service Account for project "${parsed.project_id}"` };
+        } catch {
+          return { valid: false, message: 'Service Account JSON is not valid JSON.' };
+        }
+      }
+
+      if (provider === 'azure') {
+        if (!creds.clientId || !creds.clientSecret) {
+          return { valid: false, message: 'Azure Client ID and Client Secret are required.' };
+        }
+        return { valid: true, message: 'Azure SP credentials format validated.' };
+      }
+
+      if (provider === 'do') {
+        if (!creds.token) return { valid: false, message: 'DigitalOcean API Token is required.' };
+        const res = await fetch('https://api.digitalocean.com/v2/account', {
+          headers: { Authorization: `Bearer ${creds.token}` },
+        });
+        if (!res.ok) {
+          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        }
+        const data = await res.json();
+        return { valid: true, message: `Authenticated as DigitalOcean account (${data.account?.email || 'active'})` };
+      }
+
+      return { valid: true, message: 'Credentials formatted.' };
+    } catch (err: any) {
+      return { valid: false, message: `Validation failed: ${err?.message || 'Network error'}` };
+    }
+  }
+
+  /**
    * Get the status of all supported cloud providers for a user.
    */
   async getConfiguredProviders(userId: string): Promise<ProviderStatus[]> {
     const user = await this.db.getUserById(userId);
 
     const providers: { key: CloudProvider; label: string }[] = [
+      { key: 'huggingface', label: 'Hugging Face' },
+      { key: 'github', label: 'GitHub' },
       { key: 'aws', label: 'Amazon Web Services' },
       { key: 'gcp', label: 'Google Cloud Platform' },
       { key: 'azure', label: 'Microsoft Azure' },

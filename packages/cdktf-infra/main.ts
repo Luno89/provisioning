@@ -12,6 +12,8 @@ import { AudiobookshelfNativeApp } from "./constructs/audiobookshelf-native.js";
 import { PrometheusApp } from "./constructs/prometheus.js";
 import { TemporalApp } from "./constructs/temporal.js";
 import { TraefikApp } from "./constructs/traefik.js";
+import { VllmApp } from "./constructs/vllm.js";
+import { OpenWebUiApp } from "./constructs/open-webui.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
 import { K8sProviderService } from "./lib/k8s-provider-service.js";
@@ -112,6 +114,37 @@ class AppStack extends TerraformStack {
           ...(storageConfig ? { configStorage: storageConfig } : {}),
           ...(storageLibrary ? { libraryStorage: storageLibrary } : {}),
           ...vpnProps,
+        });
+      } else if (appType === 'vllm') {
+        new VllmApp(this, "vllm-app", {
+          namespace: deploymentName,
+          model: process.env.VLLM_MODEL,
+          gpuCount: parseInt(process.env.VLLM_GPU_COUNT || '1'),
+          gpuVendor: process.env.VLLM_GPU_VENDOR as 'nvidia' | 'amd' || 'nvidia',
+          device: process.env.VLLM_DEVICE,
+          hfToken: process.env.HF_TOKEN || process.env.VLLM_HF_TOKEN,
+          cachePvc: process.env.VLLM_CACHE_PVC,
+          imageTag: process.env.VLLM_IMAGE_TAG || process.env.WEB_IMAGE_TAG || 'v0.7.2',
+          shmSize: process.env.VLLM_SHM_SIZE,
+          cpuLimit: process.env.VLLM_CPU_LIMIT,
+          memoryLimit: process.env.VLLM_MEMORY_LIMIT,
+          maxModelLen: process.env.VLLM_MAX_MODEL_LEN ? parseInt(process.env.VLLM_MAX_MODEL_LEN) : undefined,
+          gpuMemUtil: process.env.VLLM_GPU_MEM_UTIL ? parseFloat(process.env.VLLM_GPU_MEM_UTIL) : undefined,
+          extraArgs: process.env.VLLM_EXTRA_ARGS ? [process.env.VLLM_EXTRA_ARGS] : undefined,
+          toolCallingEnabled: process.env.VLLM_TOOL_CALLING_ENABLED === 'true',
+          toolCallParser: process.env.VLLM_TOOL_CALL_PARSER || undefined,
+          servedModelName: process.env.VLLM_SERVED_MODEL_NAME || undefined,
+          maxNumSeqs: process.env.VLLM_MAX_NUM_SEQS ? parseInt(process.env.VLLM_MAX_NUM_SEQS) : undefined,
+          dtype: process.env.VLLM_DTYPE || undefined,
+          enablePrefixCaching: process.env.VLLM_ENABLE_PREFIX_CACHING === 'true',
+        });
+      } else if (appType === 'openwebui') {
+        new OpenWebUiApp(this, "open-webui-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.OPENAI_API_BASE_URL ? { openaiApiBaseUrl: process.env.OPENAI_API_BASE_URL } : {}),
+          ...(storageDb ? { storage: storageDb } : {}),
         });
       } else {
         new OdooNativeApp(this, "odoo-native", {
