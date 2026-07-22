@@ -8,19 +8,40 @@ npm workspaces: `apps/*`, `packages/*`
 
 | Path | What |
 |---|---|
-| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, services, socket.io, all routes |
-| `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` factory (MongoDB for dev/E2E, MemoryDB for unit tests) |
+| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, all services, JWT auth middleware, socket.io, ~30 inline routes (no Router) |
+| `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` factory — MongoDB unless `NODE_ENV=test` and not E2E, in which case `MemoryDB` |
 | `apps/backend/src/lib/mongo-db.ts` | MongoDB native driver implementation (`mongodb@^6.10.0`) |
 | `apps/backend/src/lib/memory-db.ts` | In-memory mock for unit tests |
-| `apps/backend/src/services/` | Service layer: `InfrastructureService` (kubectl/helm/k3d/docker), `ClusterService`, `AppService`, `TemporalBridge` |
+| `apps/backend/src/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
+| `apps/backend/src/lib/credential-resolver.ts` | Cloud credential resolution chain: user-stored → `process.env` → mock mode |
+| `apps/backend/src/services/` | Service layer — see [Backend service layer](#backend-service-layer) below |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — registers cluster provisioning activities (ProvisionClusterActivity, DestroyClusterActivity) |
 | `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — registers app deployment activities (DeployAppActivity, DestroyAppActivity, ResizeDiskActivity). Reads K8s service account for in-cluster auth. |
 | `apps/frontend/src/main.tsx` | React entry |
-| `apps/frontend/src/App.tsx` | ~1365-line monolith — all UI in one component |
+| `apps/frontend/src/App.tsx` | ~1800-line monolith — most of the UI in one component |
+| `apps/frontend/src/components/` | Extracted pieces: `Login`, `CloudAccounts`, `AnsiText` (ANSI log rendering) |
 | `packages/cdktf-infra/main.ts` | CDKTF entry — two stack types via `STACK_TYPE=cluster\|app` env var |
+| `packages/cdktf-infra/constructs/` | Per-app CDKTF constructs, each with a Helm variant and a `-native` (raw K8s manifest) variant |
 | `bin/` | Pre-downloaded k3d, kubectl, helm binaries |
-| `k8s/` | K8s manifests: ServiceAccount, ClusterRoleBinding, Deployment for in-cluster worker pod |
+| `k8s/` | K8s manifests: ServiceAccount, ClusterRoleBinding, Deployment for in-cluster worker pod; `k8s/gpu-device-plugin/` for NVIDIA/AMD device plugin DaemonSets |
+
+## Backend service layer
+
+All services live in `apps/backend/src/services/`, most extend `BaseService`, constructed and wired together in `bootstrap()` (`apps/backend/src/index.ts`):
+
+- `InfrastructureService` — kubectl/helm/k3d/docker subprocess execution
+- `ClusterService` — cluster CRUD, mock-cloud detection, kubeconfig resolution
+- `AppService` — app deployment CRUD, depends on `ClusterService` + `BuilderService`
+- `BuilderService` — image build orchestration
+- `RegistryService` — container registry operations
+- `GitModuleService` — Odoo module git integration
+- `AppExposureService` — Localtunnel/Nginx public exposure of deployed apps, emits socket.io events
+- `ClusterProxyService` — proxies requests into cluster-internal dashboards (Traefik/Grafana/Prometheus)
+- `AuthService` — user auth (JWT sessions, 2FA, GitHub/Google OAuth)
+- `CredentialService` — per-user cloud provider credentials, AES-256-GCM encrypted at rest, live validation against provider APIs
+- `TemporalBridge` — bridges Express routes ↔ Temporal workflow execution; mutating routes go through this, reads hit the DB directly
+- `WorkerService` — manages the in-cluster worker pod lifecycle
 
 ## Worker architecture
 
@@ -35,13 +56,16 @@ Two separate task queues partition the operations:
 
 ```
 npm run setup        # bootstrap dependencies, install packages, and download pre-bundled binaries
-npm run dev          # ensure k3d cluster → build+deploy worker pod → concurrently start backend+frontend+host-worker
-npm run clean-dev    # kill all dev processes
-npm run test         # unit (frontend + backend) → e2e (Playwright)
-npm run test:unit    # backend + frontend unit tests (Vitest)
-npm run test:e2e     # Playwright e2e (skips unit preflight)
+npm run dev          # ensure k3d+temporal+mongo → concurrently start backend+frontend+host-worker+cluster-worker
+npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
+npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
+npm run test:all     # test → test:infra:integration → test:unit:vpn
+npm run test:unit    # backend + frontend unit tests (Vitest, both under 5s)
+npm run test:e2e     # test:alive → Playwright against the e2e/ directory (skips unit preflight)
 npm run test:infra:integration   # full cluster provision → verify → destroy (takes ~5 min)
 ```
+
+Note: there are two separate Playwright suites — `tests/e2e.spec.ts` (run by `npm test` via `test:e2e:sync`) and the `e2e/` directory (run by `npm run test:e2e`). Check which one a change needs before assuming coverage.
 
 Single workspace:
 ```
@@ -107,24 +131,18 @@ The `progress` field on `ClusterMetadata` tracks the current provisioning step (
 ## Architecture notes
 
 - **No Express Router** — all ~30 routes defined inline in `bootstrap()` (apps/backend/src/index.ts)
-- **No auth** on any route
-- **JSON file DB** — read-modify-write pattern, prone to race conditions under concurrency
+- **JWT auth on all `/api/*` routes** via `requireAuth` middleware, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. Session token lives in a `session` cookie. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in.
+- **MongoDB is the default DB**, managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests use `MemoryDB` instead (`NODE_ENV=test` without `IS_E2E`) — see `createDatabase()` in `db-interface.ts`.
+- **Cloud credentials**: per-user creds for aws/gcp/azure/do/huggingface/github go through `CredentialService` (encrypted at rest) and `credential-resolver.ts`'s chain: user-stored → `process.env` → mock mode. A provider with no credentials anywhere runs in **mock cloud mode** using local k3d containers — the zero-setup dev path.
+- **GPU / vLLM**: deploying vLLM triggers a host GPU-toolkit check → auto-installs the matching device plugin DaemonSet (`k8s/gpu-device-plugin/`) → waits up to 60s for it to be ready → CDKTF applies the vLLM stack (`packages/cdktf-infra/constructs/vllm.ts`). Host-side driver/toolkit setup is `scripts/setup-gpu.sh`.
 - **Temporal.io is optional** — backend starts without it, falls back gracefully. Start via `docker compose -f docker-compose.temporal.yml up`
 - **CDKTF stack selection** — env var `STACK_TYPE=cluster` for infra, `STACK_TYPE=app` for apps
 - **k3d for local dev** — cluster named `provisioning-lunorica` managed by `scripts/ensure-cluster.sh`
 - **App auth in-cluster**: `AppStack.fromEnv()` reads `KUBECONFIG`, `K8S_HOST`, `K8S_TOKEN`, `K8S_CA_CERT`. The in-cluster worker sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` from the service account at startup.
 
-## Known bugs / design debt
-
-- `TemporalBridge.updateUserStatus()` was wiping `kubeconfigPath` on workflow completion, causing kubectl to run on the host with stale kubeconfig → `0.0.0.0:6443 connection refused`
-- `apps/backend/src/lib/executor.ts` duplicates `InfrastructureService.ts` with hardcoded paths — dead code
-- Hardcoded secrets in `packages/cdktf-infra/constructs/odoo-native.ts` (and similar constructs)
-- Frontend app defaults (image repos, tags) are hardcoded in `App.tsx` instead of server-driven
-- Shell scripts under `apps/run-container/` are mostly echo messages / dead code (the in-cluster worker is now deployed via `k8s/` manifests)
-
 ## Data
 
-All persistent state is JSON files under `apps/backend/data/`. In test/E2E mode, `clusters-test.json` and `deployments-test.json` are used instead.
+Persistent state (clusters, deployments, users) lives in MongoDB — see `createDatabase()` above. `apps/backend/data/` still holds `logs/` (per-resource provisioning/deployment log files, tailed over socket.io — see `InfrastructureService`'s `LOG_DIR`) and `nginx/` (proxy config); the `*.json` files there are unused leftovers, not the source of truth.
 
 ## Prerequisites
 

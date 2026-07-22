@@ -16,12 +16,22 @@ export class AppService extends BaseService {
   private infra: InfrastructureService;
   private clusters: ClusterService;
   private builder: BuilderService;
+  private temporalBridge?: any;
 
   constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, builder: BuilderService) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;
     this.builder = builder;
+  }
+
+  setTemporalBridge(temporalBridge: any) {
+    this.temporalBridge = temporalBridge;
+  }
+
+  async getById(id: string) {
+    const deployments = await this.db.getDeployments();
+    return deployments.find((d: any) => d.id === id);
   }
 
   async getAll(io?: SocketServer) {
@@ -225,29 +235,114 @@ export class AppService extends BaseService {
         let finalOdooRepo = odooRepo;
         let finalOdooTag = odooTag;
 
+        const isMock = this.clusters.isMockCloud(cluster);
+        const physicalName = this.clusters.getPhysicalClusterName(cluster);
+        const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
+
+        let effectiveDevice = process.env.VLLM_DEVICE || (config.vllmGpuCount === 0 ? 'cpu' : (config.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
+        let effectiveGpuCount = config.vllmGpuCount !== undefined ? config.vllmGpuCount : 1;
+
+        if (appType === 'vllm' && (cluster.provider === 'k3d' || isMock)) {
+          if (effectiveGpuCount > 0 && effectiveDevice !== 'cpu') {
+            const gpuVendor = config.vllmGpuVendor || 'nvidia';
+            try {
+              await this.infra.checkGpuToolkit(gpuVendor);
+              await this.infra.installGpuDevicePlugin(gpuVendor, kubeconfigPath);
+            } catch (err: any) {
+              this.logger.warn(`[AppService] GPU toolkit check or device plugin install failed (${err.message}). Falling back to CPU mode.`);
+              effectiveDevice = 'cpu';
+              effectiveGpuCount = 0;
+            }
+          }
+        }
+
         // If modules are selected, we must build a custom image
         if (modules.length > 0) {
             const baseImage = `${odooRepo}:${odooTag}`;
             const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
-            
-            // Import the image into the k3d cluster
-            const isMock = this.clusters.isMockCloud(cluster);
-            const physicalName = this.clusters.getPhysicalClusterName(cluster);
-            if (cluster.provider === 'k3d' || isMock) {
+
+            // Import the image into the k3d cluster. GPU-enabled clusters attach to the native
+            // k3s management cluster instead (see ProvisionClusterActivity) — there's no k3d
+            // cluster to import into there (`k3d image import` would fail with "no nodes found"),
+            // and its containerd can't see this custom image (only in the host's Docker daemon).
+            if (cluster.gpuEnabled) {
+                if (io) io.to(id).emit('log', `\n--- SKIPPING K3D IMPORT (GPU-attached cluster runs native k3s) — custom image "${customTag}" must be pushed to a registry to be pullable here ---\n`);
+            } else if (cluster.provider === 'k3d' || isMock) {
                 if (io) io.to(id).emit('log', `\n--- IMPORTING IMAGE INTO K3D: ${customTag} ---\n`);
                 await this.infra.importImage(physicalName, customTag, { logFile, io, resourceId: id });
             }
 
             finalOdooRepo = customTag.split(':')[0] ?? '';
             finalOdooTag = customTag.split(':')[1] ?? '';
+        } else {
+            if ((cluster.provider === 'k3d' || isMock) && !cluster.gpuEnabled) {
+                if (appType === 'vllm') {
+                    const gpuVendor = config.vllmGpuVendor || 'nvidia';
+                    const vllmImageTag = (finalOdooTag && finalOdooTag !== 'latest') ? finalOdooTag : 'v0.7.2';
+                    const vllmImage = gpuVendor === 'amd'
+                        ? `vllm/vllm-openai-rocm:${vllmImageTag}`
+                        : `vllm/vllm-openai:${vllmImageTag}`;
+                    if (io) io.to(id).emit('log', `\n--- PULLING & IMPORTING VLLM IMAGE INTO K3D: ${vllmImage} ---\n`);
+                    await this.infra.pullAndImportImage(physicalName, vllmImage, { logFile, io, resourceId: id });
+                } else if (finalOdooRepo && finalOdooTag) {
+                    const appImage = `${finalOdooRepo}:${finalOdooTag}`;
+                    if (io) io.to(id).emit('log', `\n--- PULLING & IMPORTING APP IMAGE INTO K3D: ${appImage} ---\n`);
+                    await this.infra.pullAndImportImage(physicalName, appImage, { logFile, io, resourceId: id });
+                }
+                if (pgRepo && pgTag) {
+                    const dbImage = `${pgRepo}:${pgTag}`;
+                    if (io) io.to(id).emit('log', `\n--- PULLING & IMPORTING DB IMAGE INTO K3D: ${dbImage} ---\n`);
+                    await this.infra.pullAndImportImage(physicalName, dbImage, { logFile, io, resourceId: id });
+                }
+            }
         }
 
-        const isMock = this.clusters.isMockCloud(cluster);
-        const physicalName = this.clusters.getPhysicalClusterName(cluster);
-        const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
+        let openaiApiBaseUrl = '';
+        if (appType === 'openwebui' && config.openWebuiTargetId) {
+          const allDeployments = await this.db.getDeployments();
+          const target = allDeployments.find((d: DeploymentMetadata) => d.id === config.openWebuiTargetId);
+          // .svc.cluster.local only resolves within the same cluster — skip rather than wire
+          // in a DNS name that will never resolve if the target is on a different cluster.
+          if (target && target.clusterId === clusterId) {
+            const targetNs = this.sanitize(target.name);
+            openaiApiBaseUrl = `http://${targetNs}-vllm.${targetNs}.svc.cluster.local:8000/v1`;
+          } else if (target) {
+            this.logger.warn(`[AppService] Open WebUI deployment "${name}" targets vLLM deployment "${target.name}" on a different cluster — skipping OPENAI_API_BASE_URL.`);
+          }
+        }
+
         const storageEnv = StorageAdapter.getStorageEnv(appType, strategy, storage);
         const env: Record<string, string> = {
           STACK_TYPE: 'app',
+          CLUSTER_NAME: physicalName,
+          DEPLOYMENT_STRATEGY: strategy,
+          DEPLOYMENT_NAME: sanitizedName,
+          DEPLOYMENT_ID: id.slice(0, 8),
+          KUBECONFIG: kubeconfigPath,
+          KUBECONFIG_CONTEXT: (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
+          APP_TYPE: appType,
+          WEB_IMAGE_REPO: finalOdooRepo || '',
+          WEB_IMAGE_TAG: finalOdooTag || '',
+          DB_IMAGE_REPO: pgRepo || '',
+          DB_IMAGE_TAG: pgTag || '',
+          VLLM_MODEL: config.vllmModel || '',
+          VLLM_GPU_COUNT: String(effectiveGpuCount),
+          VLLM_GPU_VENDOR: config.vllmGpuVendor || 'nvidia',
+          VLLM_CACHE_PVC: config.vllmCachePvc || '',
+          VLLM_IMAGE_TAG: (finalOdooTag && finalOdooTag !== 'latest') ? finalOdooTag : 'v0.7.2',
+          VLLM_DEVICE: effectiveDevice,
+          VLLM_HF_TOKEN: config.vllmHfToken || process.env.HF_TOKEN || '',
+          HF_TOKEN: config.vllmHfToken || process.env.HF_TOKEN || '',
+          VLLM_MAX_MODEL_LEN: config.vllmMaxModelLen !== undefined ? String(config.vllmMaxModelLen) : '',
+          VLLM_GPU_MEM_UTIL: config.vllmGpuMemUtil !== undefined ? String(config.vllmGpuMemUtil) : '',
+          VLLM_EXTRA_ARGS: config.vllmExtraArgs || '',
+          VLLM_TOOL_CALLING_ENABLED: config.vllmToolCallingEnabled ? 'true' : 'false',
+          VLLM_TOOL_CALL_PARSER: config.vllmToolCallParser || '',
+          VLLM_SERVED_MODEL_NAME: config.vllmServedModelName || '',
+          VLLM_MAX_NUM_SEQS: config.vllmMaxNumSeqs !== undefined ? String(config.vllmMaxNumSeqs) : '',
+          VLLM_DTYPE: config.vllmDtype || '',
+          VLLM_ENABLE_PREFIX_CACHING: config.vllmEnablePrefixCaching ? 'true' : 'false',
+          OPENAI_API_BASE_URL: openaiApiBaseUrl,
           CLUSTER_NAME: physicalName,
           DEPLOYMENT_STRATEGY: strategy,
           DEPLOYMENT_NAME: sanitizedName,
@@ -280,7 +375,7 @@ export class AppService extends BaseService {
         this.logger.error(`App deployment failed: ${err.message}`);
         await this.db.saveDeployment({ ...metadata, status: 'failed' });
       }
-    })();
+    })().catch((err: any) => this.logger.error(`Unhandled error during app deployment: ${err.message}`));
 
     return metadata;
   }
@@ -308,10 +403,11 @@ export class AppService extends BaseService {
           const baseImage = `${webRepo}:${webTag}`;
           const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
           
-          // 2. Import into cluster
+          // 2. Import into cluster. GPU-enabled clusters attach to the native k3s management
+          // cluster instead (see ProvisionClusterActivity) — no k3d cluster to import into there.
           const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
           const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
-          if (cluster && (cluster.provider === 'k3d' || isMock)) {
+          if (cluster && !cluster.gpuEnabled && (cluster.provider === 'k3d' || isMock)) {
               await this.infra.importImage(physicalName, customTag, { logFile, io, resourceId: id });
           }
 
@@ -349,7 +445,7 @@ export class AppService extends BaseService {
           this.logger.error(`Module update failed: ${err.message}`);
           await this.db.saveDeployment({ ...updatedMetadata, status: 'failed' });
         }
-      })();
+      })().catch((err: any) => this.logger.error(`Unhandled error during module update: ${err.message}`));
 
       return updatedMetadata;
   }
@@ -458,10 +554,7 @@ export class AppService extends BaseService {
         await this.infra.destroy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
         
         try {
-            const context = (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : undefined;
-            const args = ['delete', 'ns', this.sanitize(dep.name), '--wait=false'];
-            if (context) args.push('--context', context);
-            await this.infra.runKubectl(args, kubeconfigPath);
+            await this.infra.waitForNamespaceDeletion(this.sanitize(dep.name), kubeconfigPath);
         } catch {
             // Ignore if already gone
         }
@@ -473,7 +566,50 @@ export class AppService extends BaseService {
         this.logger.error(`App destruction failed: ${err.message}`);
         await this.db.saveDeployment({ ...dep, status: 'failed' });
       }
-    })();
+    })().catch((err: any) => this.logger.error(`Unhandled error during app destruction: ${err.message}`));
+  }
+
+  async abort(id: string, io?: SocketServer) {
+    const dep = (await this.getAll()).find((d: any) => d.id === id);
+    if (!dep) throw new Error('Deployment not found');
+
+    const logFile = this.infra.getLogPath(`${dep.name}-abort`);
+    await this.db.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
+
+    (async () => {
+      try {
+        // 1. Terminate active Temporal workflow if present
+        if (dep.temporalWorkflowId && this.temporalBridge) {
+          await this.temporalBridge.terminateWorkflow(dep.temporalWorkflowId, 'User aborted deployment');
+        }
+
+        // 2. Tear down namespace / k8s resources
+        const cluster = await this.clusters.getById(dep.clusterId);
+        if (cluster) {
+          const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
+          try {
+            await this.infra.waitForNamespaceDeletion(this.sanitize(dep.name), kubeconfigPath);
+          } catch (err: any) {
+            this.logger.warn(`Error deleting namespace during app abort: ${err.message}`);
+          }
+        }
+
+        // 3. Remove deployment from state DB
+        const deployments = await this.db.getDeployments();
+        await this.db.saveDeploymentList(deployments.filter((d: any) => d.id !== id));
+
+        if (io) {
+          io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');
+          io.emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
+          io.emit('deployment:updated');
+        }
+      } catch (err: any) {
+        this.logger.error(`Abort failed for deployment ${dep.name}: ${err.message}`);
+        const deployments = await this.db.getDeployments();
+        await this.db.saveDeploymentList(deployments.filter((d: any) => d.id !== id));
+        if (io) io.emit('deployment:updated');
+      }
+    })().catch((err: any) => this.logger.error(`Unhandled error during deployment abort: ${err.message}`));
   }
 
   async resizeDisk(id: string, storage: any, io?: SocketServer) {
@@ -527,7 +663,7 @@ export class AppService extends BaseService {
           this.logger.error(`Disk resize failed: ${err.message}`);
           await this.db.saveDeployment({ ...updatedMetadata, status: 'failed' });
         }
-      })();
+      })().catch((err: any) => this.logger.error(`Unhandled error during disk resize: ${err.message}`));
 
       return updatedMetadata;
   }

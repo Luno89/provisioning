@@ -19,13 +19,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
+import { resolveCloudCredentials } from '../lib/credential-resolver.js'
+import { decryptValue } from '../lib/crypto.js'
 import type { Database } from '../lib/db-interface.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata } from '../lib/types.js'
+import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
 import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
 import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
+import { executeSyncConfigWorkflow } from '../workflows/SyncConfigWorkflow.js'
+import { resolveVllmDefaults } from '../lib/app-env.js'
 import type { Server as SocketServer } from 'socket.io'
 
 const HOST_QUEUE = 'host-ops-queue'
@@ -38,7 +43,6 @@ export interface WorkflowDeal {
   readonly id: string
   readonly resourceId?: string
   readonly event: string
-  promise: Promise<any>
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -152,14 +156,33 @@ export class TemporalBridge {
   db!: Database
   io?: SocketServer
   client!: Client
+  masterKey: string
+  clusterService?: ClusterService
 
-  constructor(db: Database, io?: SocketServer) {
+  constructor(db: Database, io?: SocketServer, masterKey?: string, clusterService?: ClusterService) {
     this.db = db
     this.io = io
+    this.masterKey = masterKey || ''
+    if (clusterService !== undefined) this.clusterService = clusterService
   }
 
   isReady(): boolean {
     return !!this.client
+  }
+
+  /**
+   * Resolves a cluster by id, including the synthetic system-cluster entry (see
+   * ClusterService.getSystemClusterEntry) — which never lives in the real DB, so a raw
+   * `db.getClusters().find(...)` silently misses it. Bypassing this is exactly what caused
+   * deployApp() to lose track of `gpuEnabled` for apps deployed onto the system cluster,
+   * re-triggering the k3d image-import bug that gate was supposed to prevent.
+   */
+  private async getClusterById(id: string): Promise<ClusterMetadata | undefined> {
+    if (this.clusterService) {
+      return this.clusterService.getById(id);
+    }
+    const clusters = await this.db.getClusters();
+    return clusters.find((c: ClusterMetadata) => c.id === id);
   }
 
   async start(address?: string): Promise<this> {
@@ -182,7 +205,7 @@ export class TemporalBridge {
 
   trackWorkflow(
     wfId: string,
-    action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize',
+    action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize' | 'app-sync-config',
     resourceId: string,
     resourceName: string,
     provider: string,
@@ -248,6 +271,13 @@ export class TemporalBridge {
               await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
               await updateDeploymentStatus(this.db, resourceId, meta, 'running', newStorage)
+            }
+            if (this.io) this.io.emit('deployment-updated')
+          } else if (action === 'app-sync-config') {
+            if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+            } else if (name === 'COMPLETED') {
+              await updateDeploymentStatus(this.db, resourceId, meta, 'running', meta?.storage)
             }
             if (this.io) this.io.emit('deployment-updated')
           }
@@ -395,10 +425,24 @@ export class TemporalBridge {
   }
 
   // ────────────────────────────────────────────────────────────────────
-  // Cluster lifecycle
-  // ────────────────────────────────────────────────────────────────────
+  async terminateWorkflow(wfId: string, reason = 'User aborted operation'): Promise<boolean> {
+    try {
+      const handle = this.client.workflow.getHandle(wfId);
+      await handle.terminate(reason);
+      console.log(`[TemporalBridge] Terminated workflow ${wfId}: ${reason}`);
+      return true;
+    } catch (err: any) {
+      console.warn(`[TemporalBridge] Failed to terminate workflow ${wfId}: ${err.message}`);
+      return false;
+    }
+  }
 
   async provision(clusterName: string, provider: string): Promise<WorkflowDeal> {
+    // GPU passthrough is exclusively provided by the always-on system cluster (native k3s —
+    // k3d's nested containerd can't do device passthrough at all, see AGENTS.md). User-created
+    // clusters are never GPU-enabled; there used to be a "flag this k3d cluster as GPU" path
+    // that only ever silently pointed back at the system cluster's own kubeconfig under a
+    // second name — removed as confusing and redundant with the system cluster entry itself.
     const wfId = `cluster-provision-${clusterName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
@@ -426,7 +470,6 @@ export class TemporalBridge {
       id: wfId,
       resourceId: savedCluster.id,
       event: 'cluster-provision',
-      promise: handle.result(),
     }
   }
 
@@ -437,7 +480,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const logFileName = `${Date.now()}-destroy-${Math.random().toString(36).slice(2)}-B2.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
-    const activityArgs = { name: cluster.name, provider: cluster.provider, logFile: absoluteLogPath }
+    const activityArgs = { name: cluster.name, provider: cluster.provider, logFile: absoluteLogPath, ...(cluster.gpuEnabled !== undefined ? { gpuEnabled: cluster.gpuEnabled } : {}) }
     const wfId = `cluster-destroy-${cluster.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     this.db.saveClusterInfo({
@@ -460,7 +503,6 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     return {
       id: wfId,
       event: 'cluster-destroy',
-      promise: handle.result(),
     }
   }
 
@@ -468,7 +510,31 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   // Deployment lifecycle
   // ────────────────────────────────────────────────────────────────────
 
-  async deployApp(config: any): Promise<WorkflowDeal> {
+  // Open WebUI doesn't get pointed at a backend via a repo/tag the way other apps do — it needs
+  // the target vLLM deployment's in-cluster Service DNS name, which only exists once that
+  // deployment's own CDKTF apply has run (see vllm.ts: Service `${sanitizedName}-vllm` in
+  // namespace `${sanitizedName}`, sanitizedName === the deployment's own SANITIZE(name)).
+  // Resolved here (shared by deployApp and syncConfig) rather than on the frontend so there's
+  // one source of truth for that naming scheme instead of duplicating the sanitize regex.
+  private resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments: DeploymentMetadata[]): string | undefined {
+    if (dep.appType !== 'openwebui' || !dep.openWebuiTargetId) return undefined;
+    const target = allDeployments.find((d) => d.id === dep.openWebuiTargetId);
+    if (!target) return undefined;
+    // .svc.cluster.local only resolves within the same cluster — the frontend already only
+    // offers same-cluster vLLM deployments as backend choices, but a stale/direct API call
+    // could still send a cross-cluster id. Better to sync without a preconfigured backend
+    // (Open WebUI's own Admin Settings > Connections can point at any reachable URL at
+    // runtime) than to silently wire in a DNS name that will never resolve.
+    if (target.clusterId !== dep.clusterId) {
+      console.warn(`[TemporalBridge] Open WebUI deployment "${dep.name}" targets vLLM deployment "${target.name}" on a different cluster — skipping OPENAI_API_BASE_URL, it must be configured manually.`);
+      return undefined;
+    }
+    const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const targetNs = sanitize(target.name);
+    return `http://${targetNs}-vllm.${targetNs}.svc.cluster.local:8000/v1`;
+  }
+
+  async deployApp(config: any, userId?: string): Promise<WorkflowDeal> {
     // Find deployment row by name + clusterId (since config is req.body — may have no DB id)
     const unresolved = await this.db.getDeployments()
     let [dep] = unresolved.filter((d: DeploymentMetadata) => {
@@ -490,11 +556,47 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         dbRepo: config.dbRepo,
         dbTag: config.dbTag,
         url: config.url,
+        vllmModel: config.vllmModel,
+        vllmGpuCount: config.vllmGpuCount,
+        vllmGpuVendor: config.vllmGpuVendor,
+        vllmCachePvc: config.vllmCachePvc,
+        vllmHfToken: config.vllmHfToken,
+        vllmMaxModelLen: config.vllmMaxModelLen,
+        vllmGpuMemUtil: config.vllmGpuMemUtil,
+        vllmExtraArgs: config.vllmExtraArgs,
+        vllmToolCallingEnabled: config.vllmToolCallingEnabled,
+        vllmToolCallParser: config.vllmToolCallParser,
+        vllmServedModelName: config.vllmServedModelName,
+        vllmMaxNumSeqs: config.vllmMaxNumSeqs,
+        vllmDtype: config.vllmDtype,
+        vllmEnablePrefixCaching: config.vllmEnablePrefixCaching,
+        openWebuiTargetId: config.openWebuiTargetId,
+      }
+      dep = resolveVllmDefaults(dep as DeploymentMetadata)
+    }
+
+    const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, unresolved);
+
+    if (!dep.vllmHfToken && (dep.appType === 'vllm' || config.appType === 'vllm')) {
+      let userCreds;
+      if (userId) {
+        const user = await this.db.getUserById(userId);
+        const encryptedToken = user?.credentials?.huggingface?.hfToken;
+        if (encryptedToken) {
+          try {
+            userCreds = { huggingface: { hfToken: decryptValue(encryptedToken, this.masterKey) } };
+          } catch {
+            // Corrupted ciphertext or wrong master key — fall through to env/mock
+          }
+        }
+      }
+      const resolved = resolveCloudCredentials('huggingface', userCreds);
+      if (resolved.env.HF_TOKEN) {
+        dep.vllmHfToken = resolved.env.HF_TOKEN;
       }
     }
 
-  const clusters = await this.db.getClusters()
-  const [targetCluster] = clusters.filter((c: ClusterMetadata) => c.id === dep.clusterId)
+  const targetCluster = await this.getClusterById(dep.clusterId)
   const wfId = `app-deploy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-C3.log`
   const absoluteLogPath = path.join(LOG_DIR, logFileName)
@@ -506,6 +608,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       clusterId: dep.clusterId,
       clusterName: targetCluster?.name || 'unknown',
       provider: targetCluster?.provider || 'k3d',
+      ...(targetCluster?.gpuEnabled !== undefined ? { clusterGpuEnabled: targetCluster.gpuEnabled } : {}),
       strategy: dep.strategy || 'helm',
       appType: dep.appType || 'odoo',
       modules: dep.modules || [],
@@ -515,6 +618,21 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       dbTag: (dep.dbTag as string) || '',
       logFile: absoluteLogPath,
       deploymentId,
+      vllmModel: dep.vllmModel,
+      vllmGpuCount: dep.vllmGpuCount,
+      vllmGpuVendor: dep.vllmGpuVendor,
+      vllmCachePvc: dep.vllmCachePvc,
+      vllmHfToken: dep.vllmHfToken,
+      vllmMaxModelLen: dep.vllmMaxModelLen,
+      vllmGpuMemUtil: dep.vllmGpuMemUtil,
+      vllmExtraArgs: dep.vllmExtraArgs,
+      vllmToolCallingEnabled: dep.vllmToolCallingEnabled,
+      vllmToolCallParser: dep.vllmToolCallParser,
+      vllmServedModelName: dep.vllmServedModelName,
+      vllmMaxNumSeqs: dep.vllmMaxNumSeqs,
+      vllmDtype: dep.vllmDtype,
+      vllmEnablePrefixCaching: dep.vllmEnablePrefixCaching,
+      ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
     }
 
     this.db.saveDeploymentInfo({
@@ -537,7 +655,6 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       id: wfId,
       resourceId: dep.id,
       event: 'app-deploy',
-      promise: handle.result(),
     }
   }
 
@@ -546,8 +663,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (destroyApp)')
 
-    const clusters = await this.db.getClusters()
-    const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === dep.clusterId)
+    const cluster = await this.getClusterById(dep.clusterId)
     const wfId = `app-destroy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
@@ -580,7 +696,6 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     return {
       id: wfId,
       event: 'app-destroy',
-      promise: handle.result(),
     }
   }
 
@@ -593,8 +708,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (resizeDisk)')
 
-    const clusters = await this.db.getClusters()
-    const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === dep.clusterId)
+    const cluster = await this.getClusterById(dep.clusterId)
     const wfId = `resize-disk-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-E5.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
@@ -630,8 +744,90 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     return {
       id: wfId,
       event: 'disk-resize',
-      promise: handle.result(),
     }
+  }
+
+  async syncConfig(deploymentId: string): Promise<WorkflowDeal> {
+    const deployments = await this.db.getDeployments()
+    let [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
+    if (!dep) throw new Error('DeploymentMetadata not found (syncConfig)')
+    dep = resolveVllmDefaults(dep)
+
+    const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, deployments);
+
+    const cluster = await this.getClusterById(dep.clusterId)
+    const wfId = `sync-config-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-G7.log`
+    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+
+    const activityArgs = {
+      name: dep.name,
+      clusterId: dep.clusterId,
+      clusterName: cluster?.name || 'unknown',
+      provider: cluster?.provider || 'k3d',
+      strategy: dep.strategy || 'helm',
+      appType: dep.appType || 'odoo',
+      webRepo: dep.webRepo,
+      webTag: dep.webTag,
+      dbRepo: dep.dbRepo,
+      dbTag: dep.dbTag,
+      storage: dep.storage || {},
+      logFile: absoluteLogPath,
+      deploymentId: dep.deploymentId || 'default',
+      vllmModel: dep.vllmModel,
+      vllmGpuCount: dep.vllmGpuCount,
+      vllmGpuVendor: dep.vllmGpuVendor,
+      vllmCachePvc: dep.vllmCachePvc,
+      vllmHfToken: dep.vllmHfToken,
+      vllmMaxModelLen: dep.vllmMaxModelLen,
+      vllmGpuMemUtil: dep.vllmGpuMemUtil,
+      vllmExtraArgs: dep.vllmExtraArgs,
+      vllmToolCallingEnabled: dep.vllmToolCallingEnabled,
+      vllmToolCallParser: dep.vllmToolCallParser,
+      vllmServedModelName: dep.vllmServedModelName,
+      vllmMaxNumSeqs: dep.vllmMaxNumSeqs,
+      vllmDtype: dep.vllmDtype,
+      vllmEnablePrefixCaching: dep.vllmEnablePrefixCaching,
+      ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
+    }
+
+    this.db.saveDeploymentInfo({
+      ...dep,
+      status: 'deploying',
+      temporalWorkflowId: wfId,
+      lastLogPath: absoluteLogPath,
+    })
+
+    const handle = await this.client.workflow.start(executeSyncConfigWorkflow, {
+      workflowId: wfId,
+      taskQueue: CLUSTER_QUEUE,
+      args: [activityArgs],
+    })
+
+    this.trackWorkflow(wfId, 'app-sync-config', dep.id, dep.name, '', dep)
+
+    return {
+      id: wfId,
+      event: 'config-sync',
+    }
+  }
+
+  // Merges an edited-config patch onto the EXISTING stored deployment (never a bare partial —
+  // saveDeploymentInfo() reconstructs id/name/clusterId/strategy/status from defaults for
+  // anything not present in what it's given, so passing just the changed fields would blank
+  // out the rest of the row) and then re-applies it via syncConfig().
+  async updateConfigAndSync(deploymentId: string, patch: Partial<DeploymentMetadata>): Promise<WorkflowDeal> {
+    const deployments = await this.db.getDeployments()
+    const dep = deployments.find((d: DeploymentMetadata) => d.id === deploymentId)
+    if (!dep) throw new Error('DeploymentMetadata not found (updateConfigAndSync)')
+
+    await this.db.saveDeploymentInfo({
+      ...dep,
+      ...patch,
+      storage: patch.storage ? { ...dep.storage, ...patch.storage } : dep.storage,
+    })
+
+    return this.syncConfig(deploymentId)
   }
 
   // ────────────────────────────────────────────────────────────────────

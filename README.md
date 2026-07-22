@@ -52,6 +52,100 @@ A local-first platform to spin up Kubernetes clusters and deploy production-read
 
 ---
 
+## 🎮 GPU Support (vLLM)
+
+To deploy vLLM workloads, your host needs a GPU driver **and** a container runtime that can pass GPUs to Docker containers. The platform auto-installs the in-cluster GPU device plugin on first vLLM deploy — you only need to configure the host.
+
+### NVIDIA GPUs
+
+**1. Install NVIDIA driver** (if not already):
+```bash
+# Fedora / RHEL / Nobara
+sudo dnf install nvidia-driver nvidia-driver-cuda
+
+# Debian / Ubuntu
+sudo apt install nvidia-driver
+```
+
+**2. Install NVIDIA Container Toolkit** (auto):
+```bash
+sudo bash scripts/setup-gpu.sh
+```
+The script auto-detects your distro, adds the NVIDIA repo, installs the toolkit, configures Docker, restarts Docker, and verifies GPU passthrough. Includes retry logic for network failures. Idempotent — safe to run multiple times.
+
+**Or manually**:
+```bash
+# Add NVIDIA repo (works on Fedora, RHEL, CentOS, Nobara)
+curl -fsSL https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo \
+  | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+
+# Debian / Ubuntu
+curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+sudo apt-get update
+
+# Install the toolkit
+sudo dnf install -y nvidia-container-toolkit   # Fedora / RHEL
+# or: sudo apt-get install -y nvidia-container-toolkit   # Debian / Ubuntu
+
+# Configure Docker to use NVIDIA runtime
+sudo nvidia-ctk runtime configure --runtime=docker
+
+# Restart Docker
+sudo systemctl restart docker
+```
+
+**3. Verify**:
+```bash
+nvidia-smi                                    # Driver working
+docker run --rm --gpus all ubuntu nvidia-smi  # Docker can see GPU
+```
+
+### AMD GPUs (ROCm)
+
+**1. Run the setup script** (detects AMD, shows instructions):
+```bash
+sudo bash scripts/setup-gpu.sh
+```
+The script will detect your AMD GPU and display distro-specific ROCm installation instructions.
+
+**Manual setup**:
+```bash
+# Follow official ROCm installation guide for your distro:
+# https://rocm.docs.amd.com/en/latest/deploy/linux/quick_start.html
+```
+
+**2. Install ROCm Container Toolkit**:
+```bash
+# ROCm container runtime setup varies by distro.
+# See: https://rocm.docs.amd.com/en/latest/deploy/linux/container.html
+```
+
+**3. Verify**:
+```bash
+rocminfo                                     # ROCm driver working
+docker run --rm --device /dev/kfd --device /dev/dri rocm/dev-ubuntu:latest rocminfo
+```
+
+> [!NOTE]
+> AMD GPU support requires x86_64 (amd64) architecture. The device plugin includes `nodeSelector: kubernetes.io/arch: amd64`.
+
+### What happens at deploy time
+
+When you deploy a vLLM app on a k3d cluster:
+
+1. **Host check** — The platform verifies the GPU container toolkit is installed. If missing, the deploy fails with a clear error message.
+2. **Device plugin** — The appropriate DaemonSet (NVIDIA or AMD) is installed into the cluster automatically.
+3. **Ready wait** — The platform waits up to 60s for the device plugin pod to become ready.
+4. **Deploy** — CDKTF applies the vLLM stack. The K8s scheduler now sees `nvidia.com/gpu` or `amd.com/gpu` as available resources.
+
+If the host toolkit is not configured, you'll see an error like:
+> NVIDIA Container Toolkit is not configured for Docker. Install it and run: `sudo nvidia-ctk runtime configure --runtime=docker`, then restart Docker.
+
+---
+
 ## ⚡ Quick Start
 
 ```bash
@@ -59,16 +153,24 @@ A local-first platform to spin up Kubernetes clusters and deploy production-read
 git clone <your-repository-url>
 cd provisioning
 
-# 2. First-time setup (installs deps, downloads binaries, starts k3d cluster, builds worker)
+# 2. Linux only: one-time root-level install (Docker CE + native k3s, not started yet).
+#    Never run scripts/setup.sh itself with sudo — see below.
+sudo bash scripts/setup-root.sh
+
+# 3. Linux + NVIDIA GPU only: configure GPU passthrough BEFORE first start (see below for why
+#    the order matters) — safe/no-op on hosts with no GPU.
+sudo bash scripts/setup-gpu.sh
+
+# 4. First-time setup (deps, binaries, worker, AND brings the management cluster up) — WITHOUT sudo
 npm run setup
 
-# 3. Start the platform
+# 5. Start the platform
 npm run dev
 ```
 
 Open **[http://localhost:5173](http://localhost:5173)** in your browser.
 
-The `setup` script handles: npm dependencies, CDKTF provider bindings, pre-bundled binary downloads, k3d management cluster creation, Nginx proxy container, worker pod deployment, and environment configuration.
+The `setup` script handles: npm dependencies, CDKTF provider bindings, pre-bundled binary downloads, Nginx proxy container, worker pod deployment, environment configuration, and — the step that actually finishes provisioning the management cluster — starting it and waiting for it to be `Ready` (macOS: k3d, created fresh here; Linux: the native k3s instance installed by `setup-root.sh`). It must be run as your normal user, not root — it does `npm install` and creates files that need to stay owned by you; running it under `sudo` leaves `node_modules` root-owned and breaks the dev server. `setup-gpu.sh` needs to run *before* this step on Linux GPU hosts: it writes the containerd config controlling GPU passthrough, which is only read when the cluster starts — running it after would mean an extra manual restart to pick up the change.
 
 ---
 
@@ -175,7 +277,7 @@ Menu keys: `0-9, a` run specific tests, `r` runs all, `t` terminates workflows, 
 | Command | Description |
 |---|---|
 | `npm run dev` | Start all services (backend, frontend, host worker, cluster worker) |
-| `npm run clean-dev` | Kill all dev processes, delete k3d clusters, clean DBs |
+| `npm run clean-dev` | Kill all dev processes, delete k3d clusters, clean DBs. **Linux**: also stops the native k3s management cluster and wipes its state — removal only, same as the k3d cleanup above it. Doesn't reinstall or bring anything back up; re-run `sudo bash scripts/setup-gpu.sh && npm run setup` afterward (that's what provisions it — see Quick Start). |
 | `npm run setup` | First-time setup (deps, binaries, cluster, worker) |
 | `npm run test` | Run full test suite (alive → unit → e2e) |
 | `npm run test:unit` | Run unit tests only |

@@ -119,6 +119,65 @@ if [ $FAILED -eq 0 ]; then
   fi
 fi
 
+# 6. GPU Diagnostics (optional, informational)
+echo ""
+echo "🔍 GPU Diagnostics:"
+if command -v nvidia-smi &>/dev/null; then
+  NVIDIA_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
+  if [ "$NVIDIA_COUNT" -gt 0 ]; then
+    NVIDIA_NAMES=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+    print_ok "NVIDIA GPU detected: ${NVIDIA_NAMES} (${NVIDIA_COUNT} GPU(s))"
+
+    # Check Docker NVIDIA runtime
+    if docker info 2>/dev/null | grep -qi "nvidia"; then
+      print_ok "NVIDIA Container Toolkit configured for Docker"
+    else
+      print_fail "NVIDIA Container Toolkit NOT configured for Docker" "Install nvidia-container-toolkit and run: sudo nvidia-ctk runtime configure --runtime=docker, then restart Docker"
+    fi
+
+    # Check in-cluster device plugin (if cluster is up)
+    if [ $FAILED -eq 0 ]; then
+      DS_EXISTS=$("$KUBECTL" get daemonset nvidia-device-plugin-daemonset -n kube-system --context "${CONTEXT}" -o name 2>/dev/null || echo "")
+      if [ -n "$DS_EXISTS" ]; then
+        DS_READY=$("$KUBECTL" get daemonset nvidia-device-plugin-daemonset -n kube-system --context "${CONTEXT}" -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+        if [ "${DS_READY:-0}" -gt 0 ]; then
+          print_ok "NVIDIA device plugin DaemonSet is running (${DS_READY} pod(s) ready)"
+        else
+          print_fail "NVIDIA device plugin DaemonSet has no ready pods" "Check: kubectl get pods -n kube-system -l name=nvidia-device-plugin-ds"
+        fi
+      else
+        echo -e "  ℹ️   NVIDIA device plugin not installed (auto-installed on first vLLM deploy)"
+      fi
+    fi
+  fi
+elif command -v rocminfo &>/dev/null; then
+  print_ok "AMD ROCm toolkit detected"
+
+  # Check Docker ROCm runtime
+  if docker info 2>/dev/null | grep -qiE "rocm|hip"; then
+    print_ok "ROCm Container Toolkit configured for Docker"
+  else
+    print_fail "ROCm Container Toolkit NOT configured for Docker" "Install ROCm container runtime and configure Docker"
+  fi
+
+  # Check in-cluster device plugin (if cluster is up)
+  if [ $FAILED -eq 0 ]; then
+    DS_EXISTS=$("$KUBECTL" get daemonset amdgpu-device-plugin-daemonset -n kube-system --context "${CONTEXT}" -o name 2>/dev/null || echo "")
+    if [ -n "$DS_EXISTS" ]; then
+      DS_READY=$("$KUBECTL" get daemonset amdgpu-device-plugin-daemonset -n kube-system --context "${CONTEXT}" -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+      if [ "${DS_READY:-0}" -gt 0 ]; then
+        print_ok "AMD device plugin DaemonSet is running (${DS_READY} pod(s) ready)"
+      else
+        print_fail "AMD device plugin DaemonSet has no ready pods" "Check: kubectl get pods -n kube-system -l name=amdgpu-dp-ds"
+      fi
+    else
+      echo -e "  ℹ️   AMD device plugin not installed (auto-installed on first vLLM deploy)"
+    fi
+  fi
+else
+  echo -e "  ℹ️   No GPU toolkit detected (NVIDIA or AMD). GPU workloads (vLLM) will not work."
+fi
+
 # Final Summary
 if [ $FAILED -eq 0 ]; then
   echo -e "\n🟢  \033[32mEnvironment is healthy and ready!\033[0m"

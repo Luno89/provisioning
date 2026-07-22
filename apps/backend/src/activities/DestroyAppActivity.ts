@@ -55,8 +55,8 @@ export async function DestroyAppActivity(
     },
   });
 
-  // 2. Delete Kubernetes namespace
-  await infra.runKubectl(['delete', 'namespace', sanitizedName, '--wait=false'], kubeconfigPath);
+  // 2. Delete Kubernetes namespace and wait for resources to fully terminate
+  await infra.waitForNamespaceDeletion(sanitizedName, kubeconfigPath);
 
   return { status: 'destroyed', msg: `App ${args.name} destroyed` };
 }

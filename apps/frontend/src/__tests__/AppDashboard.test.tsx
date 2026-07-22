@@ -69,7 +69,7 @@ describe('Unified Deployment Dashboard', () => {
     });
 
     mockedAxios.patch.mockImplementation((url) => {
-      if (url.includes('/storage') || url.includes('/modules')) {
+      if (url.includes('/config') || url.includes('/modules')) {
         return Promise.resolve({ data: { success: true } });
       }
       return Promise.reject(new Error('Not found'));
@@ -102,12 +102,12 @@ describe('Unified Deployment Dashboard', () => {
     expect(screen.getAllByText('odoo').length).toBeGreaterThan(0);
     expect(screen.getAllByText('helm').length).toBeGreaterThan(0);
 
-    // Click Expose Application
-    const exposeBtn = screen.getByRole('button', { name: /expose application/i });
+    // Click Expose Publicly
+    const exposeBtn = screen.getByRole('button', { name: /expose publicly/i });
     await user.click(exposeBtn);
 
-    // Verify post mutation was triggered
-    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining('/deployments/d1/expose'));
+    // Verify post mutation was triggered with the public mode
+    expect(mockedAxios.post).toHaveBeenCalledWith(expect.stringContaining('/deployments/d1/expose'), { mode: 'public' });
   });
 
   it('allows navigating to other tabs like Modules, Diagnostics and Helm', async () => {
@@ -197,7 +197,7 @@ describe('Unified Deployment Dashboard', () => {
     expect(await screen.findByText(/mock logs line 1/)).toBeInTheDocument();
   });
 
-  it('allows navigating to Storage tab and resizing disks', async () => {
+  it('allows navigating to Config tab and resizing disks', async () => {
     const queryClient = createTestQueryClient();
     const user = userEvent.setup();
     render(
@@ -212,13 +212,13 @@ describe('Unified Deployment Dashboard', () => {
     const manageBtn = await screen.findByRole('button', { name: /manage/i });
     await user.click(manageBtn);
 
-    // Switch to Storage tab
+    // Switch to Config tab
     expect(await screen.findByText('Odoo-Production Dashboard')).toBeInTheDocument();
-    const storageBtn = screen.getByRole('button', { name: /storage/i });
-    await user.click(storageBtn);
+    const configBtn = screen.getByRole('button', { name: /config/i });
+    await user.click(configBtn);
 
     // Verify it displays storage fields
-    expect(await screen.findByText('Storage Volumes Management')).toBeInTheDocument();
+    expect(await screen.findByText('Application Configuration')).toBeInTheDocument();
     expect(screen.getByText('Database Volume')).toBeInTheDocument();
     expect(screen.getByText('Current: 2Gi')).toBeInTheDocument();
 
@@ -227,13 +227,13 @@ describe('Unified Deployment Dashboard', () => {
     await user.clear(input);
     await user.type(input, '15Gi');
 
-    // Click Apply Changes
-    const applyBtn = screen.getByRole('button', { name: /apply changes/i });
+    // Click Save & Restart
+    const applyBtn = screen.getByRole('button', { name: /save & restart/i });
     await user.click(applyBtn);
 
     // Verify patch mutation was triggered with correct parameters
     expect(mockedAxios.patch).toHaveBeenCalledWith(
-      expect.stringContaining('/deployments/d1/storage'),
+      expect.stringContaining('/deployments/d1/config'),
       expect.objectContaining({
         storage: expect.objectContaining({
           db: '15Gi'

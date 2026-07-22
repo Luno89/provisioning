@@ -104,7 +104,7 @@ describe('CredentialService', () => {
       });
 
       const statuses = await service.getConfiguredProviders('user-1');
-      expect(statuses).toHaveLength(4);
+      expect(statuses).toHaveLength(6);
 
       const aws = statuses.find((s) => s.provider === 'aws');
       expect(aws?.configured).toBe(true);

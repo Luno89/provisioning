@@ -39,8 +39,24 @@ describe('Cluster Health Inspector', () => {
           }
         ]});
       }
+      if (url.includes('/gpu-status')) {
+        return Promise.resolve({
+          data: {
+            passthroughEnabled: true,
+            hasGpu: true,
+            vendor: 'NVIDIA',
+            totalCapacity: 1,
+            totalAllocatable: 1,
+            totalAllocated: 0,
+            availableGpus: 1,
+            nodes: [{ name: 'k3d-node-1', gpuCapacity: 1, gpuAllocatable: 1, nvidiaGpus: 1, amdGpus: 0 }],
+            devicePlugins: [{ name: 'nvidia-device-plugin-ds', vendor: 'NVIDIA', status: 'active', readyPods: 1, desiredPods: 1 }],
+            gpuPods: []
+          }
+        });
+      }
       if (url.includes('/clusters')) {
-        return Promise.resolve({ data: [{ id: 'c1', name: 'Dev-Cluster', status: 'healthy', provider: 'k3d' }] });
+        return Promise.resolve({ data: [{ id: 'c1', name: 'Dev-Cluster', status: 'healthy', provider: 'k3d', gpuEnabled: true }] });
       }
       return Promise.resolve({ data: [] });
     });
@@ -61,6 +77,9 @@ describe('Cluster Health Inspector', () => {
       expect(screen.getByText('pod-1')).toBeInTheDocument();
       expect(screen.getByText('kube-system')).toBeInTheDocument();
       expect(screen.getByText('Running')).toBeInTheDocument();
+      expect(screen.getByText(/GPU Acceleration & Availability/i)).toBeInTheDocument();
+      expect(screen.getByText(/NVIDIA GPU Acceleration/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 \/ 1 GPU Available/i)).toBeInTheDocument();
     }, { timeout: 15000 });
   });
 });

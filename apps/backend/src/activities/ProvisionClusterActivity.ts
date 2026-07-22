@@ -40,6 +40,9 @@ export async function ProvisionClusterActivity(
   const physicalName = isMock ? `mock-${args.provider}-${args.name}` : args.name;
   const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
 
+  // GPU passthrough is exclusively provided by the always-on system cluster (native k3s on
+  // Linux; k3d's nested containerd can't do real device passthrough at all — see AGENTS.md).
+  // User-created clusters here are always plain k3d, no GPU attach step.
   if (args.provider === 'k3d' || isMock) {
     try {
       await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
@@ -177,6 +180,18 @@ export async function ProvisionClusterActivity(
   try {
     await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath);
   } catch {}
+  // Wait for IngressClass to be fully deleted
+  await new Promise((r) => setTimeout(r, 2000));
+  // Verify IngressClass is gone before proceeding
+  try {
+    await infra.runKubectl(['get', 'ingressclass', 'traefik'], kubeconfigPath);
+    // Still exists, force delete with annotations removed
+    await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath);
+    await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath);
+    await new Promise((r) => setTimeout(r, 2000));
+  } catch {
+    // IngressClass is gone
+  }
   try {
     await infra.destroy(physicalName, {
       logFile,

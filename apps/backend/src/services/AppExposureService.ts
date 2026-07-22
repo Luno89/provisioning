@@ -95,7 +95,16 @@ export class AppExposureService extends BaseService {
 
     const isMock = this.isMockCloud(cluster);
     let backendTarget = '';
-    if (cluster.provider === 'k3d' || isMock) {
+    if (cluster.gpuEnabled) {
+      // Native k3s (the system/management cluster) — no k3d node container exists for this
+      // one, so there's nothing to resolve a container IP for. See getHostGatewayIp().
+      const nodePort = portObj?.nodePort;
+      if (!nodePort) {
+        throw new Error(`Service "${svcName}" does not have a nodePort assigned. Cannot expose locally.`);
+      }
+      const hostIp = await this.infra.getHostGatewayIp();
+      backendTarget = `${hostIp}:${nodePort}`;
+    } else if (cluster.provider === 'k3d' || isMock) {
       const nodePort = portObj?.nodePort;
       if (!nodePort) {
         throw new Error(`Service "${svcName}" does not have a nodePort assigned. Cannot expose locally.`);
@@ -201,7 +210,49 @@ export class AppExposureService extends BaseService {
     });
   }
 
-  async expose(id: string) {
+  // Derives the back-compat single-value fields (isExposed/exposureUrl) from the two
+  // independent mode flags, and removes them entirely once neither mode is active — every
+  // write path funnels through here so those fields can never drift out of sync.
+  private syncDerivedFields(dep: DeploymentMetadata) {
+    dep.isExposed = !!(dep.isExposedLocally || dep.isExposedPublicly);
+    if (dep.publicExposureUrl) dep.exposureUrl = dep.publicExposureUrl;
+    else if (dep.localExposureUrl) dep.exposureUrl = dep.localExposureUrl;
+    else delete dep.exposureUrl;
+  }
+
+  private confPathFor(namespace: string): string {
+    return path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
+  }
+
+  // Both modes share one Nginx conf per namespace — buildConfContent's server_name already
+  // matches the bare local hostname via regex regardless of tunnelHost, so writing it with or
+  // without a tunnel host never breaks the other mode; only the *content* changes.
+  private async writeNginxConf(namespace: string, backendTarget: string, tunnelHost?: string) {
+    const confPath = this.confPathFor(namespace);
+    const confContent = this.buildConfContent(namespace, backendTarget, tunnelHost);
+    await fs.mkdir(path.dirname(confPath), { recursive: true });
+    await fs.writeFile(confPath, confContent);
+    try {
+      await execAsync('docker exec provisioner-nginx nginx -s reload');
+    } catch (err: any) {
+      throw new Error(`Failed to reload Nginx container: ${err.message}`);
+    }
+  }
+
+  private async removeNginxConf(namespace: string) {
+    try {
+      await fs.unlink(this.confPathFor(namespace));
+    } catch {
+      // Already gone
+    }
+    try {
+      await execAsync('docker exec provisioner-nginx nginx -s reload');
+    } catch (err: any) {
+      this.logger.error(`Failed to reload Nginx container: ${err.message}`);
+    }
+  }
+
+  async exposeLocal(id: string) {
     const deployments = await this.db.getDeployments();
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
@@ -211,32 +262,45 @@ export class AppExposureService extends BaseService {
 
     const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
 
-    // Start tunnel first to get the actual assigned URL
-    const exposureUrl = await this.startTunnel(dep.id, namespace);
-    const tunnelHost = exposureUrl.replace(/^https?:\/\//, '');
+    dep.isExposedLocally = true;
+    dep.localExposureUrl = `http://${namespace}.localhost:8000`;
+    this.syncDerivedFields(dep);
 
-    const confPath = path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
-    const confContent = this.buildConfContent(namespace, backendTarget, tunnelHost);
-    await fs.mkdir(path.dirname(confPath), { recursive: true });
-    await fs.writeFile(confPath, confContent);
+    // Preserve the tunnel host in the conf if public exposure is already active independently.
+    const tunnelHost = dep.isExposedPublicly && dep.publicExposureUrl ? dep.publicExposureUrl.replace(/^https?:\/\//, '') : undefined;
+    await this.writeNginxConf(namespace, backendTarget, tunnelHost);
 
-    try {
-      await execAsync('docker exec provisioner-nginx nginx -s reload');
-    } catch (err: any) {
-      throw new Error(`Failed to reload Nginx container: ${err.message}`);
-    }
-
-    dep.isExposed = true;
-    dep.exposureUrl = exposureUrl;
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
+    return dep;
+  }
 
+  async exposePublic(id: string) {
+    const deployments = await this.db.getDeployments();
+    const dep = deployments.find(d => d.id === id);
+    if (!dep) throw new Error('Deployment not found');
+
+    const cluster = await this.clusters.getById(dep.clusterId);
+    if (!cluster) throw new Error('Cluster not found');
+
+    const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+
+    const publicUrl = await this.startTunnel(dep.id, namespace);
+    dep.isExposedPublicly = true;
+    dep.publicExposureUrl = publicUrl;
+    this.syncDerivedFields(dep);
+
+    const tunnelHost = publicUrl.replace(/^https?:\/\//, '');
+    await this.writeNginxConf(namespace, backendTarget, tunnelHost);
+
+    await this.db.saveDeployment(dep);
+    if (this.io) this.io.emit('deployment-updated');
     return dep;
   }
 
   async syncExposedApps() {
     const deployments = await this.db.getDeployments();
-    const exposed = deployments.filter(d => d.isExposed);
+    const exposed = deployments.filter(d => d.isExposedLocally || d.isExposedPublicly);
     let changed = false;
 
     for (const dep of exposed) {
@@ -249,30 +313,34 @@ export class AppExposureService extends BaseService {
 
         const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
 
-        // Start public tunnel and wait for it
-        const url = await this.startTunnel(dep.id, namespace).catch((err) => {
-          this.logger.error(`Failed to establish sync tunnel for "${dep.name}": ${err.message}`);
-          return `http://${namespace}.localhost:8000`;
-        });
-
-        dep.exposureUrl = url;
+        let tunnelHost: string | undefined;
+        if (dep.isExposedPublicly) {
+          const url = await this.startTunnel(dep.id, namespace).catch((err) => {
+            this.logger.error(`Failed to establish sync tunnel for "${dep.name}": ${err.message}`);
+            return dep.publicExposureUrl; // keep the last-known URL rather than clobbering it with a guess
+          });
+          if (url) {
+            dep.publicExposureUrl = url;
+            tunnelHost = url.replace(/^https?:\/\//, '');
+          }
+        }
+        if (dep.isExposedLocally) {
+          dep.localExposureUrl = `http://${namespace}.localhost:8000`;
+        }
+        this.syncDerivedFields(dep);
         await this.db.saveDeployment(dep);
 
-        // Write configuration dynamically with assigned tunnel hostname
-        const tunnelHost = url.replace(/^https?:\/\//, '');
-        const confPath = path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
-        const confContent = this.buildConfContent(namespace, backendTarget, tunnelHost);
-        await fs.mkdir(path.dirname(confPath), { recursive: true });
-        await fs.writeFile(confPath, confContent);
+        await this.writeNginxConf(namespace, backendTarget, tunnelHost);
         changed = true;
-        this.logger.info(`Synced nginx config for "${dep.name}" -> ${backendTarget} (tunnel: ${tunnelHost})`);
+        const modes = [dep.isExposedPublicly ? `tunnel: ${tunnelHost}` : null, dep.isExposedLocally ? 'local' : null].filter(Boolean).join(', ');
+        this.logger.info(`Synced nginx config for "${dep.name}" -> ${backendTarget} (${modes})`);
 
       } catch (err: any) {
         this.logger.error(`Failed to sync nginx config for "${dep.name}": ${err.message}`);
       }
     }
 
-    // Remove conf.d files for deployments that are no longer exposed or no longer exist
+    // Remove conf.d files for deployments that are no longer exposed (either way) or no longer exist
     const exposedNamespaces = new Set(exposed.map(d => this.sanitize(d.name)));
     const confDir = path.join(this.nginxConfDir, 'conf.d');
     try {
@@ -304,7 +372,37 @@ export class AppExposureService extends BaseService {
     }
   }
 
-  async unexpose(id: string) {
+  async unexposeLocal(id: string) {
+    const deployments = await this.db.getDeployments();
+    const dep = deployments.find(d => d.id === id);
+    if (!dep) throw new Error('Deployment not found');
+
+    const namespace = this.sanitize(dep.name);
+    dep.isExposedLocally = false;
+    delete dep.localExposureUrl;
+    this.syncDerivedFields(dep);
+
+    if (dep.isExposedPublicly && dep.publicExposureUrl) {
+      // Public exposure is still active — rewrite (don't remove) the conf, keeping the tunnel
+      // host. The bare/regex server_name match for the local hostname is harmless to leave in
+      // since local exposure is off; nothing routes to it once the app isn't advertised as
+      // locally-exposed in the UI, and it costs nothing to leave the pattern in the conf.
+      const cluster = await this.clusters.getById(dep.clusterId);
+      if (cluster) {
+        const { backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+        const tunnelHost = dep.publicExposureUrl.replace(/^https?:\/\//, '');
+        await this.writeNginxConf(namespace, backendTarget, tunnelHost);
+      }
+    } else {
+      await this.removeNginxConf(namespace);
+    }
+
+    await this.db.saveDeployment(dep);
+    if (this.io) this.io.emit('deployment-updated');
+    return dep;
+  }
+
+  async unexposePublic(id: string) {
     const deployments = await this.db.getDeployments();
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
@@ -319,24 +417,24 @@ export class AppExposureService extends BaseService {
       this.activeTunnels.delete(id);
     }
 
-    const confPath = path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
-    try {
-      await fs.unlink(confPath);
-    } catch (err: any) {
-      // Ignore if file doesn't exist
+    dep.isExposedPublicly = false;
+    delete dep.publicExposureUrl;
+    this.syncDerivedFields(dep);
+
+    if (dep.isExposedLocally) {
+      // Local exposure is still active — rewrite the conf without the tunnel host rather than
+      // removing it, so the app stays reachable at namespace.localhost:8000.
+      const cluster = await this.clusters.getById(dep.clusterId);
+      if (cluster) {
+        const { backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+        await this.writeNginxConf(namespace, backendTarget);
+      }
+    } else {
+      await this.removeNginxConf(namespace);
     }
 
-    try {
-      await execAsync('docker exec provisioner-nginx nginx -s reload');
-    } catch (err: any) {
-      this.logger.error(`Failed to reload Nginx container: ${err.message}`);
-    }
-
-    dep.isExposed = false;
-    delete dep.exposureUrl;
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
-
     return dep;
   }
 

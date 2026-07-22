@@ -2,7 +2,9 @@ import { log, proxyActivities } from '@temporalio/workflow';
 import type { ClusterTaskArgs, ClusterTaskResult } from '../lib/types';
 
 const logger = log;
-const { ProvisionClusterActivity } = proxyActivities<{ ProvisionClusterActivity: { name: string; provider: string; logFile: string } }>({ startToCloseTimeout: '30 minutes' });
+const { ProvisionClusterActivity } = proxyActivities<{
+  ProvisionClusterActivity: (args: { name: string; provider: string; logFile: string }) => Promise<{ status: string; kubeconfigPath: string; msg: string; logFile: string }>;
+}>({ startToCloseTimeout: '30 minutes' });
 
 /**
  * Workflow that triggers a ProvisionClusterActivity.

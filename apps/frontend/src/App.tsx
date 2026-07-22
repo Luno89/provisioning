@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
-import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key } from 'lucide-react';
+import { AnsiText } from './components/AnsiText.js';
+import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key, StopCircle, XCircle, RefreshCw, Settings } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -54,8 +55,25 @@ const APP_DEFAULTS: Record<string, {
     native: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['helm']
+  },
+  vllm: {
+    helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'vllm/vllm-openai', webTag: 'v0.7.2', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  openwebui: {
+    helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'ghcr.io/open-webui/open-webui', webTag: 'main', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
   }
 };
+
+// App types that require a GPU-enabled cluster (attached to the shared, GPU-capable
+// management cluster — see backend ProvisionClusterActivity). Extend this as more GPU-backed
+// LLM engines are added (e.g. future TGI/Ollama support).
+const GPU_ONLY_APP_TYPES = new Set(['vllm']);
 
 function App() {
   const queryClient = useQueryClient();
@@ -70,14 +88,23 @@ function App() {
   );
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
+  const [newClusterProvider, setNewClusterProvider] = useState('k3d');
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
-  const [confirmDestroy, setConfirmDestroy] = useState<{ type: 'cluster' | 'app', id: string, name: string } | null>(null);
+  const [confirmDestroy, setConfirmDestroy] = useState<{ type: 'cluster' | 'app', id: string, name: string, isAbort?: boolean } | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   
   const [logTab, setLogTab] = useState<'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage'>('general');
   const [storageInputs, setStorageInputs] = useState<Record<string, string>>({});
+  const [configInputs, setConfigInputs] = useState({
+    webRepo: '', webTag: '', dbRepo: '', dbTag: '',
+    vllmModel: '', vllmGpuCount: '1', vllmGpuVendor: 'nvidia', vllmHfToken: '',
+    vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '',
+    vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '',
+    vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false,
+    openWebuiTargetId: '',
+  });
   const [exposurePathInput, setExposurePathInput] = useState('');
   const [selectedPod, setSelectedPod] = useState<string | null>(null);
   const [socketLogs, setSocketLogs] = useState<string>('');
@@ -144,7 +171,7 @@ function App() {
   const [wizardData, setWizardData] = useState({
     name: 'Odoo-Production',
     clusterId: '',
-    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik',
+    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'openwebui',
     strategy: 'native' as 'helm' | 'native',
     odooRepo: 'library/odoo',
     odooTag: '18.0',
@@ -154,12 +181,25 @@ function App() {
     vpnEnabled: false,
     vpnProtocol: 'wireguard' as 'wireguard' | 'openvpn',
     vpnConfig: '',
-    vpnDedicatedIp: ''
+    vpnDedicatedIp: '',
+    vllmMaxModelLen: '',
+    vllmGpuMemUtil: '',
+    vllmExtraArgs: '',
+    vllmToolCallingEnabled: false,
+    vllmToolCallParser: '',
+    vllmServedModelName: '',
+    vllmMaxNumSeqs: '',
+    vllmDtype: '',
+    vllmEnablePrefixCaching: false,
+    openWebuiTargetId: ''
   });
+  const [showVllmAdvanced, setShowVllmAdvanced] = useState(false);
 
   const { data: clusters = [] } = useQuery({ queryKey: ['clusters'], queryFn: () => axios.get(`${API_BASE}/clusters`).then(res => res.data), refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: ['deployments'], queryFn: () => axios.get(`${API_BASE}/deployments`).then(res => res.data), refetchInterval: 3000 });
+  const { data: credentialsData } = useQuery({ queryKey: ['credentials'], queryFn: () => axios.get(`${API_BASE}/credentials`).then(res => res.data) });
   
+  const hasHfAccount = credentialsData?.providers?.some((p: any) => p.provider === 'huggingface' && p.configured);
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d: any) => d.id === showLogModal.id) : null;
 
   const { data: clusterPods, isLoading: loadingClusterPods, error: podError } = useQuery({ 
@@ -174,6 +214,13 @@ function App() {
     queryFn: () => axios.get(`${API_BASE}/clusters/${expandedCluster}/helm-releases`).then(res => res.data), 
     enabled: !!expandedCluster, 
     refetchInterval: 5000 
+  });
+
+  const { data: clusterGpuStatus, isLoading: loadingClusterGpu } = useQuery({
+    queryKey: ['cluster-gpu', expandedCluster],
+    queryFn: () => axios.get(`${API_BASE}/clusters/${expandedCluster}/gpu-status`).then(res => res.data),
+    enabled: !!expandedCluster,
+    refetchInterval: 5000
   });
 
   const { data: podResponse } = useQuery({ 
@@ -253,6 +300,16 @@ function App() {
   }, [showLogModal]);
 
   useEffect(() => {
+    if (showLogModal?.type === 'app' && logTab === 'app' && pods.length > 0) {
+      const exists = pods.some((p: any) => p?.metadata?.name === selectedPod);
+      if (!selectedPod || !exists) {
+        setSelectedPod(pods[0]?.metadata?.name || null);
+        setKubeLogs('');
+      }
+    }
+  }, [showLogModal, logTab, pods, selectedPod]);
+
+  useEffect(() => {
     if (showLogModal?.type === 'app' && logTab === 'app' && selectedPod && socketRef.current) {
       const socket = socketRef.current;
       activeKubePodRef.current = { id: showLogModal.id, podName: selectedPod, namespace };
@@ -274,7 +331,12 @@ function App() {
     }
   }, [showLogModal]);
 
-  useEffect(() => { if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [socketLogs, kubeLogs, helmStatus, diagnostics]);
+  useEffect(() => {
+    // scrollIntoView scrolls both axes; skip for diagnostics so its horizontal
+    // scroll position (browsing the wide kubectl table) isn't reset every poll.
+    if (logTab === 'diagnostics') return;
+    if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [socketLogs, kubeLogs, helmStatus, diagnostics, logTab]);
 
   const getSupportedVolumes = (appType: string, strategy: string): string[] => {
     switch (appType) {
@@ -337,6 +399,27 @@ function App() {
         initial[vol] = currentDeployment.storage?.[vol] || getFallbackSize(vol);
       });
       setStorageInputs(initial);
+
+      setConfigInputs({
+        webRepo: currentDeployment.webRepo || '',
+        webTag: currentDeployment.webTag || '',
+        dbRepo: currentDeployment.dbRepo || '',
+        dbTag: currentDeployment.dbTag || '',
+        vllmModel: currentDeployment.vllmModel || '',
+        vllmGpuCount: currentDeployment.vllmGpuCount !== undefined ? String(currentDeployment.vllmGpuCount) : '1',
+        vllmGpuVendor: currentDeployment.vllmGpuVendor || 'nvidia',
+        vllmHfToken: '', // never pre-fill a secret back into a form field
+        vllmMaxModelLen: currentDeployment.vllmMaxModelLen !== undefined ? String(currentDeployment.vllmMaxModelLen) : '',
+        vllmGpuMemUtil: currentDeployment.vllmGpuMemUtil !== undefined ? String(currentDeployment.vllmGpuMemUtil) : '',
+        vllmExtraArgs: currentDeployment.vllmExtraArgs || '',
+        vllmToolCallingEnabled: currentDeployment.vllmToolCallingEnabled || false,
+        vllmToolCallParser: currentDeployment.vllmToolCallParser || '',
+        vllmServedModelName: currentDeployment.vllmServedModelName || '',
+        vllmMaxNumSeqs: currentDeployment.vllmMaxNumSeqs !== undefined ? String(currentDeployment.vllmMaxNumSeqs) : '',
+        vllmDtype: currentDeployment.vllmDtype || '',
+        vllmEnablePrefixCaching: currentDeployment.vllmEnablePrefixCaching || false,
+        openWebuiTargetId: currentDeployment.openWebuiTargetId || '',
+      });
     }
   }, [currentDeployment?.id, logTab]);
 
@@ -367,8 +450,8 @@ function App() {
     }
   });
 
-  const updateAppStorage = useMutation({
-    mutationFn: ({ id, storage }: any) => axios.patch(`${API_BASE}/deployments/${id}/storage`, { storage }),
+  const updateAppConfig = useMutation({
+    mutationFn: ({ id, patch }: { id: string, patch: Record<string, any> }) => axios.patch(`${API_BASE}/deployments/${id}/config`, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       setLogTab('provision');
@@ -386,15 +469,26 @@ function App() {
     }
   });
 
+  const abortResource = useMutation({
+    mutationFn: ({ type, id }: any) => axios.post(`${API_BASE}/${type === 'cluster' ? 'clusters' : 'deployments'}/${id}/abort`),
+    onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({ queryKey: ['clusters'] });
+        queryClient.invalidateQueries({ queryKey: ['deployments'] });
+        setConfirmDestroy(null);
+        setShowLogModal({ type: variables.type, id: variables.id });
+        setLogTab('provision');
+    }
+  });
+
   const exposeApp = useMutation({
-    mutationFn: (id: string) => axios.post(`${API_BASE}/deployments/${id}/expose`),
+    mutationFn: ({ id, mode }: { id: string, mode: 'public' | 'local' }) => axios.post(`${API_BASE}/deployments/${id}/expose`, { mode }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
     }
   });
 
   const unexposeApp = useMutation({
-    mutationFn: (id: string) => axios.post(`${API_BASE}/deployments/${id}/unexpose`),
+    mutationFn: ({ id, mode }: { id: string, mode: 'public' | 'local' }) => axios.post(`${API_BASE}/deployments/${id}/unexpose`, { mode }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
     }
@@ -460,18 +554,23 @@ function App() {
     }
   };
 
-  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik') => {
+  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'openwebui') => {
     const config = APP_DEFAULTS[newAppType];
     const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : config.strategies[0];
     const defaults = config[newStrategy];
     const capitalized = newAppType.charAt(0).toUpperCase() + newAppType.slice(1);
-    
+
     setWizardData(prev => {
       const prevCapitalized = prev.appType.charAt(0).toUpperCase() + prev.appType.slice(1);
       const isDefaultName = prev.name === `${prevCapitalized}-Production`;
+      // If the currently selected cluster no longer satisfies the new app type's GPU
+      // requirement (either direction), clear it rather than leaving an invalid selection.
+      const selectedCluster = clusters.find((c: any) => c.id === prev.clusterId);
+      const stillValidCluster = !selectedCluster || !GPU_ONLY_APP_TYPES.has(newAppType) || selectedCluster.gpuEnabled;
       return {
         ...prev,
         appType: newAppType,
+        clusterId: stillValidCluster ? prev.clusterId : '',
         strategy: newStrategy,
         name: isDefaultName ? `${capitalized}-Production` : prev.name,
         odooRepo: defaults.webRepo,
@@ -539,13 +638,40 @@ function App() {
 
         {view === 'clusters' && (
           <section>
-            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Infrastructures</h2><p className="text-slate-400">Manage your Kubernetes fleet.</p></div><button onClick={() => setShowClusterModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Provision Cluster</button></header>
+            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Infrastructures</h2><p className="text-slate-400">Manage your Kubernetes fleet.</p></div><button onClick={() => { setNewClusterProvider('k3d'); setShowClusterModal(true); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Provision Cluster</button></header>
             <div className="grid grid-cols-1 gap-8 max-w-5xl">{clusters.map((c: any) => (
-                <div key={c.id} className="bg-slate-800 rounded-3xl border border-slate-700 overflow-hidden shadow-sm transition-all hover:border-slate-500">
+                <div key={c.id} className={c.isSystem
+                  ? "bg-gradient-to-br from-purple-950/60 via-slate-800 to-slate-800 rounded-3xl border-2 border-purple-500/40 overflow-hidden shadow-lg shadow-purple-950/30 transition-all"
+                  : "bg-slate-800 rounded-3xl border border-slate-700 overflow-hidden shadow-sm transition-all hover:border-slate-500"
+                }>
                   <div className="p-8">
                     <div className="flex justify-between items-center mb-6">
-                      <div className="flex items-center gap-4"><div className="p-3 bg-blue-500/10 rounded-2xl text-blue-500"><Cloud size={28} /></div><div><h4 className="font-bold text-2xl">{c.name}</h4><span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">{c.provider} • {c.id.slice(0,8)}</span></div></div>
-                      <div className="flex items-center gap-3"><span className={`text-[10px] font-bold px-4 py-1.5 rounded-full uppercase flex items-center gap-2 ${c.status === 'healthy' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500 animate-pulse'}`}><div className={`w-2 h-2 rounded-full ${c.status === 'healthy' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>{c.status}</span><button onClick={() => setShowLogModal({ type: 'cluster', id: c.id })} className="p-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"><FileText size={20} /></button><button onClick={() => setConfirmDestroy({ type: 'cluster', id: c.id, name: c.name })} className="p-2.5 bg-slate-700 hover:bg-red-600 rounded-xl text-red-400 hover:text-white transition-all"><Trash2 size={20} /></button></div>
+                      <div className="flex items-center gap-4"><div className={`p-3 rounded-2xl ${c.isSystem ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/10 text-blue-500'}`}>{c.isSystem ? <Shield size={28} /> : <Cloud size={28} />}</div><div><h4 className="font-bold text-2xl flex items-center gap-2">{c.name}{c.isSystem && (<span className="text-[9px] font-black px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-widest">System</span>)}</h4><span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">{c.provider} • {c.isSystem ? 'always-on management cluster · read-only' : c.id.slice(0,8)}</span></div></div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-[10px] font-bold px-4 py-1.5 rounded-full uppercase flex items-center gap-2 ${c.status === 'healthy' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500 animate-pulse'}`}>
+                          <div className={`w-2 h-2 rounded-full ${c.status === 'healthy' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+                          {c.status}
+                        </span>
+                        {!c.isSystem && (
+                          <button onClick={() => openDashboard('cluster', c.id)} className="p-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors">
+                            <FileText size={20} />
+                          </button>
+                        )}
+                        {c.status === 'provisioning' && (
+                          <button onClick={() => setConfirmDestroy({ type: 'cluster', id: c.id, name: c.name, isAbort: true })} className="px-3 py-2 bg-amber-500/10 hover:bg-amber-600 border border-amber-500/30 text-amber-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer">
+                            <XCircle size={16} /> Abort
+                          </button>
+                        )}
+                        {c.isSystem ? (
+                          <span title="The system management cluster can't be modified from here" className="p-2.5 bg-slate-800 rounded-xl text-slate-600 cursor-not-allowed">
+                            <Shield size={20} />
+                          </span>
+                        ) : (
+                          <button onClick={() => setConfirmDestroy({ type: 'cluster', id: c.id, name: c.name })} className="p-2.5 bg-slate-700 hover:bg-red-600 rounded-xl text-red-400 hover:text-white transition-all">
+                            <Trash2 size={20} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-4 pt-6 border-t border-slate-700/50">
                        <button onClick={() => setExpandedCluster(expandedCluster === c.id ? null : c.id)} className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors uppercase tracking-widest">{expandedCluster === c.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Cluster Inspector</button>
@@ -578,6 +704,100 @@ function App() {
                                     <tbody className="divide-y divide-slate-800">{clusterPods.map((pod: any) => (<tr key={pod?.metadata?.name || Math.random()} className="hover:bg-slate-800/30 transition-colors group"><td className="px-6 py-4 font-mono text-[10px] text-blue-400/80">{pod?.metadata?.namespace || '---'}</td><td className="px-6 py-4 font-bold text-slate-300 group-hover:text-white truncate max-w-[200px]">{pod?.metadata?.name || 'Unknown'}</td><td className="px-6 py-4"><div className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${pod?.status?.phase === 'Running' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-yellow-500 animate-pulse'}`}></div><span className="font-medium text-slate-400">{pod?.status?.phase || 'Pending'}</span></div></td><td className="px-6 py-4 font-mono text-slate-500 text-[10px]">{pod?.status?.podIP || '---'}</td><td className="px-6 py-4 text-right text-slate-600">{pod?.metadata?.creationTimestamp ? new Date(pod.metadata.creationTimestamp).toLocaleTimeString() : '---'}</td></tr>))}</tbody></table></div>
                               ) : <div className="text-center py-6 bg-slate-900/30 rounded-2xl border border-dashed border-slate-700 text-slate-500 text-sm">{podError ? 'API Error' : 'No nodes active.'}</div>}
                            </div>
+                           <div>
+                               <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Zap size={12} className="text-amber-400" /> GPU Acceleration & Availability</h5>
+                               {loadingClusterGpu ? (
+                                 <div className="text-center py-4"><Loader2 className="animate-spin text-slate-600 mx-auto" size={20} /></div>
+                               ) : clusterGpuStatus ? (
+                                 <div className="bg-slate-900/50 rounded-2xl border border-slate-700/50 p-5 space-y-4">
+                                   <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+                                     <div className="flex items-center gap-3">
+                                       <div className={`p-2.5 rounded-xl ${clusterGpuStatus.hasGpu || clusterGpuStatus.passthroughEnabled ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-800 text-slate-500'}`}>
+                                         <Zap size={20} />
+                                       </div>
+                                       <div>
+                                         <div className="font-bold text-sm text-slate-200">
+                                           {clusterGpuStatus.vendor !== 'none' ? `${clusterGpuStatus.vendor} GPU Acceleration` : 'GPU Status'}
+                                         </div>
+                                         <div className="text-[11px] text-slate-400">
+                                           Passthrough: <span className="font-semibold text-slate-300">{c.gpuEnabled || clusterGpuStatus.passthroughEnabled ? 'Enabled' : 'Disabled'}</span>
+                                         </div>
+                                       </div>
+                                     </div>
+                                     <div className="flex items-center gap-2">
+                                       {clusterGpuStatus.totalCapacity > 0 ? (
+                                         <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase flex items-center gap-1.5 ${clusterGpuStatus.availableGpus > 0 ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                                           <div className={`w-1.5 h-1.5 rounded-full ${clusterGpuStatus.availableGpus > 0 ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                           {clusterGpuStatus.availableGpus} / {clusterGpuStatus.totalAllocatable} GPU Available
+                                         </span>
+                                       ) : (c.gpuEnabled || clusterGpuStatus.passthroughEnabled) ? (
+                                         <span className="text-[10px] font-bold px-3 py-1 rounded-full uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 flex items-center gap-1.5">
+                                           <AlertTriangle size={12} />
+                                           No GPU Detected on Host Node
+                                         </span>
+                                       ) : (
+                                         <span className="text-[10px] font-bold px-3 py-1 rounded-full uppercase bg-slate-800 text-slate-400 border border-slate-700">
+                                           Passthrough Disabled
+                                         </span>
+                                       )}
+                                     </div>
+                                   </div>
+
+                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                                     <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/40">
+                                       <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Total Capacity</div>
+                                       <div className="text-lg font-bold text-slate-100 mt-0.5">{clusterGpuStatus.totalCapacity} GPU</div>
+                                     </div>
+                                     <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/40">
+                                       <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Allocatable</div>
+                                       <div className="text-lg font-bold text-slate-100 mt-0.5">{clusterGpuStatus.totalAllocatable} GPU</div>
+                                     </div>
+                                     <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/40">
+                                       <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Allocated Workloads</div>
+                                       <div className="text-lg font-bold text-amber-400 mt-0.5">{clusterGpuStatus.totalAllocated} GPU</div>
+                                     </div>
+                                     <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/40">
+                                       <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Available</div>
+                                       <div className={`text-lg font-bold mt-0.5 ${clusterGpuStatus.availableGpus > 0 ? 'text-green-400' : 'text-slate-400'}`}>{clusterGpuStatus.availableGpus} GPU</div>
+                                     </div>
+                                   </div>
+
+                                   {clusterGpuStatus.devicePlugins?.length > 0 && (
+                                     <div className="pt-2 border-t border-slate-800/80">
+                                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Device Plugin Status</div>
+                                       <div className="flex flex-wrap gap-2">
+                                         {clusterGpuStatus.devicePlugins.map((dp: any) => (
+                                           <div key={dp.name} className="bg-slate-800 p-2.5 rounded-lg border border-slate-700/60 flex items-center justify-between text-xs w-full">
+                                             <span className="font-mono text-slate-300 text-[11px]">{dp.name}</span>
+                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${dp.status === 'active' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                                               {dp.status === 'active' ? 'Active' : 'Degraded'} ({dp.readyPods}/{dp.desiredPods} pods ready)
+                                             </span>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     </div>
+                                   )}
+
+                                   {clusterGpuStatus.gpuPods?.length > 0 && (
+                                     <div className="pt-2 border-t border-slate-800/80">
+                                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Active GPU Workloads</div>
+                                       <div className="space-y-1.5">
+                                         {clusterGpuStatus.gpuPods.map((gp: any) => (
+                                           <div key={gp.name} className="bg-slate-800/70 px-3 py-2 rounded-lg border border-slate-700/50 flex justify-between items-center text-xs">
+                                             <div className="flex items-center gap-2">
+                                               <span className="text-amber-400 font-bold">{gp.gpus} GPU</span>
+                                               <span className="font-bold text-slate-200">{gp.name}</span>
+                                               <span className="text-[10px] text-slate-500 font-mono">({gp.namespace})</span>
+                                             </div>
+                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${gp.status === 'Running' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400 animate-pulse'}`}>{gp.status}</span>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     </div>
+                                   )}
+                                 </div>
+                               ) : <div className="text-slate-600 text-xs italic">GPU status unavailable.</div>}
+                            </div>
                          </div>
                        )}
                     </div>
@@ -589,7 +809,7 @@ function App() {
 
         {view === 'apps' && (
           <section>
-            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '' }); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
+            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, openWebuiTargetId: '' }); setShowVllmAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden shadow-sm">
                <table className="w-full text-left">
                   <thead className="bg-slate-700/30 text-slate-400 text-[10px] uppercase tracking-widest font-bold"><tr><th className="px-8 py-4">App</th><th className="px-8 py-4">Cluster</th><th className="px-8 py-4">Strategy</th><th className="px-8 py-4">Status</th><th className="px-8 py-4 text-right">Actions</th></tr></thead>
@@ -621,6 +841,11 @@ function App() {
                       <td className="px-8 py-5 text-slate-400">{clusters.find((c:any) => c.id === a.clusterId)?.name || 'Unknown'}</td><td className="px-8 py-5"><div className="flex flex-col gap-1.5 items-start"><span className="text-[10px] px-3 py-1 rounded-full font-bold uppercase bg-slate-500/10 text-slate-400">{a.strategy || 'helm'}</span>{a.vpnEnabled && (<span className="text-[9px] px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-green-500/10 text-green-400 border border-green-500/20 flex items-center gap-1"><Shield size={10} /> VPN</span>)}</div></td><td className="px-8 py-5"><span className="text-[10px] px-3 py-1 rounded-full font-bold uppercase bg-blue-500/10 text-blue-400">{a.status}</span></td>
                       <td className="px-8 py-5 text-right flex justify-end items-center gap-3">
                         <button onClick={() => openDashboard('app', a.id)} className="px-4 py-2 bg-blue-600/10 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"><Activity size={14} /> Manage</button>
+                        {a.status === 'deploying' && (
+                          <button onClick={() => setConfirmDestroy({ type: 'app', id: a.id, name: a.name, isAbort: true })} className="px-3 py-2 bg-amber-500/10 hover:bg-amber-600 border border-amber-500/30 text-amber-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer">
+                            <XCircle size={14} /> Abort
+                          </button>
+                        )}
                         <button onClick={() => setConfirmDestroy({ type: 'app', id: a.id, name: a.name })} className="px-4 py-2 bg-slate-700/50 hover:bg-red-600 border border-slate-600 hover:border-red-500 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"><Trash2 size={14} /> Destroy</button>
                       </td>
                     </tr>))}</tbody>
@@ -901,7 +1126,31 @@ function App() {
 
       {confirmDestroy && (
         <div className="fixed inset-0 bg-red-950/40 backdrop-blur-md flex items-center justify-center p-6 z-[70]">
-           <div className="bg-slate-900 border-2 border-red-500/30 rounded-3xl p-10 w-full max-md shadow-2xl animate-in zoom-in-95 duration-200"><div className="flex justify-center mb-6"><div className="p-4 bg-red-500/10 rounded-full"><AlertTriangle className="text-red-500" size={40} /></div></div><h3 className="text-2xl font-bold text-center mb-2">Confirm Destruction</h3><p className="text-slate-400 text-center text-sm mb-8 leading-relaxed">Are you absolutely sure you want to destroy <strong>{confirmDestroy.name}</strong>?</p><div className="flex gap-4"><button onClick={() => setConfirmDestroy(null)} className="flex-1 bg-slate-800 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all">Cancel</button><button onClick={() => destroyResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })} className="flex-1 bg-red-600 py-3 rounded-xl font-bold hover:bg-red-500 shadow-lg transition-all">{destroyResource.isPending ? <Loader2 className="animate-spin" size={18} /> : 'Confirm Delete'}</button></div></div>
+           <div className={`bg-slate-900 border-2 ${confirmDestroy.isAbort ? 'border-amber-500/30' : 'border-red-500/30'} rounded-3xl p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200`}>
+             <div className="flex justify-center mb-6">
+               <div className={`p-4 ${confirmDestroy.isAbort ? 'bg-amber-500/10' : 'bg-red-500/10'} rounded-full`}>
+                 <AlertTriangle className={confirmDestroy.isAbort ? 'text-amber-500' : 'text-red-500'} size={40} />
+               </div>
+             </div>
+             <h3 className="text-2xl font-bold text-center mb-2">{confirmDestroy.isAbort ? 'Abort Provisioning' : 'Confirm Destruction'}</h3>
+             <p className="text-slate-400 text-center text-sm mb-8 leading-relaxed">
+               {confirmDestroy.isAbort
+                 ? <>Are you sure you want to abort provisioning <strong>{confirmDestroy.name}</strong>? Active Temporal workflows will be terminated and partial infrastructure will be cleaned up.</>
+                 : <>Are you absolutely sure you want to destroy <strong>{confirmDestroy.name}</strong>?</>}
+             </p>
+             <div className="flex gap-4">
+               <button onClick={() => setConfirmDestroy(null)} className="flex-1 bg-slate-800 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all cursor-pointer">Cancel</button>
+               <button
+                 onClick={() => confirmDestroy.isAbort
+                   ? abortResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })
+                   : destroyResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })
+                 }
+                 className={`flex-1 ${confirmDestroy.isAbort ? 'bg-amber-600 hover:bg-amber-500' : 'bg-red-600 hover:bg-red-500'} py-3 rounded-xl font-bold shadow-lg transition-all cursor-pointer flex items-center justify-center`}
+               >
+                 {abortResource.isPending || destroyResource.isPending ? <Loader2 className="animate-spin" size={18} /> : (confirmDestroy.isAbort ? 'Abort & Teardown' : 'Confirm Delete')}
+               </button>
+             </div>
+           </div>
         </div>
       )}
 
@@ -923,7 +1172,7 @@ function App() {
                       <button onClick={() => setLogTab('helm')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'helm' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Layers size={14} /> Helm Status</button>
                       <button onClick={() => setLogTab('diagnostics')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'diagnostics' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><AlertTriangle size={14} /> Diagnostics</button>
                       <button onClick={() => setLogTab('modules')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'modules' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Puzzle size={14} /> Modules</button>
-                      <button onClick={() => setLogTab('storage')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'storage' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><HardDrive size={14} /> Storage</button>
+                      <button onClick={() => setLogTab('storage')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'storage' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Settings size={14} /> Config</button>
                     </>
                   ) : (
                     <button onClick={() => setLogTab('provision')} className={`pb-2 px-1 text-sm font-bold transition-all flex items-center gap-1.5 ${logTab === 'provision' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}><Terminal size={14} /> Infrastructure</button>
@@ -979,20 +1228,180 @@ function App() {
                  </div>
                )}
                {logTab === 'storage' && currentDeployment && (
-                  <div className="flex-1 flex flex-col min-h-0">
-                     <div className="flex justify-between items-center mb-6">
+                  <div className="flex-1 flex flex-col gap-8 overflow-y-auto pr-2 custom-scrollbar min-h-0">
+                     <div className="flex justify-between items-center">
                          <div>
-                           <h4 className="text-xl font-bold">Storage Volumes Management</h4>
-                           <p className="text-slate-400 text-xs">Resize persistent disk volumes allocated to this instance.</p>
+                           <h4 className="text-xl font-bold">Application Configuration</h4>
+                           <p className="text-slate-400 text-xs">Edit storage sizing and app-specific settings below, then save to re-apply the deployment and restart it.</p>
                          </div>
-                         <button 
-                           disabled={updateAppStorage.isPending || getSupportedVolumes(currentDeployment.appType || '', currentDeployment.strategy).length === 0} 
-                           onClick={() => updateAppStorage.mutate({ id: currentDeployment.id, storage: storageInputs })} 
-                           className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+                         <button
+                           disabled={updateAppConfig.isPending || (currentDeployment.status !== 'running' && currentDeployment.status !== 'failed')}
+                           onClick={() => {
+                             const appType = currentDeployment.appType || 'odoo';
+                             const patch: Record<string, any> = { storage: storageInputs };
+                             if (appType === 'vllm') {
+                               patch.vllmModel = configInputs.vllmModel;
+                               patch.vllmGpuCount = parseInt(configInputs.vllmGpuCount) || 0;
+                               patch.vllmGpuVendor = configInputs.vllmGpuVendor;
+                               if (configInputs.vllmHfToken) patch.vllmHfToken = configInputs.vllmHfToken;
+                               if (configInputs.vllmMaxModelLen) patch.vllmMaxModelLen = parseInt(configInputs.vllmMaxModelLen);
+                               if (configInputs.vllmGpuMemUtil) patch.vllmGpuMemUtil = parseFloat(configInputs.vllmGpuMemUtil);
+                               patch.vllmExtraArgs = configInputs.vllmExtraArgs;
+                               patch.vllmToolCallingEnabled = configInputs.vllmToolCallingEnabled && !!configInputs.vllmToolCallParser;
+                               if (configInputs.vllmToolCallParser) patch.vllmToolCallParser = configInputs.vllmToolCallParser;
+                               if (configInputs.vllmServedModelName) patch.vllmServedModelName = configInputs.vllmServedModelName;
+                               if (configInputs.vllmMaxNumSeqs) patch.vllmMaxNumSeqs = parseInt(configInputs.vllmMaxNumSeqs);
+                               if (configInputs.vllmDtype) patch.vllmDtype = configInputs.vllmDtype;
+                               patch.vllmEnablePrefixCaching = configInputs.vllmEnablePrefixCaching;
+                             } else if (appType === 'openwebui') {
+                               patch.openWebuiTargetId = configInputs.openWebuiTargetId;
+                             } else {
+                               patch.webRepo = configInputs.webRepo;
+                               patch.webTag = configInputs.webTag;
+                               if (APP_DEFAULTS[appType]?.hasDatabase) {
+                                 patch.dbRepo = configInputs.dbRepo;
+                                 patch.dbTag = configInputs.dbTag;
+                               }
+                             }
+                             updateAppConfig.mutate({ id: currentDeployment.id, patch });
+                           }}
+                           className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
                          >
-                           {updateAppStorage.isPending ? <Loader2 size={16} className="animate-spin" /> : <><Check size={16} /> Apply Changes</>}
+                           {updateAppConfig.isPending ? <Loader2 size={16} className="animate-spin" /> : <><RefreshCw size={16} /> Save &amp; Restart</>}
                          </button>
                      </div>
+
+                     {currentDeployment.appType === 'vllm' && (
+                       <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
+                         <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Cpu size={16} className="text-blue-400" /> vLLM Settings</h5>
+                         <div className="grid grid-cols-2 gap-4">
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label>
+                             <input value={configInputs.vllmModel} onChange={e => setConfigInputs(prev => ({ ...prev, vllmModel: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label>
+                             <select value={configInputs.vllmGpuCount} onChange={e => setConfigInputs(prev => ({ ...prev, vllmGpuCount: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select>
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label>
+                             <select value={configInputs.vllmGpuVendor} onChange={e => setConfigInputs(prev => ({ ...prev, vllmGpuVendor: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all"><option value="nvidia">NVIDIA CUDA</option><option value="amd">AMD ROCm</option></select>
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Token</label>
+                             <input type="password" value={configInputs.vllmHfToken} onChange={e => setConfigInputs(prev => ({ ...prev, vllmHfToken: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="Leave blank to keep current token" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Model Length</label>
+                             <input type="number" value={configInputs.vllmMaxModelLen} onChange={e => setConfigInputs(prev => ({ ...prev, vllmMaxModelLen: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. 32768" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Memory Utilization</label>
+                             <input type="number" step="0.05" min="0" max="1" value={configInputs.vllmGpuMemUtil} onChange={e => setConfigInputs(prev => ({ ...prev, vllmGpuMemUtil: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. 0.9" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Served Model Name</label>
+                             <input value={configInputs.vllmServedModelName} onChange={e => setConfigInputs(prev => ({ ...prev, vllmServedModelName: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="Alias exposed via the API — defaults to the model ID" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Sequences</label>
+                             <input type="number" value={configInputs.vllmMaxNumSeqs} onChange={e => setConfigInputs(prev => ({ ...prev, vllmMaxNumSeqs: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. 256 (--max-num-seqs)" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data Type</label>
+                             <select value={configInputs.vllmDtype} onChange={e => setConfigInputs(prev => ({ ...prev, vllmDtype: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                               <option value="">Auto (model default)</option>
+                               <option value="half">half / float16</option>
+                               <option value="bfloat16">bfloat16</option>
+                               <option value="float32">float32</option>
+                             </select>
+                           </div>
+                           <div className="flex items-center gap-3 pt-6">
+                             <input type="checkbox" id="cfg-prefix-caching" checked={configInputs.vllmEnablePrefixCaching} onChange={e => setConfigInputs(prev => ({ ...prev, vllmEnablePrefixCaching: e.target.checked }))} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                             <label htmlFor="cfg-prefix-caching" className="text-sm text-slate-300 cursor-pointer select-none">Enable Prefix Caching</label>
+                           </div>
+                         </div>
+
+                         <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-3">
+                           <div className="flex items-center gap-3">
+                             <input type="checkbox" id="cfg-tool-calling" checked={configInputs.vllmToolCallingEnabled} onChange={e => setConfigInputs(prev => ({ ...prev, vllmToolCallingEnabled: e.target.checked }))} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                             <label htmlFor="cfg-tool-calling" className="text-sm text-slate-300 cursor-pointer select-none">Enable Tool Calling</label>
+                             <span className="text-[10px] text-slate-500 ml-auto">Required for OpenAI-style function/tool calls (used by Open WebUI's Tools, agents, etc.)</span>
+                           </div>
+                           {configInputs.vllmToolCallingEnabled && (
+                             <div>
+                               <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Parser</label>
+                               <select value={configInputs.vllmToolCallParser} onChange={e => setConfigInputs(prev => ({ ...prev, vllmToolCallParser: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                                 <option value="">Select a parser matching your model...</option>
+                                 <option value="llama3_json">llama3_json — Llama 3.x</option>
+                                 <option value="mistral">mistral — Mistral / Mixtral</option>
+                                 <option value="hermes">hermes — Hermes / Qwen</option>
+                                 <option value="granite">granite — Granite</option>
+                                 <option value="granite-20b-fc">granite-20b-fc — Granite 20B Function Calling</option>
+                                 <option value="internlm">internlm — InternLM</option>
+                                 <option value="jamba">jamba — Jamba</option>
+                                 <option value="pythonic">pythonic — Pythonic (Llama variants)</option>
+                               </select>
+                               {!configInputs.vllmToolCallParser && (
+                                 <p className="text-[11px] text-amber-400/80 mt-2">vLLM requires a parser whenever tool calling is enabled — "auto" tool choice will fail to start without one.</p>
+                               )}
+                             </div>
+                           )}
+                         </div>
+
+                         <div>
+                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Arguments</label>
+                           <textarea value={configInputs.vllmExtraArgs} onChange={e => setConfigInputs(prev => ({ ...prev, vllmExtraArgs: e.target.value }))} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="Any other vllm serve flags, e.g. --swap-space 4" />
+                         </div>
+                       </div>
+                     )}
+
+                     {currentDeployment.appType === 'openwebui' && (
+                       <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
+                         <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Cpu size={16} className="text-blue-400" /> Open WebUI Settings</h5>
+                         <div>
+                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM Deployment)</label>
+                           <select value={configInputs.openWebuiTargetId} onChange={e => setConfigInputs(prev => ({ ...prev, openWebuiTargetId: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                             <option value="">No backend (configure manually in Open WebUI)</option>
+                             {deployments.filter((d: any) => d.appType === 'vllm' && d.status === 'running' && d.clusterId === currentDeployment.clusterId).map((d: any) => (
+                               <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || 'vLLM'})</option>
+                             ))}
+                           </select>
+                           <p className="text-[11px] text-slate-500 mt-1">Only vLLM deployments on the same cluster are listed — Open WebUI reaches vLLM over the cluster's internal network.</p>
+                         </div>
+                       </div>
+                     )}
+
+                     {currentDeployment.appType !== 'vllm' && currentDeployment.appType !== 'openwebui' && (
+                       <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
+                         <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Layers size={16} className="text-indigo-400" /> Image Version</h5>
+                         <div className="grid grid-cols-2 gap-4">
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label>
+                             <input value={configInputs.webRepo} onChange={e => setConfigInputs(prev => ({ ...prev, webRepo: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tag</label>
+                             <input value={configInputs.webTag} onChange={e => setConfigInputs(prev => ({ ...prev, webTag: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                           </div>
+                           {APP_DEFAULTS[currentDeployment.appType || 'odoo']?.hasDatabase && (
+                             <>
+                               <div>
+                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Database Repository</label>
+                                 <input value={configInputs.dbRepo} onChange={e => setConfigInputs(prev => ({ ...prev, dbRepo: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                               </div>
+                               <div>
+                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Database Tag</label>
+                                 <input value={configInputs.dbTag} onChange={e => setConfigInputs(prev => ({ ...prev, dbTag: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                               </div>
+                             </>
+                           )}
+                         </div>
+                       </div>
+                     )}
+
+                     <div>
+                       <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2 mb-4"><HardDrive size={16} className="text-purple-400" /> Storage Volumes</h5>
                      {getSupportedVolumes(currentDeployment.appType || '', currentDeployment.strategy).length === 0 ? (
                        <div className="flex-1 flex items-center justify-center border border-slate-700/50 rounded-2xl bg-slate-900/20 p-8">
                          <div className="text-center max-w-sm space-y-4">
@@ -1058,6 +1467,7 @@ function App() {
                           })}
                        </div>
                      )}
+                     </div>
                   </div>
                 )}
                {logTab === 'general' && currentDeployment && (
@@ -1118,27 +1528,53 @@ function App() {
                      <div>
                        <h4 className="text-xl font-bold mb-2 flex items-center gap-2"><Zap className="text-blue-400" size={20} /> Network Exposure</h4>
                        <p className="text-slate-400 text-sm leading-relaxed max-w-2xl">
-                         Expose this application to the public network interfaces using our dynamic Nginx reverse proxy. This integrates container network routing, allowing external network access.
+                         Expose this application publicly over our dynamic Nginx + tunnel reverse proxy, locally (reachable only from this machine, no tunnel), or both at once — independently toggleable.
                        </p>
                      </div>
 
                      <div className="flex flex-col gap-4 pt-4 border-t border-slate-800/80">
-                       <div className="flex items-center gap-4">
+                       <div className="flex items-center gap-4 flex-wrap">
                          {currentDeployment.status === 'running' ? (
-                           <button
-                             disabled={exposeApp.isPending || unexposeApp.isPending}
-                             onClick={() => currentDeployment.isExposed ? unexposeApp.mutate(currentDeployment.id) : exposeApp.mutate(currentDeployment.id)}
-                             className={`px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all ${currentDeployment.isExposed ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'}`}
-                           >
-                             {(exposeApp.isPending || unexposeApp.isPending) ? (
-                               <Loader2 size={18} className="animate-spin" />
-                             ) : currentDeployment.isExposed ? (
-                               <X size={18} />
+                           <>
+                             {currentDeployment.isExposedPublicly ? (
+                               <button
+                                 disabled={(exposeApp.isPending && exposeApp.variables?.mode === 'public') || (unexposeApp.isPending && unexposeApp.variables?.mode === 'public')}
+                                 onClick={() => unexposeApp.mutate({ id: currentDeployment.id, mode: 'public' })}
+                                 className="px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
+                               >
+                                 {unexposeApp.isPending && unexposeApp.variables?.mode === 'public' ? <Loader2 size={18} className="animate-spin" /> : <X size={18} />}
+                                 Unexpose Publicly
+                               </button>
                              ) : (
-                               <Check size={18} />
+                               <button
+                                 disabled={exposeApp.isPending && exposeApp.variables?.mode === 'public'}
+                                 onClick={() => exposeApp.mutate({ id: currentDeployment.id, mode: 'public' })}
+                                 className="px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20 disabled:opacity-50"
+                               >
+                                 {exposeApp.isPending && exposeApp.variables?.mode === 'public' ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+                                 Expose Publicly
+                               </button>
                              )}
-                             {currentDeployment.isExposed ? 'Unexpose Application' : 'Expose Application'}
-                           </button>
+                             {currentDeployment.isExposedLocally ? (
+                               <button
+                                 disabled={(exposeApp.isPending && exposeApp.variables?.mode === 'local') || (unexposeApp.isPending && unexposeApp.variables?.mode === 'local')}
+                                 onClick={() => unexposeApp.mutate({ id: currentDeployment.id, mode: 'local' })}
+                                 className="px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
+                               >
+                                 {unexposeApp.isPending && unexposeApp.variables?.mode === 'local' ? <Loader2 size={18} className="animate-spin" /> : <X size={18} />}
+                                 Unexpose Locally
+                               </button>
+                             ) : (
+                               <button
+                                 disabled={exposeApp.isPending && exposeApp.variables?.mode === 'local'}
+                                 onClick={() => exposeApp.mutate({ id: currentDeployment.id, mode: 'local' })}
+                                 className="px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-50"
+                               >
+                                 {exposeApp.isPending && exposeApp.variables?.mode === 'local' ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+                                 Expose Locally
+                               </button>
+                             )}
+                           </>
                          ) : (
                            <div className="text-sm font-semibold text-yellow-500 bg-yellow-500/10 px-4 py-2.5 rounded-lg border border-yellow-500/20 flex items-center gap-2">
                              <AlertTriangle size={16} /> Exposure controls are only available when the deployment is running.
@@ -1146,21 +1582,38 @@ function App() {
                          )}
                        </div>
 
-                       {currentDeployment.isExposed && currentDeployment.exposureUrl && (
+                       {(currentDeployment.isExposedPublicly || currentDeployment.isExposedLocally) && (
                           <div className="mt-4 p-6 bg-slate-900/60 border border-slate-700/80 rounded-2xl flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="text-[10px] font-black uppercase text-green-500 tracking-wider mb-1 flex items-center gap-1.5">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                  Public Access URL
+                            {currentDeployment.isExposedPublicly && currentDeployment.publicExposureUrl && (
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-[10px] font-black uppercase text-green-500 tracking-wider mb-1 flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                    Public Access URL
+                                  </div>
+                                  <a href={currentDeployment.publicExposureUrl + (currentDeployment.exposurePath || '')} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
+                                    <span>{currentDeployment.publicExposureUrl}{currentDeployment.exposurePath || ''}</span>
+                                    <ExternalLink size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
+                                  </a>
                                 </div>
-                                <a href={currentDeployment.exposureUrl + (currentDeployment.exposurePath || '')} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
-                                  <span>{currentDeployment.exposureUrl}{currentDeployment.exposurePath || ''}</span>
-                                  <ExternalLink size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
-                                </a>
+                                <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 uppercase tracking-wider">Active</span>
                               </div>
-                              <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 uppercase tracking-wider">Active</span>
-                            </div>
+                            )}
+                            {currentDeployment.isExposedLocally && currentDeployment.localExposureUrl && (
+                              <div className={`flex items-center justify-between ${currentDeployment.isExposedPublicly ? 'pt-4 border-t border-slate-800/80' : ''}`}>
+                                <div>
+                                  <div className="text-[10px] font-black uppercase text-amber-500 tracking-wider mb-1 flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                    Local Access URL
+                                  </div>
+                                  <a href={currentDeployment.localExposureUrl + (currentDeployment.exposurePath || '')} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
+                                    <span>{currentDeployment.localExposureUrl}{currentDeployment.exposurePath || ''}</span>
+                                    <ExternalLink size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
+                                  </a>
+                                </div>
+                                <span className="text-[10px] font-bold px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase tracking-wider">Active</span>
+                              </div>
+                            )}
 
                             <div className="pt-4 border-t border-slate-800/80 flex flex-col gap-2">
                               <label htmlFor="exposure-path-input" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Target Route Path</label>
@@ -1203,15 +1656,15 @@ function App() {
                    </div>
                  </div>
                )}
-               {logTab !== 'modules' && logTab !== 'general' && logTab !== 'storage' && (
-                 <div className="flex-1 bg-slate-950 rounded-xl p-6 font-mono text-[11px] overflow-y-auto whitespace-pre-wrap border border-slate-700/50 shadow-inner custom-scrollbar text-blue-100/90 leading-relaxed relative">
-                    {logTab === 'provision' ? (((initialLogs?.content || '') + socketLogs) || 'Loading flow...') :
-                    logTab === 'helm' ? (helmStatus?.content || 'Fetching Helm...') :
-                    logTab === 'diagnostics' ? (diagnostics?.content || 'Scanning cluster for errors...') :
-                    (selectedPod ? (kubeLogs || `Connected...`) : 'Select a pod to begin tailing.')}
-                   <div ref={logEndRef} />
-                 </div>
-               )}
+{logTab !== 'modules' && logTab !== 'general' && logTab !== 'storage' && (
+                  <div className={`flex-1 bg-slate-950 rounded-xl p-6 font-mono text-[11px] overflow-y-auto border border-slate-700/50 shadow-inner custom-scrollbar text-blue-100/90 leading-relaxed relative ${logTab === 'diagnostics' ? 'overflow-x-auto whitespace-pre' : 'whitespace-pre-wrap'}`}>
+                     {logTab === 'provision' ? <AnsiText text={((initialLogs?.content || '') + socketLogs) || 'Loading flow...'} /> :
+                     logTab === 'helm' ? <AnsiText text={helmStatus?.content || 'Fetching Helm...'} /> :
+                     logTab === 'diagnostics' ? <AnsiText text={diagnostics?.content || 'Scanning cluster for errors...'} /> :
+                     (selectedPod ? <AnsiText text={kubeLogs || `Connected...`} /> : 'Select a pod to begin tailing.')}
+                    <div ref={logEndRef} />
+                  </div>
+                )}
             </div>
           </div>
         </div>
@@ -1243,7 +1696,22 @@ function App() {
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Package className="text-blue-500" size={18}/> Target Configuration</h4><p className="text-slate-400 text-sm">Select the infrastructure, name, and application type.</p></div>
                   <div><label htmlFor="wizard-instance-name" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Instance Name</label><input id="wizard-instance-name" value={wizardData.name} onChange={e => setWizardData({...wizardData, name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all" /></div>
-                  <div><label htmlFor="wizard-target-cluster" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Target Cluster</label><select id="wizard-target-cluster" value={wizardData.clusterId} onChange={e => setWizardData({...wizardData, clusterId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all"><option value="">Select a healthy cluster...</option>{clusters.filter((c:any) => c.status === 'healthy').map((c: any) => (<option key={c.id} value={c.id}>{c.name} ({c.provider})</option>))}</select></div>
+                  <div>
+                    <label htmlFor="wizard-target-cluster" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Target Cluster</label>
+                    <select id="wizard-target-cluster" value={wizardData.clusterId} onChange={e => setWizardData({...wizardData, clusterId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all">
+                      <option value="">Select a healthy cluster...</option>
+                      {clusters.filter((c: any) => c.status === 'healthy' && (!GPU_ONLY_APP_TYPES.has(wizardData.appType) || c.gpuEnabled)).map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.name} ({c.provider}{c.gpuEnabled ? ' • GPU' : ''})</option>
+                      ))}
+                    </select>
+                    {GPU_ONLY_APP_TYPES.has(wizardData.appType) && (
+                      clusters.some((c: any) => c.status === 'healthy' && c.gpuEnabled) ? (
+                        <p className="text-[11px] text-amber-400/80 mt-2">Only GPU-enabled clusters are shown — {wizardData.appType} needs GPU passthrough.</p>
+                      ) : (
+                        <p className="text-[11px] text-red-400/80 mt-2">No GPU-enabled clusters found — check the System cluster's status in the Clusters view.</p>
+                      )
+                    )}
+                  </div>
                   <div>
                     <label htmlFor="wizard-app-type" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Application Type</label>
                     <select
@@ -1256,8 +1724,10 @@ function App() {
                       <option value="wordpress">WordPress CMS</option>
                       <option value="nextcloud">Nextcloud Cloud Storage</option>
                       <option value="audiobookshelf">Audiobookshelf Media Server</option>
-                      <option value="prometheus">Prometheus Monitoring Stack</option>
-                      <option value="traefik">Traefik Ingress Router</option>
+<option value="prometheus">Prometheus Monitoring Stack</option>
+                       <option value="traefik">Traefik Ingress Router</option>
+                       <option value="vllm">vLLM LLM Server</option>
+                       <option value="openwebui">Open WebUI (LLM Chat UI)</option>
                     </select>
                   </div>
                 </div>
@@ -1363,11 +1833,140 @@ function App() {
                   )}
                 </div>
               )}
-              {wizardStep === 4 && (
+              {wizardStep === 4 && wizardData.appType === 'vllm' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Choose the model to serve.</p></div>
+                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" /></div>
+                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Popular Models</label><div className="grid grid-cols-1 gap-2">
+                    {[
+                      { id: 'meta-llama/Llama-3.2-3B-Instruct', size: '~2GB' },
+                      { id: 'meta-llama/Llama-3.1-8B-Instruct', size: '~4.5GB' },
+                      { id: 'mistralai/Mistral-7B-Instruct-v0.3', size: '~4.1GB' },
+                      { id: 'microsoft/Phi-3-mini-4k-instruct', size: '~2.3GB' },
+                      { id: 'google/gemma-2-9b-it', size: '~5.5GB' },
+                    ].map((m) => (
+                      <button key={m.id} onClick={() => setWizardData({...wizardData, odooRepo: m.id})} className={`px-4 py-3 rounded-lg text-left text-xs border transition-all ${wizardData.odooRepo === m.id ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                        <div className="font-bold">{m.id.split('/').pop()}</div>
+                        <div className="text-[10px] opacity-70">{m.id} · {m.size}</div>
+                      </button>
+                    ))}
+                  </div></div>
+                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.odooTag === '0' ? '0' : wizardData.odooTag || '1'} onChange={e => setWizardData({...wizardData, odooTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select></div>
+                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label><select value={wizardData.pgRepo || 'nvidia'} onChange={e => setWizardData({...wizardData, pgRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="nvidia">NVIDIA CUDA</option><option value="amd">AMD ROCm</option></select></div>
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Hugging Face Access Token (HF_TOKEN)</label>
+                      {hasHfAccount && (
+                        <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded flex items-center gap-1">
+                          ✓ Account Token Saved
+                        </span>
+                      )}
+                    </div>
+                    <input type="password" value={wizardData.pgTag || ''} onChange={e => setWizardData({...wizardData, pgTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {hasHfAccount
+                        ? "Saved token from Cloud Accounts will automatically be used if left blank. Enter a value above only to override."
+                        : "Required for gated models (e.g. Llama 3.2, Gemma 2). Get a Read token at huggingface.co/settings/tokens or save it in Cloud Accounts."}
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800">
+                    <button type="button" onClick={() => setShowVllmAdvanced(!showVllmAdvanced)} className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-200 transition-colors">
+                      {showVllmAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Advanced vLLM Arguments
+                    </button>
+                    {showVllmAdvanced && (
+                      <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Model Length (--max-model-len)</label>
+                          <input type="number" value={wizardData.vllmMaxModelLen} onChange={e => setWizardData({...wizardData, vllmMaxModelLen: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 32768 (leave blank for model default)" />
+                          <p className="text-[11px] text-slate-500 mt-1">Lower this if you see a KV-cache-too-small error at startup.</p>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Memory Utilization (--gpu-memory-utilization)</label>
+                          <input type="number" step="0.05" min="0" max="1" value={wizardData.vllmGpuMemUtil} onChange={e => setWizardData({...wizardData, vllmGpuMemUtil: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 0.9 (leave blank for vLLM default)" />
+                          <p className="text-[11px] text-slate-500 mt-1">Fraction of GPU VRAM vLLM is allowed to reserve for weights + KV cache.</p>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Served Model Name</label>
+                          <input value={wizardData.vllmServedModelName} onChange={e => setWizardData({...wizardData, vllmServedModelName: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="Alias exposed via the API — defaults to the model ID" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Sequences (--max-num-seqs)</label>
+                          <input type="number" value={wizardData.vllmMaxNumSeqs} onChange={e => setWizardData({...wizardData, vllmMaxNumSeqs: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 256 (leave blank for vLLM default)" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Data Type (--dtype)</label>
+                          <select value={wizardData.vllmDtype} onChange={e => setWizardData({...wizardData, vllmDtype: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                            <option value="">Auto (model default)</option>
+                            <option value="half">half / float16</option>
+                            <option value="bfloat16">bfloat16</option>
+                            <option value="float32">float32</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input type="checkbox" id="wiz-prefix-caching" checked={wizardData.vllmEnablePrefixCaching} onChange={e => setWizardData({...wizardData, vllmEnablePrefixCaching: e.target.checked})} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                          <label htmlFor="wiz-prefix-caching" className="text-sm text-slate-300 cursor-pointer select-none">Enable Prefix Caching</label>
+                        </div>
+                        <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-3">
+                          <div className="flex items-center gap-3">
+                            <input type="checkbox" id="wiz-tool-calling" checked={wizardData.vllmToolCallingEnabled} onChange={e => setWizardData({...wizardData, vllmToolCallingEnabled: e.target.checked})} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                            <label htmlFor="wiz-tool-calling" className="text-sm text-slate-300 cursor-pointer select-none">Enable Tool Calling</label>
+                            <span className="text-[10px] text-slate-500 ml-auto">Required for OpenAI-style function/tool calls</span>
+                          </div>
+                          {wizardData.vllmToolCallingEnabled && (
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Parser</label>
+                              <select value={wizardData.vllmToolCallParser} onChange={e => setWizardData({...wizardData, vllmToolCallParser: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                                <option value="">Select a parser matching your model...</option>
+                                <option value="llama3_json">llama3_json — Llama 3.x</option>
+                                <option value="mistral">mistral — Mistral / Mixtral</option>
+                                <option value="hermes">hermes — Hermes / Qwen</option>
+                                <option value="granite">granite — Granite</option>
+                                <option value="granite-20b-fc">granite-20b-fc — Granite 20B Function Calling</option>
+                                <option value="internlm">internlm — InternLM</option>
+                                <option value="jamba">jamba — Jamba</option>
+                                <option value="pythonic">pythonic — Pythonic (Llama variants)</option>
+                              </select>
+                              {!wizardData.vllmToolCallParser && (
+                                <p className="text-[11px] text-amber-400/80 mt-2">vLLM requires a parser whenever tool calling is enabled — "auto" tool choice will fail to start without one.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Arguments</label>
+                          <textarea value={wizardData.vllmExtraArgs} onChange={e => setWizardData({...wizardData, vllmExtraArgs: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="Any other vllm serve flags" />
+                          <p className="text-[11px] text-slate-500 mt-1">Free-form flags appended to the `vllm serve` command as-is.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {wizardStep === 4 && wizardData.appType !== 'vllm' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> Component: {wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</h4><p className="text-slate-400 text-sm">Select the image version.</p></div>
                   <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
                   <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Available Tags</label>{loadingOdooTags ? (<div className="flex items-center gap-2 text-slate-500 py-3"><Loader2 size={16} className="animate-spin" /> Fetching tags...</div>) : (<div className="grid grid-cols-2 gap-2">{odooTags.map((tag: string) => (<button key={tag} onClick={() => setWizardData({...wizardData, odooTag: tag})} className={`px-4 py-2 rounded-lg text-left text-xs border transition-all ${wizardData.odooTag === tag ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>{tag}</button>))}</div>)}</div>
+                  {wizardData.appType === 'openwebui' && (
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM Deployment)</label>
+                      <select value={wizardData.openWebuiTargetId} onChange={e => setWizardData({...wizardData, openWebuiTargetId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                        <option value="">No backend (configure manually later)</option>
+                        {deployments.filter((d: any) => d.appType === 'vllm' && d.status === 'running' && d.clusterId === wizardData.clusterId).map((d: any) => (
+                          <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || 'vLLM'})</option>
+                        ))}
+                      </select>
+                      {deployments.filter((d: any) => d.appType === 'vllm' && d.status === 'running' && d.clusterId === wizardData.clusterId).length === 0 ? (
+                        deployments.some((d: any) => d.appType === 'vllm' && d.status === 'running') ? (
+                          <p className="text-[11px] text-amber-400/80 mt-2">Your running vLLM deployment(s) are on a different cluster than this app's Target Cluster (step 1) — go back and pick the same cluster, since Open WebUI reaches vLLM over the cluster's internal network. Only same-cluster backends are listed.</p>
+                        ) : (
+                          <p className="text-[11px] text-amber-400/80 mt-2">No running vLLM deployments found. Deploy one first, or connect this later by editing the deployment's environment.</p>
+                        )
+                      ) : (
+                        <p className="text-[11px] text-slate-500 mt-1">Open WebUI reaches vLLM over the cluster's internal network — only deployments on the same Target Cluster (step 1) are listed.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {wizardStep === 5 && (
@@ -1406,7 +2005,7 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => deployApp.mutate(wizardData)} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, appType: 'openwebui', strategy: 'native' } : wizardData; deployApp.mutate(payload); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
           </div>
         </div>
       )}
@@ -1418,7 +2017,8 @@ function App() {
             <form onSubmit={(e) => { e.preventDefault(); const d = new FormData(e.currentTarget); provisionCluster.mutate({ name: d.get('name'), provider: d.get('provider') }); }}>
               <div className="space-y-6">
                 <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cluster Identity</label><input name="name" required className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 transition-all text-sm" placeholder="e.g. production-omega" /></div>
-                <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cloud Provider</label><select name="provider" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-sm"><option value="k3d">Local Datacenter (k3d)</option><option value="aws">Amazon Web Services (EKS)</option><option value="gcp">Google Cloud Platform (GKE)</option></select></div>
+                <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cloud Provider</label><select name="provider" value={newClusterProvider} onChange={e => setNewClusterProvider(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-sm"><option value="k3d">Local Datacenter (k3d)</option><option value="aws">Amazon Web Services (EKS)</option><option value="gcp">Google Cloud Platform (GKE)</option></select></div>
+                <p className="text-[11px] text-slate-500 px-1">GPU/LLM workloads (vLLM) run on the built-in System cluster — no separate GPU-enabled cluster to provision here.</p>
               </div>
               <div className="flex gap-4 mt-10"><button type="button" onClick={() => setShowClusterModal(false)} className="flex-1 bg-slate-700 py-3 rounded-xl font-bold hover:bg-slate-600 transition-all text-sm">Cancel</button><button type="submit" className="flex-1 bg-blue-600 py-3 rounded-xl font-bold shadow-lg shadow-blue-900/20 hover:bg-blue-500 transition-all text-sm">Start Provisioning</button></div>
             </form>
