@@ -551,7 +551,11 @@ export class InfrastructureService {
     console.log(`[InfrastructureService] GPU device plugin (${vendor}) is ready.`);
   }
 
-  private async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
+  // Public because BuilderService drives its own subprocesses (the Odoo module validator) through
+  // the same logging/streaming plumbing rather than reimplementing it. It was marked private while
+  // already being called cross-service — which nothing caught, since this workspace had no
+  // tsconfig and was never typechecked.
+  async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
     const env = {
       ...process.env,
       ...options.env,
@@ -563,7 +567,7 @@ export class InfrastructureService {
     const cwd = (options.env as any)?.CD_DIR || CDKTF_DIR;
     await fs.mkdir(LOG_DIR, { recursive: true });
 
-    console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} with env TF_PLUGIN_CACHE_DIR=${env.TF_PLUGIN_CACHE_DIR}`);
+    console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)`);
 
     return new Promise((resolve, reject) => {
       const child = spawn(cmd, args, { cwd, env });

@@ -368,11 +368,13 @@ export class TabbyApiApp extends Construct {
         port: [
           {
             port: 5000,
-            targetPort: 5000,
+            targetPort: "5000",
           },
         ],
       },
-      waitUntilReady: false,
+      // waitForLoadBalancer, not waitUntilReady — see vllm.ts; the latter is not a ServiceConfig
+      // field and was silently ignored.
+      waitForLoadBalancer: false,
     });
 
     createAppIngress(this, "ingress", {

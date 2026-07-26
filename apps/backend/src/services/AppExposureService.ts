@@ -20,7 +20,9 @@ export class AppExposureService extends BaseService {
   private infra: InfrastructureService;
   private clusters: ClusterService;
   private nginxConfDir: string;
-  private io?: SocketServer;
+  // `| undefined` rather than `?:` — the constructor unconditionally assigns the optional `io`
+  // param, and exactOptionalPropertyTypes rejects assigning `undefined` to an optional property.
+  private io: SocketServer | undefined;
   private activeTunnels: Map<string, any> = new Map();
 
   private static registeredListeners = false;
@@ -269,7 +271,7 @@ export class AppExposureService extends BaseService {
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
-    const cluster = await this.clusters.getById(dep.clusterId);
+    const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
     if (!cluster) throw new Error('Cluster not found');
 
     const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
@@ -292,7 +294,7 @@ export class AppExposureService extends BaseService {
     const dep = deployments.find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
-    const cluster = await this.clusters.getById(dep.clusterId);
+    const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
     if (!cluster) throw new Error('Cluster not found');
 
     const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
@@ -317,7 +319,7 @@ export class AppExposureService extends BaseService {
 
     for (const dep of exposed) {
       try {
-        const cluster = await this.clusters.getById(dep.clusterId);
+        const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
         if (!cluster) {
           this.logger.warn(`Cluster not found for deployment "${dep.name}", skipping sync`);
           continue;
@@ -399,7 +401,7 @@ export class AppExposureService extends BaseService {
       // host. The bare/regex server_name match for the local hostname is harmless to leave in
       // since local exposure is off; nothing routes to it once the app isn't advertised as
       // locally-exposed in the UI, and it costs nothing to leave the pattern in the conf.
-      const cluster = await this.clusters.getById(dep.clusterId);
+      const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
       if (cluster) {
         const { backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
         const tunnelHost = dep.publicExposureUrl.replace(/^https?:\/\//, '');
@@ -436,7 +438,7 @@ export class AppExposureService extends BaseService {
     if (dep.isExposedLocally) {
       // Local exposure is still active — rewrite the conf without the tunnel host rather than
       // removing it, so the app stays reachable at namespace.localhost:8000.
-      const cluster = await this.clusters.getById(dep.clusterId);
+      const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
       if (cluster) {
         const { backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
         await this.writeNginxConf(namespace, backendTarget, appHostname);

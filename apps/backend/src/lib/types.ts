@@ -19,7 +19,16 @@ export interface ClusterMetadata {
   id: string;
   name: string;
   provider: ClusterProviderName;
-  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered';
+  // 'destroyed' is terminal and only ever set by the Temporal destroy path (TemporalBridge's
+  // trackWorkflow/reconcile loops). It was missing from this union while four call sites already
+  // wrote it, so records were being persisted with a status the type said was impossible.
+  //
+  // Note the two destroy paths disagree: ClusterService.delete() removes the record outright,
+  // while the Temporal path marks it 'destroyed' and leaves it. For k3d/mock clusters
+  // reconcileAllClusters then prunes it (no container found), but a 'remote' or 'hetzner' record
+  // has no such check and lingers. Worth reconciling separately — widening the type here only
+  // stops it being a lie.
+  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed';
   kubeconfigPath?: string;
   lastLogPath?: string;
   temporalWorkflowId?: string;

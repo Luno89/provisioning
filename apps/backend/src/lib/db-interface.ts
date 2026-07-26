@@ -2,6 +2,16 @@ import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
 
+/**
+ * Like Partial<T>, but each property may also be *explicitly* undefined.
+ *
+ * Under exactOptionalPropertyTypes, `Partial<T>` means "the key may be absent", NOT "the value may
+ * be undefined" — so `{ storage: maybeUndefined }` is rejected. Every `save*Info` implementation
+ * already filters with `if (x !== undefined)` before writing, so passing an explicit undefined is
+ * both safe and the natural thing every caller does when spreading optional values.
+ */
+export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
+
 export interface Database {
   init(): Promise<void>;
   close(): Promise<void>;
@@ -9,13 +19,13 @@ export interface Database {
   getClusters(): Promise<ClusterMetadata[]>;
   saveCluster(cluster: ClusterMetadata): Promise<void>;
   saveClusterList(clusters: ClusterMetadata[]): Promise<void>;
-  saveClusterInfo(cluster: Partial<ClusterMetadata>): Promise<ClusterMetadata>;
+  saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata>;
   updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void>;
 
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeployment(deployment: DeploymentMetadata): Promise<void>;
   saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void>;
-  saveDeploymentInfo(deployment: Partial<DeploymentMetadata>): Promise<DeploymentMetadata>;
+  saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
 
   getUsers(): Promise<UserMetadata[]>;
   saveUser(user: UserMetadata): Promise<void>;
@@ -25,11 +35,11 @@ export interface Database {
 
   getProjects(): Promise<ProjectMetadata[]>;
   saveProject(project: ProjectMetadata): Promise<void>;
-  saveProjectInfo(project: Partial<ProjectMetadata>): Promise<ProjectMetadata>;
+  saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata>;
 
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
   savePipelineRun(run: PipelineRunMetadata): Promise<void>;
-  savePipelineRunInfo(run: Partial<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
+  savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
 
   getInvites(): Promise<InviteMetadata[]>;
   saveInvite(invite: InviteMetadata): Promise<void>;

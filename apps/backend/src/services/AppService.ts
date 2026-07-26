@@ -184,7 +184,7 @@ export class AppService extends BaseService {
         strategy,
         status: 'running',
         lastSyncedAt: now,
-        ownerId: cluster.ownerId,
+        ...(cluster.ownerId !== undefined ? { ownerId: cluster.ownerId } : {}),
       };
       if (appType) entry.appType = appType;
       if (webRepo) entry.webRepo = webRepo;

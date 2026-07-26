@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
-import type { Database } from './db-interface.js';
+import type { Database, PartialInfo } from './db-interface.js';
 
 export class MemoryDB implements Database {
   private clusters: ClusterMetadata[] = [];
@@ -42,7 +42,7 @@ export class MemoryDB implements Database {
     this.clusters = [...clusters];
   }
 
-  async saveClusterInfo(cluster: Partial<ClusterMetadata>): Promise<ClusterMetadata> {
+  async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
     const c: ClusterMetadata = {
       id: cluster.id || uuidv4(),
       name: cluster.name || '',
@@ -72,8 +72,11 @@ export class MemoryDB implements Database {
 
   async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
     const idx = this.clusters.findIndex(c => c.id === clusterId);
-    if (idx >= 0) {
-      this.clusters[idx] = { ...this.clusters[idx], progress };
+    const existing = this.clusters[idx];
+    // Bind before spreading — under noUncheckedIndexedAccess an indexed read is `T | undefined`
+    // even after an `idx >= 0` check, since TS can't tie the two together.
+    if (existing) {
+      this.clusters[idx] = { ...existing, progress };
     }
   }
 
@@ -91,7 +94,7 @@ export class MemoryDB implements Database {
     this.deployments = [...deployments];
   }
 
-  async saveDeploymentInfo(deployment: Partial<DeploymentMetadata>): Promise<DeploymentMetadata> {
+  async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
     const d: DeploymentMetadata = {
       id: deployment.id || uuidv4(),
       name: deployment.name || '',
@@ -163,7 +166,7 @@ export class MemoryDB implements Database {
     else this.projects.push(project);
   }
 
-  async saveProjectInfo(project: Partial<ProjectMetadata>): Promise<ProjectMetadata> {
+  async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
     const p: ProjectMetadata = {
       id: project.id || uuidv4(),
       name: project.name || '',
@@ -191,7 +194,7 @@ export class MemoryDB implements Database {
     else this.pipelineRuns.push(run);
   }
 
-  async savePipelineRunInfo(run: Partial<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
+  async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
     const r: PipelineRunMetadata = {
       id: run.id || uuidv4(),
       projectId: run.projectId || '',

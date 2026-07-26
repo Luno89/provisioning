@@ -1,7 +1,7 @@
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
-import type { Database } from './db-interface.js';
+import type { Database, PartialInfo } from './db-interface.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
 
@@ -101,7 +101,7 @@ export class MongoDB implements Database {
     }
   }
 
-  async saveClusterInfo(cluster: Partial<ClusterMetadata>): Promise<ClusterMetadata> {
+  async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
     const c: ClusterMetadata = {
       id: cluster.id || uuidv4(),
       name: cluster.name || '',
@@ -154,7 +154,7 @@ export class MongoDB implements Database {
     }
   }
 
-  async saveDeploymentInfo(deployment: Partial<DeploymentMetadata>): Promise<DeploymentMetadata> {
+  async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
     const d: DeploymentMetadata = {
       id: deployment.id || uuidv4(),
       name: deployment.name || '',
@@ -227,7 +227,7 @@ export class MongoDB implements Database {
     await this.projects.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
-  async saveProjectInfo(project: Partial<ProjectMetadata>): Promise<ProjectMetadata> {
+  async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
     const p: ProjectMetadata = {
       id: project.id || uuidv4(),
       name: project.name || '',
@@ -256,7 +256,7 @@ export class MongoDB implements Database {
     await this.pipelineRuns.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
-  async savePipelineRunInfo(run: Partial<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
+  async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
     const r: PipelineRunMetadata = {
       id: run.id || uuidv4(),
       projectId: run.projectId || '',

@@ -1,5 +1,5 @@
 import { proxyActivities } from '@temporalio/workflow';
-import type { DeployAppArgs } from '../activities/DeployAppActivity.js';
+import type { DeployAppArgs, DeployAppResult } from '../activities/DeployAppActivity.js';
 import type { DownloadModelArgs } from '../activities/DownloadModelActivity.js';
 // From lib/activity-timeouts.ts, NOT from the activity files directly — importing a value (not
 // just a type) from an activity file pulls its entire dependency tree (InfrastructureService,
@@ -12,7 +12,7 @@ import { deployAppActivityMeta, downloadModelActivityMeta } from '../lib/activit
 // deploy at 30 min no matter how generous the K8s-level timeouts (startupProbe,
 // progressDeadlineSeconds, CDKTF's own timeouts) were set. Confirmed live: a TabbyAPI deploy
 // with a slow model download needed more than 30 min and got killed here first.
-const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: DeployAppArgs }>({ startToCloseTimeout: deployAppActivityMeta.startToCloseTimeout });
+const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: DeployAppArgs) => Promise<DeployAppResult> }>({ startToCloseTimeout: deployAppActivityMeta.startToCloseTimeout });
 const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ startToCloseTimeout: downloadModelActivityMeta.startToCloseTimeout });
 
 export async function executeDeployAppWorkflow(args: DeployAppArgs) {

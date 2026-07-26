@@ -24,8 +24,8 @@ import { computeModelFolderName } from '../lib/model-folder-name.js';
 
 export interface DownloadModelArgs {
   modelRepo: string;
-  revision?: string;
-  hfToken?: string;
+  revision?: string | undefined;
+  hfToken?: string | undefined;
   cacheHostPath: string;
 }
 

@@ -58,14 +58,22 @@ const mockGetK3dServerIp = vi.fn();
 let AppExposureService: any;
 
 beforeAll(async () => {
-  const mod = await import('./AppExposureService.ts');
+  const mod = await import('./AppExposureService.js');
   AppExposureService = mod.AppExposureService;
 });
 
 function createService() {
   const db = { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment };
   const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
-  const clusters = { getById: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
+  // getByIdUnscoped is what AppExposureService actually calls — it needs the cluster's connection
+  // details for a deployment the route already authorized, so it must not be ownership-filtered
+  // (getById(id, userId) returns undefined for any owned cluster when called without a userId).
+  // Both are stubbed to the same fn so the existing assertions on mockGetById still apply.
+  const clusters = {
+    getById: mockGetById,
+    getByIdUnscoped: mockGetById,
+    getKubeconfigPath: mockGetKubeconfigPath,
+  };
   return new AppExposureService(db, infra, clusters);
 }
 
@@ -141,7 +149,7 @@ describe('syncExposedApps', () => {
 
     await createService().syncExposedApps();
     expect(mockUnlink).toHaveBeenCalledOnce();
-    expect(mockUnlink.mock.calls[0][0]).toContain('stale-app.conf');
+    expect(mockUnlink.mock.calls[0]![0]).toContain('stale-app.conf');
   });
 
   it('handles missing cluster gracefully', async () => {
@@ -226,7 +234,7 @@ describe('unexposePublic / unexposeLocal', () => {
     const result = await createService().unexposePublic('d1');
 
     expect(mockUnlink).toHaveBeenCalled();
-    const saved = mockSaveDeployment.mock.calls[0][0];
+    const saved = mockSaveDeployment.mock.calls[0]![0];
     expect(saved.isExposed).toBe(false);
     expect(saved.isExposedPublicly).toBe(false);
     expect(saved.publicExposureUrl).toBeUndefined();
@@ -258,7 +266,7 @@ describe('unexposePublic / unexposeLocal', () => {
     const result = await createService().unexposeLocal('d1');
 
     expect(mockUnlink).toHaveBeenCalled();
-    const saved = mockSaveDeployment.mock.calls[0][0];
+    const saved = mockSaveDeployment.mock.calls[0]![0];
     expect(saved.isExposed).toBe(false);
     expect(saved.isExposedLocally).toBe(false);
     expect(result.isExposed).toBe(false);

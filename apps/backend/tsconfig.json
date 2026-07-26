@@ -1,0 +1,30 @@
+{
+  // The backend had no tsconfig at all until now — it runs through `tsx`, which strips types
+  // without checking them, so nothing had ever typechecked this workspace. The root tsconfig.json
+  // is unmodified scaffold (no `include`, `"types": []`) and is not referenced by any script, so
+  // it doesn't cover this either.
+  //
+  // Settings mirror the root's strictness deliberately — the codebase was written against those
+  // rules (see CLAUDE.md's "TypeScript quirks"), so relaxing them here would hide real bugs rather
+  // than fix them.
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "esnext",
+    "moduleResolution": "nodenext",
+    // vitest/globals because vitest.config.ts sets `globals: true` — test files legitimately use
+    // describe/it/afterAll without importing them.
+    "types": ["node", "vitest/globals"],
+    "lib": ["esnext"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+
+    // Typecheck only — `tsx` handles execution, nothing here is ever emitted.
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

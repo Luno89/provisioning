@@ -52,15 +52,20 @@ export interface WorkflowDeal {
 // ────────────────────────────────────────────────────────────────────
 
 async function getDefaultClient(address?: string): Promise<Client> {
-  return getTemporalClient({ address })
+  // Conditional spread, not `{ address }` — under exactOptionalPropertyTypes an explicit
+  // `address: undefined` is not assignable to an optional `address?: string`.
+  return getTemporalClient({ ...(address !== undefined ? { address } : {}) })
 }
 
 async function updateUserStatus(
   db: Database,
   clusterId: string,
   clusterName: string,
-  provider: string,
-  status: string,
+  // Optional: since this now spreads the existing record, the provider is already there. Callers
+  // in trackWorkflow pass '' for deployment-scoped workflows (which have no provider at all), and
+  // an empty string must not overwrite a real one.
+  provider: ClusterMetadata['provider'] | '' | undefined,
+  status: ClusterMetadata['status'],
   kubeconfigPath?: string,
 ): Promise<void> {
   const clusters = await db.getClusters();
@@ -71,11 +76,13 @@ async function updateUserStatus(
   // group (host/username/encrypted key), which meant a 'remote' cluster lost its SSH details the
   // moment it went healthy and could never be cleanly torn down again. For 'hetzner' the same
   // omission would orphan a running, billing VM with nothing left pointing at it.
-  return db.saveClusterInfo({
+  // `await` rather than `return` — saveClusterInfo resolves to the saved ClusterMetadata, and this
+  // function's contract is Promise<void>.
+  await db.saveClusterInfo({
     ...(existing ?? {}),
     id: clusterId,
     name: clusterName,
-    provider,
+    ...(provider ? { provider } : {}),
     status,
     kubeconfigPath: kubeconfigPath ?? existing?.kubeconfigPath,
   })
@@ -112,25 +119,29 @@ async function updateDeploymentStatus(
   db: Database,
   deploymentId: string,
   deployment: DeploymentMetadata,
-  status: string,
-  storage = undefined,
+  status: DeploymentMetadata['status'],
+  storage: Record<string, string> | undefined = undefined,
 ): Promise<void> {
   const deployments = await db.getDeployments();
   const existing = deployments.find((d: any) => d.id === deploymentId);
-  return db.saveDeploymentInfo({
+  // Spread `deployment` rather than naming ~11 fields. db.saveDeployment is a full replaceOne, so
+  // every field omitted here was being DELETED on each status transition — which meant the entire
+  // vllm*/tabby*/webui* config group was wiped the moment a deployment went deploying → running.
+  // The record then looked unconfigured, and the next config sync silently re-applied defaults
+  // over whatever the user had actually chosen. Exact same hazard as updateUserStatus above.
+  //
+  // `existing` still wins for the bookkeeping fields it owns (workflow id, log path, owner), which
+  // is what the previous field-by-field version was expressing.
+  // `await`, not `return` — see updateUserStatus above.
+  await db.saveDeploymentInfo({
+    ...deployment,
     id: deploymentId,
-    name: deployment.name,
-    clusterId: deployment.clusterId,
-    strategy: deployment.strategy,
-    appType: deployment.appType,
     status,
-    modules: deployment.modules,
-    storage,
-    temporalWorkflowId: existing?.temporalWorkflowId,
-    url: deployment.url,
-    lastLogPath: existing?.lastLogPath ?? deployment.lastLogPath,
-    deploymentId: existing?.deploymentId ?? deployment.deploymentId,
-    ownerId: existing?.ownerId ?? deployment.ownerId,
+    ...(storage !== undefined ? { storage } : {}),
+    ...(existing?.temporalWorkflowId !== undefined ? { temporalWorkflowId: existing.temporalWorkflowId } : {}),
+    ...(existing?.lastLogPath !== undefined ? { lastLogPath: existing.lastLogPath } : {}),
+    ...(existing?.deploymentId !== undefined ? { deploymentId: existing.deploymentId } : {}),
+    ...(existing?.ownerId !== undefined ? { ownerId: existing.ownerId } : {}),
   })
 }
 
@@ -170,7 +181,7 @@ function inferProgressFromLog(logPath: string): ClusterProgress | null {
             lastStep = s.step
             lastMessage = cleanLine.substring(0, 120)
             const timeMatch = cleanLine.match(/(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/)
-            if (timeMatch) lastTimestamp = timeMatch[1]
+            if (timeMatch?.[1]) lastTimestamp = timeMatch[1]
             break
           }
         }
@@ -189,7 +200,7 @@ function inferProgressFromLog(logPath: string): ClusterProgress | null {
 
 export class TemporalBridge {
   db!: Database
-  io?: SocketServer
+  io: SocketServer | undefined
   client!: Client
   masterKey: string
   clusterService?: ClusterService
@@ -239,7 +250,7 @@ export class TemporalBridge {
 
   async stop(): Promise<void> {
     try {
-      await this.client.close()
+      await this.client.connection.close()
     } catch {
       // ignore
     }
@@ -250,7 +261,10 @@ export class TemporalBridge {
     action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize' | 'app-sync-config' | 'pipeline-run',
     resourceId: string,
     resourceName: string,
-    provider: string,
+    // Typed rather than `string` because it is forwarded straight into updateUserStatus, which
+    // writes it to ClusterMetadata.provider. App-side callers pass '' (there is no provider for a
+    // deployment-scoped workflow), so the empty string is part of the contract.
+    provider: ClusterMetadata['provider'] | '',
     meta?: any
   ) {
     let consecutiveFailures = 0
@@ -546,7 +560,7 @@ export class TemporalBridge {
 
   async provision(
     clusterName: string,
-    provider: string,
+    provider: ClusterMetadata['provider'],
     userId: string,
     remote?: { host: string; username: string; privateKey: string; port?: number; k3sApiPort?: number },
     hetzner?: { serverType?: string; location?: string; image?: string },
@@ -718,6 +732,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     })
     if (!dep) {
       dep = {
+        // A brand-new record for a deployment the DB hasn't seen yet — it is about to be started.
+        status: 'deploying',
         id: config.id || config.name,
         name: config.name,
         clusterId: config.clusterId,
@@ -775,7 +791,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         webuiEnableWebSearch: config.webuiEnableWebSearch,
         webuiWebSearchEngine: config.webuiWebSearchEngine,
         webuiWebSearchApiKey: config.webuiWebSearchApiKey,
-        ownerId: userId,
+        // Conditional spread — DeploymentMetadata.ownerId is optional, and under
+        // exactOptionalPropertyTypes an explicit undefined is not the same as absent.
+        ...(userId !== undefined ? { ownerId: userId } : {}),
       }
       dep = resolveVllmDefaults(dep as DeploymentMetadata)
       dep = resolveTabbyDefaults(dep as DeploymentMetadata)
@@ -1090,13 +1108,13 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   async listWorkflows(query?: string, pageSize?: number): Promise<any[]> {
     if (!this.isReady()) return [];
     try {
-      const iter = this.client.workflow.list({ query, pageSize: pageSize || 50 });
+      const iter = this.client.workflow.list({ ...(query ? { query } : {}), pageSize: pageSize || 50 });
       const workflows: any[] = [];
       for await (const wf of iter) {
         workflows.push({
           workflowId: wf.workflowId,
           runId: wf.runId,
-          type: wf.type?.name || wf.type,
+          type: wf.type,
           taskQueue: wf.taskQueue,
           status: wf.status?.name,
           startTime: wf.startTime?.toISOString?.() || wf.startTime,
@@ -1111,7 +1129,10 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   async countWorkflows(query?: string): Promise<number> {
     if (!this.isReady()) return 0;
     try {
-      const result = await this.client.workflow.count({ query });
+      // count() takes the query string directly, not a { query } options object — passing the
+      // object silently produced a malformed request rather than a type error, since nothing ever
+      // typechecked this file.
+      const result = await this.client.workflow.count(query);
       return result.count;
     } catch { return 0; }
   }
@@ -1124,7 +1145,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       return {
         workflowId: desc.workflowId,
         runId: desc.runId,
-        type: desc.type?.name || desc.type,
+        type: desc.type,
         taskQueue: desc.taskQueue,
         status: desc.status?.name,
         startTime: desc.startTime?.toISOString?.() || desc.startTime,

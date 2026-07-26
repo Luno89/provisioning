@@ -1355,7 +1355,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       const appType = req.query.appType as string;
       const results = appType === 'tabbyapi'
         ? await getExl3ModelCollection(q)
-        : await searchHfModels(q, { pipelineTag: appType === 'vllm' ? 'text-generation' : undefined, limit: 20 });
+        : await searchHfModels(q, { ...(appType === "vllm" ? { pipelineTag: "text-generation" } : {}), limit: 20 });
       res.json(results);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

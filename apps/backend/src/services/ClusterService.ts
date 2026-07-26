@@ -333,15 +333,30 @@ export class ClusterService extends BaseService {
     return discovered;
   }
 
-  async getById(id: string, userId: string) {
+  /**
+   * Ownership-unchecked lookup, for internal callers that need a cluster's *connection details*
+   * (kubeconfig, provider, gpuEnabled) during an operation the route layer already authorized.
+   * Same rationale as TemporalBridge.getClusterById — the per-user boundary is enforced once, at
+   * the route, and re-checking this deep would mean threading a userId through every internal
+   * call path for no additional safety.
+   *
+   * Never call this from a route handler; use getById(id, userId) there.
+   */
+  async getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined> {
     if (id === SYSTEM_CLUSTER_ID) {
       return this.getSystemClusterEntry();
     }
     const clusters = await this.db.getClusters();
-    const cluster = clusters.find((c: any) => c.id === id);
+    return clusters.find((c: any) => c.id === id);
+  }
+
+  async getById(id: string, userId: string) {
+    const cluster = await this.getByIdUnscoped(id);
+    // The synthetic system cluster is shared platform infrastructure with no ownerId — visible to
+    // every user, so it must bypass the check below rather than fail it.
+    if (cluster && !cluster.isSystem && cluster.ownerId !== userId) return undefined;
     // 404, not 403 — a wrong-owner lookup and a truly nonexistent id look identical to the
     // caller, so a guessed id can't be used to confirm someone else's cluster even exists.
-    if (cluster && cluster.ownerId !== userId) return undefined;
     return cluster;
   }
 

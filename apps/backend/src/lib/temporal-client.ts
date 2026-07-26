@@ -4,9 +4,18 @@
  * Wraps a {@link Client} connection to the Temporal server at
  * TEMPORAL_CONNECTION_ADDRESS (default http://localhost:7233).
  */
-import { Client } from '@temporalio/client'
+import { Client, Connection } from '@temporalio/client'
 
 const serverUrl = process.env.TEMPORAL_CONNECTION_ADDRESS || 'http://localhost:7233'
+
+/**
+ * Connection.connect wants a bare `host:port`, but this module's default (and older env values)
+ * carry an `http://` scheme. Strip it rather than fail to connect on a value that has always
+ * "worked" — it only ever worked because the address was being ignored entirely.
+ */
+function toConnectionAddress(address: string): string {
+  return address.replace(/^https?:\/\//, '')
+}
 
 /** Options for creating the singleton client. */
 export interface TemporalClientOptions {
@@ -26,8 +35,12 @@ export async function getTemporalClient(options?: TemporalClientOptions): Promis
   if (shared) return shared
   const address = options?.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? serverUrl
   const namespace = options?.namespace ?? 'default'
+  // `connectionAddress` is not a ClientOptions key — it was silently ignored, so every client
+  // connected to the SDK's default localhost:7233 and TEMPORAL_CONNECTION_ADDRESS had no effect.
+  // The address has to go through an explicit Connection.
+  const connection = await Connection.connect({ address: toConnectionAddress(address) })
   shared = new Client({
-    connectionAddress: address,
+    connection,
     namespace,
   })
   return shared

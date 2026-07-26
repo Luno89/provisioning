@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key, StopCircle, RefreshCw, Settings, GitBranch } from 'lucide-react';
+import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key, RefreshCw, Settings, GitBranch } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';

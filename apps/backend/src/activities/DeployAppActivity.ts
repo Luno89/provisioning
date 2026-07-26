@@ -10,6 +10,7 @@ import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
+import type { Database } from '../lib/db-interface.js';
 import { BuilderService } from '../services/BuilderService.js';
 import { StorageAdapter } from '../services/StorageAdapter.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
@@ -24,52 +25,52 @@ export interface DeployAppArgs {
   provider: string;
   strategy: string;
   appType: string;
-  clusterGpuEnabled?: boolean;
-  modules?: string[];
+  clusterGpuEnabled?: boolean | undefined;
+  modules?: string[] | undefined;
   odooRepo: string;
   odooTag: string;
   dbRepo: string;
   dbTag: string;
   logFile: string;
-  deploymentId?: string;
-  vllmModel?: string;
-  vllmGpuCount?: number;
-  vllmGpuVendor?: 'nvidia' | 'amd';
-  vllmCachePvc?: string;
-  vllmHfToken?: string;
-  vllmMaxModelLen?: number;
-  vllmGpuMemUtil?: number;
-  vllmExtraArgs?: string;
-  vllmToolCallingEnabled?: boolean;
-  vllmToolCallParser?: string;
-  vllmServedModelName?: string;
-  vllmMaxNumSeqs?: number;
-  vllmDtype?: string;
-  vllmEnablePrefixCaching?: boolean;
-  tabbyModel?: string;
-  tabbyRevision?: string;
-  tabbyGpuCount?: number;
-  tabbyHfToken?: string;
-  tabbyCachePvc?: string;
-  tabbyImageTag?: string;
-  tabbyCacheMode?: string;
-  tabbyMaxSeqLen?: number;
-  tabbyMaxBatchSize?: number;
-  tabbyReasoning?: boolean;
-  tabbyToolFormat?: string;
-  tabbyInlineModelLoading?: boolean;
-  tabbyDisableAuth?: boolean;
-  tabbyExtraEnv?: string;
+  deploymentId?: string | undefined;
+  vllmModel?: string | undefined;
+  vllmGpuCount?: number | undefined;
+  vllmGpuVendor?: 'nvidia' | 'amd' | undefined;
+  vllmCachePvc?: string | undefined;
+  vllmHfToken?: string | undefined;
+  vllmMaxModelLen?: number | undefined;
+  vllmGpuMemUtil?: number | undefined;
+  vllmExtraArgs?: string | undefined;
+  vllmToolCallingEnabled?: boolean | undefined;
+  vllmToolCallParser?: string | undefined;
+  vllmServedModelName?: string | undefined;
+  vllmMaxNumSeqs?: number | undefined;
+  vllmDtype?: string | undefined;
+  vllmEnablePrefixCaching?: boolean | undefined;
+  tabbyModel?: string | undefined;
+  tabbyRevision?: string | undefined;
+  tabbyGpuCount?: number | undefined;
+  tabbyHfToken?: string | undefined;
+  tabbyCachePvc?: string | undefined;
+  tabbyImageTag?: string | undefined;
+  tabbyCacheMode?: string | undefined;
+  tabbyMaxSeqLen?: number | undefined;
+  tabbyMaxBatchSize?: number | undefined;
+  tabbyReasoning?: boolean | undefined;
+  tabbyToolFormat?: string | undefined;
+  tabbyInlineModelLoading?: boolean | undefined;
+  tabbyDisableAuth?: boolean | undefined;
+  tabbyExtraEnv?: string | undefined;
   // Set only by TemporalBridge.deploy() for clusters where the worker shares a filesystem with
   // the K8s node (see DownloadModelActivity.ts) — AppDeployWorkflow.ts uses this to decide
   // whether to pre-download the model before this activity ever runs. Not read here; DeployAppActivity
   // itself is unaffected either way since the pod's own in-container download logic is
   // idempotent — it just sees the cache already populated when this ran first.
-  modelCacheHostPath?: string;
-  openaiApiBaseUrl?: string;
-  webuiEnableWebSearch?: boolean;
-  webuiWebSearchEngine?: string;
-  webuiWebSearchApiKey?: string;
+  modelCacheHostPath?: string | undefined;
+  openaiApiBaseUrl?: string | undefined;
+  webuiEnableWebSearch?: boolean | undefined;
+  webuiWebSearchEngine?: string | undefined;
+  webuiWebSearchApiKey?: string | undefined;
 }
 
 export interface DeployAppResult {
@@ -89,7 +90,11 @@ export async function DeployAppActivity(
   args: DeployAppArgs,
 ): Promise<DeployAppResult> {
   const infra = new InfrastructureService();
-  const builder = new BuilderService({}, infra);
+  // BuilderService inherits a Database from BaseService but never reads it — only its
+  // InfrastructureService is used. Activities have no DB access by design (see TemporalBridge's
+  // note on masterKey), so there is no real one to pass; the cast makes that explicit rather than
+  // relying on `{}` silently satisfying an unchecked parameter.
+  const builder = new BuilderService({} as unknown as Database, infra);
   const logFile = args.logFile;
   const sanitizedName = SANITIZE(args.name);
 

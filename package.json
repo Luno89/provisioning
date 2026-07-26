@@ -17,7 +17,12 @@
     "test:alive": "bash scripts/alive.sh",
     "test:worker": "tsx tests/worker-isolated.ts",
 
-    "test:unit":       "npm run test:unit:frontend && npm run test:unit:backend",
+    "typecheck":       "npm run typecheck:backend && npm run typecheck:frontend && npm run typecheck:infra",
+    "typecheck:backend":  "tsc --noEmit -p apps/backend/tsconfig.json",
+    "typecheck:frontend": "tsc --noEmit -p apps/frontend/tsconfig.app.json",
+    "typecheck:infra":    "tsc --noEmit -p packages/cdktf-infra/tsconfig.json",
+
+    "test:unit":       "npm run typecheck && npm run test:unit:frontend && npm run test:unit:backend",
     "test:unit:frontend":    "npm run test -w apps/frontend",
     "test:unit:backend":     "npm run test -w apps/backend",
 

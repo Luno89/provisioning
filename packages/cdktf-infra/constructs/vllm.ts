@@ -106,7 +106,10 @@ export class VllmApp extends Construct {
           name: "hf-token-secret",
           namespace: ns.metadata.name,
         },
-        stringData: {
+        // `data`, not `stringData` — the Terraform kubernetes provider has no stringData field, so
+        // that block was silently dropped and this Secret was created EMPTY. The provider
+        // base64-encodes `data` values itself, so plaintext here is correct.
+        data: {
           token: hfToken,
         },
       });
@@ -326,11 +329,13 @@ export class VllmApp extends Construct {
         port: [
           {
             port: 8000,
-            targetPort: 8000,
+            targetPort: "8000",
           },
         ],
       },
-      waitUntilReady: false,
+      // waitForLoadBalancer, not waitUntilReady — the latter is not a ServiceConfig field and was
+      // silently ignored, so this Service was waiting for an LB that never arrives on k3s.
+      waitForLoadBalancer: false,
     });
 
     createAppIngress(this, "ingress", {

@@ -74,7 +74,6 @@ async function main() {
           DownloadModelActivity,
           RunPipelineActivity,
         },
-        failFast: true,
       });
       break;
     } catch (err: any) {

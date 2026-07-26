@@ -137,17 +137,17 @@ export class OpenWebUiApp extends Construct {
                 // a startupProbe (rather than a short initialDelaySeconds) avoids a restart
                 // loop on slower disks without weakening liveness detection afterwards.
                 startupProbe: {
-                  httpGet: { path: "/health", port: 8080 },
+                  httpGet: { path: "/health", port: "8080" },
                   periodSeconds: 5,
                   failureThreshold: 60, // ~5 min
                 },
                 livenessProbe: {
-                  httpGet: { path: "/health", port: 8080 },
+                  httpGet: { path: "/health", port: "8080" },
                   periodSeconds: 15,
                   failureThreshold: 3,
                 },
                 readinessProbe: {
-                  httpGet: { path: "/health", port: 8080 },
+                  httpGet: { path: "/health", port: "8080" },
                   periodSeconds: 10,
                   failureThreshold: 3,
                 },

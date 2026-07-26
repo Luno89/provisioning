@@ -46,7 +46,6 @@ async function main() {
           ProvisionClusterActivity,
           DestroyClusterActivity,
         },
-        failFast: true,
       });
       break;
     } catch (err: any) {

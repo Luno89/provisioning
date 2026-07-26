@@ -25,7 +25,7 @@ describe('Login Component', () => {
   it('displays 2FA OTP code panel when requested', async () => {
     // Stub global fetch
     const mockResponse = { twoFactorRequired: true, userId: 'user-123' };
-    const globalFetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() =>
+    const globalFetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve({
         ok: true,
         json: () => Promise.resolve(mockResponse),

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Cloud, Check, Trash2, Loader2, AlertTriangle, Key, ChevronDown, ChevronUp, ExternalLink, HardDriveDownload, PlayCircle } from 'lucide-react';
+import { Cloud, Check, Trash2, Loader2, AlertTriangle, Key, ExternalLink, HardDriveDownload, PlayCircle } from 'lucide-react';
 
 interface ProviderStatus {
   provider: string;

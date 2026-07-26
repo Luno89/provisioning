@@ -67,7 +67,7 @@ describe('ClusterProxyService', () => {
       emitForwarding(child, 12345);
       await p;
 
-      const args = mockSpawn.mock.calls[0][1] as string[];
+      const args = mockSpawn.mock.calls[0]![1] as string[];
       expect(args).toContain('port-forward');
       expect(args).toContain('--kubeconfig');
       expect(args).toContain('/tmp/kubeconfig-c1');
@@ -86,7 +86,7 @@ describe('ClusterProxyService', () => {
       emitForwarding(child, 11111);
       const url = await p;
 
-      const args = mockSpawn.mock.calls[0][1] as string[];
+      const args = mockSpawn.mock.calls[0]![1] as string[];
       expect(args).toContain('-n');
       // Not kube-system — this platform's own Traefik release deploys into its own 'traefik'
       // namespace (constructs/ingress.ts); k3s's bundled Traefik, which would be in

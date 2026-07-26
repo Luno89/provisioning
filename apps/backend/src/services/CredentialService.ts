@@ -10,6 +10,15 @@ import type { CloudCredentials, CloudProvider, UserMetadata } from '../lib/types
 import { encryptValue, decryptValue, maskSecret } from '../lib/crypto.js';
 import { resolveCloudCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 
+/**
+ * Provider API responses are unvalidated external JSON, and `Response.json()` is typed `unknown`.
+ * We only ever read a couple of display fields off these, so this narrows just enough for those
+ * reads to typecheck — deliberately without pretending the shape has been validated.
+ */
+async function readJson(res: Response): Promise<Record<string, any>> {
+  return (await res.json()) as Record<string, any>;
+}
+
 /** Fields that are considered sensitive and must be encrypted at rest */
 const SENSITIVE_FIELDS: Record<string, string[]> = {
   aws: ['accessKeyId', 'secretAccessKey'],
@@ -65,7 +74,7 @@ export class CredentialService {
         if (!res.ok) {
           return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         }
-        const data = await res.json();
+        const data = await readJson(res);
         return { valid: true, message: `Authenticated as Hugging Face user @${data.name || data.fullname || 'user'}`, details: data };
       }
 
@@ -78,7 +87,7 @@ export class CredentialService {
         if (!res.ok) {
           return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         }
-        const data = await res.json();
+        const data = await readJson(res);
         return { valid: true, message: `Authenticated as GitHub user @${data.login}`, details: data };
       }
 
@@ -122,7 +131,7 @@ export class CredentialService {
         if (!res.ok) {
           return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         }
-        const data = await res.json();
+        const data = await readJson(res);
         return { valid: true, message: `Authenticated as DigitalOcean account (${data.account?.email || 'active'})` };
       }
 
@@ -140,7 +149,7 @@ export class CredentialService {
         if (!res.ok) {
           return { valid: false, message: `Hetzner Cloud API returned HTTP ${res.status}.` };
         }
-        const data = await res.json();
+        const data = await readJson(res);
         const total = data?.meta?.pagination?.total_entries;
         return {
           valid: true,
@@ -166,14 +175,14 @@ export class CredentialService {
         if (!tokenRes.ok) {
           return { valid: false, message: `Google Drive refresh token is no longer valid (HTTP ${tokenRes.status}) — reconnect.` };
         }
-        const { access_token } = await tokenRes.json();
+        const { access_token } = await readJson(tokenRes);
         const aboutRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
           headers: { Authorization: `Bearer ${access_token}` },
         });
         if (!aboutRes.ok) {
           return { valid: false, message: `Drive API check failed (HTTP ${aboutRes.status}).` };
         }
-        const about = await aboutRes.json();
+        const about = await readJson(aboutRes);
         return { valid: true, message: `Connected to Google Drive as ${about.user?.emailAddress || 'unknown account'}` };
       }
 

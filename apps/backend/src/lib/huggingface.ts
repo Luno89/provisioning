@@ -80,7 +80,7 @@ export async function getHfModelBranches(repo: string, token?: string): Promise<
   const names: string[] = (res.data.branches as any[]).map((b) => b.name);
   const bpwOf = (name: string) => {
     const m = name.match(/(\d+(?:\.\d+)?)\s*bpw/i);
-    return m ? parseFloat(m[1]) : null;
+    return m?.[1] ? parseFloat(m[1]) : null;
   };
   return names.sort((a, b) => {
     const [ba, bb] = [bpwOf(a), bpwOf(b)];

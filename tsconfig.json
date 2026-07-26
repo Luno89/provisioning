@@ -1,4 +1,14 @@
 {
+  // NOT the project's typecheck entry point. Run `npm run typecheck`, which invokes the three
+  // real per-workspace configs (apps/backend, apps/frontend/tsconfig.app.json,
+  // packages/cdktf-infra) — each with the module resolution and lib/types its own code needs.
+  //
+  // This file is the original scaffold: it has no `include`, so pointing tsc at it sweeps the
+  // whole repo (e2e/, scripts/, tests/) under one set of options that suits none of them, and
+  // `"types": []` means even @types/node is missing. It reports ~140 errors that are almost
+  // entirely artifacts of that mismatch. Kept only as the shared baseline the workspace configs
+  // were derived from.
+  //
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout

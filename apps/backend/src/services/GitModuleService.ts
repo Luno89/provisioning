@@ -11,7 +11,10 @@ export interface OdooModule {
   id: string;
   name: string;
   summary: string;
-  description: string;
+  // Optional because only modules parsed from a real manifest carry one (see the `data.description
+  // || ''` fallback in listAvailableModules); the built-in catalogue below has summaries only. The
+  // UI already treats it as a fallback — `mod.summary || mod.description` in App.tsx.
+  description?: string;
   author: string;
   version: string;
   depends?: string[];
@@ -120,13 +123,17 @@ export class GitModuleService extends BaseService {
   private extractManifestValue(content: string, key: string): string | null {
     const regex = new RegExp(`['"]${key}['"]\\s*:\\s*['"]([^'"]+)['"]`, 'i');
     const match = content.match(regex);
-    return match ? match[1] : null;
+    // `?? null` rather than `match ? match[1] : null`: under noUncheckedIndexedAccess a capture
+    // group is `string | undefined` even when the match succeeded, and the caller's contract is
+    // `string | null`.
+    return match?.[1] ?? null;
   }
 
   private extractManifestList(content: string, key: string): string[] | null {
     const regex = new RegExp(`['"]${key}['"]\\s*:\\s*\\[([^\\]]+)\\]`, 'i');
     const match = content.match(regex);
-    if (!match) return null;
-    return match[1].split(',').map(s => s.trim().replace(/['"]/g, '')).filter(s => s);
+    const body = match?.[1];
+    if (!body) return null;
+    return body.split(',').map(s => s.trim().replace(/['"]/g, '')).filter(s => s);
   }
 }
