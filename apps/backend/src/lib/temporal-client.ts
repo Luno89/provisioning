@@ -5,6 +5,7 @@
  * TEMPORAL_CONNECTION_ADDRESS (default http://localhost:7233).
  */
 import { Client, Connection } from '@temporalio/client'
+import { buildDataConverter } from './temporal-codec.js'
 
 const serverUrl = process.env.TEMPORAL_CONNECTION_ADDRESS || 'http://localhost:7233'
 
@@ -39,9 +40,13 @@ export async function getTemporalClient(options?: TemporalClientOptions): Promis
   // connected to the SDK's default localhost:7233 and TEMPORAL_CONNECTION_ADDRESS had no effect.
   // The address has to go through an explicit Connection.
   const connection = await Connection.connect({ address: toConnectionAddress(address) })
+  // Encrypts every payload before it leaves this process — see lib/temporal-codec.ts. Both
+  // workers must build the same converter or they cannot decode what this client sends.
+  const dataConverter = buildDataConverter(process.env.JWT_SECRET)
   shared = new Client({
     connection,
     namespace,
+    ...(dataConverter ? { dataConverter } : {}),
   })
   return shared
 }

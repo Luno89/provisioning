@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /* eslint-disable no-console */
+import dotenv from 'dotenv';
 import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -7,8 +8,19 @@ import { fileURLToPath } from 'url';
 import { ProvisionClusterActivity } from './activities/ProvisionClusterActivity.js';
 import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
+import { buildDataConverter } from './lib/temporal-codec.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// index.ts loads this for the backend, but the workers are separate processes that never did —
+// so every process.env lookup here silently saw undefined. That went unnoticed until the Temporal
+// PayloadCodec needed JWT_SECRET: the backend's client encrypted payloads while the workers, with
+// no key, built no codec and could not decode them.
+//
+// Resolved from this file rather than process.cwd() so it works regardless of where the worker is
+// launched from. A missing file is fine — in-cluster the values come from the pod's env, and
+// dotenv never overwrites an already-set variable.
+dotenv.config({ path: resolve(__dirname, '../.env') });
 
 const logger = createWorkerLogger('host-worker');
 
@@ -38,8 +50,12 @@ async function main() {
   while (true) {
     try {
       const connection = await NativeConnection.connect({ address });
+      const dataConverter = buildDataConverter(process.env.JWT_SECRET);
       worker = await Worker.create({
         connection,
+        // Must match the client's converter (lib/temporal-client.ts) or this worker cannot decode
+        // the arguments it is handed.
+        ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
         activities: {

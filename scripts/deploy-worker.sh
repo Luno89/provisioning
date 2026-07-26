@@ -30,6 +30,26 @@ echo "  ▶  importing ${WORKER_IMAGE_NAME} into k3d cluster '${CLUSTER_NAME}'..
 
 echo "  ▶  deploying worker to cluster '${CLUSTER_NAME}'..."
 "$KUBECTL" apply -f "${ROOT}/k8s/worker-sa.yaml" --context "k3d-${CLUSTER_NAME}" 2>/dev/null || true
+
+# The worker needs the same master key as the backend to build the Temporal PayloadCodec
+# (apps/backend/src/lib/temporal-codec.ts) — without it, it cannot decode the encrypted activity
+# arguments the client sends. Read from apps/backend/.env, which is the backend's own source for
+# it, so the two can never disagree.
+#
+# `create --dry-run | apply` rather than plain create, so re-running this script after rotating
+# JWT_SECRET updates the Secret instead of failing with AlreadyExists.
+WORKER_JWT_SECRET="$(grep -E '^JWT_SECRET=' "${ROOT}/apps/backend/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
+if [ -n "$WORKER_JWT_SECRET" ]; then
+  "$KUBECTL" create secret generic provisioning-worker-secrets \
+    --from-literal=JWT_SECRET="$WORKER_JWT_SECRET" \
+    --dry-run=client -o yaml --context "k3d-${CLUSTER_NAME}" \
+    | "$KUBECTL" apply -f - --context "k3d-${CLUSTER_NAME}" >/dev/null
+  echo "  ▶  worker payload-encryption key synced"
+else
+  echo "  ⚠️  No JWT_SECRET in apps/backend/.env — the worker will run without payload encryption."
+  echo "     That only works if the backend has no JWT_SECRET either; otherwise activities will"
+  echo "     fail to deserialize their arguments."
+fi
 "$KUBECTL" apply -f "${ROOT}/k8s/worker-deployment.yaml" --context "k3d-${CLUSTER_NAME}"
 
 # Best-effort: the PodMonitor CRD only exists once the Prometheus Operator (part of the cluster's

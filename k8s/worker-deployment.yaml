@@ -27,6 +27,19 @@ spec:
               value: "cluster-ops-queue"
             - name: IN_CLUSTER
               value: "true"
+            # Master key for the Temporal PayloadCodec (apps/backend/src/lib/temporal-codec.ts).
+            # Without it this worker builds no converter and cannot decode the encrypted arguments
+            # the client sends — every activity would fail on deserialization.
+            #
+            # `optional: true` so a cluster whose Secret hasn't been created yet still starts: the
+            # worker then falls back to the plaintext converter, which matches a client that also
+            # has no key. scripts/deploy-worker.sh creates the Secret.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-worker-secrets
+                  key: JWT_SECRET
+                  optional: true
           ports:
             - name: metrics
               containerPort: 9464
