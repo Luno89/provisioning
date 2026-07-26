@@ -90,7 +90,7 @@ export interface DeploymentMetadata {
   // existed; migrateLegacyOwnership backfills those to the admin user once, at startup.
   ownerId?: string;
   strategy: 'helm' | 'native';
-  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'gitapp';
+  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'gitapp' | 'palworld';
   // gitapp-specific fields — image comes from a Project's pipeline run, not a typed repo/tag
   gitappProjectId?: string;
   gitappImageTag?: string;
@@ -148,6 +148,13 @@ export interface DeploymentMetadata {
   tabbyInlineModelLoading?: boolean;
   tabbyDisableAuth?: boolean;
   tabbyExtraEnv?: string;
+  // Schema-driven settings for app types with too many options to give each a first-class field
+  // (game servers: ~120 apiece). One map threaded through the pipeline once, validated at runtime
+  // against lib/app-settings-schema.ts instead of at compile time. See that file for why.
+  //
+  // Keyed by container env var name. Secrets are deliberately NOT stored here — they live in a
+  // Kubernetes Secret so they never reach Mongo, Terraform state, or Temporal history.
+  appSettings?: Record<string, string>;
   // Open WebUI-specific fields
   openWebuiTargetId?: string; // id of the vLLM/TabbyAPI DeploymentMetadata this instance talks to
   webuiEnableWebSearch?: boolean;

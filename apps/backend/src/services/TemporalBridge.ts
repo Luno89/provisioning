@@ -41,6 +41,13 @@ const WORKFLOW_POLL_INTERVAL = 5000
 const RECONCILE_INTERVAL = 30000
 const MAX_POLL_FAILURES = 12
 
+/**
+ * DeploymentMetadata fields holding a map that a PATCH may update partially. These get merged key
+ * by key in updateConfigAndSync; every other field is overwritten wholesale. Add map-valued fields
+ * here or a partial update will silently wipe the keys it didn't mention.
+ */
+const DEEP_MERGE_FIELDS = ['storage', 'appSettings'] as const
+
 export interface WorkflowDeal {
   readonly id: string
   readonly resourceId?: string
@@ -791,6 +798,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         webuiEnableWebSearch: config.webuiEnableWebSearch,
         webuiWebSearchEngine: config.webuiWebSearchEngine,
         webuiWebSearchApiKey: config.webuiWebSearchApiKey,
+        appSettings: config.appSettings,
         // Conditional spread — DeploymentMetadata.ownerId is optional, and under
         // exactOptionalPropertyTypes an explicit undefined is not the same as absent.
         ...(userId !== undefined ? { ownerId: userId } : {}),
@@ -886,6 +894,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       webuiEnableWebSearch: dep.webuiEnableWebSearch,
       webuiWebSearchEngine: dep.webuiWebSearchEngine,
       webuiWebSearchApiKey: dep.webuiWebSearchApiKey,
+      appSettings: dep.appSettings,
     }
 
     this.db.saveDeploymentInfo({
@@ -1060,6 +1069,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       webuiEnableWebSearch: dep.webuiEnableWebSearch,
       webuiWebSearchEngine: dep.webuiWebSearchEngine,
       webuiWebSearchApiKey: dep.webuiWebSearchApiKey,
+      appSettings: dep.appSettings,
     }
 
     this.db.saveDeploymentInfo({
@@ -1092,11 +1102,20 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const dep = deployments.find((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (updateConfigAndSync)')
 
-    await this.db.saveDeploymentInfo({
-      ...dep,
-      ...patch,
-      storage: patch.storage ? { ...dep.storage, ...patch.storage } : dep.storage,
-    })
+    // Map-valued fields need a DEEP merge; everything else is a plain overwrite. Generalised over
+    // a list rather than special-casing `storage` (as this did originally) because the next
+    // map-valued field is exactly where the bug reappears: a Config-tab PATCH sends only the
+    // settings the user actually changed, so a shallow spread would replace the whole map and
+    // silently discard the other ~119 — then the CDKTF re-apply below would revert the server to
+    // defaults.
+    const merged: Record<string, any> = { ...dep, ...patch }
+    for (const field of DEEP_MERGE_FIELDS) {
+      const incoming = (patch as Record<string, any>)[field]
+      if (incoming) {
+        merged[field] = { ...((dep as Record<string, any>)[field] ?? {}), ...incoming }
+      }
+    }
+    await this.db.saveDeploymentInfo(merged)
 
     return this.syncConfig(deploymentId)
   }

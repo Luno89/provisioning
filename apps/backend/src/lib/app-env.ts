@@ -56,6 +56,9 @@ export interface AppEnvArgs {
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
   webuiWebSearchApiKey?: string | undefined;
+  // Schema-driven settings for game servers etc. Serialized as one JSON env var rather than ~120
+  // discrete ones, so main.ts needs a single read instead of 120 named ones.
+  appSettings?: Record<string, string> | undefined;
   storageEnv: Record<string, string>;
 }
 
@@ -176,6 +179,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     WEBUI_ENABLE_WEB_SEARCH: a.webuiEnableWebSearch === false ? 'false' : '',
     WEBUI_WEB_SEARCH_ENGINE: a.webuiWebSearchEngine || '',
     WEBUI_WEB_SEARCH_API_KEY: a.webuiWebSearchApiKey || '',
+    APP_SETTINGS_JSON: JSON.stringify(a.appSettings ?? {}),
     ...a.storageEnv,
   };
 }

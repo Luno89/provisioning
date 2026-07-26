@@ -174,6 +174,7 @@ export class MongoDB implements Database {
     if (deployment.lastLogPath !== undefined) d.lastLogPath = deployment.lastLogPath;
     if (deployment.modules !== undefined) d.modules = deployment.modules;
     if (deployment.storage !== undefined) d.storage = deployment.storage;
+    if (deployment.appSettings !== undefined) d.appSettings = deployment.appSettings;
     if (deployment.vpnEnabled !== undefined) d.vpnEnabled = deployment.vpnEnabled;
     if (deployment.vpnProtocol !== undefined) d.vpnProtocol = deployment.vpnProtocol;
     if (deployment.vpnConfig !== undefined) d.vpnConfig = deployment.vpnConfig;

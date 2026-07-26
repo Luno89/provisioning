@@ -6,6 +6,14 @@ export interface AppProbeConfig {
   readonly serviceName: string;
   readonly servicePort: number;
   readonly path?: string;
+  /**
+   * blackbox-exporter module to probe with. Defaults to "http_2xx", which is right for every web
+   * app. Game servers pass "tcp_connect" — they have no HTTP surface to check, and blackbox has
+   * no UDP prober at all, so a TCP listener on the app's control/API port is the closest real
+   * liveness signal. Any non-default value must exist in blackbox-exporter's chart values (see
+   * constructs/blackbox-exporter.ts) or the probe silently reports down forever.
+   */
+  readonly module?: string;
 }
 
 /**
@@ -41,7 +49,7 @@ export function createAppProbe(scope: Construct, id: string, config: AppProbeCon
         prober: {
           url: "blackbox-exporter.monitoring.svc.cluster.local:9115",
         },
-        module: "http_2xx",
+        module: config.module ?? "http_2xx",
         targets: {
           staticConfig: {
             static: [target],

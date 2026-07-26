@@ -71,6 +71,7 @@ export interface DeployAppArgs {
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
   webuiWebSearchApiKey?: string | undefined;
+  appSettings?: Record<string, string> | undefined;
 }
 
 export interface DeployAppResult {
@@ -273,6 +274,7 @@ export async function DeployAppActivity(
     webuiEnableWebSearch: args.webuiEnableWebSearch,
     webuiWebSearchEngine: args.webuiWebSearchEngine,
     webuiWebSearchApiKey: args.webuiWebSearchApiKey,
+    ...(args.appSettings ? { appSettings: args.appSettings } : {}),
     storageEnv,
   });
 

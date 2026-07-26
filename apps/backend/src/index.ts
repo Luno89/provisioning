@@ -24,6 +24,14 @@ import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
 import type { ClusterMetadata, DeploymentMetadata, InviteMetadata } from './lib/types.js';
+import type { AppSettingsSchema } from './lib/app-settings-schema.js';
+import { validateAppSettings } from './lib/app-settings-schema.js';
+import { PALWORLD_SCHEMA } from './lib/palworld-settings.js';
+
+/** Every app type with a schema-driven settings map. Add new game servers here. */
+const APP_SETTINGS_SCHEMAS: Record<string, AppSettingsSchema> = {
+  palworld: PALWORLD_SCHEMA,
+};
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
 import { ClusterProxyService } from './services/ClusterProxyService.js';
@@ -1246,6 +1254,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   /** ── MODULES ── */
   app.get('/api/modules', async (req, res) => res.json(await gitModuleService.listAvailableModules(req.query.appType as string)));
 
+  /**
+   * Settings schema for app types whose configuration is schema-driven rather than a handful of
+   * first-class fields (see lib/app-settings-schema.ts). The frontend's Config tab renders itself
+   * from this, so a new setting is a one-file backend change with no matching UI edit.
+   *
+   * Served over HTTP rather than shared as a module because there is no cross-workspace source
+   * package here — adding one would mean rebuilding the in-cluster worker image too.
+   */
+  app.get('/api/app-schemas/:appType', async (req, res) => {
+    const schema = APP_SETTINGS_SCHEMAS[req.params.appType];
+    if (!schema) return res.status(404).json({ error: `No settings schema for app type "${req.params.appType}"` });
+    return res.json(schema);
+  });
+
   app.patch('/api/deployments/:id/modules', async (req, res) => {
     const { modules } = req.body;
     res.status(202).json(await appService.updateModules(req.params.id, modules, (req as any).user.id, io));
@@ -1284,11 +1306,33 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         'tabbyReasoning', 'tabbyToolFormat', 'tabbyInlineModelLoading', 'tabbyDisableAuth',
         'tabbyExtraEnv',
         'webuiEnableWebSearch', 'webuiWebSearchEngine', 'webuiWebSearchApiKey',
+        // Map-valued: deep-merged in updateConfigAndSync and key-validated against the app's
+        // schema below, since these become container env vars.
+        'appSettings',
       ];
       const patch: Record<string, any> = {};
       for (const key of CONFIGURABLE_FIELDS) {
         if (req.body[key] !== undefined) patch[key] = req.body[key];
       }
+
+      // The allowlist above gates FIELD names; it says nothing about the KEYS inside appSettings —
+      // and those become container environment variables. Without this, any authenticated user
+      // could inject arbitrary env (LD_PRELOAD and friends) into a pod. Validated here rather
+      // than in the activity so the caller gets a synchronous 400 instead of a workflow that
+      // fails minutes later.
+      if (patch.appSettings !== undefined) {
+        const existing = await appService.getById(req.params.id, (req as any).user.id);
+        const schema = APP_SETTINGS_SCHEMAS[existing?.appType ?? ''];
+        if (!schema) {
+          return res.status(400).json({ error: `App type "${existing?.appType}" has no settings schema` });
+        }
+        const { values, errors } = validateAppSettings(schema, patch.appSettings);
+        if (errors.length > 0) {
+          return res.status(400).json({ error: 'Invalid settings', details: errors });
+        }
+        patch.appSettings = values;
+      }
+
       const info = await temporalBridge.updateConfigAndSync(req.params.id, patch);
       res.status(202).json({
         message: 'Config updated, sync started',
