@@ -16,6 +16,7 @@ import { VllmApp } from "./constructs/vllm.js";
 import { TabbyApiApp } from "./constructs/tabbyapi.js";
 import { OpenWebUiApp } from "./constructs/open-webui.js";
 import { GitappApp } from "./constructs/gitapp.js";
+import { PalworldApp } from "./constructs/palworld.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
 import { DashboardsStack } from "./constructs/dashboards.js";
@@ -129,6 +130,19 @@ class AppStack extends TerraformStack {
     const storageConfig = process.env.STORAGE_CONFIG;
     const storageMetadata = process.env.STORAGE_METADATA;
     const storageServer = process.env.STORAGE_SERVER;
+    const storageData = process.env.STORAGE_DATA;
+
+    // Schema-driven settings for app types with too many options for individual env vars (game
+    // servers: ~120 each). Built by lib/app-settings-schema.ts on the backend and passed as one
+    // JSON blob, so adding a setting needs no change here at all.
+    let appSettings: Record<string, string> = {};
+    if (process.env.APP_SETTINGS_JSON) {
+      try {
+        appSettings = JSON.parse(process.env.APP_SETTINGS_JSON);
+      } catch (err) {
+        throw new Error(`APP_SETTINGS_JSON is not valid JSON: ${(err as Error).message}`);
+      }
+    }
 
     const vpnEnabled = process.env.VPN_ENABLED === 'true';
     const vpnProtocol = process.env.VPN_PROTOCOL as 'wireguard' | 'openvpn' | undefined;
@@ -222,6 +236,14 @@ class AppStack extends TerraformStack {
           ...(process.env.WEBUI_ENABLE_WEB_SEARCH === 'false' ? { enableWebSearch: false } : {}),
           ...(process.env.WEBUI_WEB_SEARCH_ENGINE ? { webSearchEngine: process.env.WEBUI_WEB_SEARCH_ENGINE } : {}),
           ...(process.env.WEBUI_WEB_SEARCH_API_KEY ? { webSearchApiKey: process.env.WEBUI_WEB_SEARCH_API_KEY } : {}),
+        });
+      } else if (appType === 'palworld') {
+        new PalworldApp(this, "palworld-app", {
+          namespace: deploymentName,
+          settings: appSettings,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageData ? { storage: storageData } : {}),
         });
       } else if (appType === 'gitapp') {
         // Image comes from a CI pipeline run (see RunPipelineActivity/GiteaService), always

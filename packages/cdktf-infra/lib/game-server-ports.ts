@@ -36,10 +36,22 @@ export interface GamePort {
 }
 
 /**
+ * Shape of a Kubernetes container port. Declared here rather than imported from the generated
+ * bindings because Deployment/StatefulSet/DaemonSet each generate their own structurally
+ * identical type — this stays assignable to all of them.
+ */
+export interface ContainerPortSpec {
+  readonly name: string;
+  readonly containerPort: number;
+  readonly protocol: string;
+  readonly hostPort?: number;
+}
+
+/**
  * Builds the container `port` array. Ports marked `exposeOnHost` bind `hostPort` on the node;
  * the rest are declared for documentation and Service targeting only.
  */
-export function buildGameContainerPorts(ports: readonly GamePort[]): Array<Record<string, unknown>> {
+export function buildGameContainerPorts(ports: readonly GamePort[]): ContainerPortSpec[] {
   return ports.map((p) => ({
     name: p.name,
     containerPort: p.port,

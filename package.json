@@ -12,7 +12,7 @@
     "deploy-worker": "bash scripts/deploy-worker.sh",
 
     "test":       "npm run test:unit && npm run test:e2e:sync",
-    "test:all":   "npm test && npm run test:infra:integration && npm run test:remote-integration && npm run test:unit:vpn",
+    "test:all":   "npm test && npm run test:synth:palworld && npm run test:infra:integration && npm run test:remote-integration && npm run test:unit:vpn",
 
     "test:alive": "bash scripts/alive.sh",
     "test:worker": "tsx tests/worker-isolated.ts",
@@ -32,6 +32,7 @@
     "test:infra:integration": "node tests/infra-integration.ts",
     "test:remote-integration": "tsx tests/remote-host-integration.ts",
     "test:unit:vpn":     "node packages/cdktf-infra/lib/vpn-service.spec.js",
+    "test:synth:palworld": "tsx tests/palworld-synth.ts",
 
     "test:test:e2e:setup":    "bash scripts/test-e2e-setup.sh",
     "test:test:e2e:teardown": "bash scripts/test-e2e-teardown.sh"
