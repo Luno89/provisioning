@@ -39,6 +39,24 @@ way: `npm run <script> -w apps/backend`. See each workspace's `package.json` for
 
 Run a single test file: `npx vitest run <path>` from the relevant workspace dir, or `npx playwright test <file>` from repo root.
 
+### The workers do NOT hot-reload
+
+The backend runs under `tsx watch`, but both workers run plain `tsx` — so **any change to an
+activity, workflow, or anything else they import requires restarting `npm run dev`.** Nothing warns
+you; the worker just keeps executing the code it started with.
+
+This is easy to misdiagnose because it is asymmetric. CDKTF constructs *do* pick up edits without a
+restart — `cdktf` is a subprocess that reads files fresh — so a change touching both a construct and
+an activity appears to half-work: the Kubernetes resources reflect your edit while the activity's
+own logic (image imports, post-apply Secret creation, `displayUrl`) silently doesn't.
+
+Confirmed live: a Palworld deploy produced a correct pod, PVC and Service from an edited construct
+while the same commit's `DeployAppActivity` changes never ran, because the worker had been started
+28 minutes earlier.
+
+Note `npm run dev` uses `concurrently --kill-others`, so restarting one worker restarts the
+whole stack.
+
 ### E2E Monitor
 
 Interactive dashboard for debugging E2E runs in real time:
@@ -119,6 +137,14 @@ Deploying a vLLM app triggers: host GPU-toolkit check → auto-install the match
 **GPU passthrough only works on the always-on system cluster** (native k3s on Linux). k3d's nested
 containerd cannot do real device passthrough at all, so user-created k3d clusters are never
 GPU-enabled — `ProvisionClusterActivity` and `TemporalBridge` both rely on this.
+
+Don't infer the runtime from the kubeconfig context: the management cluster's context is named
+`k3d-provisioning-lunorica` for legacy reasons **even when it is native k3s**, and
+`systemctl is-active k3s` reports `inactive` because the unit is `k3s-<cluster-name>.service`.
+Check `ps aux | grep '[k]3s server'` or the node's `containerRuntimeVersion` instead. The
+distinction also decides whether a `hostPort` (game servers) is reachable from the host: on native
+k3s it binds the host's network stack directly; on k3d it is not published without an explicit
+`-p` mapping at cluster-create time.
 
 ## TypeScript quirks
 

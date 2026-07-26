@@ -67,13 +67,26 @@ Use `lib/game-server-ports.ts` for ports and the Service. Non-negotiables:
 
 ### 4. Reachability
 
-Player-facing ports need `exposeOnHost: true` (hostPort) *and* a cloud firewall rule. For Hetzner
-that means adding them to `constructs/hetzner-vm.ts` — note the firewall is created during **cluster**
-provisioning, long before any app deploy, so the rule is unconditional.
+Player-facing ports need `exposeOnHost: true` (hostPort). Whether that is enough depends on the
+cluster's runtime, and the two differ in a way the kubeconfig context name actively hides:
 
-Local k3d cannot publish these ports unless the cluster was created with an explicit `-p`
-mapping, which `ensure-cluster.sh` does not do. Expect "deploys fine, unreachable" on k3d and say so
-rather than debugging it.
+- **Native k3s** (the always-on management cluster on Linux — systemd unit
+  `k3s-provisioning-lunorica.service`, containerd on the host, node named after the machine):
+  `hostPort` binds straight onto the host's network stack, so the port is reachable at the
+  machine's IP immediately. Nothing else may already hold that port, and only one instance of a
+  given game can run per node.
+- **k3d** (nested containerd in a container): the port is *not* published to the host unless the
+  cluster was created with an explicit `-p` mapping, which `ensure-cluster.sh` does not do. Expect
+  "deploys fine, unreachable" there.
+
+> Do not infer the runtime from the kubeconfig context. The management cluster's context is named
+> `k3d-provisioning-lunorica` for legacy reasons even when it is native k3s, and
+> `systemctl is-active k3s` reports `inactive` because the unit carries the cluster name. Check
+> `ps aux | grep '[k]3s server'` or the node's `containerRuntimeVersion` instead.
+
+On a cloud VM you additionally need a firewall rule. For Hetzner that means adding the ports to
+`constructs/hetzner-vm.ts` — the firewall is created during **cluster** provisioning, long before
+any app deploy, so the rule is unconditional.
 
 ### 5. Secrets — `DeployAppActivity`
 
