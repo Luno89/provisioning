@@ -57,8 +57,12 @@ class ClusterStack extends TerraformStack {
       name: config.name,
     });
 
-    new MonitoringStack(this, "monitoring", config.name);
-    new IngressStack(this, "ingress");
+    // Ordering is load-bearing, not cosmetic: Traefik's chart renders a ServiceMonitor that needs
+    // the monitoring.coreos.com/v1 CRDs kube-prometheus-stack installs. Terraform would otherwise
+    // apply the two Helm releases in parallel and Traefik's render fails outright — see
+    // IngressStack's constructor doc.
+    const monitoring = new MonitoringStack(this, "monitoring", config.name);
+    new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
   }
 }
 

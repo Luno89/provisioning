@@ -1,9 +1,19 @@
 import { Construct } from "constructs";
+import type { ITerraformDependable } from "cdktf";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 
 export class IngressStack extends Construct {
-  constructor(scope: Construct, id: string) {
+  /**
+   * @param dependsOn - the kube-prometheus-stack release (MonitoringStack.prometheusRelease).
+   *   Traefik's chart renders a ServiceMonitor, which needs the monitoring.coreos.com/v1 CRDs that
+   *   release installs. Terraform has no reason to order two independent Helm releases, so without
+   *   this edge it may apply Traefik first and the render fails with
+   *   "ERROR: You have to deploy monitoring.coreos.com/v1 first" — confirmed live on a fresh
+   *   management cluster, which left it with no Traefik at all and silently broke app exposure
+   *   (AppExposureService routes every exposed app through svc/traefik).
+   */
+  constructor(scope: Construct, id: string, dependsOn?: ITerraformDependable[]) {
     super(scope, id);
 
     const ns = new Namespace(this, "ingress-ns", {
@@ -34,6 +44,7 @@ export class IngressStack extends Construct {
       namespace: ns.metadata.name,
       timeout: 600,
       atomic: true,
+      ...(dependsOn && dependsOn.length > 0 ? { dependsOn } : {}),
       cleanupOnFail: true,
       forceUpdate: true,
       values: [

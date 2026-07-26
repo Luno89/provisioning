@@ -63,6 +63,14 @@ if "$KUBECTL" --context "k3d-provisioning-lunorica" get deployment provisioning-
   "$KUBECTL" --context "k3d-provisioning-lunorica" scale deployment/provisioning-worker --replicas=0 || true
 fi
 
+# Create the worker log directory BEFORE the stack apply below. LoggingStack mounts this exact
+# path into promtail as `hostPath: { type: DirectoryOrCreate }` (constructs/logging.ts), and
+# kubelet creates a missing DirectoryOrCreate path as root:root 0755. `clean-dev` wipes data/, so
+# on a fresh setup promtail would win the race and the host workers — which run as the invoking
+# user — then fail with EACCES on their own log file. Creating it here means the mount finds an
+# existing directory and leaves ownership alone.
+mkdir -p "${ROOT}/apps/backend/data/logs/workers"
+
 # Prometheus/Grafana/Traefik: every other cluster gets these automatically via
 # ProvisionClusterActivity's CDKTF apply, but the management cluster bootstraps outside that
 # workflow entirely (this script, plus scripts/cluster.sh — no CDKTF involved), so nothing has
