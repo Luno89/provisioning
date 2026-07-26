@@ -83,6 +83,29 @@ export class HetznerVmStack extends TerraformStack {
           protocol: "icmp",
           sourceIps: ["0.0.0.0/0", "::/0"],
         },
+        // Game-server ports, opened unconditionally rather than per-deployment. This firewall is
+        // created during CLUSTER provisioning (host worker), long before any app deploy reaches
+        // the cluster worker, so there is no clean point at which to add a rule "when a game
+        // server is deployed" — and patching it from the app path would be reverted by the next
+        // `cdktf deploy` of the VM stack as state drift.
+        //
+        // Safe to leave open: behind Hetzner's default-deny, a UDP port with nothing bound to it
+        // simply drops traffic. Same posture as the deliberate absence of a 6443 rule above.
+        // Ports match constructs/palworld.ts (see lib/game-server-ports.ts).
+        {
+          description: "Palworld game traffic",
+          direction: "in",
+          protocol: "udp",
+          port: "8211",
+          sourceIps: ["0.0.0.0/0", "::/0"],
+        },
+        {
+          description: "Palworld Steam query — server-browser listings",
+          direction: "in",
+          protocol: "udp",
+          port: "27015",
+          sourceIps: ["0.0.0.0/0", "::/0"],
+        },
       ],
     });
 
