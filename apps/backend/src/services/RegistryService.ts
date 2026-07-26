@@ -1,6 +1,10 @@
 import { BaseService } from './BaseService.js';
 import axios from 'axios';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import type { Database } from '../lib/db-interface.js';
+
+const execAsync = promisify(exec);
 
 export class RegistryService extends BaseService {
   constructor(db: Database) {
@@ -44,8 +48,10 @@ export class RegistryService extends BaseService {
         });
         const tags = (tagsResp.data.tags || [])
           // GHCR image builds commonly push a per-commit "git-<sha>" tag alongside every real
-          // release tag — without filtering, those drown out the tags a user actually wants.
-          .filter((tag: string) => !tag.startsWith('git-') && !tag.includes('sha256'));
+          // release tag, and CI-only "buildcache-*" tags that hold layer cache manifests rather
+          // than a runnable image — without filtering, those drown out (or worse, offer as
+          // selectable) tags a user actually wants.
+          .filter((tag: string) => !tag.startsWith('git-') && !tag.startsWith('buildcache-') && !tag.includes('sha256'));
         if (tags.length > 0) return tags.slice(0, 30);
       }
 
@@ -58,6 +64,20 @@ export class RegistryService extends BaseService {
     } catch (err: any) {
       this.logger.warn(`Failed to fetch tags for ${repo}: ${err.message}`);
       return this.FALLBACK_TAGS[repo] || [];
+    }
+  }
+
+  // Tags already pulled onto the host — these deploy instantly with no download wait, which
+  // matters for a multi-GB LLM serving image. Shells out to the host Docker daemon rather than
+  // any registry API, so it reflects this machine's actual cache, not what's merely publishable.
+  async getLocalTags(repo: string): Promise<string[]> {
+    try {
+      const safeRepo = repo.replace(/(["'$`\\])/g, '\\$1');
+      const { stdout } = await execAsync(`docker images --format "{{.Tag}}" "${safeRepo}"`);
+      return [...new Set(stdout.split('\n').map(t => t.trim()).filter(t => t && t !== '<none>'))];
+    } catch (err: any) {
+      this.logger.warn(`Failed to list local image tags for ${repo}: ${err.message}`);
+      return [];
     }
   }
 }

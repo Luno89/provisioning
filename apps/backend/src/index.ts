@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Library Imports
 import { createDatabase } from './lib/db-interface.js';
+import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
 
 // Service Imports
 import { InfrastructureService } from './services/InfrastructureService.js';
@@ -22,17 +23,22 @@ import { RegistryService } from './services/RegistryService.js';
 import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
-import type { ClusterMetadata, DeploymentMetadata } from './lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata, InviteMetadata } from './lib/types.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
 import { ClusterProxyService } from './services/ClusterProxyService.js';
 import net from 'net';
+import crypto from 'crypto';
 import { spawn } from 'child_process';
 import axios from 'axios';
 import { signJWT, verifyJWT, hashPassword, verifyPassword } from './lib/auth.js';
 import { AuthService } from './services/AuthService.js';
 import { CredentialService } from './services/CredentialService.js';
+import { GiteaService } from './services/GiteaService.js';
+import { HeadscaleService } from './services/HeadscaleService.js';
 import type { CloudProvider } from './lib/types.js';
+import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
+import { decryptValue, encryptValue } from './lib/crypto.js';
 
 dotenv.config();
 
@@ -76,6 +82,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   // ── 1. Initialize backend ────────────────────────────────────────────────
   const db = createDatabase();
   await db.init();
+  await migrateLegacyOwnership(db);
 
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
@@ -86,6 +93,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
   const clusterProxyService = new ClusterProxyService();
   const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
+  const giteaService = new GiteaService(infraService, JWT_SECRET, '/tmp/kubeconfig-provisioning-lunorica');
+  const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
 
   // Best-effort background check — see ClusterService.ensureSystemClusterGpuReady for why this
   // can't just be a side effect of the normal provisioning flow. Never blocks startup.
@@ -112,6 +121,39 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
     credentials: true,
   }));
+
+  // Registered before the global express.json() (and outside the /api prefix, so it never
+  // passes through requireAuth below) — needs the *raw* request body to verify Gitea's
+  // HMAC-SHA256 signature; the global json() parser would consume it first otherwise. Gitea
+  // calls this unauthenticated, so signature verification is the only gate.
+  app.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), async (req, res) => {
+    try {
+      const projects = await db.getProjects();
+      const project = projects.find((p: any) => p.id === req.params.projectId);
+      if (!project) return res.status(404).json({ error: 'Unknown project' });
+      if (!project.webhookSecretEnc) return res.status(500).json({ error: 'Project has no webhook secret configured' });
+
+      const secret = decryptValue(project.webhookSecretEnc, JWT_SECRET);
+      const rawBody = req.body as Buffer;
+      if (!giteaService.verifyWebhookSignature(rawBody, req.header('X-Gitea-Signature'), secret)) {
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
+
+      const payload = JSON.parse(rawBody.toString('utf8'));
+      if (!payload.ref || !payload.after) return res.status(200).json({ status: 'ignored', reason: 'not a push event' });
+
+      const ref = String(payload.ref).replace('refs/heads/', '');
+      res.status(202).json({ status: 'accepted' });
+      // Builds run in the background — Gitea has its own webhook-delivery timeout, don't block it.
+      temporalBridge.runPipeline(project, payload.after, ref).catch((err: any) =>
+        console.error(`[webhook] Failed to start pipeline run for project ${project.id}: ${err.message}`)
+      );
+    } catch (err: any) {
+      console.error(`[webhook] Gitea webhook error: ${err.message}`);
+      res.status(500).json({ error: 'Internal error processing webhook' });
+    }
+  });
+
   app.use(express.json());
   const credentialService = new CredentialService(db, JWT_SECRET);
 
@@ -170,6 +212,28 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.use('/api', requireAuth);
 
+  const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!(req as any).user?.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+  };
+
+  // This system can spend real money via cloud APIs, so account creation is invite-gated —
+  // except the very first user ever, who bootstraps the instance and becomes admin (mirrors
+  // migrateLegacyOwnership's backfill logic for pre-existing installs). Consumes the invite
+  // (stamps usedBy/usedAt) only on success, so a rejected registration doesn't burn the code.
+  async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean): Promise<string | null> {
+    if (isFirstUser) return null;
+    if (!code) return 'An invite code is required to create an account';
+    const invites = await db.getInvites();
+    const invite = invites.find((i) => i.code === code);
+    if (!invite) return 'Invalid invite code';
+    if (invite.usedBy) return 'This invite code has already been used';
+    await db.saveInvite({ ...invite, usedBy: newUserId, usedAt: new Date().toISOString() });
+    return null;
+  }
+
   // ── 3. SOCKET.IO ORCHESTRATION ───────────────────────────────────────────
   io.on('connection', (socket) => {
     const socketTails = new Map<string, any>();
@@ -183,8 +247,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         socketTails.delete(id);
       }
 
-      const resource = (await clusterService.getById(id)) || 
-                       (await appService.getAll()).find((d: any) => d.id === id);
+      // Socket.IO has no auth handshake/middleware at all in this codebase (no `io.use(...)`,
+      // unlike every `/api/*` route's requireAuth) — a real, pre-existing gap, not something
+      // introduced here. There's no authenticated user id available to check ownership against,
+      // so this reads straight from the DB (bypassing clusterService.getById's ownership check)
+      // rather than pretend to enforce isolation against an identity that doesn't exist yet.
+      // TODO(distributed-system plan, Phase 0 follow-up): give Socket.IO connections real auth.
+      let resource: any = (await db.getClusters()).find((c: any) => c.id === id) ||
+                       (await db.getDeployments()).find((d: any) => d.id === id);
+      if (!resource) {
+        const run = (await db.getPipelineRuns()).find((r: any) => r.id === id);
+        if (run && run.logFile) resource = { ...run, lastLogPath: run.logFile };
+      }
 
       if (resource && resource.lastLogPath) {
         try {
@@ -218,12 +292,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
     socket.on('join-kube-room', (id) => socket.join(`${id}-kube`));
     socket.on('tail-pod', async ({ resourceId, podName, namespace }) => {
-      const deployments = await appService.getAll();
+      // Same no-auth Socket.IO context as join-room above — raw DB read, not
+      // appService.getAll's ownership-filtered lookup.
+      const deployments = await db.getDeployments();
       const dep = deployments.find(d => d.id === resourceId);
       let context: string | undefined;
       let kubeconfigPath: string | undefined;
       if (dep) {
-        const cluster = await clusterService.getById(dep.clusterId);
+        // Same no-auth Socket.IO context as join-room above — raw DB read, not
+        // clusterService.getById's ownership-checked lookup.
+        const cluster = dep.clusterId === 'provisioning-lunorica'
+          ? await clusterService.getSystemClusterEntry()
+          : (await db.getClusters()).find((c: any) => c.id === dep.clusterId);
         if (cluster) {
           const isMock = clusterService.isMockCloud(cluster);
           const physicalName = clusterService.getPhysicalClusterName(cluster);
@@ -261,22 +341,38 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/auth/register', async (req, res) => {
     try {
-      const { email, password } = req.body;
+      let { email, password, inviteCode } = req.body;
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
+      // getUserByEmail (used by login, 2FA, OAuth linking, etc.) normalizes with
+      // .trim().toLowerCase() before querying — pre-existing, found live while testing this
+      // session's per-user isolation work: registering with any capital letter in the email
+      // (e.g. "isoA@example.com") stored it as-is, so login's normalized lookup could never find
+      // it again ("Invalid email or password" despite a correct password). Normalizing here too
+      // keeps every path consistent instead of only patching the read side.
+      email = email.trim().toLowerCase();
       const existing = await db.getUserByEmail(email);
       if (existing) {
         return res.status(400).json({ error: 'User already exists' });
       }
+
+      const isFirstUser = (await db.getUsers()).length === 0;
+      const userId = uuidv4();
+      const inviteError = await checkAndConsumeInvite(inviteCode, userId, isFirstUser);
+      if (inviteError) {
+        return res.status(403).json({ error: inviteError });
+      }
+
       const passHash = await hashPassword(password);
       const user = {
-        id: uuidv4(),
+        id: userId,
         email,
         passwordHash: passHash,
         twoFactorEnabled: false,
         emailVerified: true,
         createdAt: new Date().toISOString(),
+        ...(isFirstUser ? { isAdmin: true } : {}),
       };
       await db.saveUser(user);
       res.json({ success: true, message: 'User registered successfully' });
@@ -314,6 +410,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           id: user.id,
           email: user.email,
           twoFactorEnabled: user.twoFactorEnabled,
+          isAdmin: user.isAdmin === true,
         },
       });
     } catch (err: any) {
@@ -345,6 +442,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           id: user.id,
           email: user.email,
           twoFactorEnabled: user.twoFactorEnabled,
+          isAdmin: user.isAdmin === true,
         },
       });
     } catch (err: any) {
@@ -370,6 +468,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       twoFactorPreferredMethod: user.twoFactorPreferredMethod,
       emailVerified: user.emailVerified,
       createdAt: user.createdAt,
+      isAdmin: user.isAdmin === true,
     });
   });
 
@@ -399,17 +498,21 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.get('/api/auth/github', (req, res) => {
+    // Carries any invite code through the OAuth roundtrip via `state` — GitHub/Google echo it
+    // back verbatim on the callback — so a brand-new account created via social login is
+    // invite-gated exactly like native registration, not a silent bypass of it.
+    const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const githubId = process.env.GITHUB_CLIENT_ID;
     if (!githubId) {
-      return res.redirect('http://localhost:3001/api/auth/github/callback?code=mock-github-code');
+      return res.redirect(`http://localhost:3001/api/auth/github/callback?code=mock-github-code&state=${encodeURIComponent(invite)}`);
     }
     const redirectUri = encodeURIComponent('http://localhost:3001/api/auth/github/callback');
-    res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email`);
+    res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email&state=${encodeURIComponent(invite)}`);
   });
 
   app.get('/api/auth/github/callback', async (req, res) => {
     try {
-      const { code } = req.query;
+      const { code, state } = req.query;
       let email = 'mock-github-user@example.com';
       let idStr = 'github-mock-id';
 
@@ -441,13 +544,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
       let user = await db.getUserByEmail(email);
       if (!user) {
+        const isFirstUser = (await db.getUsers()).length === 0;
+        const userId = uuidv4();
+        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser);
+        if (inviteError) {
+          return res.redirect(`http://localhost:5173/?authError=${encodeURIComponent(inviteError)}`);
+        }
         user = {
-          id: uuidv4(),
+          id: userId,
           email,
           githubId: idStr,
           twoFactorEnabled: false,
           emailVerified: true,
           createdAt: new Date().toISOString(),
+          ...(isFirstUser ? { isAdmin: true } : {}),
         };
         await db.saveUser(user);
       } else if (!user.githubId) {
@@ -465,17 +575,55 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── CLUSTER PROXY — dashboard access ── */
 
-  const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik'] as const;
+  const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager'] as const;
+
+  // Chart-generated admin password (constructs/monitoring.ts's kube-prometheus-stack release) —
+  // only ever used server-side to log in on the browser's behalf (see the auto-login block
+  // below), never returned to a client.
+  async function getGrafanaAdminCredentials(kubeconfigPath: string): Promise<{ username: string; password: string }> {
+    const raw = await infraService.runKubectl(
+      ['get', 'secret', 'kube-prometheus-stack-grafana', '-n', 'monitoring', '-o', 'jsonpath={.data.admin-password}'],
+      kubeconfigPath,
+    );
+    return { username: 'admin', password: Buffer.from(raw.trim(), 'base64').toString('utf8') };
+  }
 
   for (const serviceKey of PROXY_SERVICES) {
     app.get(`/api/clusters/:id/proxy/${serviceKey}`, async (req, res) => {
       try {
         const clusterId = req.params.id;
-        const cluster = await clusterService.getById(clusterId);
+        const cluster = await clusterService.getById(clusterId, (req as any).user.id);
         if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
 
         const kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
         const targetUrl = await clusterProxyService.ensurePortForward(clusterId, serviceKey, kubeconfigPath);
+
+        // Gitea sends X-Frame-Options: SAMEORIGIN unconditionally — confirmed live that even
+        // explicitly clearing gitea.config.security.X_FRAME_OPTIONS via Helm doesn't change the
+        // emitted header (an empty value isn't treated as "disable", it falls back to the
+        // compiled-in default). Grafana defaults to X-Frame-Options: deny (its own
+        // allow_embedding setting off by default) — stricter still, blocks framing from any
+        // origin including its own. Both would just render blank in a real browser's iframe.
+        // A redirect sidesteps it for both — also arguably better UX for full standalone apps
+        // like these vs. a genuinely embeddable dashboard like Prometheus/Traefik.
+        if (serviceKey === 'gitea' || serviceKey === 'grafana') {
+          // Auto-login: relay a real session cookie from the service's own login flow (see
+          // ClusterProxyService.getAutoLoginCookies) so the user lands already signed in — the
+          // password is fetched/used server-side only and never reaches the browser. Best-effort:
+          // if this ever fails (chart password rotated, service briefly unreachable, etc.), fall
+          // straight through to a plain redirect — the user just sees the normal login screen
+          // instead of a broken proxy link.
+          try {
+            const credentials = serviceKey === 'gitea'
+              ? await giteaService.getAdminCredentials()
+              : await getGrafanaAdminCredentials(kubeconfigPath);
+            const cookies = await clusterProxyService.getAutoLoginCookies(serviceKey, targetUrl, credentials);
+            for (const cookie of cookies) res.append('Set-Cookie', cookie);
+          } catch (err: any) {
+            console.warn(`[proxy] Auto-login failed for ${serviceKey}: ${err.message} — falling back to manual login`);
+          }
+          return res.redirect(302, targetUrl);
+        }
 
         res.setHeader('Content-Type', 'text/html');
         res.send(`<!DOCTYPE html><html><head><title>${serviceKey}</title></head><body style="margin:0"><iframe src="${targetUrl}" style="width:100%;height:100vh;border:none"></iframe></body></html>`);
@@ -486,17 +634,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   app.get('/api/auth/google', (req, res) => {
+    // See the matching comment on /api/auth/github: carries the invite code through via `state`.
+    const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const googleId = process.env.GOOGLE_CLIENT_ID;
     if (!googleId) {
-      return res.redirect('http://localhost:3001/api/auth/google/callback?code=mock-google-code');
+      return res.redirect(`http://localhost:3001/api/auth/google/callback?code=mock-google-code&state=${encodeURIComponent(invite)}`);
     }
     const redirectUri = encodeURIComponent('http://localhost:3001/api/auth/google/callback');
-    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile`);
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile&state=${encodeURIComponent(invite)}`);
   });
 
   app.get('/api/auth/google/callback', async (req, res) => {
     try {
-      const { code } = req.query;
+      const { code, state } = req.query;
       let email = 'mock-google-user@example.com';
       let idStr = 'google-mock-id';
 
@@ -525,13 +675,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
       let user = await db.getUserByEmail(email);
       if (!user) {
+        const isFirstUser = (await db.getUsers()).length === 0;
+        const userId = uuidv4();
+        const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser);
+        if (inviteError) {
+          return res.redirect(`http://localhost:5173/?authError=${encodeURIComponent(inviteError)}`);
+        }
         user = {
-          id: uuidv4(),
+          id: userId,
           email,
           googleId: idStr,
           twoFactorEnabled: false,
           emailVerified: true,
           createdAt: new Date().toISOString(),
+          ...(isFirstUser ? { isAdmin: true } : {}),
         };
         await db.saveUser(user);
       } else if (!user.googleId) {
@@ -547,9 +704,64 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  /** ── ADMIN — invites ── */
+
+  app.get('/api/admin/invites', requireAdmin, async (req, res) => {
+    res.json(await db.getInvites());
+  });
+
+  app.post('/api/admin/invites', requireAdmin, async (req, res) => {
+    const code = crypto.randomBytes(4).toString('hex');
+    const invite: InviteMetadata = {
+      id: code,
+      code,
+      createdBy: (req as any).user.id,
+      createdAt: new Date().toISOString(),
+    };
+    await db.saveInvite(invite);
+    res.status(201).json(invite);
+  });
+
+  /** ── MESH — Headscale-backed remote cluster target connectivity (distributed-systems plan Phase 1) ── */
+
+  app.get('/api/mesh/devices', async (req, res) => {
+    try {
+      res.json(await headscaleService.listUserDevices((req as any).user.id));
+    } catch (err: any) {
+      res.status(503).json({ error: `Mesh unavailable: ${err.message}` });
+    }
+  });
+
+  app.post('/api/mesh/preauth-key', async (req, res) => {
+    try {
+      const reusable = req.body?.reusable === true;
+      const expirySeconds = typeof req.body?.expirySeconds === 'number' ? req.body.expirySeconds : undefined;
+      const key = await headscaleService.createPreAuthKey((req as any).user.id, { reusable, expirySeconds });
+      res.status(201).json(key);
+    } catch (err: any) {
+      res.status(503).json({ error: `Mesh unavailable: ${err.message}` });
+    }
+  });
+
+  app.delete('/api/mesh/devices/:nodeId', async (req, res) => {
+    try {
+      // Ownership: only revoke a node this user's own Headscale namespace actually owns —
+      // listUserDevices() is already scoped to req.user.id, so a foreign nodeId simply won't
+      // appear in it (the same 404-not-403 pattern used for clusters/deployments).
+      const devices = await headscaleService.listUserDevices((req as any).user.id);
+      if (!devices.some((d) => d.id === req.params.nodeId)) {
+        return res.status(404).json({ error: 'Mesh device not found' });
+      }
+      await headscaleService.revokeDevice(req.params.nodeId);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(503).json({ error: `Mesh unavailable: ${err.message}` });
+    }
+  });
+
   /** ── CREDENTIALS ── */
 
-  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do', 'huggingface', 'github'] as const;
+  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do', 'hetzner', 'huggingface', 'github', 'googledrive'] as const;
 
   app.get('/api/credentials', async (req, res) => {
     try {
@@ -567,7 +779,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (!VALID_PROVIDERS.includes(provider)) {
         return res.status(400).json({ error: `Invalid provider: ${provider}` });
       }
-      const result = await credentialService.validateCredentials(provider, req.body);
+      const user = (req as any).user;
+      // googledrive's refresh token was never typed into the form (it came from the OAuth
+      // callback) so there's nothing meaningful in req.body to validate — check the stored one.
+      const result = provider === 'googledrive'
+        ? await credentialService.testGoogleDriveConnection(user.id)
+        : await credentialService.validateCredentials(provider, req.body);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ valid: false, error: err.message });
@@ -617,13 +834,103 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  /** ── GOOGLE DRIVE (backup destination) ──
+   * Separate OAuth dance from /api/auth/google (login) — same GOOGLE_CLIENT_ID/SECRET app
+   * registration can serve both as long as this callback URL is also added under "Authorized
+   * redirect URIs" in Google Cloud Console, and the Drive API is enabled for that project.
+   * scripts/backup-to-drive.sh picks these credentials up via generate-rclone-config.ts. */
+
+  app.get('/api/credentials/googledrive/connect', (req, res) => {
+    const googleId = process.env.GOOGLE_CLIENT_ID;
+    if (!googleId) {
+      return res.redirect('http://localhost:5173/?driveError=missing_client_id');
+    }
+    const redirectUri = encodeURIComponent('http://localhost:3001/api/credentials/googledrive/callback');
+    // access_type=offline + prompt=consent: without both, Google only hands back a
+    // refresh_token on a user's very first-ever consent for this app — reconnecting later
+    // (e.g. after a Disconnect) would silently get an access-token-only response otherwise.
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&access_type=offline&prompt=consent&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}`);
+  });
+
+  app.get('/api/credentials/googledrive/callback', async (req, res) => {
+    try {
+      const { code } = req.query;
+      const googleId = process.env.GOOGLE_CLIENT_ID;
+      const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (!googleId || !googleSecret) {
+        return res.redirect('http://localhost:5173/?driveError=missing_client_id');
+      }
+
+      const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
+        client_id: googleId,
+        client_secret: googleSecret,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: 'http://localhost:3001/api/credentials/googledrive/callback',
+      });
+
+      const refreshToken = tokenRes.data.refresh_token;
+      const accessToken = tokenRes.data.access_token;
+      if (!refreshToken) {
+        // Happens if the user had already granted consent before and Google didn't re-issue a
+        // refresh_token despite prompt=consent (rare, but possible with cached grants) — send
+        // them to revoke access at myaccount.google.com/permissions and try again.
+        return res.redirect('http://localhost:5173/?driveError=no_refresh_token');
+      }
+
+      const aboutRes = await axios.get('https://www.googleapis.com/drive/v3/about?fields=user', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const email = aboutRes.data.user?.emailAddress || '';
+
+      const user = (req as any).user;
+      await credentialService.saveCredentials(user.id, 'googledrive', { refreshToken, email });
+      res.redirect('http://localhost:5173/?driveConnected=1');
+    } catch (err: any) {
+      res.redirect(`http://localhost:5173/?driveError=${encodeURIComponent(err.message)}`);
+    }
+  });
+
+  app.post('/api/backup/run', async (req, res) => {
+    const script = path.join(__dirname, '../../../scripts/backup-to-drive.sh');
+    const child = spawn('bash', [script], { cwd: path.join(__dirname, '../../..') });
+    let output = '';
+    child.stdout.on('data', (d) => { output += d.toString(); });
+    child.stderr.on('data', (d) => { output += d.toString(); });
+    child.on('close', (exitCode) => {
+      res.json({ success: exitCode === 0, output });
+    });
+    child.on('error', (err) => {
+      res.status(500).json({ success: false, output: output + `\n${err.message}` });
+    });
+  });
+
   /** ── CLUSTERS ── */
 
-  app.get('/api/clusters', async (req, res) => res.json(await clusterService.getAll(io)));
+  app.get('/api/clusters', async (req, res) => res.json(await clusterService.getAll((req as any).user.id, io)));
 
   app.post('/api/clusters', async (req, res) => {
     try {
-      const info = await temporalBridge.provision(req.body.name, req.body.provider);
+      const remote = req.body.provider === 'remote'
+        ? {
+            host: req.body.remoteHost,
+            username: req.body.remoteUsername,
+            privateKey: req.body.remoteSshPrivateKey,
+            ...(typeof req.body.remoteSshPort === 'number' ? { port: req.body.remoteSshPort } : {}),
+            ...(typeof req.body.remoteK3sApiPort === 'number' ? { k3sApiPort: req.body.remoteK3sApiPort } : {}),
+          }
+        : undefined;
+      if (remote && (!remote.host || !remote.username || !remote.privateKey)) {
+        return res.status(400).json({ error: 'remoteHost, remoteUsername, and remoteSshPrivateKey are required for provider "remote"' });
+      }
+      const hetzner = req.body.provider === 'hetzner'
+        ? {
+            ...(req.body.hetznerServerType ? { serverType: String(req.body.hetznerServerType) } : {}),
+            ...(req.body.hetznerLocation ? { location: String(req.body.hetznerLocation) } : {}),
+            ...(req.body.hetznerImage ? { image: String(req.body.hetznerImage) } : {}),
+          }
+        : undefined;
+      const info = await temporalBridge.provision(req.body.name, req.body.provider, (req as any).user.id, remote, hetzner);
       res.status(202).json({
         message: 'Provisioning started',
         clusterName: req.body.name,
@@ -637,24 +944,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
-  app.post('/api/clusters/:id/abort', async (req, res) => {
-    try {
-      await clusterService.abort(req.params.id, io);
-      res.json({ success: true, message: 'Cluster provisioning abort initiated' });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  // No standalone POST .../abort route: DELETE below already checks cluster.status ===
+  // 'provisioning' and calls clusterService.abort() itself — a second route hitting the exact
+  // same service method just meant two API paths (and two frontend buttons) for one operation.
 
   app.delete('/api/clusters/:id', async (req, res) => {
     if (req.params.id === 'provisioning-lunorica') {
       return res.status(403).json({ error: 'The system management cluster cannot be destroyed' });
     }
     try {
+      const cluster = await clusterService.getById(req.params.id, (req as any).user.id);
+      if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
       clusterProxyService.stopForCluster(req.params.id);
-      const cluster = await clusterService.getById(req.params.id);
-      if (cluster && cluster.status === 'provisioning') {
-        await clusterService.abort(req.params.id, io);
+      if (cluster.status === 'provisioning') {
+        await clusterService.abort(req.params.id, (req as any).user.id, io);
         return res.json({ success: true, message: 'Cluster provisioning aborted' });
       }
       const info = await temporalBridge.destroyCluster(req.params.id);
@@ -667,7 +970,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     } catch (err: any) {
       // Fallback to clusterService.delete or abort
       try {
-        await clusterService.abort(req.params.id, io);
+        await clusterService.abort(req.params.id, (req as any).user.id, io);
         res.json({ success: true, message: 'Cluster deleted' });
       } catch (fallbackErr: any) {
         res.status(503).json({ error: `Cluster destruction unavailable: ${err.message}` });
@@ -677,7 +980,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/clusters/discover', async (req, res) => {
     try {
-      const discovered = await clusterService.discoverClusters();
+      const discovered = await clusterService.discoverClusters((req as any).user.id);
       res.json({ clusters: discovered });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -686,37 +989,79 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/clusters/:id/discover-deployments', async (req, res) => {
     try {
-      const discovered = await appService.discoverDeployments(req.params.id);
+      const discovered = await appService.discoverDeployments(req.params.id, (req as any).user.id);
       res.json({ deployments: discovered });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.get('/api/clusters/:id/all-pods', async (req, res) => res.json(await clusterService.listAllPods(req.params.id)));
-  app.get('/api/clusters/:id/helm-releases', async (req, res) => res.json(await clusterService.listReleases(req.params.id)));
-  app.get('/api/clusters/:id/gpu-status', async (req, res) => res.json(await clusterService.getGpuStatus(req.params.id)));
+  app.get('/api/clusters/:id/all-pods', async (req, res) => res.json(await clusterService.listAllPods(req.params.id, (req as any).user.id)));
+  app.get('/api/clusters/:id/helm-releases', async (req, res) => res.json(await clusterService.listReleases(req.params.id, (req as any).user.id)));
+  app.get('/api/clusters/:id/gpu-status', async (req, res) => res.json(await clusterService.getGpuStatus(req.params.id, (req as any).user.id)));
 
   app.get('/api/clusters/:id/services', async (req, res) => {
     try {
-      const cluster = await clusterService.getById(req.params.id);
+      const cluster = await clusterService.getById(req.params.id, (req as any).user.id);
       if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
 
-      const releases = await clusterService.listReleases(req.params.id);
-      const pods = await clusterService.listAllPods(req.params.id);
+      const releases = await clusterService.listReleases(req.params.id, (req as any).user.id);
+      const pods = await clusterService.listAllPods(req.params.id, (req as any).user.id);
 
-      const SERVICE_NAMES: Record<string, string[]> = {
+      // Grafana ships as a subchart *inside* the kube-prometheus-stack release (see
+      // constructs/monitoring.ts: grafana.enabled=true), not its own separate Helm release —
+      // matching only 'kube-prometheus-stack-grafana' here would never find a release and
+      // always show "Not Installed" even when Grafana is actually running. Separate from
+      // POD_NAME_PATTERNS below: this is only for the installed/status/chart/version fields,
+      // not which pods list under each card — sharing one list for both would make Prometheus
+      // and Grafana's cards show each other's pods too. Confirmed live.
+      const RELEASE_NAMES: Record<string, string[]> = {
         prometheus: ['kube-prometheus-stack', 'prometheus-server', 'prometheus'],
-        grafana: ['kube-prometheus-stack-grafana', 'grafana'],
+        grafana: ['kube-prometheus-stack', 'kube-prometheus-stack-grafana', 'grafana'],
         traefik: ['traefik'],
+        gitea: ['gitea'],
+        // Alertmanager ships as a subchart of kube-prometheus-stack too (same as Grafana above),
+        // not its own release.
+        alertmanager: ['kube-prometheus-stack'],
+        // Loki and Promtail (constructs/logging.ts) are two separate Helm releases installed
+        // together — matching either is enough for a simple installed/not-installed indicator on
+        // one combined card (imperfect if exactly one of the two is down, acceptable for a
+        // status card, not a health check).
+        loki: ['loki', 'promtail'],
+      };
+      const POD_NAME_PATTERNS: Record<string, string[]> = {
+        // Not 'alertmanager-kube-prometheus-stack' anymore — that now belongs solely to the
+        // dedicated 'alertmanager' card below (same reasoning as Grafana already having its own
+        // separate list: sharing pod patterns between two cards makes them show each other's
+        // pods too). Confirmed live.
+        prometheus: ['kube-prometheus-stack-prometheus', 'kube-prometheus-stack-operator', 'kube-prometheus-stack-kube-state-metrics', 'kube-prometheus-stack-prometheus-node-exporter'],
+        grafana: ['kube-prometheus-stack-grafana'],
+        traefik: ['traefik'],
+        gitea: ['gitea'],
+        alertmanager: ['alertmanager-kube-prometheus-stack-alertmanager'],
+        loki: ['loki', 'promtail'],
+      };
+      // Traefik deploys into its own 'traefik' namespace (constructs/ingress.ts), not
+      // 'kube-system' — k3s's own bundled Traefik (which *would* live in kube-system) is
+      // explicitly disabled at cluster-create time (scripts/cluster.sh: --disable=traefik),
+      // so kube-system was never the right namespace for this platform's own Traefik release.
+      // Confirmed live.
+      const SERVICE_NAMESPACES: Record<string, string> = {
+        prometheus: 'monitoring',
+        grafana: 'monitoring',
+        traefik: 'traefik',
+        gitea: 'gitea',
+        alertmanager: 'monitoring',
+        loki: 'monitoring',
       };
 
-      const services = Object.entries(SERVICE_NAMES).map(([serviceKey, chartNames]) => {
+      const services = Object.entries(RELEASE_NAMES).map(([serviceKey, chartNames]) => {
         const release = releases.find((r: any) => chartNames.includes(r.name));
-        const namespace = serviceKey === 'traefik' ? 'kube-system' : 'monitoring';
+        const namespace = SERVICE_NAMESPACES[serviceKey];
+        const podPatterns = POD_NAME_PATTERNS[serviceKey] || [];
         const servicePods = Array.isArray(pods) ? pods.filter((p: any) =>
           p?.metadata?.namespace === namespace &&
-          chartNames.some(name => (p?.metadata?.name || '').includes(name))
+          podPatterns.some(name => (p?.metadata?.name || '').includes(name))
         ) : [];
 
         return {
@@ -743,11 +1088,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── DEPLOYMENTS ── */
 
-  app.get('/api/deployments', async (req, res) => res.json(await appService.getAll(io)));
+  app.get('/api/deployments', async (req, res) => res.json(await appService.getAll((req as any).user.id, io)));
 
   app.post('/api/deployments', async (req, res) => {
     try {
       const user = (req as any).user;
+      const targetCluster = await clusterService.getById(req.body.clusterId, user.id);
+      if (!targetCluster) return res.status(404).json({ error: 'Cluster not found' });
       const info = await temporalBridge.deployApp(req.body, user?.id);
       res.status(202).json({
         message: 'Deployment started',
@@ -761,20 +1108,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
-  app.post('/api/deployments/:id/abort', async (req, res) => {
-    try {
-      await appService.abort(req.params.id, io);
-      res.json({ success: true, message: 'App deployment abort initiated' });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  // No standalone POST .../abort route — same reasoning as clusters above: DELETE already
+  // checks dep.status === 'deploying' and calls appService.abort() itself.
 
   app.delete('/api/deployments/:id', async (req, res) => {
     try {
-      const dep = await appService.getById(req.params.id);
-      if (dep && dep.status === 'deploying') {
-        await appService.abort(req.params.id, io);
+      const dep = await appService.getById(req.params.id, (req as any).user.id);
+      if (!dep) return res.status(404).json({ error: 'Deployment not found' });
+      if (dep.status === 'deploying') {
+        await appService.abort(req.params.id, (req as any).user.id, io);
         return res.json({ success: true, message: 'Deployment aborted' });
       }
       const info = await temporalBridge.destroyApp(req.params.id);
@@ -786,7 +1128,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       });
     } catch (err: any) {
       try {
-        await appService.abort(req.params.id, io);
+        await appService.abort(req.params.id, (req as any).user.id, io);
         res.json({ success: true, message: 'Deployment deleted' });
       } catch (fallbackErr: any) {
         res.status(503).json({ error: `Deployment destruction unavailable: ${err.message}` });
@@ -794,14 +1136,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
-  app.get('/api/deployments/:id/helm', async (req, res) => res.json({ content: await appService.getHelmStatus(req.params.id) }));
-  app.get('/api/deployments/:id/diagnostics', async (req, res) => res.json({ content: await appService.getDiagnostics(req.params.id) }));
+  app.get('/api/deployments/:id/helm', async (req, res) => res.json({ content: await appService.getHelmStatus(req.params.id, (req as any).user.id) }));
+  app.get('/api/deployments/:id/diagnostics', async (req, res) => res.json({ content: await appService.getDiagnostics(req.params.id, (req as any).user.id) }));
   app.get('/api/deployments/:id/pods', async (req, res) => {
-    try { res.json(await appService.listPods(req.params.id)); } catch { res.status(500).json({ error: 'Failed to list pods' }); }
+    try { res.json(await appService.listPods(req.params.id, (req as any).user.id)); } catch { res.status(500).json({ error: 'Failed to list pods' }); }
   });
 
   app.post('/api/deployments/:id/expose', async (req, res) => {
     try {
+      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
       const mode = req.body?.mode === 'local' ? 'local' : 'public';
       const result = mode === 'local' ? await appExposureService.exposeLocal(req.params.id) : await appExposureService.exposePublic(req.params.id);
       res.json(result);
@@ -809,6 +1152,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   app.post('/api/deployments/:id/unexpose', async (req, res) => {
     try {
+      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
       const mode = req.body?.mode === 'local' ? 'local' : 'public';
       const result = mode === 'local' ? await appExposureService.unexposeLocal(req.params.id) : await appExposureService.unexposePublic(req.params.id);
       res.json(result);
@@ -816,10 +1160,86 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   app.patch('/api/deployments/:id/exposure-path', async (req, res) => {
     try {
+      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
       const { path } = req.body;
       res.json(await appExposureService.updateExposurePath(req.params.id, path));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** ── PROJECTS (CI/CD: sibling repos hosted on the self-hosted Gitea) ── */
+
+  app.get('/api/projects', async (req, res) => res.json(await db.getProjects()));
+
+  app.get('/api/projects/:id/runs', async (req, res) => {
+    const runs = await db.getPipelineRuns();
+    res.json(runs.filter((r: any) => r.projectId === req.params.id).sort((a: any, b: any) => b.startedAt.localeCompare(a.startedAt)));
+  });
+
+  app.post('/api/projects', async (req, res) => {
+    try {
+      const { name, giteaOwner, giteaRepo, createRepo, targetClusterId, targetNamespace, autoDeployOnBuild } = req.body;
+      if (!name || !giteaRepo) return res.status(400).json({ error: 'name and giteaRepo are required' });
+      const owner = giteaOwner || giteaService.adminUsername;
+
+      if (createRepo) {
+        await giteaService.createRepo(giteaRepo, { description: `Provisioning project: ${name}` });
+      } else {
+        await giteaService.getRepo(owner, giteaRepo); // throws if it doesn't exist / isn't reachable
+      }
+
+      const id = uuidv4();
+      const webhookSecret = crypto.randomBytes(32).toString('hex');
+
+      // Gitea's webhook delivery needs a URL reachable from inside its pod, back out to this
+      // backend process on the host — the node's own LAN IP (this platform's management
+      // cluster is native k3s, sharing the host's network stack, not a nested Docker container
+      // like AppExposureService's k3d-server-container case) is the one address guaranteed to
+      // work in both directions on this platform's actual (Linux) deployment target.
+      // A dual-stack node reports multiple InternalIP entries (IPv4 + IPv6) — jsonpath's
+      // filter returns all of them space-joined, not just one. Confirmed live: this produced a
+      // malformed multi-address URL Gitea rejected outright. The IPv4 address is always first.
+      const nodeIpRaw = (await infraService.runKubectl(
+        ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
+        '/tmp/kubeconfig-provisioning-lunorica',
+      )).trim();
+      const nodeIp = nodeIpRaw.split(/\s+/)[0];
+      const backendPort = process.env.PORT || 3001;
+      await giteaService.createWebhook(owner, giteaRepo, `http://${nodeIp}:${backendPort}/webhooks/gitea/${id}`, webhookSecret);
+
+      const project = await db.saveProjectInfo({
+        id,
+        name,
+        giteaOwner: owner,
+        giteaRepo,
+        appType: 'gitapp',
+        ...(targetClusterId ? { targetClusterId } : {}),
+        ...(targetNamespace ? { targetNamespace } : {}),
+        autoDeployOnBuild: autoDeployOnBuild === true,
+        webhookSecretEnc: encryptValue(webhookSecret, JWT_SECRET),
+        createdAt: new Date().toISOString(),
+      });
+      res.status(201).json(project);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/projects/:id/runs/:runId/promote', async (req, res) => {
+    try {
+      const projects = await db.getProjects();
+      const project = projects.find((p: any) => p.id === req.params.id);
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      const runs = await db.getPipelineRuns();
+      const run = runs.find((r: any) => r.id === req.params.runId && r.projectId === project.id);
+      if (!run) return res.status(404).json({ error: 'Run not found' });
+
+      const user = (req as any).user;
+      const info = await temporalBridge.promoteProjectBuild(project, run, user?.id);
+      res.status(202).json({ message: 'Promoting build to deployment', workflowId: info.id, deploymentId: info.resourceId });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
     }
   });
 
@@ -828,12 +1248,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.patch('/api/deployments/:id/modules', async (req, res) => {
     const { modules } = req.body;
-    res.status(202).json(await appService.updateModules(req.params.id, modules, io));
+    res.status(202).json(await appService.updateModules(req.params.id, modules, (req as any).user.id, io));
   });
 
   app.patch('/api/deployments/:id/storage', async (req, res) => {
     // Delegated to TemporalBridge (manual resize)
     try {
+      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
       const info = await temporalBridge.resizeDisk(req.params.id, req.body.storage);
       res.status(202).json({
         message: 'Resize started',
@@ -848,6 +1269,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.patch('/api/deployments/:id/config', async (req, res) => {
     try {
+      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
       // Allowlist rather than trusting req.body wholesale — this reaches saveDeploymentInfo(),
       // and fields like status/temporalWorkflowId are internal state a client should never be
       // able to overwrite directly.
@@ -857,6 +1279,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         'vllmMaxModelLen', 'vllmGpuMemUtil', 'vllmExtraArgs', 'openWebuiTargetId',
         'vllmToolCallingEnabled', 'vllmToolCallParser', 'vllmServedModelName',
         'vllmMaxNumSeqs', 'vllmDtype', 'vllmEnablePrefixCaching',
+        'tabbyModel', 'tabbyRevision', 'tabbyGpuCount', 'tabbyHfToken', 'tabbyCachePvc',
+        'tabbyImageTag', 'tabbyCacheMode', 'tabbyMaxSeqLen', 'tabbyMaxBatchSize',
+        'tabbyReasoning', 'tabbyToolFormat', 'tabbyInlineModelLoading', 'tabbyDisableAuth',
+        'tabbyExtraEnv',
+        'webuiEnableWebSearch', 'webuiWebSearchEngine', 'webuiWebSearchApiKey',
       ];
       const patch: Record<string, any> = {};
       for (const key of CONFIGURABLE_FIELDS) {
@@ -877,6 +1304,79 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   /** ── REGISTRY ── */
   app.get('/api/registry/search', async (req, res) => res.json(await registryService.search(req.query.q as string)));
   app.get('/api/registry/tags', async (req, res) => res.json(await registryService.getTags(req.query.repo as string)));
+  app.get('/api/registry/local-tags', async (req, res) => res.json(await registryService.getLocalTags(req.query.repo as string)));
+
+  // Lets the wizard show a model's real download size before deploying, instead of the
+  // deploy-time regex guess in tabbyapi.ts (used only as a fallback there when this wasn't
+  // available, e.g. an unusual repo name) — see DownloadModelActivity.ts for the shared file
+  // -listing helper this also uses for the actual pre-download. Also estimates GPU VRAM (weight
+  // shard + KV cache) for the requested context length/cache mode/GPU count, since that's a
+  // separate concern from the download size and from the host-side shm/memory sizing tabbyapi.ts
+  // does — see huggingface.ts's estimateKvCacheBytes for why this is informational, not a hard
+  // validation gate (K8s' nvidia device plugin lets you request a GPU count, not a VRAM amount).
+  app.get('/api/models/hf-size', async (req, res) => {
+    try {
+      const repo = req.query.repo as string;
+      if (!repo) return res.status(400).json({ error: 'repo is required' });
+      const revision = req.query.revision as string | undefined;
+      const user = (req as any).user;
+      const resolved = await credentialService.resolveCredentials(user.id, 'huggingface');
+      const size = await getHfModelSize(repo, revision, resolved.env.HF_TOKEN);
+
+      const maxSeqLen = req.query.maxSeqLen ? parseInt(req.query.maxSeqLen as string) : undefined;
+      const gpuCount = Math.max(parseInt((req.query.gpuCount as string) || '1'), 1);
+      let kvCacheBytesPerGpu: number | undefined;
+      let weightBytesPerGpu: number | undefined;
+      if (maxSeqLen) {
+        try {
+          const config = await getHfModelConfig(repo, revision, resolved.env.HF_TOKEN);
+          kvCacheBytesPerGpu = estimateKvCacheBytes(config, maxSeqLen, req.query.cacheMode as string | undefined) / gpuCount;
+          weightBytesPerGpu = size.totalBytes / gpuCount;
+        } catch {
+          // config.json missing/unparseable shouldn't block showing the download size — VRAM
+          // estimate just gets omitted.
+        }
+      }
+
+      res.json({ ...size, kvCacheBytesPerGpu, weightBytesPerGpu });
+    } catch (err: any) {
+      res.status(500).json({ error: err.response?.status === 404 ? `Model or revision not found: ${req.query.repo}@${req.query.revision || 'main'}` : err.message });
+    }
+  });
+
+  // Backs the wizard's model picker for vLLM/TabbyAPI — an empty q still returns something
+  // useful (top-downloaded results) rather than nothing, replacing what used to be a static
+  // hardcoded list of 4-5 models baked into the frontend. TabbyAPI only runs EXL3 quants, so its
+  // results come from turboderp's curated exl3-models collection instead of generic search —
+  // see getExl3ModelCollection's own comment for why.
+  app.get('/api/models/search', async (req, res) => {
+    try {
+      const q = (req.query.q as string) || '';
+      const appType = req.query.appType as string;
+      const results = appType === 'tabbyapi'
+        ? await getExl3ModelCollection(q)
+        : await searchHfModels(q, { pipelineTag: appType === 'vllm' ? 'text-generation' : undefined, limit: 20 });
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Lets the wizard show which bits-per-weight branches actually exist for a picked model —
+  // see getHfModelBranches's own comment for why this is a separate lookup from the model
+  // picker itself (EXL2/EXL3 quants split bpw variants across branches of one repo).
+  app.get('/api/models/hf-branches', async (req, res) => {
+    try {
+      const repo = req.query.repo as string;
+      if (!repo) return res.status(400).json({ error: 'repo is required' });
+      const user = (req as any).user;
+      const resolved = await credentialService.resolveCredentials(user.id, 'huggingface');
+      const branches = await getHfModelBranches(repo, resolved.env.HF_TOKEN);
+      res.json(branches);
+    } catch (err: any) {
+      res.status(500).json({ error: err.response?.status === 404 ? `Model not found: ${req.query.repo}` : err.message });
+    }
+  });
 
   /** ── NGINX config ── */
   const NGINX_CONF_PATH = path.join(__dirname, '../data/nginx/nginx.conf');
@@ -902,11 +1402,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.get('/api/logs/:type/:id', async (req, res) => {
     const { type, id } = req.params;
     const resource = type === 'cluster'
-      ? await clusterService.getById(id)
-      : (await appService.getAll()).find((d: any) => d.id === id);
-    if (!resource || !resource.lastLogPath) return res.json({ content: 'Initializing...' });
+      ? await clusterService.getById(id, (req as any).user.id)
+      : type === 'pipeline'
+      ? (await db.getPipelineRuns()).find((r: any) => r.id === id)
+      : (await appService.getAll((req as any).user.id)).find((d: any) => d.id === id);
+    const logPath = type === 'pipeline' ? (resource as any)?.logFile : (resource as any)?.lastLogPath;
+    if (!resource || !logPath) return res.json({ content: 'Initializing...' });
     try {
-      const content = await fs.readFile(resource.lastLogPath, 'utf-8');
+      const content = await fs.readFile(logPath, 'utf-8');
       res.json({ content });
     }
     catch {

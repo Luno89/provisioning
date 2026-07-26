@@ -33,13 +33,13 @@ describe('Deployment Wizard', () => {
     });
   });
 
-  it('navigates through all 5 steps of the wizard', async () => {
+  it('navigates through all steps of the wizard', async () => {
     const user = userEvent.setup();
-    const { container } = render(<App />, { wrapper });
+    render(<App />, { wrapper });
 
     // Go to apps view
     await user.click(screen.getByRole('button', { name: /applications/i }));
-    
+
     // Open wizard
     await user.click(screen.getByRole('button', { name: /deploy app/i }));
     expect(screen.getByText('Deployment Wizard')).toBeInTheDocument();
@@ -48,13 +48,9 @@ describe('Deployment Wizard', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: /target cluster/i }), 'c1');
     await user.click(screen.getByRole('button', { name: /next/i }));
 
-    // Step 2 -> 3: Deployment Strategy
+    // Step 2 -> 4: Deployment Strategy (no VPN step in between — removed from the wizard flow)
     await waitFor(() => expect(screen.getByText('Deployment Strategy')).toBeInTheDocument());
     await user.click(screen.getByText('Native K8s'));
-    await user.click(screen.getByRole('button', { name: /next/i }));
-
-    // Step 3: VPN Routing
-    await waitFor(() => expect(container.textContent).toContain('Windscribe VPN Routing'));
     await user.click(screen.getByRole('button', { name: /next/i }));
 
     // Step 4: Odoo Component
@@ -67,7 +63,7 @@ describe('Deployment Wizard', () => {
     await user.click(screen.getByText('17.5'));
     await user.click(screen.getByRole('button', { name: /next/i }));
 
-    // Step 5: Confirm
+    // Step 6: Confirm
     expect(screen.getByText('Ready to Launch')).toBeInTheDocument();
     expect(screen.getByText('Test Cluster')).toBeInTheDocument();
     expect(screen.getByText('native')).toBeInTheDocument();

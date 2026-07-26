@@ -3,6 +3,9 @@ import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
+import { Manifest } from "../.gen/providers/kubernetes/manifest/index.js";
+import { createAppIngress } from "../lib/app-ingress.js";
+import { createAppProbe } from "../lib/app-probe.js";
 
 export interface VllmConfig {
   readonly namespace?: string;
@@ -55,7 +58,7 @@ export class VllmApp extends Construct {
     const cpuLimit = config.cpuLimit || "10";
     const memoryLimit = config.memoryLimit || "20G";
 
-    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 
     const imageTag = config.imageTag && config.imageTag !== 'latest' ? config.imageTag : "v0.7.2";
     const imageName = gpuVendor === 'amd'
@@ -181,23 +184,33 @@ export class VllmApp extends Construct {
           port: 8000,
         },
         initialDelaySeconds: 10,
+        timeoutSeconds: 10,
         periodSeconds: 10,
-        failureThreshold: 180, // 10 + 180*10 = 1810s (~30min) total allowance
+        failureThreshold: 359, // 10 + 359*10 = 3600s (~60min) total allowance
       },
+      // timeoutSeconds defaults to 1s when unset — far too tight for a GPU inference server
+      // that might be mid-generation on a real request when the probe fires. Same fix and same
+      // reasoning as tabbyapi.ts's identical probes — see that file's comment for the live
+      // failure this caused (a healthy pod killed mid-stream because /health itself timed out,
+      // not a crash) and for why liveness is deliberately far more tolerant than readiness here
+      // (killing a busy-but-alive pod is destructive; vLLM is single-process for the same VRAM
+      // reason TabbyAPI is, so /health can't be made to respond instantly during generation).
       livenessProbe: {
         httpGet: {
           path: "/health",
           port: 8000,
         },
-        periodSeconds: 10,
-        failureThreshold: 3,
+        timeoutSeconds: 30,
+        periodSeconds: 15,
+        failureThreshold: 8,
       },
       readinessProbe: {
         httpGet: {
           path: "/health",
           port: 8000,
         },
-        periodSeconds: 5,
+        timeoutSeconds: 15,
+        periodSeconds: 10,
         failureThreshold: 3,
       },
     };
@@ -268,6 +281,13 @@ export class VllmApp extends Construct {
         // down first, releasing its GPU(s), before the new one is scheduled — correct for any
         // single-replica GPU workload regardless of whether GPU count changed between applies.
         strategy: gpuCount > 0 && device !== 'cpu' ? { type: "Recreate" } : undefined,
+        // Kubernetes' own stall detector, independent of (and enforced before) the `timeouts`
+        // block below — defaults to 600s, and the API server marks the Deployment
+        // ProgressDeadlineExceeded at that point regardless of how patient Terraform is willing
+        // to be (confirmed live on tabbyapi.ts's identical setup: a rollout still mid-download at
+        // 10m1s failed here even though `timeouts.create` below had ~20 minutes left). Matches
+        // the startupProbe window above so neither cuts the other off first.
+        progressDeadlineSeconds: 3630,
         selector: {
           matchLabels: {
             app: `${sanitizedName}-vllm`,
@@ -288,8 +308,8 @@ export class VllmApp extends Construct {
       // "manifest applied"). Its own default create timeout is much shorter than a model
       // download can take; extend it to match the startupProbe window above.
       timeouts: {
-        create: "30m",
-        update: "30m",
+        create: "65m",
+        update: "65m",
       },
     });
 
@@ -311,6 +331,57 @@ export class VllmApp extends Construct {
         ],
       },
       waitUntilReady: false,
+    });
+
+    createAppIngress(this, "ingress", {
+      namespace: namespaceName,
+      serviceName: `${sanitizedName}-vllm`,
+      servicePort: 8000,
+      hostname: `${namespaceName}.apps.local`,
+    });
+
+    createAppProbe(this, "probe", {
+      namespace: namespaceName,
+      serviceName: `${sanitizedName}-vllm`,
+      servicePort: 8000,
+    });
+
+    // vLLM's OpenAI-compatible server exposes a Prometheus /metrics endpoint on the same port as
+    // its API — a well-documented, stable core feature (num_requests_running,
+    // time_to_first_token, gpu_cache_usage_perc, etc.), unlike TabbyAPI (deliberately NOT given
+    // an equivalent ServiceMonitor — confirmed by reading its actual FastAPI route registration
+    // in endpoints/server.py: only OAI/Kobold/Core routers, no metrics route exists at all).
+    // NOT independently live-verified against a real running pod the way everything else in this
+    // observability effort was: vLLM needs a GPU and a real model download to actually start,
+    // and this platform doesn't cache a small enough model to make that a cheap check. Spot-check
+    // `curl http://<pod>:8000/metrics` next time a real vLLM deployment runs.
+    new Manifest(this, "servicemonitor", {
+      manifest: {
+        apiVersion: "monitoring.coreos.com/v1",
+        kind: "ServiceMonitor",
+        metadata: {
+          name: `${sanitizedName}-vllm`,
+          namespace: namespaceName,
+          labels: {
+            release: "kube-prometheus-stack",
+          },
+        },
+        spec: {
+          selector: {
+            matchLabels: {
+              app: `${sanitizedName}-vllm`,
+            },
+          },
+          endpoints: [
+            // targetPort (numeric), not port (name) — the vLLM Service above never names its
+            // port, so there's nothing for ServiceMonitor's name-based `port` field to match.
+            {
+              targetPort: 8000,
+              path: "/metrics",
+            },
+          ],
+        },
+      },
     });
   }
 }

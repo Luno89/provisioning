@@ -5,6 +5,7 @@ import { BuilderService } from './BuilderService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { DeploymentMetadata } from '../lib/types.js';
 import { StorageAdapter } from './StorageAdapter.js';
+import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
@@ -29,14 +30,21 @@ export class AppService extends BaseService {
     this.temporalBridge = temporalBridge;
   }
 
-  async getById(id: string) {
+  async getById(id: string, userId: string) {
     const deployments = await this.db.getDeployments();
-    return deployments.find((d: any) => d.id === id);
+    const dep = deployments.find((d: any) => d.id === id);
+    // 404, not 403 — matches ClusterService.getById: a wrong-owner lookup and a nonexistent id
+    // look identical to the caller.
+    if (dep && dep.ownerId !== userId) return undefined;
+    return dep;
   }
 
-  async getAll(io?: SocketServer) {
-    // 1. Force cluster service to sync first, which will also clean up deployments of deleted clusters
-    const clusters = await this.clusters.getAll(io);
+  async getAll(userId: string, io?: SocketServer) {
+    // 1. Force cluster service to sync first, which will also clean up deployments of deleted
+    // clusters — the FULL cluster list (every user's), not just this requester's, on purpose: see
+    // ClusterService.reconcileAllClusters's docstring for why filtering here would incorrectly
+    // purge other users' deployments during reconciliation below.
+    const clusters = await this.clusters.reconcileAllClusters(io);
 
     // 2. Read the current deployments
     const deployments = await this.db.getDeployments();
@@ -99,11 +107,14 @@ export class AppService extends BaseService {
       await this.db.saveDeploymentList(cleanDeployments);
     }
 
-    return cleanDeployments;
+    // Filtered here, at the very end — same reasoning as ClusterService.getAll: saveDeploymentList
+    // does a full deleteMany+insertMany replace (mongo-db.ts), so filtering before that point
+    // would silently wipe every other user's deployment records on the next reconciled save.
+    return cleanDeployments.filter((d) => d.ownerId === userId);
   }
 
-  async discoverDeployments(clusterId: string): Promise<DeploymentMetadata[]> {
-    const cluster = await this.clusters.getById(clusterId);
+  async discoverDeployments(clusterId: string, userId: string): Promise<DeploymentMetadata[]> {
+    const cluster = await this.clusters.getById(clusterId, userId);
     if (!cluster) throw new Error('Cluster not found');
 
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
@@ -173,6 +184,7 @@ export class AppService extends BaseService {
         strategy,
         status: 'running',
         lastSyncedAt: now,
+        ownerId: cluster.ownerId,
       };
       if (appType) entry.appType = appType;
       if (webRepo) entry.webRepo = webRepo;
@@ -193,8 +205,10 @@ export class AppService extends BaseService {
     return name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   }
 
-  async deploy(config: any, io?: SocketServer) {
-    const { 
+  // Dead code — nothing calls this (deployment always goes through TemporalBridge.deployApp).
+  // Kept in sync with ClusterService/getAll's signatures anyway rather than left broken.
+  async deploy(config: any, userId: string, io?: SocketServer) {
+    const {
       name, clusterId, odooRepo, odooTag, pgRepo, pgTag, modules = [], appType = 'odoo', storage = {},
       vpnEnabled = false, vpnProtocol = 'wireguard', vpnConfig = '', vpnDedicatedIp = ''
     } = config;
@@ -202,7 +216,7 @@ export class AppService extends BaseService {
     if (appType === 'odoo') {
       strategy = 'native';
     }
-    const cluster = await this.clusters.getById(clusterId);
+    const cluster = await this.clusters.getById(clusterId, userId);
     if (!cluster) throw new Error('Cluster not found');
 
     const id = uuidv4();
@@ -224,7 +238,8 @@ export class AppService extends BaseService {
       vpnEnabled,
       vpnProtocol,
       vpnConfig,
-      vpnDedicatedIp
+      vpnDedicatedIp,
+      ownerId: userId,
     };
     await this.db.saveDeployment(metadata);
 
@@ -320,6 +335,7 @@ export class AppService extends BaseService {
           DEPLOYMENT_ID: id.slice(0, 8),
           KUBECONFIG: kubeconfigPath,
           KUBECONFIG_CONTEXT: (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
+          SELF_MANAGED_K8S: isSelfManagedCluster(cluster.provider, isMock) ? 'true' : 'false',
           APP_TYPE: appType,
           WEB_IMAGE_REPO: finalOdooRepo || '',
           WEB_IMAGE_TAG: finalOdooTag || '',
@@ -343,17 +359,6 @@ export class AppService extends BaseService {
           VLLM_DTYPE: config.vllmDtype || '',
           VLLM_ENABLE_PREFIX_CACHING: config.vllmEnablePrefixCaching ? 'true' : 'false',
           OPENAI_API_BASE_URL: openaiApiBaseUrl,
-          CLUSTER_NAME: physicalName,
-          DEPLOYMENT_STRATEGY: strategy,
-          DEPLOYMENT_NAME: sanitizedName,
-          DEPLOYMENT_ID: id.slice(0, 8),
-          KUBECONFIG: kubeconfigPath,
-          KUBECONFIG_CONTEXT: (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
-          APP_TYPE: appType,
-          WEB_IMAGE_REPO: finalOdooRepo || '',
-          WEB_IMAGE_TAG: finalOdooTag || '',
-          DB_IMAGE_REPO: pgRepo || '',
-          DB_IMAGE_TAG: pgTag || '',
           // VPN Tunneling Configuration
           VPN_ENABLED: vpnEnabled ? 'true' : 'false',
           VPN_PROTOCOL: vpnProtocol,
@@ -380,14 +385,14 @@ export class AppService extends BaseService {
     return metadata;
   }
 
-  async updateModules(id: string, modules: string[], io?: SocketServer) {
-    const dep = (await this.getAll()).find(d => d.id === id);
+  async updateModules(id: string, modules: string[], userId: string, io?: SocketServer) {
+    const dep = (await this.getAll(userId)).find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
     const updatedMetadata = { ...dep, modules, status: 'deploying' as const };
     await this.db.saveDeployment(updatedMetadata);
 
-    const cluster = await this.clusters.getById(dep.clusterId);
+    const cluster = await this.clusters.getById(dep.clusterId, userId);
     const sanitizedName = this.sanitize(dep.name);
     const logFile = this.infra.getLogPath(`${dep.name}-update-modules`);
 
@@ -421,6 +426,7 @@ export class AppService extends BaseService {
             DEPLOYMENT_ID: id.slice(0, 8),
             KUBECONFIG: kubeconfigPath,
             KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
+            SELF_MANAGED_K8S: (cluster && isSelfManagedCluster(cluster.provider, isMock)) ? 'true' : 'false',
             APP_TYPE: appType,
             WEB_IMAGE_REPO: customTag.split(':')[0] || '',
             WEB_IMAGE_TAG: customTag.split(':')[1] || '',
@@ -450,11 +456,11 @@ export class AppService extends BaseService {
       return updatedMetadata;
   }
 
-  async listPods(id: string) {
+  async listPods(id: string, userId: string) {
     try {
-        const dep = (await this.getAll()).find((d: any) => d.id === id);
+        const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
-        const cluster = await this.clusters.getById(dep.clusterId);
+        const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = this.sanitize(dep.name);
@@ -473,13 +479,13 @@ export class AppService extends BaseService {
     }
   }
 
-  async getHelmStatus(id: string) {
+  async getHelmStatus(id: string, userId: string) {
     try {
-        const dep = (await this.getAll()).find((d: any) => d.id === id);
+        const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
         if (dep.strategy === 'native') return 'Native deployments do not use Helm. Use Diagnostics or Pod Inspector for status.';
-        
-        const cluster = await this.clusters.getById(dep.clusterId);
+
+        const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = this.sanitize(dep.name);
@@ -498,11 +504,11 @@ export class AppService extends BaseService {
     }
   }
 
-  async getDiagnostics(id: string) {
+  async getDiagnostics(id: string, userId: string) {
     try {
-        const dep = (await this.getAll()).find((d: any) => d.id === id);
+        const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
-        const cluster = await this.clusters.getById(dep.clusterId);
+        const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = this.sanitize(dep.name);
@@ -528,10 +534,10 @@ export class AppService extends BaseService {
     }
   }
 
-  async delete(id: string, io?: SocketServer) {
-    const dep = (await this.getAll()).find((d: any) => d.id === id);
+  async delete(id: string, userId: string, io?: SocketServer) {
+    const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
     if (!dep) throw new Error('Deployment not found');
-    const cluster = await this.clusters.getById(dep.clusterId);
+    const cluster = await this.clusters.getById(dep.clusterId, userId);
     
     const logFile = this.infra.getLogPath(`${dep.name}-destroy`);
     await this.db.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
@@ -548,7 +554,8 @@ export class AppService extends BaseService {
           DEPLOYMENT_ID: id.slice(0, 8),
           CLUSTER_NAME: physicalName,
           KUBECONFIG: kubeconfigPath,
-          KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : ''
+          KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
+          SELF_MANAGED_K8S: (cluster && isSelfManagedCluster(cluster.provider, isMock)) ? 'true' : 'false',
         };
 
         await this.infra.destroy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
@@ -569,8 +576,8 @@ export class AppService extends BaseService {
     })().catch((err: any) => this.logger.error(`Unhandled error during app destruction: ${err.message}`));
   }
 
-  async abort(id: string, io?: SocketServer) {
-    const dep = (await this.getAll()).find((d: any) => d.id === id);
+  async abort(id: string, userId: string, io?: SocketServer) {
+    const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
     const logFile = this.infra.getLogPath(`${dep.name}-abort`);
@@ -584,7 +591,7 @@ export class AppService extends BaseService {
         }
 
         // 2. Tear down namespace / k8s resources
-        const cluster = await this.clusters.getById(dep.clusterId);
+        const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (cluster) {
           const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
           try {
@@ -612,14 +619,14 @@ export class AppService extends BaseService {
     })().catch((err: any) => this.logger.error(`Unhandled error during deployment abort: ${err.message}`));
   }
 
-  async resizeDisk(id: string, storage: any, io?: SocketServer) {
-    const dep = (await this.getAll()).find(d => d.id === id);
+  async resizeDisk(id: string, storage: any, userId: string, io?: SocketServer) {
+    const dep = (await this.getAll(userId)).find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
     const updatedMetadata = { ...dep, storage: { ...dep.storage, ...storage }, status: 'deploying' as const };
     await this.db.saveDeployment(updatedMetadata);
 
-    const cluster = await this.clusters.getById(dep.clusterId);
+    const cluster = await this.clusters.getById(dep.clusterId, userId);
     const sanitizedName = this.sanitize(dep.name);
     const logFile = this.infra.getLogPath(`${dep.name}-resize-disk`);
 
@@ -645,6 +652,7 @@ export class AppService extends BaseService {
             DEPLOYMENT_ID: id.slice(0, 8),
             KUBECONFIG: kubeconfigPath,
             KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
+            SELF_MANAGED_K8S: (cluster && isSelfManagedCluster(cluster.provider, isMock)) ? 'true' : 'false',
             APP_TYPE: appType,
             WEB_IMAGE_REPO: webRepo,
             WEB_IMAGE_TAG: webTag,

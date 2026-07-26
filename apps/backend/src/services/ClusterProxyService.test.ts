@@ -55,7 +55,7 @@ describe('ClusterProxyService', () => {
       emitForwarding(child, 54321);
 
       const url = await resultPromise;
-      expect(url).toBe('http://127.0.0.1:54321/');
+      expect(url).toBe('http://localhost:54321/');
     });
 
     it('passes correct kubectl args', async () => {
@@ -77,7 +77,7 @@ describe('ClusterProxyService', () => {
       expect(args).toContain('0:80');
     });
 
-    it('uses deployment/traefik on port 9000 for traefik dashboard', async () => {
+    it('uses deployment/traefik on port 8080 for traefik dashboard', async () => {
       const child = fakeChildProcess();
       mockSpawn.mockReturnValue(child);
 
@@ -88,10 +88,15 @@ describe('ClusterProxyService', () => {
 
       const args = mockSpawn.mock.calls[0][1] as string[];
       expect(args).toContain('-n');
-      expect(args).toContain('kube-system');
+      // Not kube-system — this platform's own Traefik release deploys into its own 'traefik'
+      // namespace (constructs/ingress.ts); k3s's bundled Traefik, which would be in
+      // kube-system, is explicitly disabled at cluster-create time.
+      expect(args).toContain('traefik');
       expect(args).toContain('deployment/traefik');
-      expect(args).toContain('0:9000');
-      expect(url).toBe('http://127.0.0.1:11111/dashboard/');
+      // Not 9000 — the chart's dashboard/API entrypoint (named "traefik" in the container
+      // spec) is actually 8080; confirmed live against the running pod's containerPort list.
+      expect(args).toContain('0:8080');
+      expect(url).toBe('http://localhost:11111/dashboard/');
     });
 
     it('throws for unknown service key', async () => {
@@ -110,11 +115,11 @@ describe('ClusterProxyService', () => {
       const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
       emitForwarding(child, 40001);
       const url1 = await p1;
-      expect(url1).toBe('http://127.0.0.1:40001/');
+      expect(url1).toBe('http://localhost:40001/');
 
       // Second call should reuse — no new spawn
       const url2 = await svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      expect(url2).toBe('http://127.0.0.1:40001/');
+      expect(url2).toBe('http://localhost:40001/');
       expect(mockSpawn).toHaveBeenCalledOnce();
     });
 
@@ -258,7 +263,7 @@ describe('ClusterProxyService', () => {
       emitForwarding(child2, 40002);
       const url = await p2;
 
-      expect(url).toBe('http://127.0.0.1:40002/');
+      expect(url).toBe('http://localhost:40002/');
       expect(mockSpawn).toHaveBeenCalledTimes(2);
     });
   });

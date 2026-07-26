@@ -153,24 +153,22 @@ If the host toolkit is not configured, you'll see an error like:
 git clone <your-repository-url>
 cd provisioning
 
-# 2. Linux only: one-time root-level install (Docker CE + native k3s, not started yet).
-#    Never run scripts/setup.sh itself with sudo — see below.
+# 2. Linux only: one-time root-level install — the single sudo step. Docker CE, GPU container
+#    toolkit (safe/no-op on hosts with no GPU), native k3s (not started yet), trusting the
+#    self-hosted Gitea registry, and a scoped passwordless-sudo rule so dev/clean-dev never
+#    prompt for a password afterward. Never run scripts/setup.sh itself with sudo — see below.
 sudo bash scripts/setup-root.sh
 
-# 3. Linux + NVIDIA GPU only: configure GPU passthrough BEFORE first start (see below for why
-#    the order matters) — safe/no-op on hosts with no GPU.
-sudo bash scripts/setup-gpu.sh
-
-# 4. First-time setup (deps, binaries, worker, AND brings the management cluster up) — WITHOUT sudo
+# 3. First-time setup (deps, binaries, worker, AND brings the management cluster up) — WITHOUT sudo
 npm run setup
 
-# 5. Start the platform
+# 4. Start the platform
 npm run dev
 ```
 
 Open **[http://localhost:5173](http://localhost:5173)** in your browser.
 
-The `setup` script handles: npm dependencies, CDKTF provider bindings, pre-bundled binary downloads, Nginx proxy container, worker pod deployment, environment configuration, and — the step that actually finishes provisioning the management cluster — starting it and waiting for it to be `Ready` (macOS: k3d, created fresh here; Linux: the native k3s instance installed by `setup-root.sh`). It must be run as your normal user, not root — it does `npm install` and creates files that need to stay owned by you; running it under `sudo` leaves `node_modules` root-owned and breaks the dev server. `setup-gpu.sh` needs to run *before* this step on Linux GPU hosts: it writes the containerd config controlling GPU passthrough, which is only read when the cluster starts — running it after would mean an extra manual restart to pick up the change.
+The `setup` script handles: npm dependencies, CDKTF provider bindings, pre-bundled binary downloads, Nginx proxy container, worker pod deployment, environment configuration, and — the step that actually finishes provisioning the management cluster — starting it and waiting for it to be `Ready` (macOS: k3d, created fresh here; Linux: the native k3s instance installed by `setup-root.sh`). It must be run as your normal user, not root — it does `npm install` and creates files that need to stay owned by you; running it under `sudo` leaves `node_modules` root-owned and breaks the dev server. `setup-root.sh` runs its GPU-toolkit step *before* installing k3s specifically because that step writes the containerd config controlling GPU passthrough, which is only read when the cluster starts — running it after would mean an extra manual restart to pick up the change.
 
 ---
 
@@ -277,7 +275,7 @@ Menu keys: `0-9, a` run specific tests, `r` runs all, `t` terminates workflows, 
 | Command | Description |
 |---|---|
 | `npm run dev` | Start all services (backend, frontend, host worker, cluster worker) |
-| `npm run clean-dev` | Kill all dev processes, delete k3d clusters, clean DBs. **Linux**: also stops the native k3s management cluster and wipes its state — removal only, same as the k3d cleanup above it. Doesn't reinstall or bring anything back up; re-run `sudo bash scripts/setup-gpu.sh && npm run setup` afterward (that's what provisions it — see Quick Start). |
+| `npm run clean-dev` | Kill all dev processes, delete k3d clusters, clean DBs. **Linux**: also stops the native k3s management cluster and wipes its state — removal only, same as the k3d cleanup above it. Doesn't reinstall or bring anything back up; re-run `sudo bash scripts/setup-root.sh && npm run setup` afterward (that's what provisions it — see Quick Start). |
 | `npm run setup` | First-time setup (deps, binaries, cluster, worker) |
 | `npm run test` | Run full test suite (alive → unit → e2e) |
 | `npm run test:unit` | Run unit tests only |

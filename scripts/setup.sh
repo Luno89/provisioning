@@ -81,7 +81,7 @@ if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
 fi
 
 # Verify existing binaries are runnable for this platform, delete if invalid
-for tool in terraform k3d helm kubectl docker-compose; do
+for tool in terraform k3d helm kubectl docker-compose rclone; do
     if [ -f "bin/$tool" ]; then
         local_runnable=1
         case "$tool" in
@@ -90,6 +90,7 @@ for tool in terraform k3d helm kubectl docker-compose; do
             helm)      if ./bin/helm version --client &>/dev/null; then local_runnable=0; fi ;;
             kubectl)   if ./bin/kubectl version --client &>/dev/null; then local_runnable=0; fi ;;
             docker-compose) if ./bin/docker-compose version &>/dev/null; then local_runnable=0; fi ;;
+            rclone)    if ./bin/rclone version &>/dev/null; then local_runnable=0; fi ;;
         esac
         if [ "$local_runnable" -ne 0 ]; then
             echo "⚠️ Existing bin/$tool is not runnable on this platform (wrong OS/Arch). Deleting to force re-download..."
@@ -153,6 +154,19 @@ if [ ! -f "bin/docker-compose" ]; then
     if [ "$ARCH" = "arm64" ]; then DC_ARCH="aarch64"; fi
     curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.1/docker-compose-${OS}-${DC_ARCH}" -o bin/docker-compose
     chmod +x bin/docker-compose
+fi
+
+# rclone (used by scripts/backup-to-drive.sh to sync Mongo/k3d-storage/secrets to Google Drive)
+if [ ! -f "bin/rclone" ]; then
+    echo "📥 Downloading rclone..."
+    # rclone's own release naming predates the "darwin" convention other tools here use.
+    RCLONE_OS="$OS"
+    if [ "$OS" = "darwin" ]; then RCLONE_OS="osx"; fi
+    curl -fsSL "https://downloads.rclone.org/rclone-current-${RCLONE_OS}-${ARCH}.zip" -o rclone.zip
+    unzip -oq rclone.zip -d rclone-tmp
+    mv rclone-tmp/rclone-*/rclone bin/rclone
+    chmod +x bin/rclone
+    rm -rf rclone.zip rclone-tmp
 fi
 
 echo "✅ Binaries ready."

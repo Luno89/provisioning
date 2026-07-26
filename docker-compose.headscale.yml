@@ -1,0 +1,25 @@
+# Headscale — self-hosted Tailscale coordination server. See headscale/config/config.yaml and
+# apps/backend/src/services/HeadscaleService.ts for how the backend talks to it.
+version: "3.9"
+
+services:
+  headscale:
+    image: docker.io/headscale/headscale:v0.29.2
+    container_name: provisioning-headscale
+    restart: unless-stopped
+    ports:
+      - "8080:8080"     # REST API + client (tailscale up) traffic
+      - "9090:9090"     # metrics
+      - "50443:50443"   # gRPC — only used by the `headscale` CLI for local debugging
+    volumes:
+      - ./headscale/config:/etc/headscale:ro
+      - headscale-data:/var/lib/headscale
+    command: serve
+    healthcheck:
+      test: ["CMD", "headscale", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  headscale-data:

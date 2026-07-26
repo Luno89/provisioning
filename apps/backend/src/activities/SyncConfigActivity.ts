@@ -10,7 +10,9 @@
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { StorageAdapter } from '../services/StorageAdapter.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
+import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { buildAppEnv } from '../lib/app-env.js';
+import { pushOpenWebUiWebSearchConfig } from '../lib/openwebui-admin.js';
 
 export interface SyncConfigArgs {
   name: string;
@@ -40,7 +42,24 @@ export interface SyncConfigArgs {
   vllmMaxNumSeqs?: number;
   vllmDtype?: string;
   vllmEnablePrefixCaching?: boolean;
+  tabbyModel?: string;
+  tabbyRevision?: string;
+  tabbyGpuCount?: number;
+  tabbyHfToken?: string;
+  tabbyCachePvc?: string;
+  tabbyImageTag?: string;
+  tabbyCacheMode?: string;
+  tabbyMaxSeqLen?: number;
+  tabbyMaxBatchSize?: number;
+  tabbyReasoning?: boolean;
+  tabbyToolFormat?: string;
+  tabbyInlineModelLoading?: boolean;
+  tabbyDisableAuth?: boolean;
+  tabbyExtraEnv?: string;
   openaiApiBaseUrl?: string;
+  webuiEnableWebSearch?: boolean;
+  webuiWebSearchEngine?: string;
+  webuiWebSearchApiKey?: string;
 }
 
 export interface SyncConfigResult {
@@ -48,10 +67,9 @@ export interface SyncConfigResult {
   msg: string;
 }
 
-export const syncConfigActivityMeta = {
-  name: 'SyncConfigActivity',
-  startToCloseTimeout: '80 minutes',
-};
+// Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
+// VALUE from an activity file, only `import type`).
+export { syncConfigActivityMeta } from '../lib/activity-timeouts.js';
 
 const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -62,14 +80,17 @@ export async function SyncConfigActivity(
   const logFile = args.logFile;
   const sanitizedName = SANITIZE(args.name);
 
-  const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
+  // See DeployAppActivity.ts's identical comment — 'remote' is never a mock-cloud scenario.
+  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
-  const kubeconfigPath = (args.provider === 'k3d' || isMock)
+  // See DeployAppActivity.ts's identical comment — 'remote' clusters also use this exact path.
+  const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
     ? `/tmp/kubeconfig-${physicalName}`
     : `${process.cwd()}/.kube/config`;
 
   const effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
   const effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
+  const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
 
   const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage || {});
   const deploymentId = args.deploymentId || 'default';
@@ -102,7 +123,24 @@ export async function SyncConfigActivity(
     vllmMaxNumSeqs: args.vllmMaxNumSeqs,
     vllmDtype: args.vllmDtype,
     vllmEnablePrefixCaching: args.vllmEnablePrefixCaching,
+    tabbyModel: args.tabbyModel,
+    tabbyRevision: args.tabbyRevision,
+    tabbyGpuCount: effectiveTabbyGpuCount,
+    tabbyHfToken: args.tabbyHfToken,
+    tabbyCachePvc: args.tabbyCachePvc,
+    tabbyImageTag: args.tabbyImageTag,
+    tabbyCacheMode: args.tabbyCacheMode,
+    tabbyMaxSeqLen: args.tabbyMaxSeqLen,
+    tabbyMaxBatchSize: args.tabbyMaxBatchSize,
+    tabbyReasoning: args.tabbyReasoning,
+    tabbyToolFormat: args.tabbyToolFormat,
+    tabbyInlineModelLoading: args.tabbyInlineModelLoading,
+    tabbyDisableAuth: args.tabbyDisableAuth,
+    tabbyExtraEnv: args.tabbyExtraEnv,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
+    webuiEnableWebSearch: args.webuiEnableWebSearch,
+    webuiWebSearchEngine: args.webuiWebSearchEngine,
+    webuiWebSearchApiKey: args.webuiWebSearchApiKey,
     storageEnv,
   });
 
@@ -122,6 +160,30 @@ export async function SyncConfigActivity(
     await infra.runKubectl(['rollout', 'restart', 'deployment', '-n', sanitizedName], kubeconfigPath);
   } catch (err: any) {
     console.warn(`[SyncConfigActivity] rollout restart failed in namespace ${sanitizedName}: ${err.message}`);
+  }
+
+  // CDKTF env vars only ever seed Open WebUI's own persisted config on a pod's first-ever boot;
+  // an already-running instance ignores them, so push the actual change through its Admin API.
+  if (args.appType === 'openwebui') {
+    // The rollout restart above is unconditional (always forces a new pod, even when nothing
+    // Kubernetes-visible actually changed), so pushOpenWebUiWebSearchConfig below would otherwise
+    // race it — `kubectl exec deployment/open-webui` can land on a pod whose Open WebUI process
+    // hasn't finished booting yet (not listening on 8080), silently failing the whole push since
+    // it's best-effort by design. Confirmed live: this raced and silently failed even with
+    // correct env vars and a real admin user already present. Wait for the new pod to actually
+    // be Ready first — "open-webui" is a fixed name (see constructs/open-webui.ts), unlike the
+    // generic `deployment` (no name) used for the restart above, which has to stay
+    // app-type-agnostic since every construct names its Deployment differently.
+    try {
+      await infra.runKubectl(['rollout', 'status', 'deployment/open-webui', '-n', sanitizedName, '--timeout=120s'], kubeconfigPath);
+    } catch (err: any) {
+      console.warn(`[SyncConfigActivity] open-webui rollout didn't report ready within 120s: ${err.message} — attempting the config push anyway`);
+    }
+    await pushOpenWebUiWebSearchConfig(infra, kubeconfigPath, sanitizedName, {
+      ...(args.webuiEnableWebSearch !== undefined ? { enableWebSearch: args.webuiEnableWebSearch } : {}),
+      ...(args.webuiWebSearchEngine !== undefined ? { webSearchEngine: args.webuiWebSearchEngine } : {}),
+      ...(args.webuiWebSearchApiKey !== undefined ? { webSearchApiKey: args.webuiWebSearchApiKey } : {}),
+    });
   }
 
   return { status: 'synced', msg: `Config synced and restart triggered for ${args.name}` };

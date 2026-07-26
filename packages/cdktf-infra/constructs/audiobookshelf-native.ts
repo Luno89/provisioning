@@ -4,6 +4,8 @@ import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { VpnConfig, VpnService } from "../lib/vpn-service.js";
+import { createAppIngress } from "../lib/app-ingress.js";
+import { createAppProbe } from "../lib/app-probe.js";
 
 export interface AudiobookshelfNativeConfig extends VpnConfig {
   readonly namespace?: string;
@@ -25,7 +27,7 @@ export class AudiobookshelfNativeApp extends Construct {
     const configSize = config.configStorage || "1Gi";
     const librarySize = config.libraryStorage || "5Gi";
 
-    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 
     const ns = new Namespace(this, "ns", {
       metadata: {
@@ -163,6 +165,19 @@ export class AudiobookshelfNativeApp extends Construct {
         selector: { app: `audiobookshelf-${id}` },
         port: [{ port: 80, targetPort: "80" }],
       },
+    });
+
+    createAppIngress(this, "ingress", {
+      namespace: namespaceName,
+      serviceName: "audiobookshelf",
+      servicePort: 80,
+      hostname: `${namespaceName}.apps.local`,
+    });
+
+    createAppProbe(this, "probe", {
+      namespace: namespaceName,
+      serviceName: "audiobookshelf",
+      servicePort: 80,
     });
   }
 }

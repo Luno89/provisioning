@@ -3,11 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key, StopCircle, XCircle, RefreshCw, Settings } from 'lucide-react';
+import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key, StopCircle, RefreshCw, Settings, GitBranch } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
 import CloudAccounts from './components/CloudAccounts.js';
+import Projects from './components/Projects.js';
+import ClusterWizard from './components/ClusterWizard.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
@@ -62,6 +64,12 @@ const APP_DEFAULTS: Record<string, {
     hasDatabase: false,
     strategies: ['native']
   },
+  tabbyapi: {
+    helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'ghcr.io/theroyallab/tabbyapi', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
   openwebui: {
     helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
     native: { webRepo: 'ghcr.io/open-webui/open-webui', webTag: 'main', dbRepo: '', dbTag: '' },
@@ -73,11 +81,16 @@ const APP_DEFAULTS: Record<string, {
 // App types that require a GPU-enabled cluster (attached to the shared, GPU-capable
 // management cluster — see backend ProvisionClusterActivity). Extend this as more GPU-backed
 // LLM engines are added (e.g. future TGI/Ollama support).
-const GPU_ONLY_APP_TYPES = new Set(['vllm']);
+const GPU_ONLY_APP_TYPES = new Set(['vllm', 'tabbyapi']);
+
+// TabbyAPI's tool-call parsers (endpoints/OAI/utils/toolcall_formats/*.py) — 'harmony' is
+// documented as equivalent to setting the separate `harmony: true` config flag, so it's passed
+// through as a plain tool_format value rather than needing special-casing.
+const TABBY_TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', 'glm4_5', 'minimax_m2', 'harmony'];
 
 function App() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<'clusters' | 'apps' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
@@ -88,7 +101,6 @@ function App() {
   );
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
-  const [newClusterProvider, setNewClusterProvider] = useState('k3d');
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
   const [confirmDestroy, setConfirmDestroy] = useState<{ type: 'cluster' | 'app', id: string, name: string, isAbort?: boolean } | null>(null);
@@ -103,12 +115,18 @@ function App() {
     vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '',
     vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '',
     vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false,
+    tabbyModel: '', tabbyRevision: '', tabbyGpuCount: '1', tabbyHfToken: '',
+    tabbyImageTag: 'latest', tabbyCacheMode: '', tabbyMaxSeqLen: '', tabbyMaxBatchSize: '',
+    tabbyReasoning: false, tabbyToolFormat: '', tabbyInlineModelLoading: false,
+    tabbyDisableAuth: true, tabbyExtraEnv: '',
     openWebuiTargetId: '',
+    webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '',
   });
   const [exposurePathInput, setExposurePathInput] = useState('');
   const [selectedPod, setSelectedPod] = useState<string | null>(null);
   const [socketLogs, setSocketLogs] = useState<string>('');
   const [kubeLogs, setKubeLogs] = useState<string>('');
+  const [lastLogAt, setLastLogAt] = useState<number | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
   const activeLogRoomRef = useRef<string | null>(null);
@@ -171,7 +189,7 @@ function App() {
   const [wizardData, setWizardData] = useState({
     name: 'Odoo-Production',
     clusterId: '',
-    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'openwebui',
+    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui',
     strategy: 'native' as 'helm' | 'native',
     odooRepo: 'library/odoo',
     odooTag: '18.0',
@@ -191,16 +209,39 @@ function App() {
     vllmMaxNumSeqs: '',
     vllmDtype: '',
     vllmEnablePrefixCaching: false,
-    openWebuiTargetId: ''
+    tabbyModel: 'turboderp/Qwen3.6-27B-exl3',
+    tabbyRevision: '',
+    tabbyGpuCount: '2',
+    tabbyHfToken: '',
+    tabbyImageTag: 'latest',
+    tabbyCacheMode: 'Q8',
+    tabbyMaxSeqLen: '262144',
+    tabbyMaxBatchSize: '',
+    tabbyReasoning: true,
+    tabbyToolFormat: 'qwen3_coder',
+    tabbyInlineModelLoading: true,
+    tabbyDisableAuth: true,
+    tabbyExtraEnv: '',
+    openWebuiTargetId: '',
+    webuiEnableWebSearch: true,
+    webuiWebSearchEngine: 'duckduckgo',
+    webuiWebSearchApiKey: ''
   });
   const [showVllmAdvanced, setShowVllmAdvanced] = useState(false);
+  const [showTabbyAdvanced, setShowTabbyAdvanced] = useState(false);
 
   const { data: clusters = [] } = useQuery({ queryKey: ['clusters'], queryFn: () => axios.get(`${API_BASE}/clusters`).then(res => res.data), refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: ['deployments'], queryFn: () => axios.get(`${API_BASE}/deployments`).then(res => res.data), refetchInterval: 3000 });
   const { data: credentialsData } = useQuery({ queryKey: ['credentials'], queryFn: () => axios.get(`${API_BASE}/credentials`).then(res => res.data) });
-  
+  const { data: invites = [] } = useQuery({ queryKey: ['invites'], queryFn: () => axios.get(`${API_BASE}/admin/invites`).then(res => res.data), enabled: !!user?.isAdmin });
+  const mintInvite = useMutation({
+    mutationFn: () => axios.post(`${API_BASE}/admin/invites`, {}).then(res => res.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invites'] }),
+  });
+
   const hasHfAccount = credentialsData?.providers?.some((p: any) => p.provider === 'huggingface' && p.configured);
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d: any) => d.id === showLogModal.id) : null;
+  const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c: any) => c.id === showLogModal.id) : null;
 
   const { data: clusterPods, isLoading: loadingClusterPods, error: podError } = useQuery({ 
     queryKey: ['cluster-pods', expandedCluster], 
@@ -223,11 +264,11 @@ function App() {
     refetchInterval: 5000
   });
 
-  const { data: podResponse } = useQuery({ 
-    queryKey: ['pods', showLogModal?.id], 
-    queryFn: () => axios.get(`${API_BASE}/deployments/${showLogModal?.id}/pods`).then(res => res.data), 
-    enabled: !!showLogModal && showLogModal.type === 'app' && logTab === 'app', 
-    refetchInterval: 3000 
+  const { data: podResponse, dataUpdatedAt: podsCheckedAt } = useQuery({
+    queryKey: ['pods', showLogModal?.id],
+    queryFn: () => axios.get(`${API_BASE}/deployments/${showLogModal?.id}/pods`).then(res => res.data),
+    enabled: !!showLogModal && showLogModal.type === 'app' && logTab === 'app',
+    refetchInterval: 3000
   });
   
   const pods = podResponse?.pods || [];
@@ -246,7 +287,132 @@ function App() {
   const { data: odooTags = [], isLoading: loadingOdooTags } = useQuery({ queryKey: ['tags', wizardData.odooRepo], queryFn: () => axios.get(`${API_BASE}/registry/tags?repo=${wizardData.odooRepo}`).then(res => res.data), enabled: showAppModal && wizardStep === 4 });
   const { data: pgTags = [], isLoading: loadingPgTags } = useQuery({ queryKey: ['tags', wizardData.pgRepo], queryFn: () => axios.get(`${API_BASE}/registry/tags?repo=${wizardData.pgRepo}`).then(res => res.data), enabled: showAppModal && wizardStep === 5 });
 
-  const { data: initialLogs } = useQuery({ 
+  // Which image tags the running TabbyAPI image actually supports — fetched live rather than
+  // hardcoded, since ghcr.io/theroyallab/tabbyapi's published tags can change upstream (new
+  // CUDA variants added/dropped) independent of this codebase. Local tags come from the host
+  // Docker cache (deploys instantly, no pull) and are merged with what's downloadable from the
+  // registry so the picker shows both, distinguishing which is which.
+  const TABBY_IMAGE_REPO = 'ghcr.io/theroyallab/tabbyapi';
+  const tabbyImagePickerOpen = (showAppModal && wizardStep === 4 && wizardData.appType === 'tabbyapi') || (!!currentDeployment && currentDeployment.appType === 'tabbyapi');
+  const { data: tabbyRemoteTags = [], isLoading: loadingTabbyImageTags } = useQuery({ queryKey: ['tags', TABBY_IMAGE_REPO], queryFn: () => axios.get(`${API_BASE}/registry/tags?repo=${TABBY_IMAGE_REPO}`).then(res => res.data), enabled: tabbyImagePickerOpen });
+  const { data: tabbyLocalTags = [] } = useQuery({ queryKey: ['local-tags', TABBY_IMAGE_REPO], queryFn: () => axios.get(`${API_BASE}/registry/local-tags?repo=${TABBY_IMAGE_REPO}`).then(res => res.data), enabled: tabbyImagePickerOpen });
+  const TABBY_IMAGE_TAG_HINTS: Record<string, string> = { latest: 'CUDA 12.8', cu13: 'CUDA 13.x' };
+  const tabbyImageTagOptions = Array.from(new Set([...(tabbyRemoteTags as string[]), ...(tabbyLocalTags as string[])])).map((tag: string) => ({
+    tag,
+    cached: (tabbyLocalTags as string[]).includes(tag),
+    label: TABBY_IMAGE_TAG_HINTS[tag] ? `${tag} — ${TABBY_IMAGE_TAG_HINTS[tag]}` : tag,
+  }));
+
+  // Debounced so this doesn't fire on every keystroke while typing a model ID or context length
+  // — HuggingFace's API is cheap but there's no reason to hit it on every digit.
+  const [debouncedTabbyModel, setDebouncedTabbyModel] = useState('');
+  const [debouncedTabbyRevision, setDebouncedTabbyRevision] = useState('');
+  const [debouncedTabbyMaxSeqLen, setDebouncedTabbyMaxSeqLen] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedTabbyModel(wizardData.tabbyModel);
+      setDebouncedTabbyRevision(wizardData.tabbyRevision);
+      setDebouncedTabbyMaxSeqLen(wizardData.tabbyMaxSeqLen);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [wizardData.tabbyModel, wizardData.tabbyRevision, wizardData.tabbyMaxSeqLen]);
+  const { data: tabbyModelSize, isFetching: loadingTabbyModelSize, isError: tabbyModelSizeError } = useQuery({
+    queryKey: ['hf-size', debouncedTabbyModel, debouncedTabbyRevision, debouncedTabbyMaxSeqLen, wizardData.tabbyCacheMode, wizardData.tabbyGpuCount],
+    queryFn: () => axios.get(`${API_BASE}/models/hf-size`, { params: {
+      repo: debouncedTabbyModel,
+      revision: debouncedTabbyRevision || undefined,
+      maxSeqLen: debouncedTabbyMaxSeqLen || undefined,
+      cacheMode: wizardData.tabbyCacheMode || undefined,
+      gpuCount: wizardData.tabbyGpuCount,
+    } }).then(res => res.data),
+    enabled: showAppModal && wizardStep === 4 && wizardData.appType === 'tabbyapi' && !!debouncedTabbyModel,
+    retry: false,
+  });
+
+  // Same VRAM-estimate treatment as TabbyAPI above, adapted for vLLM's own fields: no revision
+  // concept (vLLM doesn't split quants across HF branches the way EXL2/EXL3 repos do), and dtype
+  // instead of cache_mode — mapped to 'FP16' (2 bytes/element) for every realistic vLLM dtype
+  // (auto/half/float16/bfloat16 are all 2 bytes; float32 is rare enough for LLM serving that this
+  // doesn't special-case it separately, same caveat-labeled estimate as the TabbyAPI side).
+  const [debouncedVllmModel, setDebouncedVllmModel] = useState('');
+  const [debouncedVllmMaxModelLen, setDebouncedVllmMaxModelLen] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedVllmModel(wizardData.odooRepo);
+      setDebouncedVllmMaxModelLen(wizardData.vllmMaxModelLen);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [wizardData.odooRepo, wizardData.vllmMaxModelLen]);
+  const { data: vllmModelSize, isFetching: loadingVllmModelSize, isError: vllmModelSizeError } = useQuery({
+    queryKey: ['hf-size', debouncedVllmModel, debouncedVllmMaxModelLen, wizardData.odooTag],
+    queryFn: () => axios.get(`${API_BASE}/models/hf-size`, { params: {
+      repo: debouncedVllmModel,
+      maxSeqLen: debouncedVllmMaxModelLen || undefined,
+      cacheMode: 'FP16',
+      gpuCount: wizardData.odooTag && wizardData.odooTag !== '0' ? wizardData.odooTag : '1',
+    } }).then(res => res.data),
+    enabled: showAppModal && wizardStep === 4 && wizardData.appType === 'vllm' && !!debouncedVllmModel,
+    retry: false,
+  });
+
+  // Shared model-search picker for both vLLM and TabbyAPI wizard steps — replaces what used to
+  // be a static hardcoded list of 4-5 models with a live HuggingFace search. An empty query
+  // still returns results (sorted by downloads), so it doubles as a "trending models" list.
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [debouncedModelSearchQuery, setDebouncedModelSearchQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedModelSearchQuery(modelSearchQuery), 400);
+    return () => clearTimeout(t);
+  }, [modelSearchQuery]);
+  const { data: modelSearchResults = [], isFetching: loadingModelSearch } = useQuery({
+    queryKey: ['model-search', wizardData.appType, debouncedModelSearchQuery],
+    queryFn: () => axios.get(`${API_BASE}/models/search`, { params: { q: debouncedModelSearchQuery, appType: wizardData.appType } }).then(res => res.data),
+    enabled: showAppModal && wizardStep === 3 && (wizardData.appType === 'vllm' || wizardData.appType === 'tabbyapi'),
+    staleTime: 30000,
+  });
+  // Only relevant for TabbyAPI — EXL2/EXL3 quants split their bpw variants across branches of
+  // one repo, so picking a model isn't enough on its own; see getHfModelBranches's own comment.
+  const { data: tabbyModelBranches = [], isFetching: loadingTabbyModelBranches } = useQuery({
+    queryKey: ['hf-branches', wizardData.tabbyModel],
+    queryFn: () => axios.get(`${API_BASE}/models/hf-branches`, { params: { repo: wizardData.tabbyModel } }).then(res => res.data),
+    enabled: showAppModal && wizardStep === 3 && wizardData.appType === 'tabbyapi' && !!wizardData.tabbyModel,
+    staleTime: 30000,
+  });
+  // Defaults to the highest-bpw (best quality) branch the moment the list loads, rather than
+  // leaving Revision blank — TabbyAPI's downloader needs a real branch, and "main" on an
+  // EXL2/EXL3 repo is often just a README pointer with no actual weights in it. Still fully
+  // overridable via the picker below or the free-text Revision field on the next step.
+  useEffect(() => {
+    if (tabbyModelBranches.length > 0 && !wizardData.tabbyRevision) {
+      setWizardData(prev => ({ ...prev, tabbyRevision: tabbyModelBranches[0] }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabbyModelBranches]);
+  const renderModelSearchPicker = (selectedModel: string, onSelect: (id: string) => void, placeholder = 'e.g. llama, mistral, qwen...') => (
+    <div>
+      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Search Hugging Face Models</label>
+      <input
+        value={modelSearchQuery}
+        onChange={e => setModelSearchQuery(e.target.value)}
+        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm mb-2"
+        placeholder={placeholder}
+      />
+      <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+        {loadingModelSearch ? (
+          <div className="flex items-center gap-2 text-slate-500 text-xs py-3"><Loader2 size={14} className="animate-spin" /> Searching Hugging Face...</div>
+        ) : modelSearchResults.length > 0 ? modelSearchResults.map((m: any) => (
+          <button key={m.id} type="button" onClick={() => onSelect(m.id)} className={`px-4 py-3 rounded-lg text-left text-xs border transition-all ${selectedModel === m.id ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+            <div className="font-bold">{m.id.split('/').pop()}</div>
+            <div className="text-[10px] opacity-70">{m.id} · {m.downloads.toLocaleString()} downloads</div>
+          </button>
+        )) : (
+          <div className="text-[10px] text-slate-600 italic text-center py-4">No matches — try a different search term.</div>
+        )}
+      </div>
+    </div>
+  );
+
+  const { data: initialLogs } = useQuery({
     queryKey: ['logs', showLogModal?.type, showLogModal?.id], 
     queryFn: () => axios.get(`${API_BASE}/logs/${showLogModal?.type}/${showLogModal?.id}`).then(res => res.data), 
     enabled: !!showLogModal && (logTab === 'provision' || (showLogModal.type === 'app' && currentDeployment?.status === 'failed' && logTab === 'general')) 
@@ -278,6 +444,13 @@ function App() {
       }
       if (activeKubePodRef.current) {
         const { id, podName, namespace } = activeKubePodRef.current;
+        // The server always restarts the pod's log tail from scratch (kubectl logs --tail=100),
+        // never a resume-from-where-we-left-off stream — without clearing here first, that
+        // re-fetched history lands on top of whatever was already accumulated client-side and
+        // shows up as the same lines repeating. Every backend restart or network blip triggers
+        // this path, so it's not just a one-off.
+        setKubeLogs('');
+        setLastLogAt(null);
         socket.emit('join-kube-room', id);
         socket.emit('tail-pod', { resourceId: id, podName, namespace });
       }
@@ -305,6 +478,7 @@ function App() {
       if (!selectedPod || !exists) {
         setSelectedPod(pods[0]?.metadata?.name || null);
         setKubeLogs('');
+        setLastLogAt(null);
       }
     }
   }, [showLogModal, logTab, pods, selectedPod]);
@@ -315,7 +489,7 @@ function App() {
       activeKubePodRef.current = { id: showLogModal.id, podName: selectedPod, namespace };
       socket.emit('join-kube-room', showLogModal.id);
       socket.emit('tail-pod', { resourceId: showLogModal.id, podName: selectedPod, namespace });
-      socket.on('kube-log', (chunk: string) => setKubeLogs(prev => prev + chunk));
+      socket.on('kube-log', (chunk: string) => { setKubeLogs(prev => prev + chunk); setLastLogAt(Date.now()); });
       return () => {
         socket.emit('leave-kube-room', showLogModal.id);
         activeKubePodRef.current = null;
@@ -328,6 +502,7 @@ function App() {
     if (!showLogModal) {
       setSocketLogs('');
       setKubeLogs('');
+      setLastLogAt(null);
     }
   }, [showLogModal]);
 
@@ -418,7 +593,23 @@ function App() {
         vllmMaxNumSeqs: currentDeployment.vllmMaxNumSeqs !== undefined ? String(currentDeployment.vllmMaxNumSeqs) : '',
         vllmDtype: currentDeployment.vllmDtype || '',
         vllmEnablePrefixCaching: currentDeployment.vllmEnablePrefixCaching || false,
+        tabbyModel: currentDeployment.tabbyModel || '',
+        tabbyRevision: currentDeployment.tabbyRevision || '',
+        tabbyGpuCount: currentDeployment.tabbyGpuCount !== undefined ? String(currentDeployment.tabbyGpuCount) : '1',
+        tabbyHfToken: '', // never pre-fill a secret back into a form field
+        tabbyImageTag: currentDeployment.tabbyImageTag || 'latest',
+        tabbyCacheMode: currentDeployment.tabbyCacheMode || '',
+        tabbyMaxSeqLen: currentDeployment.tabbyMaxSeqLen !== undefined ? String(currentDeployment.tabbyMaxSeqLen) : '',
+        tabbyMaxBatchSize: currentDeployment.tabbyMaxBatchSize !== undefined ? String(currentDeployment.tabbyMaxBatchSize) : '',
+        tabbyReasoning: currentDeployment.tabbyReasoning || false,
+        tabbyToolFormat: currentDeployment.tabbyToolFormat || '',
+        tabbyInlineModelLoading: currentDeployment.tabbyInlineModelLoading || false,
+        tabbyDisableAuth: currentDeployment.tabbyDisableAuth !== false,
+        tabbyExtraEnv: currentDeployment.tabbyExtraEnv || '',
         openWebuiTargetId: currentDeployment.openWebuiTargetId || '',
+        webuiEnableWebSearch: currentDeployment.webuiEnableWebSearch !== false,
+        webuiWebSearchEngine: currentDeployment.webuiWebSearchEngine || 'duckduckgo',
+        webuiWebSearchApiKey: '', // never pre-fill a secret back into a form field
       });
     }
   }, [currentDeployment?.id, logTab]);
@@ -469,16 +660,11 @@ function App() {
     }
   });
 
-  const abortResource = useMutation({
-    mutationFn: ({ type, id }: any) => axios.post(`${API_BASE}/${type === 'cluster' ? 'clusters' : 'deployments'}/${id}/abort`),
-    onSuccess: (_, variables) => {
-        queryClient.invalidateQueries({ queryKey: ['clusters'] });
-        queryClient.invalidateQueries({ queryKey: ['deployments'] });
-        setConfirmDestroy(null);
-        setShowLogModal({ type: variables.type, id: variables.id });
-        setLogTab('provision');
-    }
-  });
+  // No separate "abort" mutation: DELETE /api/clusters/:id and /api/deployments/:id already
+  // detect a still-provisioning/deploying resource server-side and abort it instead of trying to
+  // destroy something that was never fully created — see index.ts's delete handlers. A dedicated
+  // Abort button/mutation calling POST .../abort did the exact same thing through a second path,
+  // which just meant two buttons for one operation.
 
   const exposeApp = useMutation({
     mutationFn: ({ id, mode }: { id: string, mode: 'public' | 'local' }) => axios.post(`${API_BASE}/deployments/${id}/expose`, { mode }),
@@ -520,14 +706,12 @@ function App() {
     }
   }, [nginxConfig]);
 
+  const isModelApp = (appType: string) => appType === 'vllm' || appType === 'tabbyapi';
+
   const nextStep = () => {
     const config = APP_DEFAULTS[wizardData.appType];
     if (wizardStep === 2) {
-      if (wizardData.strategy === 'native') {
-        setWizardStep(3);
-      } else {
-        setWizardStep(4);
-      }
+      setWizardStep(isModelApp(wizardData.appType) ? 3 : 4);
     } else if (wizardStep === 3) {
       setWizardStep(4);
     } else if (wizardStep === 4 && !config.hasDatabase) {
@@ -540,11 +724,7 @@ function App() {
   const prevStep = () => {
     const config = APP_DEFAULTS[wizardData.appType];
     if (wizardStep === 4) {
-      if (wizardData.strategy === 'native') {
-        setWizardStep(3);
-      } else {
-        setWizardStep(2);
-      }
+      setWizardStep(isModelApp(wizardData.appType) ? 3 : 2);
     } else if (wizardStep === 3) {
       setWizardStep(2);
     } else if (wizardStep === 6 && !config.hasDatabase) {
@@ -554,7 +734,7 @@ function App() {
     }
   };
 
-  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'openwebui') => {
+  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui') => {
     const config = APP_DEFAULTS[newAppType];
     const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : config.strategies[0];
     const defaults = config[newStrategy];
@@ -567,10 +747,19 @@ function App() {
       // requirement (either direction), clear it rather than leaving an invalid selection.
       const selectedCluster = clusters.find((c: any) => c.id === prev.clusterId);
       const stillValidCluster = !selectedCluster || !GPU_ONLY_APP_TYPES.has(newAppType) || selectedCluster.gpuEnabled;
+      let nextClusterId = stillValidCluster ? prev.clusterId : '';
+      // No selection yet (or it just got cleared above) and vLLM/TabbyAPI need a GPU cluster —
+      // if there's only one to choose from, there's no real decision to make the user click
+      // through, so pick it for them. Still overridable via the dropdown; only fires when
+      // there's exactly one candidate, never when there's a real choice to make.
+      if (GPU_ONLY_APP_TYPES.has(newAppType) && !nextClusterId) {
+        const gpuClusters = clusters.filter((c: any) => c.status === 'healthy' && c.gpuEnabled);
+        if (gpuClusters.length === 1) nextClusterId = gpuClusters[0].id;
+      }
       return {
         ...prev,
         appType: newAppType,
-        clusterId: stillValidCluster ? prev.clusterId : '',
+        clusterId: nextClusterId,
         strategy: newStrategy,
         name: isDefaultName ? `${capitalized}-Production` : prev.name,
         odooRepo: defaults.webRepo,
@@ -621,6 +810,7 @@ function App() {
         <nav className="space-y-2 flex-1">
           <button onClick={() => setView('clusters')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'clusters' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Cloud size={20} /> Clusters</button>
           <button onClick={() => setView('apps')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'apps' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Server size={20} /> Applications</button>
+          <button onClick={() => setView('projects')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'projects' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><GitBranch size={20} /> Projects</button>
           <button onClick={() => setView('nginx')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'nginx' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Puzzle size={20} /> Nginx Router</button>
           <button onClick={() => setView('temporal')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'temporal' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Timer size={20} /> Temporal</button>
           <button onClick={() => setView('services')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'services' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Activity size={20} /> Services</button>
@@ -638,7 +828,7 @@ function App() {
 
         {view === 'clusters' && (
           <section>
-            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Infrastructures</h2><p className="text-slate-400">Manage your Kubernetes fleet.</p></div><button onClick={() => { setNewClusterProvider('k3d'); setShowClusterModal(true); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Provision Cluster</button></header>
+            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Infrastructures</h2><p className="text-slate-400">Manage your Kubernetes fleet.</p></div><button onClick={() => setShowClusterModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Provision Cluster</button></header>
             <div className="grid grid-cols-1 gap-8 max-w-5xl">{clusters.map((c: any) => (
                 <div key={c.id} className={c.isSystem
                   ? "bg-gradient-to-br from-purple-950/60 via-slate-800 to-slate-800 rounded-3xl border-2 border-purple-500/40 overflow-hidden shadow-lg shadow-purple-950/30 transition-all"
@@ -657,17 +847,12 @@ function App() {
                             <FileText size={20} />
                           </button>
                         )}
-                        {c.status === 'provisioning' && (
-                          <button onClick={() => setConfirmDestroy({ type: 'cluster', id: c.id, name: c.name, isAbort: true })} className="px-3 py-2 bg-amber-500/10 hover:bg-amber-600 border border-amber-500/30 text-amber-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer">
-                            <XCircle size={16} /> Abort
-                          </button>
-                        )}
                         {c.isSystem ? (
                           <span title="The system management cluster can't be modified from here" className="p-2.5 bg-slate-800 rounded-xl text-slate-600 cursor-not-allowed">
                             <Shield size={20} />
                           </span>
                         ) : (
-                          <button onClick={() => setConfirmDestroy({ type: 'cluster', id: c.id, name: c.name })} className="p-2.5 bg-slate-700 hover:bg-red-600 rounded-xl text-red-400 hover:text-white transition-all">
+                          <button onClick={() => setConfirmDestroy({ type: 'cluster', id: c.id, name: c.name, isAbort: c.status === 'provisioning' })} className="p-2.5 bg-slate-700 hover:bg-red-600 rounded-xl text-red-400 hover:text-white transition-all">
                             <Trash2 size={20} />
                           </button>
                         )}
@@ -809,7 +994,7 @@ function App() {
 
         {view === 'apps' && (
           <section>
-            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, openWebuiTargetId: '' }); setShowVllmAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
+            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, tabbyModel: 'turboderp/Qwen3.6-27B-exl3', tabbyRevision: '', tabbyGpuCount: '2', tabbyHfToken: '', tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: '262144', tabbyMaxBatchSize: '', tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: true, tabbyDisableAuth: true, tabbyExtraEnv: '', openWebuiTargetId: '', webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '' }); setShowVllmAdvanced(false); setShowTabbyAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden shadow-sm">
                <table className="w-full text-left">
                   <thead className="bg-slate-700/30 text-slate-400 text-[10px] uppercase tracking-widest font-bold"><tr><th className="px-8 py-4">App</th><th className="px-8 py-4">Cluster</th><th className="px-8 py-4">Strategy</th><th className="px-8 py-4">Status</th><th className="px-8 py-4 text-right">Actions</th></tr></thead>
@@ -841,12 +1026,7 @@ function App() {
                       <td className="px-8 py-5 text-slate-400">{clusters.find((c:any) => c.id === a.clusterId)?.name || 'Unknown'}</td><td className="px-8 py-5"><div className="flex flex-col gap-1.5 items-start"><span className="text-[10px] px-3 py-1 rounded-full font-bold uppercase bg-slate-500/10 text-slate-400">{a.strategy || 'helm'}</span>{a.vpnEnabled && (<span className="text-[9px] px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-green-500/10 text-green-400 border border-green-500/20 flex items-center gap-1"><Shield size={10} /> VPN</span>)}</div></td><td className="px-8 py-5"><span className="text-[10px] px-3 py-1 rounded-full font-bold uppercase bg-blue-500/10 text-blue-400">{a.status}</span></td>
                       <td className="px-8 py-5 text-right flex justify-end items-center gap-3">
                         <button onClick={() => openDashboard('app', a.id)} className="px-4 py-2 bg-blue-600/10 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"><Activity size={14} /> Manage</button>
-                        {a.status === 'deploying' && (
-                          <button onClick={() => setConfirmDestroy({ type: 'app', id: a.id, name: a.name, isAbort: true })} className="px-3 py-2 bg-amber-500/10 hover:bg-amber-600 border border-amber-500/30 text-amber-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer">
-                            <XCircle size={14} /> Abort
-                          </button>
-                        )}
-                        <button onClick={() => setConfirmDestroy({ type: 'app', id: a.id, name: a.name })} className="px-4 py-2 bg-slate-700/50 hover:bg-red-600 border border-slate-600 hover:border-red-500 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"><Trash2 size={14} /> Destroy</button>
+                        <button onClick={() => setConfirmDestroy({ type: 'app', id: a.id, name: a.name, isAbort: a.status === 'deploying' })} className="px-4 py-2 bg-slate-700/50 hover:bg-red-600 border border-slate-600 hover:border-red-500 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"><Trash2 size={14} /> Destroy</button>
                       </td>
                     </tr>))}</tbody>
                 </table>
@@ -1050,6 +1230,9 @@ function App() {
         {view === 'accounts' && (
           <CloudAccounts apiBase={API_BASE} />
         )}
+        {view === 'projects' && (
+          <Projects apiBase={API_BASE} socketUrl={SOCKET_URL} clusters={clusters} />
+        )}
 
         {view === 'settings' && (
           <section className="max-w-xl">
@@ -1119,6 +1302,71 @@ function App() {
                   )}
                 </div>
               </div>
+
+              <div className="pt-6 border-t border-slate-700">
+                <h4 className="text-lg font-bold text-white mb-1">Cluster Service Access</h4>
+                <p className="text-xs text-slate-400 mb-4">
+                  How each auto-provisioned service on your clusters is secured. No credentials are ever shown here —
+                  Grafana and Gitea log you in automatically (a real session, password never sent to your browser) when
+                  you click "Open Dashboard" on the Cluster Services page.
+                </p>
+                <div className="space-y-2">
+                  {[
+                    { name: 'Grafana', detail: 'Signed in automatically as admin.', status: 'Auto-login', ok: true },
+                    { name: 'Gitea', detail: 'Signed in automatically as provisioning-bot.', status: 'Auto-login', ok: true },
+                    { name: 'Prometheus', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },
+                    { name: 'Traefik Dashboard', detail: 'Runs in insecure/unauthenticated mode — local dev only.', status: 'No auth', ok: false },
+                    { name: 'Alertmanager', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },
+                    { name: 'Loki', detail: 'No dashboard of its own — browse logs via Grafana Explore.', status: 'N/A', ok: false },
+                  ].map((s) => (
+                    <div key={s.name} className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
+                      <div>
+                        <div className="text-sm font-bold text-white">{s.name}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{s.detail}</div>
+                      </div>
+                      <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${s.ok ? 'bg-green-500/10 text-green-500' : 'bg-slate-500/10 text-slate-400'}`}>
+                        {s.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {user.isAdmin && (
+                <div className="pt-6 border-t border-slate-700">
+                  <div className="flex items-center justify-between mb-1">
+                    <h4 className="text-lg font-bold text-white">Invites</h4>
+                    <button
+                      onClick={() => mintInvite.mutate()}
+                      disabled={mintInvite.isPending}
+                      className="text-xs font-bold px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {mintInvite.isPending ? 'Generating...' : 'Generate Invite'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-4">
+                    This platform is invite-only. Share an unused code with anyone you want to give an account.
+                  </p>
+                  <div className="space-y-2">
+                    {invites.length === 0 && (
+                      <div className="text-sm text-slate-500 italic">No invites generated yet.</div>
+                    )}
+                    {[...invites].reverse().map((inv: any) => (
+                      <div key={inv.id} className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
+                        <div>
+                          <div className="text-sm font-mono font-bold text-white">{inv.code}</div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            {inv.usedBy ? `Used ${new Date(inv.usedAt).toLocaleDateString()}` : `Created ${new Date(inv.createdAt).toLocaleDateString()}`}
+                          </div>
+                        </div>
+                        <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${inv.usedBy ? 'bg-slate-500/10 text-slate-400' : 'bg-green-500/10 text-green-500'}`}>
+                          {inv.usedBy ? 'Used' : 'Unused'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -1141,13 +1389,14 @@ function App() {
              <div className="flex gap-4">
                <button onClick={() => setConfirmDestroy(null)} className="flex-1 bg-slate-800 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all cursor-pointer">Cancel</button>
                <button
-                 onClick={() => confirmDestroy.isAbort
-                   ? abortResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })
-                   : destroyResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })
-                 }
+                 // Always DELETE, whether this is showing as "Abort" or "Destroy" — the backend
+                 // (index.ts's delete handlers) already checks whether the resource is still
+                 // provisioning/deploying and aborts instead of destroying when it is. isAbort
+                 // here only picks which confirmation copy to show, not which request to send.
+                 onClick={() => destroyResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })}
                  className={`flex-1 ${confirmDestroy.isAbort ? 'bg-amber-600 hover:bg-amber-500' : 'bg-red-600 hover:bg-red-500'} py-3 rounded-xl font-bold shadow-lg transition-all cursor-pointer flex items-center justify-center`}
                >
-                 {abortResource.isPending || destroyResource.isPending ? <Loader2 className="animate-spin" size={18} /> : (confirmDestroy.isAbort ? 'Abort & Teardown' : 'Confirm Delete')}
+                 {destroyResource.isPending ? <Loader2 className="animate-spin" size={18} /> : (confirmDestroy.isAbort ? 'Abort & Teardown' : 'Confirm Delete')}
                </button>
              </div>
            </div>
@@ -1179,15 +1428,37 @@ function App() {
                   )}
                 </div>
               </div>
-              <button onClick={() => {setShowLogModal(null); setSelectedPod(null);}} className="text-slate-400 hover:text-white"><X size={24} /></button>
+              <div className="flex items-center gap-3">
+                {!(showLogModal.type === 'cluster' && currentCluster?.isSystem) && (
+                  <button
+                    onClick={() => {
+                      const resource = showLogModal.type === 'app' ? currentDeployment : currentCluster;
+                      const status = resource?.status;
+                      setConfirmDestroy({
+                        type: showLogModal.type,
+                        id: showLogModal.id,
+                        name: resource?.name || 'this resource',
+                        isAbort: status === 'provisioning' || status === 'deploying',
+                      });
+                    }}
+                    className="px-4 py-2 bg-slate-700/50 hover:bg-red-600 border border-slate-600 hover:border-red-500 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                  >
+                    <Trash2 size={14} /> Destroy
+                  </button>
+                )}
+                <button onClick={() => {setShowLogModal(null); setSelectedPod(null);}} className="text-slate-400 hover:text-white"><X size={24} /></button>
+              </div>
             </div>
             <div className="flex-1 flex gap-6 min-h-0">
                {showLogModal.type === 'app' && logTab === 'app' && (
                  <div className="w-64 bg-slate-900/50 rounded-xl border border-slate-700 p-4 overflow-y-auto">
-                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Cpu size={12} /> Active Pods</div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Cpu size={12} /> Active Pods</div>
+                      {podsCheckedAt ? <span className="text-[9px] text-slate-600" title="Last time the pod list was refreshed">checked {new Date(podsCheckedAt).toLocaleTimeString()}</span> : null}
+                    </div>
                     <div className="space-y-2">
                        {pods.length > 0 ? pods.map((p: any) => (
-                         <button key={p?.metadata?.name || Math.random()} onClick={() => {setSelectedPod(p.metadata.name); setKubeLogs('');}} className={`w-full text-left p-3 rounded-lg text-xs transition-all border ${selectedPod === p?.metadata?.name ? 'bg-blue-600/20 border-blue-500 text-blue-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                         <button key={p?.metadata?.name || Math.random()} onClick={() => {setSelectedPod(p.metadata.name); setKubeLogs(''); setLastLogAt(null);}} className={`w-full text-left p-3 rounded-lg text-xs transition-all border ${selectedPod === p?.metadata?.name ? 'bg-blue-600/20 border-blue-500 text-blue-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
                            <div className="font-bold truncate">{p?.metadata?.name || 'Unknown'}</div>
                            <div className="flex items-center gap-1.5 mt-1 opacity-70"><div className={`w-1.5 h-1.5 rounded-full ${p?.status?.phase === 'Running' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>{p?.status?.phase || 'Pending'}</div>
                          </button>
@@ -1253,8 +1524,25 @@ function App() {
                                if (configInputs.vllmMaxNumSeqs) patch.vllmMaxNumSeqs = parseInt(configInputs.vllmMaxNumSeqs);
                                if (configInputs.vllmDtype) patch.vllmDtype = configInputs.vllmDtype;
                                patch.vllmEnablePrefixCaching = configInputs.vllmEnablePrefixCaching;
+                             } else if (appType === 'tabbyapi') {
+                               patch.tabbyModel = configInputs.tabbyModel;
+                               patch.tabbyRevision = configInputs.tabbyRevision;
+                               patch.tabbyGpuCount = parseInt(configInputs.tabbyGpuCount) || 0;
+                               if (configInputs.tabbyHfToken) patch.tabbyHfToken = configInputs.tabbyHfToken;
+                               patch.tabbyImageTag = configInputs.tabbyImageTag;
+                               patch.tabbyCacheMode = configInputs.tabbyCacheMode;
+                               if (configInputs.tabbyMaxSeqLen) patch.tabbyMaxSeqLen = parseInt(configInputs.tabbyMaxSeqLen);
+                               if (configInputs.tabbyMaxBatchSize) patch.tabbyMaxBatchSize = parseInt(configInputs.tabbyMaxBatchSize);
+                               patch.tabbyReasoning = configInputs.tabbyReasoning;
+                               patch.tabbyToolFormat = configInputs.tabbyToolFormat;
+                               patch.tabbyInlineModelLoading = configInputs.tabbyInlineModelLoading;
+                               patch.tabbyDisableAuth = configInputs.tabbyDisableAuth;
+                               patch.tabbyExtraEnv = configInputs.tabbyExtraEnv;
                              } else if (appType === 'openwebui') {
                                patch.openWebuiTargetId = configInputs.openWebuiTargetId;
+                               patch.webuiEnableWebSearch = configInputs.webuiEnableWebSearch;
+                               patch.webuiWebSearchEngine = configInputs.webuiWebSearchEngine;
+                               if (configInputs.webuiWebSearchApiKey) patch.webuiWebSearchApiKey = configInputs.webuiWebSearchApiKey;
                              } else {
                                patch.webRepo = configInputs.webRepo;
                                patch.webTag = configInputs.webTag;
@@ -1356,23 +1644,132 @@ function App() {
                        </div>
                      )}
 
-                     {currentDeployment.appType === 'openwebui' && (
+                     {currentDeployment.appType === 'tabbyapi' && (
                        <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
-                         <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Cpu size={16} className="text-blue-400" /> Open WebUI Settings</h5>
+                         <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Cpu size={16} className="text-blue-400" /> TabbyAPI Settings</h5>
+                         <div className="grid grid-cols-2 gap-4">
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label>
+                             <input value={configInputs.tabbyModel} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyModel: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-exl2" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Revision / Branch</label>
+                             <input value={configInputs.tabbyRevision} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyRevision: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. 6.0bpw" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label>
+                             <select value={configInputs.tabbyGpuCount} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyGpuCount: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option></select>
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Token</label>
+                             <input type="password" value={configInputs.tabbyHfToken} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyHfToken: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="Leave blank to keep current token" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cache Mode</label>
+                             <select value={configInputs.tabbyCacheMode} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyCacheMode: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                               <option value="">FP16 (default)</option>
+                               <option value="Q8">Q8</option>
+                               <option value="Q6">Q6</option>
+                               <option value="Q4">Q4</option>
+                             </select>
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Sequence Length</label>
+                             <input type="number" value={configInputs.tabbyMaxSeqLen} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyMaxSeqLen: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. 32768" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Generations</label>
+                             <input type="number" value={configInputs.tabbyMaxBatchSize} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyMaxBatchSize: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="e.g. 8" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Image Variant</label>
+                             <select value={configInputs.tabbyImageTag} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyImageTag: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                               {tabbyImageTagOptions.length === 0 && <option value={configInputs.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : configInputs.tabbyImageTag}</option>}
+                               {tabbyImageTagOptions.map(opt => (
+                                 <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
+                               ))}
+                             </select>
+                             {loadingTabbyImageTags && <p className="text-[11px] text-slate-500 mt-1">Fetching available tags from ghcr.io...</p>}
+                           </div>
+                           <div className="flex items-center gap-3 pt-6">
+                             <input type="checkbox" id="cfg-tabby-reasoning" checked={configInputs.tabbyReasoning} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyReasoning: e.target.checked }))} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                             <label htmlFor="cfg-tabby-reasoning" className="text-sm text-slate-300 cursor-pointer select-none">Reasoning Model</label>
+                           </div>
+                           <div className="flex items-center gap-3 pt-6">
+                             <input type="checkbox" id="cfg-tabby-inline" checked={configInputs.tabbyInlineModelLoading} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyInlineModelLoading: e.target.checked }))} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                             <label htmlFor="cfg-tabby-inline" className="text-sm text-slate-300 cursor-pointer select-none">Allow Inline Model Loading</label>
+                           </div>
+                           <div className="flex items-center gap-3 pt-6">
+                             <input type="checkbox" id="cfg-tabby-auth" checked={!configInputs.tabbyDisableAuth} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyDisableAuth: !e.target.checked }))} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                             <label htmlFor="cfg-tabby-auth" className="text-sm text-slate-300 cursor-pointer select-none">Require API Key</label>
+                           </div>
+                         </div>
+
                          <div>
-                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM Deployment)</label>
-                           <select value={configInputs.openWebuiTargetId} onChange={e => setConfigInputs(prev => ({ ...prev, openWebuiTargetId: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
-                             <option value="">No backend (configure manually in Open WebUI)</option>
-                             {deployments.filter((d: any) => d.appType === 'vllm' && d.status === 'running' && d.clusterId === currentDeployment.clusterId).map((d: any) => (
-                               <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || 'vLLM'})</option>
-                             ))}
+                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Format</label>
+                           <select value={configInputs.tabbyToolFormat} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyToolFormat: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                             <option value="">None — tool calls won't be parsed</option>
+                             {TABBY_TOOL_FORMATS.map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
                            </select>
-                           <p className="text-[11px] text-slate-500 mt-1">Only vLLM deployments on the same cluster are listed — Open WebUI reaches vLLM over the cluster's internal network.</p>
+                         </div>
+
+                         <div>
+                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Config (env overrides)</label>
+                           <textarea value={configInputs.tabbyExtraEnv} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyExtraEnv: e.target.value }))} rows={2} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="One per line, e.g. TABBY_MODEL_CHUNK_SIZE=4096" />
                          </div>
                        </div>
                      )}
 
-                     {currentDeployment.appType !== 'vllm' && currentDeployment.appType !== 'openwebui' && (
+                     {currentDeployment.appType === 'openwebui' && (
+                       <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
+                         <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Cpu size={16} className="text-blue-400" /> Open WebUI Settings</h5>
+                         <div>
+                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
+                           <select value={configInputs.openWebuiTargetId} onChange={e => setConfigInputs(prev => ({ ...prev, openWebuiTargetId: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                             <option value="">No backend (configure manually in Open WebUI)</option>
+                             {deployments.filter((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === currentDeployment.clusterId).map((d: any) => (
+                               <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || d.tabbyModel || (d.appType === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')})</option>
+                             ))}
+                           </select>
+                           <p className="text-[11px] text-slate-500 mt-1">Only vLLM/TabbyAPI deployments on the same cluster are listed — Open WebUI reaches them over the cluster's internal network.</p>
+                         </div>
+                         <div className="flex items-center justify-between">
+                           <div>
+                             <div className="text-sm font-bold text-slate-200">Web Search</div>
+                             <div className="text-xs text-slate-400 mt-0.5">Off by default the model has no internet access at all.</div>
+                           </div>
+                           <button
+                             type="button"
+                             onClick={() => setConfigInputs(prev => ({ ...prev, webuiEnableWebSearch: !prev.webuiEnableWebSearch }))}
+                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${configInputs.webuiEnableWebSearch ? 'bg-blue-600' : 'bg-slate-700'}`}
+                           >
+                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${configInputs.webuiEnableWebSearch ? 'translate-x-6' : 'translate-x-1'}`} />
+                           </button>
+                         </div>
+                         {configInputs.webuiEnableWebSearch && (
+                           <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                             <div>
+                               <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Search Engine</label>
+                               <select value={configInputs.webuiWebSearchEngine} onChange={e => setConfigInputs(prev => ({ ...prev, webuiWebSearchEngine: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
+                                 <option value="duckduckgo">DuckDuckGo — no API key needed</option>
+                                 <option value="tavily">Tavily</option>
+                                 <option value="brave">Brave Search</option>
+                                 <option value="serper">Serper</option>
+                                 <option value="bing">Bing</option>
+                               </select>
+                             </div>
+                             {configInputs.webuiWebSearchEngine !== 'duckduckgo' && (
+                               <div>
+                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">API Key</label>
+                                 <input type="password" value={configInputs.webuiWebSearchApiKey} onChange={e => setConfigInputs(prev => ({ ...prev, webuiWebSearchApiKey: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 font-mono focus:border-blue-500 focus:outline-none transition-all" placeholder="Leave blank to keep current key" />
+                               </div>
+                             )}
+                           </div>
+                         )}
+                       </div>
+                     )}
+
+                     {currentDeployment.appType !== 'vllm' && currentDeployment.appType !== 'tabbyapi' && currentDeployment.appType !== 'openwebui' && (
                        <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
                          <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Layers size={16} className="text-indigo-400" /> Image Version</h5>
                          <div className="grid grid-cols-2 gap-4">
@@ -1658,6 +2055,11 @@ function App() {
                )}
 {logTab !== 'modules' && logTab !== 'general' && logTab !== 'storage' && (
                   <div className={`flex-1 bg-slate-950 rounded-xl p-6 font-mono text-[11px] overflow-y-auto border border-slate-700/50 shadow-inner custom-scrollbar text-blue-100/90 leading-relaxed relative ${logTab === 'diagnostics' ? 'overflow-x-auto whitespace-pre' : 'whitespace-pre-wrap'}`}>
+                     {logTab === 'app' && selectedPod && (
+                       <div className="sticky top-0 float-right ml-4 mb-2 text-[9px] text-slate-600 bg-slate-950/90 px-2 py-1 rounded-lg border border-slate-800" title="Last time a new log line arrived over the socket">
+                         {lastLogAt ? `last log ${new Date(lastLogAt).toLocaleTimeString()}` : 'waiting for logs...'}
+                       </div>
+                     )}
                      {logTab === 'provision' ? <AnsiText text={((initialLogs?.content || '') + socketLogs) || 'Loading flow...'} /> :
                      logTab === 'helm' ? <AnsiText text={helmStatus?.content || 'Fetching Helm...'} /> :
                      logTab === 'diagnostics' ? <AnsiText text={diagnostics?.content || 'Scanning cluster for errors...'} /> :
@@ -1679,7 +2081,7 @@ function App() {
                 <div className="flex gap-2">
                   {[1, 2, 3, 4, 5, 6].map(s => {
                     const config = APP_DEFAULTS[wizardData.appType];
-                    if (s === 3 && wizardData.strategy !== 'native') return null;
+                    if (s === 3 && !isModelApp(wizardData.appType)) return null;
                     if (s === 5 && !config.hasDatabase) return null;
                     return (
                       <div key={s} className={`w-8 h-1.5 rounded-full transition-all ${wizardStep >= s ? 'bg-blue-500' : 'bg-slate-700'}`}></div>
@@ -1727,6 +2129,7 @@ function App() {
 <option value="prometheus">Prometheus Monitoring Stack</option>
                        <option value="traefik">Traefik Ingress Router</option>
                        <option value="vllm">vLLM LLM Server</option>
+                       <option value="tabbyapi">TabbyAPI (EXL2/EXL3 LLM Server)</option>
                        <option value="openwebui">Open WebUI (LLM Chat UI)</option>
                     </select>
                   </div>
@@ -1763,95 +2166,74 @@ function App() {
                   </div>
                 </div>
               )}
-              {wizardStep === 3 && (
+              {wizardStep === 3 && isModelApp(wizardData.appType) && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10">
-                    <h4 className="font-bold flex items-center gap-2 mb-2"><Shield className="text-blue-500" size={18}/> Windscribe VPN Routing</h4>
-                    <p className="text-slate-400 text-sm">Secure and route this individual app instance through a dedicated VPN IP address.</p>
+                    <h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> Find a Model</h4>
+                    <p className="text-slate-400 text-sm">
+                      {wizardData.appType === 'tabbyapi'
+                        ? "TabbyAPI's exllamav3 backend only runs EXL3 quants, so this is turboderp's curated EXL3 model collection — the closest thing to an authoritative \"this will actually load\" list."
+                        : "Search Hugging Face for a model to serve — you'll fine-tune the configuration on the next step."}
+                    </p>
                   </div>
-                  
-                  <div className="flex items-center justify-between p-4 bg-slate-900/60 border border-slate-700 rounded-2xl">
-                    <div>
-                      <div className="font-bold text-sm text-slate-200">Enable VPN Tunnel</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Route container traffic through a Windscribe secure tunnel.</div>
+                  {renderModelSearchPicker(
+                    wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.odooRepo,
+                    // Clears the old bpw revision on model switch — otherwise a stale branch
+                    // name from the previous model lingers (it almost certainly doesn't exist
+                    // on the new repo) and blocks the auto-select-highest-bpw effect below,
+                    // which only fires when tabbyRevision is empty.
+                    (id) => setWizardData(wizardData.appType === 'tabbyapi' ? {...wizardData, tabbyModel: id, tabbyRevision: ''} : {...wizardData, odooRepo: id}),
+                    wizardData.appType === 'tabbyapi' ? 'e.g. qwen, llama, gemma... (filters the exl3 collection)' : undefined,
+                  )}
+                  {(wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.odooRepo) && (
+                    <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl text-xs text-blue-300 flex items-center gap-2">
+                      <Check size={14} /> Selected: <span className="font-mono">{wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.odooRepo}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setWizardData(prev => ({ ...prev, vpnEnabled: !prev.vpnEnabled }))}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${wizardData.vpnEnabled ? 'bg-blue-600' : 'bg-slate-700'}`}
-                    >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${wizardData.vpnEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-
-                  {wizardData.vpnEnabled && (
-                    <div className="space-y-5 animate-in fade-in slide-in-from-top-2 duration-200">
-                      <div>
-                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">VPN Tunneling Protocol</label>
-                        <div className="grid grid-cols-2 gap-4">
-                          <button
-                            type="button"
-                            onClick={() => setWizardData(prev => ({ ...prev, vpnProtocol: 'wireguard' }))}
-                            className={`p-4 rounded-xl border text-center transition-all ${wizardData.vpnProtocol === 'wireguard' ? 'border-blue-500 bg-blue-500/10 text-white font-semibold' : 'border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-500'}`}
-                          >
-                            WireGuard (Fastest)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setWizardData(prev => ({ ...prev, vpnProtocol: 'openvpn' }))}
-                            className={`p-4 rounded-xl border text-center transition-all ${wizardData.vpnProtocol === 'openvpn' ? 'border-blue-500 bg-blue-500/10 text-white font-semibold' : 'border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-500'}`}
-                          >
-                            OpenVPN
-                          </button>
+                  )}
+                  {wizardData.appType === 'tabbyapi' && wizardData.tabbyModel && (
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Bits Per Weight (Quantization)</label>
+                      {loadingTabbyModelBranches ? (
+                        <div className="flex items-center gap-2 text-slate-500 text-xs py-3"><Loader2 size={14} className="animate-spin" /> Checking available bpw branches...</div>
+                      ) : tabbyModelBranches.length > 0 ? (
+                        <div className="grid grid-cols-3 gap-2">
+                          {tabbyModelBranches.map((b: string) => (
+                            <button key={b} type="button" onClick={() => setWizardData({...wizardData, tabbyRevision: b})} className={`px-3 py-2.5 rounded-lg text-xs font-mono border transition-all ${wizardData.tabbyRevision === b ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                              {b}
+                            </button>
+                          ))}
                         </div>
-                      </div>
-
-                      <div>
-                        <label htmlFor="vpn-dedicated-ip" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Dedicated IP / Static IP</label>
-                        <input
-                          id="vpn-dedicated-ip"
-                          type="text"
-                          value={wizardData.vpnDedicatedIp}
-                          onChange={e => setWizardData(prev => ({ ...prev, vpnDedicatedIp: e.target.value }))}
-                          placeholder="e.g. 104.244.72.115"
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3.5 text-sm focus:border-blue-500 focus:outline-none transition-all placeholder:text-slate-600 text-slate-200"
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="vpn-config" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">VPN Configuration File Content</label>
-                        <textarea
-                          id="vpn-config"
-                          rows={6}
-                          value={wizardData.vpnConfig}
-                          onChange={e => setWizardData(prev => ({ ...prev, vpnConfig: e.target.value }))}
-                          placeholder={wizardData.vpnProtocol === 'wireguard' ? "[Interface]\nPrivateKey = ...\nAddress = ...\nDNS = ...\n\n[Peer]\nPublicKey = ...\nEndpoint = ..." : "client\ndev tun\nproto udp\nremote ..."}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-5 py-4 font-mono text-xs focus:border-blue-500 focus:outline-none transition-all text-slate-300 placeholder:text-slate-700 leading-relaxed custom-scrollbar"
-                        />
-                      </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-500 italic">No branches found — this repo may only have a single default version.</p>
+                      )}
+                      <p className="text-[11px] text-slate-500 mt-2">Higher bpw = better quality, more VRAM. Lower bpw = smaller, faster, more quality loss. Sets the Revision field on the next step — still editable there.</p>
                     </div>
                   )}
                 </div>
               )}
               {wizardStep === 4 && wizardData.appType === 'vllm' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                  <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Choose the model to serve.</p></div>
+                  <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Fine-tune the configuration for the model you selected.</p></div>
                   <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. meta-llama/Llama-3.2-3B-Instruct" /></div>
-                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Popular Models</label><div className="grid grid-cols-1 gap-2">
-                    {[
-                      { id: 'meta-llama/Llama-3.2-3B-Instruct', size: '~2GB' },
-                      { id: 'meta-llama/Llama-3.1-8B-Instruct', size: '~4.5GB' },
-                      { id: 'mistralai/Mistral-7B-Instruct-v0.3', size: '~4.1GB' },
-                      { id: 'microsoft/Phi-3-mini-4k-instruct', size: '~2.3GB' },
-                      { id: 'google/gemma-2-9b-it', size: '~5.5GB' },
-                    ].map((m) => (
-                      <button key={m.id} onClick={() => setWizardData({...wizardData, odooRepo: m.id})} className={`px-4 py-3 rounded-lg text-left text-xs border transition-all ${wizardData.odooRepo === m.id ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
-                        <div className="font-bold">{m.id.split('/').pop()}</div>
-                        <div className="text-[10px] opacity-70">{m.id} · {m.size}</div>
-                      </button>
-                    ))}
-                  </div></div>
-                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.odooTag === '0' ? '0' : wizardData.odooTag || '1'} onChange={e => setWizardData({...wizardData, odooTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select></div>
+                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.odooTag === '0' ? '0' : wizardData.odooTag || '1'} onChange={e => setWizardData({...wizardData, odooTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option><option value="0">CPU Only (No GPU)</option></select>
+                    {loadingVllmModelSize && (
+                      <p className="text-[11px] text-slate-500 mt-2 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking model size on Hugging Face...</p>
+                    )}
+                    {!loadingVllmModelSize && vllmModelSize?.totalBytes && (
+                      <div className="text-[11px] text-blue-400 mt-2 space-y-1">
+                        <p>~{(vllmModelSize.totalBytes / 1e9).toFixed(1)} GB download ({vllmModelSize.fileCount} files)</p>
+                        {vllmModelSize.weightBytesPerGpu !== undefined && vllmModelSize.kvCacheBytesPerGpu !== undefined && wizardData.odooTag !== '0' && (
+                          <p className={vllmModelSize.weightBytesPerGpu + vllmModelSize.kvCacheBytesPerGpu > 20e9 ? 'text-amber-400/90' : ''}>
+                            Est. VRAM per GPU at {parseInt(wizardData.vllmMaxModelLen || '0').toLocaleString() || 'default'} tokens: ~{((vllmModelSize.weightBytesPerGpu + vllmModelSize.kvCacheBytesPerGpu) / 1e9).toFixed(1)} GB
+                            {' '}(weights ~{(vllmModelSize.weightBytesPerGpu / 1e9).toFixed(1)}GB + KV cache ~{(vllmModelSize.kvCacheBytesPerGpu / 1e9).toFixed(1)}GB, fp16 assumed) — rough estimate, check this fits your GPU's VRAM.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {!loadingVllmModelSize && vllmModelSizeError && (
+                      <p className="text-[11px] text-amber-400/80 mt-2">Couldn't look up this model's size (check the model ID) — deployment will still work.</p>
+                    )}
+                  </div>
                   <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Vendor</label><select value={wizardData.pgRepo || 'nvidia'} onChange={e => setWizardData({...wizardData, pgRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="nvidia">NVIDIA CUDA</option><option value="amd">AMD ROCm</option></select></div>
                   <div>
                     <div className="flex justify-between items-center mb-2">
@@ -1942,28 +2324,175 @@ function App() {
                   </div>
                 </div>
               )}
-              {wizardStep === 4 && wizardData.appType !== 'vllm' && (
+              {wizardStep === 4 && wizardData.appType === 'tabbyapi' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> LLM Model Selection</h4><p className="text-slate-400 text-sm">Fine-tune the configuration for the model you selected.</p></div>
+                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HuggingFace Model ID</label><input value={wizardData.tabbyModel} onChange={e => setWizardData({...wizardData, tabbyModel: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" placeholder="e.g. bartowski/Llama-3.2-3B-Instruct-exl2" /></div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Revision / Branch (optional)</label>
+                    <input value={wizardData.tabbyRevision} onChange={e => setWizardData({...wizardData, tabbyRevision: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 6.0bpw — EXL2/EXL3 quants are usually split across repo branches" />
+                    {loadingTabbyModelSize && (
+                      <p className="text-[11px] text-slate-500 mt-2 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Checking model size on Hugging Face...</p>
+                    )}
+                    {!loadingTabbyModelSize && tabbyModelSize?.totalBytes && (
+                      <div className="text-[11px] text-blue-400 mt-2 space-y-1">
+                        <p>~{(tabbyModelSize.totalBytes / 1e9).toFixed(1)} GB download ({tabbyModelSize.fileCount} files) — used to size GPU shared memory automatically at deploy time.</p>
+                        {tabbyModelSize.weightBytesPerGpu !== undefined && tabbyModelSize.kvCacheBytesPerGpu !== undefined && (
+                          <p className={tabbyModelSize.weightBytesPerGpu + tabbyModelSize.kvCacheBytesPerGpu > 20e9 ? 'text-amber-400/90' : ''}>
+                            Est. VRAM per GPU at {parseInt(wizardData.tabbyMaxSeqLen || '0').toLocaleString()} tokens: ~{((tabbyModelSize.weightBytesPerGpu + tabbyModelSize.kvCacheBytesPerGpu) / 1e9).toFixed(1)} GB
+                            {' '}(weights ~{(tabbyModelSize.weightBytesPerGpu / 1e9).toFixed(1)}GB + KV cache ~{(tabbyModelSize.kvCacheBytesPerGpu / 1e9).toFixed(1)}GB) — check this fits your GPU's VRAM, plus headroom for activations.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {!loadingTabbyModelSize && tabbyModelSizeError && (
+                      <p className="text-[11px] text-amber-400/80 mt-2">Couldn't look up this model's size (check the model ID/revision) — deployment will still work, sizing falls back to an estimate.</p>
+                    )}
+                  </div>
+                  <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">GPU Count</label><select value={wizardData.tabbyGpuCount} onChange={e => setWizardData({...wizardData, tabbyGpuCount: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm"><option value="1">1 GPU</option><option value="2">2 GPUs</option><option value="4">4 GPUs</option></select>
+                    <p className="text-[11px] text-slate-500 mt-1">TabbyAPI's exllamav3 backend is NVIDIA CUDA-only — there's no CPU or ROCm mode.</p>
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Hugging Face Access Token (HF_TOKEN)</label>
+                      {hasHfAccount && (
+                        <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded flex items-center gap-1">
+                          ✓ Account Token Saved
+                        </span>
+                      )}
+                    </div>
+                    <input type="password" value={wizardData.tabbyHfToken} onChange={e => setWizardData({...wizardData, tabbyHfToken: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={hasHfAccount ? "Auto-using saved account token (or enter custom token)" : "e.g. hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"} />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {hasHfAccount
+                        ? "Saved token from Cloud Accounts will automatically be used if left blank. Enter a value above only to override."
+                        : "Required for gated models or private repos. Get a Read token at huggingface.co/settings/tokens or save it in Cloud Accounts."}
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800">
+                    <button type="button" onClick={() => setShowTabbyAdvanced(!showTabbyAdvanced)} className="flex items-center gap-2 text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-200 transition-colors">
+                      {showTabbyAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Advanced TabbyAPI Arguments
+                    </button>
+                    {showTabbyAdvanced && (
+                      <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cache Mode</label>
+                          <select value={wizardData.tabbyCacheMode} onChange={e => setWizardData({...wizardData, tabbyCacheMode: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                            <option value="">FP16 (default)</option>
+                            <option value="Q8">Q8 — saves VRAM, minor quality loss</option>
+                            <option value="Q6">Q6</option>
+                            <option value="Q4">Q4 — most VRAM savings</option>
+                          </select>
+                          <p className="text-[11px] text-slate-500 mt-1">Quantizes the KV cache. Lower it if you're VRAM-constrained.</p>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Sequence Length</label>
+                          <input type="number" value={wizardData.tabbyMaxSeqLen} onChange={e => setWizardData({...wizardData, tabbyMaxSeqLen: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 32768 (leave blank for model default)" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Max Concurrent Generations</label>
+                          <input type="number" value={wizardData.tabbyMaxBatchSize} onChange={e => setWizardData({...wizardData, tabbyMaxBatchSize: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder="e.g. 8 (leave blank for TabbyAPI default)" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Image Variant</label>
+                          <select value={wizardData.tabbyImageTag} onChange={e => setWizardData({...wizardData, tabbyImageTag: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                            {tabbyImageTagOptions.length === 0 && <option value={wizardData.tabbyImageTag}>{loadingTabbyImageTags ? 'Checking available images...' : wizardData.tabbyImageTag}</option>}
+                            {tabbyImageTagOptions.map(opt => (
+                              <option key={opt.tag} value={opt.tag}>{opt.label}{opt.cached ? ' ✓ cached locally' : ''}</option>
+                            ))}
+                          </select>
+                          {loadingTabbyImageTags && <p className="text-[11px] text-slate-500 mt-1">Fetching available tags from ghcr.io...</p>}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input type="checkbox" id="wiz-tabby-reasoning" checked={wizardData.tabbyReasoning} onChange={e => setWizardData({...wizardData, tabbyReasoning: e.target.checked})} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                          <label htmlFor="wiz-tabby-reasoning" className="text-sm text-slate-300 cursor-pointer select-none">Reasoning Model</label>
+                          <span className="text-[10px] text-slate-500 ml-auto">Enable for thinking models (e.g. DeepSeek-R1 style)</span>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Format</label>
+                          <select value={wizardData.tabbyToolFormat} onChange={e => setWizardData({...wizardData, tabbyToolFormat: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                            <option value="">None — tool calls won't be parsed</option>
+                            {TABBY_TOOL_FORMATS.map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input type="checkbox" id="wiz-tabby-inline" checked={wizardData.tabbyInlineModelLoading} onChange={e => setWizardData({...wizardData, tabbyInlineModelLoading: e.target.checked})} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                          <label htmlFor="wiz-tabby-inline" className="text-sm text-slate-300 cursor-pointer select-none">Allow Inline Model Loading</label>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input type="checkbox" id="wiz-tabby-auth" checked={!wizardData.tabbyDisableAuth} onChange={e => setWizardData({...wizardData, tabbyDisableAuth: !e.target.checked})} className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500" />
+                          <label htmlFor="wiz-tabby-auth" className="text-sm text-slate-300 cursor-pointer select-none">Require API Key</label>
+                          <span className="text-[10px] text-slate-500 ml-auto">Off by default so Open WebUI can connect with no key configured</span>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Config (env overrides)</label>
+                          <textarea value={wizardData.tabbyExtraEnv} onChange={e => setWizardData({...wizardData, tabbyExtraEnv: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={"One per line, e.g.\nTABBY_MODEL_CHUNK_SIZE=4096\nTABBY_MODEL_ROPE_SCALE=1.0"} />
+                          <p className="text-[11px] text-slate-500 mt-1">Any other scalar config.yml field as a TABBY_&lt;SECTION&gt;_&lt;FIELD&gt; env override (text/number/true-false only — TabbyAPI can't set list-type fields like dummy_model_names via env vars).</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {wizardStep === 4 && wizardData.appType !== 'vllm' && wizardData.appType !== 'tabbyapi' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> Component: {wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</h4><p className="text-slate-400 text-sm">Select the image version.</p></div>
                   <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
                   <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Available Tags</label>{loadingOdooTags ? (<div className="flex items-center gap-2 text-slate-500 py-3"><Loader2 size={16} className="animate-spin" /> Fetching tags...</div>) : (<div className="grid grid-cols-2 gap-2">{odooTags.map((tag: string) => (<button key={tag} onClick={() => setWizardData({...wizardData, odooTag: tag})} className={`px-4 py-2 rounded-lg text-left text-xs border transition-all ${wizardData.odooTag === tag ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>{tag}</button>))}</div>)}</div>
                   {wizardData.appType === 'openwebui' && (
                     <div>
-                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM Deployment)</label>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
                       <select value={wizardData.openWebuiTargetId} onChange={e => setWizardData({...wizardData, openWebuiTargetId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                         <option value="">No backend (configure manually later)</option>
-                        {deployments.filter((d: any) => d.appType === 'vllm' && d.status === 'running' && d.clusterId === wizardData.clusterId).map((d: any) => (
-                          <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || 'vLLM'})</option>
+                        {deployments.filter((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === wizardData.clusterId).map((d: any) => (
+                          <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || d.tabbyModel || (d.appType === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')})</option>
                         ))}
                       </select>
-                      {deployments.filter((d: any) => d.appType === 'vllm' && d.status === 'running' && d.clusterId === wizardData.clusterId).length === 0 ? (
-                        deployments.some((d: any) => d.appType === 'vllm' && d.status === 'running') ? (
-                          <p className="text-[11px] text-amber-400/80 mt-2">Your running vLLM deployment(s) are on a different cluster than this app's Target Cluster (step 1) — go back and pick the same cluster, since Open WebUI reaches vLLM over the cluster's internal network. Only same-cluster backends are listed.</p>
+                      {deployments.filter((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === wizardData.clusterId).length === 0 ? (
+                        deployments.some((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running') ? (
+                          <p className="text-[11px] text-amber-400/80 mt-2">Your running vLLM/TabbyAPI deployment(s) are on a different cluster than this app's Target Cluster (step 1) — go back and pick the same cluster, since Open WebUI reaches them over the cluster's internal network. Only same-cluster backends are listed.</p>
                         ) : (
-                          <p className="text-[11px] text-amber-400/80 mt-2">No running vLLM deployments found. Deploy one first, or connect this later by editing the deployment's environment.</p>
+                          <p className="text-[11px] text-amber-400/80 mt-2">No running vLLM/TabbyAPI deployments found. Deploy one first, or connect this later by editing the deployment's environment.</p>
                         )
                       ) : (
-                        <p className="text-[11px] text-slate-500 mt-1">Open WebUI reaches vLLM over the cluster's internal network — only deployments on the same Target Cluster (step 1) are listed.</p>
+                        <p className="text-[11px] text-slate-500 mt-1">Open WebUI reaches its backend over the cluster's internal network — only deployments on the same Target Cluster (step 1) are listed.</p>
+                      )}
+                    </div>
+                  )}
+                  {wizardData.appType === 'openwebui' && (
+                    <div className="space-y-4 pt-2 border-t border-slate-800">
+                      <div className="flex items-center justify-between p-4 bg-slate-900/60 border border-slate-700 rounded-2xl">
+                        <div>
+                          <div className="font-bold text-sm text-slate-200">Web Search</div>
+                          <div className="text-xs text-slate-400 mt-0.5">Lets the model look things up during chat — off by default it has no internet access at all.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setWizardData({...wizardData, webuiEnableWebSearch: !wizardData.webuiEnableWebSearch})}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${wizardData.webuiEnableWebSearch ? 'bg-blue-600' : 'bg-slate-700'}`}
+                        >
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${wizardData.webuiEnableWebSearch ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
+                      {wizardData.webuiEnableWebSearch && (
+                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Search Engine</label>
+                            <select value={wizardData.webuiWebSearchEngine} onChange={e => setWizardData({...wizardData, webuiWebSearchEngine: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                              <option value="duckduckgo">DuckDuckGo — no API key needed</option>
+                              <option value="tavily">Tavily</option>
+                              <option value="brave">Brave Search</option>
+                              <option value="serper">Serper</option>
+                              <option value="bing">Bing</option>
+                            </select>
+                          </div>
+                          {wizardData.webuiWebSearchEngine !== 'duckduckgo' && (
+                            <div>
+                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">API Key</label>
+                              <input type="password" value={wizardData.webuiWebSearchApiKey} onChange={e => setWizardData({...wizardData, webuiWebSearchApiKey: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={`API key for ${wizardData.webuiWebSearchEngine}`} />
+                            </div>
+                          )}
+                          <p className="text-[11px] text-slate-500">Still needs to be toggled on per-conversation in Open WebUI's chat box — this just makes the feature available.</p>
+                        </div>
                       )}
                     </div>
                   )}
@@ -1982,48 +2511,28 @@ function App() {
                   <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-700 space-y-4 text-sm">
                     <div className="flex justify-between border-b border-slate-800 pb-3"><span>Cluster</span><span className="font-bold text-slate-300">{clusters.find((c:any) => c.id === wizardData.clusterId)?.name}</span></div>
                     <div className="flex justify-between border-b border-slate-800 pb-3"><span>Strategy</span><span className="font-bold text-blue-400 uppercase tracking-widest text-[10px]">{wizardData.strategy}</span></div>
-                    <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.odooRepo}:{wizardData.odooTag}</span></div>
+                    <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.appType === 'tabbyapi' ? `${wizardData.tabbyModel}${wizardData.tabbyRevision ? '@' + wizardData.tabbyRevision : ''} (${wizardData.tabbyGpuCount} GPU)` : `${wizardData.odooRepo}:${wizardData.odooTag}`}</span></div>
                     {APP_DEFAULTS[wizardData.appType].hasDatabase && (
-                      <div className="flex justify-between border-b border-slate-800 pb-3"><span>Database</span><span className="font-mono text-xs text-slate-300">{wizardData.pgRepo}:{wizardData.pgTag}</span></div>
+                      <div className="flex justify-between"><span>Database</span><span className="font-mono text-xs text-slate-300">{wizardData.pgRepo}:{wizardData.pgTag}</span></div>
                     )}
-                    <div className="flex justify-between">
-                      <span>VPN Routing</span>
-                      <span className="font-bold text-slate-300 flex items-center gap-1.5">
-                        {wizardData.vpnEnabled ? (
-                          <>
-                            <span className="text-green-400 uppercase tracking-widest text-[10px] bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20 flex items-center gap-1">
-                              <Shield size={10} /> Active ({wizardData.vpnProtocol})
-                            </span>
-                            {wizardData.vpnDedicatedIp && <span className="font-mono text-xs text-slate-400">({wizardData.vpnDedicatedIp})</span>}
-                          </>
-                        ) : (
-                          <span className="text-slate-500 uppercase tracking-widest text-[10px]">Disabled</span>
-                        )}
-                      </span>
-                    </div>
                   </div>
                 </div>
               )}
             </div>
-            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, appType: 'openwebui', strategy: 'native' } : wizardData; deployApp.mutate(payload); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData; deployApp.mutate(payload); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
           </div>
         </div>
       )}
 
       {showClusterModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-10 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
-            <h3 className="text-2xl font-bold mb-8 text-center">Provision New Cluster</h3>
-            <form onSubmit={(e) => { e.preventDefault(); const d = new FormData(e.currentTarget); provisionCluster.mutate({ name: d.get('name'), provider: d.get('provider') }); }}>
-              <div className="space-y-6">
-                <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cluster Identity</label><input name="name" required className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 transition-all text-sm" placeholder="e.g. production-omega" /></div>
-                <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Cloud Provider</label><select name="provider" value={newClusterProvider} onChange={e => setNewClusterProvider(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-sm"><option value="k3d">Local Datacenter (k3d)</option><option value="aws">Amazon Web Services (EKS)</option><option value="gcp">Google Cloud Platform (GKE)</option></select></div>
-                <p className="text-[11px] text-slate-500 px-1">GPU/LLM workloads (vLLM) run on the built-in System cluster — no separate GPU-enabled cluster to provision here.</p>
-              </div>
-              <div className="flex gap-4 mt-10"><button type="button" onClick={() => setShowClusterModal(false)} className="flex-1 bg-slate-700 py-3 rounded-xl font-bold hover:bg-slate-600 transition-all text-sm">Cancel</button><button type="submit" className="flex-1 bg-blue-600 py-3 rounded-xl font-bold shadow-lg shadow-blue-900/20 hover:bg-blue-500 transition-all text-sm">Start Provisioning</button></div>
-            </form>
-          </div>
-        </div>
+        <ClusterWizard
+          apiBase={API_BASE}
+          configuredProviders={credentialsData?.providers ?? []}
+          submitting={provisionCluster.isPending}
+          onCancel={() => setShowClusterModal(false)}
+          onCredentialsSaved={() => queryClient.invalidateQueries({ queryKey: ['credentials'] })}
+          onSubmit={(payload) => provisionCluster.mutate(payload)}
+        />
       )}
 
       {showNginxWizard && (

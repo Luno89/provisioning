@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import CloudAccounts from './CloudAccounts';
+import CloudAccounts, { PROVIDERS } from './CloudAccounts';
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -58,8 +58,10 @@ describe('CloudAccounts', () => {
     render(<CloudAccounts apiBase={apiBase} />);
 
     await waitFor(() => {
+      // The grid renders one card per entry in PROVIDERS, regardless of what the status endpoint
+      // returned — so this is the component's own list length, not the mock's.
       const notConfigured = screen.getAllByText('Not Configured');
-      expect(notConfigured.length).toBe(6);
+      expect(notConfigured.length).toBe(PROVIDERS.length);
     });
   });
 
@@ -104,7 +106,7 @@ describe('CloudAccounts', () => {
 
     await waitFor(() => {
       const configButtons = screen.getAllByText('Configure');
-      expect(configButtons.length).toBe(6);
+      expect(configButtons.length).toBe(PROVIDERS.length);
     });
   });
 

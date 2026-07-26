@@ -6,13 +6,16 @@
  */
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { BuilderService } from '../services/BuilderService.js';
 import { StorageAdapter } from '../services/StorageAdapter.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
+import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { buildAppEnv } from '../lib/app-env.js';
+import { GiteaService } from '../services/GiteaService.js';
 
 export interface DeployAppArgs {
   name: string;
@@ -43,7 +46,30 @@ export interface DeployAppArgs {
   vllmMaxNumSeqs?: number;
   vllmDtype?: string;
   vllmEnablePrefixCaching?: boolean;
+  tabbyModel?: string;
+  tabbyRevision?: string;
+  tabbyGpuCount?: number;
+  tabbyHfToken?: string;
+  tabbyCachePvc?: string;
+  tabbyImageTag?: string;
+  tabbyCacheMode?: string;
+  tabbyMaxSeqLen?: number;
+  tabbyMaxBatchSize?: number;
+  tabbyReasoning?: boolean;
+  tabbyToolFormat?: string;
+  tabbyInlineModelLoading?: boolean;
+  tabbyDisableAuth?: boolean;
+  tabbyExtraEnv?: string;
+  // Set only by TemporalBridge.deploy() for clusters where the worker shares a filesystem with
+  // the K8s node (see DownloadModelActivity.ts) — AppDeployWorkflow.ts uses this to decide
+  // whether to pre-download the model before this activity ever runs. Not read here; DeployAppActivity
+  // itself is unaffected either way since the pod's own in-container download logic is
+  // idempotent — it just sees the cache already populated when this ran first.
+  modelCacheHostPath?: string;
   openaiApiBaseUrl?: string;
+  webuiEnableWebSearch?: boolean;
+  webuiWebSearchEngine?: string;
+  webuiWebSearchApiKey?: string;
 }
 
 export interface DeployAppResult {
@@ -52,10 +78,9 @@ export interface DeployAppResult {
   displayUrl: string;
 }
 
-export const deployAppActivityMeta = {
-  name: 'DeployAppActivity',
-  startToCloseTimeout: '80 minutes',
-};
+// Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
+// VALUE from an activity file, only `import type`).
+export { deployAppActivityMeta } from '../lib/activity-timeouts.js';
 
 const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 const LIVE_ROOT = process.cwd();
@@ -68,15 +93,26 @@ export async function DeployAppActivity(
   const logFile = args.logFile;
   const sanitizedName = SANITIZE(args.name);
 
-  const finalOdooRepo = args.odooRepo || (args.appType === 'odoo' ? 'library/odoo' : '');
-  const finalOdooTag = args.odooTag || (args.appType === 'odoo' ? '18.0' : '');
+  let finalOdooRepo = args.odooRepo || (args.appType === 'odoo' ? 'library/odoo' : '');
+  let finalOdooTag = args.odooTag || (args.appType === 'odoo' ? '18.0' : '');
 
-  const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
+  // 'remote' is never a mock-cloud k3d scenario — see ProvisionClusterActivity.ts /
+  // ClusterService.isMockCloud() for the full explanation. hasCloudCredentials() has no 'remote'
+  // case and always resolves to mode 'mock', which — before this exclusion — made every app
+  // deployed onto a 'remote' cluster compute physicalName as `mock-remote-<clusterName>`, a stack
+  // name CDKTF never actually created, breaking every deploy onto a real remote cluster.
+  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
 
   let customImageTag: string | undefined;
 
-  const kubeconfigPath = (args.provider === 'k3d' || isMock)
+  // 'remote' clusters (ProvisionRemoteHostActivity) write their own standalone kubeconfig to
+  // this exact /tmp/kubeconfig-<name> path too — the LIVE_ROOT/.kube/config fallback below is
+  // only meaningful for real cloud providers (aws/gcp/azure/do) that configure a system
+  // kubeconfig via their own CLI tooling, which 'remote' never does. Confirmed live: without this,
+  // every app deploy onto a 'remote' cluster failed with "'config_path' refers to an invalid
+  // path" since that file never exists.
+  const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
     ? `/tmp/kubeconfig-${physicalName}`
     : path.join(LIVE_ROOT, '.kube/config');
 
@@ -95,6 +131,19 @@ export async function DeployAppActivity(
         effectiveDevice = 'cpu';
         effectiveGpuCount = 0;
       }
+    }
+  }
+
+  // TabbyAPI (exllamav3) is CUDA-only with no CPU fallback, unlike vLLM above — a failed
+  // toolkit check here can't be papered over by dropping to CPU, so we just warn and leave the
+  // GPU count as configured; the pod will fail its own way if the toolkit truly isn't usable.
+  const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
+  if (args.appType === 'tabbyapi' && (args.provider === 'k3d' || isMock) && effectiveTabbyGpuCount > 0) {
+    try {
+      await infra.checkGpuToolkit('nvidia');
+      await infra.installGpuDevicePlugin('nvidia', kubeconfigPath);
+    } catch (err: any) {
+      console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${err.message}). TabbyAPI requires an NVIDIA GPU and cannot run in CPU mode.`);
     }
   }
 
@@ -129,6 +178,9 @@ export async function DeployAppActivity(
         ? `vllm/vllm-openai-rocm:${vllmImageTag}`
         : `vllm/vllm-openai:${vllmImageTag}`;
       await infra.pullAndImportImage(physicalName, vllmImage, { logFile });
+    } else if (args.appType === 'tabbyapi') {
+      const tabbyImageTag = args.tabbyImageTag === 'cu13' ? 'cu13' : 'latest';
+      await infra.pullAndImportImage(physicalName, `ghcr.io/theroyallab/tabbyapi:${tabbyImageTag}`, { logFile });
     } else if (finalOdooRepo && finalOdooTag) {
       const appImage = `${finalOdooRepo}:${finalOdooTag}`;
       await infra.pullAndImportImage(physicalName, appImage, { logFile });
@@ -144,11 +196,30 @@ export async function DeployAppActivity(
     ? 'http://localhost:8069'
     : args.appType === 'vllm'
     ? 'http://localhost:8000'
+    : args.appType === 'tabbyapi'
+    ? 'http://localhost:5000'
     : args.appType === 'openwebui'
+    ? 'http://localhost:8080'
+    : args.appType === 'gitapp'
     ? 'http://localhost:8080'
     : 'http://localhost:80';
 
   const deploymentId = args.deploymentId || uuidv4().slice(0, 8);
+
+  // Real size from HuggingFace, not the repo-name regex guess tabbyapi.ts falls back to when
+  // this is absent — sizes /dev/shm and the memory limit off what the model actually is rather
+  // than a string match. Non-fatal on failure (rate limit, network blip, gated repo without a
+  // token yet): the construct's own fallback estimate still runs, just less precisely.
+  let tabbyModelSizeBytes: number | undefined;
+  if (args.appType === 'tabbyapi' && args.tabbyModel) {
+    try {
+      const { getHfModelSize } = await import('../lib/huggingface.js');
+      const size = await getHfModelSize(args.tabbyModel, args.tabbyRevision, args.tabbyHfToken);
+      tabbyModelSizeBytes = size.totalBytes;
+    } catch (err: any) {
+      console.warn(`[DeployAppActivity] Could not fetch model size for ${args.tabbyModel}: ${err.message}`);
+    }
+  }
 
   const env = buildAppEnv({
     physicalName,
@@ -178,7 +249,25 @@ export async function DeployAppActivity(
     vllmMaxNumSeqs: args.vllmMaxNumSeqs,
     vllmDtype: args.vllmDtype,
     vllmEnablePrefixCaching: args.vllmEnablePrefixCaching,
+    tabbyModel: args.tabbyModel,
+    tabbyRevision: args.tabbyRevision,
+    tabbyGpuCount: effectiveTabbyGpuCount,
+    tabbyModelSizeBytes,
+    tabbyHfToken: args.tabbyHfToken,
+    tabbyCachePvc: args.tabbyCachePvc,
+    tabbyImageTag: args.tabbyImageTag,
+    tabbyCacheMode: args.tabbyCacheMode,
+    tabbyMaxSeqLen: args.tabbyMaxSeqLen,
+    tabbyMaxBatchSize: args.tabbyMaxBatchSize,
+    tabbyReasoning: args.tabbyReasoning,
+    tabbyToolFormat: args.tabbyToolFormat,
+    tabbyInlineModelLoading: args.tabbyInlineModelLoading,
+    tabbyDisableAuth: args.tabbyDisableAuth,
+    tabbyExtraEnv: args.tabbyExtraEnv,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
+    webuiEnableWebSearch: args.webuiEnableWebSearch,
+    webuiWebSearchEngine: args.webuiWebSearchEngine,
+    webuiWebSearchApiKey: args.webuiWebSearchApiKey,
     storageEnv,
   });
 
@@ -187,6 +276,28 @@ export async function DeployAppActivity(
     `app-${physicalName}-${deploymentId}`,
     { logFile, env },
   );
+
+  // gitapp images live on the self-hosted Gitea registry, which requires auth to pull from —
+  // unlike every other app type here, which either uses a public image or one already imported
+  // into the target cluster's containerd. Created *after* the CDKTF apply above (which is what
+  // creates the namespace this secret needs to live in) rather than before — the pod will sit
+  // in a brief ImagePullBackOff until this lands, then kubelet's own pull-retry picks the
+  // secret up automatically; no coordination with CDKTF's own Namespace resource needed this way.
+  if (args.appType === 'gitapp') {
+    const gitea = new GiteaService(infra, process.env.JWT_SECRET || 'provisioning-platform-secret-12345', '/tmp/kubeconfig-provisioning-lunorica');
+    const registryHost = await gitea.getRegistryHost();
+    const deployToken = await gitea.createDeployToken();
+    const secretYaml = await infra.runKubectl(
+      ['create', 'secret', 'docker-registry', 'gitea-registry', '-n', sanitizedName,
+        `--docker-server=${registryHost}`, `--docker-username=${gitea.adminUsername}`, `--docker-password=${deployToken.token}`,
+        '--dry-run=client', '-o', 'yaml'],
+      kubeconfigPath,
+    );
+    const tmpSecretPath = path.join(os.tmpdir(), `gitapp-registry-secret-${deploymentId}.yaml`);
+    await fs.writeFile(tmpSecretPath, secretYaml as any);
+    await infra.runKubectl(['apply', '-f', tmpSecretPath], kubeconfigPath);
+    await fs.rm(tmpSecretPath, { force: true }).catch(() => {});
+  }
 
   return {
     status: 'running',

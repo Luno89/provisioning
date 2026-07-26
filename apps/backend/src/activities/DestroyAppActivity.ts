@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
+import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 
 export interface DestroyAppArgs {
   name: string;
@@ -22,10 +23,9 @@ export interface DestroyAppResult {
   msg: string;
 }
 
-export const destroyAppActivityMeta = {
-  name: 'DestroyAppActivity',
-  startToCloseTimeout: '60 minutes',
-};
+// Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
+// VALUE from an activity file, only `import type`).
+export { destroyAppActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function DestroyAppActivity(
   args: DestroyAppArgs,
@@ -33,9 +33,11 @@ export async function DestroyAppActivity(
   const infra = new InfrastructureService();
   const sanitizedName = args.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
   
-  const isMock = args.provider !== 'k3d' && !hasCloudCredentials(args.provider);
+  // See DeployAppActivity.ts's identical comment — 'remote' is never a mock-cloud scenario.
+  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
-  const kubeconfigPath = (args.provider === 'k3d' || isMock)
+  // See DeployAppActivity.ts's identical comment — 'remote' clusters also use this exact path.
+  const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
     ? `/tmp/kubeconfig-${physicalName}`
     : undefined;
 
@@ -52,6 +54,7 @@ export async function DestroyAppActivity(
       DEPLOYMENT_ID: args.deploymentId || 'default',
       KUBECONFIG: kubeconfigPath || '',
       KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
+      SELF_MANAGED_K8S: isSelfManagedCluster(args.provider, isMock) ? 'true' : 'false',
     },
   });
 

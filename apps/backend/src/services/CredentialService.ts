@@ -16,8 +16,10 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   gcp: ['serviceAccountJson'],
   azure: ['clientId', 'clientSecret'],
   do: ['token'],
+  hetzner: ['token'],
   huggingface: ['hfToken'],
   github: ['token'],
+  googledrive: ['refreshToken', 'backupPassword'],
 };
 
 /** Fields that are stored in plaintext (non-sensitive metadata) */
@@ -26,8 +28,10 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   gcp: ['projectId'],
   azure: ['subscriptionId', 'tenantId'],
   do: [],
+  hetzner: [],
   huggingface: ['defaultModel'],
   github: ['username'],
+  googledrive: ['email'],
 };
 
 export interface ProviderStatus {
@@ -122,10 +126,74 @@ export class CredentialService {
         return { valid: true, message: `Authenticated as DigitalOcean account (${data.account?.email || 'active'})` };
       }
 
+      if (provider === 'hetzner') {
+        if (!creds.token) return { valid: false, message: 'Hetzner Cloud API Token is required.' };
+        // Hetzner Cloud has no "account" endpoint — a token is scoped to a single project, so
+        // listing that project's servers is the cheapest call that proves the token both parses
+        // and is authorised. 401 here is the "bad token" signal; anything else is surfaced as-is.
+        const res = await fetch('https://api.hetzner.cloud/v1/servers?per_page=1', {
+          headers: { Authorization: `Bearer ${creds.token}` },
+        });
+        if (res.status === 401 || res.status === 403) {
+          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        }
+        if (!res.ok) {
+          return { valid: false, message: `Hetzner Cloud API returned HTTP ${res.status}.` };
+        }
+        const data = await res.json();
+        const total = data?.meta?.pagination?.total_entries;
+        return {
+          valid: true,
+          message: `Authenticated against Hetzner Cloud project${
+            typeof total === 'number' ? ` (${total} existing server${total === 1 ? '' : 's'})` : ''
+          }.`,
+        };
+      }
+
+      if (provider === 'googledrive') {
+        const refreshToken = creds.refreshToken;
+        if (!refreshToken) return { valid: false, message: 'Not connected — use "Connect with Google" first.' };
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        if (!clientId || !clientSecret) {
+          return { valid: false, message: 'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not set on the server.' };
+        }
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
+        });
+        if (!tokenRes.ok) {
+          return { valid: false, message: `Google Drive refresh token is no longer valid (HTTP ${tokenRes.status}) — reconnect.` };
+        }
+        const { access_token } = await tokenRes.json();
+        const aboutRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+          headers: { Authorization: `Bearer ${access_token}` },
+        });
+        if (!aboutRes.ok) {
+          return { valid: false, message: `Drive API check failed (HTTP ${aboutRes.status}).` };
+        }
+        const about = await aboutRes.json();
+        return { valid: true, message: `Connected to Google Drive as ${about.user?.emailAddress || 'unknown account'}` };
+      }
+
       return { valid: true, message: 'Credentials formatted.' };
     } catch (err: any) {
       return { valid: false, message: `Validation failed: ${err?.message || 'Network error'}` };
     }
+  }
+
+  /**
+   * "Test Connection" for Google Drive can't reuse validateCredentials(provider, req.body)
+   * directly like the other providers — the frontend never has the plaintext refreshToken to
+   * send (it's set once via the OAuth callback, not typed into a form), so this pulls it from
+   * storage first.
+   */
+  async testGoogleDriveConnection(userId: string): Promise<{ valid: boolean; message: string; details?: any }> {
+    const user = await this.db.getUserById(userId);
+    const decrypted = user?.credentials ? this.decryptAll(user.credentials, 'googledrive') : undefined;
+    const refreshToken = (decrypted as any)?.googledrive?.refreshToken || '';
+    return this.validateCredentials('googledrive', { refreshToken });
   }
 
   /**
@@ -141,6 +209,7 @@ export class CredentialService {
       { key: 'gcp', label: 'Google Cloud Platform' },
       { key: 'azure', label: 'Microsoft Azure' },
       { key: 'do', label: 'DigitalOcean' },
+      { key: 'hetzner', label: 'Hetzner Cloud' },
     ];
 
     return providers.map(({ key, label }) => {
@@ -205,7 +274,14 @@ export class CredentialService {
     const plaintext = PLAINTEXT_FIELDS[provider] || [];
     const encrypted: Record<string, string> = {};
 
-    for (const [key, value] of Object.entries(creds)) {
+    for (const [key, rawValue] of Object.entries(creds)) {
+      if (!rawValue) continue;
+      // A pasted token with a trailing space/newline (common clipboard artifact) encrypts and
+      // decrypts fine, and passes every validateCredentials() check here since those go through
+      // fetch()/curl, which tolerate it — but a strict HTTP client downstream (confirmed live:
+      // Python's httpx, used by TabbyAPI's own downloader) rejects it outright as an illegal
+      // header value, failing every request with no indication the token itself was the problem.
+      const value = rawValue.trim();
       if (!value) continue;
       if (sensitive.includes(key)) {
         encrypted[key] = encryptValue(value, this.masterKey);
@@ -218,7 +294,12 @@ export class CredentialService {
     if (!user.credentials) {
       user.credentials = {};
     }
-    (user.credentials as any)[provider] = encrypted;
+    // Merge rather than replace: googledrive in particular is written incrementally by two
+    // independent flows (the OAuth callback sets refreshToken+email, the account-page form sets
+    // backupPassword separately) — replacing outright would let the second call wipe the first.
+    // Harmless for the other providers, whose forms always submit every field together anyway.
+    const existing = (user.credentials as any)[provider] || {};
+    (user.credentials as any)[provider] = { ...existing, ...encrypted };
 
     await this.db.saveUser(user);
   }

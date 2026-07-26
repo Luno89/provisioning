@@ -93,6 +93,13 @@ function resolveFromUser(
       if (!doC?.token) return null;
       return { DIGITALOCEAN_TOKEN: doC.token };
     }
+    case 'hetzner': {
+      const hz = creds.hetzner;
+      if (!hz?.token) return null;
+      // HCLOUD_TOKEN is what the hetznercloud/hcloud Terraform provider reads by default, so the
+      // hetzner-vm construct needs no explicit `token` argument.
+      return { HCLOUD_TOKEN: hz.token };
+    }
     case 'huggingface': {
       const hf = creds.huggingface;
       if (!hf?.hfToken) return null;
@@ -148,6 +155,11 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
       const token = process.env.DIGITALOCEAN_TOKEN || process.env.DO_TOKEN;
       if (!token) return null;
       return { DIGITALOCEAN_TOKEN: token };
+    }
+    case 'hetzner': {
+      const token = process.env.HCLOUD_TOKEN || process.env.HETZNER_TOKEN;
+      if (!token) return null;
+      return { HCLOUD_TOKEN: token };
     }
     case 'huggingface': {
       const token = process.env.HF_TOKEN || process.env.VLLM_HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN;

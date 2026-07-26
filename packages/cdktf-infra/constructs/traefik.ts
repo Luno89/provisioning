@@ -20,7 +20,7 @@ export class TraefikApp extends Construct {
       },
     });
 
-    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "ClusterIP" : "LoadBalancer");
+    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "ClusterIP" : "LoadBalancer");
 
     const configValues: any = {
       service: {

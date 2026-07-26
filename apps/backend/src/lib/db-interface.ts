@@ -1,6 +1,6 @@
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
 
 export interface Database {
   init(): Promise<void>;
@@ -22,6 +22,17 @@ export interface Database {
   saveUserList(users: UserMetadata[]): Promise<void>;
   getUserByEmail(email: string): Promise<UserMetadata | undefined>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
+
+  getProjects(): Promise<ProjectMetadata[]>;
+  saveProject(project: ProjectMetadata): Promise<void>;
+  saveProjectInfo(project: Partial<ProjectMetadata>): Promise<ProjectMetadata>;
+
+  getPipelineRuns(): Promise<PipelineRunMetadata[]>;
+  savePipelineRun(run: PipelineRunMetadata): Promise<void>;
+  savePipelineRunInfo(run: Partial<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
+
+  getInvites(): Promise<InviteMetadata[]>;
+  saveInvite(invite: InviteMetadata): Promise<void>;
 }
 
 export function createDatabase(): Database {

@@ -1,6 +1,6 @@
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
 import type { Database } from './db-interface.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
@@ -41,6 +41,18 @@ export class MongoDB implements Database {
     return this.db!.collection('users');
   }
 
+  private get projects(): Collection {
+    return this.db!.collection('projects');
+  }
+
+  private get pipelineRuns(): Collection {
+    return this.db!.collection('pipelineRuns');
+  }
+
+  private get invites(): Collection {
+    return this.db!.collection('invites');
+  }
+
   async init(): Promise<void> {
     const isE2E = process.env.IS_E2E === 'true';
     const uri = isE2E
@@ -59,6 +71,8 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ clusterId: 1 });
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
+    await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, { unique: true });
+    await this.pipelineRuns.createIndex({ projectId: 1 });
   }
 
   async close(): Promise<void> {
@@ -99,6 +113,18 @@ export class MongoDB implements Database {
     if (cluster.temporalWorkflowId !== undefined) c.temporalWorkflowId = cluster.temporalWorkflowId;
     if (cluster.progress !== undefined) c.progress = cluster.progress;
     if (cluster.gpuEnabled !== undefined) c.gpuEnabled = cluster.gpuEnabled;
+    if (cluster.ownerId !== undefined) c.ownerId = cluster.ownerId;
+    if (cluster.remoteHost !== undefined) c.remoteHost = cluster.remoteHost;
+    if (cluster.remoteUsername !== undefined) c.remoteUsername = cluster.remoteUsername;
+    if (cluster.remoteSshPort !== undefined) c.remoteSshPort = cluster.remoteSshPort;
+    if (cluster.remoteK3sApiPort !== undefined) c.remoteK3sApiPort = cluster.remoteK3sApiPort;
+    if (cluster.remoteSshPrivateKeyEnc !== undefined) c.remoteSshPrivateKeyEnc = cluster.remoteSshPrivateKeyEnc;
+    if (cluster.meshNodeId !== undefined) c.meshNodeId = cluster.meshNodeId;
+    if (cluster.createdAt !== undefined) c.createdAt = cluster.createdAt;
+    if (cluster.hetznerServerId !== undefined) c.hetznerServerId = cluster.hetznerServerId;
+    if (cluster.hetznerServerType !== undefined) c.hetznerServerType = cluster.hetznerServerType;
+    if (cluster.hetznerLocation !== undefined) c.hetznerLocation = cluster.hetznerLocation;
+    if (cluster.hetznerImage !== undefined) c.hetznerImage = cluster.hetznerImage;
     await this.saveCluster(c);
     return c;
   }
@@ -167,9 +193,96 @@ export class MongoDB implements Database {
     if (deployment.vllmMaxNumSeqs !== undefined) d.vllmMaxNumSeqs = deployment.vllmMaxNumSeqs;
     if (deployment.vllmDtype !== undefined) d.vllmDtype = deployment.vllmDtype;
     if (deployment.vllmEnablePrefixCaching !== undefined) d.vllmEnablePrefixCaching = deployment.vllmEnablePrefixCaching;
+    if (deployment.tabbyModel !== undefined) d.tabbyModel = deployment.tabbyModel;
+    if (deployment.tabbyRevision !== undefined) d.tabbyRevision = deployment.tabbyRevision;
+    if (deployment.tabbyGpuCount !== undefined) d.tabbyGpuCount = deployment.tabbyGpuCount;
+    if (deployment.tabbyHfToken !== undefined) d.tabbyHfToken = deployment.tabbyHfToken;
+    if (deployment.tabbyCachePvc !== undefined) d.tabbyCachePvc = deployment.tabbyCachePvc;
+    if (deployment.tabbyImageTag !== undefined) d.tabbyImageTag = deployment.tabbyImageTag;
+    if (deployment.tabbyCacheMode !== undefined) d.tabbyCacheMode = deployment.tabbyCacheMode;
+    if (deployment.tabbyMaxSeqLen !== undefined) d.tabbyMaxSeqLen = deployment.tabbyMaxSeqLen;
+    if (deployment.tabbyMaxBatchSize !== undefined) d.tabbyMaxBatchSize = deployment.tabbyMaxBatchSize;
+    if (deployment.tabbyReasoning !== undefined) d.tabbyReasoning = deployment.tabbyReasoning;
+    if (deployment.tabbyToolFormat !== undefined) d.tabbyToolFormat = deployment.tabbyToolFormat;
+    if (deployment.tabbyInlineModelLoading !== undefined) d.tabbyInlineModelLoading = deployment.tabbyInlineModelLoading;
+    if (deployment.tabbyDisableAuth !== undefined) d.tabbyDisableAuth = deployment.tabbyDisableAuth;
+    if (deployment.tabbyExtraEnv !== undefined) d.tabbyExtraEnv = deployment.tabbyExtraEnv;
     if (deployment.openWebuiTargetId !== undefined) d.openWebuiTargetId = deployment.openWebuiTargetId;
+    if (deployment.webuiEnableWebSearch !== undefined) d.webuiEnableWebSearch = deployment.webuiEnableWebSearch;
+    if (deployment.webuiWebSearchEngine !== undefined) d.webuiWebSearchEngine = deployment.webuiWebSearchEngine;
+    if (deployment.webuiWebSearchApiKey !== undefined) d.webuiWebSearchApiKey = deployment.webuiWebSearchApiKey;
+    if (deployment.ownerId !== undefined) d.ownerId = deployment.ownerId;
     await this.saveDeployment(d);
     return d;
+  }
+
+  async getProjects(): Promise<ProjectMetadata[]> {
+    return (await this.projects.find({}).toArray()).map(doc => fromDoc<ProjectMetadata>(doc));
+  }
+
+  async saveProject(project: ProjectMetadata): Promise<void> {
+    const doc = toDoc(project);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.projects.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async saveProjectInfo(project: Partial<ProjectMetadata>): Promise<ProjectMetadata> {
+    const p: ProjectMetadata = {
+      id: project.id || uuidv4(),
+      name: project.name || '',
+      giteaOwner: project.giteaOwner || '',
+      giteaRepo: project.giteaRepo || '',
+      appType: project.appType || 'gitapp',
+      createdAt: project.createdAt || new Date().toISOString(),
+    };
+    if (project.targetClusterId !== undefined) p.targetClusterId = project.targetClusterId;
+    if (project.targetNamespace !== undefined) p.targetNamespace = project.targetNamespace;
+    if (project.autoDeployOnBuild !== undefined) p.autoDeployOnBuild = project.autoDeployOnBuild;
+    if (project.lastBuildStatus !== undefined) p.lastBuildStatus = project.lastBuildStatus;
+    if (project.webhookSecretEnc !== undefined) p.webhookSecretEnc = project.webhookSecretEnc;
+    await this.saveProject(p);
+    return p;
+  }
+
+  async getPipelineRuns(): Promise<PipelineRunMetadata[]> {
+    return (await this.pipelineRuns.find({}).toArray()).map(doc => fromDoc<PipelineRunMetadata>(doc));
+  }
+
+  async savePipelineRun(run: PipelineRunMetadata): Promise<void> {
+    const doc = toDoc(run);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.pipelineRuns.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async savePipelineRunInfo(run: Partial<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
+    const r: PipelineRunMetadata = {
+      id: run.id || uuidv4(),
+      projectId: run.projectId || '',
+      commitSha: run.commitSha || '',
+      ref: run.ref || '',
+      status: run.status || 'queued',
+      startedAt: run.startedAt || new Date().toISOString(),
+    };
+    if (run.imageTag !== undefined) r.imageTag = run.imageTag;
+    if (run.logFile !== undefined) r.logFile = run.logFile;
+    if (run.temporalWorkflowId !== undefined) r.temporalWorkflowId = run.temporalWorkflowId;
+    if (run.finishedAt !== undefined) r.finishedAt = run.finishedAt;
+    if (run.errorMessage !== undefined) r.errorMessage = run.errorMessage;
+    await this.savePipelineRun(r);
+    return r;
+  }
+
+  async getInvites(): Promise<InviteMetadata[]> {
+    return (await this.invites.find({}).toArray()).map(doc => fromDoc<InviteMetadata>(doc));
+  }
+
+  async saveInvite(invite: InviteMetadata): Promise<void> {
+    const doc = toDoc(invite);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
   async getUsers(): Promise<UserMetadata[]> {

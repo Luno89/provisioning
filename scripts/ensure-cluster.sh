@@ -63,4 +63,10 @@ if "$KUBECTL" --context "k3d-provisioning-lunorica" get deployment provisioning-
   "$KUBECTL" --context "k3d-provisioning-lunorica" scale deployment/provisioning-worker --replicas=0 || true
 fi
 
+# Prometheus/Grafana/Traefik: every other cluster gets these automatically via
+# ProvisionClusterActivity's CDKTF apply, but the management cluster bootstraps outside that
+# workflow entirely (this script, plus scripts/cluster.sh — no CDKTF involved), so nothing has
+# ever applied that stack to it. Idempotent — cheap fast-path skip when already installed.
+npx tsx "${ROOT}/scripts/ensure-cluster-stack.ts" || echo "  ⚠️  Monitoring/ingress stack check failed — continuing anyway"
+
 # Cluster is running, setup complete.

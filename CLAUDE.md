@@ -20,12 +20,16 @@ npm run dev          # ensure k3d+temporal+mongo → concurrently: backend, fron
 npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (scripts/cleanup-all.sh)
 
 npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
-npm run test:all     # test → test:infra:integration → test:unit:vpn
+npm run test:all     # test → test:infra:integration → test:remote-integration → test:unit:vpn
 npm run test:unit    # test:unit:frontend && test:unit:backend (Vitest, both under 5s)
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright against e2e/ directory (skips unit preflight)
-npm run test:infra:integration  # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
+npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
+npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
+                                   # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves
+                                   # the distributed-systems plan's Phase 2 (SSH k3s bootstrap) end-to-end, ~10-15 min.
+                                   # Needs qemu-kvm/cloud-utils/genisoimage + /dev/kvm (tests/remote-host-integration.ts)
 ```
 
 Note: there are two separate Playwright suites — `tests/e2e.spec.ts` (run by `npm test` via `test:e2e:sync`) and the `e2e/` directory (run by `npm run test:e2e`). Check which one a change needs before assuming coverage.
@@ -133,6 +137,7 @@ Deploying a vLLM app triggers: host GPU-toolkit check → auto-install the match
 2. **Unit** (`npm run test:unit`) — Vitest, frontend + backend, <5s.
 3. **Worker isolation** (`npm run test:worker`, `tests/worker-isolated.ts` via `npx tsx`) — runs real Temporal workflows (`ClusterProvisionWorkflow`, `AppDeployWorkflow`, etc.) end-to-end (k3d, CDKTF, Helm, kubectl) without a browser or webserver.
 4. **Full E2E** (`npm run test:e2e`) — Playwright driving the React UI; starts host and cluster workers on the host network to support all deployment types.
+5. **Remote-host integration** (`npm run test:remote-integration`, `tests/remote-host-integration.ts`) — boots a real disposable QEMU/KVM VM (`tests/lib/disposable-vm.ts`) and drives the actual `POST /api/clusters` (`provider: 'remote'`) → Temporal → SSH-bootstrap-k3s path against it, the same way a user adding their own GPU workstation or a Phase-3 VPS would. Slow (~10-15 min, includes a one-time ~600MB cloud image download cached in `tests/.vm-cache/`) — not in the default `npm test` chain, only `npm run test:all`.
 
 ## Playwright / k3d gotchas
 

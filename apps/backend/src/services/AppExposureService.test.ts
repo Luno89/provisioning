@@ -73,6 +73,12 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+// buildUpstreamTarget now resolves Traefik's own Service (a single object, not a `.items` list
+// — `kubectl get svc traefik -n traefik -o json` targets one named Service directly) as the
+// actual backend target, after first confirming the app's own Service exists. Tests queue this
+// as the second mockRunKubectl response via mockResolvedValueOnce, matching real call order.
+const traefikSvcJson = JSON.stringify({ spec: { type: 'NodePort', ports: [{ name: 'web', port: 80, nodePort: 32080 }] } });
+
 describe('sanitize', () => {
   it('converts to lowercase and replaces non-alphanumeric chars with hyphens', () => {
     expect((createService() as any).sanitize('Hello World-Foo!')).toBe('hello-world-foo');
@@ -87,13 +93,15 @@ describe('sanitize', () => {
 
 describe('buildConfContent', () => {
   it('generates a valid nginx server block', () => {
-    const content = (createService() as any).buildConfContent('my-app', '172.17.0.1:31301');
+    const content = (createService() as any).buildConfContent('my-app', '172.17.0.1:31301', 'my-app.apps.local');
     expect(content).toContain('server {');
     expect(content).toContain('server_name my-app ~^my-app\\..*$;');
     expect(content).toContain('set $upstream "172.17.0.1:31301";');
+    // Fixed Host header, not $host — Traefik dispatches to the right app purely by this.
+    expect(content).toContain('proxy_set_header Host my-app.apps.local;');
   });
   it('handles namespaces with hyphens', () => {
-    const content = (createService() as any).buildConfContent('my-long-app-name', '10.0.0.1:8080');
+    const content = (createService() as any).buildConfContent('my-long-app-name', '10.0.0.1:8080', 'my-long-app-name.apps.local');
     expect(content).toContain('server_name my-long-app-name ~^my-long-app-name\\..*$;');
   });
 });
@@ -107,7 +115,7 @@ describe('syncExposedApps', () => {
     mockGetDeployments.mockResolvedValue([mockDep]);
     mockGetById.mockResolvedValue(mockCluster);
     mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
-    mockRunKubectl.mockResolvedValue(svcJson);
+    mockRunKubectl.mockResolvedValueOnce(svcJson).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockReaddir.mockResolvedValue(['default.conf', 'myapp.conf', 'old.conf']);
 
@@ -172,21 +180,24 @@ describe('buildUpstreamTarget', () => {
 
   it('builds target for k3d using NodePort', async () => {
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
-    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     const r = await (createService() as any).buildUpstreamTarget(dep, cluster);
-    expect(r).toEqual({ namespace: 'myapp', backendTarget: '10.0.0.5:31301' });
+    // Backend target is now always Traefik's own resolved address (see AppExposureService.ts) —
+    // not the app's own nodePort — every app in a cluster shares this one upstream, dispatched
+    // by Host header (appHostname) instead.
+    expect(r).toEqual({ namespace: 'myapp', backendTarget: '10.0.0.5:32080', appHostname: 'myapp.apps.local' });
   });
 
   it('prefers web over DB services', async () => {
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
-    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [
+    mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [
       { metadata: { name: 'm-pg' }, spec: { ports: [{ port: 5432 }] } },
       { metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } },
-    ] }));
+    ] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     const r = await (createService() as any).buildUpstreamTarget(dep, cluster);
-    expect(r.backendTarget).toBe('10.0.0.5:31301');
+    expect(r.backendTarget).toBe('10.0.0.5:32080');
   });
 
   it('throws when no web services', async () => {
@@ -195,9 +206,14 @@ describe('buildUpstreamTarget', () => {
     await expect((createService() as any).buildUpstreamTarget(dep, cluster)).rejects.toThrow('No proxyable web services');
   });
 
-  it('throws when NodePort missing for k3d', async () => {
+  it('throws when Traefik has no NodePort assigned', async () => {
+    // The app's own Service no longer matters for the actual target (only whether a real,
+    // non-DB Service exists at all) — this now exercises Traefik's own Service lacking a
+    // nodePort, which is the only nodePort this method still cares about.
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
-    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'ClusterIP', ports: [{ port: 80 }] } }] }));
+    mockRunKubectl
+      .mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }))
+      .mockResolvedValueOnce(JSON.stringify({ spec: { type: 'ClusterIP', ports: [{ name: 'web', port: 80 }] } }));
     await expect((createService() as any).buildUpstreamTarget(dep, cluster)).rejects.toThrow('does not have a nodePort');
   });
 });
@@ -222,7 +238,7 @@ describe('unexposePublic / unexposeLocal', () => {
     mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp.loca.lt', isExposedLocally: true, localExposureUrl: 'http://myapp.localhost:8000' }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
-    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockSaveDeployment.mockResolvedValue(undefined);
 
@@ -254,7 +270,7 @@ describe('exposePublic / exposeLocal', () => {
     mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
-    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockSaveDeployment.mockResolvedValue(undefined);
 
@@ -270,7 +286,7 @@ describe('exposePublic / exposeLocal', () => {
     mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
-    mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }));
+    mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockSaveDeployment.mockResolvedValue(undefined);
 

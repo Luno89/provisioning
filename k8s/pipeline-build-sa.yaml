@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pipeline-builds
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pipeline-build-sa
+  namespace: pipeline-builds
+automountServiceAccountToken: false
+# Deliberately no RoleBinding/ClusterRoleBinding of any kind — ephemeral build Jobs need zero
+# K8s API access, only network egress to Gitea's registry. This is the counterpart to
+# provisioning-worker's cluster-admin binding (worker-sa.yaml): that scope is broad because the
+# worker runs trusted platform code; this one is empty because build Jobs run untrusted
+# pipeline-repo content.

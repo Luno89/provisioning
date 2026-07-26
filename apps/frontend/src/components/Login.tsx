@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Mail, Lock, LogIn, UserPlus, Github, Chrome, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
 
 interface LoginProps {
@@ -10,6 +10,7 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   
   // 2FA Challenge State
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
@@ -19,6 +20,20 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+
+  // Surfaces a rejected invite code from the OAuth roundtrip (backend redirects here with
+  // ?authError=... when GitHub/Google login would have created a brand-new, un-invited account).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('authError');
+    if (authError) {
+      setError(authError);
+      setIsRegister(true);
+      params.delete('authError');
+      const rest = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
+  }, []);
 
   const handleNativeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +47,7 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(isRegister ? { email, password, inviteCode } : { email, password }),
       });
 
       const data = await res.json();
@@ -86,7 +101,8 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
   };
 
   const handleSocialLogin = (provider: 'github' | 'google') => {
-    window.location.href = `${apiBase.replace(/\/api$/, '')}/api/auth/${provider}`;
+    const query = isRegister && inviteCode ? `?invite=${encodeURIComponent(inviteCode)}` : '';
+    window.location.href = `${apiBase.replace(/\/api$/, '')}/api/auth/${provider}${query}`;
   };
 
   return (
@@ -213,6 +229,29 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
                   />
                 </div>
               </div>
+
+              {isRegister && (
+                <div>
+                  <label className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
+                    Invite Code
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                      <ShieldCheck className="h-5 w-5 text-gray-500" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Provided by an admin (leave blank for the first-ever account)"
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value)}
+                      className="block w-full pl-12 pr-4 py-3.5 bg-[#1f2430]/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                    />
+                  </div>
+                  <p className="text-xs text-[#8c94a6] mt-2">
+                    This platform is invite-only. The first account ever created doesn't need a code.
+                  </p>
+                </div>
+              )}
 
               <button
                 type="submit"

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { Activity, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp, Server, Cloud, Shield, Zap, ExternalLink } from 'lucide-react';
+import { Activity, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp, Server, Cloud, Shield, Zap, ExternalLink, GitBranch, Bell, FileText } from 'lucide-react';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 
@@ -19,19 +19,34 @@ const SERVICE_ICONS: Record<string, any> = {
   prometheus: Activity,
   grafana: Zap,
   traefik: Shield,
+  gitea: GitBranch,
+  alertmanager: Bell,
+  loki: FileText,
 };
 
 const SERVICE_COLORS: Record<string, string> = {
   prometheus: 'text-amber-500 bg-amber-500/10',
   grafana: 'text-orange-500 bg-orange-500/10',
   traefik: 'text-cyan-500 bg-cyan-500/10',
+  gitea: 'text-blue-500 bg-blue-500/10',
+  alertmanager: 'text-red-500 bg-red-500/10',
+  loki: 'text-purple-500 bg-purple-500/10',
 };
 
 const SERVICE_LABELS: Record<string, string> = {
   prometheus: 'Prometheus Monitoring',
   grafana: 'Grafana Dashboards',
   traefik: 'Traefik Ingress Router',
+  gitea: 'Gitea (Git + CI/CD)',
+  alertmanager: 'Alertmanager',
+  loki: 'Loki Logging',
 };
+
+// Loki has no web UI of its own (logs are browsed via Grafana Explore against the datasource
+// constructs/dashboards.ts auto-provisions) — no backend proxy route exists for it
+// (apps/backend/src/index.ts's PROXY_SERVICES), so its card shouldn't offer a dead "Open
+// Dashboard" link the way every other service card does.
+const NO_DASHBOARD = new Set(['loki']);
 
 function statusBadge(status: string) {
   const deployed = status === 'deployed';
@@ -71,7 +86,7 @@ function ServiceCard({ service, clusterId }: { service: ServiceInfo; clusterId: 
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {service.installed && service.status === 'deployed' && (
+            {service.installed && service.status === 'deployed' && !NO_DASHBOARD.has(service.name) && (
               <a
                 href={dashboardUrl}
                 target="_blank"

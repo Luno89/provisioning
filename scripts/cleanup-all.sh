@@ -44,8 +44,10 @@ fi
 #     cluster is k3d, already covered by the deletion loop above).
 #
 # clean only removes — it does not reinstall, reconfigure, or restart anything. That's setup's
-# job (sudo bash scripts/setup-gpu.sh, then npm run setup) — see cluster.sh's native_k3s_reset
-# for what this actually does (stop + wipe data-dir, nothing else).
+# job (sudo bash scripts/setup-root.sh, then npm run setup) — see cluster.sh's native_k3s_reset
+# for what this actually does (stop + wipe data-dir, nothing else). setup-root.sh's GPU-toolkit
+# step specifically needs re-running post-reset since the containerd GPU config it writes lives
+# inside the just-wiped data dir.
 if [ "$(uname -s)" = "Linux" ]; then
   "$ROOT/scripts/cluster.sh" reset provisioning-lunorica
 fi
@@ -53,6 +55,13 @@ fi
 # 3. Clean up lock files and state directories
 echo "  ▶  Removing temporary state files..."
 rm -rf "$ROOT/.test-e2e-state" "$ROOT/.test-server-state" "$ROOT/.k3d-cluster-state" 2>/dev/null || true
+
+# 3b. Gitea itself lives inside the management cluster (see ensure-gitea.sh) and is already
+# wiped by the k3d-delete loop / native_k3s_reset above — nothing to uninstall separately here.
+# Only the host-side cached credentials survive a cluster wipe and need clearing, since they'd
+# otherwise point at a Gitea instance that no longer exists after the next `npm run dev`.
+echo "  ▶  Clearing cached Gitea credentials..."
+rm -f "$ROOT/apps/backend/data/.gitea-admin-password" "$ROOT/apps/backend/data/.gitea-admin-token" 2>/dev/null || true
 
 # 4. Reset MongoDB test database
 echo "  ▶  Resetting MongoDB test database..."
@@ -65,6 +74,12 @@ if ! command -v docker-compose >/dev/null 2>&1; then
   fi
 fi
 $DOCKER_COMPOSE -f "$ROOT/docker-compose.mongo.yml" down -v >/dev/null 2>&1 || true
+
+# 4a. Reset Headscale (mesh state — registered users/devices/keys — is dev/test session state,
+# same as Mongo/Temporal, not durable infra like Gitea's cluster-hosted data).
+echo "  ▶  Resetting Headscale mesh state..."
+$DOCKER_COMPOSE -f "$ROOT/docker-compose.headscale.yml" down -v >/dev/null 2>&1 || true
+rm -f "$ROOT/apps/backend/data/.headscale-api-key" 2>/dev/null || true
 
 # 4b. Clean up log files
 echo "  ▶  Cleaning up workspace and backend logs..."
@@ -135,6 +150,6 @@ if [ "$(uname -s)" = "Linux" ] && [ -f "/etc/systemd/system/k3s-provisioning-lun
   echo ""
   echo "ℹ️  The native k3s management cluster was reset (stopped + state wiped) and is not"
   echo "   running. Bring it back up with:"
-  echo "     sudo bash scripts/setup-gpu.sh   # only if you have a GPU"
+  echo "     sudo bash scripts/setup-root.sh   # re-applies GPU/registry/sudoers config the reset wiped"
   echo "     npm run setup"
 fi

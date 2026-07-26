@@ -4,6 +4,7 @@ import { ClusterService } from './ClusterService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
+import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -58,11 +59,10 @@ export class AppExposureService extends BaseService {
   }
 
   private isMockCloud(cluster: ClusterMetadata): boolean {
-    if (cluster.provider === 'k3d') return false;
-    return !hasCloudCredentials(cluster.provider);
+    return isMockCloudProvider(cluster.provider, hasCloudCredentials);
   }
 
-  private async buildUpstreamTarget(dep: DeploymentMetadata, cluster: ClusterMetadata): Promise<{namespace: string, backendTarget: string}> {
+  private async buildUpstreamTarget(dep: DeploymentMetadata, cluster: ClusterMetadata): Promise<{namespace: string, backendTarget: string, appHostname: string}> {
     const namespace = this.sanitize(dep.name);
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
 
@@ -81,49 +81,58 @@ export class AppExposureService extends BaseService {
       return ports.some((p: any) => !dbPorts.includes(p.port));
     });
 
+    // Still needed even though the app's own Service is no longer what we resolve a target
+    // from below — this confirms a real, non-DB app Service actually exists in the namespace
+    // before proxying anything at all (and throws the same clear error as before if not).
     if (candidateServices.length === 0) {
       throw new Error(`No proxyable web services found in namespace "${namespace}".`);
     }
 
-    const primarySvc = candidateServices.find((svc: any) =>
-      svc.spec?.type === 'LoadBalancer' || svc.spec?.type === 'NodePort'
-    ) || candidateServices[0];
+    // Every app construct now creates an Ingress routing this exact hostname to itself
+    // (see lib/app-ingress.ts) — Traefik dispatches by Host header, so this is the one thing
+    // that actually determines which app the request reaches.
+    const appHostname = `${namespace}.apps.local`;
 
-    const svcName = primarySvc.metadata.name;
-    const portObj = primarySvc.spec?.ports?.find((p: any) => !dbPorts.includes(p.port)) || primarySvc.spec?.ports?.[0];
-    const targetPort = portObj?.port || 80;
+    // Resolve Traefik's own Service instead of the app's — Traefik is what actually proxies
+    // to the app now (see lib/app-ingress.ts's Ingress + this method's appHostname above), so
+    // every app in a given cluster shares this same, single upstream target. Identical
+    // resolution branches to what used to run per-app here, just pointed at a fixed service.
+    const traefikOutput = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', 'traefik', '-o', 'json'], kubeconfigPath);
+    const traefikSvc = JSON.parse(traefikOutput);
+    const traefikPortObj = traefikSvc.spec?.ports?.find((p: any) => p.name === 'web') || traefikSvc.spec?.ports?.[0];
+    const targetPort = traefikPortObj?.port || 80;
 
     const isMock = this.isMockCloud(cluster);
     let backendTarget = '';
     if (cluster.gpuEnabled) {
       // Native k3s (the system/management cluster) — no k3d node container exists for this
       // one, so there's nothing to resolve a container IP for. See getHostGatewayIp().
-      const nodePort = portObj?.nodePort;
+      const nodePort = traefikPortObj?.nodePort;
       if (!nodePort) {
-        throw new Error(`Service "${svcName}" does not have a nodePort assigned. Cannot expose locally.`);
+        throw new Error(`Traefik's Service does not have a nodePort assigned. Cannot expose locally.`);
       }
       const hostIp = await this.infra.getHostGatewayIp();
       backendTarget = `${hostIp}:${nodePort}`;
     } else if (cluster.provider === 'k3d' || isMock) {
-      const nodePort = portObj?.nodePort;
+      const nodePort = traefikPortObj?.nodePort;
       if (!nodePort) {
-        throw new Error(`Service "${svcName}" does not have a nodePort assigned. Cannot expose locally.`);
+        throw new Error(`Traefik's Service does not have a nodePort assigned. Cannot expose locally.`);
       }
       const serverIp = await this.infra.getK3dServerIp(cluster.name);
       backendTarget = `${serverIp}:${nodePort}`;
     } else {
-      const ingress = primarySvc.status?.loadBalancer?.ingress?.[0];
+      const ingress = traefikSvc.status?.loadBalancer?.ingress?.[0];
       const targetIpOrHost = ingress?.ip || ingress?.hostname;
       if (!targetIpOrHost) {
-        throw new Error(`Cloud LoadBalancer for service "${svcName}" is still provisioning.`);
+        throw new Error(`Cloud LoadBalancer for Traefik's Service is still provisioning.`);
       }
       backendTarget = `${targetIpOrHost}:${targetPort}`;
     }
 
-    return { namespace, backendTarget };
+    return { namespace, backendTarget, appHostname };
   }
 
-  private buildConfContent(namespace: string, backendTarget: string, tunnelHost?: string): string {
+  private buildConfContent(namespace: string, backendTarget: string, appHostname: string, tunnelHost?: string): string {
     const extraHost = tunnelHost ? ` ${tunnelHost}` : '';
     return `server {
     listen 80;
@@ -133,7 +142,10 @@ export class AppExposureService extends BaseService {
         resolver 127.0.0.11 valid=10s;
         set \$upstream "${backendTarget}";
         proxy_pass http://\$upstream;
-        proxy_set_header Host $host;
+        # Fixed, not $host — the backend is now always Traefik (see buildUpstreamTarget), which
+        # dispatches to the right app purely by Host header. Forwarding the client's original
+        # Host (the tunnel domain, or namespace.localhost) would never match any app's Ingress.
+        proxy_set_header Host ${appHostname};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -227,9 +239,9 @@ export class AppExposureService extends BaseService {
   // Both modes share one Nginx conf per namespace — buildConfContent's server_name already
   // matches the bare local hostname via regex regardless of tunnelHost, so writing it with or
   // without a tunnel host never breaks the other mode; only the *content* changes.
-  private async writeNginxConf(namespace: string, backendTarget: string, tunnelHost?: string) {
+  private async writeNginxConf(namespace: string, backendTarget: string, appHostname: string, tunnelHost?: string) {
     const confPath = this.confPathFor(namespace);
-    const confContent = this.buildConfContent(namespace, backendTarget, tunnelHost);
+    const confContent = this.buildConfContent(namespace, backendTarget, appHostname, tunnelHost);
     await fs.mkdir(path.dirname(confPath), { recursive: true });
     await fs.writeFile(confPath, confContent);
     try {
@@ -260,7 +272,7 @@ export class AppExposureService extends BaseService {
     const cluster = await this.clusters.getById(dep.clusterId);
     if (!cluster) throw new Error('Cluster not found');
 
-    const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+    const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
     dep.isExposedLocally = true;
     dep.localExposureUrl = `http://${namespace}.localhost:8000`;
@@ -268,7 +280,7 @@ export class AppExposureService extends BaseService {
 
     // Preserve the tunnel host in the conf if public exposure is already active independently.
     const tunnelHost = dep.isExposedPublicly && dep.publicExposureUrl ? dep.publicExposureUrl.replace(/^https?:\/\//, '') : undefined;
-    await this.writeNginxConf(namespace, backendTarget, tunnelHost);
+    await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
 
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
@@ -283,7 +295,7 @@ export class AppExposureService extends BaseService {
     const cluster = await this.clusters.getById(dep.clusterId);
     if (!cluster) throw new Error('Cluster not found');
 
-    const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+    const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
     const publicUrl = await this.startTunnel(dep.id, namespace);
     dep.isExposedPublicly = true;
@@ -291,7 +303,7 @@ export class AppExposureService extends BaseService {
     this.syncDerivedFields(dep);
 
     const tunnelHost = publicUrl.replace(/^https?:\/\//, '');
-    await this.writeNginxConf(namespace, backendTarget, tunnelHost);
+    await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
 
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
@@ -311,7 +323,7 @@ export class AppExposureService extends BaseService {
           continue;
         }
 
-        const { namespace, backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+        const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
         let tunnelHost: string | undefined;
         if (dep.isExposedPublicly) {
@@ -330,7 +342,7 @@ export class AppExposureService extends BaseService {
         this.syncDerivedFields(dep);
         await this.db.saveDeployment(dep);
 
-        await this.writeNginxConf(namespace, backendTarget, tunnelHost);
+        await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
         changed = true;
         const modes = [dep.isExposedPublicly ? `tunnel: ${tunnelHost}` : null, dep.isExposedLocally ? 'local' : null].filter(Boolean).join(', ');
         this.logger.info(`Synced nginx config for "${dep.name}" -> ${backendTarget} (${modes})`);
@@ -389,9 +401,9 @@ export class AppExposureService extends BaseService {
       // locally-exposed in the UI, and it costs nothing to leave the pattern in the conf.
       const cluster = await this.clusters.getById(dep.clusterId);
       if (cluster) {
-        const { backendTarget } = await this.buildUpstreamTarget(dep, cluster);
+        const { backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
         const tunnelHost = dep.publicExposureUrl.replace(/^https?:\/\//, '');
-        await this.writeNginxConf(namespace, backendTarget, tunnelHost);
+        await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
       }
     } else {
       await this.removeNginxConf(namespace);
@@ -426,8 +438,8 @@ export class AppExposureService extends BaseService {
       // removing it, so the app stays reachable at namespace.localhost:8000.
       const cluster = await this.clusters.getById(dep.clusterId);
       if (cluster) {
-        const { backendTarget } = await this.buildUpstreamTarget(dep, cluster);
-        await this.writeNginxConf(namespace, backendTarget);
+        const { backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
+        await this.writeNginxConf(namespace, backendTarget, appHostname);
       }
     } else {
       await this.removeNginxConf(namespace);

@@ -1,6 +1,8 @@
 import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { createAppIngress } from "../lib/app-ingress.js";
+import { createAppProbe } from "../lib/app-probe.js";
 
 export interface WordPressConfig {
   readonly namespace?: string;
@@ -41,7 +43,7 @@ export class WordPressApp extends Construct {
       },
     });
 
-    const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
+    const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 
     const helmValues: any[] = [
       { name: "service.type", value: serviceType },
@@ -71,6 +73,21 @@ export class WordPressApp extends Construct {
       namespace: ns.metadata.name,
       timeout: 600,
       set: helmValues,
+    });
+
+    // Chart's web Service is named after the release ("wordpress"), port 80 — confirmed via
+    // `helm template` against the real chart.
+    createAppIngress(this, "ingress", {
+      namespace: namespaceName,
+      serviceName: "wordpress",
+      servicePort: 80,
+      hostname: `${namespaceName}.apps.local`,
+    });
+
+    createAppProbe(this, "probe", {
+      namespace: namespaceName,
+      serviceName: "wordpress",
+      servicePort: 80,
     });
   }
 }

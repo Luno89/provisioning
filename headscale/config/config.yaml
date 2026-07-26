@@ -1,0 +1,71 @@
+---
+# Headscale — self-hosted Tailscale coordination server for the root-node → remote-cluster-target
+# mesh (VPS instances, GPU workstations). Talked to by apps/backend/src/services/HeadscaleService.ts
+# over its REST API (listen_addr below), not the gRPC port — gRPC here is kept only so the
+# `headscale` CLI itself can be used for local debugging (`docker exec provisioning-headscale ...`).
+#
+# server_url below is `http://localhost:8080`, correct for local dev where the backend and every
+# mesh member reach Headscale via localhost/docker-network. A real root-node deployment (Phase 4 of
+# the distributed-systems plan) MUST change this to a publicly routable address before any real
+# remote VPS/GPU target can join — every mesh member embeds this URL in its own config.
+server_url: http://localhost:8080
+
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 0.0.0.0:9090
+grpc_listen_addr: 0.0.0.0:50443
+grpc_allow_insecure: true
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+derp:
+  server:
+    enabled: false
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 24h
+
+disable_check_updates: true
+
+node:
+  expiry: 0
+  ephemeral:
+    inactivity_timeout: 30m
+  routes:
+    ha:
+      probe_interval: 10s
+      probe_timeout: 5s
+
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+
+log:
+  level: info
+  format: text
+
+policy:
+  mode: file
+  path: ""
+
+# MagicDNS off — this platform only needs mesh-IP reachability (CDKTF/kubectl talk to remote
+# cluster targets by their mesh IP directly, per the distributed-systems plan), not hostnames.
+dns:
+  magic_dns: false
+  base_domain: headscale.internal
+  override_local_dns: false
+  nameservers:
+    global: []
+  search_domains: []
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"

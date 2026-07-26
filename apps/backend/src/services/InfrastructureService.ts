@@ -28,6 +28,10 @@ const K3D_STORAGE_ROOT = path.join(PROJECT_ROOT, '.k3d-storage');
 // deliberately a SINGLE shared directory (not per-cluster like K3D_STORAGE_ROOT) so a model
 // downloaded once is reused across every k3d cluster instead of being re-fetched per cluster.
 const VLLM_CACHE_HOST_DIR = path.join(PROJECT_ROOT, '.vllm-model-cache');
+// Same reasoning as VLLM_CACHE_HOST_DIR above, for TabbyAPI's own model cache (see
+// constructs/tabbyapi.ts) — a separate directory since the two engines use incompatible model
+// formats (HF safetensors vs EXL2/EXL3) and shouldn't share a cache namespace.
+const TABBYAPI_CACHE_HOST_DIR = path.join(PROJECT_ROOT, '.tabbyapi-model-cache');
 
 export interface ExecuteOptions {
   env?: Record<string, string> | undefined;
@@ -35,6 +39,8 @@ export interface ExecuteOptions {
   resourceId?: string | undefined;
   io?: SocketServer | undefined;
   timeout?: number | undefined;
+  /** Path `cdktf deploy` writes its TerraformOutputs JSON to — see deploy() below. */
+  outputsFile?: string | undefined;
 }
 
 /**
@@ -52,7 +58,14 @@ export class InfrastructureService {
   }
 
   async deploy(stackName: string, options: ExecuteOptions = {}) {
-    return this.runCommand('npx', ['cdktf', 'deploy', stackName, '--auto-approve'], stackName, options);
+    const args = ['cdktf', 'deploy', stackName, '--auto-approve'];
+    // Only stacks whose TerraformOutputs a caller actually needs to read back pass this (today:
+    // the Hetzner VM stack, whose IP the SSH bootstrap can't proceed without). Everything else
+    // deploys for its side effects alone, so the default stays flag-free.
+    if (options.outputsFile) {
+      args.push('--outputs-file', options.outputsFile, '--outputs-file-include-sensitive-outputs');
+    }
+    return this.runCommand('npx', args, stackName, options);
   }
 
   async destroy(stackName: string, options: ExecuteOptions = {}) {
@@ -276,6 +289,9 @@ export class InfrastructureService {
 
     await fs.mkdir(VLLM_CACHE_HOST_DIR, { recursive: true });
     args.push('--volume', `${VLLM_CACHE_HOST_DIR}:/var/lib/rancher/vllm-model-cache@server:*;agent:*`);
+
+    await fs.mkdir(TABBYAPI_CACHE_HOST_DIR, { recursive: true });
+    args.push('--volume', `${TABBYAPI_CACHE_HOST_DIR}:/var/lib/rancher/tabbyapi-model-cache@server:*;agent:*`);
 
     await this.runCommand(path.join(BIN_DIR, 'k3d'), args, name, {
       ...options,

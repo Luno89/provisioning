@@ -93,14 +93,8 @@ http {
     await expect(page.locator('button:has-text("Next")')).toBeEnabled();
     await page.click('button:has-text("Next")');
 
-    // Step 3: Windscribe VPN Routing (Only for native strategy)
-    if (strategy === 'native') {
-      await expect(page.locator('h4:has-text("Windscribe VPN Routing")')).toBeVisible();
-      await expect(page.locator('button:has-text("Next")')).toBeEnabled();
-      await page.click('button:has-text("Next")');
-    }
-
-    // Step 4: Component Version (Main App)
+    // Step 4: Component Version (Main App) — VPN step removed from the wizard flow, step 2
+    // goes straight to step 4 now regardless of strategy
     await page.waitForSelector('button:has-text("Next")');
     await expect(page.locator('button:has-text("Next")')).toBeEnabled();
     await page.click('button:has-text("Next")');

@@ -32,4 +32,11 @@ echo "  ▶  deploying worker to cluster '${CLUSTER_NAME}'..."
 "$KUBECTL" apply -f "${ROOT}/k8s/worker-sa.yaml" --context "k3d-${CLUSTER_NAME}" 2>/dev/null || true
 "$KUBECTL" apply -f "${ROOT}/k8s/worker-deployment.yaml" --context "k3d-${CLUSTER_NAME}"
 
+# Best-effort: the PodMonitor CRD only exists once the Prometheus Operator (part of the cluster's
+# monitoring stack, see packages/cdktf-infra/constructs/monitoring.ts) has been installed. On a
+# fresh cluster this script can run before that's landed, so a missing CRD here shouldn't fail
+# the whole worker deploy — just skip it, same tolerance pattern as worker-sa.yaml above.
+"$KUBECTL" apply -f "${ROOT}/k8s/worker-podmonitor.yaml" --context "k3d-${CLUSTER_NAME}" 2>/dev/null || \
+  echo "  ⚠️  Skipped worker-podmonitor.yaml (Prometheus Operator CRDs not installed yet — re-run this script after the cluster's monitoring stack is up)"
+
 echo "  ▶  worker deployed successfully"

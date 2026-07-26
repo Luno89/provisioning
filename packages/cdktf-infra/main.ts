@@ -13,40 +13,88 @@ import { PrometheusApp } from "./constructs/prometheus.js";
 import { TemporalApp } from "./constructs/temporal.js";
 import { TraefikApp } from "./constructs/traefik.js";
 import { VllmApp } from "./constructs/vllm.js";
+import { TabbyApiApp } from "./constructs/tabbyapi.js";
 import { OpenWebUiApp } from "./constructs/open-webui.js";
+import { GitappApp } from "./constructs/gitapp.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
+import { DashboardsStack } from "./constructs/dashboards.js";
+import { BlackboxExporterStack } from "./constructs/blackbox-exporter.js";
+import { AlertingStack } from "./constructs/alerting.js";
+import { LoggingStack } from "./constructs/logging.js";
+import { HetznerVmStack } from "./constructs/hetzner-vm.js";
 import { K8sProviderService } from "./lib/k8s-provider-service.js";
 import { VpnConfig } from "./lib/vpn-service.js";
 
 export interface ClusterStackConfig {
-  environment: "local" | "k3d" | "aws" | "gcp" | "azure" | "do";
+  environment: "local" | "k3d" | "aws" | "gcp" | "azure" | "do" | "remote" | "hetzner";
   name: string;
 }
 
+function initK8sProvider(scope: Construct, config: ClusterStackConfig): void {
+  const isLocal = config.environment === "local" || config.environment === "k3d";
+  const kubeconfig = process.env.KUBECONFIG_PATH || (isLocal ? "~/.kube/config" : `/tmp/kubeconfig-${config.name}`);
+  const context = isLocal ? `k3d-${config.name}` : undefined;
+
+  K8sProviderService.initialize(scope, {
+    kubeconfigPath: kubeconfig,
+    kubeconfigContext: context,
+  });
+}
+
 /**
- * ClusterStack manages the infrastructure provisioning (e.g. k3d, EKS).
+ * ClusterStack manages the infrastructure provisioning (e.g. k3d, EKS) plus the pieces every
+ * downstream construct can depend on: the Prometheus Operator CRDs (via MonitoringStack's
+ * kube-prometheus-stack release) and the "monitoring" namespace itself.
  */
 class ClusterStack extends TerraformStack {
   constructor(scope: Construct, id: string, config: ClusterStackConfig) {
     super(scope, id);
-
-    const isLocal = config.environment === "local" || config.environment === "k3d";
-    const kubeconfig = process.env.KUBECONFIG_PATH || (isLocal ? "~/.kube/config" : `/tmp/kubeconfig-${config.name}`);
-    const context = isLocal ? `k3d-${config.name}` : undefined;
-
-    K8sProviderService.initialize(this, {
-      kubeconfigPath: kubeconfig,
-      kubeconfigContext: context,
-    });
+    initK8sProvider(this, config);
 
     new BaseCluster(this, "cluster", {
       environment: config.environment,
       name: config.name,
     });
 
-    new MonitoringStack(this, "monitoring");
+    new MonitoringStack(this, "monitoring", config.name);
     new IngressStack(this, "ingress");
+  }
+}
+
+/**
+ * ObservabilityStack holds everything that can only be applied *after* ClusterStack has actually
+ * finished — not just "after" in dependency-declaration terms, but after a real, separate
+ * `terraform apply` has completed. Every resource here either creates something inside the
+ * "monitoring" namespace (DashboardsStack's ConfigMaps, LoggingStack's NetworkPolicy) or is a
+ * `kubernetes_manifest` CRD instance (AlertingStack's PrometheusRule) — and the Kubernetes
+ * provider's `kubernetes_manifest` resource resolves the target CRD's schema (GVK) at *plan*
+ * time, before anything in that same `terraform apply` has been created yet. `depends_on` /
+ * CDKTF's `node.addDependency` only control *apply-time ordering* between resources already in
+ * the same plan — they do nothing for a plan-time lookup against the live cluster's current (pre
+ * -apply) state. Confirmed live: even with an explicit `node.addDependency(monitoring)`, applying
+ * ClusterStack and this stack's resources together in one `cdktf deploy` still failed identically
+ * — "no matches for kind PrometheusRule in group monitoring.coreos.com" — because at plan time,
+ * within that single apply, the CRD genuinely didn't exist in the cluster yet. This only ever
+ * worked in earlier testing because those runs happened against a cluster that already had the
+ * CRDs installed from a prior, separate apply. Two real, sequential `cdktf deploy` invocations —
+ * this stack applied only after ClusterStack's has fully completed — is the actual fix (see
+ * ProvisionClusterActivity.ts / ensure-cluster-stack.ts, both updated to deploy this stack right
+ * after ClusterStack).
+ */
+class ObservabilityStack extends TerraformStack {
+  constructor(scope: Construct, id: string, config: ClusterStackConfig) {
+    super(scope, id);
+    initK8sProvider(this, config);
+
+    // "monitoring" matches MonitoringStack's own hardcoded namespace name (ClusterStack, applied
+    // first) — Grafana's dashboard sidecar watches ConfigMaps by label across all namespaces (see
+    // dashboards.ts), so this doesn't strictly have to live in the same namespace, but keeping
+    // platform-owned resources together avoids scattering them for no reason.
+    new DashboardsStack(this, "dashboards", "monitoring");
+    new BlackboxExporterStack(this, "blackbox-exporter");
+    new AlertingStack(this, "alerting");
+    new LoggingStack(this, "logging", config.name);
   }
 }
 
@@ -138,6 +186,28 @@ class AppStack extends TerraformStack {
           dtype: process.env.VLLM_DTYPE || undefined,
           enablePrefixCaching: process.env.VLLM_ENABLE_PREFIX_CACHING === 'true',
         });
+      } else if (appType === 'tabbyapi') {
+        new TabbyApiApp(this, "tabbyapi-app", {
+          namespace: deploymentName,
+          model: process.env.TABBYAPI_MODEL,
+          revision: process.env.TABBYAPI_REVISION || undefined,
+          gpuCount: parseInt(process.env.TABBYAPI_GPU_COUNT || '1'),
+          modelSizeBytes: process.env.TABBYAPI_MODEL_SIZE_BYTES ? parseInt(process.env.TABBYAPI_MODEL_SIZE_BYTES) : undefined,
+          hfToken: process.env.HF_TOKEN || process.env.TABBYAPI_HF_TOKEN,
+          cachePvc: process.env.TABBYAPI_CACHE_PVC,
+          imageTag: process.env.TABBYAPI_IMAGE_TAG || 'latest',
+          shmSize: process.env.TABBYAPI_SHM_SIZE,
+          cpuLimit: process.env.TABBYAPI_CPU_LIMIT,
+          memoryLimit: process.env.TABBYAPI_MEMORY_LIMIT,
+          cacheMode: process.env.TABBYAPI_CACHE_MODE || undefined,
+          maxSeqLen: process.env.TABBYAPI_MAX_SEQ_LEN ? parseInt(process.env.TABBYAPI_MAX_SEQ_LEN) : undefined,
+          maxBatchSize: process.env.TABBYAPI_MAX_BATCH_SIZE ? parseInt(process.env.TABBYAPI_MAX_BATCH_SIZE) : undefined,
+          reasoning: process.env.TABBYAPI_REASONING === 'true',
+          toolFormat: process.env.TABBYAPI_TOOL_FORMAT || undefined,
+          inlineModelLoading: process.env.TABBYAPI_INLINE_MODEL_LOADING === 'true',
+          disableAuth: process.env.TABBYAPI_DISABLE_AUTH !== 'false',
+          extraEnv: process.env.TABBYAPI_EXTRA_ENV || undefined,
+        });
       } else if (appType === 'openwebui') {
         new OpenWebUiApp(this, "open-webui-app", {
           namespace: deploymentName,
@@ -145,6 +215,23 @@ class AppStack extends TerraformStack {
           ...(webTag ? { webTag } : {}),
           ...(process.env.OPENAI_API_BASE_URL ? { openaiApiBaseUrl: process.env.OPENAI_API_BASE_URL } : {}),
           ...(storageDb ? { storage: storageDb } : {}),
+          ...(process.env.WEBUI_ENABLE_WEB_SEARCH === 'false' ? { enableWebSearch: false } : {}),
+          ...(process.env.WEBUI_WEB_SEARCH_ENGINE ? { webSearchEngine: process.env.WEBUI_WEB_SEARCH_ENGINE } : {}),
+          ...(process.env.WEBUI_WEB_SEARCH_API_KEY ? { webSearchApiKey: process.env.WEBUI_WEB_SEARCH_API_KEY } : {}),
+        });
+      } else if (appType === 'gitapp') {
+        // Image comes from a CI pipeline run (see RunPipelineActivity/GiteaService), always
+        // resolved before this stack applies — webRepo/webTag are required, not optional
+        // fallbacks like every other app type here.
+        if (!webRepo || !webTag) {
+          throw new Error('gitapp requires WEB_IMAGE_REPO and WEB_IMAGE_TAG (set from the promoted pipeline run\'s image tag)');
+        }
+        new GitappApp(this, "gitapp-app", {
+          namespace: deploymentName,
+          webRepo,
+          webTag,
+          ...(process.env.GITAPP_CONTAINER_PORT ? { containerPort: parseInt(process.env.GITAPP_CONTAINER_PORT) } : {}),
+          ...(storageWeb ? { storage: storageWeb } : {}),
         });
       } else {
         new OdooNativeApp(this, "odoo-native", {
@@ -233,10 +320,32 @@ const deploymentId = process.env.DEPLOYMENT_ID || 'default';
 
 if (stackType === "cluster") {
   const env = process.env.ENV as ClusterStackConfig["environment"];
+  // Two separate stacks, both registered here so `cdktf synth` always generates both — but
+  // `cdktf deploy <name>` only ever *applies* the one it's targeted at, so ProvisionClusterActivity
+  // / ensure-cluster-stack.ts deploying clusterName then `${clusterName}-observability` (in that
+  // order, as two real sequential applies) is what actually matters. See ObservabilityStack's own
+  // comment for why this can't be one apply.
   new ClusterStack(app, clusterName, { environment: env, name: clusterName });
+  new ObservabilityStack(app, `${clusterName}-observability`, { environment: env, name: clusterName });
 } else if (stackType === "app") {
   // Use deploymentId in the stack name to allow multiple deployments on the same cluster
   new AppStack(app, `app-${clusterName}-${deploymentId}`);
+} else if (stackType === "vm") {
+  // The VM a 'hetzner' cluster will live on — applied strictly *before* the "cluster" stack
+  // above, since that one needs a kubeconfig that doesn't exist until k3s is installed on this
+  // machine. Registered under its own stack name so its Terraform state stays separate from the
+  // cluster's, letting the VM outlive a failed cluster deploy (and be destroyed on its own).
+  const sshPublicKey = process.env.VM_SSH_PUBLIC_KEY;
+  if (!sshPublicKey) {
+    throw new Error("STACK_TYPE=vm requires VM_SSH_PUBLIC_KEY");
+  }
+  new HetznerVmStack(app, `vm-${clusterName}`, {
+    name: clusterName,
+    sshPublicKey,
+    ...(process.env.HETZNER_SERVER_TYPE ? { serverType: process.env.HETZNER_SERVER_TYPE } : {}),
+    ...(process.env.HETZNER_LOCATION ? { location: process.env.HETZNER_LOCATION } : {}),
+    ...(process.env.HETZNER_IMAGE ? { image: process.env.HETZNER_IMAGE } : {}),
+  });
 }
 
 app.synth();

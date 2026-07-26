@@ -3,5 +3,6 @@
   "registry.terraform.io/hashicorp/helm": "2.17.0",
   "registry.terraform.io/hashicorp/aws": "5.100.0",
   "registry.terraform.io/hashicorp/google": "5.45.2",
-  "registry.terraform.io/hashicorp/azurerm": "3.117.1"
+  "registry.terraform.io/hashicorp/azurerm": "3.117.1",
+  "registry.terraform.io/hetznercloud/hcloud": "1.67.0"
 }

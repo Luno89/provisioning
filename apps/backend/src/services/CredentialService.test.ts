@@ -104,7 +104,11 @@ describe('CredentialService', () => {
       });
 
       const statuses = await service.getConfiguredProviders('user-1');
-      expect(statuses).toHaveLength(6);
+      // Assert the actual set rather than a count — a bare length check says nothing about which
+      // provider went missing when it fails, and silently needs editing every time one is added.
+      expect(statuses.map((s) => s.provider).sort()).toEqual(
+        ['aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface'].sort(),
+      );
 
       const aws = statuses.find((s) => s.provider === 'aws');
       expect(aws?.configured).toBe(true);
@@ -112,6 +116,63 @@ describe('CredentialService', () => {
 
       const gcp = statuses.find((s) => s.provider === 'gcp');
       expect(gcp?.configured).toBe(false);
+    });
+  });
+
+  // Hetzner is the first provider that actually creates real, billable infrastructure (see the
+  // distributed-systems plan's Phase 3), so its credential path gets explicit coverage rather
+  // than being assumed to work because the shape matches DigitalOcean's.
+  describe('hetzner', () => {
+    it('encrypts the token at rest and masks it on read', async () => {
+      await service.saveCredentials('user-1', 'hetzner', { token: 'hetzner-secret-token-value' });
+
+      const stored = (await db.getUserById('user-1'))!.credentials!.hetzner!.token;
+      expect(stored).not.toBe('hetzner-secret-token-value');
+      expect(decryptValue(stored, TEST_KEY)).toBe('hetzner-secret-token-value');
+
+      const masked = await service.getCredentials('user-1', 'hetzner');
+      expect(masked!.token).toContain('****');
+      expect(masked!.token).not.toContain('secret-token-value');
+    });
+
+    it('resolves to HCLOUD_TOKEN, the env var the hcloud Terraform provider reads', async () => {
+      await service.saveCredentials('user-1', 'hetzner', { token: 'hetzner-secret-token-value' });
+
+      const resolved = await service.resolveCredentials('user-1', 'hetzner');
+      expect(resolved.mode).toBe('user');
+      expect(resolved.env.HCLOUD_TOKEN).toBe('hetzner-secret-token-value');
+    });
+
+    it('rejects an empty token without calling the Hetzner API', async () => {
+      const result = await service.validateCredentials('hetzner', {});
+      expect(result.valid).toBe(false);
+      expect(result.message).toMatch(/required/i);
+    });
+
+    it('reports an unauthorized token as invalid', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('{"error":{"code":"unauthorized"}}', { status: 401 }),
+      );
+      try {
+        const result = await service.validateCredentials('hetzner', { token: 'bad' });
+        expect(result.valid).toBe(false);
+        expect(result.message).toContain('401');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('reports a working token as valid and surfaces the server count', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ servers: [], meta: { pagination: { total_entries: 3 } } }), { status: 200 }),
+      );
+      try {
+        const result = await service.validateCredentials('hetzner', { token: 'good' });
+        expect(result.valid).toBe(true);
+        expect(result.message).toContain('3 existing servers');
+      } finally {
+        fetchSpy.mockRestore();
+      }
     });
   });
 

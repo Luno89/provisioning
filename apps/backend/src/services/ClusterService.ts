@@ -3,6 +3,7 @@ import { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterMetadata } from '../lib/types.js';
 import type { Database } from '../lib/db-interface.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
+import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
@@ -31,12 +32,22 @@ export class ClusterService extends BaseService {
     this.temporalBridge = temporalBridge;
   }
 
-  hasCloudCredentials(provider: ClusterMetadata['provider']): boolean {
+  // Widened to `string` rather than ClusterProviderName: isMockCloudProvider takes a plain string
+  // (it is shared with activities, which receive the provider off untyped workflow args), and
+  // every real caller passes a ClusterProviderName, which is assignable either way.
+  hasCloudCredentials(provider: string): boolean {
     return hasCloudCredentials(provider);
   }
 
   isMockCloud(cluster: ClusterMetadata): boolean {
-    return cluster.provider !== 'k3d' && !this.hasCloudCredentials(cluster.provider);
+    // The NEVER_MOCK_PROVIDERS exclusion inside isMockCloudProvider is load-bearing here, and the
+    // incident that produced it is worth remembering: before 'remote' was excluded, every remote
+    // cluster's *physical name* resolved to `mock-remote-<name>` during reconciliation, so
+    // reconcileAllClusters() looked for a k3d container that was never supposed to exist,
+    // concluded the (genuinely healthy) cluster had been "deleted outside the system," and
+    // dropped it from the next saveClusterList() full-replace — permanently erasing the record
+    // moments after its ClusterProvisionWorkflow succeeded. 'hetzner' would fail identically.
+    return isMockCloudProvider(cluster.provider, (p) => this.hasCloudCredentials(p));
   }
 
   getPhysicalClusterName(cluster: ClusterMetadata): string {
@@ -153,7 +164,16 @@ export class ClusterService extends BaseService {
     }
   }
 
-  async getAll(io?: SocketServer) {
+  /**
+   * Reconciles every cluster (recovery, drift detection against the real k3d/host state,
+   * saveClusterList(cleanClusters) on `changed`) and returns the FULL unfiltered list — every
+   * user's clusters, plus the synthetic system entry. Not filtered by owner here on purpose:
+   * AppService.getAll needs the complete cluster list to correctly reconcile every user's
+   * deployments (a deployment whose cluster got filtered out of this list would look
+   * indistinguishable from "cluster deleted outside the system" and get purged). getAll(userId)
+   * below is the only place that actually applies the per-requester filter.
+   */
+  async reconcileAllClusters(io?: SocketServer): Promise<ClusterMetadata[]> {
     const dbClusters = await this.db.getClusters();
     const activeK3dNames = await this.infra.listLocalClusters();
     const now = new Date().toISOString();
@@ -221,6 +241,11 @@ export class ClusterService extends BaseService {
     return [systemCluster, ...cleanClusters];
   }
 
+  async getAll(userId: string, io?: SocketServer) {
+    const all = await this.reconcileAllClusters(io);
+    return all.filter((c) => c.ownerId === userId || c.isSystem);
+  }
+
   private async recoverStuckCluster(
     cluster: ClusterMetadata,
     physicalName: string,
@@ -258,7 +283,7 @@ export class ClusterService extends BaseService {
     }
   }
 
-  async discoverClusters(): Promise<ClusterMetadata[]> {
+  async discoverClusters(userId: string): Promise<ClusterMetadata[]> {
     const k3dNames = await this.infra.listLocalClusters();
     const dbClusters = await this.db.getClusters();
     const now = new Date().toISOString();
@@ -295,6 +320,7 @@ export class ClusterService extends BaseService {
         status,
         kubeconfigPath,
         lastSyncedAt: now,
+        ownerId: userId,
       };
       discovered.push(metadata);
     }
@@ -307,18 +333,22 @@ export class ClusterService extends BaseService {
     return discovered;
   }
 
-  async getById(id: string) {
+  async getById(id: string, userId: string) {
     if (id === SYSTEM_CLUSTER_ID) {
       return this.getSystemClusterEntry();
     }
     const clusters = await this.db.getClusters();
-    return clusters.find((c: any) => c.id === id);
+    const cluster = clusters.find((c: any) => c.id === id);
+    // 404, not 403 — a wrong-owner lookup and a truly nonexistent id look identical to the
+    // caller, so a guessed id can't be used to confirm someone else's cluster even exists.
+    if (cluster && cluster.ownerId !== userId) return undefined;
+    return cluster;
   }
 
-  async provision(name: string, provider: ClusterMetadata['provider'], io?: SocketServer) {
+  async provision(name: string, provider: ClusterMetadata['provider'], userId: string, io?: SocketServer) {
     const id = uuidv4();
     const logFile = this.infra.getLogPath(name);
-    const metadata: ClusterMetadata = { id, name, provider, status: 'provisioning', lastLogPath: logFile };
+    const metadata: ClusterMetadata = { id, name, provider, status: 'provisioning', lastLogPath: logFile, ownerId: userId };
     await this.db.saveCluster(metadata);
 
     // Run provisioning in background
@@ -486,9 +516,9 @@ export class ClusterService extends BaseService {
     return metadata;
   }
 
-  async delete(id: string, io?: SocketServer) {
+  async delete(id: string, userId: string, io?: SocketServer) {
     if (id === SYSTEM_CLUSTER_ID) throw new Error('The system management cluster cannot be destroyed');
-    const cluster = await this.getById(id);
+    const cluster = await this.getById(id, userId);
     if (!cluster) throw new Error('Cluster not found');
 
     const logFile = this.infra.getLogPath(`${cluster.name}-destroy`);
@@ -547,9 +577,9 @@ export class ClusterService extends BaseService {
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster destruction: ${err.message}`));
   }
 
-  async abort(id: string, io?: SocketServer) {
+  async abort(id: string, userId: string, io?: SocketServer) {
     if (id === SYSTEM_CLUSTER_ID) throw new Error('The system management cluster cannot be aborted');
-    const cluster = await this.getById(id);
+    const cluster = await this.getById(id, userId);
     if (!cluster) throw new Error('Cluster not found');
 
     const logFile = this.infra.getLogPath(`${cluster.name}-abort`);
@@ -600,9 +630,9 @@ export class ClusterService extends BaseService {
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster abort: ${err.message}`));
   }
 
-  async listAllPods(id: string) {
+  async listAllPods(id: string, userId: string) {
     try {
-        const cluster = await this.getById(id);
+        const cluster = await this.getById(id, userId);
         if (!cluster) throw new Error('Cluster not found');
         const physicalName = this.getPhysicalClusterName(cluster);
         const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
@@ -618,9 +648,9 @@ export class ClusterService extends BaseService {
     }
   }
 
-  async listReleases(id: string) {
+  async listReleases(id: string, userId: string) {
     try {
-        const cluster = await this.getById(id);
+        const cluster = await this.getById(id, userId);
         if (!cluster) throw new Error('Cluster not found');
         const physicalName = this.getPhysicalClusterName(cluster);
         const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
@@ -636,9 +666,9 @@ export class ClusterService extends BaseService {
     }
   }
 
-  async getGpuStatus(id: string) {
+  async getGpuStatus(id: string, userId: string) {
     try {
-      const cluster = await this.getById(id);
+      const cluster = await this.getById(id, userId);
       if (!cluster) throw new Error('Cluster not found');
 
       const kubeconfigPath = await this.getKubeconfigPath(cluster);
@@ -653,7 +683,7 @@ export class ClusterService extends BaseService {
 
       let pods: any[] = [];
       try {
-        pods = await this.listAllPods(id);
+        pods = await this.listAllPods(id, userId);
       } catch (err: any) {
         this.logger.warn(`Failed to fetch pods for GPU status on cluster ${id}: ${err.message}`);
       }

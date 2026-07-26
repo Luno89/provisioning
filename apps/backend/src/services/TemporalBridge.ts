@@ -20,9 +20,9 @@ const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
-import { decryptValue } from '../lib/crypto.js'
+import { decryptValue, encryptValue } from '../lib/crypto.js'
 import type { Database } from '../lib/db-interface.js'
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata } from '../lib/types.js'
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
 import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
@@ -30,7 +30,9 @@ import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
 import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../workflows/SyncConfigWorkflow.js'
-import { resolveVllmDefaults } from '../lib/app-env.js'
+import { executePipelineRunWorkflow } from '../workflows/PipelineRunWorkflow.js'
+import { resolveVllmDefaults, resolveTabbyDefaults } from '../lib/app-env.js'
+import { resolveTabbyCacheHostPath } from '../lib/tabby-cache-path.js'
 import type { Server as SocketServer } from 'socket.io'
 
 const HOST_QUEUE = 'host-ops-queue'
@@ -63,15 +65,47 @@ async function updateUserStatus(
 ): Promise<void> {
   const clusters = await db.getClusters();
   const existing = clusters.find((c: any) => c.id === clusterId);
+  // Spread `existing` first rather than naming individual carry-forward fields. db.saveCluster is
+  // a full replaceOne, so anything omitted here is DELETED from the record — and this function
+  // runs on every status transition. Listing fields by hand silently dropped the whole remote*
+  // group (host/username/encrypted key), which meant a 'remote' cluster lost its SSH details the
+  // moment it went healthy and could never be cleanly torn down again. For 'hetzner' the same
+  // omission would orphan a running, billing VM with nothing left pointing at it.
   return db.saveClusterInfo({
+    ...(existing ?? {}),
     id: clusterId,
     name: clusterName,
     provider,
     status,
     kubeconfigPath: kubeconfigPath ?? existing?.kubeconfigPath,
-    temporalWorkflowId: existing?.temporalWorkflowId,
-    lastLogPath: existing?.lastLogPath,
   })
+}
+
+async function updatePipelineRunStatus(
+  db: Database,
+  runId: string,
+  status: 'queued' | 'running' | 'succeeded' | 'failed',
+  extra: { imageTag?: string; errorMessage?: string } = {},
+): Promise<void> {
+  const runs = await db.getPipelineRuns();
+  const existing = runs.find((r: any) => r.id === runId);
+  if (!existing) return;
+  const imageTag = extra.imageTag ?? existing.imageTag;
+  const errorMessage = extra.errorMessage ?? existing.errorMessage;
+  await db.savePipelineRunInfo({
+    ...existing,
+    status,
+    ...(imageTag !== undefined ? { imageTag } : {}),
+    ...(errorMessage !== undefined ? { errorMessage } : {}),
+    finishedAt: new Date().toISOString(),
+  });
+  if (status === 'succeeded' || status === 'failed') {
+    const projects = await db.getProjects();
+    const project = projects.find((p: any) => p.id === existing.projectId);
+    if (project) {
+      await db.saveProjectInfo({ ...project, lastBuildStatus: status });
+    }
+  }
 }
 
 async function updateDeploymentStatus(
@@ -96,6 +130,7 @@ async function updateDeploymentStatus(
     url: deployment.url,
     lastLogPath: existing?.lastLogPath ?? deployment.lastLogPath,
     deploymentId: existing?.deploymentId ?? deployment.deploymentId,
+    ownerId: existing?.ownerId ?? deployment.ownerId,
   })
 }
 
@@ -178,8 +213,15 @@ export class TemporalBridge {
    * re-triggering the k3d image-import bug that gate was supposed to prevent.
    */
   private async getClusterById(id: string): Promise<ClusterMetadata | undefined> {
-    if (this.clusterService) {
-      return this.clusterService.getById(id);
+    // Deliberately a raw DB read, not ClusterService.getById's ownership-checked lookup (it now
+    // requires a userId) — this is an internal lookup for connection details (kubeconfig,
+    // provider, gpuEnabled) during operations the *route* layer already authorized before ever
+    // calling into TemporalBridge (deployApp/destroyApp/resizeDisk/updateConfigAndSync all
+    // resolve the requesting user's id from requireAuth first). Re-checking ownership again this
+    // deep would just mean threading userId through every TemporalBridge entry point for no
+    // additional safety — the real per-user boundary is enforced once, at the route.
+    if (id === 'provisioning-lunorica' && this.clusterService) {
+      return this.clusterService.getSystemClusterEntry();
     }
     const clusters = await this.db.getClusters();
     return clusters.find((c: ClusterMetadata) => c.id === id);
@@ -205,7 +247,7 @@ export class TemporalBridge {
 
   trackWorkflow(
     wfId: string,
-    action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize' | 'app-sync-config',
+    action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize' | 'app-sync-config' | 'pipeline-run',
     resourceId: string,
     resourceName: string,
     provider: string,
@@ -226,6 +268,32 @@ export class TemporalBridge {
               const handle = this.client.workflow.getHandle(wfId)
               const wfResult = await handle.result()
               kubeconfig = (wfResult as any).kubeconfig
+              // A 'hetzner' cluster only learns its VM's identity here — the machine didn't exist
+              // when the cluster row was written. Persisted before the status flips to 'healthy'
+              // so a destroy triggered immediately afterwards can always find the VM; without
+              // this the server would keep running (and billing) with nothing pointing at it.
+              const vmHost = (wfResult as any).createdHost
+              if (vmHost) {
+                const current = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
+                await this.db.saveClusterInfo({
+                  ...(current ?? {}),
+                  id: resourceId,
+                  name: resourceName,
+                  provider,
+                  remoteHost: vmHost,
+                  remoteUsername: (wfResult as any).createdUsername,
+                  remoteSshPrivateKeyEnc: encryptValue((wfResult as any).createdPrivateKey, this.masterKey),
+                  hetznerServerId: (wfResult as any).hetznerServerId,
+                } as any)
+              }
+            } catch {}
+          }
+          let pipelineImageTag: string | undefined
+          if (name === 'COMPLETED' && action === 'pipeline-run') {
+            try {
+              const handle = this.client.workflow.getHandle(wfId)
+              const wfResult = await handle.result()
+              pipelineImageTag = (wfResult as any).imageTag
             } catch {}
           }
 
@@ -280,6 +348,23 @@ export class TemporalBridge {
               await updateDeploymentStatus(this.db, resourceId, meta, 'running', meta?.storage)
             }
             if (this.io) this.io.emit('deployment-updated')
+          } else if (action === 'pipeline-run') {
+            if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
+              await updatePipelineRunStatus(this.db, resourceId, 'failed', { errorMessage: `Workflow ${name}` })
+            } else if (name === 'COMPLETED') {
+              await updatePipelineRunStatus(this.db, resourceId, 'succeeded', pipelineImageTag !== undefined ? { imageTag: pipelineImageTag } : {})
+              try {
+                const [projects, runs] = await Promise.all([this.db.getProjects(), this.db.getPipelineRuns()])
+                const run = runs.find((r: any) => r.id === resourceId)
+                const project = run && projects.find((p: any) => p.id === run.projectId)
+                if (project?.autoDeployOnBuild && run) {
+                  await this.promoteProjectBuild(project, run)
+                }
+              } catch (err: any) {
+                console.error(`[TemporalBridge] Auto-deploy-on-build failed for pipeline run ${resourceId}: ${err.message}`)
+              }
+            }
+            if (this.io) this.io.emit('pipeline-run-updated')
           }
         }
       } catch (err: any) {
@@ -437,7 +522,35 @@ export class TemporalBridge {
     }
   }
 
-  async provision(clusterName: string, provider: string): Promise<WorkflowDeal> {
+  /**
+   * Resolves a user's Hetzner Cloud token through the standard chain (user-stored → process.env),
+   * decrypting the stored blob here because activities have no access to the DB or masterKey —
+   * the same rule that governs remoteSshPrivateKey. Returns undefined when nothing is configured,
+   * which the 'hetzner' branches turn into a clear error rather than a mock-cloud fallback.
+   */
+  private async resolveHetznerToken(userId?: string): Promise<string | undefined> {
+    let userCreds: any
+    if (userId) {
+      const user = await this.db.getUserById(userId)
+      const enc = (user?.credentials as any)?.hetzner?.token
+      if (enc) {
+        try {
+          userCreds = { hetzner: { token: decryptValue(enc, this.masterKey) } }
+        } catch {
+          // Corrupt blob or rotated masterKey — fall through to the env-var link in the chain.
+        }
+      }
+    }
+    return resolveCloudCredentials('hetzner', userCreds).env.HCLOUD_TOKEN
+  }
+
+  async provision(
+    clusterName: string,
+    provider: string,
+    userId: string,
+    remote?: { host: string; username: string; privateKey: string; port?: number; k3sApiPort?: number },
+    hetzner?: { serverType?: string; location?: string; image?: string },
+  ): Promise<WorkflowDeal> {
     // GPU passthrough is exclusively provided by the always-on system cluster (native k3s —
     // k3d's nested containerd can't do device passthrough at all, see AGENTS.md). User-created
     // clusters are never GPU-enabled; there used to be a "flag this k3d cluster as GPU" path
@@ -446,9 +559,33 @@ export class TemporalBridge {
     const wfId = `cluster-provision-${clusterName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
-    const activityArgs = { name: clusterName, provider, logFile: absoluteLogPath }
+    const hcloudToken = provider === 'hetzner' ? await this.resolveHetznerToken(userId) : undefined
+    if (provider === 'hetzner' && !hcloudToken) {
+      // Fail here rather than inside the workflow: this is a user-fixable configuration problem,
+      // and surfacing it as an immediate API error beats a cluster row stuck in 'provisioning'
+      // until an activity times out.
+      throw new Error('No Hetzner Cloud API token configured — add one under Cloud Accounts first')
+    }
+    const activityArgs = {
+      name: clusterName,
+      provider,
+      logFile: absoluteLogPath,
+      ...(remote ? {
+        remoteHost: remote.host,
+        remoteUsername: remote.username,
+        remoteSshPrivateKey: remote.privateKey,
+        ...(remote.port !== undefined ? { remoteSshPort: remote.port } : {}),
+        ...(remote.k3sApiPort !== undefined ? { remoteK3sApiPort: remote.k3sApiPort } : {}),
+      } : {}),
+      ...(hcloudToken ? { hcloudToken } : {}),
+      ...(hetzner?.serverType ? { hetznerServerType: hetzner.serverType } : {}),
+      ...(hetzner?.location ? { hetznerLocation: hetzner.location } : {}),
+      ...(hetzner?.image ? { hetznerImage: hetzner.image } : {}),
+    }
 
-    // Persist cluster row
+    // Persist cluster row — the SSH private key is encrypted at rest (see ClusterMetadata's
+    // remoteSshPrivateKeyEnc doc comment) and only ever decrypted again inside destroyCluster()
+    // below, right before it's needed to SSH in and uninstall k3s.
     const savedCluster = await this.db.saveClusterInfo({
       name: clusterName,
       provider,
@@ -456,6 +593,19 @@ export class TemporalBridge {
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
       createdAt: new Date().toISOString(),
+      ownerId: userId,
+      ...(remote ? {
+        remoteHost: remote.host,
+        remoteUsername: remote.username,
+        remoteSshPrivateKeyEnc: encryptValue(remote.privateKey, this.masterKey),
+        ...(remote.port !== undefined ? { remoteSshPort: remote.port } : {}),
+        ...(remote.k3sApiPort !== undefined ? { remoteK3sApiPort: remote.k3sApiPort } : {}),
+      } : {}),
+      // Recorded up front so the cluster page can show what was requested while it provisions;
+      // the VM's actual identity (id, IP, key) only arrives when the workflow completes.
+      ...(hetzner?.serverType ? { hetznerServerType: hetzner.serverType } : {}),
+      ...(hetzner?.location ? { hetznerLocation: hetzner.location } : {}),
+      ...(hetzner?.image ? { hetznerImage: hetzner.image } : {}),
     })
 
     const handle = await this.client.workflow.start(ClusterProvisionWorkflow, {
@@ -480,13 +630,33 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const logFileName = `${Date.now()}-destroy-${Math.random().toString(36).slice(2)}-B2.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
-    const activityArgs = { name: cluster.name, provider: cluster.provider, logFile: absoluteLogPath, ...(cluster.gpuEnabled !== undefined ? { gpuEnabled: cluster.gpuEnabled } : {}) }
-    const wfId = `cluster-destroy-${cluster.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-
-    this.db.saveClusterInfo({
-      id: cluster.id,
+    const hcloudToken = cluster.provider === 'hetzner' ? await this.resolveHetznerToken(cluster.ownerId) : undefined
+    if (cluster.provider === 'hetzner' && !hcloudToken) {
+      // Refusing outright is the safe failure here: marking the cluster 'destroyed' without a
+      // token would hide a VM that is still running and still being paid for.
+      throw new Error('No Hetzner Cloud API token configured — cannot destroy the VM without it')
+    }
+    const activityArgs = {
       name: cluster.name,
       provider: cluster.provider,
+      logFile: absoluteLogPath,
+      ...(cluster.gpuEnabled !== undefined ? { gpuEnabled: cluster.gpuEnabled } : {}),
+      ...(cluster.provider === 'remote' && cluster.remoteHost && cluster.remoteUsername && cluster.remoteSshPrivateKeyEnc ? {
+        remoteHost: cluster.remoteHost,
+        remoteUsername: cluster.remoteUsername,
+        remoteSshPrivateKey: decryptValue(cluster.remoteSshPrivateKeyEnc, this.masterKey),
+        ...(cluster.remoteSshPort !== undefined ? { remoteSshPort: cluster.remoteSshPort } : {}),
+      } : {}),
+      ...(hcloudToken ? { hcloudToken } : {}),
+      ...(cluster.hetznerServerId ? { hetznerServerId: cluster.hetznerServerId } : {}),
+    }
+    const wfId = `cluster-destroy-${cluster.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+    // Spread `cluster` for the same reason updateUserStatus does — saveCluster is a full replace,
+    // so a field-by-field write here would strip the VM's id/IP/key at the exact moment a failed
+    // destroy would need them to be retried.
+    this.db.saveClusterInfo({
+      ...cluster,
       status: 'destroying',
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
@@ -511,27 +681,31 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   // ────────────────────────────────────────────────────────────────────
 
   // Open WebUI doesn't get pointed at a backend via a repo/tag the way other apps do — it needs
-  // the target vLLM deployment's in-cluster Service DNS name, which only exists once that
-  // deployment's own CDKTF apply has run (see vllm.ts: Service `${sanitizedName}-vllm` in
-  // namespace `${sanitizedName}`, sanitizedName === the deployment's own SANITIZE(name)).
-  // Resolved here (shared by deployApp and syncConfig) rather than on the frontend so there's
-  // one source of truth for that naming scheme instead of duplicating the sanitize regex.
+  // the target vLLM/TabbyAPI deployment's in-cluster Service DNS name, which only exists once
+  // that deployment's own CDKTF apply has run (see vllm.ts / tabbyapi.ts: Service
+  // `${sanitizedName}-vllm` / `${sanitizedName}-tabbyapi` in namespace `${sanitizedName}`,
+  // sanitizedName === the deployment's own SANITIZE(name)). Resolved here (shared by deployApp
+  // and syncConfig) rather than on the frontend so there's one source of truth for that naming
+  // scheme instead of duplicating the sanitize regex.
   private resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments: DeploymentMetadata[]): string | undefined {
     if (dep.appType !== 'openwebui' || !dep.openWebuiTargetId) return undefined;
     const target = allDeployments.find((d) => d.id === dep.openWebuiTargetId);
     if (!target) return undefined;
     // .svc.cluster.local only resolves within the same cluster — the frontend already only
-    // offers same-cluster vLLM deployments as backend choices, but a stale/direct API call
-    // could still send a cross-cluster id. Better to sync without a preconfigured backend
+    // offers same-cluster vLLM/TabbyAPI deployments as backend choices, but a stale/direct API
+    // call could still send a cross-cluster id. Better to sync without a preconfigured backend
     // (Open WebUI's own Admin Settings > Connections can point at any reachable URL at
     // runtime) than to silently wire in a DNS name that will never resolve.
     if (target.clusterId !== dep.clusterId) {
-      console.warn(`[TemporalBridge] Open WebUI deployment "${dep.name}" targets vLLM deployment "${target.name}" on a different cluster — skipping OPENAI_API_BASE_URL, it must be configured manually.`);
+      console.warn(`[TemporalBridge] Open WebUI deployment "${dep.name}" targets "${target.name}" on a different cluster — skipping OPENAI_API_BASE_URL, it must be configured manually.`);
       return undefined;
     }
+    if (target.appType !== 'vllm' && target.appType !== 'tabbyapi') return undefined;
     const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     const targetNs = sanitize(target.name);
-    return `http://${targetNs}-vllm.${targetNs}.svc.cluster.local:8000/v1`;
+    return target.appType === 'tabbyapi'
+      ? `http://${targetNs}-tabbyapi.${targetNs}.svc.cluster.local:5000/v1`
+      : `http://${targetNs}-vllm.${targetNs}.svc.cluster.local:8000/v1`;
   }
 
   async deployApp(config: any, userId?: string): Promise<WorkflowDeal> {
@@ -551,16 +725,29 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         appType: config.appType || 'odoo',
         modules: config.modules || [],
         storage: config.storage || {},
-        webRepo: config.webRepo,
-        webTag: config.webTag,
-        dbRepo: config.dbRepo,
-        dbTag: config.dbTag,
+        // The deploy wizard posts these under the legacy odooRepo/odooTag/pgRepo/pgTag names
+        // (a holdover from when this app only deployed Odoo) — webRepo/webTag/dbRepo/dbTag is
+        // what CDKTF and every construct actually expects. Without this fallback, every
+        // non-Odoo app type (WordPress, Nextcloud, ...) silently got an empty repo/tag here and
+        // fell back to its construct's own hardcoded default image, ignoring whatever the user
+        // picked in the wizard — Odoo alone masked this because DeployAppActivity has an
+        // Odoo-specific hardcoded fallback ('library/odoo'/'18.0').
+        webRepo: config.webRepo || config.odooRepo,
+        webTag: config.webTag || config.odooTag,
+        dbRepo: config.dbRepo || config.pgRepo,
+        dbTag: config.dbTag || config.pgTag,
         url: config.url,
         vllmModel: config.vllmModel,
         vllmGpuCount: config.vllmGpuCount,
         vllmGpuVendor: config.vllmGpuVendor,
         vllmCachePvc: config.vllmCachePvc,
-        vllmHfToken: config.vllmHfToken,
+        // .trim(): a pasted token with a trailing space/newline is invisible in the wizard's
+        // input field and passes every "Test Connection" check (fetch/curl tolerate it), but
+        // fails outright against a strict HTTP client downstream — confirmed live: TabbyAPI's
+        // own downloader uses Python's httpx, which rejects a Bearer header with trailing
+        // whitespace as malformed before the request is even sent, and (due to a separate bug in
+        // TabbyAPI itself swallowing that exception) fails every model download silently.
+        vllmHfToken: config.vllmHfToken?.trim(),
         vllmMaxModelLen: config.vllmMaxModelLen,
         vllmGpuMemUtil: config.vllmGpuMemUtil,
         vllmExtraArgs: config.vllmExtraArgs,
@@ -570,14 +757,33 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         vllmMaxNumSeqs: config.vllmMaxNumSeqs,
         vllmDtype: config.vllmDtype,
         vllmEnablePrefixCaching: config.vllmEnablePrefixCaching,
+        tabbyModel: config.tabbyModel,
+        tabbyRevision: config.tabbyRevision,
+        tabbyGpuCount: config.tabbyGpuCount,
+        tabbyHfToken: config.tabbyHfToken?.trim(),
+        tabbyCachePvc: config.tabbyCachePvc,
+        tabbyImageTag: config.tabbyImageTag,
+        tabbyCacheMode: config.tabbyCacheMode,
+        tabbyMaxSeqLen: config.tabbyMaxSeqLen,
+        tabbyMaxBatchSize: config.tabbyMaxBatchSize,
+        tabbyReasoning: config.tabbyReasoning,
+        tabbyToolFormat: config.tabbyToolFormat,
+        tabbyInlineModelLoading: config.tabbyInlineModelLoading,
+        tabbyDisableAuth: config.tabbyDisableAuth,
+        tabbyExtraEnv: config.tabbyExtraEnv,
         openWebuiTargetId: config.openWebuiTargetId,
+        webuiEnableWebSearch: config.webuiEnableWebSearch,
+        webuiWebSearchEngine: config.webuiWebSearchEngine,
+        webuiWebSearchApiKey: config.webuiWebSearchApiKey,
+        ownerId: userId,
       }
       dep = resolveVllmDefaults(dep as DeploymentMetadata)
+      dep = resolveTabbyDefaults(dep as DeploymentMetadata)
     }
 
     const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, unresolved);
 
-    if (!dep.vllmHfToken && (dep.appType === 'vllm' || config.appType === 'vllm')) {
+    if (!dep.vllmHfToken && !dep.tabbyHfToken && (dep.appType === 'vllm' || config.appType === 'vllm' || dep.appType === 'tabbyapi' || config.appType === 'tabbyapi')) {
       let userCreds;
       if (userId) {
         const user = await this.db.getUserById(userId);
@@ -592,7 +798,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       }
       const resolved = resolveCloudCredentials('huggingface', userCreds);
       if (resolved.env.HF_TOKEN) {
-        dep.vllmHfToken = resolved.env.HF_TOKEN;
+        if (dep.appType === 'tabbyapi') {
+          dep.tabbyHfToken = resolved.env.HF_TOKEN;
+        } else {
+          dep.vllmHfToken = resolved.env.HF_TOKEN;
+        }
       }
     }
 
@@ -608,6 +818,14 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       clusterId: dep.clusterId,
       clusterName: targetCluster?.name || 'unknown',
       provider: targetCluster?.provider || 'k3d',
+      // Pre-download only where this process actually shares a filesystem with the K8s node —
+      // see DownloadModelActivity.ts's own comment for why that's currently just the native-k3s
+      // system cluster (TabbyAPI is GPU-only, and k3d can't do real GPU passthrough, so it never
+      // runs anywhere else that would make this ambiguous). Left unset everywhere else;
+      // AppDeployWorkflow.ts skips the pre-download step entirely when it's absent.
+      ...(dep.appType === 'tabbyapi' && targetCluster?.isSystem
+        ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) }
+        : {}),
       ...(targetCluster?.gpuEnabled !== undefined ? { clusterGpuEnabled: targetCluster.gpuEnabled } : {}),
       strategy: dep.strategy || 'helm',
       appType: dep.appType || 'odoo',
@@ -632,7 +850,24 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       vllmMaxNumSeqs: dep.vllmMaxNumSeqs,
       vllmDtype: dep.vllmDtype,
       vllmEnablePrefixCaching: dep.vllmEnablePrefixCaching,
+      tabbyModel: dep.tabbyModel,
+      tabbyRevision: dep.tabbyRevision,
+      tabbyGpuCount: dep.tabbyGpuCount,
+      tabbyHfToken: dep.tabbyHfToken,
+      tabbyCachePvc: dep.tabbyCachePvc,
+      tabbyImageTag: dep.tabbyImageTag,
+      tabbyCacheMode: dep.tabbyCacheMode,
+      tabbyMaxSeqLen: dep.tabbyMaxSeqLen,
+      tabbyMaxBatchSize: dep.tabbyMaxBatchSize,
+      tabbyReasoning: dep.tabbyReasoning,
+      tabbyToolFormat: dep.tabbyToolFormat,
+      tabbyInlineModelLoading: dep.tabbyInlineModelLoading,
+      tabbyDisableAuth: dep.tabbyDisableAuth,
+      tabbyExtraEnv: dep.tabbyExtraEnv,
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
+      webuiEnableWebSearch: dep.webuiEnableWebSearch,
+      webuiWebSearchEngine: dep.webuiWebSearchEngine,
+      webuiWebSearchApiKey: dep.webuiWebSearchApiKey,
     }
 
     this.db.saveDeploymentInfo({
@@ -752,6 +987,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     let [dep] = deployments.filter((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (syncConfig)')
     dep = resolveVllmDefaults(dep)
+    dep = resolveTabbyDefaults(dep)
 
     const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, deployments);
 
@@ -788,7 +1024,24 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       vllmMaxNumSeqs: dep.vllmMaxNumSeqs,
       vllmDtype: dep.vllmDtype,
       vllmEnablePrefixCaching: dep.vllmEnablePrefixCaching,
+      tabbyModel: dep.tabbyModel,
+      tabbyRevision: dep.tabbyRevision,
+      tabbyGpuCount: dep.tabbyGpuCount,
+      tabbyHfToken: dep.tabbyHfToken,
+      tabbyCachePvc: dep.tabbyCachePvc,
+      tabbyImageTag: dep.tabbyImageTag,
+      tabbyCacheMode: dep.tabbyCacheMode,
+      tabbyMaxSeqLen: dep.tabbyMaxSeqLen,
+      tabbyMaxBatchSize: dep.tabbyMaxBatchSize,
+      tabbyReasoning: dep.tabbyReasoning,
+      tabbyToolFormat: dep.tabbyToolFormat,
+      tabbyInlineModelLoading: dep.tabbyInlineModelLoading,
+      tabbyDisableAuth: dep.tabbyDisableAuth,
+      tabbyExtraEnv: dep.tabbyExtraEnv,
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
+      webuiEnableWebSearch: dep.webuiEnableWebSearch,
+      webuiWebSearchEngine: dep.webuiWebSearchEngine,
+      webuiWebSearchApiKey: dep.webuiWebSearchApiKey,
     }
 
     this.db.saveDeploymentInfo({
@@ -907,5 +1160,73 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const deployments = await this.db.getDeployments()
     const arr = deployments.filter((d: any) => d.clusterId !== clusterId)
     await this.db.saveDeploymentList(arr)
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // CI/CD pipeline runs (self-hosted Gitea webhook -> build -> push)
+  // ────────────────────────────────────────────────────────────────────
+
+  async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<WorkflowDeal> {
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const wfId = `pipeline-run-${project.giteaRepo}-${runId}`
+    const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
+    const absoluteLogPath = path.join(LOG_DIR, logFileName)
+
+    const activityArgs = {
+      projectId: project.id,
+      giteaOwner: project.giteaOwner,
+      giteaRepo: project.giteaRepo,
+      commitSha,
+      ref,
+      logFile: absoluteLogPath,
+    }
+
+    await this.db.savePipelineRunInfo({
+      id: runId,
+      projectId: project.id,
+      commitSha,
+      ref,
+      status: 'queued',
+      logFile: absoluteLogPath,
+      temporalWorkflowId: wfId,
+      startedAt: new Date().toISOString(),
+    })
+    await this.db.saveProjectInfo({ ...project, lastBuildStatus: 'queued' })
+
+    const handle = await this.client.workflow.start(executePipelineRunWorkflow, {
+      workflowId: wfId,
+      taskQueue: CLUSTER_QUEUE,
+      args: [activityArgs],
+    })
+
+    this.trackWorkflow(wfId, 'pipeline-run', runId, project.giteaRepo, '')
+    if (this.io) this.io.emit('pipeline-run-updated')
+
+    return { id: wfId, resourceId: runId, event: 'pipeline-run' }
+  }
+
+  /**
+   * Deploys (or redeploys) a project's built image — shared by the manual "promote" route and
+   * the autoDeployOnBuild hook in trackWorkflow below. Reuses deployApp()'s own find-or-create
+   * lookup (by name + clusterId) rather than distinguishing first-deploy vs redeploy itself —
+   * calling this twice for the same project just redeploys the same DeploymentMetadata row.
+   */
+  async promoteProjectBuild(project: ProjectMetadata, run: PipelineRunMetadata, userId?: string): Promise<WorkflowDeal> {
+    if (!run.imageTag) throw new Error('Pipeline run has no built image to promote');
+    if (!project.targetClusterId) throw new Error('Project has no target cluster configured');
+
+    const lastColon = run.imageTag.lastIndexOf(':');
+    const odooRepo = run.imageTag.slice(0, lastColon); // "odooRepo"/"odooTag" is this platform's generic webRepo/webTag field name — see DeployAppActivity.ts
+    const odooTag = run.imageTag.slice(lastColon + 1);
+
+    return this.deployApp({
+      name: project.name,
+      clusterId: project.targetClusterId,
+      strategy: 'native',
+      appType: 'gitapp',
+      odooRepo,
+      odooTag,
+      storage: {},
+    }, userId);
   }
 }

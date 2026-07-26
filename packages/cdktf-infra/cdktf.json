@@ -8,7 +8,8 @@
     "hashicorp/helm@~> 2.0",
     "hashicorp/aws@~> 5.0",
     "hashicorp/google@~> 5.0",
-    "hashicorp/azurerm@~> 3.0"
+    "hashicorp/azurerm@~> 3.0",
+    "hetznercloud/hcloud@~> 1.45"
   ],
   "terraformModules": [],
   "context": {

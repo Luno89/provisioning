@@ -4,6 +4,7 @@
  * an existing deployment's current config) so the two can never drift out of sync on env var names.
  */
 import type { DeploymentMetadata } from './types.js';
+import { isSelfManagedCluster } from './cluster-topology.js';
 
 export interface AppEnvArgs {
   physicalName: string;
@@ -33,7 +34,28 @@ export interface AppEnvArgs {
   vllmMaxNumSeqs?: number;
   vllmDtype?: string;
   vllmEnablePrefixCaching?: boolean;
+  tabbyModel?: string;
+  tabbyRevision?: string;
+  tabbyGpuCount: number;
+  // Real byte count from HuggingFace's file-tree API (see DeployAppActivity.ts), when the lookup
+  // succeeded — lets tabbyapi.ts size /dev/shm and the memory limit off the actual model instead
+  // of its own regex-based guess from the repo name, which it falls back to when this is absent.
+  tabbyModelSizeBytes?: number;
+  tabbyHfToken?: string;
+  tabbyCachePvc?: string;
+  tabbyImageTag?: string;
+  tabbyCacheMode?: string;
+  tabbyMaxSeqLen?: number;
+  tabbyMaxBatchSize?: number;
+  tabbyReasoning?: boolean;
+  tabbyToolFormat?: string;
+  tabbyInlineModelLoading?: boolean;
+  tabbyDisableAuth?: boolean;
+  tabbyExtraEnv?: string;
   openaiApiBaseUrl?: string;
+  webuiEnableWebSearch?: boolean;
+  webuiWebSearchEngine?: string;
+  webuiWebSearchApiKey?: string;
   storageEnv: Record<string, string>;
 }
 
@@ -48,6 +70,18 @@ export const VLLM_DEFAULT_MODEL = 'meta-llama/Llama-3.2-3B-Instruct';
 export const VLLM_DEFAULT_GPU_COUNT = 1;
 export const VLLM_DEFAULT_GPU_VENDOR: 'nvidia' | 'amd' = 'nvidia';
 
+// Keep in sync with packages/cdktf-infra/constructs/tabbyapi.ts's own fallback default (model) —
+// see resolveVllmDefaults above for why this is resolved here rather than left to tabbyapi.ts.
+// Defaults below mirror a known-working config.yml (turboderp/Qwen3.6-27B-exl3, Q8 KV cache,
+// 262144 max_seq_len, tensor parallel across 2 GPUs, reasoning + qwen3_coder tool format).
+export const TABBYAPI_DEFAULT_MODEL = 'turboderp/Qwen3.6-27B-exl3';
+export const TABBYAPI_DEFAULT_GPU_COUNT = 2;
+export const TABBYAPI_DEFAULT_CACHE_MODE: 'FP16' | 'Q8' | 'Q6' | 'Q4' = 'Q8';
+export const TABBYAPI_DEFAULT_MAX_SEQ_LEN = 262144;
+export const TABBYAPI_DEFAULT_REASONING = true;
+export const TABBYAPI_DEFAULT_TOOL_FORMAT = 'qwen3_coder';
+export const TABBYAPI_DEFAULT_INLINE_MODEL_LOADING = true;
+
 // Not generic on purpose — every caller in this codebase passes a real DeploymentMetadata, and
 // a generic here fights TypeScript's control-flow narrowing at call sites where `dep` starts as
 // `DeploymentMetadata | undefined` (destructured from a filter()) and gets reassigned just
@@ -61,6 +95,19 @@ export function resolveVllmDefaults(dep: DeploymentMetadata): DeploymentMetadata
   });
 }
 
+export function resolveTabbyDefaults(dep: DeploymentMetadata): DeploymentMetadata {
+  if (dep.appType !== 'tabbyapi') return dep;
+  return Object.assign({}, dep, {
+    tabbyModel: dep.tabbyModel || TABBYAPI_DEFAULT_MODEL,
+    tabbyGpuCount: dep.tabbyGpuCount !== undefined ? dep.tabbyGpuCount : TABBYAPI_DEFAULT_GPU_COUNT,
+    tabbyCacheMode: dep.tabbyCacheMode || TABBYAPI_DEFAULT_CACHE_MODE,
+    tabbyMaxSeqLen: dep.tabbyMaxSeqLen !== undefined ? dep.tabbyMaxSeqLen : TABBYAPI_DEFAULT_MAX_SEQ_LEN,
+    tabbyReasoning: dep.tabbyReasoning !== undefined ? dep.tabbyReasoning : TABBYAPI_DEFAULT_REASONING,
+    tabbyToolFormat: dep.tabbyToolFormat || TABBYAPI_DEFAULT_TOOL_FORMAT,
+    tabbyInlineModelLoading: dep.tabbyInlineModelLoading !== undefined ? dep.tabbyInlineModelLoading : TABBYAPI_DEFAULT_INLINE_MODEL_LOADING,
+  });
+}
+
 export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
   return {
     STACK_TYPE: 'app',
@@ -70,6 +117,12 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     DEPLOYMENT_ID: a.deploymentId,
     KUBECONFIG: a.kubeconfigPath,
     KUBECONFIG_CONTEXT: (a.provider === 'k3d' || a.isMock) ? `k3d-${a.physicalName}` : '',
+    // Distinct from KUBECONFIG_CONTEXT above: that one selects a real kubeconfig context (must
+    // stay empty for 'remote', whose kubeconfig has no "k3d-..." context to select). This tells
+    // every app construct's serviceType heuristic whether it's targeting a self-managed k3s
+    // cluster (no real cloud LB controller — a `LoadBalancer` Service just hangs forever waiting
+    // for an external IP, or on k3s's own ServiceLB, conflicts with Traefik's hostPort claim).
+    SELF_MANAGED_K8S: isSelfManagedCluster(a.provider, a.isMock) ? 'true' : 'false',
     APP_TYPE: a.appType,
     WEB_IMAGE_REPO: a.webRepo || '',
     WEB_IMAGE_TAG: a.webTag || '',
@@ -90,7 +143,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     VLLM_IMAGE_TAG: (a.webTag && a.webTag !== 'latest') ? a.webTag : 'v0.7.2',
     VLLM_DEVICE: a.vllmDevice,
     VLLM_HF_TOKEN: a.vllmHfToken || process.env.HF_TOKEN || '',
-    HF_TOKEN: a.vllmHfToken || process.env.HF_TOKEN || '',
+    HF_TOKEN: a.vllmHfToken || a.tabbyHfToken || process.env.HF_TOKEN || '',
     VLLM_MAX_MODEL_LEN: a.vllmMaxModelLen !== undefined ? String(a.vllmMaxModelLen) : '',
     VLLM_GPU_MEM_UTIL: a.vllmGpuMemUtil !== undefined ? String(a.vllmGpuMemUtil) : '',
     VLLM_EXTRA_ARGS: a.vllmExtraArgs || '',
@@ -100,7 +153,29 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     VLLM_MAX_NUM_SEQS: a.vllmMaxNumSeqs !== undefined ? String(a.vllmMaxNumSeqs) : '',
     VLLM_DTYPE: a.vllmDtype || '',
     VLLM_ENABLE_PREFIX_CACHING: a.vllmEnablePrefixCaching ? 'true' : 'false',
+    TABBYAPI_MODEL: a.tabbyModel || '',
+    TABBYAPI_REVISION: a.tabbyRevision || '',
+    TABBYAPI_GPU_COUNT: String(a.tabbyGpuCount),
+    TABBYAPI_MODEL_SIZE_BYTES: a.tabbyModelSizeBytes !== undefined ? String(a.tabbyModelSizeBytes) : '',
+    TABBYAPI_HF_TOKEN: a.tabbyHfToken || process.env.HF_TOKEN || '',
+    TABBYAPI_CACHE_PVC: a.tabbyCachePvc || '',
+    TABBYAPI_IMAGE_TAG: a.tabbyImageTag || 'latest',
+    TABBYAPI_CACHE_MODE: a.tabbyCacheMode || '',
+    TABBYAPI_MAX_SEQ_LEN: a.tabbyMaxSeqLen !== undefined ? String(a.tabbyMaxSeqLen) : '',
+    TABBYAPI_MAX_BATCH_SIZE: a.tabbyMaxBatchSize !== undefined ? String(a.tabbyMaxBatchSize) : '',
+    TABBYAPI_REASONING: a.tabbyReasoning ? 'true' : 'false',
+    TABBYAPI_TOOL_FORMAT: a.tabbyToolFormat || '',
+    TABBYAPI_INLINE_MODEL_LOADING: a.tabbyInlineModelLoading ? 'true' : 'false',
+    TABBYAPI_DISABLE_AUTH: a.tabbyDisableAuth === false ? 'false' : 'true',
+    TABBYAPI_EXTRA_ENV: a.tabbyExtraEnv || '',
     OPENAI_API_BASE_URL: a.openaiApiBaseUrl || '',
+    // Empty string (not 'true'/'false') when unset, not a default value baked in here — lets
+    // main.ts's own `=== 'false'` check (and the construct's `!== false` default-true beneath
+    // it) be the single source of truth for "enabled unless explicitly disabled" instead of
+    // this layer silently overriding it either direction.
+    WEBUI_ENABLE_WEB_SEARCH: a.webuiEnableWebSearch === false ? 'false' : '',
+    WEBUI_WEB_SEARCH_ENGINE: a.webuiWebSearchEngine || '',
+    WEBUI_WEB_SEARCH_API_KEY: a.webuiWebSearchApiKey || '',
     ...a.storageEnv,
   };
 }

@@ -27,6 +27,9 @@ spec:
               value: "cluster-ops-queue"
             - name: IN_CLUSTER
               value: "true"
+          ports:
+            - name: metrics
+              containerPort: 9464
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock
