@@ -10,6 +10,7 @@ import Login from './components/Login.js';
 import CloudAccounts from './components/CloudAccounts.js';
 import Projects from './components/Projects.js';
 import ClusterWizard from './components/ClusterWizard.js';
+import GameServerSettings from './components/GameServerSettings.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
@@ -45,6 +46,14 @@ const APP_DEFAULTS: Record<string, {
     native: { webRepo: 'advplyr/audiobookshelf', webTag: '2.19.0', dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['helm', 'native']
+  },
+  palworld: {
+    // Game server: native only. It has no Helm chart, and the wizard's Helm path would fall
+    // through to Odoo (see the submit handler's strategy note below).
+    helm: { webRepo: 'thijsvanloef/palworld-server-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'thijsvanloef/palworld-server-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
   },
   prometheus: {
     helm: { webRepo: 'prometheus/prometheus', webTag: 'v3.1.0', dbRepo: '', dbTag: '' },
@@ -82,6 +91,10 @@ const APP_DEFAULTS: Record<string, {
 // management cluster — see backend ProvisionClusterActivity). Extend this as more GPU-backed
 // LLM engines are added (e.g. future TGI/Ollama support).
 const GPU_ONLY_APP_TYPES = new Set(['vllm', 'tabbyapi']);
+// App types with no HTTP surface at all. The whole exposure story here is Traefik +
+// localtunnel over HTTP, so offering it for a UDP game server produces a working tunnel to
+// nothing. Also suppresses the clickable app link, whose url is a meaningless placeholder.
+const NO_WEB_UI_APP_TYPES = new Set(['palworld']);
 
 // TabbyAPI's tool-call parsers (endpoints/OAI/utils/toolcall_formats/*.py) — 'harmony' is
 // documented as equivalent to setting the separate `harmony: true` config flag, so it's passed
@@ -122,6 +135,9 @@ function App() {
     openWebuiTargetId: '',
     webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '',
   });
+  // Schema-driven settings for game servers, edited in the Config tab. Seeded from the
+  // deployment record when the tab opens (see the effect that hydrates configInputs).
+  const [gameSettings, setGameSettings] = useState<Record<string, string>>({});
   const [exposurePathInput, setExposurePathInput] = useState('');
   const [selectedPod, setSelectedPod] = useState<string | null>(null);
   const [socketLogs, setSocketLogs] = useState<string>('');
@@ -189,7 +205,7 @@ function App() {
   const [wizardData, setWizardData] = useState({
     name: 'Odoo-Production',
     clusterId: '',
-    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui',
+    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'palworld',
     strategy: 'native' as 'helm' | 'native',
     odooRepo: 'library/odoo',
     odooTag: '18.0',
@@ -225,7 +241,8 @@ function App() {
     openWebuiTargetId: '',
     webuiEnableWebSearch: true,
     webuiWebSearchEngine: 'duckduckgo',
-    webuiWebSearchApiKey: ''
+    webuiWebSearchApiKey: '',
+    palworldPlayers: '16'
   });
   const [showVllmAdvanced, setShowVllmAdvanced] = useState(false);
   const [showTabbyAdvanced, setShowTabbyAdvanced] = useState(false);
@@ -523,6 +540,10 @@ function App() {
         return ['library', 'metadata', 'config'];
       case 'prometheus':
         return strategy === 'helm' ? ['server'] : [];
+      case 'palworld':
+        // Must match StorageAdapter.getSupportedVolumes on the backend — that's what actually
+        // emits STORAGE_DATA for the construct.
+        return ['data'];
       default:
         return [];
     }
@@ -574,6 +595,9 @@ function App() {
         initial[vol] = currentDeployment.storage?.[vol] || getFallbackSize(vol);
       });
       setStorageInputs(initial);
+      // The stored map is already schema-complete (TemporalBridge resolves defaults on deploy),
+      // so the editor renders real current values rather than blanks.
+      setGameSettings({ ...(currentDeployment.appSettings || {}) });
 
       setConfigInputs({
         webRepo: currentDeployment.webRepo || '',
@@ -734,7 +758,7 @@ function App() {
     }
   };
 
-  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui') => {
+  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'palworld') => {
     const config = APP_DEFAULTS[newAppType];
     const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : config.strategies[0];
     const defaults = config[newStrategy];
@@ -994,7 +1018,7 @@ function App() {
 
         {view === 'apps' && (
           <section>
-            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, tabbyModel: 'turboderp/Qwen3.6-27B-exl3', tabbyRevision: '', tabbyGpuCount: '2', tabbyHfToken: '', tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: '262144', tabbyMaxBatchSize: '', tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: true, tabbyDisableAuth: true, tabbyExtraEnv: '', openWebuiTargetId: '', webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '' }); setShowVllmAdvanced(false); setShowTabbyAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
+            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, tabbyModel: 'turboderp/Qwen3.6-27B-exl3', tabbyRevision: '', tabbyGpuCount: '2', tabbyHfToken: '', tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: '262144', tabbyMaxBatchSize: '', tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: true, tabbyDisableAuth: true, tabbyExtraEnv: '', openWebuiTargetId: '', webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '', palworldPlayers: '16' }); setShowVllmAdvanced(false); setShowTabbyAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden shadow-sm">
                <table className="w-full text-left">
                   <thead className="bg-slate-700/30 text-slate-400 text-[10px] uppercase tracking-widest font-bold"><tr><th className="px-8 py-4">App</th><th className="px-8 py-4">Cluster</th><th className="px-8 py-4">Strategy</th><th className="px-8 py-4">Status</th><th className="px-8 py-4 text-right">Actions</th></tr></thead>
@@ -1006,7 +1030,7 @@ function App() {
                             {a.appType || 'odoo'}
                           </span>
                           <div className="flex flex-col gap-1">
-                            {a.status === 'running' ? (
+                            {a.status === 'running' && !NO_WEB_UI_APP_TYPES.has(a.appType || '') ? (
                               <a href={a.url} target="_blank" rel="noreferrer" className="group flex items-center gap-2 w-fit">
                                 <span className="font-bold text-xl text-blue-400 group-hover:text-blue-300 transition-colors underline decoration-blue-500/30 underline-offset-4">{a.name}</span>
                                 <ExternalLink size={16} className="text-slate-600 group-hover:text-blue-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
@@ -1510,6 +1534,15 @@ function App() {
                            onClick={() => {
                              const appType = currentDeployment.appType || 'odoo';
                              const patch: Record<string, any> = { storage: storageInputs };
+                             // Only the keys that actually differ from what's stored — the backend deep-merges
+                             // appSettings, so sending the whole map would be wasteful and sending a partial one
+                             // is safe.
+                             if (NO_WEB_UI_APP_TYPES.has(appType)) {
+                               const stored = currentDeployment.appSettings || {};
+                               const dirty: Record<string, string> = {};
+                               for (const [k, v] of Object.entries(gameSettings)) if (stored[k] !== v) dirty[k] = v;
+                               if (Object.keys(dirty).length > 0) patch.appSettings = dirty;
+                             }
                              if (appType === 'vllm') {
                                patch.vllmModel = configInputs.vllmModel;
                                patch.vllmGpuCount = parseInt(configInputs.vllmGpuCount) || 0;
@@ -1769,7 +1802,16 @@ function App() {
                        </div>
                      )}
 
-                     {currentDeployment.appType !== 'vllm' && currentDeployment.appType !== 'tabbyapi' && currentDeployment.appType !== 'openwebui' && (
+                     {NO_WEB_UI_APP_TYPES.has(currentDeployment.appType || '') && (
+                       <GameServerSettings
+                         apiBase={API_BASE}
+                         appType={currentDeployment.appType!}
+                         value={gameSettings}
+                         onChange={setGameSettings}
+                       />
+                     )}
+
+                     {!NO_WEB_UI_APP_TYPES.has(currentDeployment.appType || '') && currentDeployment.appType !== 'vllm' && currentDeployment.appType !== 'tabbyapi' && currentDeployment.appType !== 'openwebui' && (
                        <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
                          <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Layers size={16} className="text-indigo-400" /> Image Version</h5>
                          <div className="grid grid-cols-2 gap-4">
@@ -1921,6 +1963,28 @@ function App() {
                       </div>
                    </div>
 
+                   {NO_WEB_UI_APP_TYPES.has(currentDeployment.appType || '') ? (
+                     <div className="bg-gradient-to-r from-blue-950/30 to-indigo-950/30 border border-blue-500/20 rounded-2xl p-8 flex flex-col gap-4">
+                       <h4 className="text-xl font-bold flex items-center gap-2"><Zap className="text-blue-400" size={20} /> How players connect</h4>
+                       <p className="text-slate-400 text-sm leading-relaxed max-w-2xl">
+                         This is a UDP game server, so it doesn't go through the Nginx/tunnel proxy that
+                         web apps use — players connect straight to the cluster node on the game port.
+                       </p>
+                       <div className="flex items-center gap-3">
+                         <code className="px-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-blue-300 font-mono text-sm">
+                           {(clusters.find((c: any) => c.id === currentDeployment.clusterId)?.remoteHost) || '<node-ip>'}:8211
+                         </code>
+                         <span className="text-[11px] text-slate-500">
+                           Enter this under “Join via IP” in Palworld.
+                         </span>
+                       </div>
+                       <p className="text-[11px] text-slate-600 leading-relaxed">
+                         On a local k3d cluster this port isn't published to your host, so the server
+                         won't be reachable from outside the cluster — that needs a real VM (Hetzner CX53
+                         or larger), where the firewall rule for 8211/udp is created automatically.
+                       </p>
+                     </div>
+                   ) : (
                    <div className="bg-gradient-to-r from-blue-950/30 to-indigo-950/30 border border-blue-500/20 rounded-2xl p-8 flex flex-col gap-6">
                      <div>
                        <h4 className="text-xl font-bold mb-2 flex items-center gap-2"><Zap className="text-blue-400" size={20} /> Network Exposure</h4>
@@ -2051,6 +2115,7 @@ function App() {
                         )}
                      </div>
                    </div>
+                   )}
                  </div>
                )}
 {logTab !== 'modules' && logTab !== 'general' && logTab !== 'storage' && (
@@ -2131,6 +2196,7 @@ function App() {
                        <option value="vllm">vLLM LLM Server</option>
                        <option value="tabbyapi">TabbyAPI (EXL2/EXL3 LLM Server)</option>
                        <option value="openwebui">Open WebUI (LLM Chat UI)</option>
+                   <option value="palworld">Palworld Dedicated Server</option>
                     </select>
                   </div>
                 </div>
@@ -2519,7 +2585,7 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData; deployApp.mutate(payload); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; deployApp.mutate(payload); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
           </div>
         </div>
       )}

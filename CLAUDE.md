@@ -34,19 +34,10 @@ npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as
 
 Note: there are two separate Playwright suites — `tests/e2e.spec.ts` (run by `npm test` via `test:e2e:sync`) and the `e2e/` directory (run by `npm run test:e2e`). Check which one a change needs before assuming coverage.
 
-Single workspace:
-```bash
-npm run test -w apps/backend     # backend unit tests (vitest run)
-npm run test -w apps/frontend    # frontend unit tests (vitest run)
-npm run lint -w apps/frontend    # eslint
-```
+Per-workspace scripts (`test`, `lint`, `dev`, `dev:worker`, `dev:worker:cluster`) run the standard
+way: `npm run <script> -w apps/backend`. See each workspace's `package.json` for what they invoke.
 
 Run a single test file: `npx vitest run <path>` from the relevant workspace dir, or `npx playwright test <file>` from repo root.
-
-Backend dev: `npm run dev -w apps/backend` (`tsx watch --exclude data`)
-Frontend dev: `npm run dev -w apps/frontend` (Vite)
-Host worker (manual): `npm run dev:worker -w apps/backend` (`worker-host.ts`)
-Cluster worker (manual): `npm run dev:worker:cluster -w apps/backend` (`worker-cluster.ts`)
 
 ### E2E Monitor
 
@@ -125,6 +116,10 @@ Temporal itself is optional — the backend starts and falls back to plain DB po
 
 Deploying a vLLM app triggers: host GPU-toolkit check → auto-install the matching device plugin DaemonSet (NVIDIA or AMD, `k8s/gpu-device-plugin/`) into the cluster → wait up to 60s for it to be ready → CDKTF applies the vLLM stack (`packages/cdktf-infra/constructs/vllm.ts`), exposing `nvidia.com/gpu` / `amd.com/gpu` to the K8s scheduler. Host-side driver/toolkit setup is `scripts/setup-gpu.sh` (auto-detects distro, idempotent).
 
+**GPU passthrough only works on the always-on system cluster** (native k3s on Linux). k3d's nested
+containerd cannot do real device passthrough at all, so user-created k3d clusters are never
+GPU-enabled — `ProvisionClusterActivity` and `TemporalBridge` both rely on this.
+
 ## TypeScript quirks
 
 - `verbatimModuleSyntax: true` → all relative imports need a `.js` extension, even in `.ts` files
@@ -148,6 +143,10 @@ Deploying a vLLM app triggers: host GPU-toolkit check → auto-install the match
 ## Data
 
 Default persistence is MongoDB (`apps/backend/src/lib/mongo-db.ts`), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests use `MemoryDB` (`NODE_ENV=test` without `IS_E2E`) — see `createDatabase()` in `db-interface.ts`.
+
+`apps/backend/data/` still holds `logs/` (per-resource provisioning/deployment logs, tailed over
+socket.io — see `InfrastructureService`'s `LOG_DIR`) and `nginx/` (proxy config). The `*.json` files
+in there are unused leftovers, **not** the source of truth.
 
 ## Prerequisites
 

@@ -32,6 +32,7 @@ import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../workflows/SyncConfigWorkflow.js'
 import { executePipelineRunWorkflow } from '../workflows/PipelineRunWorkflow.js'
 import { resolveVllmDefaults, resolveTabbyDefaults } from '../lib/app-env.js'
+import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import { resolveTabbyCacheHostPath } from '../lib/tabby-cache-path.js'
 import type { Server as SocketServer } from 'socket.io'
 
@@ -805,6 +806,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       }
       dep = resolveVllmDefaults(dep as DeploymentMetadata)
       dep = resolveTabbyDefaults(dep as DeploymentMetadata)
+      // Fills in the ~120 schema defaults the wizard didn't ask about, so the stored record and
+      // the Config tab reflect what's actually running rather than 120 blanks.
+      dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
     }
 
     const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, unresolved);
@@ -1015,6 +1019,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     if (!dep) throw new Error('DeploymentMetadata not found (syncConfig)')
     dep = resolveVllmDefaults(dep)
     dep = resolveTabbyDefaults(dep)
+    dep = resolveAppSettingsDefaults(dep)
 
     const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, deployments);
 

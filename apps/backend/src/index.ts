@@ -24,14 +24,8 @@ import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
 import type { ClusterMetadata, DeploymentMetadata, InviteMetadata } from './lib/types.js';
-import type { AppSettingsSchema } from './lib/app-settings-schema.js';
 import { validateAppSettings } from './lib/app-settings-schema.js';
-import { PALWORLD_SCHEMA } from './lib/palworld-settings.js';
-
-/** Every app type with a schema-driven settings map. Add new game servers here. */
-const APP_SETTINGS_SCHEMAS: Record<string, AppSettingsSchema> = {
-  palworld: PALWORLD_SCHEMA,
-};
+import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from './lib/app-schemas.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
 import { ClusterProxyService } from './services/ClusterProxyService.js';
@@ -1152,7 +1146,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/deployments/:id/expose', async (req, res) => {
     try {
-      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
+      const dep = await appService.getById(req.params.id, (req as any).user.id);
+      if (!dep) return res.status(404).json({ error: 'Deployment not found' });
+      // The whole exposure path is HTTP — Traefik by Host header, then an HTTPS localtunnel. For a
+      // UDP game server it would build a working tunnel to nothing, so refuse rather than hand
+      // back a URL that can never carry game traffic. The UI hides the control too; this is the
+      // guard for a direct API call.
+      if (NO_WEB_UI_APP_TYPES.has(dep.appType ?? '')) {
+        return res.status(400).json({
+          error: `"${dep.appType}" has no HTTP interface to expose — players connect directly to the cluster node on its game port.`,
+        });
+      }
       const mode = req.body?.mode === 'local' ? 'local' : 'public';
       const result = mode === 'local' ? await appExposureService.exposeLocal(req.params.id) : await appExposureService.exposePublic(req.params.id);
       res.json(result);

@@ -187,6 +187,11 @@ export async function DeployAppActivity(
     } else if (args.appType === 'tabbyapi') {
       const tabbyImageTag = args.tabbyImageTag === 'cu13' ? 'cu13' : 'latest';
       await infra.pullAndImportImage(physicalName, `ghcr.io/theroyallab/tabbyapi:${tabbyImageTag}`, { logFile });
+    } else if (args.appType === 'palworld') {
+      // Pinned to the construct's own default rather than finalOdooRepo/Tag, which the wizard
+      // leaves at Odoo's values for app types that don't expose an image picker.
+      const palworldImage = `${finalOdooRepo || 'thijsvanloef/palworld-server-docker'}:${finalOdooTag || 'latest'}`;
+      await infra.pullAndImportImage(physicalName, palworldImage, { logFile });
     } else if (finalOdooRepo && finalOdooTag) {
       const appImage = `${finalOdooRepo}:${finalOdooTag}`;
       await infra.pullAndImportImage(physicalName, appImage, { logFile });
@@ -197,8 +202,44 @@ export async function DeployAppActivity(
     }
   }
 
+  // Fail fast on a node too small to ever schedule the pod. Without this the deploy sits Pending
+  // until the activity's 80-minute Temporal timeout with nothing in the logs explaining why —
+  // the same reason checkGpuToolkit exists for vLLM. Best-effort: an unreadable node list should
+  // not block a deploy that might well have worked.
+  if (args.appType === 'palworld') {
+    const REQUIRED_GI = 12;
+    try {
+      const nodesJson = await infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
+      const nodes = JSON.parse(nodesJson).items ?? [];
+      const toGi = (q: string): number => {
+        // kubelet reports allocatable memory in Ki on every platform this runs on, but tolerate
+        // the other suffixes rather than silently computing a wrong number.
+        const m = /^(\d+)(Ki|Mi|Gi)?$/.exec(q ?? '');
+        if (!m?.[1]) return 0;
+        const n = Number(m[1]);
+        return m[2] === 'Gi' ? n : m[2] === 'Mi' ? n / 1024 : n / (1024 * 1024);
+      };
+      const largest = Math.max(0, ...nodes.map((n: any) => toGi(n.status?.allocatable?.memory)));
+      if (largest > 0 && largest < REQUIRED_GI) {
+        throw new Error(
+          `Palworld needs a node with at least ${REQUIRED_GI}Gi allocatable memory; the largest node in this ` +
+          `cluster has ${largest.toFixed(1)}Gi. Deploy to a bigger cluster (Hetzner CX53 or larger).`,
+        );
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('allocatable memory')) throw err;
+      console.warn(`[DeployAppActivity] Palworld node-size preflight skipped: ${err.message}`);
+    }
+  }
+
   const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, {});
-  const displayUrl = args.appType === 'odoo'
+  // Every entry here is a localhost placeholder that only means anything on k3d. For a game
+  // server it would be actively misleading — players connect to <node-ip>:8211 over UDP, and the
+  // UI computes that connect string from the cluster record instead. Left empty so nothing
+  // renders a dead clickable link.
+  const displayUrl = args.appType === 'palworld'
+    ? ''
+    : args.appType === 'odoo'
     ? 'http://localhost:8069'
     : args.appType === 'vllm'
     ? 'http://localhost:8000'
@@ -304,6 +345,48 @@ export async function DeployAppActivity(
     await fs.writeFile(tmpSecretPath, secretYaml as any);
     await infra.runKubectl(['apply', '-f', tmpSecretPath], kubeconfigPath);
     await fs.rm(tmpSecretPath, { force: true }).catch(() => {});
+  }
+
+  // Palworld's admin/server/RCON passwords. Generated HERE, inside the activity, and written
+  // straight to a Kubernetes Secret — deliberately never an activity argument, a workflow result,
+  // or an entry in buildAppEnv's env map, because all three of those persist the value somewhere
+  // durable (Temporal history forever, synthesized Terraform and tfstate on disk). The construct
+  // references this Secret with optional: true precisely so the pod tolerates the gap between the
+  // apply finishing and this block running.
+  //
+  // Created after the apply for the same reason as the gitapp block above: the namespace does not
+  // exist until then. Only created if absent, so a re-deploy or config sync never rotates the
+  // password out from under players who already have it.
+  if (args.appType === 'palworld') {
+    const exists = await infra
+      .runKubectl(['get', 'secret', 'palworld-secrets', '-n', sanitizedName], kubeconfigPath)
+      .then(() => true)
+      .catch(() => false);
+
+    if (!exists) {
+      const { randomBytes } = await import('crypto');
+      // base64url: no shell-quoting or ini-escaping hazards in the value.
+      const gen = () => randomBytes(18).toString('base64url');
+      const secretYaml = await infra.runKubectl(
+        ['create', 'secret', 'generic', 'palworld-secrets', '-n', sanitizedName,
+          `--from-literal=ADMIN_PASSWORD=${gen()}`,
+          `--from-literal=SERVER_PASSWORD=${gen()}`,
+          `--from-literal=RCON_PASSWORD=${gen()}`,
+          '--dry-run=client', '-o', 'yaml'],
+        kubeconfigPath,
+      );
+      const tmpPath = path.join(os.tmpdir(), `palworld-secrets-${deploymentId}.yaml`);
+      await fs.writeFile(tmpPath, secretYaml as any, { mode: 0o600 });
+      try {
+        await infra.runKubectl(['apply', '-f', tmpPath], kubeconfigPath);
+      } finally {
+        await fs.rm(tmpPath, { force: true }).catch(() => {});
+      }
+      // Restart so the pod picks up the Secret it started without.
+      await infra
+        .runKubectl(['rollout', 'restart', 'deployment/palworld', '-n', sanitizedName], kubeconfigPath)
+        .catch((err: any) => console.warn(`[DeployAppActivity] palworld restart after secret creation failed: ${err.message}`));
+    }
   }
 
   return {
