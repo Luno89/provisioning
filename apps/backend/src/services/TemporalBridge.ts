@@ -650,6 +650,14 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === clusterId)
   if (!cluster) throw new Error('ClusterMetadata not found')
 
+  // The workflow id carries Date.now() plus a random suffix, so Temporal's own deduplication can
+  // never collapse two of these — a second click starts a genuinely separate destroy that races
+  // the first over the same Terraform state and the same VM. Observed live: two concurrent
+  // executeDestroyClusterWorkflow runs against one cluster.
+  if (cluster.status === 'destroying') {
+    throw new Error(`Cluster "${cluster.name}" is already being destroyed`)
+  }
+
     const logFileName = `${Date.now()}-destroy-${Math.random().toString(36).slice(2)}-B2.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
     const hcloudToken = cluster.provider === 'hetzner' ? await this.resolveHetznerToken(cluster.ownerId) : undefined

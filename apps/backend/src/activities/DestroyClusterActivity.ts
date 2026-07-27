@@ -75,11 +75,25 @@ export async function DestroyClusterActivity(
   try {
     await infra.destroy(`${physicalName}-observability`, { logFile, env: clusterEnv });
   } catch {
-    // Tolerated, not required to succeed the way the ClusterStack destroy below is — clusters
-    // provisioned before this stack existed have no "-observability" CDKTF state to destroy at
-    // all, and that's an expected, harmless case, not a real failure.
+    // Tolerated — clusters provisioned before this stack existed have no "-observability" CDKTF
+    // state to destroy at all, and that's an expected, harmless case, not a real failure.
   }
-  await infra.destroy(physicalName, { logFile, env: clusterEnv });
+  try {
+    await infra.destroy(physicalName, { logFile, env: clusterEnv });
+  } catch (err: any) {
+    // Also tolerated, and this one is load-bearing: a cluster whose provision failed before the
+    // stack was ever created cannot be destroyed by CDKTF either, so throwing here made the record
+    // permanently undeletable. A cluster named "VPS -test" hit this exactly — cdktf refuses to
+    // synthesize a stack id containing whitespace, so provision and destroy failed identically and
+    // the record could never be removed through the UI.
+    //
+    // Safe to continue because this stack only ever holds IN-CLUSTER resources (Traefik,
+    // kube-prometheus-stack). Everything that actually costs money or outlives this activity is
+    // torn down below and verified there: k3d clusters are deleted outright, remote hosts get a
+    // k3s uninstall, and the Hetzner VM is deleted through DestroyHetznerVmActivity, which
+    // confirms against Hetzner's own API rather than trusting Terraform's word for it.
+    console.warn(`[DestroyClusterActivity] ClusterStack destroy failed for "${physicalName}" (continuing to substrate teardown): ${err.message}`);
+  }
 
   // 2. Delete the physical k3d cluster if applicable
   if (args.provider === 'k3d' || isMock) {
