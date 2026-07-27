@@ -35,6 +35,13 @@ export interface ProvisionClusterArgs {
   hetznerServerType?: string;
   hetznerLocation?: string;
   hetznerImage?: string;
+  /**
+   * Generated once and persisted before the workflow started, so every retry presents the key the
+   * VM was actually built with. See lib/ssh-keypair.ts — regenerating per attempt permanently
+   * locks us out of a running, billing server.
+   */
+  hetznerSshPrivateKey?: string;
+  hetznerSshPublicKey?: string;
 }
 
 export interface ProvisionClusterResult {
@@ -211,6 +218,8 @@ export async function ProvisionClusterActivity(
       ...(args.hetznerServerType ? { serverType: args.hetznerServerType } : {}),
       ...(args.hetznerLocation ? { location: args.hetznerLocation } : {}),
       ...(args.hetznerImage ? { image: args.hetznerImage } : {}),
+      ...(args.hetznerSshPrivateKey ? { sshPrivateKey: args.hetznerSshPrivateKey } : {}),
+      ...(args.hetznerSshPublicKey ? { sshPublicKey: args.hetznerSshPublicKey } : {}),
     });
     await ProvisionRemoteHostActivity({
       physicalName,

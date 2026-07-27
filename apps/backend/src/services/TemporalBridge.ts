@@ -21,6 +21,7 @@ const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
+import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import type { Database } from '../lib/db-interface.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
 import type { ClusterService } from './ClusterService.js'
@@ -588,6 +589,16 @@ export class TemporalBridge {
       // until an activity times out.
       throw new Error('No Hetzner Cloud API token configured — add one under Cloud Accounts first')
     }
+
+    // Generated HERE, once, and persisted below — not inside the activity. Hetzner bakes
+    // authorized_keys into the machine as it boots, so a key minted per attempt means every retry
+    // presents credentials the server has never seen; the VM stays up, keeps billing, and can
+    // never be logged into again. Observed live: server created 21:45:22Z, the key it was
+    // supposedly reachable with created 22:00:17Z, then Permission denied until the retry cap.
+    const hetznerKeypair = provider === 'hetzner'
+      ? await generateSshKeypair(`provisioning-${clusterName}`)
+      : undefined
+
     const activityArgs = {
       name: clusterName,
       provider,
@@ -603,6 +614,10 @@ export class TemporalBridge {
       ...(hetzner?.serverType ? { hetznerServerType: hetzner.serverType } : {}),
       ...(hetzner?.location ? { hetznerLocation: hetzner.location } : {}),
       ...(hetzner?.image ? { hetznerImage: hetzner.image } : {}),
+      ...(hetznerKeypair ? {
+        hetznerSshPrivateKey: hetznerKeypair.privateKey,
+        hetznerSshPublicKey: hetznerKeypair.publicKey,
+      } : {}),
     }
 
     // Persist cluster row — the SSH private key is encrypted at rest (see ClusterMetadata's
@@ -624,10 +639,16 @@ export class TemporalBridge {
         ...(remote.k3sApiPort !== undefined ? { remoteK3sApiPort: remote.k3sApiPort } : {}),
       } : {}),
       // Recorded up front so the cluster page can show what was requested while it provisions;
-      // the VM's actual identity (id, IP, key) only arrives when the workflow completes.
+      // the VM's actual identity (id, IP) only arrives when the workflow completes.
       ...(hetzner?.serverType ? { hetznerServerType: hetzner.serverType } : {}),
       ...(hetzner?.location ? { hetznerLocation: hetzner.location } : {}),
       ...(hetzner?.image ? { hetznerImage: hetzner.image } : {}),
+      // Persisted BEFORE the workflow starts, not after it succeeds. This is the key that will be
+      // baked into the VM, and it has to outlive any worker that dies mid-provision — otherwise a
+      // restart mid-flight leaves a running server nobody holds the credentials for.
+      ...(hetznerKeypair ? {
+        remoteSshPrivateKeyEnc: encryptValue(hetznerKeypair.privateKey, this.masterKey),
+      } : {}),
     })
 
     const handle = await this.client.workflow.start(ClusterProvisionWorkflow, {

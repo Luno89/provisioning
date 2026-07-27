@@ -30,6 +30,14 @@ export interface ProvisionHetznerVmArgs {
   serverType?: string;
   location?: string;
   image?: string;
+  /**
+   * The cluster's persisted keypair. Supplied by the caller so it is IDENTICAL on every attempt:
+   * Hetzner bakes authorized_keys into the machine at creation, so a key generated per-attempt
+   * locks us out of the server we just paid for from attempt two onward. Omitted only by callers
+   * with no cluster record (tests), which then get a throwaway pair.
+   */
+  sshPrivateKey?: string;
+  sshPublicKey?: string;
 }
 
 export interface ProvisionHetznerVmResult {
@@ -50,33 +58,13 @@ export function hetznerVmStackName(clusterName: string): string {
 }
 
 /**
- * Stable across retries of the same cluster, which is a correctness requirement rather than an
- * optimisation.
- *
- * `hcloud_ssh_key.public_key` is a replacement-forcing attribute, and the server depends on the
- * key — so a keypair that differs between attempts makes Terraform destroy and rebuild the VM
- * every single time. Observed live: one transient SSH timeout retried the activity, the retry
- * generated a fresh key, Terraform replaced the machine, SSH then failed against a machine that
- * was being torn down, and the cycle repeated — three VM replacements in 25 minutes, each one
- * billed, with the stack unable to converge on any attempt after the first.
- *
- * Keyed on the cluster name (not a timestamp) so a retry finds the key its predecessor left, and
- * written 0600 into the system temp dir, which is where the key already had to be materialised for
- * waitForSsh. Cleanup happens once the activity finally succeeds or gives up.
+ * Fallback only — the caller normally supplies a keypair that was generated once and persisted
+ * before the workflow started. See lib/ssh-keypair.ts for why generating one here per attempt is a
+ * correctness bug rather than a style choice: cloud VMs inject authorized_keys at creation time
+ * only, so the second attempt's key was never on the machine and never can be.
  */
-async function generateSshKeypair(name: string): Promise<{ privateKey: string; publicKey: string; cleanup: () => Promise<void> }> {
-  const keyPath = path.join(os.tmpdir(), `hetzner-key-${name}`);
-  const existing = await Promise.all([
-    fs.readFile(keyPath, 'utf-8').catch(() => null),
-    fs.readFile(`${keyPath}.pub`, 'utf-8').catch(() => null),
-  ]);
-  if (existing[0] && existing[1]) {
-    return {
-      privateKey: existing[0],
-      publicKey: existing[1],
-      cleanup: async () => { await fs.rm(keyPath, { force: true }); await fs.rm(`${keyPath}.pub`, { force: true }); },
-    };
-  }
+async function generateSshKeypairLocal(name: string): Promise<{ privateKey: string; publicKey: string; cleanup: () => Promise<void> }> {
+  const keyPath = path.join(os.tmpdir(), `hetzner-key-${name}-${Date.now()}`);
   // -N '' → no passphrase (nothing could supply one non-interactively later); ed25519 over RSA
   // because every current Ubuntu cloud image accepts it and the keys are far smaller.
   await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', keyPath, '-C', `provisioning-${name}`]);
@@ -128,7 +116,13 @@ export async function ProvisionHetznerVmActivity(
   const stackName = hetznerVmStackName(args.name);
   const outputsFile = path.join(os.tmpdir(), `hetzner-outputs-${args.name}-${Date.now()}.json`);
 
-  const { privateKey, publicKey, cleanup } = await generateSshKeypair(args.name);
+  // Persisted key when the caller has one — the whole point is that this value does not change
+  // between attempts. Falling back to a fresh pair keeps the activity usable standalone, but that
+  // path is only safe on a first attempt against a server that does not exist yet.
+  const supplied = args.sshPrivateKey && args.sshPublicKey
+    ? { privateKey: args.sshPrivateKey, publicKey: args.sshPublicKey, cleanup: async () => {} }
+    : undefined;
+  const { privateKey, publicKey, cleanup } = supplied ?? await generateSshKeypairLocal(args.name);
 
   try {
     await infra.deploy(stackName, {
