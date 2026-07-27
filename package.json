@@ -10,32 +10,26 @@
     "backup": "bash scripts/backup-to-drive.sh",
     "worker": "bash scripts/first-time.sh --deploy",
     "deploy-worker": "bash scripts/deploy-worker.sh",
-
-    "test":       "npm run test:unit && npm run test:e2e:sync",
-    "test:all":   "npm test && npm run test:synth:palworld && npm run test:infra:integration && npm run test:remote-integration && npm run test:unit:vpn",
-
+    "test": "npm run test:unit && npm run test:e2e:sync",
+    "test:all": "npm test && npm run test:synth:palworld && npm run test:infra:integration && npm run test:remote-integration && npm run test:unit:vpn",
     "test:alive": "bash scripts/alive.sh",
     "test:worker": "tsx tests/worker-isolated.ts",
-
-    "typecheck":       "npm run typecheck:backend && npm run typecheck:frontend && npm run typecheck:infra",
-    "typecheck:backend":  "tsc --noEmit -p apps/backend/tsconfig.json",
+    "typecheck": "npm run typecheck:backend && npm run typecheck:frontend && npm run typecheck:infra",
+    "typecheck:backend": "tsc --noEmit -p apps/backend/tsconfig.json",
     "typecheck:frontend": "tsc --noEmit -p apps/frontend/tsconfig.app.json",
-    "typecheck:infra":    "tsc --noEmit -p packages/cdktf-infra/tsconfig.json",
-
-    "test:unit":       "npm run typecheck && npm run test:unit:frontend && npm run test:unit:backend",
-    "test:unit:frontend":    "npm run test -w apps/frontend",
-    "test:unit:backend":     "npm run test -w apps/backend",
-
-    "test:e2e:sync":    "npm run test:alive && npm run test:unit && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
-    "test:e2e":         "npm run test:alive && npm run test:test:e2e:setup && npx playwright test e2e && npm run test:test:e2e:teardown",
-
+    "typecheck:infra": "tsc --noEmit -p packages/cdktf-infra/tsconfig.json",
+    "test:unit": "npm run typecheck && npm run test:unit:frontend && npm run test:unit:backend",
+    "test:unit:frontend": "npm run test -w apps/frontend",
+    "test:unit:backend": "npm run test -w apps/backend",
+    "test:e2e:sync": "npm run test:alive && npm run test:unit && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
+    "test:e2e": "npm run test:alive && npm run test:test:e2e:setup && npx playwright test e2e && npm run test:test:e2e:teardown",
     "test:infra:integration": "node tests/infra-integration.ts",
     "test:remote-integration": "tsx tests/remote-host-integration.ts",
-    "test:unit:vpn":     "node packages/cdktf-infra/lib/vpn-service.spec.js",
+    "test:unit:vpn": "node packages/cdktf-infra/lib/vpn-service.spec.js",
     "test:synth:palworld": "tsx tests/palworld-synth.ts",
-
-    "test:test:e2e:setup":    "bash scripts/test-e2e-setup.sh",
-    "test:test:e2e:teardown": "bash scripts/test-e2e-teardown.sh"
+    "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",
+    "test:test:e2e:teardown": "bash scripts/test-e2e-teardown.sh",
+    "test:hetzner-integration": "tsx tests/hetzner-integration.ts"
   },
   "workspaces": [
     "apps/*",
