@@ -790,6 +790,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ...(q.provisionableOnly === 'true' ? { provisionableOnly: true } : {}),
         ...(q.hourlyOnly === 'true' ? { hourlyOnly: true } : {}),
         ...(q.sort ? { sort: q.sort as any } : {}),
+        ...(q.sortDir === 'asc' || q.sortDir === 'desc' ? { sortDir: q.sortDir } : {}),
         ...(num(q.limit) !== undefined ? { limit: num(q.limit)! } : {}),
       });
       res.json(result);

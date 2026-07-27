@@ -14,11 +14,13 @@ import type { Database } from '../lib/db-interface.js';
 import { decryptValue } from '../lib/crypto.js';
 import { resolveCloudCredentials } from '../lib/credential-resolver.js';
 import { ADAPTERS } from '../lib/vps-catalog/adapters.js';
+import { NATURAL_SORT_DIR } from '../lib/vps-catalog/types.js';
 import type {
   VpsCatalogFilters,
   VpsCatalogResult,
   VpsCatalogSource,
   VpsOffer,
+  VpsSortKey,
 } from '../lib/vps-catalog/types.js';
 
 /**
@@ -180,15 +182,37 @@ export function applyFilters(offers: VpsOffer[], f: VpsCatalogFilters): VpsOffer
     return true;
   });
 
-  const sort = f.sort ?? 'pricePerGbRam';
+  const sort: VpsSortKey = f.sort ?? 'pricePerGbRam';
+  const dir = f.sortDir ?? NATURAL_SORT_DIR[sort];
+  const mul = dir === 'asc' ? 1 : -1;
+
   out = out.sort((a, b) => {
-    switch (sort) {
-      case 'price': return a.priceMonthly - b.priceMonthly;
-      case 'ram': return b.ramGb - a.ramGb;
-      case 'vcpu': return b.vcpu - a.vcpu;
-      case 'pricePerGbRam':
-      default: return a.pricePerGbRam - b.pricePerGbRam;
+    if (sort === 'name') {
+      // Group by provider first — an alphabetical mix of five providers' plan ids is noise.
+      return mul * (a.provider.localeCompare(b.provider) || a.planId.localeCompare(b.planId));
     }
+
+    const value = (o: typeof a): number | undefined => {
+      switch (sort) {
+        case 'price': return o.priceMonthly;
+        case 'ram': return o.ramGb;
+        case 'vcpu': return o.vcpu;
+        case 'disk': return o.diskGb > 0 ? o.diskGb : undefined;      // 0 means unknown, not 0GB
+        case 'bandwidth': return o.bandwidthTb;                        // absent on some providers
+        case 'pricePerGbRam':
+        default: return o.pricePerGbRam;
+      }
+    };
+
+    const av = value(a);
+    const bv = value(b);
+    // Unknowns sink to the bottom in BOTH directions. Otherwise "sort by bandwidth ascending"
+    // fills the top of the table with rows that just render "—", which is never what was wanted.
+    if (av === undefined && bv === undefined) return 0;
+    if (av === undefined) return 1;
+    if (bv === undefined) return -1;
+    // Stable tiebreak so equal values don't reshuffle between renders.
+    return mul * (av - bv) || a.id.localeCompare(b.id);
   });
 
   return f.limit ? out.slice(0, f.limit) : out;

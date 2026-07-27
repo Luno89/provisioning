@@ -73,6 +73,23 @@ export interface VpsOffer {
   readonly pricePerGbRam: number;
 }
 
+export type VpsSortKey =
+  | 'price' | 'pricePerGbRam' | 'ram' | 'vcpu' | 'disk' | 'bandwidth' | 'name';
+
+/**
+ * The direction each column should take on its FIRST click. Nobody wants "sort by RAM" to lead
+ * with the 512MB plans, or "sort by price" to lead with the most expensive.
+ */
+export const NATURAL_SORT_DIR: Record<VpsSortKey, 'asc' | 'desc'> = {
+  price: 'asc',
+  pricePerGbRam: 'asc',
+  ram: 'desc',
+  vcpu: 'desc',
+  disk: 'desc',
+  bandwidth: 'desc',
+  name: 'asc',
+};
+
 export interface VpsCatalogFilters {
   minRamGb?: number;
   maxRamGb?: number;
@@ -88,7 +105,12 @@ export interface VpsCatalogFilters {
   provisionableOnly?: boolean;
   /** Only providers that bill hourly — relevant for short-lived clusters. */
   hourlyOnly?: boolean;
-  sort?: 'price' | 'pricePerGbRam' | 'ram' | 'vcpu';
+  sort?: VpsSortKey;
+  /**
+   * Omitted means "whatever reads naturally for this column" — cheapest-first for prices,
+   * biggest-first for capacities. See NATURAL_SORT_DIR.
+   */
+  sortDir?: 'asc' | 'desc';
   limit?: number;
 }
 

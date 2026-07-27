@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import axios from 'axios';
-import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info } from 'lucide-react';
+import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info, ArrowUp, ArrowDown } from 'lucide-react';
 
 /**
  * Live VPS plan search across providers.
@@ -37,10 +37,11 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
   const [provisionableOnly, setProvisionableOnly] = useState(false);
   const [hourlyOnly, setHourlyOnly] = useState(false);
   const [sort, setSort] = useState('pricePerGbRam');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const params = new URLSearchParams(
     Object.entries({
-      minRamGb, minVcpu, minDiskGb, maxPriceMonthly, location, arch, cpuType, sort,
+      minRamGb, minVcpu, minDiskGb, maxPriceMonthly, location, arch, cpuType, sort, sortDir,
       provisionableOnly: provisionableOnly ? 'true' : '',
       hourlyOnly: hourlyOnly ? 'true' : '',
       limit: '60',
@@ -59,6 +60,44 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
   });
 
   const money = (n: number, c: string) => `${CURRENCY_SYMBOL[c] ?? ''}${n.toFixed(2)}`;
+
+  /**
+   * First click on a column uses whatever direction reads naturally for it — cheapest-first for
+   * prices, biggest-first for capacities — and clicking the active column flips it. Kept in sync
+   * with NATURAL_SORT_DIR on the backend, which applies the same defaults when none is sent.
+   */
+  const NATURAL_DIR: Record<string, 'asc' | 'desc'> = {
+    price: 'asc', pricePerGbRam: 'asc', name: 'asc',
+    ram: 'desc', vcpu: 'desc', disk: 'desc', bandwidth: 'desc',
+  };
+
+  const toggleSort = (key: string) => {
+    if (sort === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSort(key); setSortDir(NATURAL_DIR[key] ?? 'asc'); }
+  };
+
+  // Sorting is applied server-side on purpose. The query is limited to 60 rows, so re-ordering
+  // only what's already loaded would show the top 60 by the PREVIOUS sort, re-sorted — quietly
+  // the wrong answer.
+  const sortableHeader = (key: string, label: string, align: 'left' | 'right' = 'right', pad = 'px-3') => {
+    const active = sort === key;
+    return (
+      <th className={`${align === 'left' ? 'text-left' : 'text-right'} ${pad} py-3`}>
+        <button
+          onClick={() => toggleSort(key)}
+          className={`inline-flex items-center gap-1 uppercase tracking-widest font-black transition-colors hover:text-slate-200 ${
+            active ? 'text-blue-400' : 'text-slate-500'
+          } ${align === 'right' ? 'flex-row-reverse' : ''}`}
+          title={active ? `Sorted ${sortDir === 'asc' ? 'ascending' : 'descending'} — click to reverse` : `Sort by ${label}`}
+        >
+          {label}
+          {active
+            ? (sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)
+            : <span className="w-[11px]" aria-hidden />}
+        </button>
+      </th>
+    );
+  };
 
   const numField = (label: string, value: string, set: (v: string) => void, placeholder: string) => (
     <div>
@@ -84,7 +123,7 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
       </header>
 
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-3xl p-6 mb-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
           {numField('Min RAM (GB)', minRamGb, setMinRamGb, 'any')}
           {numField('Min vCPU', minVcpu, setMinVcpu, 'any')}
           {numField('Min disk (GB)', minDiskGb, setMinDiskGb, 'any')}
@@ -96,16 +135,6 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
               onChange={(e) => setLocation(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-700 focus:outline-none focus:border-blue-500"
             />
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Sort by</label>
-            <select value={sort} onChange={(e) => setSort(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-              <option value="pricePerGbRam">Value (price / GB RAM)</option>
-              <option value="price">Cheapest total</option>
-              <option value="ram">Most RAM</option>
-              <option value="vcpu">Most vCPU</option>
-            </select>
           </div>
         </div>
 
@@ -180,13 +209,13 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
         <table className="w-full text-sm">
           <thead className="bg-slate-900/60 text-[10px] font-black text-slate-500 uppercase tracking-widest">
             <tr>
-              <th className="text-left px-5 py-3">Provider / Plan</th>
-              <th className="text-right px-3 py-3">vCPU</th>
-              <th className="text-right px-3 py-3">RAM</th>
-              <th className="text-right px-3 py-3">Disk</th>
-              <th className="text-right px-3 py-3">Bandwidth</th>
-              <th className="text-right px-3 py-3">Per GB RAM</th>
-              <th className="text-right px-5 py-3">Price / mo</th>
+              {sortableHeader('name', 'Provider / Plan', 'left')}
+              {sortableHeader('vcpu', 'vCPU')}
+              {sortableHeader('ram', 'RAM')}
+              {sortableHeader('disk', 'Disk')}
+              {sortableHeader('bandwidth', 'Bandwidth')}
+              {sortableHeader('pricePerGbRam', 'Per GB RAM')}
+              {sortableHeader('price', 'Price / mo', 'right', 'px-5')}
             </tr>
           </thead>
           <tbody>

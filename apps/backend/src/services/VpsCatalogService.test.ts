@@ -80,6 +80,57 @@ describe('applyFilters', () => {
   });
 });
 
+describe('column sorting', () => {
+  it('uses a natural direction per column when none is given', () => {
+    const small = offer({ planId: 'small', ramGb: 2, priceMonthly: 5 });
+    const big = offer({ planId: 'big', ramGb: 64, priceMonthly: 500 });
+    // Price ascends (cheapest first); capacities descend (biggest first). Nobody wants "sort by
+    // RAM" to lead with the 512MB plans.
+    expect(applyFilters([big, small], { sort: 'price' })[0]!.planId).toBe('small');
+    expect(applyFilters([small, big], { sort: 'ram' })[0]!.planId).toBe('big');
+    expect(applyFilters([small, big], { sort: 'vcpu', ...{} })).toHaveLength(2);
+  });
+
+  it('honours an explicit direction', () => {
+    const a = offer({ planId: 'a', priceMonthly: 5 });
+    const b = offer({ planId: 'b', priceMonthly: 500 });
+    expect(applyFilters([a, b], { sort: 'price', sortDir: 'desc' })[0]!.planId).toBe('b');
+    expect(applyFilters([a, b], { sort: 'ram', sortDir: 'asc' })).toHaveLength(2);
+  });
+
+  it('sinks unknown disk to the bottom in BOTH directions', () => {
+    // diskGb 0 means "the provider didn't tell us" (Vultr's VX family). Ascending by disk must
+    // not fill the top of the table with rows that render "—".
+    const known = offer({ planId: 'known', diskGb: 100 });
+    const unknown = offer({ planId: 'unknown', diskGb: 0 });
+    expect(applyFilters([unknown, known], { sort: 'disk', sortDir: 'asc' })[0]!.planId).toBe('known');
+    expect(applyFilters([unknown, known], { sort: 'disk', sortDir: 'desc' })[0]!.planId).toBe('known');
+  });
+
+  it('sinks missing bandwidth to the bottom in both directions', () => {
+    const known = offer({ planId: 'known', bandwidthTb: 2 } as any);
+    const missing = offer({ planId: 'missing' });
+    expect(applyFilters([missing, known], { sort: 'bandwidth', sortDir: 'asc' })[0]!.planId).toBe('known');
+    expect(applyFilters([missing, known], { sort: 'bandwidth', sortDir: 'desc' })[0]!.planId).toBe('known');
+  });
+
+  it('groups by provider when sorting by name', () => {
+    const out = applyFilters(
+      [offer({ provider: 'vultr', planId: 'a' }), offer({ provider: 'linode', planId: 'z' })],
+      { sort: 'name' },
+    );
+    expect(out.map((o) => o.provider)).toEqual(['linode', 'vultr']);
+  });
+
+  it('breaks ties stably so equal rows do not reshuffle', () => {
+    const a = offer({ provider: 'p', planId: 'aaa', priceMonthly: 10, ramGb: 4 });
+    const b = offer({ provider: 'p', planId: 'bbb', priceMonthly: 10, ramGb: 4 });
+    const first = applyFilters([b, a], { sort: 'price' }).map((o) => o.id);
+    const second = applyFilters([a, b], { sort: 'price' }).map((o) => o.id);
+    expect(first).toEqual(second);
+  });
+});
+
 describe('withDerived', () => {
   it('computes price per GB and a namespaced id', () => {
     const o = offer({ provider: 'hetzner', planId: 'cx53', ramGb: 32, priceMonthly: 22.49 });
