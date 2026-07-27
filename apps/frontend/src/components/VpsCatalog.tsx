@@ -15,6 +15,7 @@ interface VpsOffer {
   id: string; provider: string; planId: string; label: string;
   vcpu: number; cpuType: string; cpuVendor?: string; arch: string;
   ramGb: number; diskGb: number; diskType?: string; bandwidthTb?: number;
+  gpuCount?: number; gpuVramGb?: number; gpuModel?: string;
   priceMonthly: number; priceHourly?: number; currency: string; taxIncluded: boolean;
   hourlyBilling: boolean; locations: string[]; provisionable: boolean; pricePerGbRam: number;
 }
@@ -36,6 +37,8 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
   const [cpuType, setCpuType] = useState('');
   const [provisionableOnly, setProvisionableOnly] = useState(false);
   const [hourlyOnly, setHourlyOnly] = useState(false);
+  // '' = both, 'false' = hide GPU plans, 'true' = only GPU plans.
+  const [hasGpu, setHasGpu] = useState('');
   const [sort, setSort] = useState('pricePerGbRam');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -44,6 +47,7 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
       minRamGb, minVcpu, minDiskGb, maxPriceMonthly, location, arch, cpuType, sort, sortDir,
       provisionableOnly: provisionableOnly ? 'true' : '',
       hourlyOnly: hourlyOnly ? 'true' : '',
+      hasGpu,
       limit: '60',
     }).filter(([, v]) => v !== '') as [string, string][],
   );
@@ -68,7 +72,7 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
    */
   const NATURAL_DIR: Record<string, 'asc' | 'desc'> = {
     price: 'asc', pricePerGbRam: 'asc', name: 'asc',
-    ram: 'desc', vcpu: 'desc', disk: 'desc', bandwidth: 'desc',
+    ram: 'desc', vcpu: 'desc', disk: 'desc', bandwidth: 'desc', gpu: 'desc',
   };
 
   const toggleSort = (key: string) => {
@@ -157,6 +161,15 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
               <option value="dedicated">Dedicated</option>
             </select>
           </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">GPU</label>
+            <select value={hasGpu} onChange={(e) => setHasGpu(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500">
+              <option value="">Any</option>
+              <option value="false">No GPU</option>
+              <option value="true">GPU only</option>
+            </select>
+          </div>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={provisionableOnly} onChange={(e) => setProvisionableOnly(e.target.checked)} className="w-4 h-4 accent-blue-500" />
             Deployable from here
@@ -212,6 +225,7 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
               {sortableHeader('name', 'Provider / Plan', 'left')}
               {sortableHeader('vcpu', 'vCPU')}
               {sortableHeader('ram', 'RAM')}
+              {sortableHeader('gpu', 'GPU / VRAM')}
               {sortableHeader('disk', 'Disk')}
               {sortableHeader('bandwidth', 'Bandwidth')}
               {sortableHeader('pricePerGbRam', 'Per GB RAM')}
@@ -220,12 +234,12 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
           </thead>
           <tbody>
             {isFetching && !data && (
-              <tr><td colSpan={7} className="px-5 py-10 text-center text-slate-500">
+              <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-500">
                 <Loader2 className="animate-spin inline mr-2" size={16} /> Querying providers…
               </td></tr>
             )}
             {data?.offers.length === 0 && (
-              <tr><td colSpan={7} className="px-5 py-10 text-center text-slate-500 text-xs">
+              <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-500 text-xs">
                 No plans match these filters. Try relaxing the RAM or price limit.
               </td></tr>
             )}
@@ -250,6 +264,14 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
                 </td>
                 <td className="text-right px-3 py-3 text-slate-300">{o.vcpu}</td>
                 <td className="text-right px-3 py-3 text-slate-300">{o.ramGb} GB</td>
+                <td className="text-right px-3 py-3">
+                  {o.gpuCount ? (
+                    <>
+                      <div className="text-slate-300">{o.gpuVramGb ? `${o.gpuVramGb} GB` : `${o.gpuCount}×`}</div>
+                      {o.gpuModel && <div className="text-[10px] text-slate-600">{o.gpuModel}</div>}
+                    </>
+                  ) : <span className="text-slate-600">—</span>}
+                </td>
                 <td className="text-right px-3 py-3 text-slate-400">{o.diskGb > 0 ? `${o.diskGb} GB` : '—'}</td>
                 <td className="text-right px-3 py-3 text-slate-400">{o.bandwidthTb ? `${o.bandwidthTb.toFixed(1)} TB` : '—'}</td>
                 <td className="text-right px-3 py-3 text-slate-400">{money(o.pricePerGbRam, o.currency)}</td>

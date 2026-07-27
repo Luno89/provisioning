@@ -53,6 +53,12 @@ export const linodeAdapter: VpsCatalogAdapter = {
         ramGb: Number(p.memory ?? 0) / 1024,
         diskGb: Number(p.disk ?? 0) / 1024,
         ...(p.transfer ? { bandwidthTb: Number(p.transfer) / 1000 } : {}),
+        // Linode reports a GPU count but no VRAM; the card model is only in the human label
+        // (e.g. "Dedicated 32GB + RTX6000 GPU x1"), so it's extracted from there.
+        ...(Number(p.gpus ?? 0) > 0 ? { gpuCount: Number(p.gpus) } : {}),
+        ...(Number(p.gpus ?? 0) > 0 && /\+\s*([A-Za-z0-9]+)\s*GPU/i.exec(String(p.label ?? ''))
+          ? { gpuModel: /\+\s*([A-Za-z0-9]+)\s*GPU/i.exec(String(p.label))![1]! }
+          : {}),
         priceMonthly: monthly,
         ...(typeof p?.price?.hourly === 'number' ? { priceHourly: p.price.hourly } : {}),
         currency: 'USD',
@@ -93,6 +99,16 @@ export const vultrAdapter: VpsCatalogAdapter = {
       const vendor = String(p.cpu_vendor ?? '').toLowerCase();
       const arch: VpsArch = vendor.includes('ampere') || vendor.includes('arm') ? 'arm' : 'x86';
 
+      // gpu_brand is present on EVERY plan and reads the literal string "none" on non-GPU ones,
+      // so a truthiness check would classify all 151 plans as GPU machines.
+      const gpuBrand = String(p.gpu_brand ?? '').trim();
+      const hasGpu = gpuBrand !== '' && gpuBrand.toLowerCase() !== 'none';
+      // Vultr publishes no structured VRAM field — it exists only in the plan id, e.g.
+      // `vcg-a40-96c-480g-192vram`. Parsed rather than dropped because VRAM is the whole point of
+      // a GPU plan, but left undefined when the id doesn't carry it rather than guessed at.
+      const vramMatch = /-(\d+)vram(?:-|$)/.exec(String(p.id ?? ''));
+      const gpuVramGb = hasGpu && vramMatch?.[1] ? Number(vramMatch[1]) : undefined;
+
       // Multi-disk plans report per-disk size. And some families (disk_type "VX") report a
       // placeholder `disk: 1` that is plainly not the real capacity — a 32GB-RAM plan does not
       // ship a 1GB volume. Report 0 ("unknown") rather than a number that reads as real and would
@@ -114,6 +130,10 @@ export const vultrAdapter: VpsCatalogAdapter = {
         ...(p.disk_type ? { diskType: String(p.disk_type) } : {}),
         // Vultr reports bandwidth in GB.
         ...(p.bandwidth ? { bandwidthTb: Number(p.bandwidth) / 1000 } : {}),
+        // Vultr gives no GPU count; the id encodes total VRAM, not per-card. Report 1 as
+        // "has a GPU" rather than inventing a number.
+        ...(hasGpu ? { gpuCount: 1, gpuModel: gpuBrand } : {}),
+        ...(gpuVramGb !== undefined ? { gpuVramGb } : {}),
         priceMonthly: monthly,
         ...(typeof p.hourly_cost === 'number' ? { priceHourly: p.hourly_cost } : {}),
         currency: 'USD',
@@ -272,6 +292,14 @@ export const scalewayAdapter: VpsCatalogAdapter = {
         // Local SSD is optional on most ranges (they default to network block storage), so a
         // 0 max_size means "no bundled local disk" rather than a real capacity.
         diskGb: Math.round(Number(raw?.per_volume_constraint?.l_ssd?.max_size ?? 0) / 1024 ** 3),
+        // The only provider here reporting VRAM structurally. gpu_memory is per-card bytes.
+        ...(Number(raw.gpu ?? 0) > 0 ? { gpuCount: Number(raw.gpu) } : {}),
+        ...(raw?.gpu_info?.gpu_memory
+          ? { gpuVramGb: Math.round(Number(raw.gpu_info.gpu_memory) / 1024 ** 3) }
+          : {}),
+        ...(raw?.gpu_info?.gpu_name
+          ? { gpuModel: `${raw.gpu_info.gpu_manufacturer ?? ''} ${raw.gpu_info.gpu_name}`.trim() }
+          : {}),
         priceMonthly: monthly,
         ...(typeof raw.hourly_price === 'number' ? { priceHourly: raw.hourly_price } : {}),
         currency: 'EUR',

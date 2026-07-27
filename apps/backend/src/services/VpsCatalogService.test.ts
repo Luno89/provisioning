@@ -131,6 +131,44 @@ describe('column sorting', () => {
   });
 });
 
+describe('GPU is kept separate from system RAM', () => {
+  // A Vultr vcg-a40-96c-480g-192vram genuinely has 480GB of system RAM and 192GB of VRAM.
+  // Conflating them gives both a wildly wrong price-per-GB and a wildly wrong machine.
+  const gpuBox = offer({ planId: 'gpu', ramGb: 480, priceMonthly: 2000, gpuCount: 1, gpuVramGb: 192 } as any);
+  const plainBox = offer({ planId: 'plain', ramGb: 32, priceMonthly: 100 });
+
+  it('prices per GB against system RAM, not VRAM', () => {
+    expect(gpuBox.pricePerGbRam).toBeCloseTo(2000 / 480, 4);
+  });
+
+  it('hasGpu:false excludes GPU plans, which is the common case', () => {
+    const out = applyFilters([gpuBox, plainBox], { hasGpu: false });
+    expect(out.map((o) => o.planId)).toEqual(['plain']);
+  });
+
+  it('hasGpu:true keeps only GPU plans', () => {
+    expect(applyFilters([gpuBox, plainBox], { hasGpu: true }).map((o) => o.planId)).toEqual(['gpu']);
+  });
+
+  it('omitting hasGpu leaves both in — false must not be read as "unset"', () => {
+    expect(applyFilters([gpuBox, plainBox], {})).toHaveLength(2);
+  });
+
+  it('filters on minimum VRAM, excluding plans with no GPU at all', () => {
+    const small = offer({ planId: 'small-gpu', gpuCount: 1, gpuVramGb: 16 } as any);
+    const out = applyFilters([gpuBox, small, plainBox], { minGpuVramGb: 24 });
+    expect(out.map((o) => o.planId)).toEqual(['gpu']);
+  });
+
+  it('sorts by VRAM, falling back to card count where VRAM is unpublished', () => {
+    // Linode reports a GPU count but never VRAM, so those plans must still order sensibly
+    // rather than sinking as "unknown".
+    const noVram = offer({ planId: 'linode-gpu', gpuCount: 4 } as any);
+    const out = applyFilters([noVram, gpuBox, plainBox], { sort: 'gpu' });
+    expect(out.map((o) => o.planId)).toEqual(['gpu', 'linode-gpu', 'plain']);
+  });
+});
+
 describe('withDerived', () => {
   it('computes price per GB and a namespaced id', () => {
     const o = offer({ provider: 'hetzner', planId: 'cx53', ramGb: 32, priceMonthly: 22.49 });

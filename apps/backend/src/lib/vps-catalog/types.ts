@@ -31,9 +31,23 @@ export interface VpsOffer {
    */
   readonly arch: VpsArch;
 
+  /** System RAM available to the OS. Never GPU VRAM — see gpuVramGb. */
   readonly ramGb: number;
   readonly diskGb: number;
   readonly diskType?: string;
+
+  /**
+   * GPU attachment, kept strictly separate from ramGb. Conflating the two is easy and expensive:
+   * a Vultr `vcg-a40-96c-480g-192vram` has 480GB of system RAM and 192GB of VRAM, and treating
+   * either number as the other gives a wildly wrong price-per-GB and a wildly wrong machine.
+   *
+   * Coverage differs by provider — Scaleway reports VRAM structurally, Linode reports only a
+   * count, and Vultr encodes VRAM in the plan id alone. `undefined` means "not reported", never
+   * "zero".
+   */
+  readonly gpuCount?: number;
+  readonly gpuVramGb?: number;
+  readonly gpuModel?: string;
 
   /**
    * Included egress. Frequently the largest hidden cost difference between providers: Hetzner
@@ -74,7 +88,7 @@ export interface VpsOffer {
 }
 
 export type VpsSortKey =
-  | 'price' | 'pricePerGbRam' | 'ram' | 'vcpu' | 'disk' | 'bandwidth' | 'name';
+  | 'price' | 'pricePerGbRam' | 'ram' | 'vcpu' | 'disk' | 'bandwidth' | 'name' | 'gpu';
 
 /**
  * The direction each column should take on its FIRST click. Nobody wants "sort by RAM" to lead
@@ -88,6 +102,7 @@ export const NATURAL_SORT_DIR: Record<VpsSortKey, 'asc' | 'desc'> = {
   disk: 'desc',
   bandwidth: 'desc',
   name: 'asc',
+  gpu: 'desc',
 };
 
 export interface VpsCatalogFilters {
@@ -100,6 +115,9 @@ export interface VpsCatalogFilters {
   location?: string;
   arch?: VpsArch;
   cpuType?: VpsCpuType;
+  /** true = GPU plans only, false = exclude them. Omitted leaves both in. */
+  hasGpu?: boolean;
+  minGpuVramGb?: number;
   provider?: string;
   /** Only offers this platform can actually deploy to. */
   provisionableOnly?: boolean;

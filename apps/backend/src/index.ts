@@ -786,6 +786,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ...(q.location ? { location: q.location } : {}),
         ...(q.arch ? { arch: q.arch as any } : {}),
         ...(q.cpuType ? { cpuType: q.cpuType as any } : {}),
+        ...(q.hasGpu === 'true' ? { hasGpu: true } : q.hasGpu === 'false' ? { hasGpu: false } : {}),
+        ...(num(q.minGpuVramGb) !== undefined ? { minGpuVramGb: num(q.minGpuVramGb)! } : {}),
         ...(q.provider ? { provider: q.provider } : {}),
         ...(q.provisionableOnly === 'true' ? { provisionableOnly: true } : {}),
         ...(q.hourlyOnly === 'true' ? { hourlyOnly: true } : {}),

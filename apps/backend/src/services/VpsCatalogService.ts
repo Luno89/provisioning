@@ -168,6 +168,12 @@ export function applyFilters(offers: VpsOffer[], f: VpsCatalogFilters): VpsOffer
     if (f.maxPriceMonthly !== undefined && o.priceMonthly > f.maxPriceMonthly) return false;
     if (f.arch && o.arch !== f.arch) return false;
     if (f.cpuType && o.cpuType !== f.cpuType) return false;
+    // Explicit true/false, not truthiness — `false` legitimately means "exclude GPU plans", which
+    // is the common case when shopping for an app server and Vultr's GPU line dominates any
+    // vCPU- or bandwidth-sorted view.
+    if (f.hasGpu === true && !(o.gpuCount && o.gpuCount > 0)) return false;
+    if (f.hasGpu === false && o.gpuCount && o.gpuCount > 0) return false;
+    if (f.minGpuVramGb !== undefined && !(o.gpuVramGb !== undefined && o.gpuVramGb >= f.minGpuVramGb)) return false;
     if (f.provider && o.provider !== f.provider) return false;
     if (f.provisionableOnly && !o.provisionable) return false;
     if (f.hourlyOnly && !o.hourlyBilling) return false;
@@ -199,6 +205,9 @@ export function applyFilters(offers: VpsOffer[], f: VpsCatalogFilters): VpsOffer
         case 'vcpu': return o.vcpu;
         case 'disk': return o.diskGb > 0 ? o.diskGb : undefined;      // 0 means unknown, not 0GB
         case 'bandwidth': return o.bandwidthTb;                        // absent on some providers
+        // VRAM where known, else the card count — so GPU plans still order sensibly on providers
+        // that publish no VRAM at all (Linode). Non-GPU plans stay undefined and sink.
+        case 'gpu': return o.gpuVramGb ?? o.gpuCount;
         case 'pricePerGbRam':
         default: return o.pricePerGbRam;
       }
