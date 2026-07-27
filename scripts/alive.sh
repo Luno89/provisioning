@@ -35,41 +35,55 @@ if [ ! -f "$K3D" ] || ! "$K3D" --version >/dev/null 2>&1; then
   K3D="k3d"
 fi
 
-# Check K3d Cluster existence
-if [ $FAILED -eq 0 ]; then
-  if ! "$K3D" cluster list "${CLUSTER}" >/dev/null 2>&1; then
-    print_fail "K3d Cluster '${CLUSTER}' does not exist" "Run 'npm run dev' to initialize the development cluster, or start E2E setup."
-    FAILED=1
-  else
-    print_ok "K3d Cluster '${CLUSTER}' exists"
-  fi
-else
-  print_fail "Skipped K3d Cluster check (Docker is down)"
-fi
-
-# 3. Resolve KUBECTL binary & Check Kubernetes Nodes
+# Check management cluster existence.
+#
+# It may be k3d OR native k3s, and this check used to assume k3d. On a native-k3s host `k3d
+# cluster list` legitimately returns nothing, which reported "cluster does not exist" on a
+# perfectly healthy machine — and because every later check is gated on FAILED, that one false
+# negative suppressed the Kubernetes, Temporal and worker checks too, making the whole script
+# useless exactly when it was most needed.
+#
+# The kubeconfig context is named `k3d-<name>` in BOTH cases for legacy reasons, so it proves
+# nothing about the runtime; `systemctl is-active k3s` is also misleading because the unit is
+# `k3s-<cluster>.service`. Detect the k3s server process instead — see CLAUDE.md.
 KUBECTL="${ROOT}/bin/kubectl"
 if [ ! -f "$KUBECTL" ] || ! "$KUBECTL" version --client >/dev/null 2>&1; then
   KUBECTL="kubectl"
 fi
+CONTEXT="k3d-${CLUSTER}"
 
 if [ $FAILED -eq 0 ]; then
-  CONTEXT="k3d-${CLUSTER}"
-  if ! "$KUBECTL" get nodes --context "${CONTEXT}" -o json >/dev/null 2>&1; then
-    print_fail "Kubernetes API server for '${CLUSTER}' is unresponsive" "Verify the cluster containers are running in Docker."
-    FAILED=1
-  else
-    # Parse nodes to check for Ready status
-    NODES_READY=$("$KUBECTL" get nodes --context "${CONTEXT}" -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-    if [[ "$NODES_READY" =~ "True" ]]; then
-      print_ok "Kubernetes control plane has at least one Ready node"
+  # Existence is decided by whether a Kubernetes API answers, which is true for both runtimes and
+  # cannot be faked. Process-sniffing was tried and is unreliable: `pgrep -f 'k3s server'` also
+  # matches any shell whose command line merely contains that string, including this script's own
+  # wrapper under some runners.
+  if "$KUBECTL" get nodes --context "${CONTEXT}" -o json >/dev/null 2>&1; then
+    # Runtime is informational only — it never gates anything, so a wrong guess here is harmless.
+    if "$K3D" cluster list "${CLUSTER}" >/dev/null 2>&1; then
+      CLUSTER_RUNTIME="k3d"
     else
-      print_fail "Kubernetes cluster does not have any Ready nodes" "Check container resource limits or run 'colima restart'."
-      FAILED=1
+      CLUSTER_RUNTIME="native k3s"
     fi
+    print_ok "Cluster '${CLUSTER}' is reachable (${CLUSTER_RUNTIME})"
+  else
+    print_fail "Cluster '${CLUSTER}' is not reachable via context '${CONTEXT}'" "Run 'npm run dev' to initialize the development cluster, or start E2E setup."
+    FAILED=1
   fi
 else
-  print_fail "Skipped Kubernetes API check"
+  print_fail "Skipped cluster check (Docker is down)"
+fi
+
+# 3. Check Kubernetes node readiness (reachability was already established above)
+if [ $FAILED -eq 0 ]; then
+  NODES_READY=$("$KUBECTL" get nodes --context "${CONTEXT}" -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+  if [[ "$NODES_READY" =~ "True" ]]; then
+    print_ok "Kubernetes control plane has at least one Ready node"
+  else
+    print_fail "Kubernetes cluster does not have any Ready nodes" "Check container resource limits or run 'colima restart'."
+    FAILED=1
+  fi
+else
+  print_fail "Skipped Kubernetes node check"
 fi
 
 # 4. Check Temporal Server Health
@@ -115,6 +129,46 @@ if [ $FAILED -eq 0 ]; then
     else
       print_fail "No active workers detected (neither in-cluster pod nor host processes)" "Run 'npm run dev' to start the backend and worker processes on the host."
       FAILED=1
+    fi
+
+    # 5b. Worker staleness.
+    #
+    # The backend runs under `tsx watch` and reloads; the workers run plain `tsx` and DO NOT. So a
+    # worker silently keeps executing whatever code it started with, and nothing warns you. This
+    # has caused two separate multi-hour misdiagnoses: a PayloadCodec added to worker-host.ts five
+    # minutes after the workers booted left them unable to decode any payload the backend
+    # encrypted, and a contract change picked up by one half of a module pair but not the other
+    # returned HTTP 500 from a warm cache.
+    #
+    # Compared against apps/backend/src because that is what the workers import. index.ts is
+    # excluded (it is the backend entry, and it hot-reloads), as are tests. CDKTF constructs are
+    # excluded too: cdktf is a subprocess that reads its sources fresh, so editing one needs no
+    # worker restart — see CLAUDE.md.
+    if [ $HOST_WORKER_UP -eq 1 ] || [ $CLUSTER_WORKER_UP -eq 1 ]; then
+      WORKER_PID="$(pgrep -f 'worker-host' | head -1 || true)"
+      [ -z "$WORKER_PID" ] && WORKER_PID="$(pgrep -f 'worker-cluster' | head -1 || true)"
+
+      if [ -n "$WORKER_PID" ]; then
+        # ps -o lstart is not machine-readable across platforms; etimes (seconds alive) is.
+        WORKER_AGE="$(ps -o etimes= -p "$WORKER_PID" 2>/dev/null | tr -d ' ' || true)"
+        if [ -n "$WORKER_AGE" ]; then
+          WORKER_STARTED_AT=$(( $(date +%s) - WORKER_AGE ))
+          NEWEST_FILE="$(find "${ROOT}/apps/backend/src" -type f -name '*.ts' \
+            ! -name 'index.ts' ! -name '*.test.ts' -newermt "@${WORKER_STARTED_AT}" \
+            -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)"
+
+          if [ -n "$NEWEST_FILE" ]; then
+            STALE_COUNT="$(find "${ROOT}/apps/backend/src" -type f -name '*.ts' \
+              ! -name 'index.ts' ! -name '*.test.ts' -newermt "@${WORKER_STARTED_AT}" 2>/dev/null | wc -l | tr -d ' ')"
+            print_fail \
+              "Workers are STALE — ${STALE_COUNT} source file(s) changed since they started (newest: ${NEWEST_FILE#"${ROOT}/"})" \
+              "Workers do not hot-reload. Restart 'npm run dev', or the workers will keep running the old code with no error."
+            FAILED=1
+          else
+            print_ok "Workers are running current code (no source changes since they started)"
+          fi
+        fi
+      fi
     fi
   fi
 fi

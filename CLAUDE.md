@@ -154,7 +154,13 @@ k3s it binds the host's network stack directly; on k3d it is not published witho
 
 ## Testing escalation path
 
-1. **Alive** (`npm run test:alive`, `scripts/alive.sh`) — Docker, k3d management cluster, K8s API, Temporal, in-cluster worker pod. Fails fast with specific fix instructions. Runs automatically before E2E.
+1. **Alive** (`npm run test:alive`, `scripts/alive.sh`) — Docker, management cluster, K8s API, Temporal, workers. Fails fast with specific fix instructions. Runs automatically before E2E.
+   - Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not**
+     by `k3d cluster list` — that returns nothing on a native-k3s host and used to report a
+     healthy machine as broken, which then suppressed every later check.
+   - Also flags **stale workers**: any `apps/backend/src` file (excluding `index.ts` and tests)
+     modified after the worker process started. Workers don't hot-reload, so this is otherwise
+     silent — it has caused two multi-hour misdiagnoses.
 2. **Unit** (`npm run test:unit`) — Vitest, frontend + backend, <5s.
 3. **Worker isolation** (`npm run test:worker`, `tests/worker-isolated.ts` via `npx tsx`) — runs real Temporal workflows (`ClusterProvisionWorkflow`, `AppDeployWorkflow`, etc.) end-to-end (k3d, CDKTF, Helm, kubectl) without a browser or webserver.
 4. **Full E2E** (`npm run test:e2e`) — Playwright driving the React UI; starts host and cluster workers on the host network to support all deployment types.
