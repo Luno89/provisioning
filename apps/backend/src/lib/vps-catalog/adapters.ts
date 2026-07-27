@@ -220,9 +220,75 @@ export const digitalOceanAdapter: VpsCatalogAdapter = {
   },
 };
 
+// ── Scaleway ───────────────────────────────────────────────────────────────
+// Public, no auth, and the only public catalogue here that reports architecture directly —
+// roughly a third of its range is arm64, which matters for x86-only images.
+//
+// Products are per-zone and the ranges differ between them, so several zones are queried and
+// merged by product name, accumulating the zones each product is available in.
+const SCALEWAY_ZONES = ['fr-par-1', 'fr-par-2', 'nl-ams-1', 'pl-waw-1'] as const;
+
+export const scalewayAdapter: VpsCatalogAdapter = {
+  provider: 'scaleway',
+  requiresCredentials: false,
+  provisionable: false,
+  async fetch() {
+    const byPlan = new Map<string, { raw: any; zones: string[] }>();
+
+    // allSettled, not all: one unreachable zone shouldn't drop the whole provider.
+    const results = await Promise.allSettled(
+      SCALEWAY_ZONES.map(async (z) => ({
+        zone: z,
+        data: await getJson(`https://api.scaleway.com/instance/v1/zones/${z}/products/servers`),
+      })),
+    );
+
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      for (const [name, raw] of Object.entries<any>(r.value.data?.servers ?? {})) {
+        const existing = byPlan.get(name);
+        if (existing) existing.zones.push(r.value.zone);
+        else byPlan.set(name, { raw, zones: [r.value.zone] });
+      }
+    }
+
+    const offers: VpsOffer[] = [];
+    for (const [name, { raw, zones }] of byPlan) {
+      // end_of_service products can still be listed but can't be ordered.
+      if (raw?.end_of_service) continue;
+      const monthly = Number(raw?.monthly_price ?? 0);
+      if (!monthly) continue;
+
+      offers.push(withDerived({
+        provider: 'scaleway',
+        planId: name,
+        label: name,
+        vcpu: Number(raw.ncpus ?? 0),
+        // Scaleway doesn't distinguish shared from dedicated in this payload.
+        cpuType: 'unknown',
+        arch: String(raw.arch ?? '') === 'arm64' ? 'arm' : 'x86',
+        // RAM is bytes here, unlike Linode (MB) and Vultr (MB).
+        ramGb: Math.round(Number(raw.ram ?? 0) / 1024 ** 3),
+        // Local SSD is optional on most ranges (they default to network block storage), so a
+        // 0 max_size means "no bundled local disk" rather than a real capacity.
+        diskGb: Math.round(Number(raw?.per_volume_constraint?.l_ssd?.max_size ?? 0) / 1024 ** 3),
+        priceMonthly: monthly,
+        ...(typeof raw.hourly_price === 'number' ? { priceHourly: raw.hourly_price } : {}),
+        currency: 'EUR',
+        taxIncluded: false,
+        hourlyBilling: true,
+        locations: zones,
+        provisionable: false,
+      }));
+    }
+    return offers;
+  },
+};
+
 export const ADAPTERS: readonly VpsCatalogAdapter[] = [
   hetznerAdapter,
   linodeAdapter,
   vultrAdapter,
   digitalOceanAdapter,
+  scalewayAdapter,
 ];
