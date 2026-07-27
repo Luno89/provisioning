@@ -5,7 +5,7 @@
  * awkward parts (Linode's null-priced plans, Vultr's 0-RAM bare-metal entries, Hetzner's per-
  * location pricing and net/gross split).
  */
-import { withDerived, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer } from './types.js';
+import { withDerived, type AdapterResult, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer } from './types.js';
 
 const TIMEOUT_MS = 15_000;
 
@@ -31,11 +31,12 @@ export const linodeAdapter: VpsCatalogAdapter = {
   async fetch() {
     const data = await getJson('https://api.linode.com/v4/linode/types');
     const offers: VpsOffer[] = [];
+    let skippedNoPrice = 0;
     for (const p of data?.data ?? []) {
       // Some plans (GPU/premium tiers) return a null monthly price. Skipping beats rendering a
       // "$0/mo" row that looks like the cheapest option on the page.
       const monthly = p?.price?.monthly;
-      if (typeof monthly !== 'number' || monthly <= 0) continue;
+      if (typeof monthly !== 'number' || monthly <= 0) { skippedNoPrice++; continue; }
 
       const cls = String(p.class ?? '');
       const cpuType: VpsCpuType =
@@ -68,7 +69,7 @@ export const linodeAdapter: VpsCatalogAdapter = {
         provisionable: false,
       }));
     }
-    return offers;
+    return { offers, skippedNoPrice };
   },
 };
 
@@ -81,9 +82,10 @@ export const vultrAdapter: VpsCatalogAdapter = {
   async fetch() {
     const data = await getJson('https://api.vultr.com/v2/plans?per_page=500');
     const offers: VpsOffer[] = [];
+    let skippedNoPrice = 0;
     for (const p of data?.plans ?? []) {
       const monthly = Number(p?.monthly_cost ?? 0);
-      if (!monthly) continue;
+      if (!monthly) { skippedNoPrice++; continue; }
 
       // Checked live: `vcpu_type` is the literal string "thread" on every plan and carries no
       // shared/dedicated information at all. The plan-family prefix in `type` is the real signal.
@@ -146,7 +148,7 @@ export const vultrAdapter: VpsCatalogAdapter = {
         provisionable: false,
       }));
     }
-    return offers;
+    return { offers, skippedNoPrice };
   },
 };
 
@@ -158,11 +160,12 @@ export const hetznerAdapter: VpsCatalogAdapter = {
   // The only provider with a real provisioning path today (constructs/hetzner-vm.ts).
   provisionable: true,
   async fetch(token?: string) {
-    if (!token) return [];
+    if (!token) return { offers: [], skippedNoPrice: 0 };
     const data = await getJson('https://api.hetzner.cloud/v1/server_types?per_page=100', {
       Authorization: `Bearer ${token}`,
     });
     const offers: VpsOffer[] = [];
+    let skippedNoPrice = 0;
     for (const st of data?.server_types ?? []) {
       if (st?.deprecated) continue; // Not orderable; showing it invites picking a dead plan.
 
@@ -172,7 +175,7 @@ export const hetznerAdapter: VpsCatalogAdapter = {
       const monthlyNet = prices
         .map((p) => Number(p?.price_monthly?.net ?? NaN))
         .filter((n) => Number.isFinite(n) && n > 0);
-      if (monthlyNet.length === 0) continue;
+      if (monthlyNet.length === 0) { skippedNoPrice++; continue; }
       const monthly = Math.min(...monthlyNet);
       const hourlyNet = prices
         .map((p) => Number(p?.price_hourly?.net ?? NaN))
@@ -198,7 +201,7 @@ export const hetznerAdapter: VpsCatalogAdapter = {
         provisionable: true,
       }));
     }
-    return offers;
+    return { offers, skippedNoPrice };
   },
 };
 
@@ -208,15 +211,16 @@ export const digitalOceanAdapter: VpsCatalogAdapter = {
   requiresCredentials: true,
   provisionable: false,
   async fetch(token?: string) {
-    if (!token) return [];
+    if (!token) return { offers: [], skippedNoPrice: 0 };
     const data = await getJson('https://api.digitalocean.com/v2/sizes?per_page=200', {
       Authorization: `Bearer ${token}`,
     });
     const offers: VpsOffer[] = [];
+    let skippedNoPrice = 0;
     for (const s of data?.sizes ?? []) {
       if (s?.available === false) continue;
       const monthly = Number(s?.price_monthly ?? 0);
-      if (!monthly) continue;
+      if (!monthly) { skippedNoPrice++; continue; }
 
       const slug = String(s.slug ?? '');
       offers.push(withDerived({
@@ -239,7 +243,7 @@ export const digitalOceanAdapter: VpsCatalogAdapter = {
         provisionable: false,
       }));
     }
-    return offers;
+    return { offers, skippedNoPrice };
   },
 };
 
@@ -276,11 +280,12 @@ export const scalewayAdapter: VpsCatalogAdapter = {
     }
 
     const offers: VpsOffer[] = [];
+    let skippedNoPrice = 0;
     for (const [name, { raw, zones }] of byPlan) {
       // end_of_service products can still be listed but can't be ordered.
       if (raw?.end_of_service) continue;
       const monthly = Number(raw?.monthly_price ?? 0);
-      if (!monthly) continue;
+      if (!monthly) { skippedNoPrice++; continue; }
 
       offers.push(withDerived({
         provider: 'scaleway',
@@ -320,7 +325,7 @@ export const scalewayAdapter: VpsCatalogAdapter = {
         provisionable: false,
       }));
     }
-    return offers;
+    return { offers, skippedNoPrice };
   },
 };
 

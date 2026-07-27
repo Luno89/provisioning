@@ -797,6 +797,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       });
       res.json(result);
     } catch (err: any) {
+      // search() is meant to absorb per-provider failures into `sources` and still return, so
+      // reaching here means something structural broke. Logged with the stack because the response
+      // body alone left no server-side trace of an empty catalogue.
+      console.error('[vps-catalog] search failed:', err.stack ?? err.message);
       res.status(500).json({ error: err.message });
     }
   });

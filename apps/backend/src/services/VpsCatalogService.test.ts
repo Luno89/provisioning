@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { applyFilters } from './VpsCatalogService.js';
+import { applyFilters, VpsCatalogService } from './VpsCatalogService.js';
 import { withDerived } from '../lib/vps-catalog/types.js';
-import type { VpsOffer } from '../lib/vps-catalog/types.js';
+import type { VpsCatalogAdapter, VpsOffer } from '../lib/vps-catalog/types.js';
 
 const offer = (o: Partial<Parameters<typeof withDerived>[0]> = {}): VpsOffer =>
   withDerived({
@@ -131,6 +131,25 @@ describe('column sorting', () => {
   });
 });
 
+describe('hourly pricing', () => {
+  it('sorts by hourly rate independently of the monthly price', async () => {
+    // Not derived from monthly: providers set the two independently, so a plan can be cheaper by
+    // the month and dearer by the hour. For clusters created and destroyed on demand, the hourly
+    // figure is the one that bills.
+    const cheapMonthly = offer({ planId: 'monthly-deal', priceMonthly: 10, priceHourly: 0.05 } as any);
+    const cheapHourly = offer({ planId: 'hourly-deal', priceMonthly: 40, priceHourly: 0.001 } as any);
+    expect(applyFilters([cheapMonthly, cheapHourly], { sort: 'price' })[0]!.planId).toBe('monthly-deal');
+    expect(applyFilters([cheapMonthly, cheapHourly], { sort: 'priceHourly' })[0]!.planId).toBe('hourly-deal');
+  });
+
+  it('sinks plans with no hourly rate to the bottom in both directions', async () => {
+    const known = offer({ planId: 'known', priceHourly: 0.02 } as any);
+    const missing = offer({ planId: 'missing' });
+    expect(applyFilters([missing, known], { sort: 'priceHourly', sortDir: 'asc' })[0]!.planId).toBe('known');
+    expect(applyFilters([missing, known], { sort: 'priceHourly', sortDir: 'desc' })[0]!.planId).toBe('known');
+  });
+});
+
 describe('GPU is kept separate from system RAM', () => {
   // A Vultr vcg-a40-96c-480g-192vram genuinely has 480GB of system RAM and 192GB of VRAM.
   // Conflating them gives both a wildly wrong price-per-GB and a wildly wrong machine.
@@ -186,6 +205,66 @@ describe('GPU is kept separate from system RAM', () => {
     const noVram = offer({ planId: 'linode-gpu', gpuCount: 4 } as any);
     const out = applyFilters([noVram, gpuBox, plainBox], { sort: 'gpu' });
     expect(out.map((o) => o.planId)).toEqual(['gpu', 'linode-gpu', 'plain']);
+  });
+});
+
+describe('one bad provider must not empty the whole catalogue', () => {
+  // Regression: a stale dev process paired a new adapter (returning {offers, skippedNoPrice}) with
+  // an old service (expecting a bare array). The spread threw, but the cache had already been
+  // written, so every later request died on the cache-hit path — which sat outside the try/catch.
+  // Result: HTTP 500 and an empty table, while three providers were perfectly healthy.
+  const stubDb = { getUserById: async () => undefined } as any;
+
+  const good = (provider: string): VpsCatalogAdapter => ({
+    provider, requiresCredentials: false, provisionable: false,
+    fetch: async () => ({ offers: [offer({ provider, planId: `${provider}-1` })], skippedNoPrice: 0 }),
+  });
+
+  const svc = (adapters: VpsCatalogAdapter[]) =>
+    new VpsCatalogService(stubDb, 'test-key', adapters);
+
+  it('still returns healthy providers when one adapter throws', async () => {
+    const boom: VpsCatalogAdapter = {
+      provider: 'boom', requiresCredentials: false, provisionable: false,
+      fetch: async () => { throw new Error('upstream 503'); },
+    };
+    const r = await svc([good('linode'), boom, good('vultr')]).search('u1', {});
+    expect(r.offers.map((o) => o.provider).sort()).toEqual(['linode', 'vultr']);
+    expect(r.sources.find((s) => s.provider === 'boom')).toMatchObject({
+      status: 'error', offerCount: 0, message: 'upstream 503',
+    });
+  });
+
+  it('survives an adapter whose result shape is wrong, and does not poison the cache', async () => {
+    // The exact stale-process mismatch: a bare array where {offers} was expected.
+    const malformed: VpsCatalogAdapter = {
+      provider: 'malformed', requiresCredentials: false, provisionable: false,
+      fetch: async () => [offer({ provider: 'malformed' })] as any,
+    };
+    const s = svc([good('linode'), malformed]);
+
+    const first = await s.search('u1', {});
+    expect(first.offers.map((o) => o.provider)).toEqual(['linode']);
+    expect(first.sources.find((x) => x.provider === 'malformed')?.status).toBe('error');
+
+    // Second call must behave identically. Previously this one 500'd, because the first had
+    // already cached the unusable value and the cache-hit spread was unguarded.
+    const second = await s.search('u1', {});
+    expect(second.offers.map((o) => o.provider)).toEqual(['linode']);
+    expect(second.sources.find((x) => x.provider === 'malformed')?.status).toBe('error');
+  });
+
+  it('does not reject when token resolution blows up for a credentialed provider', async () => {
+    // resolveToken() calls the DB and used to sit outside the try, so a DB hiccup 500'd the
+    // entire search rather than dropping the one provider that needed a token.
+    const failingDb = { getUserById: async () => { throw new Error('mongo unavailable'); } } as any;
+    const gated: VpsCatalogAdapter = {
+      provider: 'hetzner', requiresCredentials: true, provisionable: true,
+      fetch: async () => ({ offers: [], skippedNoPrice: 0 }),
+    };
+    const r = await new VpsCatalogService(failingDb, 'test-key', [good('vultr'), gated]).search('u1', {});
+    expect(r.offers.map((o) => o.provider)).toEqual(['vultr']);
+    expect(r.sources.find((s) => s.provider === 'hetzner')?.status).toBe('error');
   });
 });
 

@@ -23,10 +23,18 @@ interface VpsOffer {
 interface VpsSource {
   provider: string; status: 'ok' | 'no-credentials' | 'error';
   offerCount: number; message?: string; requiresCredentials: boolean; cached: boolean;
+  skippedNoPrice?: number;
 }
 interface CatalogResult { offers: VpsOffer[]; sources: VpsSource[]; fetchedAt: string }
 
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€' };
+
+/**
+ * Mirrors offerHasGpu() on the backend. Providers publish different subsets — Vultr gives VRAM and
+ * a brand but no card count, Linode gives a count but no VRAM — so keying off any single field
+ * hides whole providers' GPU ranges.
+ */
+const hasGpuOffer = (o: VpsOffer) => Boolean(o.gpuCount || o.gpuVramGb || o.gpuModel);
 
 export default function VpsCatalog({ apiBase }: { apiBase: string }) {
   const [minRamGb, setMinRamGb] = useState('');
@@ -65,6 +73,10 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
   });
 
   const money = (n: number, c: string) => `${CURRENCY_SYMBOL[c] ?? ''}${n.toFixed(2)}`;
+  // Hourly rates run to fractions of a cent — Vultr's cheapest is $0.003/hr, which two decimals
+  // would render as "$0.00". Four decimals below a dollar, two above, so GPU plans stay readable.
+  const hourly = (n: number, c: string) =>
+    `${CURRENCY_SYMBOL[c] ?? ''}${n >= 1 ? n.toFixed(2) : n.toFixed(4)}`;
 
   /**
    * First click on a column uses whatever direction reads naturally for it — cheapest-first for
@@ -72,7 +84,7 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
    * with NATURAL_SORT_DIR on the backend, which applies the same defaults when none is sent.
    */
   const NATURAL_DIR: Record<string, 'asc' | 'desc'> = {
-    price: 'asc', pricePerGbRam: 'asc', name: 'asc',
+    price: 'asc', priceHourly: 'asc', pricePerGbRam: 'asc', name: 'asc',
     ram: 'desc', vcpu: 'desc', disk: 'desc', bandwidth: 'desc', gpu: 'desc',
     pricePerGbVram: 'asc',
   };
@@ -206,7 +218,16 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
               }`}>
               {s.status === 'ok' ? <Check size={11} /> : s.status === 'no-credentials' ? <Info size={11} /> : <AlertTriangle size={11} />}
               {s.provider}
-              {s.status === 'ok' && <span className="text-slate-500">{s.offerCount} plans{s.cached ? ' · cached' : ''}</span>}
+              {s.status === 'ok' && (
+                <span className="text-slate-500">
+                  {s.offerCount} plans{s.cached ? ' · cached' : ''}
+                  {s.skippedNoPrice ? (
+                    <span title={`${s.skippedNoPrice} plans are listed by ${s.provider} without a price and can't be compared — Linode's GPU range is entirely unpriced.`}>
+                      {' '}· {s.skippedNoPrice} unpriced
+                    </span>
+                  ) : null}
+                </span>
+              )}
               {s.status === 'no-credentials' && <span className="text-slate-600">add a token to include</span>}
               {s.status === 'error' && <span className="text-slate-500">unavailable</span>}
             </div>
@@ -232,17 +253,18 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
               {sortableHeader('bandwidth', 'Bandwidth')}
               {sortableHeader('pricePerGbRam', 'Per GB RAM')}
               {sortableHeader('pricePerGbVram', 'Per GB VRAM')}
+              {sortableHeader('priceHourly', 'Price / hr')}
               {sortableHeader('price', 'Price / mo', 'right', 'px-5')}
             </tr>
           </thead>
           <tbody>
             {isFetching && !data && (
-              <tr><td colSpan={9} className="px-5 py-10 text-center text-slate-500">
+              <tr><td colSpan={10} className="px-5 py-10 text-center text-slate-500">
                 <Loader2 className="animate-spin inline mr-2" size={16} /> Querying providers…
               </td></tr>
             )}
             {data?.offers.length === 0 && (
-              <tr><td colSpan={9} className="px-5 py-10 text-center text-slate-500 text-xs">
+              <tr><td colSpan={10} className="px-5 py-10 text-center text-slate-500 text-xs">
                 No plans match these filters. Try relaxing the RAM or price limit.
               </td></tr>
             )}
@@ -268,9 +290,17 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
                 <td className="text-right px-3 py-3 text-slate-300">{o.vcpu}</td>
                 <td className="text-right px-3 py-3 text-slate-300">{o.ramGb} GB</td>
                 <td className="text-right px-3 py-3">
-                  {o.gpuCount ? (
+                  {hasGpuOffer(o) ? (
                     <>
-                      <div className="text-slate-300">{o.gpuVramGb ? `${o.gpuVramGb} GB` : `${o.gpuCount}×`}</div>
+                      <div className="text-slate-300">
+                        {/* Card count is only shown when the provider actually publishes one.
+                            Vultr publishes VRAM and a brand but no count, so requiring a count
+                            here blanked out its entire GPU line. */}
+                        {o.gpuVramGb ? `${o.gpuVramGb} GB` : o.gpuCount ? `${o.gpuCount}×` : '—'}
+                        {o.gpuVramGb && o.gpuCount ? (
+                          <span className="text-slate-500"> · {o.gpuCount}×</span>
+                        ) : null}
+                      </div>
                       {o.gpuModel && <div className="text-[10px] text-slate-600">{o.gpuModel}</div>}
                     </>
                   ) : <span className="text-slate-600">—</span>}
@@ -280,6 +310,9 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
                 <td className="text-right px-3 py-3 text-slate-400">{money(o.pricePerGbRam, o.currency)}</td>
                 <td className="text-right px-3 py-3 text-slate-400">
                   {o.pricePerGbVram !== undefined ? money(o.pricePerGbVram, o.currency) : <span className="text-slate-600">—</span>}
+                </td>
+                <td className="text-right px-3 py-3 text-slate-400">
+                  {o.priceHourly !== undefined ? hourly(o.priceHourly, o.currency) : <span className="text-slate-600">—</span>}
                 </td>
                 <td className="text-right px-5 py-3">
                   <div className="font-bold text-white">{money(o.priceMonthly, o.currency)}</div>

@@ -16,6 +16,7 @@ import { resolveCloudCredentials } from '../lib/credential-resolver.js';
 import { ADAPTERS } from '../lib/vps-catalog/adapters.js';
 import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';
 import type {
+  VpsCatalogAdapter,
   VpsCatalogFilters,
   VpsCatalogResult,
   VpsCatalogSource,
@@ -31,6 +32,7 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 interface CacheEntry {
   offers: VpsOffer[];
+  skippedNoPrice: number;
   fetchedAt: number;
 }
 
@@ -41,6 +43,8 @@ export class VpsCatalogService {
   constructor(
     private readonly db: Database,
     private readonly masterKey: string,
+    /** Injectable so tests can drive failing/malformed adapters; production uses the real list. */
+    private readonly adapters: readonly VpsCatalogAdapter[] = ADAPTERS,
   ) {}
 
   /**
@@ -77,52 +81,33 @@ export class VpsCatalogService {
 
     // Fetched in parallel: one slow or down provider shouldn't serialise the others.
     await Promise.all(
-      ADAPTERS.map(async (adapter) => {
-        const token = adapter.requiresCredentials
-          ? await this.resolveToken(userId, adapter.provider)
-          : undefined;
-
-        if (adapter.requiresCredentials && !token) {
-          sources.push({
-            provider: adapter.provider,
-            status: 'no-credentials',
-            offerCount: 0,
-            requiresCredentials: true,
-            cached: false,
-            message: `Add a ${adapter.provider} API token under Cloud Accounts to include its plans.`,
-          });
-          return;
-        }
-
-        const key = this.cacheKey(adapter.provider, token);
-        const hit = this.cache.get(key);
-        if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) {
-          all.push(...hit.offers);
-          sources.push({
-            provider: adapter.provider,
-            status: 'ok',
-            offerCount: hit.offers.length,
-            requiresCredentials: adapter.requiresCredentials,
-            cached: true,
-          });
-          return;
-        }
-
+      this.adapters.map(async (adapter) => {
+        // EVERYTHING for one provider stays inside this try. Reporting per-provider `sources` only
+        // degrades gracefully if nothing here can throw out into Promise.all — a rejection there
+        // fails the whole search and 500s the route, so one bad provider takes down four healthy
+        // ones. Token resolution and the cache-hit spread both used to sit outside the try, which
+        // is exactly how a stale worker process turned into an empty catalogue with no explanation.
+        let hit: CacheEntry | undefined;
         try {
-          const offers = await adapter.fetch(token);
-          this.cache.set(key, { offers, fetchedAt: Date.now() });
-          all.push(...offers);
-          sources.push({
-            provider: adapter.provider,
-            status: 'ok',
-            offerCount: offers.length,
-            requiresCredentials: adapter.requiresCredentials,
-            cached: false,
-          });
-        } catch (err: any) {
-          // Serve stale rather than nothing — an expired cache entry is far more useful than an
-          // empty table when a provider's API is briefly down.
-          if (hit) {
+          const token = adapter.requiresCredentials
+            ? await this.resolveToken(userId, adapter.provider)
+            : undefined;
+
+          if (adapter.requiresCredentials && !token) {
+            sources.push({
+              provider: adapter.provider,
+              status: 'no-credentials',
+              offerCount: 0,
+              requiresCredentials: true,
+              cached: false,
+              message: `Add a ${adapter.provider} API token under Cloud Accounts to include its plans.`,
+            });
+            return;
+          }
+
+          const key = this.cacheKey(adapter.provider, token);
+          hit = this.cache.get(key);
+          if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) {
             all.push(...hit.offers);
             sources.push({
               provider: adapter.provider,
@@ -130,6 +115,42 @@ export class VpsCatalogService {
               offerCount: hit.offers.length,
               requiresCredentials: adapter.requiresCredentials,
               cached: true,
+              ...(hit.skippedNoPrice ? { skippedNoPrice: hit.skippedNoPrice } : {}),
+            });
+            return;
+          }
+
+          const result = await adapter.fetch(token);
+          // Validated BEFORE it reaches the cache. The old order wrote the entry first and only
+          // failed on the spread afterwards, so a single malformed result poisoned the cache for
+          // the full 6h TTL and every later request died on the cache-hit path instead.
+          if (!result || !Array.isArray(result.offers)) {
+            throw new Error(`${adapter.provider} adapter returned no offers array`);
+          }
+          const { offers, skippedNoPrice } = result;
+          this.cache.set(key, { offers, skippedNoPrice: skippedNoPrice ?? 0, fetchedAt: Date.now() });
+          all.push(...offers);
+          sources.push({
+            provider: adapter.provider,
+            status: 'ok',
+            offerCount: offers.length,
+            requiresCredentials: adapter.requiresCredentials,
+            cached: false,
+            ...(skippedNoPrice ? { skippedNoPrice } : {}),
+          });
+        } catch (err: any) {
+          // Serve stale rather than nothing — an expired cache entry is far more useful than an
+          // empty table when a provider's API is briefly down. Re-checked with isArray because the
+          // entry itself may be what failed above.
+          if (hit && Array.isArray(hit.offers)) {
+            all.push(...hit.offers);
+            sources.push({
+              provider: adapter.provider,
+              status: 'ok',
+              offerCount: hit.offers.length,
+              requiresCredentials: adapter.requiresCredentials,
+              cached: true,
+              ...(hit.skippedNoPrice ? { skippedNoPrice: hit.skippedNoPrice } : {}),
               message: `Served from an expired cache — refresh failed: ${err.message}`,
             });
             return;
@@ -201,6 +222,9 @@ export function applyFilters(offers: VpsOffer[], f: VpsCatalogFilters): VpsOffer
     const value = (o: typeof a): number | undefined => {
       switch (sort) {
         case 'price': return o.priceMonthly;
+        // Not derived from the monthly figure: providers set it independently, and for a platform
+        // that creates and destroys clusters on demand it is the number that actually bills.
+        case 'priceHourly': return o.priceHourly;
         case 'ram': return o.ramGb;
         case 'vcpu': return o.vcpu;
         case 'disk': return o.diskGb > 0 ? o.diskGb : undefined;      // 0 means unknown, not 0GB

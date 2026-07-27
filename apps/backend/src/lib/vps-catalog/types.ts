@@ -102,8 +102,8 @@ export function offerHasGpu(o: Pick<VpsOffer, 'gpuCount' | 'gpuVramGb' | 'gpuMod
 }
 
 export type VpsSortKey =
-  | 'price' | 'pricePerGbRam' | 'ram' | 'vcpu' | 'disk' | 'bandwidth' | 'name' | 'gpu'
-  | 'pricePerGbVram';
+  | 'price' | 'priceHourly' | 'pricePerGbRam' | 'ram' | 'vcpu' | 'disk' | 'bandwidth' | 'name'
+  | 'gpu' | 'pricePerGbVram';
 
 /**
  * The direction each column should take on its FIRST click. Nobody wants "sort by RAM" to lead
@@ -111,6 +111,7 @@ export type VpsSortKey =
  */
 export const NATURAL_SORT_DIR: Record<VpsSortKey, 'asc' | 'desc'> = {
   price: 'asc',
+  priceHourly: 'asc',
   pricePerGbRam: 'asc',
   ram: 'desc',
   vcpu: 'desc',
@@ -164,6 +165,8 @@ export interface VpsCatalogSource {
   /** Whether this provider's catalogue needs the user's API token. */
   requiresCredentials: boolean;
   cached: boolean;
+  /** Plans the provider lists but doesn't price — see AdapterResult.skippedNoPrice. */
+  skippedNoPrice?: number;
 }
 
 /**
@@ -177,7 +180,17 @@ export interface VpsCatalogAdapter {
   readonly requiresCredentials: boolean;
   /** True when a ProvisionClusterActivity branch exists for this provider. */
   readonly provisionable: boolean;
-  fetch(token?: string): Promise<VpsOffer[]>;
+  fetch(token?: string): Promise<AdapterResult>;
+}
+
+export interface AdapterResult {
+  offers: VpsOffer[];
+  /**
+   * Plans dropped because the provider published no price. Reported rather than silently
+   * swallowed: every Linode GPU plan is unpriced, so 30 of its 75 plans vanish — and a user
+   * filtering for GPUs would otherwise just see Linode contribute nothing, with no explanation.
+   */
+  skippedNoPrice: number;
 }
 
 /** Shared helper so every adapter derives this the same way. */
