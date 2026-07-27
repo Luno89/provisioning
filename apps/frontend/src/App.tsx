@@ -115,6 +115,8 @@ function App() {
   );
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
+  /** Set by the VPS Catalog's Deploy button so the wizard opens on that exact plan and location. */
+  const [wizardPreset, setWizardPreset] = useState<{ provider: string; serverType?: string; location?: string } | undefined>(undefined);
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
   const [confirmDestroy, setConfirmDestroy] = useState<{ type: 'cluster' | 'app', id: string, name: string, isAbort?: boolean } | null>(null);
@@ -1257,7 +1259,17 @@ function App() {
           <CloudAccounts apiBase={API_BASE} />
         )}
         {view === 'vps-catalog' && (
-          <VpsCatalog apiBase={API_BASE} />
+          <VpsCatalog
+            apiBase={API_BASE}
+            onDeploy={(offer) => {
+              setWizardPreset({
+                provider: offer.provider,
+                serverType: offer.planId,
+                ...(offer.location ? { location: offer.location } : {}),
+              });
+              setShowClusterModal(true);
+            }}
+          />
         )}
         {view === 'projects' && (
           <Projects apiBase={API_BASE} socketUrl={SOCKET_URL} clusters={clusters} />
@@ -2597,12 +2609,16 @@ function App() {
 
       {showClusterModal && (
         <ClusterWizard
+          // Remounts when the preset changes, so a second Deploy click from the catalogue seeds
+          // fresh initial state instead of reusing the first plan's.
+          key={wizardPreset ? `${wizardPreset.provider}:${wizardPreset.serverType}:${wizardPreset.location}` : 'blank'}
           apiBase={API_BASE}
           configuredProviders={credentialsData?.providers ?? []}
           submitting={provisionCluster.isPending}
-          onCancel={() => setShowClusterModal(false)}
+          onCancel={() => { setShowClusterModal(false); setWizardPreset(undefined); }}
           onCredentialsSaved={() => queryClient.invalidateQueries({ queryKey: ['credentials'] })}
           onSubmit={(payload) => provisionCluster.mutate(payload)}
+          {...(wizardPreset ? { preset: wizardPreset } : {})}
         />
       )}
 

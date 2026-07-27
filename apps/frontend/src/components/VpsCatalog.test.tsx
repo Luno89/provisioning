@@ -45,7 +45,7 @@ const cpuOnly = {
   label: 'Linode 4GB', ramGb: 4,
 };
 
-const renderWith = (offers: unknown[]) => {
+const renderWith = (offers: unknown[], onDeploy?: (o: any) => void) => {
   mockedAxios.get.mockResolvedValue({
     data: {
       offers,
@@ -56,7 +56,7 @@ const renderWith = (offers: unknown[]) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <VpsCatalog apiBase="http://localhost:3001/api" />
+      <VpsCatalog apiBase="http://localhost:3001/api" {...(onDeploy ? { onDeploy } : {})} />
     </QueryClientProvider>,
   );
 };
@@ -137,5 +137,38 @@ describe('VpsCatalog GPU / VRAM cell', () => {
     const row = screen.getByText('L4-2-24G').closest('tr')!;
     expect(row.querySelectorAll('td')[2]!.textContent).toBe('96 GB');
     expect(gpuCell('L4-2-24G').textContent).not.toContain('96');
+  });
+});
+
+describe('Deploy button', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const deployable = { ...cpuOnly, provider: 'hetzner', planId: 'cx33', id: 'hetzner:cx33@fsn1', provisionable: true, locations: ['fsn1', 'hel1'] };
+
+  const deployBtn = (planId: string) =>
+    screen.getByText(planId).closest('tr')!.querySelector('button');
+
+  it('offers Deploy only on provisionable rows', async () => {
+    renderWith([deployable, cpuOnly], vi.fn());
+    await waitFor(() => expect(screen.getByText('cx33')).toBeDefined());
+    expect(deployBtn('cx33')?.textContent).toBe('Deploy');
+    // A Deploy button on a priced-but-undeployable provider would be a promise we cannot keep.
+    expect(deployBtn('g6-standard-2')).toBeNull();
+  });
+
+  it('passes the row\'s own location, not the plan\'s cheapest', async () => {
+    // The row exists separately precisely because its price is specific to these locations —
+    // handing the wizard a different one would provision at a price the user never saw.
+    const onDeploy = vi.fn();
+    renderWith([deployable], onDeploy);
+    await waitFor(() => expect(screen.getByText('cx33')).toBeDefined());
+    deployBtn('cx33')!.click();
+    expect(onDeploy).toHaveBeenCalledWith({ provider: 'hetzner', planId: 'cx33', location: 'fsn1' });
+  });
+
+  it('renders no Deploy column content when the host provides no handler', async () => {
+    renderWith([deployable]);
+    await waitFor(() => expect(screen.getByText('cx33')).toBeDefined());
+    expect(deployBtn('cx33')).toBeNull();
   });
 });

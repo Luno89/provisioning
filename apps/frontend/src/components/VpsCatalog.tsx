@@ -36,7 +36,17 @@ const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€' };
  */
 const hasGpuOffer = (o: VpsOffer) => Boolean(o.gpuCount || o.gpuVramGb || o.gpuModel);
 
-export default function VpsCatalog({ apiBase }: { apiBase: string }) {
+interface VpsCatalogProps {
+  apiBase: string;
+  /**
+   * Opens the cluster wizard pre-filled with this plan. Only offered on `provisionable` rows —
+   * the platform can price far more providers than it can actually deploy to, and a Deploy button
+   * on a Linode row would be a promise it cannot keep.
+   */
+  onDeploy?: (offer: { provider: string; planId: string; location?: string }) => void;
+}
+
+export default function VpsCatalog({ apiBase, onDeploy }: VpsCatalogProps) {
   const [minRamGb, setMinRamGb] = useState('');
   const [minVcpu, setMinVcpu] = useState('');
   const [minDiskGb, setMinDiskGb] = useState('');
@@ -255,16 +265,17 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
               {sortableHeader('pricePerGbVram', 'Per GB VRAM')}
               {sortableHeader('priceHourly', 'Price / hr')}
               {sortableHeader('price', 'Price / mo', 'right', 'px-5')}
+              <th className="pr-5 py-3" aria-label="Deploy" />
             </tr>
           </thead>
           <tbody>
             {isFetching && !data && (
-              <tr><td colSpan={10} className="px-5 py-10 text-center text-slate-500">
+              <tr><td colSpan={11} className="px-5 py-10 text-center text-slate-500">
                 <Loader2 className="animate-spin inline mr-2" size={16} /> Querying providers…
               </td></tr>
             )}
             {data?.offers.length === 0 && (
-              <tr><td colSpan={10} className="px-5 py-10 text-center text-slate-500 text-xs">
+              <tr><td colSpan={11} className="px-5 py-10 text-center text-slate-500 text-xs">
                 No plans match these filters. Try relaxing the RAM or price limit.
               </td></tr>
             )}
@@ -319,6 +330,23 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
                   <div className="text-[10px] text-slate-600">
                     {o.currency}{!o.taxIncluded && ' · ex. tax'}
                   </div>
+                </td>
+                <td className="text-right pr-5 py-3">
+                  {onDeploy && o.provisionable && (
+                    <button
+                      onClick={() => onDeploy({
+                        provider: o.provider,
+                        planId: o.planId,
+                        // The row's own location, not the plan's cheapest: this offer exists as a
+                        // separate row precisely because its price is specific to these locations.
+                        ...(o.locations[0] ? { location: o.locations[0] } : {}),
+                      })}
+                      className="text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 transition-colors whitespace-nowrap"
+                      title={`Provision a cluster on this ${o.planId} in ${o.locations[0] ?? 'its default location'}`}
+                    >
+                      Deploy
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

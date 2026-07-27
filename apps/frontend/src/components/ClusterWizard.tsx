@@ -95,6 +95,12 @@ interface Props {
   submitting?: boolean;
   /** Re-fetches the credential statuses after a token is saved. */
   onCredentialsSaved?: () => void;
+  /**
+   * Pre-selection from the VPS Catalog's Deploy button, so picking a plan there lands here with
+   * that plan and location already chosen. Only seeds the initial state — the user can still
+   * change any of it before submitting.
+   */
+  preset?: { provider: string; serverType?: string; location?: string };
 }
 
 export default function ClusterWizard({
@@ -104,10 +110,11 @@ export default function ClusterWizard({
   onSubmit,
   submitting,
   onCredentialsSaved,
+  preset,
 }: Props) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
-  const [provider, setProvider] = useState('k3d');
+  const [provider, setProvider] = useState(preset?.provider ?? 'k3d');
 
   const [token, setToken] = useState('');
   const [validating, setValidating] = useState(false);
@@ -115,8 +122,8 @@ export default function ClusterWizard({
   const [tokenResult, setTokenResult] = useState<{ valid?: boolean; message?: string } | null>(null);
   const [tokenSaved, setTokenSaved] = useState(false);
 
-  const [serverType, setServerType] = useState('cx53');
-  const [location, setLocation] = useState('nbg1');
+  const [serverType, setServerType] = useState(preset?.serverType ?? 'cx53');
+  const [location, setLocation] = useState(preset?.location ?? 'nbg1');
 
   const [offers, setOffers] = useState<CatalogOffer[] | null>(null);
   const [catalogFailed, setCatalogFailed] = useState(false);
