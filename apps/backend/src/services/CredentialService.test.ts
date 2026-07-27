@@ -107,7 +107,10 @@ describe('CredentialService', () => {
       // Assert the actual set rather than a count — a bare length check says nothing about which
       // provider went missing when it fails, and silently needs editing every time one is added.
       expect(statuses.map((s) => s.provider).sort()).toEqual(
-        ['aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface'].sort(),
+        [
+          'aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface',
+          'vultr', 'linode', 'scaleway', 'hostinger', 'contabo',
+        ].sort(),
       );
 
       const aws = statuses.find((s) => s.provider === 'aws');

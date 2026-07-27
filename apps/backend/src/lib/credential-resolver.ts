@@ -100,6 +100,41 @@ function resolveFromUser(
       // hetzner-vm construct needs no explicit `token` argument.
       return { HCLOUD_TOKEN: hz.token };
     }
+    // Env var names below match each provider's own official Terraform provider / CLI, so a
+    // credential resolved here works unmodified in a CDKTF subprocess.
+    case 'vultr': {
+      const v = creds.vultr;
+      if (!v?.token) return null;
+      return { VULTR_API_KEY: v.token };
+    }
+    case 'linode': {
+      const l = creds.linode;
+      if (!l?.token) return null;
+      return { LINODE_TOKEN: l.token };
+    }
+    case 'scaleway': {
+      const sc = creds.scaleway;
+      if (!sc?.secretKey) return null;
+      const env: Record<string, string> = { SCW_SECRET_KEY: sc.secretKey };
+      if (sc.accessKey) env.SCW_ACCESS_KEY = sc.accessKey;
+      if (sc.projectId) env.SCW_DEFAULT_PROJECT_ID = sc.projectId;
+      return env;
+    }
+    case 'hostinger': {
+      const h = creds.hostinger;
+      if (!h?.token) return null;
+      return { HOSTINGER_API_TOKEN: h.token };
+    }
+    case 'contabo': {
+      const c = creds.contabo;
+      if (!c?.clientId || !c?.clientSecret || !c?.apiUser || !c?.apiPassword) return null;
+      return {
+        CNTB_CLIENT_ID: c.clientId,
+        CNTB_CLIENT_SECRET: c.clientSecret,
+        CNTB_API_USER: c.apiUser,
+        CNTB_API_PASSWORD: c.apiPassword,
+      };
+    }
     case 'huggingface': {
       const hf = creds.huggingface;
       if (!hf?.hfToken) return null;
@@ -160,6 +195,34 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
       const token = process.env.HCLOUD_TOKEN || process.env.HETZNER_TOKEN;
       if (!token) return null;
       return { HCLOUD_TOKEN: token };
+    }
+    case 'vultr': {
+      const token = process.env.VULTR_API_KEY;
+      return token ? { VULTR_API_KEY: token } : null;
+    }
+    case 'linode': {
+      const token = process.env.LINODE_TOKEN;
+      return token ? { LINODE_TOKEN: token } : null;
+    }
+    case 'scaleway': {
+      const secret = process.env.SCW_SECRET_KEY;
+      if (!secret) return null;
+      const env: Record<string, string> = { SCW_SECRET_KEY: secret };
+      if (process.env.SCW_ACCESS_KEY) env.SCW_ACCESS_KEY = process.env.SCW_ACCESS_KEY;
+      if (process.env.SCW_DEFAULT_PROJECT_ID) env.SCW_DEFAULT_PROJECT_ID = process.env.SCW_DEFAULT_PROJECT_ID;
+      return env;
+    }
+    case 'hostinger': {
+      const token = process.env.HOSTINGER_API_TOKEN;
+      return token ? { HOSTINGER_API_TOKEN: token } : null;
+    }
+    case 'contabo': {
+      const id = process.env.CNTB_CLIENT_ID;
+      const secret = process.env.CNTB_CLIENT_SECRET;
+      const user = process.env.CNTB_API_USER;
+      const pass = process.env.CNTB_API_PASSWORD;
+      if (!id || !secret || !user || !pass) return null;
+      return { CNTB_CLIENT_ID: id, CNTB_CLIENT_SECRET: secret, CNTB_API_USER: user, CNTB_API_PASSWORD: pass };
     }
     case 'huggingface': {
       const token = process.env.HF_TOKEN || process.env.VLLM_HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN;

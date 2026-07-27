@@ -26,6 +26,11 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   azure: ['clientId', 'clientSecret'],
   do: ['token'],
   hetzner: ['token'],
+  vultr: ['token'],
+  linode: ['token'],
+  scaleway: ['secretKey'],
+  hostinger: ['token'],
+  contabo: ['clientId', 'clientSecret', 'apiPassword'],
   huggingface: ['hfToken'],
   github: ['token'],
   googledrive: ['refreshToken', 'backupPassword'],
@@ -38,6 +43,11 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   azure: ['subscriptionId', 'tenantId'],
   do: [],
   hetzner: [],
+  vultr: [],
+  linode: [],
+  scaleway: ['accessKey', 'projectId'],
+  hostinger: [],
+  contabo: ['apiUser'],
   huggingface: ['defaultModel'],
   github: ['username'],
   googledrive: ['email'],
@@ -159,6 +169,83 @@ export class CredentialService {
         };
       }
 
+      // Each check below hits an endpoint verified to exist and to return 401 on a bad
+      // credential, so a green "Test Connection" means the token genuinely works — not merely
+      // that it looks well-formed.
+      if (provider === 'vultr') {
+        if (!creds.token) return { valid: false, message: 'Vultr Personal Access Token is required.' };
+        const res = await fetch('https://api.vultr.com/v2/account', {
+          headers: { Authorization: `Bearer ${creds.token}` },
+        });
+        if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        const data = await readJson(res);
+        return { valid: true, message: `Authenticated as Vultr account (${data.account?.email || 'active'}).` };
+      }
+
+      if (provider === 'linode') {
+        if (!creds.token) return { valid: false, message: 'Linode Personal Access Token is required.' };
+        const res = await fetch('https://api.linode.com/v4/account', {
+          headers: { Authorization: `Bearer ${creds.token}` },
+        });
+        if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        const data = await readJson(res);
+        return { valid: true, message: `Authenticated as Linode account (${data.email || 'active'}).` };
+      }
+
+      if (provider === 'scaleway') {
+        // Scaleway authenticates with the SECRET key; the access key is only an identifier, so a
+        // missing access key is not an auth failure.
+        if (!creds.secretKey) return { valid: false, message: 'Scaleway Secret Key is required.' };
+        const res = await fetch('https://api.scaleway.com/account/v3/projects', {
+          headers: { 'X-Auth-Token': creds.secretKey },
+        });
+        if (!res.ok) return { valid: false, message: `Invalid secret key or unauthorized (HTTP ${res.status}).` };
+        const data = await readJson(res);
+        const n = Array.isArray(data?.projects) ? data.projects.length : undefined;
+        return {
+          valid: true,
+          message: `Authenticated against Scaleway${n !== undefined ? ` (${n} project${n === 1 ? '' : 's'})` : ''}.`,
+        };
+      }
+
+      if (provider === 'hostinger') {
+        if (!creds.token) return { valid: false, message: 'Hostinger API token is required.' };
+        const res = await fetch('https://developers.hostinger.com/api/vps/v1/data-centers', {
+          headers: { Authorization: `Bearer ${creds.token}` },
+        });
+        if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        return { valid: true, message: 'Authenticated against the Hostinger API.' };
+      }
+
+      if (provider === 'contabo') {
+        const { clientId, clientSecret, apiUser, apiPassword } = creds;
+        if (!clientId || !clientSecret || !apiUser || !apiPassword) {
+          return { valid: false, message: 'Contabo needs Client ID, Client Secret, API user and API password.' };
+        }
+        // Contabo uses an OAuth2 password grant rather than a bearer token, so validating means
+        // actually exchanging the four values for an access token.
+        const res = await fetch('https://auth.contabo.com/auth/realms/contabo/protocol/openid-connect/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            grant_type: 'password',
+            client_id: clientId,
+            client_secret: clientSecret,
+            username: apiUser,
+            password: apiPassword,
+          }),
+        });
+        if (!res.ok) {
+          return { valid: false, message: `Contabo rejected these credentials (HTTP ${res.status}).` };
+        }
+        const data = await readJson(res);
+        if (!data?.access_token) return { valid: false, message: 'Contabo returned no access token.' };
+        return {
+          valid: true,
+          message: 'Authenticated against Contabo. Note: their API exposes no pricing, so Contabo plans will not appear in the VPS catalog.',
+        };
+      }
+
       if (provider === 'googledrive') {
         const refreshToken = creds.refreshToken;
         if (!refreshToken) return { valid: false, message: 'Not connected — use "Connect with Google" first.' };
@@ -219,6 +306,11 @@ export class CredentialService {
       { key: 'azure', label: 'Microsoft Azure' },
       { key: 'do', label: 'DigitalOcean' },
       { key: 'hetzner', label: 'Hetzner Cloud' },
+      { key: 'vultr', label: 'Vultr' },
+      { key: 'linode', label: 'Linode / Akamai' },
+      { key: 'scaleway', label: 'Scaleway' },
+      { key: 'hostinger', label: 'Hostinger' },
+      { key: 'contabo', label: 'Contabo' },
     ];
 
     return providers.map(({ key, label }) => {

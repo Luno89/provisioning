@@ -315,6 +315,42 @@ export interface HetznerCredentials {
   token: string;              // encrypted
 }
 
+/**
+ * The VPS providers below are all plain-VM hosts in the same mould as Hetzner: one API token (or
+ * a small credential set) is enough to both price and provision. Connecting them unlocks that
+ * provider in the VPS catalog, and is the prerequisite for a provisioning path later.
+ */
+export interface VultrCredentials {
+  token: string;              // encrypted — Personal Access Token
+}
+
+export interface LinodeCredentials {
+  token: string;              // encrypted — Personal Access Token
+}
+
+/** Scaleway authenticates API calls with the SECRET key; the access key is an identifier. */
+export interface ScalewayCredentials {
+  secretKey: string;          // encrypted
+  accessKey?: string;         // plaintext — public half of the key pair
+  projectId?: string;         // plaintext — needed to place orders, not to read the catalogue
+}
+
+export interface HostingerCredentials {
+  token: string;              // encrypted — API token from hPanel
+}
+
+/**
+ * Contabo is the odd one out: an OAuth2 password grant needing four values rather than a single
+ * token. Note its API exposes no pricing endpoint, so these credentials enable management, not
+ * catalogue pricing — see lib/vps-catalog/adapters.ts.
+ */
+export interface ContaboCredentials {
+  clientId: string;           // encrypted
+  clientSecret: string;       // encrypted
+  apiUser: string;            // plaintext — the account email
+  apiPassword: string;        // encrypted
+}
+
 export interface HuggingFaceCredentials {
   hfToken: string;            // encrypted
   defaultModel?: string;      // plaintext
@@ -342,12 +378,20 @@ export interface CloudCredentials {
   azure?: AzureCredentials;
   do?: DoCredentials;
   hetzner?: HetznerCredentials;
+  vultr?: VultrCredentials;
+  linode?: LinodeCredentials;
+  scaleway?: ScalewayCredentials;
+  hostinger?: HostingerCredentials;
+  contabo?: ContaboCredentials;
   huggingface?: HuggingFaceCredentials;
   github?: GitHubCredentials;
   googledrive?: GoogleDriveCredentials;
 }
 
-export type CloudProvider = 'aws' | 'gcp' | 'azure' | 'do' | 'hetzner' | 'huggingface' | 'github' | 'googledrive';
+export type CloudProvider =
+  | 'aws' | 'gcp' | 'azure' | 'do' | 'hetzner'
+  | 'vultr' | 'linode' | 'scaleway' | 'hostinger' | 'contabo'
+  | 'huggingface' | 'github' | 'googledrive';
 
 export interface UserMetadata {
   id: string;

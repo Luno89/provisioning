@@ -101,12 +101,85 @@ export const PROVIDERS: ProviderMeta[] = [
       { key: 'token', label: 'API Token (Read & Write)', sensitive: true, placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
     ],
   },
+  {
+    key: 'vultr',
+    label: 'Vultr',
+    color: '#007BFC',
+    icon: '◆',
+    docsUrl: 'https://my.vultr.com/settings/#settingsapi',
+    fields: [
+      { key: 'token', label: 'Personal Access Token', sensitive: true, placeholder: 'Settings → API → Personal Access Token' },
+    ],
+  },
+  {
+    key: 'linode',
+    label: 'Linode / Akamai',
+    color: '#00A95C',
+    icon: '▲',
+    docsUrl: 'https://cloud.linode.com/profile/tokens',
+    fields: [
+      { key: 'token', label: 'Personal Access Token', sensitive: true, placeholder: 'Profile → API Tokens → Create' },
+    ],
+  },
+  {
+    key: 'scaleway',
+    label: 'Scaleway',
+    color: '#4F0599',
+    icon: '❯',
+    docsUrl: 'https://console.scaleway.com/iam/api-keys',
+    fields: [
+      // The SECRET key is what authenticates; the access key is only an identifier, which is why
+      // it's the optional one here.
+      { key: 'secretKey', label: 'Secret Key', sensitive: true, placeholder: 'Shown once when the API key is created' },
+      { key: 'accessKey', label: 'Access Key (Optional)', sensitive: false, placeholder: 'SCWXXXXXXXXXXXXXXXXX' },
+      { key: 'projectId', label: 'Project ID (Optional)', sensitive: false, placeholder: 'Needed only to create servers, not to browse plans' },
+    ],
+  },
+  {
+    key: 'hostinger',
+    label: 'Hostinger',
+    color: '#673DE6',
+    icon: '◇',
+    docsUrl: 'https://hpanel.hostinger.com/api-tokens',
+    fields: [
+      { key: 'token', label: 'API Token', sensitive: true, placeholder: 'hPanel → API tokens (free with any VPS plan)' },
+    ],
+  },
+  {
+    key: 'contabo',
+    label: 'Contabo',
+    color: '#0A5FA5',
+    icon: '▣',
+    docsUrl: 'https://my.contabo.com/api/details',
+    fields: [
+      // Contabo is the only provider here using an OAuth2 password grant rather than one token.
+      { key: 'clientId', label: 'Client ID', sensitive: true, placeholder: 'API → Details → Client ID' },
+      { key: 'clientSecret', label: 'Client Secret', sensitive: true, placeholder: 'API → Details → Client Secret' },
+      { key: 'apiUser', label: 'API User (email)', sensitive: false, placeholder: 'your@email.com' },
+      { key: 'apiPassword', label: 'API Password', sensitive: true, placeholder: 'Set under API → Details (not your login password)' },
+    ],
+  },
 ];
 
 // Providers this platform can actually create a cluster on today, in the order the cluster
 // wizard offers them. Everything else in PROVIDERS above is a credential store only (or, for
 // aws/gcp/azure/do, still the stubbed scaffolding the distributed-systems plan describes).
 export const CLUSTER_CAPABLE_PROVIDERS = ['hetzner'] as const;
+
+/**
+ * What connecting each VPS provider actually gets you today, shown on the card so the value is
+ * clear before someone goes hunting for a token — and so nobody expects Contabo plans to appear
+ * in the catalog when its API publishes no prices at all.
+ */
+export const PROVIDER_CAPABILITY: Record<string, string> = {
+  hetzner: 'Live plan prices in the VPS Catalog, and full cluster provisioning.',
+  vultr: 'Vultr plans are already in the VPS Catalog (public API) — a token is only needed for future provisioning.',
+  linode: 'Linode plans are already in the VPS Catalog (public API) — a token is only needed for future provisioning.',
+  scaleway: 'Scaleway plans are already in the VPS Catalog (public API) — a token is only needed for future provisioning.',
+  do: 'Adds DigitalOcean plan prices to the VPS Catalog.',
+  hostinger: 'Adds Hostinger plans to the VPS Catalog once the adapter is verified against a real token.',
+  contabo: 'Management access only — Contabo publishes no pricing API, so its plans cannot appear in the VPS Catalog.',
+};
 
 interface GoogleDriveStatus {
   email?: string;
@@ -427,6 +500,14 @@ export default function CloudAccounts({ apiBase }: { apiBase: string }) {
                     </div>
                   )}
                 </div>
+
+                {/* What connecting this provider actually gets you — stated before the user goes
+                    off to find a token, and honest where the answer is "not much yet". */}
+                {PROVIDER_CAPABILITY[provider.key] && !isExpanded && (
+                  <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
+                    {PROVIDER_CAPABILITY[provider.key]}
+                  </p>
+                )}
 
                 {/* Configured summary */}
                 {isConfigured && !isExpanded && status?.summary && status.source === 'user' && (
