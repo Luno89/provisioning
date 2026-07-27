@@ -75,7 +75,14 @@ async function resolveHetznerToken(): Promise<string> {
   const users: any[] = await (db as any).getUsers();
   const owner = users.find((u) => u?.credentials?.hetzner?.token);
   if (!owner) {
-    throw new Error('No user has a Hetzner token stored — add one under Cloud Accounts first.');
+    // Distinguished because the remedies are different, and an empty database is the more likely
+    // cause after a restart: `npm run clean-dev` drops the Mongo collections, taking the user
+    // record and its encrypted credentials with it.
+    throw new Error(
+      users.length === 0
+        ? 'The database has no users at all — `npm run clean-dev` wipes them. Open the UI and sign in to recreate the account, then re-add the Hetzner token under Cloud Accounts.'
+        : 'No user has a Hetzner token stored — add one under Cloud Accounts first.',
+    );
   }
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET is not set — apps/backend/.env did not load, so the stored credential cannot be decrypted.');
