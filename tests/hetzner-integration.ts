@@ -139,18 +139,55 @@ async function run() {
         .catch((e: any) => console.warn(`  ⚠ cluster cleanup: ${e.message}`));
     }
 
-    // The step that actually matters. Our own "destroyed" status is a claim about our database;
-    // this asks the party doing the billing. Anything still standing is reported loudly, with the
-    // id needed to kill it by hand.
+    // The step that actually matters, and it does not trust anything of ours.
+    //
+    // The cluster poll above is deliberately NOT proof: the destroy path removes the Mongo record
+    // rather than marking it 'destroyed', so the record disappears while the Temporal workflow is
+    // still tearing down — and the first version of this block read that as success and exited
+    // with a cx33 still running. Only Hetzner can say whether the billing stopped.
+    //
+    // It also DELETES rather than merely warning. A test that creates billable infrastructure and
+    // then prints an id for a human to clean up has simply moved the failure somewhere easier to
+    // miss; the whole point of an automated run is that it does not leave money running.
     try {
-      const { servers } = await hetznerApi(token, '/servers');
-      const orphans = (servers ?? []).filter((s: any) => String(s.name).includes(clusterName));
+      const doomed = async (): Promise<any[]> => {
+        const { servers } = await hetznerApi(token, '/servers');
+        return (servers ?? []).filter((s: any) => String(s.name).includes(clusterName));
+      };
+
+      let orphans = await doomed();
       if (orphans.length) {
-        console.error(`🔴 ORPHANED HETZNER SERVER(S) STILL BILLING — delete these by hand:`);
-        for (const s of orphans) console.error(`     id=${s.id} name=${s.name} type=${s.server_type?.name} status=${s.status}`);
+        console.error(`⚠ ${orphans.length} Hetzner server(s) survived the workflow teardown — deleting directly:`);
+        for (const s of orphans) {
+          console.error(`     id=${s.id} name=${s.name} type=${s.server_type?.name} status=${s.status}`);
+          const res = await fetch(`https://api.hetzner.cloud/v1/servers/${s.id}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+          });
+          console.error(`     -> DELETE HTTP ${res.status}`);
+        }
+        await new Promise((r) => setTimeout(r, 8000));
+        orphans = await doomed();
+        // The workflow failing to destroy its own VM is still a test failure even once the direct
+        // delete succeeds — that is the product being broken, not the harness.
         passed = false;
+      }
+
+      if (orphans.length) {
+        console.error(`🔴 STILL BILLING after a direct delete — remove these by hand at https://console.hetzner.cloud:`);
+        for (const s of orphans) console.error(`     id=${s.id} name=${s.name}`);
       } else {
         console.log(`✅ Hetzner confirms no server matching "${clusterName}" remains — nothing is still billing`);
+      }
+
+      // Free, but they accumulate across runs and outlive the server they belonged to.
+      for (const [key, pathName] of [['ssh_keys', 'ssh_keys'], ['firewalls', 'firewalls']] as const) {
+        const listed = await hetznerApi(token, `/${pathName}`);
+        for (const item of (listed[key] ?? []).filter((i: any) => String(i.name).includes(clusterName))) {
+          await fetch(`https://api.hetzner.cloud/v1/${pathName}/${item.id}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {});
+          console.log(`  🧹 removed leftover ${key} "${item.name}"`);
+        }
       }
     } catch (e: any) {
       console.error(`🔴 Could not verify teardown against the Hetzner API: ${e.message}`);

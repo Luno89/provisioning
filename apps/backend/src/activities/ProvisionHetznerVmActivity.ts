@@ -49,8 +49,34 @@ export function hetznerVmStackName(clusterName: string): string {
   return `vm-${clusterName}`;
 }
 
+/**
+ * Stable across retries of the same cluster, which is a correctness requirement rather than an
+ * optimisation.
+ *
+ * `hcloud_ssh_key.public_key` is a replacement-forcing attribute, and the server depends on the
+ * key — so a keypair that differs between attempts makes Terraform destroy and rebuild the VM
+ * every single time. Observed live: one transient SSH timeout retried the activity, the retry
+ * generated a fresh key, Terraform replaced the machine, SSH then failed against a machine that
+ * was being torn down, and the cycle repeated — three VM replacements in 25 minutes, each one
+ * billed, with the stack unable to converge on any attempt after the first.
+ *
+ * Keyed on the cluster name (not a timestamp) so a retry finds the key its predecessor left, and
+ * written 0600 into the system temp dir, which is where the key already had to be materialised for
+ * waitForSsh. Cleanup happens once the activity finally succeeds or gives up.
+ */
 async function generateSshKeypair(name: string): Promise<{ privateKey: string; publicKey: string; cleanup: () => Promise<void> }> {
-  const keyPath = path.join(os.tmpdir(), `hetzner-key-${name}-${Date.now()}`);
+  const keyPath = path.join(os.tmpdir(), `hetzner-key-${name}`);
+  const existing = await Promise.all([
+    fs.readFile(keyPath, 'utf-8').catch(() => null),
+    fs.readFile(`${keyPath}.pub`, 'utf-8').catch(() => null),
+  ]);
+  if (existing[0] && existing[1]) {
+    return {
+      privateKey: existing[0],
+      publicKey: existing[1],
+      cleanup: async () => { await fs.rm(keyPath, { force: true }); await fs.rm(`${keyPath}.pub`, { force: true }); },
+    };
+  }
   // -N '' → no passphrase (nothing could supply one non-interactively later); ed25519 over RSA
   // because every current Ubuntu cloud image accepts it and the keys are far smaller.
   await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', keyPath, '-C', `provisioning-${name}`]);
@@ -142,9 +168,15 @@ export async function ProvisionHetznerVmActivity(
       await fs.rm(keyPath, { force: true });
     }
 
-    return { host, serverId: String(serverId ?? ''), privateKey, username: HETZNER_SSH_USERNAME };
-  } finally {
+    const result = { host, serverId: String(serverId ?? ''), privateKey, username: HETZNER_SSH_USERNAME };
+    // Only on success. A `finally` here would delete the keypair after a FAILED attempt too, so
+    // the retry would generate a new one and force Terraform to rebuild the VM — exactly the loop
+    // the stable path above exists to break. The cost of keeping it is a 0600 key left in the temp
+    // dir when provisioning ultimately gives up; the caller persists the key encrypted on success,
+    // and the retry cap in ClusterProvisionWorkflow bounds how long that can go on.
     await cleanup();
+    return result;
+  } finally {
     await fs.rm(outputsFile, { force: true });
   }
 }

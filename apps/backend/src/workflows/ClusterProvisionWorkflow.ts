@@ -16,9 +16,18 @@ const logger = log;
 // provisionClusterActivityMeta.startToCloseTimeout, not a hardcoded '30 minutes' — see
 // AppDeployWorkflow.ts for why: every workflow in this file was silently ignoring its own
 // activity's declared timeout (80 min here) in favor of a stray 30-minute default.
+// maximumAttempts matters more here than anywhere else, because Temporal's default is UNLIMITED
+// and this activity CREATES BILLABLE INFRASTRUCTURE on every attempt. Observed live against
+// Hetzner: a transient SSH timeout retried the activity, which regenerated the SSH keypair, which
+// Terraform treated as a change forcing the VM to be destroyed and rebuilt — so each retry threw
+// away the machine it had just paid for and started again, indefinitely. Three attempts is enough
+// for a genuine provider blip while bounding both the cost and the time-to-diagnosis.
 const { ProvisionClusterActivity } = proxyActivities<{
   ProvisionClusterActivity: (args: ProvisionClusterArgs) => Promise<ProvisionClusterResult>;
-}>({ startToCloseTimeout: provisionClusterActivityMeta.startToCloseTimeout });
+}>({
+  startToCloseTimeout: provisionClusterActivityMeta.startToCloseTimeout,
+  retry: { maximumAttempts: 3 },
+});
 
 /**
  * Workflow that triggers a ProvisionClusterActivity.
