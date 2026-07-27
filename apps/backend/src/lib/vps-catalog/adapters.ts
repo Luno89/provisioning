@@ -170,36 +170,68 @@ export const hetznerAdapter: VpsCatalogAdapter = {
       if (st?.deprecated) continue; // Not orderable; showing it invites picking a dead plan.
 
       const prices: any[] = Array.isArray(st.prices) ? st.prices : [];
-      // Net, not gross: US providers quote pre-tax, and mixing the two overstates Hetzner by
-      // ~19% against them. Cheapest location wins, since price varies by datacenter.
-      const monthlyNet = prices
-        .map((p) => Number(p?.price_monthly?.net ?? NaN))
-        .filter((n) => Number.isFinite(n) && n > 0);
-      if (monthlyNet.length === 0) { skippedNoPrice++; continue; }
-      const monthly = Math.min(...monthlyNet);
-      const hourlyNet = prices
-        .map((p) => Number(p?.price_hourly?.net ?? NaN))
-        .filter((n) => Number.isFinite(n) && n > 0);
+
+      // Hetzner prices the SAME plan differently per location, and not by a little: a CPX 11 is
+      // €5.99 in Falkenstein and €20.49 in Ashburn, and the US locations bundle 1TB of traffic
+      // against the EU's 20TB. 17 of 25 plans have multiple tiers.
+      //
+      // Collapsing that to Math.min() while listing every location on one row asserted a €5.99
+      // Ashburn price that does not exist — understating US pricing by up to 3.7x on exactly the
+      // rows a "cheap US VPS" search surfaces. One offer per distinct price tier instead, so a
+      // location filter can only ever match a row whose price is real for that location.
+      //
+      // Net, not gross: US providers quote pre-tax, and mixing the two overstates Hetzner ~19%.
+      const tiers = new Map<string, { monthly: number; hourly?: number; traffic?: number; locations: string[] }>();
+      for (const p of prices) {
+        const monthly = Number(p?.price_monthly?.net ?? NaN);
+        if (!Number.isFinite(monthly) || monthly <= 0) continue;
+        const hourly = Number(p?.price_hourly?.net ?? NaN);
+        const traffic = Number(p?.included_traffic ?? NaN);
+        const location = String(p?.location ?? '');
+        const key = `${monthly}|${hourly}|${traffic}`;
+        const seen = tiers.get(key);
+        if (seen) {
+          if (location) seen.locations.push(location);
+          continue;
+        }
+        tiers.set(key, {
+          monthly,
+          ...(Number.isFinite(hourly) && hourly > 0 ? { hourly } : {}),
+          ...(Number.isFinite(traffic) && traffic > 0 ? { traffic } : {}),
+          locations: location ? [location] : [],
+        });
+      }
+      if (tiers.size === 0) { skippedNoPrice++; continue; }
 
       const arch: VpsArch = String(st.architecture ?? 'x86') === 'arm' ? 'arm' : 'x86';
+      const multiTier = tiers.size > 1;
 
-      offers.push(withDerived({
-        provider: 'hetzner',
-        planId: String(st.name),
-        label: `${String(st.name).toUpperCase()} — ${st.description ?? ''}`.trim(),
-        vcpu: Number(st.cores ?? 0),
-        cpuType: String(st.cpu_type ?? '') === 'dedicated' ? 'dedicated' : 'shared',
-        arch,
-        ramGb: Number(st.memory ?? 0),
-        diskGb: Number(st.disk ?? 0),
-        priceMonthly: monthly,
-        ...(hourlyNet.length ? { priceHourly: Math.min(...hourlyNet) } : {}),
-        currency: 'EUR',
-        taxIncluded: false,
-        hourlyBilling: true,
-        locations: prices.map((p) => String(p?.location ?? '')).filter(Boolean),
-        provisionable: true,
-      }));
+      for (const tier of tiers.values()) {
+        const locations = [...tier.locations].sort();
+        offers.push(withDerived({
+          provider: 'hetzner',
+          planId: String(st.name),
+          // Only suffixed when the plan really does split, so single-price plans keep a clean id.
+          ...(multiTier && locations[0] ? { idSuffix: locations[0] } : {}),
+          label: `${String(st.name).toUpperCase()} — ${st.description ?? ''}`.trim(),
+          vcpu: Number(st.cores ?? 0),
+          cpuType: String(st.cpu_type ?? '') === 'dedicated' ? 'dedicated' : 'shared',
+          arch,
+          ramGb: Number(st.memory ?? 0),
+          diskGb: Number(st.disk ?? 0),
+          priceMonthly: tier.monthly,
+          ...(tier.hourly ? { priceHourly: tier.hourly } : {}),
+          // included_traffic is bytes. Hetzner advertises the EU allowance as "20 TB" and the
+          // value is 21990232555520 — that is 20 TiB, so binary units are what match both their
+          // marketing and the figure a customer is comparing against.
+          ...(tier.traffic ? { bandwidthTb: tier.traffic / 2 ** 40 } : {}),
+          currency: 'EUR',
+          taxIncluded: false,
+          hourlyBilling: true,
+          locations,
+          provisionable: true,
+        }));
+      }
     }
     return { offers, skippedNoPrice };
   },

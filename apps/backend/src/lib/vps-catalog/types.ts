@@ -193,13 +193,20 @@ export interface AdapterResult {
   skippedNoPrice: number;
 }
 
-/** Shared helper so every adapter derives this the same way. */
+/**
+ * Shared helper so every adapter derives this the same way.
+ *
+ * `idSuffix` exists for providers that emit more than one offer per plan id. Hetzner prices the
+ * same plan differently per location, so a CPX 11 is two or three separate offers — they need
+ * distinct ids while keeping `planId` as the value Terraform expects.
+ */
 export function withDerived(
-  offer: Omit<VpsOffer, 'id' | 'pricePerGbRam' | 'pricePerGbVram'>,
+  offer: Omit<VpsOffer, 'id' | 'pricePerGbRam' | 'pricePerGbVram'> & { idSuffix?: string },
 ): VpsOffer {
+  const { idSuffix, ...rest } = offer;
   return {
-    ...offer,
-    id: `${offer.provider}:${offer.planId}`,
+    ...rest,
+    id: `${offer.provider}:${offer.planId}${idSuffix ? `@${idSuffix}` : ''}`,
     // Guard against a 0-RAM plan (Vultr lists some bare-metal/GPU oddities) producing Infinity.
     pricePerGbRam: offer.ramGb > 0 ? offer.priceMonthly / offer.ramGb : 0,
     ...(offer.gpuVramGb && offer.gpuVramGb > 0

@@ -268,7 +268,54 @@ describe('one bad provider must not empty the whole catalogue', () => {
   });
 });
 
+describe('per-location pricing', () => {
+  // Hetzner charges 3.4-3.7x more for the CPX line in its US locations and bundles 1TB of traffic
+  // there against the EU's 20TB. The adapter used to report Math.min() across locations while
+  // listing every location on the row, so a location=ash search returned a €5.99 Falkenstein price
+  // on a row claiming to be available in Ashburn, where the plan actually costs €20.49.
+  const eu = offer({
+    planId: 'cpx11', idSuffix: 'fsn1', priceMonthly: 5.99, bandwidthTb: 20,
+    locations: ['fsn1', 'hel1', 'nbg1'],
+  } as any);
+  const us = offer({
+    planId: 'cpx11', idSuffix: 'ash', priceMonthly: 20.49, bandwidthTb: 1,
+    locations: ['ash', 'hil'],
+  } as any);
+
+  it('gives each price tier a distinct id while keeping planId deployable', () => {
+    expect(eu.id).toBe('test:cpx11@fsn1');
+    expect(us.id).toBe('test:cpx11@ash');
+    // planId stays what Terraform expects — the suffix is presentation only.
+    expect(eu.planId).toBe('cpx11');
+    expect(us.planId).toBe('cpx11');
+  });
+
+  it('never returns a price from a location the filter excluded', () => {
+    const out = applyFilters([eu, us], { location: 'ash' });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.priceMonthly).toBe(20.49);
+    expect(out[0]!.bandwidthTb).toBe(1);
+  });
+
+  it('still finds the cheap EU tier of the same plan', () => {
+    const out = applyFilters([eu, us], { location: 'fsn1' });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.priceMonthly).toBe(5.99);
+    expect(out[0]!.bandwidthTb).toBe(20);
+  });
+
+  it('prices per GB against the tier actually selected', () => {
+    // The whole point of splitting: a US row must not inherit EU value-for-money.
+    expect(applyFilters([eu, us], { location: 'ash' })[0]!.pricePerGbRam)
+      .toBeCloseTo(20.49 / 4, 4);
+  });
+});
+
 describe('withDerived', () => {
+  it('leaves the id unsuffixed when no idSuffix is given', () => {
+    expect(offer({ provider: 'hetzner', planId: 'cx53' }).id).toBe('hetzner:cx53');
+  });
+
   it('computes price per GB and a namespaced id', () => {
     const o = offer({ provider: 'hetzner', planId: 'cx53', ramGb: 32, priceMonthly: 22.49 });
     expect(o.id).toBe('hetzner:cx53');
