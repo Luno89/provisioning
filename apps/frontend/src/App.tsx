@@ -11,6 +11,7 @@ import CloudAccounts from './components/CloudAccounts.js';
 import Projects from './components/Projects.js';
 import ClusterWizard from './components/ClusterWizard.js';
 import GameServerSettings from './components/GameServerSettings.js';
+import VpsCatalog from './components/VpsCatalog.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
@@ -103,7 +104,7 @@ const TABBY_TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', '
 
 function App() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
@@ -839,6 +840,7 @@ function App() {
           <button onClick={() => setView('temporal')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'temporal' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Timer size={20} /> Temporal</button>
           <button onClick={() => setView('services')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'services' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Activity size={20} /> Services</button>
           <button onClick={() => setView('accounts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'accounts' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Key size={20} /> Cloud Accounts</button>
+          <button onClick={() => setView('vps-catalog')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'vps-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Server size={20} /> VPS Catalog</button>
           <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Shield size={20} /> Security</button>
         </nav>
         <button onClick={handleLogout} className="w-full mb-6 flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer text-sm font-bold">Log Out</button>
@@ -1253,6 +1255,9 @@ function App() {
         {view === 'services' && <ServicesPanel />}
         {view === 'accounts' && (
           <CloudAccounts apiBase={API_BASE} />
+        )}
+        {view === 'vps-catalog' && (
+          <VpsCatalog apiBase={API_BASE} />
         )}
         {view === 'projects' && (
           <Projects apiBase={API_BASE} socketUrl={SOCKET_URL} clusters={clusters} />

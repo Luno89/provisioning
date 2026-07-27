@@ -26,6 +26,7 @@ import { AppExposureService } from './services/AppExposureService.js';
 import type { ClusterMetadata, DeploymentMetadata, InviteMetadata } from './lib/types.js';
 import { validateAppSettings } from './lib/app-settings-schema.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from './lib/app-schemas.js';
+import { VpsCatalogService } from './services/VpsCatalogService.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
 import { ClusterProxyService } from './services/ClusterProxyService.js';
@@ -158,6 +159,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.use(express.json());
   const credentialService = new CredentialService(db, JWT_SECRET);
+  const vpsCatalogService = new VpsCatalogService(db, JWT_SECRET);
 
   function getCookie(req: express.Request, name: string): string | undefined {
     const cookieHeader = req.headers.cookie;
@@ -764,6 +766,43 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   /** ── CREDENTIALS ── */
 
   const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do', 'hetzner', 'huggingface', 'github', 'googledrive'] as const;
+
+  /**
+   * Live VPS plan/price search across providers — see VpsCatalogService for why this is queried
+   * rather than hardcoded. Public catalogues (Linode, Vultr) always appear; Hetzner and
+   * DigitalOcean appear once the requesting user has stored a token for them, and the `sources`
+   * array explains any provider that's missing.
+   */
+  app.get('/api/vps-catalog', async (req, res) => {
+    try {
+      const q = req.query as Record<string, string | undefined>;
+      const num = (v: string | undefined) => (v !== undefined && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : undefined);
+      const result = await vpsCatalogService.search((req as any).user.id, {
+        ...(num(q.minRamGb) !== undefined ? { minRamGb: num(q.minRamGb)! } : {}),
+        ...(num(q.maxRamGb) !== undefined ? { maxRamGb: num(q.maxRamGb)! } : {}),
+        ...(num(q.minVcpu) !== undefined ? { minVcpu: num(q.minVcpu)! } : {}),
+        ...(num(q.minDiskGb) !== undefined ? { minDiskGb: num(q.minDiskGb)! } : {}),
+        ...(num(q.maxPriceMonthly) !== undefined ? { maxPriceMonthly: num(q.maxPriceMonthly)! } : {}),
+        ...(q.location ? { location: q.location } : {}),
+        ...(q.arch ? { arch: q.arch as any } : {}),
+        ...(q.cpuType ? { cpuType: q.cpuType as any } : {}),
+        ...(q.provider ? { provider: q.provider } : {}),
+        ...(q.provisionableOnly === 'true' ? { provisionableOnly: true } : {}),
+        ...(q.hourlyOnly === 'true' ? { hourlyOnly: true } : {}),
+        ...(q.sort ? { sort: q.sort as any } : {}),
+        ...(num(q.limit) !== undefined ? { limit: num(q.limit)! } : {}),
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** Forces a re-fetch on the next search — backs the UI's Refresh button. */
+  app.post('/api/vps-catalog/refresh', async (_req, res) => {
+    vpsCatalogService.clearCache();
+    res.json({ ok: true });
+  });
 
   app.get('/api/credentials', async (req, res) => {
     try {
