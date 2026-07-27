@@ -25,6 +25,7 @@ import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
 import type { ClusterMetadata, DeploymentMetadata, InviteMetadata } from './lib/types.js';
 import { validateAppSettings } from './lib/app-settings-schema.js';
+import { validateClusterName } from './lib/cluster-name.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from './lib/app-schemas.js';
 import { VpsCatalogService } from './services/VpsCatalogService.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
@@ -959,6 +960,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/clusters', async (req, res) => {
     try {
+      // Checked here, synchronously, rather than inside the workflow: the name becomes a
+      // TerraformStack id and a Kubernetes object name, so an invalid one fails deep inside a
+      // CDKTF subprocess minutes later with "Cannot create TerraformStack with id ... It contains
+      // a whitespace character" — after a VM may already have been created and billed.
+      const nameCheck = validateClusterName(req.body.name);
+      if (!nameCheck.ok) {
+        return res.status(400).json({
+          error: nameCheck.error,
+          ...(nameCheck.suggestion ? { suggestion: nameCheck.suggestion } : {}),
+        });
+      }
+
       const remote = req.body.provider === 'remote'
         ? {
             host: req.body.remoteHost,
