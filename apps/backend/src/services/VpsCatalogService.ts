@@ -14,7 +14,7 @@ import type { Database } from '../lib/db-interface.js';
 import { decryptValue } from '../lib/crypto.js';
 import { resolveCloudCredentials } from '../lib/credential-resolver.js';
 import { ADAPTERS } from '../lib/vps-catalog/adapters.js';
-import { NATURAL_SORT_DIR } from '../lib/vps-catalog/types.js';
+import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';
 import type {
   VpsCatalogFilters,
   VpsCatalogResult,
@@ -171,8 +171,8 @@ export function applyFilters(offers: VpsOffer[], f: VpsCatalogFilters): VpsOffer
     // Explicit true/false, not truthiness — `false` legitimately means "exclude GPU plans", which
     // is the common case when shopping for an app server and Vultr's GPU line dominates any
     // vCPU- or bandwidth-sorted view.
-    if (f.hasGpu === true && !(o.gpuCount && o.gpuCount > 0)) return false;
-    if (f.hasGpu === false && o.gpuCount && o.gpuCount > 0) return false;
+    if (f.hasGpu === true && !offerHasGpu(o)) return false;
+    if (f.hasGpu === false && offerHasGpu(o)) return false;
     if (f.minGpuVramGb !== undefined && !(o.gpuVramGb !== undefined && o.gpuVramGb >= f.minGpuVramGb)) return false;
     if (f.provider && o.provider !== f.provider) return false;
     if (f.provisionableOnly && !o.provisionable) return false;
@@ -208,6 +208,7 @@ export function applyFilters(offers: VpsOffer[], f: VpsCatalogFilters): VpsOffer
         // VRAM where known, else the card count — so GPU plans still order sensibly on providers
         // that publish no VRAM at all (Linode). Non-GPU plans stay undefined and sink.
         case 'gpu': return o.gpuVramGb ?? o.gpuCount;
+        case 'pricePerGbVram': return o.pricePerGbVram;
         case 'pricePerGbRam':
         default: return o.pricePerGbRam;
       }

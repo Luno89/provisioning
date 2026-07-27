@@ -160,6 +160,26 @@ describe('GPU is kept separate from system RAM', () => {
     expect(out.map((o) => o.planId)).toEqual(['gpu']);
   });
 
+  it('derives price per GB of VRAM, and leaves it undefined without a GPU', () => {
+    expect(gpuBox.pricePerGbVram).toBeCloseTo(2000 / 192, 4);
+    expect(plainBox.pricePerGbVram).toBeUndefined();
+  });
+
+  it('detects a GPU from VRAM or model alone, not just a count', () => {
+    // Vultr publishes neither a card count nor per-card VRAM — only total VRAM in the plan id and
+    // a brand. Requiring gpuCount would classify most of the GPU catalogue as CPU-only.
+    const vultrStyle = offer({ planId: 'vultr-gpu', gpuVramGb: 192, gpuModel: 'NVIDIA' } as any);
+    expect(applyFilters([vultrStyle, plainBox], { hasGpu: true }).map((o) => o.planId)).toEqual(['vultr-gpu']);
+    expect(applyFilters([vultrStyle, plainBox], { hasGpu: false }).map((o) => o.planId)).toEqual(['plain']);
+  });
+
+  it('sorts by price per GB of VRAM, sinking non-GPU plans', () => {
+    const value = offer({ planId: 'value', priceMonthly: 100, gpuVramGb: 100 } as any);   // 1.00/GB
+    const pricey = offer({ planId: 'pricey', priceMonthly: 400, gpuVramGb: 100 } as any); // 4.00/GB
+    const out = applyFilters([pricey, plainBox, value], { sort: 'pricePerGbVram' });
+    expect(out.map((o) => o.planId)).toEqual(['value', 'pricey', 'plain']);
+  });
+
   it('sorts by VRAM, falling back to card count where VRAM is unpublished', () => {
     // Linode reports a GPU count but never VRAM, so those plans must still order sensibly
     // rather than sinking as "unknown".

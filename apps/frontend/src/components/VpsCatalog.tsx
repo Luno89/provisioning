@@ -17,7 +17,8 @@ interface VpsOffer {
   ramGb: number; diskGb: number; diskType?: string; bandwidthTb?: number;
   gpuCount?: number; gpuVramGb?: number; gpuModel?: string;
   priceMonthly: number; priceHourly?: number; currency: string; taxIncluded: boolean;
-  hourlyBilling: boolean; locations: string[]; provisionable: boolean; pricePerGbRam: number;
+  hourlyBilling: boolean; locations: string[]; provisionable: boolean;
+  pricePerGbRam: number; pricePerGbVram?: number;
 }
 interface VpsSource {
   provider: string; status: 'ok' | 'no-credentials' | 'error';
@@ -73,6 +74,7 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
   const NATURAL_DIR: Record<string, 'asc' | 'desc'> = {
     price: 'asc', pricePerGbRam: 'asc', name: 'asc',
     ram: 'desc', vcpu: 'desc', disk: 'desc', bandwidth: 'desc', gpu: 'desc',
+    pricePerGbVram: 'asc',
   };
 
   const toggleSort = (key: string) => {
@@ -229,17 +231,18 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
               {sortableHeader('disk', 'Disk')}
               {sortableHeader('bandwidth', 'Bandwidth')}
               {sortableHeader('pricePerGbRam', 'Per GB RAM')}
+              {sortableHeader('pricePerGbVram', 'Per GB VRAM')}
               {sortableHeader('price', 'Price / mo', 'right', 'px-5')}
             </tr>
           </thead>
           <tbody>
             {isFetching && !data && (
-              <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-500">
+              <tr><td colSpan={9} className="px-5 py-10 text-center text-slate-500">
                 <Loader2 className="animate-spin inline mr-2" size={16} /> Querying providers…
               </td></tr>
             )}
             {data?.offers.length === 0 && (
-              <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-500 text-xs">
+              <tr><td colSpan={9} className="px-5 py-10 text-center text-slate-500 text-xs">
                 No plans match these filters. Try relaxing the RAM or price limit.
               </td></tr>
             )}
@@ -275,6 +278,9 @@ export default function VpsCatalog({ apiBase }: { apiBase: string }) {
                 <td className="text-right px-3 py-3 text-slate-400">{o.diskGb > 0 ? `${o.diskGb} GB` : '—'}</td>
                 <td className="text-right px-3 py-3 text-slate-400">{o.bandwidthTb ? `${o.bandwidthTb.toFixed(1)} TB` : '—'}</td>
                 <td className="text-right px-3 py-3 text-slate-400">{money(o.pricePerGbRam, o.currency)}</td>
+                <td className="text-right px-3 py-3 text-slate-400">
+                  {o.pricePerGbVram !== undefined ? money(o.pricePerGbVram, o.currency) : <span className="text-slate-600">—</span>}
+                </td>
                 <td className="text-right px-5 py-3">
                   <div className="font-bold text-white">{money(o.priceMonthly, o.currency)}</div>
                   <div className="text-[10px] text-slate-600">

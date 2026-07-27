@@ -85,10 +85,25 @@ export interface VpsOffer {
 
   /** Derived, and the most useful sort key when shopping on RAM. */
   readonly pricePerGbRam: number;
+  /**
+   * Derived, GPU plans only. The analogue of pricePerGbRam for accelerators, and the number that
+   * actually decides a GPU purchase here — VRAM is what determines whether a model fits at all.
+   *
+   * Deliberately per GB of VRAM rather than per card: Vultr publishes no card count (only total
+   * VRAM in the plan id), so a per-card figure would be fabricated for most of the GPU catalogue.
+   * `undefined` when VRAM is unknown, never 0.
+   */
+  readonly pricePerGbVram?: number;
+}
+
+/** Any signal that a plan carries an accelerator — providers publish different subsets. */
+export function offerHasGpu(o: Pick<VpsOffer, 'gpuCount' | 'gpuVramGb' | 'gpuModel'>): boolean {
+  return Boolean((o.gpuCount && o.gpuCount > 0) || o.gpuVramGb || o.gpuModel);
 }
 
 export type VpsSortKey =
-  | 'price' | 'pricePerGbRam' | 'ram' | 'vcpu' | 'disk' | 'bandwidth' | 'name' | 'gpu';
+  | 'price' | 'pricePerGbRam' | 'ram' | 'vcpu' | 'disk' | 'bandwidth' | 'name' | 'gpu'
+  | 'pricePerGbVram';
 
 /**
  * The direction each column should take on its FIRST click. Nobody wants "sort by RAM" to lead
@@ -103,6 +118,7 @@ export const NATURAL_SORT_DIR: Record<VpsSortKey, 'asc' | 'desc'> = {
   bandwidth: 'desc',
   name: 'asc',
   gpu: 'desc',
+  pricePerGbVram: 'asc',
 };
 
 export interface VpsCatalogFilters {
@@ -166,12 +182,15 @@ export interface VpsCatalogAdapter {
 
 /** Shared helper so every adapter derives this the same way. */
 export function withDerived(
-  offer: Omit<VpsOffer, 'id' | 'pricePerGbRam'>,
+  offer: Omit<VpsOffer, 'id' | 'pricePerGbRam' | 'pricePerGbVram'>,
 ): VpsOffer {
   return {
     ...offer,
     id: `${offer.provider}:${offer.planId}`,
     // Guard against a 0-RAM plan (Vultr lists some bare-metal/GPU oddities) producing Infinity.
     pricePerGbRam: offer.ramGb > 0 ? offer.priceMonthly / offer.ramGb : 0,
+    ...(offer.gpuVramGb && offer.gpuVramGb > 0
+      ? { pricePerGbVram: offer.priceMonthly / offer.gpuVramGb }
+      : {}),
   };
 }

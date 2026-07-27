@@ -130,9 +130,12 @@ export const vultrAdapter: VpsCatalogAdapter = {
         ...(p.disk_type ? { diskType: String(p.disk_type) } : {}),
         // Vultr reports bandwidth in GB.
         ...(p.bandwidth ? { bandwidthTb: Number(p.bandwidth) / 1000 } : {}),
-        // Vultr gives no GPU count; the id encodes total VRAM, not per-card. Report 1 as
-        // "has a GPU" rather than inventing a number.
-        ...(hasGpu ? { gpuCount: 1, gpuModel: gpuBrand } : {}),
+        // Deliberately NO gpuCount: Vultr publishes neither a count nor per-card VRAM, and the id
+        // encodes only the total. An earlier version reported 1 here as a "has a GPU" marker,
+        // which is a fabricated number — a vcg-b200 with 1536GB of VRAM is plainly not one card,
+        // and any price-per-card derived from it would be wrong by an order of magnitude.
+        // gpuModel/gpuVramGb are enough to identify it as a GPU plan.
+        ...(hasGpu ? { gpuModel: gpuBrand } : {}),
         ...(gpuVramGb !== undefined ? { gpuVramGb } : {}),
         priceMonthly: monthly,
         ...(typeof p.hourly_cost === 'number' ? { priceHourly: p.hourly_cost } : {}),
@@ -292,10 +295,18 @@ export const scalewayAdapter: VpsCatalogAdapter = {
         // Local SSD is optional on most ranges (they default to network block storage), so a
         // 0 max_size means "no bundled local disk" rather than a real capacity.
         diskGb: Math.round(Number(raw?.per_volume_constraint?.l_ssd?.max_size ?? 0) / 1024 ** 3),
-        // The only provider here reporting VRAM structurally. gpu_memory is per-card bytes.
+        // The only provider here reporting VRAM structurally — but gpu_memory is PER CARD, while
+        // Vultr's plan-id figure is the total. Multiply by the card count so gpuVramGb means the
+        // same thing everywhere; without this an L4-8-24G reports 24GB instead of 192GB and its
+        // price-per-GB-VRAM comes out 8x too high. Confirmed against the live payload: the plan
+        // naming (L4-<cards>-<per-card>G) matches gpu × gpu_memory exactly.
         ...(Number(raw.gpu ?? 0) > 0 ? { gpuCount: Number(raw.gpu) } : {}),
         ...(raw?.gpu_info?.gpu_memory
-          ? { gpuVramGb: Math.round(Number(raw.gpu_info.gpu_memory) / 1024 ** 3) }
+          ? {
+              gpuVramGb: Math.round(
+                (Number(raw.gpu_info.gpu_memory) / 1024 ** 3) * Math.max(1, Number(raw.gpu ?? 1)),
+              ),
+            }
           : {}),
         ...(raw?.gpu_info?.gpu_name
           ? { gpuModel: `${raw.gpu_info.gpu_manufacturer ?? ''} ${raw.gpu_info.gpu_name}`.trim() }
