@@ -119,6 +119,37 @@ export class ClusterService extends BaseService {
   }
 
   /**
+   * Like getKubeconfigPath, but refuses to fall back to the management cluster.
+   *
+   * DEFAULT_KUBECONFIG is the MANAGEMENT cluster's config. For a k3d or mock cluster that
+   * fallback is harmless — they live inside it. For a self-managed one (hetzner, remote) it is
+   * not a graceful degradation at all: kubectl silently answers about a completely different
+   * cluster, and the result looks like real data. That is exactly what made the Cluster Inspector
+   * show the system cluster's pods for every Hetzner cluster, indistinguishably from the truth.
+   *
+   * Read-only inspection uses this so a missing kubeconfig surfaces as an error the UI can show,
+   * rather than as someone else's pods. getKubeconfigPath keeps the lenient behaviour for the
+   * destroy path, where a missing kubeconfig must not block tearing down the VM itself.
+   */
+  private async getOwnKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
+    const resolved = await this.getKubeconfigPath(cluster);
+    const selfManaged = cluster.provider === 'hetzner' || cluster.provider === 'remote';
+    if (selfManaged && (!cluster.kubeconfigPath || resolved === DEFAULT_KUBECONFIG)) {
+      throw new Error(
+        `Cluster "${cluster.name}" has no kubeconfig of its own — refusing to fall back to the management cluster, which would report the wrong cluster's resources.`,
+      );
+    }
+    if (selfManaged) {
+      try {
+        await fs.access(resolved);
+      } catch {
+        throw new Error(`Kubeconfig for cluster "${cluster.name}" is missing at ${resolved}.`);
+      }
+    }
+    return resolved;
+  }
+
+  /**
    * Synthetic entry for the always-on management cluster — never persisted to the DB (it's
    * bootstrap infrastructure created by scripts/cluster.sh, not something provisioned through
    * the normal cluster lifecycle). Read-only in the UI and rejected by delete/abort below.
@@ -654,7 +685,7 @@ export class ClusterService extends BaseService {
         const args = ['get', 'pods', '--all-namespaces', '-o', 'json'];
         if (context) args.push('--context', context);
         
-        const kubeconfigPath = await this.getKubeconfigPath(cluster);
+        const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
         const output = await this.infra.runKubectl(args, kubeconfigPath);
         return JSON.parse(output).items;
     } catch (err: any) {
@@ -672,7 +703,7 @@ export class ClusterService extends BaseService {
         const args = ['list', '-A', '-o', 'json'];
         if (context) args.push('--kube-context', context);
         
-        const kubeconfigPath = await this.getKubeconfigPath(cluster);
+        const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
         const output = await this.infra.runHelm(args, kubeconfigPath);
         return JSON.parse(output);
     } catch (err: any) {
@@ -686,7 +717,7 @@ export class ClusterService extends BaseService {
       const cluster = await this.getById(id, userId);
       if (!cluster) throw new Error('Cluster not found');
 
-      const kubeconfigPath = await this.getKubeconfigPath(cluster);
+      const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
       
       let nodes: any[] = [];
       try {

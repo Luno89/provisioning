@@ -79,6 +79,20 @@ async function updateUserStatus(
 ): Promise<void> {
   const clusters = await db.getClusters();
   const existing = clusters.find((c: any) => c.id === clusterId);
+
+  // 'destroyed' removes the record rather than persisting it, which makes this path agree with
+  // ClusterService.delete() — that one filters the row out entirely. They disagreed, and the
+  // disagreement was visible: k3d/mock rows got pruned later by reconcileAllClusters (no container
+  // found), but 'remote' and 'hetzner' rows have no such check, so every destroyed VPS cluster
+  // accumulated in the UI forever as a dead entry the user cannot act on.
+  //
+  // Deleting is also what makes the status honest. A row saying 'destroyed' is indistinguishable
+  // from a row whose destroy FAILED and left something billing; a failed destroy stays 'failed' or
+  // 'destroying' and remains visible, which is the case that actually needs attention.
+  if (status === 'destroyed') {
+    await db.saveClusterList(clusters.filter((c: any) => c.id !== clusterId));
+    return;
+  }
   // Spread `existing` first rather than naming individual carry-forward fields. db.saveCluster is
   // a full replaceOne, so anything omitted here is DELETED from the record — and this function
   // runs on every status transition. Listing fields by hand silently dropped the whole remote*
