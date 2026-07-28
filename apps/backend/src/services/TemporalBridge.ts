@@ -227,12 +227,23 @@ export class TemporalBridge {
   client!: Client
   masterKey: string
   clusterService?: ClusterService
+  /** Structurally typed rather than importing HeadscaleService — only createPreAuthKey is used. */
+  headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> }
 
-  constructor(db: Database, io?: SocketServer, masterKey?: string, clusterService?: ClusterService) {
+  constructor(
+    db: Database,
+    io?: SocketServer,
+    masterKey?: string,
+    clusterService?: ClusterService,
+    // Optional: only used to mint mesh pre-auth keys during provisioning, and only when
+    // MESH_LOGIN_SERVER is configured. Absent in tests and on a local dev box.
+    headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> },
+  ) {
     this.db = db
     this.io = io
     this.masterKey = masterKey || ''
     if (clusterService !== undefined) this.clusterService = clusterService
+    if (headscale !== undefined) this.headscale = headscale
   }
 
   isReady(): boolean {
@@ -613,6 +624,27 @@ export class TemporalBridge {
       ? await generateSshKeypair(`provisioning-${clusterName}`)
       : undefined
 
+    // Mesh enrolment, minted under the OWNER's Headscale user so the node lands in that tenant's
+    // namespace and the autogroup:self rule in headscale/config/acl.hujson isolates it from every
+    // other tenant automatically.
+    //
+    // Best-effort and opt-in. MESH_LOGIN_SERVER is unset on a local dev box, where Headscale's
+    // server_url is still localhost and no remote host could reach it; provisioning then keeps the
+    // existing public-IP behaviour rather than failing. Reusable + 2h because provisioning takes
+    // ~25 minutes and a retried activity must be able to present the same key again.
+    const meshLoginServer = process.env.MESH_LOGIN_SERVER
+    let meshPreAuthKey: string | undefined
+    if (provider === 'hetzner' && meshLoginServer && this.headscale) {
+      try {
+        meshPreAuthKey = (await this.headscale.createPreAuthKey(userId, { reusable: true, expirySeconds: 2 * 60 * 60 })).key
+      } catch (err: any) {
+        // A mesh we cannot enrol into is a degraded cluster, not a failed provision — the VM still
+        // comes up reachable on its public IP. Logged loudly because the resulting cluster will
+        // then hit the 6443 firewall and look mysteriously unreachable.
+        console.error(`[TemporalBridge] Could not mint a mesh pre-auth key for "${clusterName}" — provisioning without mesh join: ${err.message}`)
+      }
+    }
+
     const activityArgs = {
       name: clusterName,
       provider,
@@ -632,6 +664,7 @@ export class TemporalBridge {
         hetznerSshPrivateKey: hetznerKeypair.privateKey,
         hetznerSshPublicKey: hetznerKeypair.publicKey,
       } : {}),
+      ...(meshLoginServer && meshPreAuthKey ? { meshLoginServer, meshPreAuthKey } : {}),
     }
 
     // Persist cluster row — the SSH private key is encrypted at rest (see ClusterMetadata's

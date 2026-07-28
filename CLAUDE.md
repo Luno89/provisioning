@@ -108,6 +108,26 @@ All services live in `apps/backend/src/services/`, most extend `BaseService`. Co
 
 All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` middleware in `index.ts`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
 
+## Headscale mesh
+
+Self-managed clusters (`hetzner`, `remote`) are meant to be reached over a WireGuard mesh, not the
+public internet — `constructs/hetzner-vm.ts` deliberately opens **no inbound rule for 6443**. A
+tenant's own machine sits behind their NAT, so it must dial out and join; nothing can SSH inward.
+
+**Mesh join is opt-in via `MESH_LOGIN_SERVER`** (the public Headscale URL, e.g.
+`https://mesh.example.com`). Unset, provisioning keeps the old public-IP behaviour — which is what
+a local dev box needs, and what every test to date exercises. Set, `TemporalBridge.provision()`
+mints a pre-auth key under the owner's Headscale user and `JoinMeshActivity` enrols the VM over
+SSH before k3s is installed, so the kubeconfig is written with the mesh address.
+
+The key is passed over **SSH, never cloud-init** — `user_data` would persist a live credential
+into Terraform state and the provider console.
+
+`headscale/config/acl.hujson` is required: with no policy Headscale defaults to allow-all, so every
+tenant node could reach every other. Validate changes with
+`docker exec provisioning-headscale headscale policy check -f /etc/headscale/acl.hujson` — a
+too-permissive policy still parses cleanly and fails open.
+
 ## Cloud credentials
 
 Per-user credentials for aws/gcp/azure/do/huggingface/github are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain: user-stored → `process.env` → mock mode. If a provider has no credentials anywhere, that provider runs in **mock cloud mode** using local k3d containers instead of a real cloud API — this is the zero-setup dev path referenced throughout `.env.example`-style comments in `apps/backend/.env`.

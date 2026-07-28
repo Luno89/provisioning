@@ -107,7 +107,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   );
 
   // ── 2. Temporal bridge (HTTP only → sketch → poll DB) ────────────────────
-  const temporalBridge = new TemporalBridge(db, io, JWT_SECRET, clusterService);
+  const temporalBridge = new TemporalBridge(db, io, JWT_SECRET, clusterService, headscaleService);
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
   try {

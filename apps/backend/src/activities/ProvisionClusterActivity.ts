@@ -14,6 +14,7 @@ import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
+import { JoinMeshActivity } from './JoinMeshActivity.js';
 
 export interface ProvisionClusterArgs {
   name: string;
@@ -42,6 +43,13 @@ export interface ProvisionClusterArgs {
    */
   hetznerSshPrivateKey?: string;
   hetznerSshPublicKey?: string;
+  /**
+   * Mesh enrolment, minted per-provision by TemporalBridge from the owner's Headscale user. Both
+   * must be present for the join to happen at all — absent, provisioning keeps the existing
+   * public-IP behaviour, which is what a local dev box without a public Headscale needs.
+   */
+  meshLoginServer?: string;
+  meshPreAuthKey?: string;
 }
 
 export interface ProvisionClusterResult {
@@ -221,9 +229,31 @@ export async function ProvisionClusterActivity(
       ...(args.hetznerSshPrivateKey ? { sshPrivateKey: args.hetznerSshPrivateKey } : {}),
       ...(args.hetznerSshPublicKey ? { sshPublicKey: args.hetznerSshPublicKey } : {}),
     });
+    // Join the mesh BEFORE bootstrapping k3s, so the kubeconfig can be written with the mesh
+    // address the first time rather than being rewritten later.
+    //
+    // Opt-in: without a public login server we keep the existing public-IP behaviour, which is
+    // wrong for a hosted deployment but is what a local dev box needs and what every test to date
+    // has exercised. Better a documented gap than breaking the working path.
+    let reachableHost = vm.host;
+    if (args.meshLoginServer && args.meshPreAuthKey) {
+      const mesh = await JoinMeshActivity({
+        physicalName,
+        host: vm.host,
+        username: vm.username,
+        privateKey: vm.privateKey,
+        loginServer: args.meshLoginServer,
+        preAuthKey: args.meshPreAuthKey,
+      });
+      // Everything downstream — the kubeconfig rewrite in ProvisionRemoteHostActivity, and every
+      // later kubectl/CDKTF call that reads it — now targets the mesh, so 6443 stays closed on the
+      // public interface exactly as constructs/hetzner-vm.ts intends.
+      reachableHost = mesh.meshIp;
+    }
+
     await ProvisionRemoteHostActivity({
       physicalName,
-      host: vm.host,
+      host: reachableHost,
       username: vm.username,
       privateKey: vm.privateKey,
     });
