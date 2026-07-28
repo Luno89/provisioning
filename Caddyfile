@@ -38,3 +38,12 @@
 		}
 	}
 }
+
+# Tenant apps — one site block per publicly exposed deployment, written by AppExposureService and
+# picked up on `caddy reload`. Each proxies over the WireGuard mesh to that cluster's Traefik.
+#
+# Sites are listed explicitly rather than served by a catch-all with on-demand TLS. The wildcard
+# `*.nowrinkles.dev` A record means every name under the domain resolves here, so a catch-all
+# would let anyone trigger certificate issuance for names we do not own and exhaust Let's
+# Encrypt's 50-per-week-per-registered-domain limit. An unlisted name gets nothing.
+import /etc/caddy/apps/*.caddy

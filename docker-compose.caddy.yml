@@ -19,6 +19,9 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@nowrinkles.dev}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Per-app site blocks, written by AppExposureService and imported by the Caddyfile. Mounted
+      # read-only: the backend writes them on the host side, Caddy only ever reads and reloads.
+      - ./apps/backend/data/caddy/apps:/etc/caddy/apps:ro
       # Certificates and ACME account keys. Losing this volume means re-issuing on next start,
       # which is survivable but counts against Let's Encrypt rate limits (5 per name per week).
       - caddy-data:/data

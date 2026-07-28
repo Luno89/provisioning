@@ -21,8 +21,8 @@ export function getAppSettingsSchema(appType?: string): AppSettingsSchema | unde
 }
 
 /**
- * App types with no HTTP surface. AppExposureService is entirely HTTP (Traefik by Host header,
- * then an HTTPS localtunnel), so exposing one of these would produce a working tunnel to nothing.
+ * App types with no HTTP surface. AppExposureService is entirely HTTP (Traefik dispatching by Host
+ * header, fronted by Caddy on the root node), so exposing one of these would route to nothing.
  * Mirrored by NO_WEB_UI_APP_TYPES in the frontend, which hides the control.
  */
 export const NO_WEB_UI_APP_TYPES = new Set<string>(['palworld']);

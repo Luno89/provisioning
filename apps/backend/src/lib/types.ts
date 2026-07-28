@@ -116,6 +116,14 @@ export interface DeploymentMetadata {
   localExposureUrl?: string;
   isExposedPublicly?: boolean;
   publicExposureUrl?: string;
+  /**
+   * The `<app>-<id>.<domain>` name this deployment is served at publicly, allocated on first
+   * exposure and stable thereafter — re-exposing must not hand the user a different URL.
+   *
+   * Held separately from publicExposureUrl (which carries the scheme and is what the UI links to)
+   * because the Caddy site block is keyed on the bare hostname.
+   */
+  publicHostname?: string;
   lastLogPath?: string;
   modules?: string[]; // IDs of enabled custom modules
   storage?: Record<string, string>;

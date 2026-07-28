@@ -5,7 +5,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
@@ -23,10 +23,6 @@ export class AppExposureService extends BaseService {
   // `| undefined` rather than `?:` — the constructor unconditionally assigns the optional `io`
   // param, and exactOptionalPropertyTypes rejects assigning `undefined` to an optional property.
   private io: SocketServer | undefined;
-  private activeTunnels: Map<string, any> = new Map();
-
-  private static registeredListeners = false;
-  private static activeServices: AppExposureService[] = [];
 
   constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer) {
     super(db);
@@ -35,25 +31,6 @@ export class AppExposureService extends BaseService {
     this.nginxConfDir = path.join(__dirname, '../../data/nginx');
     this.io = io;
 
-    AppExposureService.activeServices.push(this);
-
-    if (!AppExposureService.registeredListeners) {
-      const globalCleanup = () => {
-        for (const service of AppExposureService.activeServices) {
-          for (const child of service.activeTunnels.values()) {
-            try {
-              child.kill('SIGKILL');
-            } catch {}
-          }
-        }
-      };
-
-      process.on('exit', globalCleanup);
-      process.on('SIGINT', () => { globalCleanup(); process.exit(0); });
-      process.on('SIGTERM', () => { globalCleanup(); process.exit(0); });
-      process.on('SIGUSR2', () => { globalCleanup(); process.exit(0); });
-      AppExposureService.registeredListeners = true;
-    }
   }
 
   private sanitize(name: string) {
@@ -184,68 +161,6 @@ export class AppExposureService extends BaseService {
 `;
   }
 
-  private async startTunnel(deploymentId: string, namespace: string): Promise<string> {
-    const existing = this.activeTunnels.get(deploymentId);
-    if (existing) {
-      try {
-        existing.kill('SIGKILL');
-      } catch {}
-      this.activeTunnels.delete(deploymentId);
-    }
-
-    const localUrl = `http://${namespace}.localhost:8000`;
-    console.log(`[AppExposureService] Spawning localtunnel for ${namespace} on port 8000...`);
-
-    return new Promise<string>((resolve) => {
-      const child = spawn('npx', ['-y', 'localtunnel', '--port', '8000', '--subdomain', namespace, '--local-host', `${namespace}.localhost`]);
-      this.activeTunnels.set(deploymentId, child);
-
-      let resolved = false;
-
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          console.warn(`[AppExposureService] Localtunnel for ${namespace} timed out. Falling back to local URL.`);
-          resolve(localUrl);
-        }
-      }, 15000);
-
-      child.stdout.on('data', (data) => {
-        const output = data.toString();
-        console.log(`[Localtunnel stdout] ${output.trim()}`);
-        const match = output.match(/your url is:\s+(https:\/\/[^\s]+)/i);
-        if (match && match[1]) {
-          clearTimeout(timeout);
-          if (!resolved) {
-            resolved = true;
-            const publicUrl = match[1];
-            console.log(`[AppExposureService] Localtunnel established successfully: ${publicUrl}`);
-            resolve(publicUrl);
-          }
-        }
-      });
-
-      child.stderr.on('data', (data) => {
-        console.error(`[Localtunnel stderr] ${data.toString().trim()}`);
-      });
-
-      child.on('close', (code) => {
-        console.log(`[AppExposureService] Localtunnel process for ${namespace} exited with code ${code}`);
-        clearTimeout(timeout);
-        this.activeTunnels.delete(deploymentId);
-      });
-
-      child.on('error', (err) => {
-        console.error(`[AppExposureService] Localtunnel process error: ${err.message}`);
-        clearTimeout(timeout);
-        this.activeTunnels.delete(deploymentId);
-        if (!resolved) {
-          resolved = true;
-          resolve(localUrl);
-        }
-      });
-    });
-  }
 
   // Derives the back-compat single-value fields (isExposed/exposureUrl) from the two
   // independent mode flags, and removes them entirely once neither mode is active — every
@@ -259,6 +174,90 @@ export class AppExposureService extends BaseService {
 
   private confPathFor(namespace: string): string {
     return path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
+  }
+
+  /**
+   * The public suffix apps are served under, e.g. `nowrinkles.dev`. Unset on a local dev box,
+   * where there is no public address and no certificate authority will issue for one.
+   */
+  private ingressDomain(): string | undefined {
+    return process.env.INGRESS_DOMAIN || undefined;
+  }
+
+  /**
+   * Stable, globally unique public hostname for a deployment.
+   *
+   * The id suffix is what makes it safe across tenants: two people can both deploy something
+   * called "blog", and without it the second would silently take over the first's hostname. Taken
+   * from the deployment id rather than the owner id so nothing about who owns it leaks into DNS.
+   */
+  private hostnameFor(dep: DeploymentMetadata, domain: string): string {
+    if (dep.publicHostname) return dep.publicHostname;
+    return `${this.sanitize(dep.name)}-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
+  }
+
+  private caddyConfPathFor(namespace: string): string {
+    return path.join(this.nginxConfDir, '..', 'caddy', 'apps', `${namespace}.caddy`);
+  }
+
+  /**
+   * One Caddy site block per publicly exposed app.
+   *
+   * Sites are listed EXPLICITLY rather than served by a catch-all with on-demand TLS. With a
+   * wildcard `*.<domain>` A record every name under the domain resolves to the root node, so a
+   * catch-all would let anyone trigger certificate issuance for names we do not own — burning
+   * Let's Encrypt's 50-per-week-per-registered-domain limit at will. An unlisted name simply gets
+   * no certificate here.
+   *
+   * The Host rewrite is the load-bearing part, exactly as in the nginx path: Traefik in the tenant
+   * cluster dispatches purely on Host, so it must see the app's own Ingress hostname and not the
+   * public one the browser asked for.
+   */
+  private buildCaddyContent(publicHostname: string, backendTarget: string, appHostname: string): string {
+    return `${publicHostname} {
+	reverse_proxy ${backendTarget} {
+		header_up Host ${appHostname}
+		header_up X-Forwarded-Proto https
+
+		# Apps stream (logs, terminals, live dashboards); the 30s default would sever those.
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}
+`;
+  }
+
+  private async reloadCaddy(): Promise<void> {
+    // --force because the config often parses identically after an app is removed and re-added,
+    // and Caddy skips a reload it considers a no-op.
+    await execAsync('docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force');
+  }
+
+  private async writeCaddyConf(namespace: string, publicHostname: string, backendTarget: string, appHostname: string) {
+    const confPath = this.caddyConfPathFor(namespace);
+    await fs.mkdir(path.dirname(confPath), { recursive: true });
+    await fs.writeFile(confPath, this.buildCaddyContent(publicHostname, backendTarget, appHostname));
+    try {
+      await this.reloadCaddy();
+    } catch (err: any) {
+      throw new Error(`Failed to reload Caddy: ${err.message}`);
+    }
+  }
+
+  private async removeCaddyConf(namespace: string) {
+    try {
+      await fs.unlink(this.caddyConfPathFor(namespace));
+    } catch {
+      // Already gone
+    }
+    try {
+      await this.reloadCaddy();
+    } catch (err: any) {
+      // Best-effort on teardown: the file is gone, so the route dies on the next reload anyway.
+      this.logger.error(`Failed to reload Caddy: ${err.message}`);
+    }
   }
 
   // Both modes share one Nginx conf per namespace — buildConfContent's server_name already
@@ -320,15 +319,26 @@ export class AppExposureService extends BaseService {
     const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
     if (!cluster) throw new Error('Cluster not found');
 
+    const domain = this.ingressDomain();
+    if (!domain) {
+      // Public exposure used to mean spawning `npx localtunnel`, which handed back a *.loca.lt
+      // address that was rate-limited, showed an interstitial, and did not reliably grant the
+      // subdomain requested. It is gone. Public URLs now come from the hosted root node, so
+      // there is genuinely nothing to serve from a laptop.
+      throw new Error(
+        'Public exposure needs INGRESS_DOMAIN set — it is served by the hosted root node, not from here. Local exposure still works.',
+      );
+    }
+
     const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
-    const publicUrl = await this.startTunnel(dep.id, namespace);
+    const publicHostname = this.hostnameFor(dep, domain);
+    dep.publicHostname = publicHostname;
     dep.isExposedPublicly = true;
-    dep.publicExposureUrl = publicUrl;
+    dep.publicExposureUrl = `https://${publicHostname}`;
     this.syncDerivedFields(dep);
 
-    const tunnelHost = publicUrl.replace(/^https?:\/\//, '');
-    await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
+    await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname);
 
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');
@@ -350,27 +360,27 @@ export class AppExposureService extends BaseService {
 
         const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
 
-        let tunnelHost: string | undefined;
-        if (dep.isExposedPublicly) {
-          const url = await this.startTunnel(dep.id, namespace).catch((err) => {
-            this.logger.error(`Failed to establish sync tunnel for "${dep.name}": ${err.message}`);
-            return dep.publicExposureUrl; // keep the last-known URL rather than clobbering it with a guess
-          });
-          if (url) {
-            dep.publicExposureUrl = url;
-            tunnelHost = url.replace(/^https?:\/\//, '');
-          }
+        const domain = this.ingressDomain();
+        if (dep.isExposedPublicly && domain) {
+          // Rewritten every sync because backendTarget can move under us — a cluster that was
+          // re-provisioned comes back with a different nodePort, and the old route would proxy
+          // into nothing. The hostname itself is stable (hostnameFor reuses publicHostname), so
+          // the user's URL never changes.
+          const publicHostname = this.hostnameFor(dep, domain);
+          dep.publicHostname = publicHostname;
+          dep.publicExposureUrl = `https://${publicHostname}`;
+          await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname);
         }
         if (dep.isExposedLocally) {
           dep.localExposureUrl = `http://${namespace}.localhost:8000`;
+          await this.writeNginxConf(namespace, backendTarget, appHostname);
         }
         this.syncDerivedFields(dep);
         await this.db.saveDeployment(dep);
 
-        await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
         changed = true;
-        const modes = [dep.isExposedPublicly ? `tunnel: ${tunnelHost}` : null, dep.isExposedLocally ? 'local' : null].filter(Boolean).join(', ');
-        this.logger.info(`Synced nginx config for "${dep.name}" -> ${backendTarget} (${modes})`);
+        const modes = [dep.isExposedPublicly ? `public: ${dep.publicHostname}` : null, dep.isExposedLocally ? 'local' : null].filter(Boolean).join(', ');
+        this.logger.info(`Synced exposure for "${dep.name}" -> ${backendTarget} (${modes})`);
 
       } catch (err: any) {
         this.logger.error(`Failed to sync nginx config for "${dep.name}": ${err.message}`);
@@ -446,29 +456,17 @@ export class AppExposureService extends BaseService {
 
     const namespace = this.sanitize(dep.name);
 
-    const tunnel = this.activeTunnels.get(id);
-    if (tunnel) {
-      try {
-        tunnel.kill('SIGKILL');
-      } catch {}
-      this.activeTunnels.delete(id);
-    }
-
     dep.isExposedPublicly = false;
     delete dep.publicExposureUrl;
+    // publicHostname is deliberately kept: re-exposing later should hand back the same URL rather
+    // than silently minting a new one and breaking every link anyone saved.
     this.syncDerivedFields(dep);
 
-    if (dep.isExposedLocally) {
-      // Local exposure is still active — rewrite the conf without the tunnel host rather than
-      // removing it, so the app stays reachable at namespace.localhost:8000.
-      const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
-      if (cluster) {
-        const { backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
-        await this.writeNginxConf(namespace, backendTarget, appHostname);
-      }
-    } else {
-      await this.removeNginxConf(namespace);
-    }
+    // The two modes no longer share a config file. Local exposure is the host nginx serving
+    // namespace.localhost:8000; public exposure is a Caddy site on the root node. Removing one
+    // cannot disturb the other, which is why this no longer has to rewrite the nginx conf to
+    // strip a tunnel host out of it.
+    await this.removeCaddyConf(namespace);
 
     await this.db.saveDeployment(dep);
     if (this.io) this.io.emit('deployment-updated');

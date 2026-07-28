@@ -24,6 +24,9 @@ cdktf.out/
 /apps/backend/data/logs/
 /apps/backend/data/nginx/conf.d/*
 !/apps/backend/data/nginx/conf.d/default.conf
+# Generated Caddy site blocks, one per exposed deployment — runtime state, not source.
+/apps/backend/data/caddy/apps/*
+!/apps/backend/data/caddy/apps/.gitkeep
 /apps/backend/data/.gitea-admin-password
 /apps/backend/data/.gitea-admin-token
 /apps/backend/data/.headscale-api-key

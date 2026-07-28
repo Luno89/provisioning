@@ -733,6 +733,28 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   /** ── MESH — Headscale-backed remote cluster target connectivity (distributed-systems plan Phase 1) ── */
 
   /**
+   * Confirms a hostname belongs to a real, publicly exposed deployment.
+   *
+   * Deliberately mounted OUTSIDE /api so it needs no session: Caddy calls it, not a browser, and
+   * requireAuth is mounted at `/api` (index.ts:221) so it never sees this path. Moving this route
+   * under /api would silently break certificate issuance with a 401.
+   *
+   * Not needed for the current configuration, where AppExposureService writes an explicit site
+   * block per app and an unlisted name simply gets no certificate. It exists for the moment custom
+   * domains arrive and Caddy has to serve names it did not know at config time: on-demand TLS
+   * without a gate like this lets anyone point DNS at the root node and burn Let's Encrypt's
+   * 50-per-week-per-registered-domain limit.
+   */
+  app.get('/ingress/verify', async (req, res) => {
+    const domain = String(req.query.domain ?? '');
+    if (!domain) return res.status(400).send('domain required');
+    const deployments = await db.getDeployments();
+    const owned = deployments.some((d) => d.isExposedPublicly && d.publicHostname === domain);
+    // Caddy treats any non-2xx as "do not issue".
+    return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
+  });
+
+  /**
    * What the UI needs to render a working join command, plus whether the mesh is usable at all.
    * `loginServer` is null on a local dev box (MESH_LOGIN_SERVER unset, Headscale's server_url
    * still localhost) — the UI must say so rather than printing a command that would tell the

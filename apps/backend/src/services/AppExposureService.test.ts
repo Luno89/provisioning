@@ -19,11 +19,9 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 const mockExec = vi.fn((cmd: string, cb: Function) => cb(null, { stdout: '', stderr: '' }));
-const mockSpawnStdoutOn = vi.fn((event: string, cb: Function) => {
-  if (event === 'data') {
-    setTimeout(() => cb(Buffer.from('your url is: https://myapp.loca.lt\n')), 10);
-  }
-});
+// Retained only so the child_process mock stays shaped like the real module — nothing in
+// AppExposureService spawns a process any more now that localtunnel is gone.
+const mockSpawnStdoutOn = vi.fn();
 const mockSpawnStderrOn = vi.fn();
 const mockSpawnOn = vi.fn();
 const mockSpawn = vi.fn(() => ({
@@ -120,6 +118,9 @@ describe('syncExposedApps', () => {
   const svcJson = JSON.stringify({ items: [{ metadata: { name: 'm-web' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] });
 
   it('writes conf.d and removes stale configs', async () => {
+    // mockDep is public-only, and public exposure is now served by the root node — with no
+    // INGRESS_DOMAIN there is genuinely nothing to write, so the sync correctly does nothing.
+    process.env.INGRESS_DOMAIN = 'nowrinkles.dev';
     mockGetDeployments.mockResolvedValue([mockDep]);
     mockGetById.mockResolvedValue(mockCluster);
     mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
@@ -133,6 +134,7 @@ describe('syncExposedApps', () => {
     expect(mockRunKubectl).toHaveBeenCalledWith(['get', 'svc', '-n', 'myapp', '-o', 'json'], '/tmp/kubeconfig');
     expect(mockWriteFile).toHaveBeenCalledOnce();
     expect(mockUnlink).toHaveBeenCalled();
+    delete process.env.INGRESS_DOMAIN;
   });
 
   it('removes stale configs when no deployments exposed', async () => {
@@ -228,7 +230,7 @@ describe('buildUpstreamTarget', () => {
 
 describe('unexposePublic / unexposeLocal', () => {
   it('unexposePublic removes conf.d when local exposure is not also active', async () => {
-    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp.loca.lt' }]);
+    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp-d1.nowrinkles.dev' }]);
     mockSaveDeployment.mockResolvedValue(undefined);
 
     const result = await createService().unexposePublic('d1');
@@ -242,8 +244,12 @@ describe('unexposePublic / unexposeLocal', () => {
     expect(result.isExposed).toBe(false);
   });
 
-  it('unexposePublic keeps the conf (rewritten) when local exposure is still active', async () => {
-    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp.loca.lt', isExposedLocally: true, localExposureUrl: 'http://myapp.localhost:8000' }]);
+  // The two modes used to share one nginx conf, because localtunnel pointed AT that nginx — so
+  // dropping public exposure meant rewriting the file to strip the tunnel host out. They are now
+  // independent: local is the host nginx, public is a Caddy site on the root node. Unexposing one
+  // removes only its own file and cannot disturb the other.
+  it('unexposePublic removes only the Caddy site, leaving local exposure alone', async () => {
+    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp-d1.nowrinkles.dev', isExposedLocally: true, localExposureUrl: 'http://myapp.localhost:8000' }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
@@ -252,8 +258,8 @@ describe('unexposePublic / unexposeLocal', () => {
 
     const result = await createService().unexposePublic('d1');
 
-    expect(mockUnlink).not.toHaveBeenCalled();
-    expect(mockWriteFile).toHaveBeenCalledOnce();
+    expect(mockUnlink).toHaveBeenCalledOnce();       // the Caddy site
+    expect(mockWriteFile).not.toHaveBeenCalled();    // nginx untouched
     expect(result.isExposed).toBe(true);
     expect(result.isExposedLocally).toBe(true);
     expect(result.exposureUrl).toBe('http://myapp.localhost:8000');
@@ -274,20 +280,30 @@ describe('unexposePublic / unexposeLocal', () => {
 });
 
 describe('exposePublic / exposeLocal', () => {
-  it('exposePublic writes conf.d, starts a tunnel and reloads nginx', async () => {
+  it('exposePublic writes a Caddy site and returns the platform URL', async () => {
     mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     mockSaveDeployment.mockResolvedValue(undefined);
+    process.env.INGRESS_DOMAIN = 'nowrinkles.dev';
 
     const result = await createService().exposePublic('d1');
 
     expect(mockWriteFile).toHaveBeenCalledOnce();
-    expect(result.isExposed).toBe(true);
     expect(result.isExposedPublicly).toBe(true);
-    expect(result.exposureUrl).toBe('https://myapp.loca.lt');
+    // Was https://myapp.loca.lt — a rate-limited tunnel that did not reliably grant the subdomain.
+    expect(result.exposureUrl).toMatch(/^https:\/\/myapp-[a-z0-9]+\.nowrinkles\.dev$/);
+    delete process.env.INGRESS_DOMAIN;
+  });
+
+  it('exposePublic refuses when there is no public domain to serve from', async () => {
+    mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const }]);
+    mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
+    delete process.env.INGRESS_DOMAIN;
+    // Better than the old behaviour of quietly producing a *.loca.lt URL that may not work.
+    await expect(createService().exposePublic('d1')).rejects.toThrow(/INGRESS_DOMAIN/);
   });
 
   it('exposeLocal writes conf.d without starting a tunnel', async () => {
@@ -350,4 +366,46 @@ describe('buildUpstreamTarget on mesh clusters', () => {
   // mock-cloud (isMockCloudProvider), so it takes the k3d branch above and never reaches the
   // LoadBalancer one. Exercising that path needs the credential resolver stubbed, and it is
   // behaviour this change did not touch.
+});
+
+describe('public hostname allocation', () => {
+  const svc = () => createService() as any;
+
+  it('is stable across calls, so a saved link keeps working', () => {
+    const dep = { id: 'abc123de-0000-4000-8000-000000000000', name: 'My Blog' };
+    const a = svc().hostnameFor(dep, 'nowrinkles.dev');
+    const b = svc().hostnameFor({ ...dep, publicHostname: a }, 'nowrinkles.dev');
+    expect(b).toBe(a);
+  });
+
+  it('distinguishes two tenants who both called their app the same thing', () => {
+    // Without the id suffix the second deployment silently takes over the first's hostname —
+    // which, on a shared host, means one tenant's traffic landing on another tenant's cluster.
+    const alice = svc().hostnameFor({ id: 'aaaaaaaa-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
+    const bob = svc().hostnameFor({ id: 'bbbbbbbb-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
+    expect(alice).not.toBe(bob);
+    expect(alice.startsWith('blog-')).toBe(true);
+  });
+
+  it('produces a DNS-safe label from an awkward app name', () => {
+    const h = svc().hostnameFor({ id: 'ffffffff-0000-4000-8000-000000000000', name: 'My  App!! v2' }, 'nowrinkles.dev');
+    expect(h).toMatch(/^[a-z0-9-]+\.nowrinkles\.dev$/);
+  });
+});
+
+describe('buildCaddyContent', () => {
+  it('rewrites Host to the app ingress hostname, not the public one', () => {
+    // Traefik dispatches purely on Host. Forwarding the browser's Host (the public name) matches
+    // no Ingress in the cluster and every request 404s — the same trap the nginx path documents.
+    const c = (createService() as any).buildCaddyContent('blog-abc123.nowrinkles.dev', '100.64.0.5:32080', 'blog.apps.local');
+    expect(c).toContain('blog-abc123.nowrinkles.dev {');
+    expect(c).toContain('reverse_proxy 100.64.0.5:32080');
+    expect(c).toContain('header_up Host blog.apps.local');
+  });
+
+  it('disables proxy timeouts so streaming apps are not severed', () => {
+    const c = (createService() as any).buildCaddyContent('a.nowrinkles.dev', '10.0.0.1:80', 'a.apps.local');
+    expect(c).toContain('read_timeout 0');
+    expect(c).toContain('write_timeout 0');
+  });
 });
