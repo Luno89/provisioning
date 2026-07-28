@@ -336,6 +336,14 @@ export interface HetznerCredentials {
   token: string;              // encrypted
 }
 
+/** Cloudflare DNS. Used to create the root node's records; never touched by tenant provisioning. */
+export interface CloudflareCredentials {
+  /** Scoped API token — Zone → DNS → Edit is sufficient. Not a Global API Key. */
+  token?: string;
+  /** Optional convenience: the zone this token is scoped to, e.g. nowrinkles.dev. */
+  zone?: string;
+}
+
 /**
  * The VPS providers below are all plain-VM hosts in the same mould as Hetzner: one API token (or
  * a small credential set) is enough to both price and provision. Connecting them unlocks that
@@ -399,6 +407,7 @@ export interface CloudCredentials {
   azure?: AzureCredentials;
   do?: DoCredentials;
   hetzner?: HetznerCredentials;
+  cloudflare?: CloudflareCredentials;
   vultr?: VultrCredentials;
   linode?: LinodeCredentials;
   scaleway?: ScalewayCredentials;
@@ -412,6 +421,8 @@ export interface CloudCredentials {
 export type CloudProvider =
   | 'aws' | 'gcp' | 'azure' | 'do' | 'hetzner'
   | 'vultr' | 'linode' | 'scaleway' | 'hostinger' | 'contabo'
+  // Not a compute provider — DNS only, for the platform's own records.
+  | 'cloudflare'
   | 'huggingface' | 'github' | 'googledrive';
 
 export interface UserMetadata {

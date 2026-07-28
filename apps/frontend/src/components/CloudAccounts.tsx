@@ -102,6 +102,22 @@ export const PROVIDERS: ProviderMeta[] = [
     ],
   },
   {
+    key: 'cloudflare',
+    label: 'Cloudflare DNS',
+    color: '#F38020',
+    icon: '☁',
+    // Unlike the others this is not a compute provider — it is only used to manage the platform's
+    // own DNS records when standing up or moving the root node. Tenant provisioning never touches
+    // it.
+    docsUrl: 'https://dash.cloudflare.com/profile/api-tokens',
+    fields: [
+      // A *scoped* token, not the Global API Key: Zone → DNS → Edit on the one zone is everything
+      // this needs, and the Global Key would grant account-wide access with no way to narrow it.
+      { key: 'token', label: 'API Token (Zone → DNS → Edit)', sensitive: true, placeholder: 'scoped token, not the Global API Key' },
+      { key: 'zone', label: 'Zone (Optional)', sensitive: false, placeholder: 'nowrinkles.dev' },
+    ],
+  },
+  {
     key: 'vultr',
     label: 'Vultr',
     color: '#007BFC',

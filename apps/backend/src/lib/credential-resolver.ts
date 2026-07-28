@@ -102,6 +102,11 @@ function resolveFromUser(
     }
     // Env var names below match each provider's own official Terraform provider / CLI, so a
     // credential resolved here works unmodified in a CDKTF subprocess.
+    case 'cloudflare': {
+      const cf = creds.cloudflare;
+      if (!cf?.token) return null;
+      return { CLOUDFLARE_API_TOKEN: cf.token, ...(cf.zone ? { CLOUDFLARE_ZONE: cf.zone } : {}) };
+    }
     case 'vultr': {
       const v = creds.vultr;
       if (!v?.token) return null;
@@ -195,6 +200,12 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
       const token = process.env.HCLOUD_TOKEN || process.env.HETZNER_TOKEN;
       if (!token) return null;
       return { HCLOUD_TOKEN: token };
+    }
+    case 'cloudflare': {
+      // CLOUDFLARE_API_TOKEN is the name Cloudflare's own tooling and the Terraform provider read.
+      const token = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
+      if (!token) return null;
+      return { CLOUDFLARE_API_TOKEN: token, ...(process.env.CLOUDFLARE_ZONE ? { CLOUDFLARE_ZONE: process.env.CLOUDFLARE_ZONE } : {}) };
     }
     case 'vultr': {
       const token = process.env.VULTR_API_KEY;

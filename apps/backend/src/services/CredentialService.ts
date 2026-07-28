@@ -26,6 +26,7 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   azure: ['clientId', 'clientSecret'],
   do: ['token'],
   hetzner: ['token'],
+  cloudflare: ['token'],
   vultr: ['token'],
   linode: ['token'],
   scaleway: ['secretKey'],
@@ -43,6 +44,7 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   azure: ['subscriptionId', 'tenantId'],
   do: [],
   hetzner: [],
+  cloudflare: ['zone'],
   vultr: [],
   linode: [],
   scaleway: ['accessKey', 'projectId'],
@@ -167,6 +169,32 @@ export class CredentialService {
             typeof total === 'number' ? ` (${total} existing server${total === 1 ? '' : 's'})` : ''
           }.`,
         };
+      }
+
+      if (provider === 'cloudflare') {
+        if (!creds.token) return { valid: false, message: 'Cloudflare API Token is required.' };
+        // /user/tokens/verify is the endpoint Cloudflare provides specifically for this, and it
+        // works for scoped tokens — /user does not, since a DNS-scoped token has no permission to
+        // read the account itself and would fail validation despite being perfectly good.
+        const res = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
+          headers: { Authorization: `Bearer ${creds.token}` },
+        });
+        if (res.status === 401 || res.status === 403) {
+          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
+        }
+        if (!res.ok) return { valid: false, message: `Cloudflare API returned HTTP ${res.status}.` };
+        const data = await readJson(res);
+        // Cloudflare returns HTTP 200 with success:false for a token that parses but is inactive
+        // or expired — checking res.ok alone would call a dead token valid.
+        if (data?.success !== true) {
+          const detail = data?.errors?.[0]?.message ?? 'token is not active';
+          return { valid: false, message: `Cloudflare rejected the token: ${detail}.` };
+        }
+        const status = data?.result?.status;
+        if (status && status !== 'active') {
+          return { valid: false, message: `Token status is "${status}", not active.` };
+        }
+        return { valid: true, message: 'Cloudflare API token is active.' };
       }
 
       // Each check below hits an endpoint verified to exist and to return 401 on a bad
@@ -306,6 +334,7 @@ export class CredentialService {
       { key: 'azure', label: 'Microsoft Azure' },
       { key: 'do', label: 'DigitalOcean' },
       { key: 'hetzner', label: 'Hetzner Cloud' },
+      { key: 'cloudflare', label: 'Cloudflare DNS' },
       { key: 'vultr', label: 'Vultr' },
       { key: 'linode', label: 'Linode / Akamai' },
       { key: 'scaleway', label: 'Scaleway' },

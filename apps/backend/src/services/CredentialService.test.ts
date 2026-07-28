@@ -109,7 +109,7 @@ describe('CredentialService', () => {
       expect(statuses.map((s) => s.provider).sort()).toEqual(
         [
           'aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface',
-          'vultr', 'linode', 'scaleway', 'hostinger', 'contabo',
+          'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'cloudflare',
         ].sort(),
       );
 

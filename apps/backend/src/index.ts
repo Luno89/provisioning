@@ -806,7 +806,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── CREDENTIALS ── */
 
-  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do', 'hetzner', 'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'huggingface', 'github', 'googledrive'] as const;
+  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do', 'hetzner', 'cloudflare', 'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'huggingface', 'github', 'googledrive'] as const;
 
   /**
    * Live VPS plan/price search across providers — see VpsCatalogService for why this is queried
