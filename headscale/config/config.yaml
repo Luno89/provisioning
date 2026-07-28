@@ -53,9 +53,11 @@ log:
   level: info
   format: text
 
+# An empty path means NO policy, and Headscale's default with no policy is allow-all — every
+# tenant node reachable from every other. See acl.hujson for the isolation rules.
 policy:
   mode: file
-  path: ""
+  path: /etc/headscale/acl.hujson
 
 # MagicDNS off — this platform only needs mesh-IP reachability (CDKTF/kubectl talk to remote
 # cluster targets by their mesh IP directly, per the distributed-systems plan), not hostnames.

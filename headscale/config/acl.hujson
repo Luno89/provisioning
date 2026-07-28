@@ -1,0 +1,46 @@
+// Headscale ACL policy — tenant isolation for the hosted platform.
+//
+// This file is REQUIRED, not an optimisation. With no policy configured Headscale defaults to
+// allow-all, so every tenant's machine could reach every other tenant's machine and their
+// clusters' API servers. On an invite-only host that is still unacceptable: people are attaching
+// their own hardware and running their own workloads on it.
+//
+// Validate any change before shipping it — the binary will tell you:
+//     docker exec provisioning-headscale headscale policy check -f /etc/headscale/acl.hujson
+//
+// A syntactically valid policy that is semantically too permissive fails OPEN and looks fine, so
+// also run the cross-tenant reachability check in the plan's verification section.
+{
+  // The root node joins the mesh as the `platform-root` Headscale user and carries this tag. It
+  // needs to reach every tenant node: that is how kubectl, CDKTF and the SSH bootstrap talk to a
+  // cluster once the node is meshed and 6443 is closed on the public interface.
+  // The trailing "@" is required. Headscale v0.29 uses Tailscale's policy-v2 owner encoding, where
+  // a user is email-shaped; a bare "platform-root" and a typed "user:platform-root" are both
+  // rejected with "invalid owner format", and "group:" needs a group defined here first. Verified
+  // against the running binary with `headscale policy check`, not assumed.
+  "tagOwners": {
+    "tag:platform": ["platform-root@"],
+  },
+
+  "acls": [
+    // The platform reaches everything it manages.
+    {
+      "action": "accept",
+      "src": ["tag:platform"],
+      "dst": ["*:*"],
+    },
+
+    // Every tenant reaches ONLY their own devices. HeadscaleService.createPreAuthKey() already
+    // mints keys under a per-tenant Headscale user (`platform-<userId>`, see ensureHeadscaleUser),
+    // so autogroup:self resolves to exactly that tenant's nodes and the rule needs no per-user
+    // regeneration as accounts are added.
+    //
+    // This is what lets a tenant's own GPU box and their provisioned VPS talk to each other while
+    // staying invisible to everyone else's.
+    {
+      "action": "accept",
+      "src": ["autogroup:member"],
+      "dst": ["autogroup:self:*"],
+    },
+  ],
+}
