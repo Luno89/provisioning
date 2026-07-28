@@ -108,6 +108,24 @@ All services live in `apps/backend/src/services/`, most extend `BaseService`. Co
 
 All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` middleware in `index.ts`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
 
+## Root node (hosted deployment)
+
+`scripts/root-node/bootstrap.sh` stands up a fresh VPS; `scripts/root-node/update.sh` deploys a new
+version onto it. Both are idempotent and both refuse loudly rather than half-succeeding.
+
+Updates build and typecheck **before** restarting, so a broken commit never interrupts the running
+version, and roll back to the previous commit automatically if the health check fails. The restart
+goes through the systemd unit so the **workers restart too** — they run plain `tsx` and do not
+hot-reload, so bouncing only the backend would leave them on the old release silently.
+
+A restart mid-provision is safe (Temporal holds the workflow state, so activities resume) but costs
+one retry attempt, so the script refuses while work is in flight unless given `--force`.
+
+**Snapshots are not rollback.** `update.sh` takes a Hetzner snapshot when a token is available, but
+restoring one rolls the whole disk back — including Mongo, Temporal and Headscale, so every cluster
+a tenant created since would vanish. It is disaster recovery for a broken machine, never "undo that
+deploy". Rollback is git-based for exactly this reason.
+
 ## Headscale mesh
 
 Self-managed clusters (`hetzner`, `remote`) are meant to be reached over a WireGuard mesh, not the
