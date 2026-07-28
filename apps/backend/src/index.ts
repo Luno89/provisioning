@@ -729,6 +729,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── MESH — Headscale-backed remote cluster target connectivity (distributed-systems plan Phase 1) ── */
 
+  /**
+   * What the UI needs to render a working join command, plus whether the mesh is usable at all.
+   * `loginServer` is null on a local dev box (MESH_LOGIN_SERVER unset, Headscale's server_url
+   * still localhost) — the UI must say so rather than printing a command that would tell the
+   * user's machine to contact itself.
+   */
+  app.get('/api/mesh/config', async (_req, res) => {
+    const loginServer = process.env.MESH_LOGIN_SERVER || null;
+    res.json({
+      loginServer,
+      configured: Boolean(loginServer && !/localhost|127\.0\.0\.1/.test(loginServer)),
+    });
+  });
+
   app.get('/api/mesh/devices', async (req, res) => {
     try {
       res.json(await headscaleService.listUserDevices((req as any).user.id));

@@ -30,6 +30,11 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     credentialKey: 'hetzner',
     hint: 'Creates a real VM, installs k3s on it over SSH, and bills to your Hetzner project.',
   },
+  {
+    value: 'remote',
+    label: 'One of my machines',
+    hint: 'Use hardware you already own — a GPU workstation, a spare server — once it has joined the mesh under My Machines.',
+  },
 ];
 
 /**
@@ -72,6 +77,13 @@ const FALLBACK_PLANS = [
   { planId: 'ccx33', vcpu: 8, ramGb: 32 },
 ];
 const FALLBACK_LOCATIONS = ['nbg1', 'fsn1', 'hel1', 'ash', 'hil', 'sin'];
+
+interface MeshDevice {
+  id: string;
+  name: string;
+  ipAddresses: string[];
+  online: boolean;
+}
 
 interface CatalogOffer {
   planId: string;
@@ -128,6 +140,11 @@ export default function ClusterWizard({
   const [offers, setOffers] = useState<CatalogOffer[] | null>(null);
   const [catalogFailed, setCatalogFailed] = useState(false);
 
+  const [meshDevices, setMeshDevices] = useState<MeshDevice[] | null>(null);
+  const [remoteHost, setRemoteHost] = useState('');
+  const [remoteUsername, setRemoteUsername] = useState('root');
+  const [remoteKey, setRemoteKey] = useState('');
+
   const selected = PROVIDER_OPTIONS.find((p) => p.value === provider)!;
   const credentialKey = selected.credentialKey;
   const alreadyConfigured = !!credentialKey && configuredProviders.some((p) => p.provider === credentialKey && p.configured);
@@ -137,9 +154,22 @@ export default function ClusterWizard({
   // switching from k3d to Hetzner re-introduces it.
   const needsCredentialStep = !!credentialKey && !alreadyConfigured && !tokenSaved;
   const needsOptionsStep = provider === 'hetzner';
+  const needsRemoteStep = provider === 'remote';
 
   // Re-fetched once a token exists: the Hetzner catalogue is credential-gated, so a fetch before
   // the credentials step would come back empty and strand the user on the fallback list.
+  useEffect(() => {
+    if (provider !== 'remote') return;
+    let cancelled = false;
+    fetch(`${apiBase}/mesh/devices`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => { if (!cancelled) setMeshDevices(Array.isArray(d) ? d : []); })
+      // An unreachable mesh renders as "no machines" plus the pointer to My Machines, which is the
+      // same thing the user needs to do either way.
+      .catch(() => { if (!cancelled) setMeshDevices([]); });
+    return () => { cancelled = true; };
+  }, [provider, apiBase]);
+
   const hasToken = alreadyConfigured || tokenSaved;
   useEffect(() => {
     if (provider !== 'hetzner' || !hasToken) return;
@@ -186,7 +216,7 @@ export default function ClusterWizard({
   const money = (n: number, c: string) => `${c === 'EUR' ? '€' : c === 'USD' ? '$' : ''}${n.toFixed(2)}`;
   const selectedOffer = locationChoices.find((l) => l.code === location);
 
-  const steps = [1, ...(needsCredentialStep ? [2] : []), ...(needsOptionsStep ? [3] : [])];
+  const steps = [1, ...(needsCredentialStep ? [2] : []), ...(needsOptionsStep ? [3] : []), ...(needsRemoteStep ? [4] : [])];
   const isLastStep = step === steps[steps.length - 1];
 
   const goNext = () => {
@@ -247,6 +277,13 @@ export default function ClusterWizard({
       name,
       provider,
       ...(provider === 'hetzner' ? { hetznerServerType: serverType, hetznerLocation: location } : {}),
+      // Field names match what POST /api/clusters expects for provider:'remote' — the same shape
+      // tests/remote-host-integration.ts drives end to end.
+      ...(provider === 'remote' ? {
+        remoteHost,
+        remoteUsername: remoteUsername.trim() || 'root',
+        remoteSshPrivateKey: remoteKey,
+      } : {}),
     });
   };
 
@@ -272,7 +309,12 @@ export default function ClusterWizard({
     return {};
   }, [name]);
 
-  const canAdvance = step === 1 ? name.trim().length > 0 && !nameCheck.error : true;
+  // Step 4 gates on all three: an empty host or key reaches the workflow and fails minutes later
+  // inside an SSH activity, which is a poor place to discover a blank form field.
+  const canAdvance =
+    step === 1 ? name.trim().length > 0 && !nameCheck.error
+    : step === 4 ? remoteHost.trim().length > 0 && remoteKey.trim().length > 0
+    : true;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -486,6 +528,73 @@ export default function ClusterWizard({
                 {selectedOffer && <> at <strong className="text-slate-300">{money(selectedOffer.priceMonthly, selectedOffer.currency)}/month</strong>, billed hourly</>}.
                 Destroying the cluster from this UI deletes the server and verifies it against
                 Hetzner's API.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="space-y-6">
+            <div>
+              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                Machine
+              </label>
+              {meshDevices === null ? (
+                <div className="text-sm text-slate-500 py-3">Loading your machines…</div>
+              ) : meshDevices.length === 0 ? (
+                <div className="bg-slate-900 border border-dashed border-slate-700 rounded-xl px-5 py-6 text-center text-slate-500 text-xs">
+                  No machines have joined the mesh yet. Add one under <strong className="text-slate-400">My Machines</strong> first.
+                </div>
+              ) : (
+                <select
+                  value={remoteHost}
+                  onChange={(e) => setRemoteHost(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-sm"
+                >
+                  <option value="">Select a machine…</option>
+                  {meshDevices.map((d) => (
+                    <option key={d.id} value={d.ipAddresses?.[0] ?? ''} disabled={!d.ipAddresses?.[0]}>
+                      {d.name} {d.ipAddresses?.[0] ? `(${d.ipAddresses[0]})` : '— no address'}{d.online ? '' : ' · offline'}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <p className="text-[11px] text-slate-500 mt-2 px-1">
+                The platform reaches your machine at its mesh address, so nothing needs opening on
+                your router. It must be online to provision.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                SSH Username
+              </label>
+              <input
+                value={remoteUsername}
+                onChange={(e) => setRemoteUsername(e.target.value)}
+                placeholder="root"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-sm"
+              />
+              <p className="text-[11px] text-slate-500 mt-2 px-1">
+                Needs root, or passwordless sudo — installing k3s writes a systemd unit and a
+                binary into /usr/local/bin.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                SSH Private Key
+              </label>
+              <textarea
+                value={remoteKey}
+                onChange={(e) => setRemoteKey(e.target.value)}
+                rows={4}
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-xs font-mono"
+              />
+              <p className="text-[11px] text-slate-500 mt-2 px-1">
+                Stored encrypted (AES-256-GCM) and only decrypted to run the k3s install and, later,
+                to uninstall it. Prefer a key created for this rather than reusing a personal one.
               </p>
             </div>
           </div>
