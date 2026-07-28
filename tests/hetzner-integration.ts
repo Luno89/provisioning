@@ -234,7 +234,12 @@ async function run() {
     const { servers } = await hetznerApi(token, '/servers');
     const server = (servers ?? []).find((s: any) => String(s.name).includes(clusterName));
     if (!server) throw new Error(`Cluster is healthy but no Hetzner server matches "${clusterName}"`);
-    console.log(`✅ Hetzner server id=${server.id} type=${server.server_type?.name} location=${server.datacenter?.location?.name} ip=${server.public_net?.ipv4?.ip}`);
+    // `location` is top-level on the server object; there is no `datacenter` key on this response,
+    // so the obvious server.datacenter.location.name reads undefined.
+    console.log(`✅ Hetzner server id=${server.id} type=${server.server_type?.name} location=${server.location?.name} ip=${server.public_net?.ipv4?.ip}`);
+    if (server.location?.name && server.location.name !== LOCATION) {
+      throw new Error(`Asked for location ${LOCATION} but Hetzner placed it in ${server.location.name}`);
+    }
     if (server.server_type?.name !== SERVER_TYPE) {
       throw new Error(`Asked for ${SERVER_TYPE} but Hetzner created ${server.server_type?.name}`);
     }
