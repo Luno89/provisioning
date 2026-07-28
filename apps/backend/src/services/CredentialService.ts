@@ -181,10 +181,16 @@ export class CredentialService {
           return { valid: false, message: 'The token contains a space or line break — it looks like more than just the token was pasted.' };
         }
 
-        // /user/tokens/verify, not /user: this is the endpoint Cloudflare provides for exactly
-        // this check and it works for scoped tokens, whereas a DNS-scoped token has no permission
-        // to read the account and would be reported invalid despite being perfectly good.
-        const res = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
+        // Listing zones, NOT /user/tokens/verify — verified live against a real Zone→DNS→Edit
+        // token, which answers 401 "Invalid API Token" to that endpoint while working perfectly
+        // for every DNS call we make. Both /user and /user/tokens/verify are user-scoped, and a
+        // zone-scoped token cannot call either; validating against them reports a good token as
+        // broken.
+        //
+        // This also validates the right thing. /zones is the first call the provisioning script
+        // makes, so a green result here means the token can do the actual job, not merely that it
+        // is well-formed.
+        const res = await fetch('https://api.cloudflare.com/client/v4/zones', {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await readJson(res);
@@ -207,11 +213,26 @@ export class CredentialService {
           return { valid: false, message: `Cloudflare rejected the token: ${detail}.${hint}` };
         }
 
-        const status = data?.result?.status;
-        if (status && status !== 'active') {
-          return { valid: false, message: `Token status is "${status}", not active.` };
+        const zones: string[] = (data?.result ?? []).map((z: any) => z?.name).filter(Boolean);
+        if (zones.length === 0) {
+          return { valid: false, message: 'The token authenticates but can see no zones — check it is scoped to a zone, not just an account.' };
         }
-        return { valid: true, message: 'Cloudflare API token is active.' };
+
+        // When a zone was named, confirm the token can actually see THAT one. A token scoped to
+        // some other zone authenticates fine and then fails at record-creation time, which is a
+        // much worse place to discover it.
+        const wanted = String(creds.zone ?? '').trim();
+        if (wanted && !zones.includes(wanted)) {
+          return {
+            valid: false,
+            message: `Token is valid but cannot see "${wanted}". It has access to: ${zones.slice(0, 5).join(', ')}.`,
+          };
+        }
+
+        return {
+          valid: true,
+          message: `Can manage ${zones.length} zone${zones.length === 1 ? '' : 's'}: ${zones.slice(0, 5).join(', ')}${zones.length > 5 ? '…' : ''}.`,
+        };
       }
 
       // Each check below hits an endpoint verified to exist and to return 401 on a bad
