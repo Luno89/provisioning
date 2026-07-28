@@ -172,24 +172,41 @@ export class CredentialService {
       }
 
       if (provider === 'cloudflare') {
-        if (!creds.token) return { valid: false, message: 'Cloudflare API Token is required.' };
-        // /user/tokens/verify is the endpoint Cloudflare provides specifically for this, and it
-        // works for scoped tokens — /user does not, since a DNS-scoped token has no permission to
-        // read the account itself and would fail validation despite being perfectly good.
+        // Trimmed because a token pasted from the dashboard commonly carries a trailing newline,
+        // and Cloudflare rejects the whole Authorization header rather than ignoring the
+        // whitespace — an invisible character producing an opaque failure.
+        const token = String(creds.token ?? '').trim();
+        if (!token) return { valid: false, message: 'Cloudflare API Token is required.' };
+        if (/\s/.test(token)) {
+          return { valid: false, message: 'The token contains a space or line break — it looks like more than just the token was pasted.' };
+        }
+
+        // /user/tokens/verify, not /user: this is the endpoint Cloudflare provides for exactly
+        // this check and it works for scoped tokens, whereas a DNS-scoped token has no permission
+        // to read the account and would be reported invalid despite being perfectly good.
         const res = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', {
-          headers: { Authorization: `Bearer ${creds.token}` },
+          headers: { Authorization: `Bearer ${token}` },
         });
-        if (res.status === 401 || res.status === 403) {
-          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        }
-        if (!res.ok) return { valid: false, message: `Cloudflare API returned HTTP ${res.status}.` };
         const data = await readJson(res);
-        // Cloudflare returns HTTP 200 with success:false for a token that parses but is inactive
-        // or expired — checking res.ok alone would call a dead token valid.
-        if (data?.success !== true) {
-          const detail = data?.errors?.[0]?.message ?? 'token is not active';
-          return { valid: false, message: `Cloudflare rejected the token: ${detail}.` };
+
+        // Cloudflare's own error is far more useful than the status code, and it does NOT use 401
+        // for a bad token — a malformed one is a 400 whose body says "Invalid format for
+        // Authorization header", which tells you immediately that what was pasted is not a scoped
+        // token (a Global API Key uses X-Auth-Key/X-Auth-Email, not Bearer, and fails this way).
+        // Reporting the bare status instead threw that away and left "HTTP 400" as the only clue.
+        //
+        // It also answers 200 with success:false for a token that parses but is expired or
+        // inactive, so res.ok alone would call a dead token valid.
+        if (!res.ok || data?.success !== true) {
+          const detail = data?.errors?.[0]?.error_chain?.[0]?.message
+            ?? data?.errors?.[0]?.message
+            ?? `HTTP ${res.status}`;
+          const hint = /Authorization header/i.test(String(detail))
+            ? ' Make sure this is a scoped API token (Zone → DNS → Edit), not the Global API Key.'
+            : '';
+          return { valid: false, message: `Cloudflare rejected the token: ${detail}.${hint}` };
         }
+
         const status = data?.result?.status;
         if (status && status !== 'active') {
           return { valid: false, message: `Token status is "${status}", not active.` };
