@@ -313,3 +313,41 @@ describe('exposePublic / exposeLocal', () => {
     await expect(createService().exposeLocal('x')).rejects.toThrow('Deployment not found');
   });
 });
+
+describe('buildUpstreamTarget on mesh clusters', () => {
+  // The regression this branch exists for: constructs/traefik.ts gives self-managed clusters a
+  // NodePort Service, but hetzner/remote used to fall through to the LoadBalancer branch, which
+  // waits on status.loadBalancer.ingress — a field only a cloud controller ever populates. Every
+  // attempt to expose an app on a Hetzner cluster failed with "Cloud LoadBalancer for Traefik's
+  // Service is still provisioning", on a cluster that has no load balancer and never will.
+  const appSvcJson = JSON.stringify({ items: [{ metadata: { name: 'web' }, spec: { ports: [{ port: 80 }] } }] });
+
+  const target = async (cluster: any) => {
+    mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig-test');
+    mockRunKubectl.mockResolvedValueOnce(appSvcJson).mockResolvedValueOnce(traefikSvcJson);
+    return (createService() as any).buildUpstreamTarget({ name: 'my-app' }, cluster);
+  };
+
+  it('routes to the mesh IP and Traefik nodePort', async () => {
+    const r = await target({ name: 'hz', provider: 'hetzner', meshIp: '100.64.0.5' });
+    expect(r.backendTarget).toBe('100.64.0.5:32080');
+    // The Host rewrite is what makes Traefik pick the right app — unchanged by this branch.
+    expect(r.appHostname).toBe('my-app.apps.local');
+  });
+
+  it('works the same for a bring-your-own machine', async () => {
+    // A remote cluster is behind someone's NAT; the mesh address is the only way in at all.
+    const r = await target({ name: 'gpu-box', provider: 'remote', meshIp: '100.64.0.9' });
+    expect(r.backendTarget).toBe('100.64.0.9:32080');
+  });
+
+  it('blames the missing mesh address, not a load balancer, for a self-managed cluster', async () => {
+    // The old message sent you looking for a cloud load balancer that was never coming.
+    await expect(target({ name: 'hz', provider: 'hetzner' })).rejects.toThrow(/no mesh address/);
+  });
+
+  // Deliberately no real-cloud case here: a provider like 'aws' with no stored credentials is
+  // mock-cloud (isMockCloudProvider), so it takes the k3d branch above and never reaches the
+  // LoadBalancer one. Exercising that path needs the credential resolver stubbed, and it is
+  // behaviour this change did not touch.
+});

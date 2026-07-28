@@ -320,6 +320,14 @@ export class TemporalBridge {
               // when the cluster row was written. Persisted before the status flips to 'healthy'
               // so a destroy triggered immediately afterwards can always find the VM; without
               // this the server would keep running (and billing) with nothing pointing at it.
+              // Persisted for every provider that reports one, not just hetzner: a 'remote'
+              // cluster joins the mesh too, and public ingress proxies to <meshIp>:<nodePort> for
+              // the life of the cluster.
+              const meshIp = (wfResult as any).meshIp
+              if (meshIp) {
+                const current = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
+                await this.db.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, meshIp } as any)
+              }
               const vmHost = (wfResult as any).createdHost
               if (vmHost) {
                 const current = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)

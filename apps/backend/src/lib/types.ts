@@ -53,6 +53,15 @@ export interface ClusterMetadata {
   remoteHost?: string;
   remoteUsername?: string;
   remoteSshPort?: number;
+  /**
+   * The node's 100.64.x.x Headscale address, set when it joined the mesh during provisioning.
+   *
+   * Distinct from remoteHost, which is whatever address the kubeconfig was rewritten to. This one
+   * is what public ingress proxies application traffic to: the root node reaches the cluster's
+   * Traefik at `<meshIp>:<traefikNodePort>`, which is the only route in for a tenant machine that
+   * has no inbound ports open (and, behind home NAT, could not open any).
+   */
+  meshIp?: string;
   // Only needed when the k3s API server isn't reachable at remoteHost's default port 6443 (e.g.
   // a port-forwarded test target) — see ProvisionRemoteHostActivity's doc comment.
   remoteK3sApiPort?: number;

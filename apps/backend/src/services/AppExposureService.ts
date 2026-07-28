@@ -4,7 +4,7 @@ import { ClusterService } from './ClusterService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../lib/types.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
-import { isMockCloudProvider } from '../lib/cluster-topology.js';
+import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -122,11 +122,34 @@ export class AppExposureService extends BaseService {
       }
       const serverIp = await this.infra.getK3dServerIp(cluster.name);
       backendTarget = `${serverIp}:${nodePort}`;
+    } else if (cluster.meshIp) {
+      // Mesh clusters (hetzner, remote) — reached over WireGuard at the node's own address.
+      //
+      // This branch has to come before the LoadBalancer one below, because these clusters would
+      // otherwise fall into it and wait forever: constructs/traefik.ts gives a self-managed
+      // cluster a NodePort Service, and `status.loadBalancer.ingress` is only ever populated by a
+      // cloud controller, which single-node k3s does not have. Exposing an app on a Hetzner
+      // cluster failed with "Cloud LoadBalancer ... is still provisioning" on a cluster that has
+      // no load balancer and never will.
+      const nodePort = traefikPortObj?.nodePort;
+      if (!nodePort) {
+        throw new Error(
+          `Traefik on "${cluster.name}" has no nodePort — the cluster stack predates the NodePort change and needs re-applying.`,
+        );
+      }
+      backendTarget = `${cluster.meshIp}:${nodePort}`;
     } else {
       const ingress = traefikSvc.status?.loadBalancer?.ingress?.[0];
       const targetIpOrHost = ingress?.ip || ingress?.hostname;
       if (!targetIpOrHost) {
-        throw new Error(`Cloud LoadBalancer for Traefik's Service is still provisioning.`);
+        // Genuine for aws/gcp/azure/do, where a controller really is still working. A
+        // self-managed cluster reaching here means it never joined the mesh — say so, rather than
+        // blaming a load balancer that was never coming.
+        throw new Error(
+          isSelfManagedCluster(cluster.provider, isMock)
+            ? `Cluster "${cluster.name}" has no mesh address, so its apps cannot be reached. Was MESH_LOGIN_SERVER set when it was provisioned?`
+            : `Cloud LoadBalancer for Traefik's Service is still provisioning.`,
+        );
       }
       backendTarget = `${targetIpOrHost}:${targetPort}`;
     }

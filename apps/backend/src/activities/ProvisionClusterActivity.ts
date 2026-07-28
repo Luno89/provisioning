@@ -64,6 +64,12 @@ export interface ProvisionClusterResult {
   createdHost?: string;
   createdUsername?: string;
   createdPrivateKey?: string;
+  /**
+   * The node's 100.64.x.x mesh address, when it joined one. Persisted rather than used and
+   * discarded because public ingress needs it for the lifetime of the cluster: the root node
+   * proxies app traffic to `<meshIp>:<traefikNodePort>`, long after provisioning is over.
+   */
+  meshIp?: string;
 }
 
 // Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
@@ -87,6 +93,9 @@ export async function ProvisionClusterActivity(
   // Set only by the 'hetzner' branch below; surfaced in the result so the caller can persist the
   // VM's identity and access key onto the cluster record.
   let vm: { host: string; serverId: string; privateKey: string; username: string } | undefined;
+  // Declared out here so it survives into the result: public ingress proxies to this address for
+  // the life of the cluster, not just during provisioning.
+  let meshIp: string | undefined;
 
   // GPU passthrough is exclusively provided by the always-on system cluster (native k3s on
   // Linux; k3d's nested containerd can't do real device passthrough at all — see AGENTS.md).
@@ -249,6 +258,7 @@ export async function ProvisionClusterActivity(
       // later kubectl/CDKTF call that reads it — now targets the mesh, so 6443 stays closed on the
       // public interface exactly as constructs/hetzner-vm.ts intends.
       reachableHost = mesh.meshIp;
+      meshIp = mesh.meshIp;
     }
 
     await ProvisionRemoteHostActivity({
@@ -335,6 +345,7 @@ export async function ProvisionClusterActivity(
     kubeconfigPath,
     msg: `Cluster ${args.name} provisioned`,
     logFile,
+    ...(meshIp ? { meshIp } : {}),
     ...(vm
       ? {
           hetznerServerId: vm.serverId,
