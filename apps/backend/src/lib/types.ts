@@ -28,7 +28,11 @@ export interface ClusterMetadata {
   // reconcileAllClusters then prunes it (no container found), but a 'remote' or 'hetzner' record
   // has no such check and lingers. Worth reconciling separately — widening the type here only
   // stops it being a lie.
-  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed';
+  // 'awaiting-key' is a bring-your-own-machine cluster whose generated public key the user has not
+  // authorised yet. Nothing has been provisioned; no workflow is running. It is terminal until the
+  // user calls POST /api/clusters/:id/start, so the reconciliation loop must leave it alone rather
+  // than treating it as a stalled 'provisioning'.
+  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed' | 'awaiting-key';
   kubeconfigPath?: string;
   lastLogPath?: string;
   temporalWorkflowId?: string;

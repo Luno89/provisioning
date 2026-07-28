@@ -44,10 +44,16 @@ PUBLIC_IP="$(curl -s -m 10 https://api.ipify.org || true)"
 [ -n "$PUBLIC_IP" ] || die "Could not determine this host's public IP."
 ok "This host is ${PUBLIC_IP}"
 
-for name in "$APP_DOMAIN" "$MESH_DOMAIN"; do
+# The wildcard is checked via a name that can only resolve through it. Tenant apps are served at
+# <app>-<id>.$DOMAIN, and those names are created on demand — there is no per-app DNS record, so
+# without the wildcard every app URL is NXDOMAIN and no certificate can ever be issued for one.
+for name in "$APP_DOMAIN" "$MESH_DOMAIN" "wildcard-probe.${DOMAIN}"; do
   resolved="$(dig +short A "$name" @1.1.1.1 | tail -1)"
   if [ -z "$resolved" ]; then
-    die "${name} has no A record yet. Point it at ${PUBLIC_IP} (DNS-only / grey cloud) and re-run."
+    case "$name" in
+      wildcard-probe.*) die "No wildcard record: *.${DOMAIN} must point at ${PUBLIC_IP} (DNS-only / grey cloud), or no tenant app URL will resolve." ;;
+      *) die "${name} has no A record yet. Point it at ${PUBLIC_IP} (DNS-only / grey cloud) and re-run." ;;
+    esac
   elif [ "$resolved" != "$PUBLIC_IP" ]; then
     # The overwhelmingly likely cause is Cloudflare's orange cloud: the A record resolves to a
     # Cloudflare edge IP instead of this host. That breaks Headscale outright — Tailscale clients
@@ -120,7 +126,11 @@ set_env MESH_LOGIN_SERVER "https://${MESH_DOMAIN}"
 set_env APP_DOMAIN "$APP_DOMAIN"
 set_env MESH_DOMAIN "$MESH_DOMAIN"
 set_env ACME_EMAIL "$ACME_EMAIL"
+# Apps are served at <app>-<id>.$DOMAIN. Without this, exposePublic refuses outright rather than
+# handing out a URL that would not resolve.
+set_env INGRESS_DOMAIN "$DOMAIN"
 ok "MESH_LOGIN_SERVER=https://${MESH_DOMAIN} — this is what activates mesh join"
+ok "INGRESS_DOMAIN=${DOMAIN} — this is what activates public app URLs"
 
 # ── 5. Headscale ───────────────────────────────────────────────────────────────────────────────
 # The one-line change that makes every already-written piece of the mesh live.

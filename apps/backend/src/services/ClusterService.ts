@@ -5,6 +5,7 @@ import type { Database } from '../lib/db-interface.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { v4 as uuidv4 } from 'uuid';
+import { encryptValue } from '../lib/crypto.js';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
 import path from 'path';
@@ -21,11 +22,15 @@ const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
+  private masterKey: string;
   private temporalBridge?: any;
 
-  constructor(db: Database, infra: InfrastructureService) {
+  // Optional so the integration harnesses (tests/infra-integration.ts, tests/vllm-gpu-deploy.ts)
+  // can keep constructing this with two args; only createAwaitingKey needs it.
+  constructor(db: Database, infra: InfrastructureService, masterKey?: string) {
     super(db);
     this.infra = infra;
+    this.masterKey = masterKey || '';
   }
 
   setTemporalBridge(temporalBridge: any) {
@@ -48,6 +53,35 @@ export class ClusterService extends BaseService {
     // dropped it from the next saveClusterList() full-replace — permanently erasing the record
     // moments after its ClusterProvisionWorkflow succeeded. 'hetzner' would fail identically.
     return isMockCloudProvider(cluster.provider, (p) => this.hasCloudCredentials(p));
+  }
+
+  /**
+   * Records a bring-your-own-machine cluster that is waiting for its key to be authorised.
+   *
+   * The private half is stored encrypted immediately — before the user has done anything — so
+   * that a browser refresh, or coming back tomorrow, resumes the same cluster with the same key
+   * rather than stranding a half-created record whose public key nobody can reproduce.
+   */
+  async createAwaitingKey(args: {
+    name: string;
+    ownerId: string;
+    host: string;
+    username: string;
+    privateKey: string;
+    port?: number;
+  }): Promise<ClusterMetadata> {
+    return this.db.saveClusterInfo({
+      id: uuidv4(),
+      name: args.name,
+      provider: 'remote',
+      status: 'awaiting-key',
+      createdAt: new Date().toISOString(),
+      ownerId: args.ownerId,
+      remoteHost: args.host,
+      remoteUsername: args.username,
+      remoteSshPrivateKeyEnc: encryptValue(args.privateKey, this.masterKey),
+      ...(args.port !== undefined ? { remoteSshPort: args.port } : {}),
+    } as ClusterMetadata);
   }
 
   getPhysicalClusterName(cluster: ClusterMetadata): string {

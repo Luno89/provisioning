@@ -116,6 +116,8 @@ function App() {
   );
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
+  /** A bring-your-own cluster waiting for its generated public key to be authorised. */
+  const [pendingKey, setPendingKey] = useState<{ id: string; publicKey: string } | null>(null);
   /** Set by the VPS Catalog's Deploy button so the wizard opens on that exact plan and location. */
   const [wizardPreset, setWizardPreset] = useState<{ provider: string; serverType?: string; location?: string } | undefined>(undefined);
   const [showAppModal, setShowAppModal] = useState(false);
@@ -648,7 +650,33 @@ function App() {
     }
   }, [currentDeployment?.id]);
 
-  const provisionCluster = useMutation({ mutationFn: (newCluster: any) => axios.post(`${API_BASE}/clusters`, newCluster), onSuccess: (res) => { queryClient.invalidateQueries({ queryKey: ['clusters'] }); setShowClusterModal(false); setShowLogModal({ type: 'cluster', id: res.data.id }); setLogTab('provision'); } });
+  const provisionCluster = useMutation({
+    mutationFn: (newCluster: any) => axios.post(`${API_BASE}/clusters`, newCluster),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      setShowClusterModal(false);
+      setWizardPreset(undefined);
+      // A bring-your-own machine has not started provisioning: the backend generated a keypair and
+      // is holding it until the user authorises the public half. Jumping to the provisioning log
+      // here would show an empty log for a workflow that does not exist.
+      if (res.data.status === 'awaiting-key') {
+        setPendingKey({ id: res.data.id, publicKey: res.data.publicKey });
+        return;
+      }
+      setShowLogModal({ type: 'cluster', id: res.data.id });
+      setLogTab('provision');
+    },
+  });
+
+  const startAwaitingCluster = useMutation({
+    mutationFn: (id: string) => axios.post(`${API_BASE}/clusters/${id}/start`),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      setPendingKey(null);
+      setShowLogModal({ type: 'cluster', id: res.data.id });
+      setLogTab('provision');
+    },
+  });
   
   const deployApp = useMutation({ 
     mutationFn: (newApp: any) => axios.post(`${API_BASE}/deployments`, newApp), 
@@ -2623,6 +2651,60 @@ function App() {
           onSubmit={(payload) => provisionCluster.mutate(payload)}
           {...(wizardPreset ? { preset: wizardPreset } : {})}
         />
+      )}
+
+      {pendingKey && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-10 w-full max-w-2xl shadow-2xl">
+            <h3 className="text-2xl font-bold mb-2">Authorise this key</h3>
+            <p className="text-sm text-slate-400 mb-6">
+              Run this on the machine, then start provisioning. This is a public key — it grants
+              access <em>to</em> that machine and is safe to paste anywhere.
+            </p>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-3">
+              <code className="text-[11px] text-slate-300 font-mono break-all leading-relaxed">
+                mkdir -p ~/.ssh &amp;&amp; echo '{pendingKey.publicKey}' &gt;&gt; ~/.ssh/authorized_keys
+              </code>
+            </div>
+            <button
+              onClick={() => navigator.clipboard.writeText(`mkdir -p ~/.ssh && echo '${pendingKey.publicKey}' >> ~/.ssh/authorized_keys`)}
+              className="text-[11px] text-slate-500 hover:text-white transition-colors mb-6"
+            >
+              Copy command
+            </button>
+
+            <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4 mb-8 flex items-start gap-3">
+              <Shield className="text-blue-400 flex-shrink-0 mt-0.5" size={16} />
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                The matching private key was generated on the platform and never sent to your
+                browser. It is stored encrypted and used only to install k3s and, if you destroy
+                the cluster, to remove it.
+              </p>
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                onClick={() => setPendingKey(null)}
+                className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 transition-all text-sm font-bold"
+              >
+                Later
+              </button>
+              <button
+                onClick={() => startAwaitingCluster.mutate(pendingKey.id)}
+                disabled={startAwaitingCluster.isPending}
+                className="flex-1 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 transition-all text-sm font-bold flex items-center justify-center gap-2"
+              >
+                {startAwaitingCluster.isPending ? <Loader2 className="animate-spin" size={16} /> : "I've added it — start provisioning"}
+              </button>
+            </div>
+            {startAwaitingCluster.isError && (
+              <p className="text-[11px] text-red-400 mt-3">
+                {(startAwaitingCluster.error as any)?.response?.data?.error ?? 'Could not start provisioning.'}
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       {showNginxWizard && (

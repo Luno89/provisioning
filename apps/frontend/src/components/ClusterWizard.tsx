@@ -143,7 +143,6 @@ export default function ClusterWizard({
   const [meshDevices, setMeshDevices] = useState<MeshDevice[] | null>(null);
   const [remoteHost, setRemoteHost] = useState('');
   const [remoteUsername, setRemoteUsername] = useState('root');
-  const [remoteKey, setRemoteKey] = useState('');
 
   const selected = PROVIDER_OPTIONS.find((p) => p.value === provider)!;
   const credentialKey = selected.credentialKey;
@@ -282,7 +281,6 @@ export default function ClusterWizard({
       ...(provider === 'remote' ? {
         remoteHost,
         remoteUsername: remoteUsername.trim() || 'root',
-        remoteSshPrivateKey: remoteKey,
       } : {}),
     });
   };
@@ -313,7 +311,7 @@ export default function ClusterWizard({
   // inside an SSH activity, which is a poor place to discover a blank form field.
   const canAdvance =
     step === 1 ? name.trim().length > 0 && !nameCheck.error
-    : step === 4 ? remoteHost.trim().length > 0 && remoteKey.trim().length > 0
+    : step === 4 ? remoteHost.trim().length > 0
     : true;
 
   return (
@@ -581,20 +579,17 @@ export default function ClusterWizard({
               </p>
             </div>
 
-            <div>
-              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
-                SSH Private Key
-              </label>
-              <textarea
-                value={remoteKey}
-                onChange={(e) => setRemoteKey(e.target.value)}
-                rows={4}
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-xs font-mono"
-              />
-              <p className="text-[11px] text-slate-500 mt-2 px-1">
-                Stored encrypted (AES-256-GCM) and only decrypted to run the k3s install and, later,
-                to uninstall it. Prefer a key created for this rather than reusing a personal one.
+            {/* Deliberately no private-key field. The platform generates the pair and shows only
+                the public half — an invited user should never have to hand over a credential, and
+                a key pasted here could well be their everyday one with access to everything else
+                they own. The private half is created server-side and never leaves it. */}
+            <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4 flex items-start gap-3">
+              <KeyRound className="text-blue-400 flex-shrink-0 mt-0.5" size={16} />
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Next you'll get a <strong className="text-slate-300">public key</strong> to add to
+                that machine. Nothing private is ever asked for or sent from your browser — the
+                platform keeps its half encrypted and uses it only to install k3s and, later, to
+                remove it.
               </p>
             </div>
           </div>

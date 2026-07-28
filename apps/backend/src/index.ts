@@ -46,6 +46,7 @@ import { HeadscaleService } from './services/HeadscaleService.js';
 import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
+import { generateSshKeypair } from './lib/ssh-keypair.js';
 
 dotenv.config();
 
@@ -91,15 +92,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await db.init();
   await migrateLegacyOwnership(db);
 
+  const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
-  const clusterService = new ClusterService(db, infraService);
+  const clusterService = new ClusterService(db, infraService, JWT_SECRET);
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
   const clusterProxyService = new ClusterProxyService();
-  const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
   const giteaService = new GiteaService(infraService, JWT_SECRET, '/tmp/kubeconfig-provisioning-lunorica');
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
 
@@ -1020,8 +1021,38 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             ...(typeof req.body.remoteK3sApiPort === 'number' ? { k3sApiPort: req.body.remoteK3sApiPort } : {}),
           }
         : undefined;
-      if (remote && (!remote.host || !remote.username || !remote.privateKey)) {
-        return res.status(400).json({ error: 'remoteHost, remoteUsername, and remoteSshPrivateKey are required for provider "remote"' });
+      if (remote && (!remote.host || !remote.username)) {
+        return res.status(400).json({ error: 'remoteHost and remoteUsername are required for provider "remote"' });
+      }
+
+      // No private key supplied → generate the pair here and hand back only the PUBLIC half.
+      //
+      // The alternative, which this replaces, was asking the user to paste their own private key
+      // into a textarea. That is the wrong direction for a hosted product: an invited user should
+      // never surrender a credential to it, and a key that arrives this way is one we cannot
+      // bound the scope of — it may well be their everyday key with access to everything else
+      // they own. Generating here means the private half never leaves the server and the user
+      // authorises exactly one key, for exactly this.
+      //
+      // The cluster is saved in 'awaiting-key' rather than provisioning immediately, because the
+      // key is useless until they have actually installed it. Starting the workflow now would
+      // burn all three attempts on Permission denied before they had a chance.
+      if (remote && !remote.privateKey) {
+        const pair = await generateSshKeypair(`nowrinkles-${req.body.name}`);
+        const saved = await clusterService.createAwaitingKey({
+          name: req.body.name,
+          ownerId: (req as any).user.id,
+          host: remote.host,
+          username: remote.username,
+          privateKey: pair.privateKey,
+          ...(remote.port !== undefined ? { port: remote.port } : {}),
+        });
+        return res.status(201).json({
+          id: saved.id,
+          status: 'awaiting-key',
+          publicKey: pair.publicKey.trim(),
+          message: 'Authorise this key on the machine, then start provisioning.',
+        });
       }
       const hetzner = req.body.provider === 'hetzner'
         ? {
@@ -1047,6 +1078,44 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   // No standalone POST .../abort route: DELETE below already checks cluster.status ===
   // 'provisioning' and calls clusterService.abort() itself — a second route hitting the exact
   // same service method just meant two API paths (and two frontend buttons) for one operation.
+
+  /**
+   * Begins provisioning a cluster that was parked in 'awaiting-key' — the user has now installed
+   * the public key we generated, so the private half we already hold will actually authenticate.
+   *
+   * Separate from POST /api/clusters because the key is useless until it is installed: starting
+   * the workflow at creation time would spend all three of ProvisionClusterActivity's attempts on
+   * "Permission denied (publickey)" before the user had a chance to paste anything.
+   */
+  app.post('/api/clusters/:id/start', async (req, res) => {
+    try {
+      const userId = (req as any).user.id;
+      // Ownership-scoped: getById filters by owner, so another tenant's id is simply not found.
+      const cluster = await clusterService.getById(req.params.id, userId);
+      if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
+      if (cluster.status !== 'awaiting-key') {
+        return res.status(409).json({ error: `Cluster "${cluster.name}" is ${cluster.status}, not awaiting a key.` });
+      }
+      if (!cluster.remoteHost || !cluster.remoteUsername || !cluster.remoteSshPrivateKeyEnc) {
+        return res.status(400).json({ error: 'Cluster is missing its connection details.' });
+      }
+
+      const info = await temporalBridge.provision(cluster.name, 'remote', userId, {
+        host: cluster.remoteHost,
+        username: cluster.remoteUsername,
+        privateKey: decryptValue(cluster.remoteSshPrivateKeyEnc, JWT_SECRET),
+        ...(cluster.remoteSshPort !== undefined ? { port: cluster.remoteSshPort } : {}),
+      });
+
+      // provision() writes its own cluster row; drop the placeholder so the UI doesn't show two.
+      const all = await db.getClusters();
+      await db.saveClusterList(all.filter((c) => c.id !== cluster.id));
+
+      res.status(202).json({ message: 'Provisioning started', id: info.resourceId, workflowId: info.id });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   app.delete('/api/clusters/:id', async (req, res) => {
     if (req.params.id === 'provisioning-lunorica') {
