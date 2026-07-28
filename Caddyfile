@@ -1,0 +1,40 @@
+# TLS termination for the root node.
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically, which is the whole reason a
+# domain was needed: certificates are issued for names, never for bare IPs.
+#
+# Runs with network_mode: host (see docker-compose.caddy.yml), so both upstreams are plain
+# localhost ports — no shared Docker network to keep in sync between four compose files.
+
+{
+	# Where expiry/renewal warnings go. Let's Encrypt emails here before a cert lapses.
+	email {$ACME_EMAIL:admin@nowrinkles.dev}
+}
+
+# The platform itself — UI and API.
+{$APP_DOMAIN:app.nowrinkles.dev} {
+	encode zstd gzip
+
+	reverse_proxy 127.0.0.1:3001 {
+		# socket.io streams provisioning logs to the browser and holds connections open for the
+		# life of a deploy. The default 30s round-trip timeout would sever them mid-provision.
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}
+
+# Headscale's coordination server.
+#
+# NOT proxied through Cloudflare — set this record to DNS-only (grey cloud). Tailscale clients hold
+# long-lived connections and speak the noise protocol over /ts2021; Cloudflare's proxy terminates
+# TLS and would both interfere with those and replace the certificate clients validate.
+{$MESH_DOMAIN:mesh.nowrinkles.dev} {
+	reverse_proxy 127.0.0.1:8080 {
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}

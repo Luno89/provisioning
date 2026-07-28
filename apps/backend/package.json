@@ -10,7 +10,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:worker": "tsx src/worker-host.ts",
-    "dev:worker:cluster": "tsx src/worker-cluster.ts"
+    "dev:worker:cluster": "tsx src/worker-cluster.ts",
+    "start:worker": "tsx src/worker-host.ts",
+    "start:worker:cluster": "tsx src/worker-cluster.ts"
   },
   "keywords": [],
   "author": "",

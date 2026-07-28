@@ -1,0 +1,29 @@
+# Caddy — TLS termination for the root node. See ./Caddyfile for the routes.
+#
+# Only needed on the hosted root node; a local dev box talks to :3001 and :8080 directly and should
+# not run this at all.
+version: "3.9"
+
+services:
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    container_name: nowrinkles-caddy
+    restart: unless-stopped
+    # Host networking rather than published ports plus a shared bridge: it lets Caddy reach the
+    # backend (a plain node process on the host) and Headscale (a container publishing 8080) as
+    # localhost, without a user-defined network that all four compose files would have to join.
+    network_mode: host
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-app.nowrinkles.dev}
+      MESH_DOMAIN: ${MESH_DOMAIN:-mesh.nowrinkles.dev}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@nowrinkles.dev}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Losing this volume means re-issuing on next start,
+      # which is survivable but counts against Let's Encrypt rate limits (5 per name per week).
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,10 +1,12 @@
 {
   "name": "nowrinkles",
   "version": "1.0.0",
-  "description": "No Wrinkles — spin up Kubernetes clusters on your own hardware or any VPS, and deploy apps to them",
+  "description": "No Wrinkles \u2014 spin up Kubernetes clusters on your own hardware or any VPS, and deploy apps to them",
   "private": true,
   "scripts": {
     "setup": "bash scripts/setup.sh",
+    "build": "npm run build -w apps/frontend",
+    "start": "concurrently --kill-others \"npm run start -w apps/backend\" \"npm run start:worker -w apps/backend\" \"npm run start:worker:cluster -w apps/backend\"",
     "dev": "bash scripts/ensure-cluster.sh && bash scripts/ensure-gitea.sh && bash scripts/ensure-temporal.sh && bash scripts/ensure-mongo.sh && bash scripts/ensure-headscale.sh && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\" \"npm run dev:worker -w apps/backend\" \"npm run dev:worker:cluster -w apps/backend\"",
     "clean-dev": "bash scripts/cleanup-all.sh",
     "backup": "bash scripts/backup-to-drive.sh",

@@ -59,3 +59,4 @@ cdktf.out/
 # OS Metadata
 .DS_Store
 Thumbs.db
+apps/frontend/dist/

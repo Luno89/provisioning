@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import fs from 'fs/promises';
+// Sync sibling — used once at startup to check whether a frontend build exists before wiring up
+// static serving. Not worth making bootstrap() await for a single existence check.
+import fsSync from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
@@ -1635,6 +1638,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       res.status(500).json({ error: err.message });
     }
   });
+
+  // In production the frontend is a static build served from here, so Caddy has a single upstream
+  // and the browser never makes a cross-origin request (which would need CORS and would break the
+  // `session` cookie's SameSite default). In development Vite serves it on :5173 instead.
+  //
+  // Registered AFTER every /api route so it can never shadow one, and the SPA fallback explicitly
+  // refuses /api paths — otherwise a typo'd endpoint would return index.html with a 200 instead of
+  // a 404, which is a genuinely confusing thing to debug from the browser.
+  if (process.env.NODE_ENV === 'production') {
+    const distPath = path.resolve(__dirname, '../../frontend/dist');
+    if (fsSync.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
+      console.log(`📦 Serving the frontend from ${distPath}`);
+    } else {
+      console.warn(`⚠️  NODE_ENV=production but no frontend build at ${distPath} — run \`npm run build\`.`);
+    }
+  }
 
   if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
     const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
