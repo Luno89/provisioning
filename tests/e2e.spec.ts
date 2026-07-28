@@ -202,7 +202,7 @@ http {
     test.setTimeout(600000); // 10 mins
 
     await page.goto('/');
-    await expect(page.locator('h1')).toContainText('IANTHE');
+    await expect(page.locator('h1')).toContainText('NO WRINKLES');
 
     await page.click('button:has-text("Provision Cluster")');
     await page.fill('input[placeholder="e.g. production-omega"]', CLUSTER_NAME);

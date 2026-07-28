@@ -119,7 +119,7 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-violet-600 to-cyan-500 mb-4 shadow-lg shadow-violet-600/20">
             <ShieldCheck className="w-6 h-6 text-white" />
           </div>
-          <h2 className="text-3xl font-extrabold text-white tracking-tight">IANTHE</h2>
+          <h2 className="text-3xl font-extrabold text-white tracking-tight">NO WRINKLES</h2>
           <p className="text-[#8c94a6] text-sm mt-1">Infrastructure Aggregator and Node Tool for Homelab Environments</p>
         </div>
 

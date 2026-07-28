@@ -1,7 +1,7 @@
 {
-  "name": "provisioning",
+  "name": "nowrinkles",
   "version": "1.0.0",
-  "description": "Multi-Cloud Provisioning Platform",
+  "description": "No Wrinkles — spin up Kubernetes clusters on your own hardware or any VPS, and deploy apps to them",
   "private": true,
   "scripts": {
     "setup": "bash scripts/setup.sh",

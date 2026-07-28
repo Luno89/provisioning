@@ -834,7 +834,7 @@ function App() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex font-sans overflow-hidden">
       <aside className="w-64 bg-slate-800 border-r border-slate-700 p-6 flex flex-col shadow-xl z-20">
-        <div className="flex items-center gap-2 mb-10"><Layout className="text-blue-500" /><h1 className="text-xl font-bold tracking-tight">IANTHE</h1></div>
+        <div className="flex items-center gap-2 mb-10"><Layout className="text-blue-500" /><h1 className="text-xl font-bold tracking-tight">NO WRINKLES</h1></div>
         <nav className="space-y-2 flex-1">
           <button onClick={() => setView('clusters')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'clusters' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Cloud size={20} /> Clusters</button>
           <button onClick={() => setView('apps')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'apps' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Server size={20} /> Applications</button>

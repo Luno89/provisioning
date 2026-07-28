@@ -6,7 +6,7 @@ describe('Login Component', () => {
   it('renders login form by default', () => {
     render(<Login apiBase="http://localhost:3001/api" onSuccess={() => {}} />);
 
-    expect(screen.getByRole('heading', { name: /ianthe/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /no wrinkles/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('••••••••')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();

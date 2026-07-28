@@ -1,6 +1,11 @@
-# 🚀 Multi-Cloud Provisioning Platform
+# No Wrinkles
 
-A local-first platform to spin up Kubernetes clusters and deploy production-ready applications (Odoo, WordPress, Nextcloud, Audiobookshelf) with instant public internet access — **no port forwarding or dynamic DNS configuration required**.
+Spin up Kubernetes clusters — on a VPS you rent, or on hardware you already own — and deploy
+production-ready applications to them (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open
+WebUI, game servers) with public internet access. **No port forwarding, no dynamic DNS.**
+
+Machines attach over a WireGuard mesh, dialling outward, so a box behind your home NAT works the
+same as a rented VPS and nothing needs opening on your router.
 
 ---
 

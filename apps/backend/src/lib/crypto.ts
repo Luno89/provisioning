@@ -7,6 +7,11 @@
  */
 import crypto from 'crypto';
 
+// DO NOT RENAME, despite the stale product name. This string is scrypt input, not a label: change
+// a single character and every credential already encrypted with the old key becomes permanently
+// undecryptable — same failure mode as rotating JWT_SECRET. It was deliberately left behind when
+// the product was renamed to No Wrinkles. Migrating it would mean decrypting everything under the
+// old salt and re-encrypting under the new one, which buys nothing.
 const CREDENTIAL_SALT = 'ianthe-credential-encryption-v1';
 const KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 16;
