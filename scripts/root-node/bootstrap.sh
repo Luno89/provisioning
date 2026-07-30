@@ -129,8 +129,14 @@ set_env ACME_EMAIL "$ACME_EMAIL"
 # Apps are served at <app>-<id>.$DOMAIN. Without this, exposePublic refuses outright rather than
 # handing out a URL that would not resolve.
 set_env INGRESS_DOMAIN "$DOMAIN"
+# The origin the browser reaches this host at. Every OAuth redirect_uri and every post-login
+# redirect is derived from it; unset, they fall back to localhost and social sign-in cannot work
+# (the provider redirects the user's own browser, so localhost means their machine, not this one).
+# It also decides whether the session cookie gets the Secure flag — https here, Secure there.
+set_env PUBLIC_URL "https://${APP_DOMAIN}"
 ok "MESH_LOGIN_SERVER=https://${MESH_DOMAIN} — this is what activates mesh join"
 ok "INGRESS_DOMAIN=${DOMAIN} — this is what activates public app URLs"
+ok "PUBLIC_URL=https://${APP_DOMAIN} — OAuth redirects and Secure cookies key off this"
 
 # ── 5. Headscale ───────────────────────────────────────────────────────────────────────────────
 # The one-line change that makes every already-written piece of the mesh live.
@@ -193,3 +199,14 @@ echo "  2. Join this node to its own mesh so it can reach tenant machines:"
 echo "       docker exec provisioning-headscale headscale users create platform-root"
 echo "       tailscale up --login-server=https://${MESH_DOMAIN} --advertise-tags=tag:platform"
 echo "  3. Confirm it appears:  docker exec provisioning-headscale headscale nodes list"
+echo "  4. Register the first account at https://${APP_DOMAIN} — the FIRST account ever created"
+echo "     becomes admin and is the only one that can mint invite codes. Do this before sharing"
+echo "     the URL with anyone."
+echo
+echo "Optional — Google/GitHub sign-in (email+password works without it):"
+echo "  Register an OAuth app with these exact redirect URIs, then add the ids to"
+echo "  ${ENV_FILE} and restart:"
+echo "    Google : https://${APP_DOMAIN}/api/auth/google/callback"
+echo "    GitHub : https://${APP_DOMAIN}/api/auth/github/callback"
+echo "  Keys: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET."
+echo "  Left unset, those buttons return 501 rather than falling back to the dev mock login."

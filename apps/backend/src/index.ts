@@ -87,6 +87,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const io = new SocketServer(httpServer, { cors: { origin: '*' } });
   const port = process.env.PORT || 3001;
 
+  /**
+   * Public origin this server is reached at, e.g. https://app.nowrinkles.dev.
+   *
+   * OAuth redirect URIs were hardcoded to http://localhost:3001, which cannot work once deployed:
+   * the provider redirects the user's BROWSER there, and both Google and GitHub reject a
+   * redirect_uri that does not exactly match what is registered.
+   */
+  const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/$/, '');
+
+  /**
+   * Where the browser-facing UI lives — every post-auth redirect target.
+   *
+   * In production the backend serves the built frontend itself (bootstrap.sh runs `npm run build`
+   * for exactly that reason), so this is the same origin as PUBLIC_URL. In dev the UI is Vite on
+   * :5173 while the API is :3001, which is why these ever differed. Nine redirects were hardcoded
+   * to localhost:5173, so on a deployed host OAuth would set a valid session cookie and then bounce
+   * the user to a machine that isn't theirs.
+   */
+  const APP_URL = (process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, '');
+
   // ── 1. Initialize backend ────────────────────────────────────────────────
   const db = createDatabase();
   await db.init();
@@ -123,9 +143,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   const authService = new AuthService(db);
+  // Reflecting any origin with credentials:true means any website a signed-in user visits can call
+  // this API with their session cookie and read the response. sameSite:'lax' on the cookie is what
+  // holds that back today, so this was one cookie flag away from being an account takeover —
+  // fine on a dev box where the UI is a different port, not on a deployed host. In production the
+  // frontend is served from this same origin, so an allowlist costs nothing.
+  const corsAllowed = new Set([PUBLIC_URL, APP_URL]);
   app.use(cors({
     origin: (origin, callback) => {
-      callback(null, true);
+      // No Origin header at all: same-origin navigations, curl, server-to-server. Not a
+      // cross-site request, so there is nothing for CORS to protect against.
+      if (!origin || process.env.NODE_ENV !== 'production' || corsAllowed.has(origin.replace(/\/$/, ''))) {
+        return callback(null, true);
+      }
+      callback(null, false);
     },
     credentials: true,
   }));
@@ -348,6 +379,27 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── AUTHENTICATION ── */
 
+  /**
+   * Session cookie flags.
+   *
+   * `secure` was hardcoded false, which over HTTPS means the session travels in cleartext to any
+   * attacker who can force one plain-http request. It has to stay false in dev, where there is no
+   * TLS and a secure cookie would simply never be stored — hence keying it off the origin scheme
+   * rather than a hardcoded value.
+   *
+   * `sameSite: 'lax'` is what the browser already defaults to; stating it makes the CORS policy
+   * below (which reflects any origin) safe to reason about instead of relying on a default.
+   */
+  const secureCookies = PUBLIC_URL.startsWith('https://');
+  const sessionCookieOptions = {
+    httpOnly: true,
+    secure: secureCookies,
+    sameSite: 'lax' as const,
+  };
+  const setSessionCookie = (res: express.Response, token: string) => {
+    res.cookie('session', token, { ...sessionCookieOptions, maxAge: 24 * 60 * 60 * 1000 });
+  };
+
   app.post('/api/auth/register', async (req, res) => {
     try {
       let { email, password, inviteCode } = req.body;
@@ -412,7 +464,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       }
 
       const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
-      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
+      setSessionCookie(res, token);
       res.json({
         success: true,
         user: {
@@ -444,7 +496,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       }
 
       const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
-      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
+      setSessionCookie(res, token);
       res.json({
         success: true,
         user: {
@@ -460,7 +512,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.post('/api/auth/logout', (req, res) => {
-    res.clearCookie('session');
+    res.clearCookie('session', sessionCookieOptions);
     res.json({ success: true });
   });
 
@@ -505,15 +557,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       res.status(500).json({ error: err.message });
     }
   });
-
-  /**
-   * Public origin this server is reached at, e.g. https://app.nowrinkles.dev.
-   *
-   * OAuth redirect URIs were hardcoded to http://localhost:3001, which cannot work once deployed:
-   * the provider redirects the user's BROWSER there, and both Google and GitHub reject a
-   * redirect_uri that does not exactly match what is registered.
-   */
-  const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/$/, '');
 
   /**
    * Whether the zero-setup mock OAuth flow may run.
@@ -602,7 +645,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         const userId = uuidv4();
         const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser);
         if (inviteError) {
-          return res.redirect(`http://localhost:5173/?authError=${encodeURIComponent(inviteError)}`);
+          return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
         }
         user = {
           id: userId,
@@ -620,8 +663,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       }
 
       const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
-      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
-      res.redirect('http://localhost:5173/');
+      setSessionCookie(res, token);
+      res.redirect(`${APP_URL}/`);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -748,7 +791,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         const userId = uuidv4();
         const inviteError = await checkAndConsumeInvite(typeof state === 'string' ? state : undefined, userId, isFirstUser);
         if (inviteError) {
-          return res.redirect(`http://localhost:5173/?authError=${encodeURIComponent(inviteError)}`);
+          return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(inviteError)}`);
         }
         user = {
           id: userId,
@@ -766,8 +809,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       }
 
       const token = signJWT({ userId: user.id, email: user.email }, JWT_SECRET, 24 * 60 * 60);
-      res.cookie('session', token, { httpOnly: true, secure: false, maxAge: 24 * 60 * 60 * 1000 });
-      res.redirect('http://localhost:5173/');
+      setSessionCookie(res, token);
+      res.redirect(`${APP_URL}/`);
     } catch (err: any) {
       res.status(500).send(`Google OAuth callback failed: ${err.message}`);
     }
@@ -992,9 +1035,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.get('/api/credentials/googledrive/connect', (req, res) => {
     const googleId = process.env.GOOGLE_CLIENT_ID;
     if (!googleId) {
-      return res.redirect('http://localhost:5173/?driveError=missing_client_id');
+      return res.redirect(`${APP_URL}/?driveError=missing_client_id`);
     }
-    const redirectUri = encodeURIComponent('http://localhost:3001/api/credentials/googledrive/callback');
+    const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/credentials/googledrive/callback`);
     // access_type=offline + prompt=consent: without both, Google only hands back a
     // refresh_token on a user's very first-ever consent for this app — reconnecting later
     // (e.g. after a Disconnect) would silently get an access-token-only response otherwise.
@@ -1007,7 +1050,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       const googleId = process.env.GOOGLE_CLIENT_ID;
       const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!googleId || !googleSecret) {
-        return res.redirect('http://localhost:5173/?driveError=missing_client_id');
+        return res.redirect(`${APP_URL}/?driveError=missing_client_id`);
       }
 
       const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
@@ -1015,7 +1058,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         client_secret: googleSecret,
         code,
         grant_type: 'authorization_code',
-        redirect_uri: 'http://localhost:3001/api/credentials/googledrive/callback',
+        redirect_uri: `${PUBLIC_URL}/api/credentials/googledrive/callback`,
       });
 
       const refreshToken = tokenRes.data.refresh_token;
@@ -1024,7 +1067,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         // Happens if the user had already granted consent before and Google didn't re-issue a
         // refresh_token despite prompt=consent (rare, but possible with cached grants) — send
         // them to revoke access at myaccount.google.com/permissions and try again.
-        return res.redirect('http://localhost:5173/?driveError=no_refresh_token');
+        return res.redirect(`${APP_URL}/?driveError=no_refresh_token`);
       }
 
       const aboutRes = await axios.get('https://www.googleapis.com/drive/v3/about?fields=user', {
@@ -1034,9 +1077,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
       const user = (req as any).user;
       await credentialService.saveCredentials(user.id, 'googledrive', { refreshToken, email });
-      res.redirect('http://localhost:5173/?driveConnected=1');
+      res.redirect(`${APP_URL}/?driveConnected=1`);
     } catch (err: any) {
-      res.redirect(`http://localhost:5173/?driveError=${encodeURIComponent(err.message)}`);
+      res.redirect(`${APP_URL}/?driveError=${encodeURIComponent(err.message)}`);
     }
   });
 
