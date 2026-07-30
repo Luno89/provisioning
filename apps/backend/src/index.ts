@@ -506,6 +506,36 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  /**
+   * Public origin this server is reached at, e.g. https://app.nowrinkles.dev.
+   *
+   * OAuth redirect URIs were hardcoded to http://localhost:3001, which cannot work once deployed:
+   * the provider redirects the user's BROWSER there, and both Google and GitHub reject a
+   * redirect_uri that does not exactly match what is registered.
+   */
+  const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/$/, '');
+
+  /**
+   * Whether the zero-setup mock OAuth flow may run.
+   *
+   * The mock exists so a local dev box can sign in without registering an OAuth app. It logs in as
+   * a fixed identity with NO credential of any kind — and since the first user to exist becomes
+   * admin, that identity is the admin account.
+   *
+   * It must therefore never be reachable on a deployed host. Two things made it reachable:
+   *
+   *  1. `/api/auth/<provider>` redirected to the callback with a magic code whenever the client id
+   *     was unset — so an unconfigured production host handed admin to anyone who visited a URL.
+   *  2. Worse, the callback's own guard was `code !== 'mock-<provider>-code'`, which is attacker
+   *     controlled. Requesting the callback directly with that code skipped the real token
+   *     exchange and logged you in as the mock user EVEN WITH OAUTH FULLY CONFIGURED. Setting up
+   *     Google did not close the hole.
+   *
+   * Gating on NODE_ENV rather than on whether a client id happens to be set means a production
+   * host with missing configuration fails closed — no login — instead of failing open.
+   */
+  const mockOAuthAllowed = (): boolean => process.env.NODE_ENV !== 'production';
+
   app.get('/api/auth/github', (req, res) => {
     // Carries any invite code through the OAuth roundtrip via `state` — GitHub/Google echo it
     // back verbatim on the callback — so a brand-new account created via social login is
@@ -513,9 +543,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const githubId = process.env.GITHUB_CLIENT_ID;
     if (!githubId) {
-      return res.redirect(`http://localhost:3001/api/auth/github/callback?code=mock-github-code&state=${encodeURIComponent(invite)}`);
+      if (!mockOAuthAllowed()) {
+        return res.status(501).json({ error: 'GitHub sign-in is not configured on this server.' });
+      }
+      return res.redirect(`${PUBLIC_URL}/api/auth/github/callback?code=mock-github-code&state=${encodeURIComponent(invite)}`);
     }
-    const redirectUri = encodeURIComponent('http://localhost:3001/api/auth/github/callback');
+    const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/auth/github/callback`);
     res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email&state=${encodeURIComponent(invite)}`);
   });
 
@@ -528,7 +561,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       const githubId = process.env.GITHUB_CLIENT_ID;
       const githubSecret = process.env.GITHUB_CLIENT_SECRET;
 
-      if (githubId && githubSecret && code !== 'mock-github-code') {
+      // The magic code is attacker-controlled input, so it can only be honoured where the mock
+      // flow is permitted at all. Previously `code !== 'mock-github-code'` was the ONLY guard, which
+      // meant requesting this callback directly with that value skipped the token exchange and
+      // logged the caller in as the mock user even on a fully configured server.
+      const mockRequested = code === 'mock-github-code';
+      if (mockRequested && !mockOAuthAllowed()) {
+        return res.status(403).json({ error: 'Mock sign-in is disabled on this server.' });
+      }
+      if (!mockRequested && !(githubId && githubSecret)) {
+        return res.status(501).json({ error: 'Github sign-in is not configured on this server.' });
+      }
+
+      if (githubId && githubSecret && !mockRequested) {
         const tokenRes = await axios.post('https://github.com/login/oauth/access_token', {
           client_id: githubId,
           client_secret: githubSecret,
@@ -647,9 +692,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const googleId = process.env.GOOGLE_CLIENT_ID;
     if (!googleId) {
-      return res.redirect(`http://localhost:3001/api/auth/google/callback?code=mock-google-code&state=${encodeURIComponent(invite)}`);
+      if (!mockOAuthAllowed()) {
+        return res.status(501).json({ error: 'Google sign-in is not configured on this server.' });
+      }
+      return res.redirect(`${PUBLIC_URL}/api/auth/google/callback?code=mock-google-code&state=${encodeURIComponent(invite)}`);
     }
-    const redirectUri = encodeURIComponent('http://localhost:3001/api/auth/google/callback');
+    const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/auth/google/callback`);
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile&state=${encodeURIComponent(invite)}`);
   });
 
@@ -662,13 +710,25 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       const googleId = process.env.GOOGLE_CLIENT_ID;
       const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-      if (googleId && googleSecret && code !== 'mock-google-code') {
+      // The magic code is attacker-controlled input, so it can only be honoured where the mock
+      // flow is permitted at all. Previously `code !== 'mock-google-code'` was the ONLY guard, which
+      // meant requesting this callback directly with that value skipped the token exchange and
+      // logged the caller in as the mock user even on a fully configured server.
+      const mockRequested = code === 'mock-google-code';
+      if (mockRequested && !mockOAuthAllowed()) {
+        return res.status(403).json({ error: 'Mock sign-in is disabled on this server.' });
+      }
+      if (!mockRequested && !(googleId && googleSecret)) {
+        return res.status(501).json({ error: 'Google sign-in is not configured on this server.' });
+      }
+
+      if (googleId && googleSecret && !mockRequested) {
         const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
           client_id: googleId,
           client_secret: googleSecret,
           code,
           grant_type: 'authorization_code',
-          redirect_uri: 'http://localhost:3001/api/auth/google/callback',
+          redirect_uri: `${PUBLIC_URL}/api/auth/google/callback`,
         });
 
         const accessToken = tokenRes.data.access_token;
