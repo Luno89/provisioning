@@ -197,6 +197,9 @@ export interface ProjectMetadata {
   name: string;
   giteaOwner: string;
   giteaRepo: string;
+  // Optional because projects created before ownership existed have none. Those are treated as
+  // admin-only rather than world-visible — see ownsProject in index.ts.
+  ownerId?: string;
   targetClusterId?: string;
   targetNamespace?: string;
   appType: string; // deploy target app type once a build is promoted (see gitapp construct)

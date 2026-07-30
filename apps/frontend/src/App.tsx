@@ -496,7 +496,10 @@ function App() {
 
 
   useEffect(() => {
-    const socket = io(SOCKET_URL);
+    // withCredentials sends the session cookie with the handshake. The server now authenticates
+    // sockets the same way it authenticates /api requests, and in dev the UI is a different origin
+    // to the API, so without this the connection is rejected outright.
+    const socket = io(SOCKET_URL, { withCredentials: true });
     socketRef.current = socket;
     socket.on('resource-destroyed', (data) => {
         const nid = Date.now();

@@ -92,7 +92,8 @@ export default function Projects({ apiBase, socketUrl, clusters }: { apiBase: st
   });
 
   useEffect(() => {
-    const socket = io(socketUrl);
+    // See App.tsx: the socket handshake is authenticated by the session cookie now.
+    const socket = io(socketUrl, { withCredentials: true });
     socketRef.current = socket;
     return () => { socket.disconnect(); };
   }, [socketUrl]);

@@ -26,7 +26,7 @@ import { RegistryService } from './services/RegistryService.js';
 import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
-import type { ClusterMetadata, DeploymentMetadata, InviteMetadata } from './lib/types.js';
+import type { ClusterMetadata, DeploymentMetadata, InviteMetadata, UserMetadata } from './lib/types.js';
 import { validateAppSettings } from './lib/app-settings-schema.js';
 import { validateClusterName } from './lib/cluster-name.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from './lib/app-schemas.js';
@@ -84,7 +84,6 @@ const DEFAULT_LOG_LEVEL = 50;
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge }> {
   const app = express();
   const httpServer = createServer(app);
-  const io = new SocketServer(httpServer, { cors: { origin: '*' } });
   const port = process.env.PORT || 3001;
 
   /**
@@ -106,6 +105,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * the user to a machine that isn't theirs.
    */
   const APP_URL = (process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, '');
+
+  /**
+   * Origins allowed to make credentialed requests. Shared by the Express CORS policy and the
+   * Socket.IO handshake — the socket carries the same session cookie, so a looser rule here would
+   * hand back over WebSocket exactly what CORS refuses over HTTP.
+   */
+  const corsAllowed = new Set([PUBLIC_URL, APP_URL]);
+  const originAllowed = (origin: string | undefined): boolean =>
+    // No Origin header at all: same-origin navigations, curl, server-to-server. Not a cross-site
+    // request, so there is nothing for CORS to protect against.
+    !origin || process.env.NODE_ENV !== 'production' || corsAllowed.has(origin.replace(/\/$/, ''));
+
+  // Socket.IO needs credentials:true for the browser to send the session cookie the handshake
+  // below authenticates against, and `origin: '*'` is invalid in combination with it.
+  const io = new SocketServer(httpServer, {
+    cors: {
+      origin: (origin, cb) => cb(null, originAllowed(origin)),
+      credentials: true,
+    },
+  });
 
   // ── 1. Initialize backend ────────────────────────────────────────────────
   const db = createDatabase();
@@ -148,16 +167,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   // holds that back today, so this was one cookie flag away from being an account takeover —
   // fine on a dev box where the UI is a different port, not on a deployed host. In production the
   // frontend is served from this same origin, so an allowlist costs nothing.
-  const corsAllowed = new Set([PUBLIC_URL, APP_URL]);
   app.use(cors({
-    origin: (origin, callback) => {
-      // No Origin header at all: same-origin navigations, curl, server-to-server. Not a
-      // cross-site request, so there is nothing for CORS to protect against.
-      if (!origin || process.env.NODE_ENV !== 'production' || corsAllowed.has(origin.replace(/\/$/, ''))) {
-        return callback(null, true);
-      }
-      callback(null, false);
-    },
+    origin: (origin, callback) => callback(null, originAllowed(origin)),
     credentials: true,
   }));
 
@@ -197,8 +208,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const credentialService = new CredentialService(db, JWT_SECRET);
   const vpsCatalogService = new VpsCatalogService(db, JWT_SECRET);
 
-  function getCookie(req: express.Request, name: string): string | undefined {
-    const cookieHeader = req.headers.cookie;
+  function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
     if (!cookieHeader) return undefined;
     const cookies = cookieHeader.split(';').map(c => c.trim());
     for (const cookie of cookies) {
@@ -206,6 +216,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (k === name) return v;
     }
     return undefined;
+  }
+
+  const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
+
+  /**
+   * Resolves the signed-in user from a session cookie. Shared by requireAuth and the Socket.IO
+   * handshake so both accept exactly the same credential.
+   */
+  async function userFromSessionCookie(cookieHeader: string | undefined): Promise<UserMetadata | undefined> {
+    const token = parseCookie(cookieHeader, 'session');
+    if (!token) return undefined;
+    const decoded = verifyJWT(token, JWT_SECRET);
+    if (!decoded || !decoded.userId) return undefined;
+    return await db.getUserById(decoded.userId);
   }
 
   const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -234,17 +258,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       return next();
     }
 
-    const token = getCookie(req, 'session');
-    if (!token) {
+    if (!getCookie(req, 'session')) {
       return res.status(401).json({ error: 'Unauthorized: Session missing' });
     }
-    const decoded = verifyJWT(token, JWT_SECRET);
-    if (!decoded || !decoded.userId) {
-      return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
-    }
-    const user = await db.getUserById(decoded.userId);
+    const user = await userFromSessionCookie(req.headers.cookie);
     if (!user) {
-      return res.status(401).json({ error: 'Unauthorized: User not found' });
+      return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
     }
     (req as any).user = user;
     next();
@@ -275,10 +294,70 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   // ── 3. SOCKET.IO ORCHESTRATION ───────────────────────────────────────────
+
+  /**
+   * Socket.IO used to have no auth of any kind — no `io.use(...)`, unlike every /api route's
+   * requireAuth. Any connected socket could `join-room` with a guessed resource id and receive
+   * another tenant's live provisioning logs, or `tail-pod` their way into pod output on someone
+   * else's cluster. Single-tenant that was invisible; invite-only multi-tenant it is a cross-tenant
+   * leak of exactly the material most likely to contain secrets.
+   *
+   * The handshake takes the same session cookie as the HTTP API, so a socket can never be more
+   * privileged than the browser that opened it.
+   */
+  io.use(async (socket, next) => {
+    if (process.env.IS_E2E === 'true') {
+      const users = await db.getUsers();
+      socket.data.user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
+      return next();
+    }
+    try {
+      const user = await userFromSessionCookie(socket.handshake.headers.cookie);
+      if (!user) return next(new Error('Unauthorized'));
+      socket.data.user = user;
+      next();
+    } catch {
+      next(new Error('Unauthorized'));
+    }
+  });
+
+  /**
+   * Resolves a room id to the resource behind it, but only if this user may see it.
+   *
+   * Returns undefined for both "no such id" and "not yours" — same reasoning as
+   * ClusterService.getById, which deliberately conflates the two so the socket cannot be used to
+   * probe which resource ids exist on the platform.
+   */
+  async function authorizeRoom(user: UserMetadata | undefined, id: string): Promise<any | undefined> {
+    if (!user) return undefined;
+    const cluster = await clusterService.getById(id, user.id);
+    if (cluster) return cluster;
+    const deployment = await appService.getById(id, user.id);
+    if (deployment) return deployment;
+    // Pipeline runs hang off a project, and projects carry an ownerId as of this change; runs
+    // inherit it. Legacy projects saved before that have none — those are visible to admins only,
+    // rather than to everyone as before.
+    const run = (await db.getPipelineRuns()).find((r: any) => r.id === id);
+    if (run) {
+      const project = (await db.getProjects()).find((p: any) => p.id === run.projectId);
+      const owned = project?.ownerId ? project.ownerId === user.id : user.isAdmin === true;
+      if (owned && run.logFile) return { ...run, lastLogPath: run.logFile };
+    }
+    return undefined;
+  }
+
   io.on('connection', (socket) => {
     const socketTails = new Map<string, any>();
 
     socket.on('join-room', async (id) => {
+      // Authorize BEFORE joining. The join is what makes the socket a recipient of everything
+      // broadcast to that room — emitted progress, status and log lines — so joining first and
+      // checking afterwards would leak regardless of what the check then decided.
+      const resource = await authorizeRoom(socket.data.user, id);
+      if (!resource) {
+        socket.emit('room-denied', { id });
+        return;
+      }
       socket.join(id);
 
       const existing = socketTails.get(id);
@@ -287,20 +366,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         socketTails.delete(id);
       }
 
-      // Socket.IO has no auth handshake/middleware at all in this codebase (no `io.use(...)`,
-      // unlike every `/api/*` route's requireAuth) — a real, pre-existing gap, not something
-      // introduced here. There's no authenticated user id available to check ownership against,
-      // so this reads straight from the DB (bypassing clusterService.getById's ownership check)
-      // rather than pretend to enforce isolation against an identity that doesn't exist yet.
-      // TODO(distributed-system plan, Phase 0 follow-up): give Socket.IO connections real auth.
-      let resource: any = (await db.getClusters()).find((c: any) => c.id === id) ||
-                       (await db.getDeployments()).find((d: any) => d.id === id);
-      if (!resource) {
-        const run = (await db.getPipelineRuns()).find((r: any) => r.id === id);
-        if (run && run.logFile) resource = { ...run, lastLogPath: run.logFile };
-      }
-
-      if (resource && resource.lastLogPath) {
+      if (resource.lastLogPath) {
         try {
           await fs.access(resource.lastLogPath);
         } catch {
@@ -330,27 +396,40 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       }
     });
 
-    socket.on('join-kube-room', (id) => socket.join(`${id}-kube`));
-    socket.on('tail-pod', async ({ resourceId, podName, namespace }) => {
-      // Same no-auth Socket.IO context as join-room above — raw DB read, not
-      // appService.getAll's ownership-filtered lookup.
-      const deployments = await db.getDeployments();
-      const dep = deployments.find(d => d.id === resourceId);
-      let context: string | undefined;
-      let kubeconfigPath: string | undefined;
-      if (dep) {
-        // Same no-auth Socket.IO context as join-room above — raw DB read, not
-        // clusterService.getById's ownership-checked lookup.
-        const cluster = dep.clusterId === 'provisioning-lunorica'
-          ? await clusterService.getSystemClusterEntry()
-          : (await db.getClusters()).find((c: any) => c.id === dep.clusterId);
-        if (cluster) {
-          const isMock = clusterService.isMockCloud(cluster);
-          const physicalName = clusterService.getPhysicalClusterName(cluster);
-          if (cluster.provider === 'k3d' || isMock) context = `k3d-${physicalName}`;
-          kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
-        }
+    socket.on('join-kube-room', async (id) => {
+      if (!(await authorizeRoom(socket.data.user, id))) {
+        socket.emit('room-denied', { id });
+        return;
       }
+      socket.join(`${id}-kube`);
+    });
+    socket.on('tail-pod', async ({ resourceId, podName, namespace }) => {
+      const user = socket.data.user as UserMetadata | undefined;
+      if (!user) return;
+      // Ownership-scoped lookup, not the raw db.getDeployments() this used to do: streamLogs
+      // shells out to `kubectl logs` with the caller's pod name against a kubeconfig chosen here,
+      // so an unowned deployment id meant reading pod output on someone else's cluster.
+      const dep = await appService.getById(resourceId, user.id);
+      // Bail rather than fall through. Previously an unresolvable deployment left kubeconfigPath
+      // undefined and still ran `kubectl logs` — against the host's default context, which is the
+      // management cluster. That is a worse leak than the one being closed, not a graceful
+      // degradation.
+      if (!dep) {
+        socket.emit('room-denied', { id: resourceId });
+        return;
+      }
+      const cluster = dep.clusterId === 'provisioning-lunorica'
+        ? await clusterService.getSystemClusterEntry()
+        : await clusterService.getById(dep.clusterId, user.id);
+      if (!cluster) {
+        socket.emit('room-denied', { id: resourceId });
+        return;
+      }
+      let context: string | undefined;
+      const isMock = clusterService.isMockCloud(cluster);
+      const physicalName = clusterService.getPhysicalClusterName(cluster);
+      if (cluster.provider === 'k3d' || isMock) context = `k3d-${physicalName}`;
+      const kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
       const args = ['logs', '-n', namespace || 'default', podName, '--all-containers=true', '--tail=100', '-f'];
       if (context) args.push('--context', context);
       infraService.streamLogs(resourceId, args, io, `${resourceId}-kube`, kubeconfigPath);
@@ -1452,9 +1531,30 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── PROJECTS (CI/CD: sibling repos hosted on the self-hosted Gitea) ── */
 
-  app.get('/api/projects', async (req, res) => res.json(await db.getProjects()));
+  /**
+   * Projects were the one resource with no ownership model at all — every user saw every project,
+   * and the socket rooms for their pipeline runs inherited that. Projects created from here on
+   * carry an ownerId; projects that predate it have none and stay admin-only rather than staying
+   * visible to everyone (this instance's only projects are the admin's own, so nothing is
+   * stranded — on a shared instance that would deserve a migration instead).
+   */
+  const ownsProject = (project: any, user: any): boolean =>
+    project?.ownerId ? project.ownerId === user.id : user.isAdmin === true;
+
+  const getOwnedProject = async (id: string, user: any): Promise<any | undefined> => {
+    const project = (await db.getProjects()).find((p: any) => p.id === id);
+    return project && ownsProject(project, user) ? project : undefined;
+  };
+
+  app.get('/api/projects', async (req, res) => {
+    const projects = await db.getProjects();
+    res.json(projects.filter((p: any) => ownsProject(p, (req as any).user)));
+  });
 
   app.get('/api/projects/:id/runs', async (req, res) => {
+    if (!(await getOwnedProject(req.params.id, (req as any).user))) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
     const runs = await db.getPipelineRuns();
     res.json(runs.filter((r: any) => r.projectId === req.params.id).sort((a: any, b: any) => b.startedAt.localeCompare(a.startedAt)));
   });
@@ -1495,6 +1595,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         name,
         giteaOwner: owner,
         giteaRepo,
+        ownerId: (req as any).user.id,
         appType: 'gitapp',
         ...(targetClusterId ? { targetClusterId } : {}),
         ...(targetNamespace ? { targetNamespace } : {}),
@@ -1510,14 +1611,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/projects/:id/runs/:runId/promote', async (req, res) => {
     try {
-      const projects = await db.getProjects();
-      const project = projects.find((p: any) => p.id === req.params.id);
+      const user = (req as any).user;
+      const project = await getOwnedProject(req.params.id, user);
       if (!project) return res.status(404).json({ error: 'Project not found' });
       const runs = await db.getPipelineRuns();
       const run = runs.find((r: any) => r.id === req.params.runId && r.projectId === project.id);
       if (!run) return res.status(404).json({ error: 'Run not found' });
 
-      const user = (req as any).user;
       const info = await temporalBridge.promoteProjectBuild(project, run, user?.id);
       res.status(202).json({ message: 'Promoting build to deployment', workflowId: info.id, deploymentId: info.resourceId });
     } catch (err: any) {
