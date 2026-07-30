@@ -51,6 +51,9 @@ export interface AppEnvArgs {
   tabbyToolFormat?: string | undefined;
   tabbyInlineModelLoading?: boolean | undefined;
   tabbyDisableAuth?: boolean | undefined;
+  tabbyMemoryLimit?: string | undefined;
+  tabbyShmSize?: string | undefined;
+  tabbyCpuLimit?: string | undefined;
   tabbyExtraEnv?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
@@ -170,6 +173,9 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     TABBYAPI_TOOL_FORMAT: a.tabbyToolFormat || '',
     TABBYAPI_INLINE_MODEL_LOADING: a.tabbyInlineModelLoading ? 'true' : 'false',
     TABBYAPI_DISABLE_AUTH: a.tabbyDisableAuth === false ? 'false' : 'true',
+    TABBYAPI_MEMORY_LIMIT: a.tabbyMemoryLimit || '',
+    TABBYAPI_SHM_SIZE: a.tabbyShmSize || '',
+    TABBYAPI_CPU_LIMIT: a.tabbyCpuLimit || '',
     TABBYAPI_EXTRA_ENV: a.tabbyExtraEnv || '',
     OPENAI_API_BASE_URL: a.openaiApiBaseUrl || '',
     // Empty string (not 'true'/'false') when unset, not a default value baked in here — lets

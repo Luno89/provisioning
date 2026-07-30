@@ -80,9 +80,12 @@ export class TabbyApiApp extends Construct {
     // available — set shmSize explicitly for anything unusual this heuristic gets wrong.
     const shmSize = config.shmSize || (estimatedShardGiB ? `${Math.max(4, Math.ceil(estimatedShardGiB))}Gi` : "12Gi");
     const cpuLimit = config.cpuLimit || "10";
-    // Floats with shmSize (+8G for the process itself: Python/CUDA host-side overhead, request
-    // buffers) rather than a flat 20G that a large model's shm requirement alone could exceed.
-    const memoryLimit = config.memoryLimit || (estimatedShardGiB ? `${Math.max(20, Math.ceil(estimatedShardGiB) + 8)}G` : "20G");
+    // Floats with shmSize (+12G for the process itself: Python/CUDA host-side overhead, request
+    // buffers, and KV cache staging) with a seqLen factor for high context windows (>32k/64k)
+    // rather than a tight 20G limit that long contexts or large models easily exceed (OOMKill).
+    const maxSeqLen = config.maxSeqLen !== undefined ? config.maxSeqLen : 262144;
+    const seqLenFactor = maxSeqLen > 65536 ? 1.5 : (maxSeqLen > 32768 ? 1.25 : 1.0);
+    const memoryLimit = config.memoryLimit || (estimatedShardGiB ? `${Math.max(32, Math.ceil((estimatedShardGiB * seqLenFactor) + 12))}G` : "32G");
 
     const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 

@@ -57,6 +57,48 @@ const APP_DEFAULTS: Record<string, {
     hasDatabase: false,
     strategies: ['native']
   },
+  jellyfin: {
+    helm: { webRepo: 'jellyfin/jellyfin', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'jellyfin/jellyfin', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  plex: {
+    helm: { webRepo: 'plexinc/pms-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'plexinc/pms-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  navidrome: {
+    helm: { webRepo: 'deluan/navidrome', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'deluan/navidrome', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  kavita: {
+    helm: { webRepo: 'ghcr.io/kareadita/kavita', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'ghcr.io/kareadita/kavita', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  immich: {
+    helm: { webRepo: 'ghcr.io/immich-app/immich-server', webTag: 'release', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'ghcr.io/immich-app/immich-server', webTag: 'release', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  papra: {
+    helm: { webRepo: 'ghcr.io/papra-hq/papra', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'ghcr.io/papra-hq/papra', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  homeassistant: {
+    helm: { webRepo: 'ghcr.io/home-assistant/home-assistant', webTag: 'stable', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'ghcr.io/home-assistant/home-assistant', webTag: 'stable', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
   prometheus: {
     helm: { webRepo: 'prometheus/prometheus', webTag: 'v3.1.0', dbRepo: '', dbTag: '' },
     native: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
@@ -84,6 +126,12 @@ const APP_DEFAULTS: Record<string, {
   openwebui: {
     helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
     native: { webRepo: 'ghcr.io/open-webui/open-webui', webTag: 'main', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  hermes: {
+    helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'nousresearch/hermes-agent', webTag: 'latest', dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['native']
   }
@@ -137,8 +185,9 @@ function App() {
     tabbyModel: '', tabbyRevision: '', tabbyGpuCount: '1', tabbyHfToken: '',
     tabbyImageTag: 'latest', tabbyCacheMode: '', tabbyMaxSeqLen: '', tabbyMaxBatchSize: '',
     tabbyReasoning: false, tabbyToolFormat: '', tabbyInlineModelLoading: false,
-    tabbyDisableAuth: true, tabbyExtraEnv: '',
+    tabbyDisableAuth: true, tabbyMemoryLimit: '', tabbyShmSize: '', tabbyCpuLimit: '', tabbyExtraEnv: '',
     openWebuiTargetId: '',
+    hermesTargetId: '',
     webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '',
   });
   // Schema-driven settings for game servers, edited in the Config tab. Seeded from the
@@ -211,7 +260,7 @@ function App() {
   const [wizardData, setWizardData] = useState({
     name: 'Odoo-Production',
     clusterId: '',
-    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'palworld',
+    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant',
     strategy: 'native' as 'helm' | 'native',
     odooRepo: 'library/odoo',
     odooTag: '18.0',
@@ -243,8 +292,12 @@ function App() {
     tabbyToolFormat: 'qwen3_coder',
     tabbyInlineModelLoading: true,
     tabbyDisableAuth: true,
+    tabbyMemoryLimit: '32G',
+    tabbyShmSize: '16Gi',
+    tabbyCpuLimit: '10',
     tabbyExtraEnv: '',
     openWebuiTargetId: '',
+    hermesTargetId: '',
     webuiEnableWebSearch: true,
     webuiWebSearchEngine: 'duckduckgo',
     webuiWebSearchApiKey: '',
@@ -550,6 +603,20 @@ function App() {
         // Must match StorageAdapter.getSupportedVolumes on the backend — that's what actually
         // emits STORAGE_DATA for the construct.
         return ['data'];
+      case 'jellyfin':
+        return ['config', 'cache', 'media'];
+      case 'plex':
+        return ['config', 'media'];
+      case 'navidrome':
+        return ['data', 'music'];
+      case 'kavita':
+        return ['config', 'manga'];
+      case 'immich':
+        return ['library'];
+      case 'papra':
+        return ['data', 'media'];
+      case 'homeassistant':
+        return ['config'];
       default:
         return [];
     }
@@ -635,8 +702,12 @@ function App() {
         tabbyToolFormat: currentDeployment.tabbyToolFormat || '',
         tabbyInlineModelLoading: currentDeployment.tabbyInlineModelLoading || false,
         tabbyDisableAuth: currentDeployment.tabbyDisableAuth !== false,
+        tabbyMemoryLimit: currentDeployment.tabbyMemoryLimit || '',
+        tabbyShmSize: currentDeployment.tabbyShmSize || '',
+        tabbyCpuLimit: currentDeployment.tabbyCpuLimit || '',
         tabbyExtraEnv: currentDeployment.tabbyExtraEnv || '',
         openWebuiTargetId: currentDeployment.openWebuiTargetId || '',
+        hermesTargetId: currentDeployment.hermesTargetId || '',
         webuiEnableWebSearch: currentDeployment.webuiEnableWebSearch !== false,
         webuiWebSearchEngine: currentDeployment.webuiWebSearchEngine || 'duckduckgo',
         webuiWebSearchApiKey: '', // never pre-fill a secret back into a form field
@@ -790,7 +861,7 @@ function App() {
     }
   };
 
-  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'palworld') => {
+  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant') => {
     const config = APP_DEFAULTS[newAppType];
     const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : config.strategies[0];
     const defaults = config[newStrategy];
@@ -1052,7 +1123,7 @@ function App() {
 
         {view === 'apps' && (
           <section>
-            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, tabbyModel: 'turboderp/Qwen3.6-27B-exl3', tabbyRevision: '', tabbyGpuCount: '2', tabbyHfToken: '', tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: '262144', tabbyMaxBatchSize: '', tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: true, tabbyDisableAuth: true, tabbyExtraEnv: '', openWebuiTargetId: '', webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '', palworldPlayers: '16' }); setShowVllmAdvanced(false); setShowTabbyAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
+            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, tabbyModel: 'turboderp/Qwen3.6-27B-exl3', tabbyRevision: '', tabbyGpuCount: '2', tabbyHfToken: '', tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: '262144', tabbyMaxBatchSize: '', tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: true, tabbyDisableAuth: true, tabbyMemoryLimit: '32G', tabbyShmSize: '16Gi', tabbyCpuLimit: '10', tabbyExtraEnv: '', openWebuiTargetId: '', hermesTargetId: '', webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '', palworldPlayers: '16' }); setShowVllmAdvanced(false); setShowTabbyAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden shadow-sm">
                <table className="w-full text-left">
                   <thead className="bg-slate-700/30 text-slate-400 text-[10px] uppercase tracking-widest font-bold"><tr><th className="px-8 py-4">App</th><th className="px-8 py-4">Cluster</th><th className="px-8 py-4">Strategy</th><th className="px-8 py-4">Status</th><th className="px-8 py-4 text-right">Actions</th></tr></thead>
@@ -1618,12 +1689,17 @@ function App() {
                                patch.tabbyToolFormat = configInputs.tabbyToolFormat;
                                patch.tabbyInlineModelLoading = configInputs.tabbyInlineModelLoading;
                                patch.tabbyDisableAuth = configInputs.tabbyDisableAuth;
+                               patch.tabbyMemoryLimit = configInputs.tabbyMemoryLimit;
+                               patch.tabbyShmSize = configInputs.tabbyShmSize;
+                               patch.tabbyCpuLimit = configInputs.tabbyCpuLimit;
                                patch.tabbyExtraEnv = configInputs.tabbyExtraEnv;
                              } else if (appType === 'openwebui') {
                                patch.openWebuiTargetId = configInputs.openWebuiTargetId;
                                patch.webuiEnableWebSearch = configInputs.webuiEnableWebSearch;
                                patch.webuiWebSearchEngine = configInputs.webuiWebSearchEngine;
                                if (configInputs.webuiWebSearchApiKey) patch.webuiWebSearchApiKey = configInputs.webuiWebSearchApiKey;
+                             } else if (appType === 'hermes') {
+                               patch.hermesTargetId = configInputs.hermesTargetId;
                              } else {
                                patch.webRepo = configInputs.webRepo;
                                patch.webTag = configInputs.webTag;
@@ -1786,6 +1862,21 @@ function App() {
                            </div>
                          </div>
 
+                         <div className="grid grid-cols-3 gap-3">
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Memory Limit (RAM)</label>
+                             <input value={configInputs.tabbyMemoryLimit} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyMemoryLimit: e.target.value }))} placeholder="e.g. 32G, 48G, 64G" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Shared Memory (/dev/shm)</label>
+                             <input value={configInputs.tabbyShmSize} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyShmSize: e.target.value }))} placeholder="e.g. 16Gi, 24Gi, 32Gi" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                           </div>
+                           <div>
+                             <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">CPU Cores Limit</label>
+                             <input value={configInputs.tabbyCpuLimit} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyCpuLimit: e.target.value }))} placeholder="e.g. 10, 16" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                           </div>
+                         </div>
+
                          <div>
                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Format</label>
                            <select value={configInputs.tabbyToolFormat} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyToolFormat: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
@@ -1859,7 +1950,7 @@ function App() {
                        />
                      )}
 
-                     {!NO_WEB_UI_APP_TYPES.has(currentDeployment.appType || '') && currentDeployment.appType !== 'vllm' && currentDeployment.appType !== 'tabbyapi' && currentDeployment.appType !== 'openwebui' && (
+                     {!NO_WEB_UI_APP_TYPES.has(currentDeployment.appType || '') && currentDeployment.appType !== 'vllm' && currentDeployment.appType !== 'tabbyapi' && currentDeployment.appType !== 'openwebui' && currentDeployment.appType !== 'hermes' && (
                        <div className="border border-slate-700/60 bg-slate-900/40 rounded-2xl p-6 flex flex-col gap-4">
                          <h5 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2"><Layers size={16} className="text-indigo-400" /> Image Version</h5>
                          <div className="grid grid-cols-2 gap-4">
@@ -2239,12 +2330,20 @@ function App() {
                       <option value="wordpress">WordPress CMS</option>
                       <option value="nextcloud">Nextcloud Cloud Storage</option>
                       <option value="audiobookshelf">Audiobookshelf Media Server</option>
-<option value="prometheus">Prometheus Monitoring Stack</option>
-                       <option value="traefik">Traefik Ingress Router</option>
-                       <option value="vllm">vLLM LLM Server</option>
-                       <option value="tabbyapi">TabbyAPI (EXL2/EXL3 LLM Server)</option>
-                       <option value="openwebui">Open WebUI (LLM Chat UI)</option>
-                   <option value="palworld">Palworld Dedicated Server</option>
+                      <option value="prometheus">Prometheus Monitoring Stack</option>
+                      <option value="traefik">Traefik Ingress Router</option>
+                      <option value="vllm">vLLM LLM Server</option>
+                      <option value="tabbyapi">TabbyAPI (EXL2/EXL3 LLM Server)</option>
+                      <option value="openwebui">Open WebUI (LLM Chat UI)</option>
+                      <option value="hermes">Hermes Agent (AI Agent & Dashboard)</option>
+                      <option value="palworld">Palworld Dedicated Server</option>
+                      <option value="jellyfin">Jellyfin Media Server</option>
+                      <option value="plex">Plex Media Server</option>
+                      <option value="navidrome">Navidrome Music Server</option>
+                      <option value="kavita">Kavita Digital Library</option>
+                      <option value="immich">Immich Photo & Video Backup</option>
+                      <option value="papra">Papra Document Management</option>
+                      <option value="homeassistant">Home Assistant</option>
                     </select>
                   </div>
                 </div>
@@ -2537,6 +2636,20 @@ function App() {
                           <label htmlFor="wiz-tabby-auth" className="text-sm text-slate-300 cursor-pointer select-none">Require API Key</label>
                           <span className="text-[10px] text-slate-500 ml-auto">Off by default so Open WebUI can connect with no key configured</span>
                         </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Memory Limit (RAM)</label>
+                            <input value={wizardData.tabbyMemoryLimit} onChange={e => setWizardData({...wizardData, tabbyMemoryLimit: e.target.value})} placeholder="32G (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Shared Memory (/dev/shm)</label>
+                            <input value={wizardData.tabbyShmSize} onChange={e => setWizardData({...wizardData, tabbyShmSize: e.target.value})} placeholder="16Gi (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">CPU Limit</label>
+                            <input value={wizardData.tabbyCpuLimit} onChange={e => setWizardData({...wizardData, tabbyCpuLimit: e.target.value})} placeholder="10 (default)" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm" />
+                          </div>
+                        </div>
                         <div>
                           <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Additional Config (env overrides)</label>
                           <textarea value={wizardData.tabbyExtraEnv} onChange={e => setWizardData({...wizardData, tabbyExtraEnv: e.target.value})} rows={3} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm font-mono" placeholder={"One per line, e.g.\nTABBY_MODEL_CHUNK_SIZE=4096\nTABBY_MODEL_ROPE_SCALE=1.0"} />
@@ -2569,6 +2682,26 @@ function App() {
                         )
                       ) : (
                         <p className="text-[11px] text-slate-500 mt-1">Open WebUI reaches its backend over the cluster's internal network — only deployments on the same Target Cluster (step 1) are listed.</p>
+                      )}
+                    </div>
+                  )}
+                  {wizardData.appType === 'hermes' && (
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
+                      <select value={wizardData.hermesTargetId} onChange={e => setWizardData({...wizardData, hermesTargetId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
+                        <option value="">No backend (configure manually later)</option>
+                        {deployments.filter((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === wizardData.clusterId).map((d: any) => (
+                          <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || d.tabbyModel || (d.appType === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')})</option>
+                        ))}
+                      </select>
+                      {deployments.filter((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === wizardData.clusterId).length === 0 ? (
+                        deployments.some((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running') ? (
+                          <p className="text-[11px] text-amber-400/80 mt-2">Your running vLLM/TabbyAPI deployment(s) are on a different cluster than this app's Target Cluster (step 1) — go back and pick the same cluster. Only same-cluster backends are listed.</p>
+                        ) : (
+                          <p className="text-[11px] text-amber-400/80 mt-2">No running vLLM/TabbyAPI deployments found. Deploy one first, or connect this later.</p>
+                        )
+                      ) : (
+                        <p className="text-[11px] text-slate-500 mt-1">Hermes Agent reaches its backend over the cluster's internal network — only deployments on the same Target Cluster (step 1) are listed.</p>
                       )}
                     </div>
                   )}
@@ -2633,7 +2766,7 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; deployApp.mutate(payload); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+            <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={prevStep} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={nextStep} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'hermes' ? { ...wizardData, hermesTargetId: wizardData.hermesTargetId || undefined, appType: 'hermes', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; deployApp.mutate(payload); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
           </div>
         </div>
       )}

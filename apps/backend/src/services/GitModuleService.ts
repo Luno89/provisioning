@@ -44,6 +44,41 @@ const MOCK_MODULES: Record<string, OdooModule[]> = {
   traefik: [
     { id: 'oauth2_forwarder', name: 'OAuth2 Forward Auth', summary: 'Secures routes behind Google or GitHub OAuth.', author: 'Traefik Middleware', version: '2.1.0' },
     { id: 'compression_gzip', name: 'Gzip Compression', summary: 'Enables gzip content encoding dynamically.', author: 'Core Traefik Team', version: '1.0.0' }
+  ],
+  jellyfin: [
+    { id: 'opensubtitles', name: 'OpenSubtitles Auto-Downloader', summary: 'Automatically fetches subtitle files from OpenSubtitles.', author: 'Jellyfin Plugins', version: '10.9.0' },
+    { id: 'anilist_metadata', name: 'AniList Metadata Provider', summary: 'Enhances anime libraries with AniList metadata & covers.', author: 'Anime Community', version: '2.1.4' },
+    { id: 'ldap_auth', name: 'LDAP Authentication Provider', summary: 'Enables single sign-on via LDAP or Active Directory.', author: 'Jellyfin Core', version: '1.8.0' }
+  ],
+  plex: [
+    { id: 'plex_meta_manager', name: 'Plex Meta Manager (PMM)', summary: 'Dynamic metadata, collections, and overlay manager.', author: 'PMM Team', version: '1.21.0' },
+    { id: 'tautulli', name: 'Tautulli Monitoring & Analytics', summary: 'Detailed usage statistics and notifications engine.', author: 'Tautulli Team', version: '2.14.0' },
+    { id: 'subzero', name: 'Sub-Zero Subtitles Engine', summary: 'Advanced subtitle search and auto-download plugin.', author: 'Plex Community', version: '2.6.5' }
+  ],
+  navidrome: [
+    { id: 'lastfm_scrobbler', name: 'Last.fm Realtime Scrobbler', summary: 'Scrobbles tracks directly to Last.fm in real time.', author: 'Navidrome Core', version: '0.53.0' },
+    { id: 'listenbrainz', name: 'ListenBrainz Sync Integration', summary: 'Syncs music listening history with ListenBrainz.', author: 'Open Music Initiative', version: '1.1.0' },
+    { id: 'spotify_import', name: 'Spotify Playlist Importer', summary: 'Imports public Spotify playlists into your library.', author: 'Navidrome Community', version: '1.0.2' }
+  ],
+  kavita: [
+    { id: 'anilist_comic_matcher', name: 'AniList & ComicVine Matcher', summary: 'Matches manga and comic issues with AniList/ComicVine.', author: 'Kavita Plugins', version: '0.8.0' },
+    { id: 'opds_enhancer', name: 'Enhanced OPDS Feed Extension', summary: 'Adds rich metadata and cover thumbnails to OPDS feeds.', author: 'Reader Group', version: '1.4.0' },
+    { id: 'cbr_cbz_converter', name: 'CBR/CBZ On-The-Fly Transcoder', summary: 'Converts archive formats dynamically for e-readers.', author: 'Kavita Core', version: '1.0.1' }
+  ],
+  immich: [
+    { id: 'facial_recognition_pack', name: 'Facial Recognition ML Model Pack', summary: 'Enhanced face detection & clustering machine learning models.', author: 'Immich AI Team', version: '1.118.0' },
+    { id: 'reverse_geocoding', name: 'Offline Reverse Geocoding Pack', summary: 'Resolves GPS coordinates into city/country names offline.', author: 'Immich Core', version: '1.5.0' },
+    { id: 'auto_album_sync', name: 'Auto-Album Smart Grouping', summary: 'Groups photos automatically by event, date, and location.', author: 'Community Labs', version: '2.0.1' }
+  ],
+  papra: [
+    { id: 'tesseract_ocr', name: 'Tesseract Multi-Language OCR Pack', summary: 'Optical character recognition model for scanned documents.', author: 'Papra HQ', version: '0.4.0' },
+    { id: 'auto_tagging_pipeline', name: 'Smart AI Auto-Tagging Engine', summary: 'Tags and categorizes incoming documents based on content.', author: 'Papra Plugins', version: '1.2.0' },
+    { id: 'email_import_bridge', name: 'IMAP Email Auto-Ingestion', summary: 'Monitors email inboxes and imports attachments automatically.', author: 'Papra Community', version: '1.0.0' }
+  ],
+  homeassistant: [
+    { id: 'hacs', name: 'Home Assistant Community Store (HACS)', summary: 'Integration repository for custom components and cards.', author: 'HACS Team', version: '2.0.0' },
+    { id: 'mosquitto_mqtt', name: 'Mosquitto MQTT Broker Integration', summary: 'Enables MQTT messaging between IoT devices and HA.', author: 'Home Assistant Core', version: '6.4.1' },
+    { id: 'nodered', name: 'Node-RED Visual Automation Flow', summary: 'Visual flow editor for building complex automations.', author: 'Node-RED HA Team', version: '3.1.0' }
   ]
 };
 

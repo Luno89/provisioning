@@ -99,8 +99,27 @@ export async function DeployAppActivity(
   const logFile = args.logFile;
   const sanitizedName = SANITIZE(args.name);
 
-  let finalOdooRepo = args.odooRepo || (args.appType === 'odoo' ? 'library/odoo' : '');
-  let finalOdooTag = args.odooTag || (args.appType === 'odoo' ? '18.0' : '');
+  const DEFAULT_APP_REPOS: Record<string, { repo: string; tag: string }> = {
+    odoo: { repo: 'library/odoo', tag: '18.0' },
+    wordpress: { repo: 'library/wordpress', tag: 'latest' },
+    nextcloud: { repo: 'library/nextcloud', tag: 'latest' },
+    audiobookshelf: { repo: 'ghcr.io/advplyr/audiobookshelf', tag: '2.19.0' },
+    jellyfin: { repo: 'jellyfin/jellyfin', tag: 'latest' },
+    plex: { repo: 'plexinc/pms-docker', tag: 'latest' },
+    navidrome: { repo: 'deluan/navidrome', tag: 'latest' },
+    kavita: { repo: 'jvmorgan/kavita', tag: 'latest' },
+    immich: { repo: 'ghcr.io/immich-app/immich-server', tag: 'release' },
+    papra: { repo: 'papra/papra', tag: 'latest' },
+    homeassistant: { repo: 'ghcr.io/home-assistant/home-assistant', tag: 'stable' },
+    vllm: { repo: 'vllm/vllm-openai', tag: 'v0.7.2' },
+    openwebui: { repo: 'ghcr.io/open-webui/open-webui', tag: 'main' },
+    hermes: { repo: 'nousresearch/hermes-agent', tag: 'latest' },
+    palworld: { repo: 'thijsvanloef/palworld-server-docker', tag: 'latest' },
+  };
+
+  const appDefault = DEFAULT_APP_REPOS[args.appType] || { repo: '', tag: 'latest' };
+  let finalOdooRepo = (args.appType !== 'odoo' && args.odooRepo === 'library/odoo') ? appDefault.repo : (args.odooRepo || appDefault.repo);
+  let finalOdooTag = (args.appType !== 'odoo' && args.odooTag === '18.0') ? appDefault.tag : (args.odooTag || appDefault.tag);
 
   // 'remote' is never a mock-cloud k3d scenario — see ProvisionClusterActivity.ts /
   // ClusterService.isMockCloud() for the full explanation. hasCloudCredentials() has no 'remote'
@@ -161,8 +180,9 @@ export async function DeployAppActivity(
   // pod-start time — no import step exists or is needed there (attempting it fails with
   // "failed to get cluster <name>: No nodes found", since there's no such k3d cluster).
   if (args.modules && args.modules.length > 0) {
+    const baseImage = (finalOdooRepo && finalOdooTag) ? `${finalOdooRepo}:${finalOdooTag}` : (args.odooRepo || 'odoo:latest');
     customImageTag = await builder.buildCustomImage(
-      args.odooRepo || `odoo:latest`,
+      baseImage,
       args.modules,
       args.appType,
       { logFile, resourceId: args.clusterId },
@@ -247,6 +267,8 @@ export async function DeployAppActivity(
     ? 'http://localhost:5000'
     : args.appType === 'openwebui'
     ? 'http://localhost:8080'
+    : args.appType === 'hermes'
+    ? 'http://localhost:9119'
     : args.appType === 'gitapp'
     ? 'http://localhost:8080'
     : 'http://localhost:80';

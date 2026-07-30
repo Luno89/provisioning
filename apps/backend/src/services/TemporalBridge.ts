@@ -794,8 +794,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   // and syncConfig) rather than on the frontend so there's one source of truth for that naming
   // scheme instead of duplicating the sanitize regex.
   private resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments: DeploymentMetadata[]): string | undefined {
-    if (dep.appType !== 'openwebui' || !dep.openWebuiTargetId) return undefined;
-    const target = allDeployments.find((d) => d.id === dep.openWebuiTargetId);
+    const targetId = dep.appType === 'hermes' ? dep.hermesTargetId : (dep.appType === 'openwebui' ? dep.openWebuiTargetId : undefined);
+    if (!targetId) return undefined;
+    const target = allDeployments.find((d) => d.id === targetId);
     if (!target) return undefined;
     // .svc.cluster.local only resolves within the same cluster — the frontend already only
     // offers same-cluster vLLM/TabbyAPI deployments as backend choices, but a stale/direct API
@@ -878,8 +879,12 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         tabbyToolFormat: config.tabbyToolFormat,
         tabbyInlineModelLoading: config.tabbyInlineModelLoading,
         tabbyDisableAuth: config.tabbyDisableAuth,
+        tabbyMemoryLimit: config.tabbyMemoryLimit,
+        tabbyShmSize: config.tabbyShmSize,
+        tabbyCpuLimit: config.tabbyCpuLimit,
         tabbyExtraEnv: config.tabbyExtraEnv,
         openWebuiTargetId: config.openWebuiTargetId,
+        hermesTargetId: config.hermesTargetId,
         webuiEnableWebSearch: config.webuiEnableWebSearch,
         webuiWebSearchEngine: config.webuiWebSearchEngine,
         webuiWebSearchApiKey: config.webuiWebSearchApiKey,
@@ -977,6 +982,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       tabbyToolFormat: dep.tabbyToolFormat,
       tabbyInlineModelLoading: dep.tabbyInlineModelLoading,
       tabbyDisableAuth: dep.tabbyDisableAuth,
+      tabbyMemoryLimit: dep.tabbyMemoryLimit,
+      tabbyShmSize: dep.tabbyShmSize,
+      tabbyCpuLimit: dep.tabbyCpuLimit,
       tabbyExtraEnv: dep.tabbyExtraEnv,
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
       webuiEnableWebSearch: dep.webuiEnableWebSearch,
@@ -1153,6 +1161,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       tabbyToolFormat: dep.tabbyToolFormat,
       tabbyInlineModelLoading: dep.tabbyInlineModelLoading,
       tabbyDisableAuth: dep.tabbyDisableAuth,
+      tabbyMemoryLimit: dep.tabbyMemoryLimit,
+      tabbyShmSize: dep.tabbyShmSize,
+      tabbyCpuLimit: dep.tabbyCpuLimit,
       tabbyExtraEnv: dep.tabbyExtraEnv,
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
       webuiEnableWebSearch: dep.webuiEnableWebSearch,

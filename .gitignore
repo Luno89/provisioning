@@ -63,3 +63,4 @@ cdktf.out/
 .DS_Store
 Thumbs.db
 apps/frontend/dist/
+scripts/root-node/.root-node-key*

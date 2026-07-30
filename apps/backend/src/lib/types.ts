@@ -103,7 +103,7 @@ export interface DeploymentMetadata {
   // existed; migrateLegacyOwnership backfills those to the admin user once, at startup.
   ownerId?: string;
   strategy: 'helm' | 'native';
-  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'gitapp' | 'palworld';
+  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'gitapp' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant';
   // gitapp-specific fields — image comes from a Project's pipeline run, not a typed repo/tag
   gitappProjectId?: string;
   gitappImageTag?: string;
@@ -168,6 +168,9 @@ export interface DeploymentMetadata {
   tabbyToolFormat?: 'mistral' | 'mistral_old' | 'qwen3_coder' | 'gemma4' | 'glm4_5' | 'minimax_m2' | 'harmony';
   tabbyInlineModelLoading?: boolean;
   tabbyDisableAuth?: boolean;
+  tabbyMemoryLimit?: string;
+  tabbyShmSize?: string;
+  tabbyCpuLimit?: string;
   tabbyExtraEnv?: string;
   // Schema-driven settings for app types with too many options to give each a first-class field
   // (game servers: ~120 apiece). One map threaded through the pipeline once, validated at runtime
@@ -178,6 +181,7 @@ export interface DeploymentMetadata {
   appSettings?: Record<string, string>;
   // Open WebUI-specific fields
   openWebuiTargetId?: string; // id of the vLLM/TabbyAPI DeploymentMetadata this instance talks to
+  hermesTargetId?: string; // id of the vLLM/TabbyAPI DeploymentMetadata this Hermes Agent instance talks to
   webuiEnableWebSearch?: boolean;
   webuiWebSearchEngine?: 'duckduckgo' | 'tavily' | 'brave' | 'serper' | 'bing';
   webuiWebSearchApiKey?: string;

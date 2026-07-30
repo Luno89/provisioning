@@ -7,25 +7,23 @@ import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
 
-export interface AudiobookshelfNativeConfig extends VpnConfig {
+export interface KavitaNativeConfig extends VpnConfig {
   readonly namespace?: string;
   readonly webRepo?: string;
   readonly webTag?: string;
-  readonly metadataStorage?: string;
   readonly configStorage?: string;
-  readonly libraryStorage?: string;
+  readonly mangaStorage?: string;
   readonly serviceType?: string;
 }
 
-export class AudiobookshelfNativeApp extends Construct {
-  constructor(scope: Construct, id: string, config: AudiobookshelfNativeConfig = {}) {
+export class KavitaNativeApp extends Construct {
+  constructor(scope: Construct, id: string, config: KavitaNativeConfig = {}) {
     super(scope, id);
 
-    const namespaceName = config.namespace || "audiobookshelf-native";
-    const webImage = `${config.webRepo || "ghcr.io/advplyr/audiobookshelf"}:${config.webTag || "latest"}`;
-    const metadataSize = config.metadataStorage || "2Gi";
-    const configSize = config.configStorage || "1Gi";
-    const librarySize = config.libraryStorage || "5Gi";
+    const namespaceName = config.namespace || "kavita-native";
+    const webImage = `${config.webRepo || "ghcr.io/kareadita/kavita"}:${config.webTag || "latest"}`;
+    const configSize = config.configStorage || "2Gi";
+    const mangaSize = config.mangaStorage || "5Gi";
 
     const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 
@@ -35,25 +33,9 @@ export class AudiobookshelfNativeApp extends Construct {
       },
     });
 
-    const metadataPvc = new PersistentVolumeClaim(this, "metadata-pvc", {
-      metadata: {
-        name: "audiobookshelf-metadata-pvc",
-        namespace: ns.metadata.name,
-      },
-      spec: {
-        accessModes: ["ReadWriteOnce"],
-        resources: {
-          requests: {
-            storage: metadataSize,
-          },
-        },
-      },
-      waitUntilBound: false,
-    });
-
     const configPvc = new PersistentVolumeClaim(this, "config-pvc", {
       metadata: {
-        name: "audiobookshelf-config-pvc",
+        name: "kavita-config-pvc",
         namespace: ns.metadata.name,
       },
       spec: {
@@ -67,16 +49,16 @@ export class AudiobookshelfNativeApp extends Construct {
       waitUntilBound: false,
     });
 
-    const libraryPvc = new PersistentVolumeClaim(this, "library-pvc", {
+    const mangaPvc = new PersistentVolumeClaim(this, "manga-pvc", {
       metadata: {
-        name: "audiobookshelf-library-pvc",
+        name: "kavita-manga-pvc",
         namespace: ns.metadata.name,
       },
       spec: {
         accessModes: ["ReadWriteOnce"],
         resources: {
           requests: {
-            storage: librarySize,
+            storage: mangaSize,
           },
         },
       },
@@ -86,37 +68,22 @@ export class AudiobookshelfNativeApp extends Construct {
     const podSpec: any = {
       container: [
         {
-          name: "audiobookshelf",
+          name: "kavita",
           image: webImage,
-          env: [
-            { name: "PORT", value: "80" },
-            { name: "METADATA_PATH", value: "/metadata" },
-            { name: "CONFIG_PATH", value: "/config" },
-          ],
-          port: [{ containerPort: 80 }],
+          port: [{ containerPort: 5000 }],
           volumeMount: [
             {
-              name: "metadata-vol",
-              mountPath: "/metadata",
-            },
-            {
               name: "config-vol",
-              mountPath: "/config",
+              mountPath: "/kavita/config",
             },
             {
-              name: "library-vol",
-              mountPath: "/audiobooks",
+              name: "manga-vol",
+              mountPath: "/manga",
             },
           ],
         },
       ],
       volume: [
-        {
-          name: "metadata-vol",
-          persistentVolumeClaim: {
-            claimName: metadataPvc.metadata.name,
-          },
-        },
         {
           name: "config-vol",
           persistentVolumeClaim: {
@@ -124,9 +91,9 @@ export class AudiobookshelfNativeApp extends Construct {
           },
         },
         {
-          name: "library-vol",
+          name: "manga-vol",
           persistentVolumeClaim: {
-            claimName: libraryPvc.metadata.name,
+            claimName: mangaPvc.metadata.name,
           },
         },
       ],
@@ -134,50 +101,49 @@ export class AudiobookshelfNativeApp extends Construct {
 
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
-    // Audiobookshelf Deployment
-    new Deployment(this, "audiobookshelf-deployment", {
+    new Deployment(this, "kavita-deployment", {
       metadata: {
-        name: "audiobookshelf",
+        name: "kavita",
         namespace: ns.metadata.name,
-        labels: { app: `audiobookshelf-${id}` },
+        labels: { app: `kavita-${id}` },
       },
       spec: {
         replicas: "1",
         selector: {
-          matchLabels: { app: `audiobookshelf-${id}` },
+          matchLabels: { app: `kavita-${id}` },
         },
         template: {
           metadata: {
-            labels: { app: `audiobookshelf-${id}` },
+            labels: { app: `kavita-${id}` },
           },
           spec: podSpec,
         },
       },
     });
 
-    new Service(this, "audiobookshelf-service", {
+    new Service(this, "kavita-service", {
       metadata: {
-        name: "audiobookshelf",
+        name: "kavita",
         namespace: ns.metadata.name,
       },
       spec: {
         type: serviceType,
-        selector: { app: `audiobookshelf-${id}` },
-        port: [{ port: 80, targetPort: "80" }],
+        selector: { app: `kavita-${id}` },
+        port: [{ port: 5000, targetPort: "5000" }],
       },
     });
 
     createAppIngress(this, "ingress", {
       namespace: namespaceName,
-      serviceName: "audiobookshelf",
-      servicePort: 80,
+      serviceName: "kavita",
+      servicePort: 5000,
       hostname: `${namespaceName}.apps.local`,
     });
 
     createAppProbe(this, "probe", {
       namespace: namespaceName,
-      serviceName: "audiobookshelf",
-      servicePort: 80,
+      serviceName: "kavita",
+      servicePort: 5000,
     });
   }
 }

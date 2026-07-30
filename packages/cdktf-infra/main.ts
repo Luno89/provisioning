@@ -15,8 +15,16 @@ import { TraefikApp } from "./constructs/traefik.js";
 import { VllmApp } from "./constructs/vllm.js";
 import { TabbyApiApp } from "./constructs/tabbyapi.js";
 import { OpenWebUiApp } from "./constructs/open-webui.js";
+import { HermesAgentApp } from "./constructs/hermes-agent.js";
 import { GitappApp } from "./constructs/gitapp.js";
 import { PalworldApp } from "./constructs/palworld.js";
+import { JellyfinNativeApp } from "./constructs/jellyfin-native.js";
+import { PlexNativeApp } from "./constructs/plex-native.js";
+import { NavidromeNativeApp } from "./constructs/navidrome-native.js";
+import { KavitaNativeApp } from "./constructs/kavita-native.js";
+import { ImmichNativeApp } from "./constructs/immich-native.js";
+import { PapraNativeApp } from "./constructs/papra-native.js";
+import { HomeassistantNativeApp } from "./constructs/homeassistant-native.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
 import { DashboardsStack } from "./constructs/dashboards.js";
@@ -25,7 +33,7 @@ import { AlertingStack } from "./constructs/alerting.js";
 import { LoggingStack } from "./constructs/logging.js";
 import { HetznerVmStack } from "./constructs/hetzner-vm.js";
 import { K8sProviderService } from "./lib/k8s-provider-service.js";
-import { VpnConfig } from "./lib/vpn-service.js";
+import { type VpnConfig } from "./lib/vpn-service.js";
 
 export interface ClusterStackConfig {
   environment: "local" | "k3d" | "aws" | "gcp" | "azure" | "do" | "remote" | "hetzner";
@@ -131,6 +139,10 @@ class AppStack extends TerraformStack {
     const storageMetadata = process.env.STORAGE_METADATA;
     const storageServer = process.env.STORAGE_SERVER;
     const storageData = process.env.STORAGE_DATA;
+    const storageCache = process.env.STORAGE_CACHE;
+    const storageMedia = process.env.STORAGE_MEDIA;
+    const storageMusic = process.env.STORAGE_MUSIC;
+    const storageManga = process.env.STORAGE_MANGA;
 
     // Schema-driven settings for app types with too many options for individual env vars (game
     // servers: ~120 each). Built by lib/app-settings-schema.ts on the backend and passed as one
@@ -237,6 +249,14 @@ class AppStack extends TerraformStack {
           ...(process.env.WEBUI_WEB_SEARCH_ENGINE ? { webSearchEngine: process.env.WEBUI_WEB_SEARCH_ENGINE } : {}),
           ...(process.env.WEBUI_WEB_SEARCH_API_KEY ? { webSearchApiKey: process.env.WEBUI_WEB_SEARCH_API_KEY } : {}),
         });
+      } else if (appType === 'hermes') {
+        new HermesAgentApp(this, "hermes-app", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.OPENAI_API_BASE_URL ? { openaiApiBaseUrl: process.env.OPENAI_API_BASE_URL } : {}),
+          ...(storageDb ? { storage: storageDb } : {}),
+        });
       } else if (appType === 'palworld') {
         new PalworldApp(this, "palworld-app", {
           namespace: deploymentName,
@@ -258,6 +278,68 @@ class AppStack extends TerraformStack {
           webTag,
           ...(process.env.GITAPP_CONTAINER_PORT ? { containerPort: parseInt(process.env.GITAPP_CONTAINER_PORT) } : {}),
           ...(storageWeb ? { storage: storageWeb } : {}),
+        });
+      } else if (appType === 'jellyfin') {
+        new JellyfinNativeApp(this, "jellyfin-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageConfig ? { configStorage: storageConfig } : {}),
+          ...(storageCache ? { cacheStorage: storageCache } : {}),
+          ...(storageMedia ? { mediaStorage: storageMedia } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'plex') {
+        new PlexNativeApp(this, "plex-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageConfig ? { configStorage: storageConfig } : {}),
+          ...(storageMedia ? { mediaStorage: storageMedia } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'navidrome') {
+        new NavidromeNativeApp(this, "navidrome-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageData ? { dataStorage: storageData } : {}),
+          ...(storageMusic ? { musicStorage: storageMusic } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'kavita') {
+        new KavitaNativeApp(this, "kavita-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageConfig ? { configStorage: storageConfig } : {}),
+          ...(storageManga ? { mangaStorage: storageManga } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'immich') {
+        new ImmichNativeApp(this, "immich-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageLibrary ? { libraryStorage: storageLibrary } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'papra') {
+        new PapraNativeApp(this, "papra-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageData ? { dataStorage: storageData } : {}),
+          ...(storageMedia ? { mediaStorage: storageMedia } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'homeassistant') {
+        new HomeassistantNativeApp(this, "homeassistant-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(storageConfig ? { configStorage: storageConfig } : {}),
+          ...vpnProps,
         });
       } else {
         new OdooNativeApp(this, "odoo-native", {

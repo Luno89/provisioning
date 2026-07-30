@@ -121,6 +121,20 @@ export class BuilderService extends BaseService {
       destPaths = ['/etc/prometheus/plugins'];
     } else if (sanitizedAppType === 'traefik') {
       destPaths = ['/plugins-local'];
+    } else if (sanitizedAppType === 'jellyfin') {
+      destPaths = ['/config/plugins', '/usr/lib/jellyfin/plugins'];
+    } else if (sanitizedAppType === 'plex') {
+      destPaths = ['/config/Library/Application Support/Plex Media Server/Plug-ins'];
+    } else if (sanitizedAppType === 'navidrome') {
+      destPaths = ['/data/plugins'];
+    } else if (sanitizedAppType === 'kavita') {
+      destPaths = ['/kavita/config/plugins'];
+    } else if (sanitizedAppType === 'immich') {
+      destPaths = ['/usr/src/app/plugins'];
+    } else if (sanitizedAppType === 'papra') {
+      destPaths = ['/data/plugins'];
+    } else if (sanitizedAppType === 'homeassistant') {
+      destPaths = ['/config/custom_components'];
     }
 
     // Build the Dockerfile instructions to copy to all potential paths (creating folders first if needed)

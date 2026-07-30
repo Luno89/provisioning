@@ -7,25 +7,25 @@ import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
 
-export interface AudiobookshelfNativeConfig extends VpnConfig {
+export interface JellyfinNativeConfig extends VpnConfig {
   readonly namespace?: string;
   readonly webRepo?: string;
   readonly webTag?: string;
-  readonly metadataStorage?: string;
   readonly configStorage?: string;
-  readonly libraryStorage?: string;
+  readonly cacheStorage?: string;
+  readonly mediaStorage?: string;
   readonly serviceType?: string;
 }
 
-export class AudiobookshelfNativeApp extends Construct {
-  constructor(scope: Construct, id: string, config: AudiobookshelfNativeConfig = {}) {
+export class JellyfinNativeApp extends Construct {
+  constructor(scope: Construct, id: string, config: JellyfinNativeConfig = {}) {
     super(scope, id);
 
-    const namespaceName = config.namespace || "audiobookshelf-native";
-    const webImage = `${config.webRepo || "ghcr.io/advplyr/audiobookshelf"}:${config.webTag || "latest"}`;
-    const metadataSize = config.metadataStorage || "2Gi";
-    const configSize = config.configStorage || "1Gi";
-    const librarySize = config.libraryStorage || "5Gi";
+    const namespaceName = config.namespace || "jellyfin-native";
+    const webImage = `${config.webRepo || "jellyfin/jellyfin"}:${config.webTag || "latest"}`;
+    const configSize = config.configStorage || "2Gi";
+    const cacheSize = config.cacheStorage || "2Gi";
+    const mediaSize = config.mediaStorage || "10Gi";
 
     const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 
@@ -35,25 +35,9 @@ export class AudiobookshelfNativeApp extends Construct {
       },
     });
 
-    const metadataPvc = new PersistentVolumeClaim(this, "metadata-pvc", {
-      metadata: {
-        name: "audiobookshelf-metadata-pvc",
-        namespace: ns.metadata.name,
-      },
-      spec: {
-        accessModes: ["ReadWriteOnce"],
-        resources: {
-          requests: {
-            storage: metadataSize,
-          },
-        },
-      },
-      waitUntilBound: false,
-    });
-
     const configPvc = new PersistentVolumeClaim(this, "config-pvc", {
       metadata: {
-        name: "audiobookshelf-config-pvc",
+        name: "jellyfin-config-pvc",
         namespace: ns.metadata.name,
       },
       spec: {
@@ -67,16 +51,32 @@ export class AudiobookshelfNativeApp extends Construct {
       waitUntilBound: false,
     });
 
-    const libraryPvc = new PersistentVolumeClaim(this, "library-pvc", {
+    const cachePvc = new PersistentVolumeClaim(this, "cache-pvc", {
       metadata: {
-        name: "audiobookshelf-library-pvc",
+        name: "jellyfin-cache-pvc",
         namespace: ns.metadata.name,
       },
       spec: {
         accessModes: ["ReadWriteOnce"],
         resources: {
           requests: {
-            storage: librarySize,
+            storage: cacheSize,
+          },
+        },
+      },
+      waitUntilBound: false,
+    });
+
+    const mediaPvc = new PersistentVolumeClaim(this, "media-pvc", {
+      metadata: {
+        name: "jellyfin-media-pvc",
+        namespace: ns.metadata.name,
+      },
+      spec: {
+        accessModes: ["ReadWriteOnce"],
+        resources: {
+          requests: {
+            storage: mediaSize,
           },
         },
       },
@@ -86,37 +86,26 @@ export class AudiobookshelfNativeApp extends Construct {
     const podSpec: any = {
       container: [
         {
-          name: "audiobookshelf",
+          name: "jellyfin",
           image: webImage,
-          env: [
-            { name: "PORT", value: "80" },
-            { name: "METADATA_PATH", value: "/metadata" },
-            { name: "CONFIG_PATH", value: "/config" },
-          ],
-          port: [{ containerPort: 80 }],
+          port: [{ containerPort: 8096 }],
           volumeMount: [
-            {
-              name: "metadata-vol",
-              mountPath: "/metadata",
-            },
             {
               name: "config-vol",
               mountPath: "/config",
             },
             {
-              name: "library-vol",
-              mountPath: "/audiobooks",
+              name: "cache-vol",
+              mountPath: "/cache",
+            },
+            {
+              name: "media-vol",
+              mountPath: "/media",
             },
           ],
         },
       ],
       volume: [
-        {
-          name: "metadata-vol",
-          persistentVolumeClaim: {
-            claimName: metadataPvc.metadata.name,
-          },
-        },
         {
           name: "config-vol",
           persistentVolumeClaim: {
@@ -124,9 +113,15 @@ export class AudiobookshelfNativeApp extends Construct {
           },
         },
         {
-          name: "library-vol",
+          name: "cache-vol",
           persistentVolumeClaim: {
-            claimName: libraryPvc.metadata.name,
+            claimName: cachePvc.metadata.name,
+          },
+        },
+        {
+          name: "media-vol",
+          persistentVolumeClaim: {
+            claimName: mediaPvc.metadata.name,
           },
         },
       ],
@@ -134,50 +129,49 @@ export class AudiobookshelfNativeApp extends Construct {
 
     VpnService.apply(this, ns.metadata.name, podSpec, config);
 
-    // Audiobookshelf Deployment
-    new Deployment(this, "audiobookshelf-deployment", {
+    new Deployment(this, "jellyfin-deployment", {
       metadata: {
-        name: "audiobookshelf",
+        name: "jellyfin",
         namespace: ns.metadata.name,
-        labels: { app: `audiobookshelf-${id}` },
+        labels: { app: `jellyfin-${id}` },
       },
       spec: {
         replicas: "1",
         selector: {
-          matchLabels: { app: `audiobookshelf-${id}` },
+          matchLabels: { app: `jellyfin-${id}` },
         },
         template: {
           metadata: {
-            labels: { app: `audiobookshelf-${id}` },
+            labels: { app: `jellyfin-${id}` },
           },
           spec: podSpec,
         },
       },
     });
 
-    new Service(this, "audiobookshelf-service", {
+    new Service(this, "jellyfin-service", {
       metadata: {
-        name: "audiobookshelf",
+        name: "jellyfin",
         namespace: ns.metadata.name,
       },
       spec: {
         type: serviceType,
-        selector: { app: `audiobookshelf-${id}` },
-        port: [{ port: 80, targetPort: "80" }],
+        selector: { app: `jellyfin-${id}` },
+        port: [{ port: 8096, targetPort: "8096" }],
       },
     });
 
     createAppIngress(this, "ingress", {
       namespace: namespaceName,
-      serviceName: "audiobookshelf",
-      servicePort: 80,
+      serviceName: "jellyfin",
+      servicePort: 8096,
       hostname: `${namespaceName}.apps.local`,
     });
 
     createAppProbe(this, "probe", {
       namespace: namespaceName,
-      serviceName: "audiobookshelf",
-      servicePort: 80,
+      serviceName: "jellyfin",
+      servicePort: 8096,
     });
   }
 }

@@ -1469,7 +1469,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       const CONFIGURABLE_FIELDS = [
         'storage', 'webRepo', 'webTag', 'dbRepo', 'dbTag',
         'vllmModel', 'vllmGpuCount', 'vllmGpuVendor', 'vllmCachePvc', 'vllmHfToken',
-        'vllmMaxModelLen', 'vllmGpuMemUtil', 'vllmExtraArgs', 'openWebuiTargetId',
+        'vllmMaxModelLen', 'vllmGpuMemUtil', 'vllmExtraArgs', 'openWebuiTargetId', 'hermesTargetId',
         'vllmToolCallingEnabled', 'vllmToolCallParser', 'vllmServedModelName',
         'vllmMaxNumSeqs', 'vllmDtype', 'vllmEnablePrefixCaching',
         'tabbyModel', 'tabbyRevision', 'tabbyGpuCount', 'tabbyHfToken', 'tabbyCachePvc',

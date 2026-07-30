@@ -149,6 +149,7 @@ export class MemoryDB implements Database {
     if (deployment.tabbyDisableAuth !== undefined) d.tabbyDisableAuth = deployment.tabbyDisableAuth;
     if (deployment.tabbyExtraEnv !== undefined) d.tabbyExtraEnv = deployment.tabbyExtraEnv;
     if (deployment.openWebuiTargetId !== undefined) d.openWebuiTargetId = deployment.openWebuiTargetId;
+    if (deployment.hermesTargetId !== undefined) d.hermesTargetId = deployment.hermesTargetId;
     if (deployment.webuiEnableWebSearch !== undefined) d.webuiEnableWebSearch = deployment.webuiEnableWebSearch;
     if (deployment.webuiWebSearchEngine !== undefined) d.webuiWebSearchEngine = deployment.webuiWebSearchEngine;
     if (deployment.webuiWebSearchApiKey !== undefined) d.webuiWebSearchApiKey = deployment.webuiWebSearchApiKey;
