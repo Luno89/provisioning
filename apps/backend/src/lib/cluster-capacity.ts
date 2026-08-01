@@ -137,15 +137,24 @@ export function capacityFromNodes(payload: unknown): ClusterCapacity | undefined
 }
 
 /**
- * What an app needs, expressed as the SAME quantity strings the CDKTF constructs use, so the two
- * cannot drift apart in units. Only apps with requirements large enough to actually strand a pod
- * are listed — this is a preflight for obvious failures, not a scheduler.
+ * What an app needs to be SCHEDULABLE, expressed as the same quantity strings the CDKTF constructs
+ * use so the two cannot drift apart in units.
+ *
+ * These are the constructs' `requests`, NOT their `limits`. Kubernetes schedules on requests; a
+ * limit only caps usage afterwards. Both vllm.ts and tabbyapi.ts request 6G while limiting to
+ * 20G/32G respectively, so checking the limit would refuse a deploy that schedules perfectly well
+ * on a 16GB box — a false rejection, which is the one direction this module is not willing to err
+ * in (see capacityFromNodes).
+ *
+ * What the limit governs is whether the app runs WELL: a pod limited to 32G on a 30GiB node gets
+ * OOMKilled under real load rather than refused up front. That is a genuine gap this check does not
+ * cover, and covering it would mean modelling live usage rather than static capacity.
  */
 export const APP_RESOURCE_NEEDS: Record<string, { memory: string; label: string }> = {
-  // packages/cdktf-infra/constructs/vllm.ts — memoryLimit default "20G"
-  vllm: { memory: '20G', label: 'vLLM' },
-  // The TabbyAPI wizard defaults to a 32G memory limit (App.tsx tabbyMemoryLimit).
-  tabbyapi: { memory: '32G', label: 'TabbyAPI' },
+  // packages/cdktf-infra/constructs/vllm.ts — resources.requests.memory
+  vllm: { memory: '6G', label: 'vLLM' },
+  // packages/cdktf-infra/constructs/tabbyapi.ts — resources.requests.memory
+  tabbyapi: { memory: '6G', label: 'TabbyAPI' },
 };
 
 /**

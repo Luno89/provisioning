@@ -24,6 +24,7 @@ import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import type { Database } from '../lib/db-interface.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
+import { checkCapacity } from '../lib/cluster-capacity.js'
 import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
@@ -824,6 +825,20 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async deployApp(config: any, userId?: string): Promise<WorkflowDeal> {
+    // Capacity preflight. This originally went into AppService.deploy, which is DEAD CODE — its
+    // own comment says so, and nothing calls it, so the check never ran. Every real deploy comes
+    // through here.
+    //
+    // Fails fast rather than letting the pod sit in Pending with "Insufficient memory" forever:
+    // the cluster stays 'healthy' and the app never starts, which reads as a broken platform. A
+    // cluster with no measured capacity skips the check entirely — never blocks.
+    if (userId) {
+      const cluster = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
+      const requestedGpus = Number(config.vllmGpuCount ?? config.tabbyGpuCount ?? 0) || 0
+      const problem = checkCapacity(config.appType || 'odoo', cluster?.capacity, requestedGpus)
+      if (problem) throw new Error(problem)
+    }
+
     // Find deployment row by name + clusterId (since config is req.body — may have no DB id)
     const unresolved = await this.db.getDeployments()
     let [dep] = unresolved.filter((d: DeploymentMetadata) => {

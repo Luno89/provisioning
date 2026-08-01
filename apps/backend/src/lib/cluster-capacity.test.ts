@@ -111,6 +111,16 @@ describe('checkCapacity', () => {
     expect(checkCapacity('vllm', big)).toBeUndefined();
   });
 
+  it('does not block on a node that satisfies REQUESTS, even though the limit is far larger', () => {
+    // The bug this pins. The requirement table originally held the constructs' `limits` (20G for
+    // vLLM, 32G for TabbyAPI), but Kubernetes schedules on `requests` — both constructs request
+    // only 6G. Checking the limit refused deploys onto a 16GiB box that would have scheduled and
+    // run fine, which is the false rejection this module explicitly refuses to make.
+    const sixteenGb: ClusterCapacity = { cpuCores: 8, ramGb: 16 };
+    expect(checkCapacity('vllm', sixteenGb)).toBeUndefined();
+    expect(checkCapacity('tabbyapi', sixteenGb)).toBeUndefined();
+  });
+
   it('NEVER blocks when capacity is unknown', () => {
     // Clusters provisioned before capacity was recorded have no numbers. Refusing to deploy to
     // them would be a worse regression than the Pending pod this check exists to prevent.
