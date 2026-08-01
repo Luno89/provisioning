@@ -6,6 +6,12 @@ import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { v4 as uuidv4 } from 'uuid';
 import { encryptValue } from '../lib/crypto.js';
+import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
+import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
 import path from 'path';
@@ -191,9 +197,20 @@ export class ClusterService extends BaseService {
    */
   async getSystemClusterEntry(): Promise<ClusterMetadata> {
     let status: ClusterMetadata['status'] = 'failed';
+    let capacity: ClusterCapacity | undefined;
     try {
-      await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
+      // Returns the kubeconfig CONTENT, not a path — both are `string`, so passing it straight to
+      // runKubectl typechecks cleanly and then fails at runtime. Written to the same
+      // /tmp/kubeconfig-<name> location getKubeconfigPath uses, which runKubectl also pattern-matches
+      // on to decide whether to exec into a k3d container.
+      const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
       status = 'healthy';
+      const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
+      await fs.writeFile(kubeconfigPath, content, 'utf-8').catch(() => {});
+      // This entry is synthetic and never goes through ProvisionClusterActivity, so it would
+      // otherwise be the ONE cluster with no capacity recorded — and it is the one most people
+      // deploy to first, since it owns the GPUs.
+      capacity = await this.readLiveCapacity(kubeconfigPath);
     } catch {
       status = 'failed';
     }
@@ -204,8 +221,40 @@ export class ClusterService extends BaseService {
       status,
       gpuEnabled: true,
       isSystem: true,
+      ...(capacity ? { capacity } : {}),
       lastSyncedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Reads capacity from a live cluster, filling in per-GPU VRAM that Kubernetes does not publish.
+   *
+   * VRAM comes from GPU Feature Discovery's node label when it is installed. It usually is not — the
+   * device plugin alone publishes only a count — so for a cluster sharing this machine we fall back
+   * to nvidia-smi on the host, which is authoritative for exactly the case that matters most: the
+   * management cluster, where the GPUs physically live.
+   *
+   * Entirely best-effort. Every failure leaves the field absent, which downstream reads as
+   * "unknown" and never as "no VRAM".
+   */
+  private async readLiveCapacity(kubeconfigPath: string): Promise<ClusterCapacity | undefined> {
+    let capacity: ClusterCapacity | undefined;
+    try {
+      const nodesJson = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
+      capacity = capacityFromNodes(JSON.parse(nodesJson));
+    } catch {
+      return undefined;
+    }
+    if (!capacity || capacity.gpuVramMib || !capacity.gpuCount) return capacity;
+
+    try {
+      const { stdout } = await execAsync('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits');
+      const mib = parseNvidiaSmiVram(stdout);
+      if (mib) capacity = { ...capacity, gpuVramMib: mib };
+    } catch {
+      // No nvidia-smi here (a remote cluster, or an AMD box) — leave it unknown.
+    }
+    return capacity;
   }
 
   /**

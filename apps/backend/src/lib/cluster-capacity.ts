@@ -8,9 +8,9 @@
  * broken" rather than "you need a bigger box".
  *
  * ── RAM IS NOT VRAM ──
- * Kubernetes exposes GPUs as a COUNT (`nvidia.com/gpu: "2"`) and never a size. VRAM is not a
- * schedulable resource without node-feature-discovery or DCGM labels, so this module structurally
- * cannot report it — and deliberately does not pretend to. The RAM field is named `ramGb` rather
+ * Kubernetes exposes GPUs as a COUNT (`nvidia.com/gpu: "2"`) and never a size, so VRAM cannot come
+ * from `allocatable` — it arrives separately via GPU Feature Discovery labels or nvidia-smi (see
+ * lib/gpu-vram.ts) and lives in its own `gpuVramMib` field. The RAM field is named `ramGb` rather
  * than `memoryGb` for the same reason `vps-catalog/types.ts` names its field `ramGb`: on a GPU box
  * the two numbers are wildly different (a Vultr `vcg-a40-96c-480g-192vram` has 480GB of system RAM
  * and 192GB of VRAM) and a single "memory" field is an invitation to conflate them.
@@ -19,6 +19,7 @@
  * one physical pool. That is a reason to model inference endpoints separately from clusters, not a
  * reason to merge the fields here.
  */
+import { vramMibFromNodeLabels } from './gpu-vram.js';
 
 /** What a cluster can offer. Absent fields mean "not measured", never "zero" — see checkCapacity. */
 export interface ClusterCapacity {
@@ -29,6 +30,15 @@ export interface ClusterCapacity {
   /** GPUs on the largest single node — a COUNT, not a size. Absent when the cluster has none. */
   gpuCount?: number;
   gpuVendor?: 'nvidia' | 'amd';
+  /**
+   * Per-GPU VRAM in MiB — the SIZE that gpuCount deliberately is not, and the resource that
+   * actually decides whether an LLM deploys (see lib/gpu-vram.ts).
+   *
+   * Absent means unknown, never zero: Kubernetes does not publish it, so it depends on GPU Feature
+   * Discovery being installed or on nvidia-smi being reachable. Strictly separate from ramGb, which
+   * is system memory.
+   */
+  gpuVramMib?: number;
 }
 
 const BINARY_SUFFIXES: Record<string, number> = {
@@ -101,6 +111,7 @@ interface NodeLike {
  * Pending), whereas an under-estimate would block a deploy that would have worked.
  */
 export function capacityFromNodes(payload: unknown): ClusterCapacity | undefined {
+  const gpuVramMib = vramMibFromNodeLabels(payload);
   const items = (payload as { items?: NodeLike[] } | undefined)?.items;
   if (!Array.isArray(items) || items.length === 0) return undefined;
 
@@ -133,6 +144,7 @@ export function capacityFromNodes(payload: unknown): ClusterCapacity | undefined
     cpuCores: Math.round(cpuCores * 100) / 100,
     ramGb: Math.round((ramBytes / 1024 ** 3) * 10) / 10,
     ...(gpuCount > 0 ? { gpuCount, ...(gpuVendor ? { gpuVendor } : {}) } : {}),
+    ...(gpuVramMib ? { gpuVramMib } : {}),
   };
 }
 
