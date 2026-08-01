@@ -31,6 +31,12 @@ cdktf.out/
 /apps/backend/data/.gitea-admin-token
 /apps/backend/data/.headscale-api-key
 
+# Anything running bootstrap() from the repo root (a probe script, a mis-cd'd command) writes the
+# same runtime data here instead of apps/backend/data — including a live Headscale API key. Every
+# rule above is anchored to /apps/backend/data/, so without this the stray copy is untracked but
+# NOT ignored, and one `git add -A` from the root publishes it to a public repo.
+/data/
+
 # k3d node-local storage (bind-mounted host cache for local-path-provisioner PVCs)
 /.k3d-storage/
 
