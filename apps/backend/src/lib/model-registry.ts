@@ -12,6 +12,7 @@
  * self-hosted model see an empty list, which is a real state to render, not an error.
  */
 import type { DeploymentMetadata, ModelEndpointMetadata } from './types.js';
+import { llmAppSpec, specFromTag } from './llm-apps.js';
 
 export type ModelKind = 'vllm' | 'tabbyapi';
 
@@ -62,44 +63,44 @@ export function sanitizeNamespace(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 
-/**
- * Service name and port per engine, matching the CDKTF constructs that create them:
- * `${sanitizedName}-vllm` on 8000 (constructs/vllm.ts) and `${sanitizedName}-tabbyapi` on 5000.
- */
-const ENGINES: Record<ModelKind, { suffix: string; port: number }> = {
-  vllm: { suffix: 'vllm', port: 8000 },
-  tabbyapi: { suffix: 'tabbyapi', port: 5000 },
-};
-
 export function isModelKind(appType: string | undefined): appType is ModelKind {
   return appType === 'vllm' || appType === 'tabbyapi';
 }
 
 /**
- * Returns undefined for anything that is not a usable model endpoint — wrong app type, or not
- * running yet. A deploying or failed endpoint would accept a port-forward and then hang, so it is
- * excluded here rather than discovered at request time.
+ * Returns undefined for anything that is not a usable model endpoint — an app type that serves no
+ * OpenAI API and carries no llmApi tag, or one that is not running yet. A deploying or failed
+ * endpoint would accept a port-forward and then hang, so it is excluded here rather than
+ * discovered as a timeout at request time.
+ *
+ * The catalogue (lib/llm-apps.ts) is consulted FIRST and wins: for an app type the platform
+ * packages, the platform's own service name and port are authoritative and no stored field can
+ * override them. The `llmApi` tag is only an escape hatch for app types the catalogue does not
+ * cover — a gitapp the user built that happens to serve an OpenAI-compatible API.
  */
 export function providerFromDeployment(dep: DeploymentMetadata): ModelProvider | undefined {
-  if (!isModelKind(dep.appType)) return undefined;
   if (dep.status !== 'running') return undefined;
 
-  const engine = ENGINES[dep.appType];
+  const spec = llmAppSpec(dep.appType) ?? (dep.llmApi ? specFromTag(dep.llmApi, dep.appType ?? 'custom') : undefined);
+  if (!spec) return undefined;
+
   const namespace = sanitizeNamespace(dep.name);
   if (!namespace) return undefined;
 
-  const model = (dep.appType === 'vllm' ? dep.vllmModel : dep.tabbyModel) ?? '';
+  // Catalogue entries name the field that records the served model; a tagged deployment supplies
+  // it inline, since there is no first-class field for an app type the platform does not package.
+  const model = (llmAppSpec(dep.appType) ? dep[spec.modelField] : dep.llmApi?.model) ?? '';
 
   return {
     id: dep.id,
     name: dep.name,
     source: 'deployment',
-    kind: dep.appType,
+    ...(isModelKind(dep.appType) ? { kind: dep.appType } : {}),
     model,
     clusterId: dep.clusterId,
     namespace,
-    service: `${namespace}-${engine.suffix}`,
-    port: engine.port,
+    service: `${namespace}-${spec.serviceSuffix}`,
+    port: spec.port,
     ...(dep.vllmGpuCount !== undefined ? { gpuCount: dep.vllmGpuCount } : {}),
   };
 }

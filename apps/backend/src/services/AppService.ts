@@ -8,6 +8,7 @@ import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { checkCapacity } from '../lib/cluster-capacity.js';
 import { sanitizeNamespace } from '../lib/model-registry.js';
+import { llmAppSpec, specFromTag, inClusterBaseUrl } from '../lib/llm-apps.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
@@ -334,10 +335,17 @@ export class AppService extends BaseService {
           // .svc.cluster.local only resolves within the same cluster — skip rather than wire
           // in a DNS name that will never resolve if the target is on a different cluster.
           if (target && target.clusterId === clusterId) {
-            const targetNs = this.sanitize(target.name);
-            openaiApiBaseUrl = target.appType === 'tabbyapi'
-              ? `http://${targetNs}-tabbyapi.${targetNs}.svc.cluster.local:5000/v1`
-              : `http://${targetNs}-vllm.${targetNs}.svc.cluster.local:8000/v1`;
+            // Was a ternary whose else-branch handed EVERY non-tabbyapi target vLLM's service
+            // suffix and port 8000 — so a third engine, or a target that serves no model API at
+            // all, would have been wired to a URL that silently does not exist. The catalogue in
+            // lib/llm-apps.ts is now the only place those values live.
+            const spec = llmAppSpec(target.appType)
+              ?? (target.llmApi ? specFromTag(target.llmApi, target.appType ?? 'custom') : undefined);
+            if (spec) {
+              openaiApiBaseUrl = inClusterBaseUrl(spec, this.sanitize(target.name));
+            } else {
+              this.logger.warn(`[AppService] ${appType} deployment "${name}" targets "${target.name}" (${target.appType}), which serves no OpenAI-compatible API — skipping OPENAI_API_BASE_URL.`);
+            }
           } else if (target) {
             this.logger.warn(`[AppService] ${appType} deployment "${name}" targets LLM deployment "${target.name}" on a different cluster — skipping OPENAI_API_BASE_URL.`);
           }

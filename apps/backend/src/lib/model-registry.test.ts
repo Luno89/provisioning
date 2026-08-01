@@ -74,6 +74,27 @@ describe('providerFromDeployment', () => {
   it('rejects a name that sanitizes to nothing rather than building "-vllm"', () => {
     expect(providerFromDeployment(dep({ name: '///' }))).toBeUndefined();
   });
+
+  it('picks up a tagged deployment the catalogue does not package', () => {
+    const p = providerFromDeployment(dep({
+      appType: 'gitapp',
+      llmApi: { port: 9000, model: 'my-finetune' },
+    }));
+    expect(p).toMatchObject({ service: 'my-llama-gitapp', port: 9000, model: 'my-finetune' });
+    // No engine kind — the platform did not package it and cannot claim to know.
+    expect(p?.kind).toBeUndefined();
+  });
+
+  it('lets the catalogue WIN over a tag on a known app type', () => {
+    // The whole point of the catalogue: platform-packaged values are authoritative, so a stored
+    // field cannot quietly repoint a vLLM deployment at another port.
+    const p = providerFromDeployment(dep({ llmApi: { port: 9999, serviceSuffix: 'hijacked' } }));
+    expect(p).toMatchObject({ service: 'my-llama-vllm', port: 8000 });
+  });
+
+  it('ignores a tag with an unusable port rather than forwarding to it', () => {
+    expect(providerFromDeployment(dep({ appType: 'gitapp', llmApi: { port: 0 } }))).toBeUndefined();
+  });
 });
 
 describe('listProviders', () => {

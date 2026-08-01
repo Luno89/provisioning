@@ -153,6 +153,16 @@ export interface DeploymentMetadata {
   temporalWorkflowId?: string;
   lastSyncedAt?: string;
   // vLLM-specific fields
+  /**
+   * Marks a deployment as serving an OpenAI-compatible API when the catalogue in lib/llm-apps.ts
+   * cannot know — a gitapp the user built, or an engine the platform does not package yet.
+   *
+   * The catalogue always WINS over this for a known app type: platform-packaged values are
+   * authoritative, and letting a stored field override them would reintroduce the drift the
+   * catalogue exists to remove. This is the one place user-supplied values enter the deployed-app
+   * path, so it is opt-in and explicit rather than inferred.
+   */
+  llmApi?: { port: number; serviceSuffix?: string; apiPath?: string; model?: string };
   vllmModel?: string;
   vllmGpuCount?: number;
   vllmGpuVendor?: 'nvidia' | 'amd';
