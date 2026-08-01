@@ -6,6 +6,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { DeploymentMetadata } from '../lib/types.js';
 import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
+import { checkCapacity } from '../lib/cluster-capacity.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
@@ -218,6 +219,15 @@ export class AppService extends BaseService {
     }
     const cluster = await this.clusters.getById(clusterId, userId);
     if (!cluster) throw new Error('Cluster not found');
+
+    // Fail here rather than let the pod sit in Pending forever. vllm.ts defaults to a 20G memory
+    // limit; on a node smaller than that Kubernetes never schedules it and nothing surfaces an
+    // error — the cluster stays 'healthy' and the app just never starts. Skips silently when the
+    // cluster has no measured capacity (provisioned before capacity existed), so this can only
+    // ever turn a silent hang into a message, never block a deploy that used to work.
+    const requestedGpus = Number(config.vllmGpuCount ?? config.tabbyGpuCount ?? 0) || 0;
+    const capacityProblem = checkCapacity(appType, cluster.capacity, requestedGpus);
+    if (capacityProblem) throw new Error(capacityProblem);
 
     const id = uuidv4();
     const logFile = this.infra.getLogPath(`${name}-deploy`);

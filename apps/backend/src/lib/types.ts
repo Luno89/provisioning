@@ -40,6 +40,21 @@ export interface ClusterMetadata {
   lastSyncedAt?: string;
   progress?: ClusterProgress;
   gpuEnabled?: boolean;
+  /**
+   * Measured capacity of the largest single node, read from `status.allocatable` at the end of
+   * provisioning (see lib/cluster-capacity.ts). Absent on clusters provisioned before this existed
+   * — treated as "unknown", never as zero, so deploy preflight skips rather than blocks.
+   *
+   * `ramGb` is SYSTEM RAM and never VRAM. Kubernetes exposes GPUs as a count and no VRAM figure
+   * exists to record here; see the cluster-capacity docstring for why that is structural rather
+   * than an omission.
+   */
+  capacity?: {
+    cpuCores: number;
+    ramGb: number;
+    gpuCount?: number;
+    gpuVendor?: 'nvidia' | 'amd';
+  };
   // Marks the synthetic entry representing the always-on management cluster (see
   // ClusterService.getSystemClusterEntry) — never persisted to the DB, read-only in the UI,
   // and rejected by destroy/abort on the backend too.

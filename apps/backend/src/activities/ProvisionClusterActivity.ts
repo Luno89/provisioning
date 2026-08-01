@@ -15,6 +15,7 @@ import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { JoinMeshActivity } from './JoinMeshActivity.js';
+import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 
 export interface ProvisionClusterArgs {
   name: string;
@@ -70,6 +71,11 @@ export interface ProvisionClusterResult {
    * proxies app traffic to `<meshIp>:<traefikNodePort>`, long after provisioning is over.
    */
   meshIp?: string;
+  /**
+   * Measured node capacity (see lib/cluster-capacity.ts). Best-effort: absent if the read failed,
+   * which the caller must treat as "unknown" rather than zero.
+   */
+  capacity?: ClusterCapacity;
 }
 
 // Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
@@ -340,12 +346,25 @@ export async function ProvisionClusterActivity(
   await infra.deploy(physicalName, { logFile, env: clusterEnv, timeout: deployTimeout });
   await infra.deploy(`${physicalName}-observability`, { logFile, env: clusterEnv, timeout: deployTimeout });
 
+  // Read once, at the end, against the finished cluster — the same node list every provider path
+  // already has kubectl access to, so this works for k3d, hetzner and remote alike rather than
+  // only the branch that happened to fetch it. Best-effort: a cluster that provisioned fine is not
+  // a failure just because we could not measure it, and callers treat absent as "unknown".
+  let capacity: ClusterCapacity | undefined;
+  try {
+    const nodesJson = await infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
+    capacity = capacityFromNodes(JSON.parse(nodesJson));
+  } catch (err: any) {
+    await fs.appendFile(logFile, `[capacity] could not read node capacity: ${err.message}\n`).catch(() => {});
+  }
+
   return {
     status: 'healthy',
     kubeconfigPath,
     msg: `Cluster ${args.name} provisioned`,
     logFile,
     ...(meshIp ? { meshIp } : {}),
+    ...(capacity ? { capacity } : {}),
     ...(vm
       ? {
           hetznerServerId: vm.serverId,

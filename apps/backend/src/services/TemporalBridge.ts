@@ -342,6 +342,14 @@ export class TemporalBridge {
                   hetznerServerId: (wfResult as any).hetznerServerId,
                 } as any)
               }
+              // Measured node capacity (lib/cluster-capacity.ts). Re-reads `current` like the
+              // blocks above because saveClusterInfo is a full replace — anything not carried
+              // forward is silently dropped, including whatever the two saves above just wrote.
+              const capacity = (wfResult as any).capacity
+              if (capacity) {
+                const current = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
+                await this.db.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, capacity } as any)
+              }
             } catch {}
           }
           let pipelineImageTag: string | undefined
