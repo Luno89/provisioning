@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
 
 export class MemoryDB implements Database {
@@ -9,6 +9,7 @@ export class MemoryDB implements Database {
   private projects: ProjectMetadata[] = [];
   private pipelineRuns: PipelineRunMetadata[] = [];
   private invites: InviteMetadata[] = [];
+  private modelEndpoints: ModelEndpointMetadata[] = [];
 
   async init(): Promise<void> {
     this.clusters = [];
@@ -17,6 +18,7 @@ export class MemoryDB implements Database {
     this.projects = [];
     this.pipelineRuns = [];
     this.invites = [];
+    this.modelEndpoints = [];
   }
 
   async close(): Promise<void> {
@@ -26,6 +28,7 @@ export class MemoryDB implements Database {
     this.projects = [];
     this.pipelineRuns = [];
     this.invites = [];
+    this.modelEndpoints = [];
   }
 
   async getClusters(): Promise<ClusterMetadata[]> {
@@ -245,5 +248,19 @@ export class MemoryDB implements Database {
 
   async getUserById(id: string): Promise<UserMetadata | undefined> {
     return this.users.find(u => u.id === id);
+  }
+
+  async getModelEndpoints(): Promise<ModelEndpointMetadata[]> {
+    return this.modelEndpoints;
+  }
+
+  async saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void> {
+    const i = this.modelEndpoints.findIndex((e) => e.id === endpoint.id);
+    if (i >= 0) this.modelEndpoints[i] = endpoint;
+    else this.modelEndpoints.push(endpoint);
+  }
+
+  async deleteModelEndpoint(id: string): Promise<void> {
+    this.modelEndpoints = this.modelEndpoints.filter((e) => e.id !== id);
   }
 }

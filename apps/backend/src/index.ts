@@ -47,6 +47,7 @@ import { ModelService } from './services/ModelService.js';
 import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
+import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
 dotenv.config();
@@ -143,7 +144,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const clusterProxyService = new ClusterProxyService();
   const giteaService = new GiteaService(infraService, JWT_SECRET, '/tmp/kubeconfig-provisioning-lunorica');
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
-  const modelService = new ModelService(db, appService, clusterService, clusterProxyService);
+  const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
 
   // Best-effort background check — see ClusterService.ensureSystemClusterGpuReady for why this
   // can't just be a side effect of the normal provisioning flow. Never blocks startup.
@@ -1638,6 +1639,62 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   /**
+   * Register any OpenAI-compatible API — Ollama on a laptop, llama.cpp, LM Studio, a hosted
+   * provider. The URL is checked against endpoint-url-safety.ts BEFORE it is stored, because this
+   * backend will later fetch it: without that, a registered endpoint is a server-side request
+   * forgery primitive aimed at the root node, which runs Headscale, Mongo and Temporal on
+   * loopback. Mesh addresses additionally have to be proven to belong to the caller's own machines.
+   */
+  app.post('/api/model-endpoints', async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { name, baseUrl, model, apiKey } = req.body ?? {};
+      if (!name || !baseUrl) return res.status(400).json({ error: 'name and baseUrl are required' });
+
+      const check = checkEndpointUrl(String(baseUrl));
+      if (!check.ok) return res.status(400).json({ error: check.reason });
+
+      const isMesh = !!(check.literalIp && isMeshAddress(check.literalIp));
+      if (isMesh) {
+        // Fails closed — assertOwnsMeshAddress throws if Headscale is unreachable.
+        const devices = await headscaleService.listUserDevices(user.id).catch((e: any) => {
+          throw new Error(`Cannot verify ownership of ${check.literalIp} — the mesh is unreachable (${e.message})`);
+        });
+        if (!devices.some((d) => d.ipAddresses.includes(check.literalIp!))) {
+          return res.status(403).json({ error: `${check.literalIp} is not one of your machines. Join it under My Machines first.` });
+        }
+      }
+
+      const endpoint = {
+        id: uuidv4(),
+        ownerId: user.id,
+        name: String(name),
+        baseUrl: String(baseUrl).replace(/\/$/, ''),
+        ...(model ? { model: String(model) } : {}),
+        ...(apiKey ? { apiKeyEnc: encryptValue(String(apiKey), JWT_SECRET) } : {}),
+        ...(isMesh ? { isMesh: true } : {}),
+        createdAt: new Date().toISOString(),
+      };
+      await db.saveModelEndpoint(endpoint);
+      // apiKeyEnc deliberately not echoed back.
+      const { apiKeyEnc: _omit, ...safe } = endpoint as any;
+      res.status(201).json({ ...safe, hasApiKey: !!apiKey });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/model-endpoints/:id', async (req, res) => {
+    const user = (req as any).user;
+    const endpoints = await db.getModelEndpoints();
+    const owned = endpoints.find((e) => e.id === req.params.id && e.ownerId === user.id);
+    // 404 for both "no such id" and "not yours", so this can't enumerate other tenants' endpoints.
+    if (!owned) return res.status(404).json({ error: 'Endpoint not found' });
+    await db.deleteModelEndpoint(req.params.id);
+    res.json({ success: true });
+  });
+
+  /**
    * Streaming chat against one of the caller's own model endpoints.
    *
    * Proxied rather than called from the browser because the endpoint is only reachable through a
@@ -1651,9 +1708,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       return res.status(400).json({ error: 'messages is required' });
     }
 
-    let provider, baseUrl;
+    let provider, baseUrl, apiKey;
     try {
-      ({ provider, baseUrl } = await modelService.resolveBaseUrl((req as any).user.id, modelId));
+      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl((req as any).user.id, modelId));
     } catch (err: any) {
       // A missing/unowned model is the caller's problem, not a server fault.
       return res.status(404).json({ error: err.message });
@@ -1667,7 +1724,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     try {
       const upstream = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          // Only ever the caller's own stored key, decrypted per request — never logged, never
+          // returned to the browser.
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
         body: JSON.stringify({ ...rest, model: provider.model || provider.name, messages, stream }),
         signal: upstreamAbort.signal,
       });

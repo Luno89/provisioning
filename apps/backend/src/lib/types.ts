@@ -207,6 +207,35 @@ export interface DeploymentMetadata {
 
 // ── CI/CD: sibling projects hosted on the self-hosted Gitea instance (see GiteaService) ──
 
+/**
+ * A user-registered OpenAI-compatible API — Ollama on their laptop, llama.cpp, LM Studio, a vLLM
+ * they run outside the platform, or a hosted provider.
+ *
+ * Separate from DeploymentMetadata because the platform did not create it and cannot manage its
+ * lifecycle; all it has is an address and, sometimes, a key.
+ */
+export interface ModelEndpointMetadata {
+  id: string;
+  ownerId: string;
+  name: string;
+  /** Base URL through /v1, e.g. http://100.64.0.7:11434/v1 — validated by endpoint-url-safety.ts. */
+  baseUrl: string;
+  /** Model id to send upstream. Blank means "whatever the endpoint defaults to". */
+  model?: string;
+  /** AES-256-GCM (crypto.ts). Never returned to a client, masked in list responses. */
+  apiKeyEnc?: string;
+  /**
+   * True when baseUrl's host is in the mesh CGNAT range. Recorded at registration because it
+   * decides whether the ownership check against the caller's Headscale devices applies — the root
+   * node can reach every tenant's machines, so a mesh address must be proven to be the
+   * registrant's own.
+   */
+  isMesh?: boolean;
+  createdAt: string;
+  lastCheckedAt?: string;
+  lastError?: string;
+}
+
 export interface ProjectMetadata {
   id: string;
   name: string;

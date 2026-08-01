@@ -1,6 +1,6 @@
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
@@ -47,6 +47,10 @@ export class MongoDB implements Database {
 
   private get pipelineRuns(): Collection {
     return this.db!.collection('pipelineRuns');
+  }
+
+  private get modelEndpoints(): Collection {
+    return this.db!.collection('modelEndpoints');
   }
 
   private get invites(): Collection {
@@ -285,6 +289,24 @@ export class MongoDB implements Database {
     const id = doc._id;
     const { _id, ...filter } = doc;
     await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async getModelEndpoints(): Promise<ModelEndpointMetadata[]> {
+    return (await this.modelEndpoints.find({}).toArray()).map(doc => fromDoc<ModelEndpointMetadata>(doc));
+  }
+
+  async saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void> {
+    const doc = toDoc(endpoint);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.modelEndpoints.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteModelEndpoint(id: string): Promise<void> {
+    // Collections here are untyped, so `_id` is inferred as ObjectId. Every id in this codebase is
+    // a uuid string (see toDoc) — the other methods get away without a cast only because they pass
+    // `doc._id`, which toDoc widens to any.
+    await this.modelEndpoints.deleteOne({ _id: id as any });
   }
 
   async getUsers(): Promise<UserMetadata[]> {

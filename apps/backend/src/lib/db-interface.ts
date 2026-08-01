@@ -1,6 +1,6 @@
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 
 /**
  * Like Partial<T>, but each property may also be *explicitly* undefined.
@@ -43,6 +43,10 @@ export interface Database {
 
   getInvites(): Promise<InviteMetadata[]>;
   saveInvite(invite: InviteMetadata): Promise<void>;
+
+  getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
+  saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
+  deleteModelEndpoint(id: string): Promise<void>;
 }
 
 export function createDatabase(): Database {

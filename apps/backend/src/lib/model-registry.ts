@@ -11,23 +11,44 @@
  * inside a workspace pod, which does not exist until Phase C — see the plan. Users with no
  * self-hosted model see an empty list, which is a real state to render, not an error.
  */
-import type { DeploymentMetadata } from './types.js';
+import type { DeploymentMetadata, ModelEndpointMetadata } from './types.js';
 
 export type ModelKind = 'vllm' | 'tabbyapi';
 
+/**
+ * Where a provider lives, which decides how it is reached:
+ *
+ * - `deployment` — an app this platform deployed. Reached through a kubectl port-forward, because
+ *   its Service is only resolvable inside its own cluster.
+ * - `endpoint` — any OpenAI-compatible API the user registered: Ollama on their laptop, llama.cpp,
+ *   LM Studio, a vLLM outside the platform, a hosted provider. Reached directly over HTTP, across
+ *   the mesh when the address is in the CGNAT range.
+ */
+export type ModelSource = 'deployment' | 'endpoint';
+
 export interface ModelProvider {
-  /** The deployment id — stable, and what the chat route takes as its model selector. */
+  /** Stable id — the deployment id or the endpoint id. What the chat route takes as its selector. */
   id: string;
   name: string;
-  kind: ModelKind;
-  /** What the endpoint actually serves, e.g. "meta-llama/Llama-3.1-8B". Empty if never recorded. */
+  source: ModelSource;
+  /** Engine, when the platform deployed it and therefore knows. Absent for registered endpoints. */
+  kind?: ModelKind;
+  /** What the endpoint serves, e.g. "meta-llama/Llama-3.1-8B". Empty means "the endpoint's default". */
   model: string;
-  clusterId: string;
-  /** Kubernetes namespace and Service the OpenAI-compatible API listens on. */
-  namespace: string;
-  service: string;
-  port: number;
+
+  // ── source === 'deployment' ──
+  clusterId?: string;
+  namespace?: string;
+  service?: string;
+  port?: number;
   gpuCount?: number;
+
+  // ── source === 'endpoint' ──
+  /** Already validated by endpoint-url-safety.ts before it was ever stored. */
+  baseUrl?: string;
+  /** Host is in 100.64.0.0/10, so ownership must be re-checked against the caller's mesh devices. */
+  isMesh?: boolean;
+  hasApiKey?: boolean;
 }
 
 /**
@@ -72,6 +93,7 @@ export function providerFromDeployment(dep: DeploymentMetadata): ModelProvider |
   return {
     id: dep.id,
     name: dep.name,
+    source: 'deployment',
     kind: dep.appType,
     model,
     clusterId: dep.clusterId,
@@ -82,11 +104,40 @@ export function providerFromDeployment(dep: DeploymentMetadata): ModelProvider |
   };
 }
 
-/** Every usable model provider in a deployment list, newest-looking order preserved. */
-export function listProviders(deployments: DeploymentMetadata[]): ModelProvider[] {
-  return deployments
-    .map(providerFromDeployment)
-    .filter((p): p is ModelProvider => p !== undefined);
+/**
+ * A registered endpoint as a provider.
+ *
+ * No status filtering: unlike a deployment, the platform does not manage this thing's lifecycle and
+ * has no reliable signal about whether it is up right now. A failed request surfaces the engine's
+ * own error, which beats hiding an endpoint because a health check was stale.
+ */
+export function providerFromEndpoint(ep: ModelEndpointMetadata): ModelProvider {
+  return {
+    id: ep.id,
+    name: ep.name,
+    source: 'endpoint',
+    model: ep.model ?? '',
+    baseUrl: ep.baseUrl,
+    ...(ep.isMesh ? { isMesh: true } : {}),
+    ...(ep.apiKeyEnc ? { hasApiKey: true } : {}),
+  };
+}
+
+/**
+ * Every usable provider, from both sources.
+ *
+ * Callers must pass lists already filtered to the requesting user — this does no ownership
+ * checking of its own, deliberately, so there is exactly one place (ModelService) responsible for
+ * it rather than two that can disagree.
+ */
+export function listProviders(
+  deployments: DeploymentMetadata[],
+  endpoints: ModelEndpointMetadata[] = [],
+): ModelProvider[] {
+  return [
+    ...deployments.map(providerFromDeployment).filter((p): p is ModelProvider => p !== undefined),
+    ...endpoints.map(providerFromEndpoint),
+  ];
 }
 
 /**

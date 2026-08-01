@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   sanitizeNamespace,
   providerFromDeployment,
+  providerFromEndpoint,
   listProviders,
   routeProvider,
 } from './model-registry.js';
-import type { DeploymentMetadata } from './types.js';
+import type { DeploymentMetadata, ModelEndpointMetadata } from './types.js';
 
 const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata =>
   ({
@@ -89,6 +90,52 @@ describe('listProviders', () => {
   it('returns an empty list rather than throwing when the user has no models', () => {
     // A real state to render — most users start here.
     expect(listProviders([])).toEqual([]);
+  });
+});
+
+describe('registered endpoints (any OpenAI-compatible API)', () => {
+  const ep = (over: Partial<ModelEndpointMetadata> = {}): ModelEndpointMetadata => ({
+    id: 'e1',
+    ownerId: 'u1',
+    name: 'Laptop Ollama',
+    baseUrl: 'http://100.64.0.7:11434/v1',
+    createdAt: '2026-08-01T00:00:00Z',
+    ...over,
+  });
+
+  it('exposes an endpoint as a provider without cluster fields', () => {
+    const p = providerFromEndpoint(ep());
+    expect(p).toMatchObject({ source: 'endpoint', baseUrl: 'http://100.64.0.7:11434/v1' });
+    expect(p.clusterId).toBeUndefined();
+    expect(p.service).toBeUndefined();
+  });
+
+  it('never leaks the stored key — only whether one exists', () => {
+    const p = providerFromEndpoint(ep({ apiKeyEnc: 'encrypted-blob' }));
+    expect(p.hasApiKey).toBe(true);
+    expect(JSON.stringify(p)).not.toContain('encrypted-blob');
+  });
+
+  it('does not filter on status — the platform does not manage this thing and has no live signal', () => {
+    // Unlike a deployment, there is no status to trust. A failed request surfaces the engine's own
+    // error, which beats hiding an endpoint because a health check was stale.
+    expect(providerFromEndpoint(ep())).toBeTruthy();
+  });
+
+  it('treats a blank model as "the endpoint default" rather than inventing one', () => {
+    expect(providerFromEndpoint(ep()).model).toBe('');
+  });
+
+  it('merges both sources into one list', () => {
+    const list = listProviders([dep({ id: 'a' })], [ep({ id: 'e1' })]);
+    expect(list.map((p) => [p.id, p.source])).toEqual([
+      ['a', 'deployment'],
+      ['e1', 'endpoint'],
+    ]);
+  });
+
+  it('works with no endpoints at all, so existing callers are unaffected', () => {
+    expect(listProviders([dep({ id: 'a' })]).map((p) => p.id)).toEqual(['a']);
   });
 });
 
