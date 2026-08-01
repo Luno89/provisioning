@@ -14,7 +14,7 @@ interface PortForwardEntry {
   ready: Promise<number>;
 }
 
-interface ServiceTarget {
+export interface ServiceTarget {
   service: string;
   namespace: string;
   remotePort: number;
@@ -73,12 +73,19 @@ export class ClusterProxyService {
     return `${clusterId}::${serviceKey}`;
   }
 
+  /**
+   * @param explicitTarget bypasses the SERVICE_TARGETS lookup for services whose name is not known
+   *   until runtime — model endpoints live in a per-deployment namespace (`<name>-vllm` in
+   *   namespace `<name>`), so they cannot be a fixed entry in the table above. `serviceKey` is
+   *   still the cache key, so callers must pass something unique per target.
+   */
   async ensurePortForward(
     clusterId: string,
     serviceKey: string,
     kubeconfigPath: string,
+    explicitTarget?: ServiceTarget,
   ): Promise<string> {
-    const target = SERVICE_TARGETS[serviceKey];
+    const target = explicitTarget ?? SERVICE_TARGETS[serviceKey];
     if (!target) throw new Error(`Unknown service: ${serviceKey}`);
 
     const clusterForwards = this.forwards.get(clusterId) ?? new Map();

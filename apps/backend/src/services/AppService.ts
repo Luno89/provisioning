@@ -7,6 +7,7 @@ import type { DeploymentMetadata } from '../lib/types.js';
 import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { checkCapacity } from '../lib/cluster-capacity.js';
+import { sanitizeNamespace } from '../lib/model-registry.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
@@ -202,8 +203,11 @@ export class AppService extends BaseService {
     return discovered;
   }
 
+  // Delegates to lib/model-registry.ts rather than keeping a second copy: the model registry must
+  // derive the SAME namespace this uses to create it, and two implementations that drift would
+  // send a port-forward to a service that does not exist — a timeout, not an error.
   private sanitize(name: string) {
-    return name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    return sanitizeNamespace(name);
   }
 
   // Dead code — nothing calls this (deployment always goes through TemporalBridge.deployApp).

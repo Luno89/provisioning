@@ -43,6 +43,7 @@ import { AuthService } from './services/AuthService.js';
 import { CredentialService } from './services/CredentialService.js';
 import { GiteaService } from './services/GiteaService.js';
 import { HeadscaleService } from './services/HeadscaleService.js';
+import { ModelService } from './services/ModelService.js';
 import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
@@ -142,6 +143,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const clusterProxyService = new ClusterProxyService();
   const giteaService = new GiteaService(infraService, JWT_SECRET, '/tmp/kubeconfig-provisioning-lunorica');
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
+  const modelService = new ModelService(db, appService, clusterService, clusterProxyService);
 
   // Best-effort background check — see ClusterService.ensureSystemClusterGpuReady for why this
   // can't just be a side effect of the normal provisioning flow. Never blocks startup.
@@ -1622,6 +1624,79 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       res.status(202).json({ message: 'Promoting build to deployment', workflowId: info.id, deploymentId: info.resourceId });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
+    }
+  });
+
+  /** ── MODELS / CHAT — agent harness Phase A (~/.claude/plans/agent-harness.md) ── */
+
+  app.get('/api/models', async (req, res) => {
+    try {
+      res.json(await modelService.list((req as any).user.id));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Streaming chat against one of the caller's own model endpoints.
+   *
+   * Proxied rather than called from the browser because the endpoint is only reachable through a
+   * process-local kubectl port-forward — handing the browser that URL would neither work nor be
+   * safe. The upstream body is passed through untouched: vLLM and TabbyAPI both speak the OpenAI
+   * schema, and re-encoding it here would mean tracking every field either adds.
+   */
+  app.post('/api/chat', async (req, res) => {
+    const { modelId, messages, stream = true, ...rest } = req.body ?? {};
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'messages is required' });
+    }
+
+    let provider, baseUrl;
+    try {
+      ({ provider, baseUrl } = await modelService.resolveBaseUrl((req as any).user.id, modelId));
+    } catch (err: any) {
+      // A missing/unowned model is the caller's problem, not a server fault.
+      return res.status(404).json({ error: err.message });
+    }
+
+    // Abort the upstream request if the browser goes away mid-stream, or a closed tab leaves a
+    // generation running on the GPU until it finishes.
+    const upstreamAbort = new AbortController();
+    res.on('close', () => upstreamAbort.abort());
+
+    try {
+      const upstream = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...rest, model: provider.model || provider.name, messages, stream }),
+        signal: upstreamAbort.signal,
+      });
+
+      if (!upstream.ok || !upstream.body) {
+        const detail = await upstream.text().catch(() => '');
+        // Surface the engine's own message — vLLM's errors (bad sampling params, context length
+        // exceeded) are specific and actionable, and replacing them with a generic 502 throws away
+        // the only useful information.
+        return res.status(upstream.status).json({ error: detail || `Model returned HTTP ${upstream.status}` });
+      }
+
+      res.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
+      res.setHeader('Cache-Control', 'no-cache');
+      // Without this, a proxy in front of the backend may buffer the whole stream and defeat the
+      // point of streaming at all.
+      res.setHeader('X-Accel-Buffering', 'no');
+
+      const reader = upstream.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+    } catch (err: any) {
+      if (upstreamAbort.signal.aborted) return; // client hung up; nothing to report
+      if (!res.headersSent) return res.status(502).json({ error: err.message });
+      res.end();
     }
   });
 
