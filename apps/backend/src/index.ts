@@ -48,6 +48,7 @@ import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
+import { canAddChild, childrenOf, deriveCardStatus, subtreeOf, type Card } from './lib/board.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
 dotenv.config();
@@ -1765,6 +1766,110 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (!res.headersSent) return res.status(502).json({ error: err.message });
       res.end();
     }
+  });
+
+  /** ── BOARD — agent harness Phase B (~/.claude/plans/agent-harness.md) ── */
+
+  /**
+   * Cards are the durable unit of work, not a view over one: each card in an active column will map
+   * to a Temporal workflow. Phase B is humans moving cards; the workflow binding arrives with the
+   * personas that act on them.
+   */
+  const ownedCards = async (userId: string): Promise<Card[]> =>
+    (await db.getCards()).filter((c) => c.ownerId === userId);
+
+  app.get('/api/cards', async (req, res) => {
+    const cards = await ownedCards((req as any).user.id);
+    const boardId = req.query.boardId;
+    const scoped = typeof boardId === 'string' ? cards.filter((c) => c.boardId === boardId) : cards;
+    // Effective status is DERIVED for a card with children — a parent dragged around while its
+    // children are mid-flight would otherwise report something the workflow does not agree with.
+    res.json(scoped.map((c) => {
+      const kids = childrenOf(cards, c.id);
+      return { ...c, status: deriveCardStatus(c.status, kids), childCount: kids.length };
+    }));
+  });
+
+  app.post('/api/cards', async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { title, body, boardId = 'default', column = 'backlog', parentCardId, blocking = true, personaId, projectId, budget } = req.body ?? {};
+      if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' });
+
+      const cards = await ownedCards(user.id);
+      let depth = 0;
+      if (parentCardId) {
+        const parent = cards.find((c) => c.id === parentCardId);
+        // 404 for both "no such card" and "not yours", so this cannot enumerate other tenants.
+        if (!parent) return res.status(404).json({ error: 'Parent card not found' });
+        const refusal = canAddChild(parent, childrenOf(cards, parent.id).length);
+        // Returned as a reason rather than a silent no-op: the caller (eventually a planner
+        // persona) needs to know it was refused and why, or it will simply ask again.
+        if (refusal) return res.status(409).json({ error: refusal });
+        depth = parent.depth + 1;
+      }
+
+      const now = new Date().toISOString();
+      const card: Card = {
+        id: uuidv4(),
+        ownerId: user.id,
+        boardId: String(boardId),
+        title: title.trim(),
+        column,
+        status: 'pending',
+        depth,
+        blocking: blocking !== false,
+        createdAt: now,
+        updatedAt: now,
+        ...(body ? { body: String(body) } : {}),
+        ...(parentCardId ? { parentCardId: String(parentCardId) } : {}),
+        ...(personaId ? { personaId: String(personaId) } : {}),
+        ...(projectId ? { projectId: String(projectId) } : {}),
+        // Budgets live on the ROOT only: depth and fan-out caps alone still permit hundreds of
+        // workspaces, so the ceiling has to cover the whole subtree.
+        ...(!parentCardId && budget ? { budget } : {}),
+      };
+      await db.saveCard(card);
+      res.status(201).json(card);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/cards/:id', async (req, res) => {
+    const user = (req as any).user;
+    const cards = await ownedCards(user.id);
+    const card = cards.find((c) => c.id === req.params.id);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const { column, title, body, personaId } = req.body ?? {};
+    // A card with children has a DERIVED status, so moving it by hand is refused rather than
+    // silently ignored — dragging a parent while its children run is genuinely ambiguous.
+    if (column && childrenOf(cards, card.id).length > 0) {
+      return res.status(409).json({ error: 'This card\'s state follows its sub-items — move those instead' });
+    }
+    const updated: Card = {
+      ...card,
+      ...(column ? { column } : {}),
+      ...(title ? { title: String(title).trim() } : {}),
+      ...(body !== undefined ? { body: String(body) } : {}),
+      ...(personaId !== undefined ? { personaId: String(personaId) } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    await db.saveCard(updated);
+    res.json(updated);
+  });
+
+  app.delete('/api/cards/:id', async (req, res) => {
+    const user = (req as any).user;
+    const cards = await ownedCards(user.id);
+    const card = cards.find((c) => c.id === req.params.id);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    // Deleting the whole subtree, not just the card: orphaned children would be invisible on the
+    // board (nothing renders them) while still counting against their root's budget.
+    for (const descendant of subtreeOf(cards, card.id)) await db.deleteCard(descendant.id);
+    await db.deleteCard(card.id);
+    res.json({ success: true, deleted: subtreeOf(cards, card.id).length + 1 });
   });
 
   /** ── MODULES ── */

@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
+import type { Card } from './board.js';
 
 export class MemoryDB implements Database {
   private clusters: ClusterMetadata[] = [];
@@ -10,6 +11,7 @@ export class MemoryDB implements Database {
   private pipelineRuns: PipelineRunMetadata[] = [];
   private invites: InviteMetadata[] = [];
   private modelEndpoints: ModelEndpointMetadata[] = [];
+  private cards: Card[] = [];
 
   async init(): Promise<void> {
     this.clusters = [];
@@ -19,6 +21,7 @@ export class MemoryDB implements Database {
     this.pipelineRuns = [];
     this.invites = [];
     this.modelEndpoints = [];
+    this.cards = [];
   }
 
   async close(): Promise<void> {
@@ -29,6 +32,7 @@ export class MemoryDB implements Database {
     this.pipelineRuns = [];
     this.invites = [];
     this.modelEndpoints = [];
+    this.cards = [];
   }
 
   async getClusters(): Promise<ClusterMetadata[]> {
@@ -262,5 +266,19 @@ export class MemoryDB implements Database {
 
   async deleteModelEndpoint(id: string): Promise<void> {
     this.modelEndpoints = this.modelEndpoints.filter((e) => e.id !== id);
+  }
+
+  async getCards(): Promise<Card[]> {
+    return this.cards;
+  }
+
+  async saveCard(card: Card): Promise<void> {
+    const i = this.cards.findIndex((c) => c.id === card.id);
+    if (i >= 0) this.cards[i] = card;
+    else this.cards.push(card);
+  }
+
+  async deleteCard(id: string): Promise<void> {
+    this.cards = this.cards.filter((c) => c.id !== id);
   }
 }
