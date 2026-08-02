@@ -21,7 +21,7 @@ import {
 const card = (over: Partial<Card> = {}): Card => ({
   id: 'c1',
   ownerId: 'u1',
-  boardId: 'b1',
+  requestId: 'req-1',
   title: 'Task',
   column: 'todo',
   status: 'pending',

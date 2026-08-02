@@ -15,12 +15,12 @@ import { Plus, Loader2, Trash2, ChevronRight, ChevronDown, CircleSlash, Link2, U
  * Deliberately so: it exercises durability, fan-out and cancellation before agents depend on them.
  */
 
+// Work states only. No Backlog (a card exists because a request needed it) and no Done
+// (completion is `status`, and two sources of truth for it drift).
 const COLUMNS = [
-  { id: 'backlog', label: 'Backlog' },
   { id: 'todo', label: 'To do' },
   { id: 'in-progress', label: 'In progress' },
   { id: 'review', label: 'Review' },
-  { id: 'done', label: 'Done' },
 ] as const;
 
 type ColumnId = (typeof COLUMNS)[number]['id'];
@@ -191,12 +191,12 @@ export default function Board({ apiBase }: { apiBase: string }) {
         <input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && newTitle.trim()) createCard.mutate({ title: newTitle, column: 'backlog' }); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && newTitle.trim()) createCard.mutate({ title: newTitle, column: 'todo' }); }}
           placeholder="New card…"
           className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
         />
         <button
-          onClick={() => createCard.mutate({ title: newTitle, column: 'backlog' })}
+          onClick={() => createCard.mutate({ title: newTitle, column: 'todo' })}
           disabled={!newTitle.trim() || createCard.isPending}
           className="px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 flex items-center gap-2 text-sm"
         >
@@ -208,7 +208,7 @@ export default function Board({ apiBase }: { apiBase: string }) {
         <div className="mb-4 text-sm text-amber-300 bg-amber-950/30 border border-amber-900 rounded-xl px-4 py-3 max-w-2xl">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {COLUMNS.map((col) => {
           const inColumn = roots.filter((c) => c.column === col.id);
           return (

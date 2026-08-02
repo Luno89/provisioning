@@ -29,6 +29,14 @@ export interface UpdateCardArgs {
    * deterministic child ids elsewhere exist to prevent.
    */
   attempts?: CardAttempt[];
+  /**
+   * Consumption to ADD to whatever is stored, not replace.
+   *
+   * Opposite of `attempts` on purpose: the workflow owns the failure list and replaces it wholesale,
+   * whereas tokens accrue across separate calls and each report is new spend. Replacing here would
+   * silently discard everything but the last attempt's usage.
+   */
+  usage?: { tokens?: number; workspaces?: number; replans?: number };
 }
 
 export async function UpdateCardActivity(args: UpdateCardArgs): Promise<void> {
@@ -48,6 +56,15 @@ export async function UpdateCardActivity(args: UpdateCardArgs): Promise<void> {
       ...(args.column !== undefined ? { column: args.column } : {}),
       ...(args.workflowId !== undefined ? { workflowId: args.workflowId } : {}),
       ...(args.attempts !== undefined ? { attempts: args.attempts } : {}),
+      ...(args.usage
+        ? {
+            usage: {
+              tokens: (card.usage?.tokens ?? 0) + (args.usage.tokens ?? 0),
+              workspaces: (card.usage?.workspaces ?? 0) + (args.usage.workspaces ?? 0),
+              replans: (card.usage?.replans ?? 0) + (args.usage.replans ?? 0),
+            },
+          }
+        : {}),
       updatedAt: new Date().toISOString(),
     });
   } finally {

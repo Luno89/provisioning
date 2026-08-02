@@ -9,18 +9,37 @@ import {
   workflowInfo,
 } from '@temporalio/workflow';
 import type { UpdateCardArgs } from '../activities/UpdateCardActivity.js';
-import type { CardAttempt } from '../lib/board.js';
-import { shouldRetry } from '../lib/board.js';
+import type { ExecuteCardArgs, ExecuteCardResult } from '../activities/ExecuteCardActivity.js';
+import { MAX_CARD_ATTEMPTS } from '../lib/board.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { updateCardActivityMeta } from '../lib/activity-timeouts.js';
+import { executeCardActivityMeta, updateCardActivityMeta } from '../lib/activity-timeouts.js';
 
 const { UpdateCardActivity } = proxyActivities<{ UpdateCardActivity: (args: UpdateCardArgs) => Promise<void> }>({
   startToCloseTimeout: updateCardActivityMeta.startToCloseTimeout,
 });
 
-export type WorkflowCardColumn = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done';
+/**
+ * The card's actual work, with retries handled by TEMPORAL rather than by hand.
+ *
+ * Viable because ExecuteCardActivity takes only a cardId and rebuilds its context from Mongo each
+ * attempt — and records the failure before throwing, so the retry reads a database the previous
+ * attempt changed. Backoff, attempt counting and the cap all come free, and the workflow stops
+ * carrying prompt-sized payloads in its history.
+ */
+const { ExecuteCardActivity } = proxyActivities<{ ExecuteCardActivity: (args: ExecuteCardArgs) => Promise<ExecuteCardResult> }>({
+  startToCloseTimeout: executeCardActivityMeta.startToCloseTimeout,
+  retry: {
+    maximumAttempts: MAX_CARD_ATTEMPTS,
+    initialInterval: '10 seconds',
+    // Modest: a failing agent task is rarely fixed by waiting, and a long backoff just burns the
+    // root card's wall-clock budget while nothing happens.
+    backoffCoefficient: 2,
+  },
+});
+
+export type WorkflowCardColumn = 'todo' | 'in-progress' | 'review';
 export type WorkflowCardStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface CardWorkflowArgs {
@@ -29,14 +48,9 @@ export interface CardWorkflowArgs {
   column: WorkflowCardColumn;
   /** Depth of THIS card. Children get depth + 1; the cap is enforced before signalling. */
   depth: number;
-  /**
-   * Failures from earlier attempts at this same card, oldest first.
-   *
-   * Phase B has no persona to feed these to, so nothing reads them yet — but they are carried here
-   * rather than only stored on the row because this is the value a persona's prompt gets built
-   * from (see failureContext). The plumbing exists so Phase C adds a prompt, not a data model.
-   */
-  priorFailures?: CardAttempt[];
+  // Deliberately NO context, prompt or failure history here. Those are read from Mongo by
+  // ExecuteCardActivity at execution time, which is what makes Temporal's own retries useful and
+  // keeps workflow history from carrying prompt-sized payloads.
 }
 
 export interface ChildRequest {
@@ -55,6 +69,15 @@ export interface CardWorkflowState {
 }
 
 export const moveCardSignal = defineSignal<[WorkflowCardColumn]>('moveCard');
+/**
+ * Marks the card's own work finished.
+ *
+ * Completion used to be "moved to the done column", which made the column both a location and a
+ * lifecycle event — and duplicated `status: 'succeeded'`. Now a column is only ever where the work
+ * currently sits, and finishing is its own signal: raised by the agent when its work succeeds, or
+ * by a human for a card nobody is executing.
+ */
+export const completeCardSignal = defineSignal<[]>('completeCard');
 export const cancelCardSignal = defineSignal<[]>('cancelCard');
 export const addChildSignal = defineSignal<[ChildRequest]>('addChild');
 export const cardStateQuery = defineQuery<CardWorkflowState>('cardState');
@@ -97,6 +120,7 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
   let column: WorkflowCardColumn = args.column;
   let status: WorkflowCardStatus = 'running';
   let cancelled = false;
+  let complete = false;
 
   /**
    * Blocking children only. A non-blocking child is follow-up work that outlives its parent, so
@@ -119,58 +143,31 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
     cancelled = true;
   });
 
+  setHandler(completeCardSignal, () => {
+    complete = true;
+  });
+
   /**
-   * Runs one child to completion, retrying with the previous failures fed into its context.
+   * Starts one child card.
    *
-   * NOT Temporal's built-in retry policy, deliberately. That replays identical input, so an agent
-   * task would fail the same way every attempt — the only reason retrying is worth anything here is
-   * that attempt N+1 is told why attempt N failed. Each attempt is therefore a fresh child workflow
-   * carrying an accumulated failure history.
-   *
-   * The attempt number is part of the workflow id, so dedup still holds: a duplicated addChild
-   * signal cannot spawn a second child, but a genuine retry is a distinct execution rather than
-   * being silently deduped into the failed one.
+   * No retry loop here any more. Retries are Temporal's, on ExecuteCardActivity — see that file for
+   * why taking only a cardId and reading context from Mongo is what makes native retries work.
+   * Removing the loop also removed the attempt number from the child's workflow id, so the id is
+   * once again purely (parent, index) and dedup is unambiguous.
    */
-  async function runChildWithRetries(req: ChildRequest): Promise<void> {
-    const failures: CardAttempt[] = [];
-
-    for (let attempt = 0; ; attempt++) {
-      const handle = await startChild(CardWorkflow, {
-        workflowId: `card-${args.cardId}-child-${req.index}-a${attempt}`,
-        args: [{
-          cardId: req.cardId,
-          title: req.title,
-          column: 'todo',
-          depth: args.depth + 1,
-          // What makes the retry worth attempting. Empty on the first try.
-          priorFailures: failures.slice(),
-        }],
-        // ABANDON for non-blocking children is the whole point of the distinction: "I found
-        // follow-up work" must survive its parent closing. Blocking children are terminated with
-        // the parent, since nothing will consume their result.
-        parentClosePolicy: req.blocking ? ParentClosePolicy.TERMINATE : ParentClosePolicy.ABANDON,
-      });
-
-      try {
-        // `handle.result()` is load-bearing: startChild() resolves as soon as the child has
-        // STARTED, not when it finishes. Awaiting it directly made the parent complete while its
-        // blocking child was still in 'todo', and TERMINATE then killed that child.
-        await handle.result();
-        return;
-      } catch (err: any) {
-        failures.push({
-          attempt,
-          error: describeFailure(err),
-          failedAt: new Date().toISOString(),
-        });
-        // Persisted as it happens, not at the end: the board should show a card failing and being
-        // retried while it is happening, and a parent that dies mid-retry must not take the record
-        // of why with it.
-        await UpdateCardActivity({ cardId: req.cardId, status: 'failed', attempts: failures.slice() });
-
-        if (!shouldRetry(failures.length)) throw err;
-      }
-    }
+  function startCardChild(req: ChildRequest): Promise<unknown> {
+    const child = startChild(CardWorkflow, {
+      workflowId: `card-${args.cardId}-child-${req.index}`,
+      args: [{ cardId: req.cardId, title: req.title, column: 'todo', depth: args.depth + 1 }],
+      // ABANDON for non-blocking children is the whole point of the distinction: "I found
+      // follow-up work" must survive its parent closing. Blocking children are terminated with the
+      // parent, since nothing will consume their result.
+      parentClosePolicy: req.blocking ? ParentClosePolicy.TERMINATE : ParentClosePolicy.ABANDON,
+    });
+    // `handle.result()` is load-bearing: startChild() resolves as soon as the child has STARTED,
+    // not when it finishes. Awaiting it directly made the parent complete while its blocking child
+    // was still running, and TERMINATE then killed that child.
+    return child.then((handle) => handle.result());
   }
 
   setHandler(addChildSignal, (req) => {
@@ -184,23 +181,53 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
 
   await UpdateCardActivity({ cardId: args.cardId, status: 'running', workflowId: workflowInfo().workflowId });
 
-  // Done when the card reaches the done column, or someone cancels it — but children queued by
-  // signals must be started meanwhile, which is why this is a loop rather than a single condition.
+  /**
+   * The card's own work, running alongside signal handling rather than blocking it — a card must
+   * stay cancellable and stay able to accept sub-items while it is executing.
+   *
+   * Retries live inside this call (Temporal's policy on the activity), so a failure arriving here
+   * means every attempt was already spent. `tokensUsed` is folded into the card's usage so the
+   * root's budget sees real consumption rather than only wall-clock.
+   */
+  let ownWorkFailed: unknown;
+  const ownWork = ExecuteCardActivity({ cardId: args.cardId })
+    .then(async (result) => {
+      if (result.tokensUsed > 0) {
+        await UpdateCardActivity({ cardId: args.cardId, usage: { tokens: result.tokensUsed } });
+      }
+      complete = true;
+    })
+    .catch((err) => {
+      ownWorkFailed = err;
+      complete = true;
+    });
+
   for (;;) {
-    await condition(() => cancelled || column === 'done' || pending.length > 0);
+    await condition(() => cancelled || complete || pending.length > 0);
     while (pending.length > 0) {
       const req = pending.shift()!;
-      const run = runChildWithRetries(req);
+      const run = startCardChild(req);
       if (req.blocking) blockingChildren.push(run);
       // Detached: nothing will ever await it, so swallow rejections or a failing follow-up task
       // becomes an unhandled rejection that fails the PARENT — the opposite of non-blocking.
       else run.catch(() => {});
     }
-    if (cancelled || column === 'done') break;
+    if (cancelled || complete) break;
   }
 
   if (cancelled) {
     status = 'cancelled';
+    await UpdateCardActivity({ cardId: args.cardId, status });
+    return { column, status, blockingChildren: blockingChildren.length };
+  }
+
+  // Settle the work promise before judging the outcome: `complete` may have been set by the
+  // catch handler above, and reading ownWorkFailed before it resolves would miss the failure.
+  await ownWork;
+  if (ownWorkFailed) {
+    status = 'failed';
+    // The failure detail is already on the card — ExecuteCardActivity wrote it before throwing,
+    // on every attempt, which is what the next retry reads.
     await UpdateCardActivity({ cardId: args.cardId, status });
     return { column, status, blockingChildren: blockingChildren.length };
   }

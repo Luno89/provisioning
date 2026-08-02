@@ -1780,8 +1780,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.get('/api/cards', async (req, res) => {
     const cards = await ownedCards((req as any).user.id);
-    const boardId = req.query.boardId;
-    const scoped = typeof boardId === 'string' ? cards.filter((c) => c.boardId === boardId) : cards;
+    // Scoped to a request: a card belongs to the ask that produced it, not to a long-lived board.
+    const requestId = req.query.requestId;
+    const scoped = typeof requestId === 'string' ? cards.filter((c) => c.requestId === requestId) : cards;
     // Effective status is DERIVED for a card with children — a parent dragged around while its
     // children are mid-flight would otherwise report something the workflow does not agree with.
     res.json(scoped.map((c) => {
@@ -1800,11 +1801,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.post('/api/cards', async (req, res) => {
     try {
       const user = (req as any).user;
-      const { title, body, boardId = 'default', column = 'backlog', parentCardId, blocking = true, personaId, projectId, budget } = req.body ?? {};
+      const { title, body, requestId, column = 'todo', parentCardId, blocking = true, personaId, projectId, budget } = req.body ?? {};
       if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' });
 
       const cards = await ownedCards(user.id);
       let depth = 0;
+      // A child ALWAYS belongs to its parent's request — the whole tree lives and dies together,
+      // so letting a caller supply a different one would split a decomposition across requests.
+      let resolvedRequestId = typeof requestId === 'string' && requestId ? requestId : uuidv4();
       if (parentCardId) {
         const parent = cards.find((c) => c.id === parentCardId);
         // 404 for both "no such card" and "not yours", so this cannot enumerate other tenants.
@@ -1822,13 +1826,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         // persona) needs to know it was refused and why, or it will simply ask again.
         if (refusal) return res.status(409).json({ error: refusal });
         depth = parent.depth + 1;
+        resolvedRequestId = parent.requestId;
       }
 
       const now = new Date().toISOString();
       const card: Card = {
         id: uuidv4(),
         ownerId: user.id,
-        boardId: String(boardId),
+        requestId: resolvedRequestId,
         title: title.trim(),
         column,
         status: 'pending',

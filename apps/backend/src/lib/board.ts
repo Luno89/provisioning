@@ -11,7 +11,15 @@
  * debug once real work is running through them.
  */
 
-export type CardColumn = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done';
+/**
+ * Work states only. There is deliberately no 'backlog' or 'done':
+ *
+ * - A card exists because a request needed it, so there is no waiting-room to park it in. Work
+ *   that is not wanted yet is a card that has not been created.
+ * - 'done' duplicated `status: 'succeeded'`, and two sources of truth for completion drift. A
+ *   finished card leaves the columns entirely rather than piling up in one.
+ */
+export type CardColumn = 'todo' | 'in-progress' | 'review';
 
 /**
  * Execution state, distinct from `column`. A card sits in a column because someone (or a persona)
@@ -23,7 +31,14 @@ export type CardStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cance
 export interface Card {
   id: string;
   ownerId: string;
-  boardId: string;
+  /**
+   * The request this card belongs to — a single user ask that the agent decomposed.
+   *
+   * The scoping unit rather than a long-lived board, because that is what a card actually belongs
+   * to: "add OAuth to my app" produces a tree of cards that live and die together. A board is a
+   * view over many requests, not the thing cards hang off.
+   */
+  requestId: string;
   title: string;
   body?: string;
   column: CardColumn;

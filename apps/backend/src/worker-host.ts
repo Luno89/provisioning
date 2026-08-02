@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { ProvisionClusterActivity } from './activities/ProvisionClusterActivity.js';
 import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
 import { UpdateCardActivity } from './activities/UpdateCardActivity.js';
+import { ExecuteCardActivity } from './activities/ExecuteCardActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 
@@ -65,6 +66,7 @@ async function main() {
           // Board cards run on the host queue: they orchestrate and write to the database, and
           // need none of the in-cluster worker's Docker or kubeconfig access.
           UpdateCardActivity,
+          ExecuteCardActivity,
         },
       });
       break;
