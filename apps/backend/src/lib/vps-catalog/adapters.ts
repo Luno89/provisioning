@@ -361,10 +361,138 @@ export const scalewayAdapter: VpsCatalogAdapter = {
   },
 };
 
+
+// ── OVHcloud ───────────────────────────────────────────────────────────────
+// Public order catalogue, no auth — but the shape is unlike every other provider here, and two
+// details will silently corrupt the listing if handled naively.
+//
+// 1. SPECS AND PRICES LIVE IN DIFFERENT ARRAYS. `plans[]` carries planCode + pricings; the
+//    cores/RAM/disk are on `products[]`, joined via `plan.product`. A plan with no matching
+//    product is an add-on (extra disk, backups, a licence), not a machine.
+//
+// 2. ONE MACHINE APPEARS ~10 TIMES. Each commitment term and promotion is its own planCode:
+//    vps-2025-model3, -degressivity12, -degressivity24, -10percent, and combinations. Listing all
+//    of them buries the catalogue in near-duplicates, and taking Math.min() across them quotes a
+//    12-month-commitment price as if it were the monthly rate — verified against the live
+//    catalogue, where model3 is 19.99 monthly but 16.99 on a 12-month commitment.
+//
+//    So: only pricings with `commitment === 0` are considered (the true no-commitment monthly
+//    rate, comparable to how every other provider here quotes), and offers are de-duplicated by
+//    product + price, keeping the shortest planCode — which is always the base plan rather than a
+//    promotional variant.
+//
+// Prices are NET, matching the taxIncluded: false convention the Hetzner adapter documents.
+// `ovhSubsidiary` selects the price list; FR is the EUR one.
+const OVH_SUBSIDIARY = process.env.OVH_SUBSIDIARY || 'FR';
+
+/**
+ * Pure transform of OVH's order catalogue into offers, exported so the join and de-duplication
+ * rules can be tested against a fixture — they are intricate and fail SILENTLY, surfacing as a
+ * plausible-looking wrong price rather than an error.
+ */
+export function ovhOffersFromCatalog(data: any): AdapterResult {
+    const currency = String(data?.locale?.currencyCode ?? 'EUR');
+
+  // Only products carrying BOTH cpu and memory are machines; the rest are add-ons.
+  const specs = new Map<string, { vcpu: number; ramGb: number; diskGb: number }>();
+  for (const product of data?.products ?? []) {
+    const tech = product?.blobs?.technical;
+    const vcpu = Number(tech?.cpu?.cores ?? NaN);
+    const ramGb = Number(tech?.memory?.size ?? NaN);
+    if (!Number.isFinite(vcpu) || !Number.isFinite(ramGb) || vcpu <= 0 || ramGb <= 0) continue;
+    const diskGb = Number(tech?.storage?.disks?.[0]?.capacity ?? 0);
+    specs.set(String(product.name), { vcpu, ramGb, diskGb: Number.isFinite(diskGb) ? diskGb : 0 });
+  }
+
+  // product|price -> the offer we intend to keep, so promotional variants collapse together.
+  const best = new Map<string, { planCode: string; label: string; monthly: number; spec: { vcpu: number; ramGb: number; diskGb: number } }>();
+  let skippedNoPrice = 0;
+
+  for (const plan of data?.plans ?? []) {
+    const spec = specs.get(String(plan?.product ?? ''));
+    if (!spec) continue; // add-on, not a machine
+
+    // Upgrade-path SKUs: `vps-elite-8-8-160-vps-2025-model3` is the price for an existing Elite
+    // 8-8-160 customer moving to VPS-3, and it is dearer than ordering VPS-3 outright (34.50 vs
+    // 19.99 for identical 8c/24g/200g). In a comparison catalogue that reads as two prices for
+    // the same machine, so drop them — a new customer cannot order one anyway.
+    // Not anchored to the end: promotional variants append their own suffix, so
+    // `vps-elite-8-8-160-vps-2025-model3-10percent` is the same upgrade SKU wearing a discount.
+    if (/-vps-\d{4}-model\d+(-|$)/.test(String(plan.planCode))) continue;
+
+    const monthly = (plan?.pricings ?? [])
+      .filter((p: any) =>
+        Array.isArray(p?.capacities) && p.capacities.includes('renew') &&
+        p?.intervalUnit === 'month' && Number(p?.interval) === 1 &&
+        Number(p?.commitment ?? 0) === 0)
+      // Prices are in nano-units: 1999000000 is 19.99.
+      .map((p: any) => Number(p.price) / 1e8)
+      .filter((n: number) => Number.isFinite(n) && n > 0)
+      .sort((a: number, b: number) => a - b)[0];
+
+    if (monthly === undefined) { skippedNoPrice++; continue; }
+
+    const planCode = String(plan.planCode);
+    // Keyed on the PRODUCT alone, so all the commercial ranges and promotional tiers selling the
+    // same machine collapse to one row. Keying on product+price does not collapse them, because
+    // the whole point of the variants is that they carry different prices.
+    const key = String(plan.product);
+    const seen = best.get(key);
+    // The BASE plan code wins, not the cheapest variant — and it is always the shortest, since
+    // every variant is the base code plus a suffix (-degressivity24, -10percent, ...). Taking the
+    // minimum instead would advertise a promotional or commitment-linked rate as the standard
+    // monthly price: vps-2025-model1 lists at 6.49, but a -degressivity24 variant shows 4.25.
+    if (!seen || planCode.length < seen.planCode.length) {
+      best.set(key, { planCode, label: String(plan.invoiceName ?? planCode), monthly, spec });
+    }
+  }
+
+  const offers: VpsOffer[] = [];
+  for (const entry of best.values()) {
+    offers.push(withDerived({
+      provider: 'ovh',
+      planId: entry.planCode,
+      label: entry.label,
+      vcpu: entry.spec.vcpu,
+      // The catalogue does not distinguish shared from dedicated vCPU, and OVH's VPS line is
+      // shared. Claiming 'dedicated' would make these look like far better value than they are.
+      cpuType: 'shared' as VpsCpuType,
+      arch: 'x86' as VpsArch,
+      ramGb: entry.spec.ramGb,
+      diskGb: entry.spec.diskGb,
+      priceMonthly: entry.monthly,
+      currency,
+      taxIncluded: false,
+      // Billed monthly, not by the hour — there is no hourly rate to quote.
+      hourlyBilling: false,
+      locations: [],
+      provisionable: false,
+    }));
+  }
+  return { offers, skippedNoPrice };
+}
+
+export const ovhAdapter: VpsCatalogAdapter = {
+  provider: 'ovh',
+  requiresCredentials: false,
+  // Cataloguing OVH is easy; ORDERING is not. Unlike Hetzner's single POST /servers with a bearer
+  // token, OVH uses a signed cart/order flow with asynchronous delivery, so there is no
+  // ProvisionClusterActivity branch for it.
+  provisionable: false,
+  async fetch() {
+    return ovhOffersFromCatalog(
+      await getJson(
+        `https://api.ovh.com/v1/order/catalog/public/vps?ovhSubsidiary=${encodeURIComponent(OVH_SUBSIDIARY)}`,
+      ),
+    );
+  },
+};
+
 export const ADAPTERS: readonly VpsCatalogAdapter[] = [
   hetznerAdapter,
   linodeAdapter,
   vultrAdapter,
   digitalOceanAdapter,
   scalewayAdapter,
+  ovhAdapter,
 ];
