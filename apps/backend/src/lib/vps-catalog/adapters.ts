@@ -241,7 +241,9 @@ export const hetznerAdapter: VpsCatalogAdapter = {
 export const digitalOceanAdapter: VpsCatalogAdapter = {
   provider: 'do',
   requiresCredentials: true,
-  provisionable: false,
+  // True as of ProvisionDigitalOceanVmActivity — a droplet can now be created and destroyed, so
+  // the catalogue may offer "deploy from this plan" on these rows.
+  provisionable: true,
   async fetch(token?: string) {
     if (!token) return { offers: [], skippedNoPrice: 0 };
     const data = await getJson('https://api.digitalocean.com/v2/sizes?per_page=200', {
@@ -272,7 +274,7 @@ export const digitalOceanAdapter: VpsCatalogAdapter = {
         taxIncluded: false,
         hourlyBilling: true,
         locations: Array.isArray(s.regions) ? s.regions.map(String) : [],
-        provisionable: false,
+        provisionable: true,
       }));
     }
     return { offers, skippedNoPrice };
