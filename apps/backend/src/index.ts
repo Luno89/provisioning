@@ -48,6 +48,7 @@ import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
+import { UsageScanner } from './lib/token-usage.js';
 import { aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveCardStatus, rootCard, subtreeOf, type Card } from './lib/board.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
@@ -1704,7 +1705,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * schema, and re-encoding it here would mean tracking every field either adds.
    */
   app.post('/api/chat', async (req, res) => {
-    const { modelId, messages, stream = true, ...rest } = req.body ?? {};
+    const { modelId, messages, stream = true, cardId, ...rest } = req.body ?? {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages is required' });
     }
@@ -1736,7 +1737,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         // "turboderp-qwen3-6-27b-exl3-5-00bpw" regardless of what is sent, having derived its own
         // id from the repo and bitrate), but a stricter server would reject "Tabbyapi-Production"
         // outright — and single-model endpoints generally serve whatever they loaded.
-        body: JSON.stringify({ ...rest, ...(provider.model ? { model: provider.model } : {}), messages, stream }),
+        body: JSON.stringify({
+          ...rest,
+          ...(provider.model ? { model: provider.model } : {}),
+          messages,
+          stream,
+          // Streaming responses omit usage unless asked, and then only in the final chunk.
+          // Confirmed supported by the live TabbyAPI deployment; a server that ignores the field
+          // simply yields no usage, and metering records nothing rather than guessing.
+          ...(stream ? { stream_options: { include_usage: true } } : {}),
+        }),
         signal: upstreamAbort.signal,
       });
 
@@ -1754,13 +1764,36 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // point of streaming at all.
       res.setHeader('X-Accel-Buffering', 'no');
 
+      // Usage is watched as the stream passes through rather than read off a response body —
+      // see lib/token-usage.ts. The client gets every byte unchanged; this only observes.
+      const scanner = new UsageScanner();
+      const decoder = new TextDecoder();
       const reader = upstream.body.getReader();
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        scanner.push(decoder.decode(value, { stream: true }));
         res.write(Buffer.from(value));
       }
       res.end();
+
+      // Recorded after the response is closed: metering must never delay the user's tokens, and a
+      // failure to record must never fail a generation that already succeeded.
+      const used = scanner.result();
+      if (used && cardId) {
+        try {
+          const card = (await db.getCards()).find((c) => c.id === cardId && c.ownerId === (req as any).user.id);
+          if (card) {
+            await db.saveCard({
+              ...card,
+              usage: { ...card.usage, tokens: (card.usage?.tokens ?? 0) + used.totalTokens },
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } catch (err: any) {
+          console.warn(`[chat] could not record ${used.totalTokens} tokens against card ${cardId}: ${err.message}`);
+        }
+      }
     } catch (err: any) {
       if (upstreamAbort.signal.aborted) return; // client hung up; nothing to report
       if (!res.headersSent) return res.status(502).json({ error: err.message });
