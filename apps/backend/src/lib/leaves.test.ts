@@ -23,7 +23,7 @@ import {
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'c1',
   ownerId: 'u1',
-  requestId: 'req-1',
+  branchId: 'req-1',
   title: 'Task',
   column: 'todo',
   status: 'pending',

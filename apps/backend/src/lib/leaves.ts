@@ -39,19 +39,32 @@ export function isLeafColumn(value: unknown): value is LeafColumn {
  * put it there; its status reflects what the workflow actually did. Conflating them means a failed
  * run silently looks like work in progress.
  */
-export type LeafStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type LeafStatus = 'proposed' | 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+/**
+ * A proposed leaf is a suggestion, not work.
+ *
+ * It has no workflow, consumes no budget, and does not appear in a column — the agent (or a
+ * worker that found its own leaf too big) put it forward, and a human has not accepted it yet.
+ * Modelled as a STATUS rather than a column because a proposal is not somewhere work sits; it is
+ * work that does not exist yet. Starting a workflow for one would spend tokens on something
+ * nobody agreed to.
+ */
+export function isProposed(leaf: Pick<Leaf, 'status'>): boolean {
+  return leaf.status === 'proposed';
+}
 
 export interface Leaf {
   id: string;
   ownerId: string;
   /**
-   * The request this leaf belongs to — a single user ask that the agent decomposed.
+   * The branch this leaf grows on — one planning conversation.
    *
    * The scoping unit rather than a long-lived board, because that is what a leaf actually belongs
-   * to: "add OAuth to my app" produces a tree of leaves that live and die together. A board is a
-   * view over many requests, not the thing leaves hang off.
+   * to: "add OAuth to my app" is a branch, and it grows leaves progressively as planning and
+   * execution reveal more work. A board is a view over many branches, not the thing leaves hang off.
    */
-  requestId: string;
+  branchId: string;
   title: string;
   body?: string;
   column: LeafColumn;
@@ -214,9 +227,12 @@ export function budgetExceeded(budget: LeafBudget | undefined, usage: BudgetUsag
  * does not redeem it.
  */
 export function deriveLeafStatus(own: LeafStatus, children: Pick<Leaf, 'status' | 'blocking'>[]): LeafStatus {
-  if (own === 'failed' || own === 'cancelled') return own;
+  // A proposed leaf's status is its own regardless of what hangs off it.
+  if (own === 'proposed' || own === 'failed' || own === 'cancelled') return own;
 
-  const blocking = children.filter((c) => c.blocking);
+  // Proposals are excluded: nobody has agreed to them, so a parent must not be held 'running' by
+  // work that may never be accepted, nor marked failed by a suggestion.
+  const blocking = children.filter((c) => c.blocking && c.status !== 'proposed');
   if (blocking.length === 0) return own;
 
   if (blocking.some((c) => c.status === 'failed')) return 'failed';

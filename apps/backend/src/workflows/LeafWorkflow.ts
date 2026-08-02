@@ -68,7 +68,7 @@ export interface LeafWorkflowState {
   blockingChildren: number;
 }
 
-export const moveLeafSignal = defineSignal<[WorkflowLeafColumn]>('moveCard');
+export const moveLeafSignal = defineSignal<[WorkflowLeafColumn]>('moveLeaf');
 /**
  * Marks the leaf's own work finished.
  *
@@ -77,10 +77,10 @@ export const moveLeafSignal = defineSignal<[WorkflowLeafColumn]>('moveCard');
  * currently sits, and finishing is its own signal: raised by the agent when its work succeeds, or
  * by a human for a leaf nobody is executing.
  */
-export const completeLeafSignal = defineSignal<[]>('completeCard');
-export const cancelLeafSignal = defineSignal<[]>('cancelCard');
+export const completeLeafSignal = defineSignal<[]>('completeLeaf');
+export const cancelLeafSignal = defineSignal<[]>('cancelLeaf');
 export const addChildSignal = defineSignal<[ChildRequest]>('addChild');
-export const leafStateQuery = defineQuery<LeafWorkflowState>('cardState');
+export const leafStateQuery = defineQuery<LeafWorkflowState>('leafState');
 
 /**
  * One workflow per leaf — the execution half of "the board IS the state store".

@@ -1814,8 +1814,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.get('/api/leaves', async (req, res) => {
     const leaves = await ownedLeaves((req as any).user.id);
     // Scoped to a request: a leaf belongs to the ask that produced it, not to a long-lived board.
-    const requestId = req.query.requestId;
-    const scoped = typeof requestId === 'string' ? leaves.filter((c) => c.requestId === requestId) : leaves;
+    const branchId = req.query.branchId;
+    const scoped = typeof branchId === 'string' ? leaves.filter((c) => c.branchId === branchId) : leaves;
     // Effective status is DERIVED for a leaf with children — a parent dragged around while its
     // children are mid-flight would otherwise report something the workflow does not agree with.
     res.json(scoped.map((c) => {
@@ -1834,7 +1834,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.post('/api/leaves', async (req, res) => {
     try {
       const user = (req as any).user;
-      const { title, body, requestId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget } = req.body ?? {};
+      const { title, body, branchId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget, proposed = false } = req.body ?? {};
       if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' });
       // `column` is untrusted JSON; the union type validates nothing here.
       if (!isLeafColumn(column)) {
@@ -1845,17 +1845,21 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       let depth = 0;
       // A child ALWAYS belongs to its parent's request — the whole tree lives and dies together,
       // so letting a caller supply a different one would split a decomposition across requests.
-      let resolvedRequestId = typeof requestId === 'string' && requestId ? requestId : uuidv4();
+      let resolvedBranchId = typeof branchId === 'string' && branchId ? branchId : uuidv4();
       if (parentLeafId) {
         const parent = leaves.find((c) => c.id === parentLeafId);
         // 404 for both "no such leaf" and "not yours", so this cannot enumerate other tenants.
         if (!parent) return res.status(404).json({ error: 'Parent leaf not found' });
-        // The budget lives on the ROOT and covers the whole subtree, so it is checked here —
-        // adding work is the moment spend is committed. A budget nothing enforces is decoration.
-        const root = rootLeaf(leaves, parent);
-        if (root?.budget) {
-          const spent = budgetExceeded(root.budget, aggregateUsage(leaves, root, Date.now()));
-          if (spent) return res.status(409).json({ error: `${spent} — this leaf's budget covers all of its sub-items` });
+        // Budget is NOT checked for a proposal. A proposal costs nothing — it starts no workflow
+        // and spends no tokens — and refusing to even suggest work because the budget is gone
+        // hides the very information a human needs to decide whether to raise it. The check moves
+        // to the accept route, which is where spend is actually committed.
+        if (proposed !== true) {
+          const root = rootLeaf(leaves, parent);
+          if (root?.budget) {
+            const spent = budgetExceeded(root.budget, aggregateUsage(leaves, root, Date.now()));
+            if (spent) return res.status(409).json({ error: `${spent} — this leaf's budget covers all of its sub-items` });
+          }
         }
 
         const refusal = canAddChild(parent, childrenOf(leaves, parent.id).length);
@@ -1863,17 +1867,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         // persona) needs to know it was refused and why, or it will simply ask again.
         if (refusal) return res.status(409).json({ error: refusal });
         depth = parent.depth + 1;
-        resolvedRequestId = parent.requestId;
+        resolvedBranchId = parent.branchId;
       }
 
       const now = new Date().toISOString();
       const leaf: Leaf = {
         id: uuidv4(),
         ownerId: user.id,
-        requestId: resolvedRequestId,
+        branchId: resolvedBranchId,
         title: title.trim(),
         column,
-        status: 'pending',
+        // A proposal is a suggestion until someone accepts it: no workflow, no budget spent.
+        status: proposed === true ? 'proposed' : 'pending',
         depth,
         blocking: blocking !== false,
         createdAt: now,
@@ -1888,29 +1893,74 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       };
       await db.saveLeaf(leaf);
 
+      // A proposal gets no workflow at all — that is the entire point of the status. Nothing runs
+      // and nothing is spent until someone accepts it, which the accept route handles.
+      if (leaf.status === 'proposed') return res.status(201).json(leaf);
+
       // Start the workflow that backs this leaf, and tell the parent's workflow about it so the
       // child is a real Temporal child rather than just a row pointing at one. Both are
       // best-effort: Temporal being down must not stop someone writing on the board, the same way
       // cluster listing falls back to plain DB polling.
-      const workflowId = await temporalBridge?.startCard(leaf);
+      const workflowId = await temporalBridge?.startLeaf(leaf);
       if (workflowId) {
         leaf.workflowId = workflowId;
         await db.saveLeaf(leaf);
       }
       if (parentLeafId) {
-        await temporalBridge?.signalCard(String(parentLeafId), 'addChild', {
+        await temporalBridge?.signalLeaf(String(parentLeafId), 'addChild', {
           leafId: leaf.id,
           title: leaf.title,
           blocking: leaf.blocking,
           // Position among siblings — what makes the child's workflow id deterministic, so a
           // retried signal addresses the same child instead of spawning a second.
-          index: childrenOf(leaves, String(parentLeafId)).length,
+          // Proposals are excluded so the index matches what the parent workflow has actually
+          // been told about — counting them would skip an index and break the deterministic id.
+          index: childrenOf(leaves, String(parentLeafId)).filter((c) => c.status !== 'proposed').length,
         });
       }
       res.status(201).json(leaf);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  /**
+   * Accepts a proposed leaf, turning a suggestion into work.
+   *
+   * Separate from PATCH because this is the moment spend is committed: the budget is re-checked
+   * here rather than at proposal time, since a proposal costs nothing and a branch's budget may
+   * well have been consumed between the suggestion and the decision.
+   */
+  app.post('/api/leaves/:id/accept', async (req, res) => {
+    const user = (req as any).user;
+    const leaves = await ownedLeaves(user.id);
+    const leaf = leaves.find((c) => c.id === req.params.id);
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+    if (leaf.status !== 'proposed') return res.status(409).json({ error: 'This leaf has already been accepted' });
+
+    const root = rootLeaf(leaves, leaf);
+    if (root?.budget) {
+      const spent = budgetExceeded(root.budget, aggregateUsage(leaves, root, Date.now()));
+      if (spent) return res.status(409).json({ error: `${spent} — accepting more work would exceed this branch's budget` });
+    }
+
+    const accepted = { ...leaf, status: 'pending' as const, updatedAt: new Date().toISOString() };
+    await db.saveLeaf(accepted);
+
+    const workflowId = await temporalBridge?.startLeaf(accepted);
+    if (workflowId) {
+      accepted.workflowId = workflowId;
+      await db.saveLeaf(accepted);
+    }
+    if (accepted.parentLeafId) {
+      await temporalBridge?.signalLeaf(accepted.parentLeafId, 'addChild', {
+        leafId: accepted.id,
+        title: accepted.title,
+        blocking: accepted.blocking,
+        index: childrenOf(leaves, accepted.parentLeafId).filter((c) => c.status !== 'proposed').length,
+      });
+    }
+    res.json(accepted);
   });
 
   app.patch('/api/leaves/:id', async (req, res) => {
@@ -1940,7 +1990,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     // Moving a leaf IS a signal — that is the whole claim of the board being the state store
     // rather than a view over one. The row is written first so the board stays correct even when
     // Temporal is unreachable.
-    if (column) await temporalBridge?.signalCard(leaf.id, 'moveCard', column);
+    if (column) await temporalBridge?.signalLeaf(leaf.id, 'moveLeaf', column);
     res.json(updated);
   });
 
@@ -1948,7 +1998,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const user = (req as any).user;
     const leaf = (await ownedLeaves(user.id)).find((c) => c.id === req.params.id);
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
-    const signalled = await temporalBridge?.signalCard(leaf.id, 'cancelCard');
+    const signalled = await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
     await db.saveLeaf({ ...leaf, status: 'cancelled', updatedAt: new Date().toISOString() });
     // Reported honestly: with Temporal down the row says cancelled but nothing was actually
     // stopped, and pretending otherwise is how a "cancelled" job keeps burning budget.
@@ -1965,10 +2015,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     for (const descendant of subtreeOf(leaves, leaf.id)) {
       // Cancel before deleting: a workflow whose row is gone would keep running, and
       // UpdateLeafActivity would silently no-op forever against a leaf that no longer exists.
-      await temporalBridge?.signalCard(descendant.id, 'cancelCard');
+      await temporalBridge?.signalLeaf(descendant.id, 'cancelLeaf');
       await db.deleteLeaf(descendant.id);
     }
-    await temporalBridge?.signalCard(leaf.id, 'cancelCard');
+    await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
     await db.deleteLeaf(leaf.id);
     res.json({ success: true, deleted: subtreeOf(leaves, leaf.id).length + 1 });
   });

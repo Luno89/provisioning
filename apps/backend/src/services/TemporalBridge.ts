@@ -455,7 +455,7 @@ export class TemporalBridge {
    * undefined when Temporal is unreachable — the board must keep working without it, exactly as
    * cluster provisioning falls back to plain DB polling.
    */
-  async startCard(leaf: { id: string; title: string; column: string; depth: number }): Promise<string | undefined> {
+  async startLeaf(leaf: { id: string; title: string; column: string; depth: number }): Promise<string | undefined> {
     if (!this.client) return undefined
     const workflowId = `leaf-${leaf.id}`
     try {
@@ -478,7 +478,7 @@ export class TemporalBridge {
    * caller, so a missing or finished workflow must not fail the user's action — it only means the
    * leaf is no longer executing, which the board will show anyway.
    */
-  async signalCard(leafId: string, signal: 'moveCard' | 'cancelCard' | 'addChild', payload?: unknown): Promise<boolean> {
+  async signalLeaf(leafId: string, signal: 'moveLeaf' | 'cancelLeaf' | 'completeLeaf' | 'addChild', payload?: unknown): Promise<boolean> {
     if (!this.client) return false
     try {
       const handle = this.client.workflow.getHandle(`leaf-${leafId}`)
