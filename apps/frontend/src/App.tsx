@@ -14,6 +14,7 @@ import GameServerSettings from './components/GameServerSettings.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import MeshDevices from './components/MeshDevices.js';
 import Chat from './components/Chat.js';
+import Board from './components/Board.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
@@ -154,7 +155,7 @@ const TABBY_TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', '
 
 function App() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
@@ -949,6 +950,7 @@ function App() {
           <button onClick={() => setView('vps-catalog')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'vps-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Server size={20} /> VPS Catalog</button>
           <button onClick={() => setView('mesh')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'mesh' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Network size={20} /> My Machines</button>
           <button onClick={() => setView('chat')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'chat' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Bot size={20} /> Chat</button>
+          <button onClick={() => setView('board')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'board' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Layout size={20} /> Board</button>
           <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Shield size={20} /> Security</button>
         </nav>
         <button onClick={handleLogout} className="w-full mb-6 flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer text-sm font-bold">Log Out</button>
@@ -1366,6 +1368,7 @@ function App() {
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'chat' && <Chat apiBase={API_BASE} />}
+        {view === 'board' && <Board apiBase={API_BASE} />}
         {view === 'vps-catalog' && (
           <VpsCatalog
             apiBase={API_BASE}
