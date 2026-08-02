@@ -1830,6 +1830,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ...(!parentCardId && budget ? { budget } : {}),
       };
       await db.saveCard(card);
+
+      // Start the workflow that backs this card, and tell the parent's workflow about it so the
+      // child is a real Temporal child rather than just a row pointing at one. Both are
+      // best-effort: Temporal being down must not stop someone writing on the board, the same way
+      // cluster listing falls back to plain DB polling.
+      const workflowId = await temporalBridge?.startCard(card);
+      if (workflowId) {
+        card.workflowId = workflowId;
+        await db.saveCard(card);
+      }
+      if (parentCardId) {
+        await temporalBridge?.signalCard(String(parentCardId), 'addChild', {
+          cardId: card.id,
+          title: card.title,
+          blocking: card.blocking,
+          // Position among siblings — what makes the child's workflow id deterministic, so a
+          // retried signal addresses the same child instead of spawning a second.
+          index: childrenOf(cards, String(parentCardId)).length,
+        });
+      }
       res.status(201).json(card);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1857,7 +1877,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       updatedAt: new Date().toISOString(),
     };
     await db.saveCard(updated);
+    // Moving a card IS a signal — that is the whole claim of the board being the state store
+    // rather than a view over one. The row is written first so the board stays correct even when
+    // Temporal is unreachable.
+    if (column) await temporalBridge?.signalCard(card.id, 'moveCard', column);
     res.json(updated);
+  });
+
+  app.post('/api/cards/:id/cancel', async (req, res) => {
+    const user = (req as any).user;
+    const card = (await ownedCards(user.id)).find((c) => c.id === req.params.id);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    const signalled = await temporalBridge?.signalCard(card.id, 'cancelCard');
+    await db.saveCard({ ...card, status: 'cancelled', updatedAt: new Date().toISOString() });
+    // Reported honestly: with Temporal down the row says cancelled but nothing was actually
+    // stopped, and pretending otherwise is how a "cancelled" job keeps burning budget.
+    res.json({ success: true, workflowSignalled: signalled === true });
   });
 
   app.delete('/api/cards/:id', async (req, res) => {
@@ -1867,7 +1902,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (!card) return res.status(404).json({ error: 'Card not found' });
     // Deleting the whole subtree, not just the card: orphaned children would be invisible on the
     // board (nothing renders them) while still counting against their root's budget.
-    for (const descendant of subtreeOf(cards, card.id)) await db.deleteCard(descendant.id);
+    for (const descendant of subtreeOf(cards, card.id)) {
+      // Cancel before deleting: a workflow whose row is gone would keep running, and
+      // UpdateCardActivity would silently no-op forever against a card that no longer exists.
+      await temporalBridge?.signalCard(descendant.id, 'cancelCard');
+      await db.deleteCard(descendant.id);
+    }
+    await temporalBridge?.signalCard(card.id, 'cancelCard');
     await db.deleteCard(card.id);
     res.json({ success: true, deleted: subtreeOf(cards, card.id).length + 1 });
   });

@@ -6,3 +6,4 @@ export { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 export { executeResizeDiskWorkflow } from './ResizeDiskWorkflow.js';
 export { executeSyncConfigWorkflow } from './SyncConfigWorkflow.js';
 export { executePipelineRunWorkflow } from './PipelineRunWorkflow.js';
+export { CardWorkflow } from './CardWorkflow.js';

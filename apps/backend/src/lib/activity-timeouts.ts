@@ -22,3 +22,5 @@ export const provisionClusterActivityMeta = { name: 'ProvisionClusterActivity', 
 export const syncConfigActivityMeta = { name: 'SyncConfigActivity', startToCloseTimeout: '80 minutes' } as const;
 export const downloadModelActivityMeta = { name: 'DownloadModelActivity', startToCloseTimeout: '80 minutes' } as const;
 export const runPipelineActivityMeta = { name: 'RunPipelineActivity', startToCloseTimeout: '30 minutes' } as const;
+// Short: a single database write. A long timeout here would only delay noticing a stuck worker.
+export const updateCardActivityMeta = { name: 'UpdateCardActivity', startToCloseTimeout: '1 minute' } as const;
