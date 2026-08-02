@@ -23,11 +23,21 @@
  * 'remote'  — an already-existing SSH-reachable machine; there are no credentials to check.
  * 'hetzner' — a VM this platform creates itself. It *does* need credentials, but their absence is
  *             a hard error at provision time, never a silent downgrade to mock mode.
+ * 'do'      — same as 'hetzner': a droplet this platform creates. Before it had a provisioning
+ *             branch, a 'do' cluster WITH credentials fell through every branch in
+ *             ProvisionClusterActivity and then ran the shared CDKTF tail against a kubeconfig
+ *             that was never written — a confusing failure rather than an honest one.
+ *
+ *             MIGRATION NOTE: 'do' used to fall through to mock mode when uncredentialed, so any
+ *             cluster created that way is a local k3d container named `mock-do-<name>`. It will no
+ *             longer resolve, because getPhysicalClusterName now returns `<name>`. There were no
+ *             such records when this changed; if one ever appears, delete and recreate it rather
+ *             than expecting reconciliation to cope.
  *
  * Both are excluded because `hasCloudCredentials()` has no case for them and would otherwise
  * resolve to mode 'mock'.
  */
-export const NEVER_MOCK_PROVIDERS: readonly string[] = ['k3d', 'remote', 'hetzner'];
+export const NEVER_MOCK_PROVIDERS: readonly string[] = ['k3d', 'remote', 'hetzner', 'do'];
 
 /**
  * Providers whose Kubernetes API this platform reaches through its own kubeconfig at

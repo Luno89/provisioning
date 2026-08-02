@@ -12,6 +12,7 @@ import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { DestroyRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { DestroyHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
+import { DestroyDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 
 export interface DestroyClusterArgs {
   name: string;
@@ -28,6 +29,9 @@ export interface DestroyClusterArgs {
   // provider === 'hetzner' only — needed to destroy the VM itself and verify it's gone.
   hcloudToken?: string;
   hetznerServerId?: string;
+  // provider === 'do' only — same shape as the hetzner fields above.
+  doToken?: string;
+  doServerId?: string;
 }
 
 export interface DestroyClusterResult {
@@ -47,6 +51,7 @@ export async function DestroyClusterActivity(
 
   const isRemote = args.provider === 'remote';
   const isHetzner = args.provider === 'hetzner';
+  const isDigitalOcean = args.provider === 'do';
   // See ProvisionClusterActivity — both are in NEVER_MOCK_PROVIDERS (lib/cluster-topology.ts).
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.name}` : args.name;
@@ -144,6 +149,21 @@ export async function DestroyClusterActivity(
     } catch {}
     // Surfaced rather than swallowed: "Terraform said it destroyed the VM" and "Hetzner confirms
     // the VM is gone" are different claims, and only the second one stops the billing.
+    return { status: 'destroyed', msg: `Cluster ${args.name} destroyed — ${result.msg}` };
+  } else if (isDigitalOcean) {
+    // No k3s uninstall, same as the hetzner branch: the whole machine is about to be deleted.
+    if (!args.doToken) {
+      throw new Error('provider "do" requires a DigitalOcean API token to destroy the droplet');
+    }
+    const result = await DestroyDigitalOceanVmActivity({
+      name: physicalName,
+      doToken: args.doToken,
+      logFile,
+      ...(args.doServerId ? { serverId: args.doServerId } : {}),
+    });
+    try {
+      await fs.rm(kubeconfigPath, { force: true });
+    } catch {}
     return { status: 'destroyed', msg: `Cluster ${args.name} destroyed — ${result.msg}` };
   }
 

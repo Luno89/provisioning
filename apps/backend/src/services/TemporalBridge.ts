@@ -341,6 +341,7 @@ export class TemporalBridge {
                   remoteUsername: (wfResult as any).createdUsername,
                   remoteSshPrivateKeyEnc: encryptValue((wfResult as any).createdPrivateKey, this.masterKey),
                   hetznerServerId: (wfResult as any).hetznerServerId,
+                  doServerId: (wfResult as any).doServerId,
                 } as any)
               }
               // Measured node capacity (lib/cluster-capacity.ts). Re-reads `current` like the
@@ -609,6 +610,23 @@ export class TemporalBridge {
     return resolveCloudCredentials('hetzner', userCreds).env.HCLOUD_TOKEN
   }
 
+  /** Same chain as resolveHetznerToken, for DigitalOcean. */
+  private async resolveDoToken(userId?: string): Promise<string | undefined> {
+    let userCreds: any
+    if (userId) {
+      const user = await this.db.getUserById(userId)
+      const enc = (user?.credentials as any)?.do?.token
+      if (enc) {
+        try {
+          userCreds = { do: { token: decryptValue(enc, this.masterKey) } }
+        } catch {
+          // Corrupt blob or rotated masterKey — fall through to the env-var link in the chain.
+        }
+      }
+    }
+    return resolveCloudCredentials('do', userCreds).env.DIGITALOCEAN_TOKEN
+  }
+
   async provision(
     clusterName: string,
     provider: ClusterMetadata['provider'],
@@ -631,13 +649,20 @@ export class TemporalBridge {
       // until an activity times out.
       throw new Error('No Hetzner Cloud API token configured — add one under Cloud Accounts first')
     }
+    const doToken = provider === 'do' ? await this.resolveDoToken(userId) : undefined
+    if (provider === 'do' && !doToken) {
+      throw new Error('No DigitalOcean API token configured — add one under Cloud Accounts first')
+    }
+    // Both providers create a machine we must be able to log into, so both need the keypair minted
+    // once here rather than per attempt — see the comment below.
+    const createsVm = provider === 'hetzner' || provider === 'do'
 
     // Generated HERE, once, and persisted below — not inside the activity. Hetzner bakes
     // authorized_keys into the machine as it boots, so a key minted per attempt means every retry
     // presents credentials the server has never seen; the VM stays up, keeps billing, and can
     // never be logged into again. Observed live: server created 21:45:22Z, the key it was
     // supposedly reachable with created 22:00:17Z, then Permission denied until the retry cap.
-    const hetznerKeypair = provider === 'hetzner'
+    const vmKeypair = createsVm
       ? await generateSshKeypair(`provisioning-${clusterName}`)
       : undefined
 
@@ -651,7 +676,7 @@ export class TemporalBridge {
     // ~25 minutes and a retried activity must be able to present the same key again.
     const meshLoginServer = process.env.MESH_LOGIN_SERVER
     let meshPreAuthKey: string | undefined
-    if (provider === 'hetzner' && meshLoginServer && this.headscale) {
+    if (createsVm && meshLoginServer && this.headscale) {
       try {
         meshPreAuthKey = (await this.headscale.createPreAuthKey(userId, { reusable: true, expirySeconds: 2 * 60 * 60 })).key
       } catch (err: any) {
@@ -677,9 +702,17 @@ export class TemporalBridge {
       ...(hetzner?.serverType ? { hetznerServerType: hetzner.serverType } : {}),
       ...(hetzner?.location ? { hetznerLocation: hetzner.location } : {}),
       ...(hetzner?.image ? { hetznerImage: hetzner.image } : {}),
-      ...(hetznerKeypair ? {
-        hetznerSshPrivateKey: hetznerKeypair.privateKey,
-        hetznerSshPublicKey: hetznerKeypair.publicKey,
+      ...(vmKeypair && provider === 'hetzner' ? {
+        hetznerSshPrivateKey: vmKeypair.privateKey,
+        hetznerSshPublicKey: vmKeypair.publicKey,
+      } : {}),
+      ...(doToken ? { doToken } : {}),
+      ...(hetzner?.serverType && provider === 'do' ? { doSize: hetzner.serverType } : {}),
+      ...(hetzner?.location && provider === 'do' ? { doRegion: hetzner.location } : {}),
+      ...(hetzner?.image && provider === 'do' ? { doImage: hetzner.image } : {}),
+      ...(vmKeypair && provider === 'do' ? {
+        doSshPrivateKey: vmKeypair.privateKey,
+        doSshPublicKey: vmKeypair.publicKey,
       } : {}),
       ...(meshLoginServer && meshPreAuthKey ? { meshLoginServer, meshPreAuthKey } : {}),
     }
@@ -710,8 +743,8 @@ export class TemporalBridge {
       // Persisted BEFORE the workflow starts, not after it succeeds. This is the key that will be
       // baked into the VM, and it has to outlive any worker that dies mid-provision — otherwise a
       // restart mid-flight leaves a running server nobody holds the credentials for.
-      ...(hetznerKeypair ? {
-        remoteSshPrivateKeyEnc: encryptValue(hetznerKeypair.privateKey, this.masterKey),
+      ...(vmKeypair ? {
+        remoteSshPrivateKeyEnc: encryptValue(vmKeypair.privateKey, this.masterKey),
       } : {}),
     })
 
@@ -745,6 +778,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const logFileName = `${Date.now()}-destroy-${Math.random().toString(36).slice(2)}-B2.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const doToken = cluster.provider === 'do' ? await this.resolveDoToken(cluster.ownerId) : undefined
     const hcloudToken = cluster.provider === 'hetzner' ? await this.resolveHetznerToken(cluster.ownerId) : undefined
     if (cluster.provider === 'hetzner' && !hcloudToken) {
       // Refusing outright is the safe failure here: marking the cluster 'destroyed' without a
@@ -763,6 +797,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         ...(cluster.remoteSshPort !== undefined ? { remoteSshPort: cluster.remoteSshPort } : {}),
       } : {}),
       ...(hcloudToken ? { hcloudToken } : {}),
+      ...(doToken ? { doToken } : {}),
+      ...(cluster.doServerId ? { doServerId: cluster.doServerId } : {}),
       ...(cluster.hetznerServerId ? { hetznerServerId: cluster.hetznerServerId } : {}),
     }
     const wfId = `cluster-destroy-${cluster.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

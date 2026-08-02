@@ -29,6 +29,24 @@ describe('cluster-topology', () => {
     });
   });
 
+  describe('DigitalOcean', () => {
+    it('is never mock, with or without credentials', () => {
+      // Both directions matter. Without credentials it must not silently become a k3d container
+      // pretending to be a cloud; with them it must reach the real provisioning branch, which
+      // before this existed it did not — a credentialed 'do' cluster fell through every branch in
+      // ProvisionClusterActivity and then ran the shared CDKTF tail against a kubeconfig nothing
+      // had written.
+      expect(isMockCloudProvider('do', noCredentials)).toBe(false);
+      expect(isMockCloudProvider('do', hasCredentials)).toBe(false);
+    });
+
+    it('is self-managed, so apps get NodePort rather than a LoadBalancer that never resolves', () => {
+      // A single-node k3s droplet has no cloud load-balancer controller; the 'hetzner' omission of
+      // this left every app on a Hetzner VM hanging on a LoadBalancer Service forever.
+      expect(isSelfManagedCluster('do', false)).toBe(true);
+    });
+  });
+
   describe('isSelfManagedCluster', () => {
     it.each(NEVER_MOCK_PROVIDERS)('%s is self-managed', (provider) => {
       expect(isSelfManagedCluster(provider, false)).toBe(true);

@@ -14,6 +14,7 @@ import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
 import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
+import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 import { JoinMeshActivity } from './JoinMeshActivity.js';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 
@@ -49,6 +50,13 @@ export interface ProvisionClusterArgs {
    * must be present for the join to happen at all — absent, provisioning keeps the existing
    * public-IP behaviour, which is what a local dev box without a public Headscale needs.
    */
+  // provider === 'do' only — same shape as the hetzner fields above.
+  doToken?: string;
+  doSize?: string;
+  doRegion?: string;
+  doImage?: string;
+  doSshPrivateKey?: string;
+  doSshPublicKey?: string;
   meshLoginServer?: string;
   meshPreAuthKey?: string;
 }
@@ -62,6 +70,8 @@ export interface ProvisionClusterResult {
   // these onto ClusterMetadata, since without them a later destroy can neither reach the machine
   // nor verify the server is gone.
   hetznerServerId?: string;
+  /** provider === 'do' — the droplet id, kept distinct from hetznerServerId on purpose. */
+  doServerId?: string;
   createdHost?: string;
   createdUsername?: string;
   createdPrivateKey?: string;
@@ -90,6 +100,7 @@ export async function ProvisionClusterActivity(
 
   const isRemote = args.provider === 'remote';
   const isHetzner = args.provider === 'hetzner';
+  const isDigitalOcean = args.provider === 'do';
   // Both are in NEVER_MOCK_PROVIDERS (lib/cluster-topology.ts) — they always create/target a real
   // machine. 'hetzner' does need credentials, but a missing token is a hard error raised in the
   // branch below, never a silent fall-through to a local k3d container.
@@ -273,6 +284,43 @@ export async function ProvisionClusterActivity(
       username: vm.username,
       privateKey: vm.privateKey,
     });
+  } else if (isDigitalOcean) {
+    if (!args.doToken) {
+      throw new Error('provider "do" requires a DigitalOcean API token — add one under Cloud Accounts');
+    }
+    vm = await ProvisionDigitalOceanVmActivity({
+      name: physicalName,
+      doToken: args.doToken,
+      logFile,
+      ...(args.doSize ? { size: args.doSize } : {}),
+      ...(args.doRegion ? { region: args.doRegion } : {}),
+      ...(args.doImage ? { image: args.doImage } : {}),
+      ...(args.doSshPrivateKey ? { sshPrivateKey: args.doSshPrivateKey } : {}),
+      ...(args.doSshPublicKey ? { sshPublicKey: args.doSshPublicKey } : {}),
+    });
+
+    // Identical mesh handoff to the hetzner branch — join before k3s so the kubeconfig is written
+    // with the mesh address the first time rather than rewritten later.
+    let reachableHost = vm.host;
+    if (args.meshLoginServer && args.meshPreAuthKey) {
+      const mesh = await JoinMeshActivity({
+        physicalName,
+        host: vm.host,
+        username: vm.username,
+        privateKey: vm.privateKey,
+        loginServer: args.meshLoginServer,
+        preAuthKey: args.meshPreAuthKey,
+      });
+      reachableHost = mesh.meshIp;
+      meshIp = mesh.meshIp;
+    }
+
+    await ProvisionRemoteHostActivity({
+      physicalName,
+      host: reachableHost,
+      username: vm.username,
+      privateKey: vm.privateKey,
+    });
   }
 
   // 5. Clean up orphaned resources from previous failed deploy attempts
@@ -367,7 +415,10 @@ export async function ProvisionClusterActivity(
     ...(capacity ? { capacity } : {}),
     ...(vm
       ? {
-          hetznerServerId: vm.serverId,
+          // Keyed by provider so a droplet id never lands in hetznerServerId. Both destroy paths
+          // look the id up to VERIFY the machine is gone, so writing it to the wrong field means a
+          // teardown that reports success while the server keeps billing.
+          ...(isDigitalOcean ? { doServerId: vm.serverId } : { hetznerServerId: vm.serverId }),
           createdHost: vm.host,
           createdUsername: vm.username,
           createdPrivateKey: vm.privateKey,
