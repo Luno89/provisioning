@@ -48,7 +48,7 @@ import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
-import { canAddChild, childrenOf, deriveCardStatus, subtreeOf, type Card } from './lib/board.js';
+import { aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveCardStatus, rootCard, subtreeOf, type Card } from './lib/board.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
 dotenv.config();
@@ -1786,7 +1786,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     // children are mid-flight would otherwise report something the workflow does not agree with.
     res.json(scoped.map((c) => {
       const kids = childrenOf(cards, c.id);
-      return { ...c, status: deriveCardStatus(c.status, kids), childCount: kids.length };
+      return {
+        ...c,
+        status: deriveCardStatus(c.status, kids),
+        childCount: kids.length,
+        // Root cards report their subtree's spend, so the board can show a budget being consumed
+        // rather than only refusing once it is gone.
+        ...(c.budget ? { usageTotal: aggregateUsage(cards, c, Date.now()) } : {}),
+      };
     }));
   });
 
@@ -1802,6 +1809,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         const parent = cards.find((c) => c.id === parentCardId);
         // 404 for both "no such card" and "not yours", so this cannot enumerate other tenants.
         if (!parent) return res.status(404).json({ error: 'Parent card not found' });
+        // The budget lives on the ROOT and covers the whole subtree, so it is checked here —
+        // adding work is the moment spend is committed. A budget nothing enforces is decoration.
+        const root = rootCard(cards, parent);
+        if (root?.budget) {
+          const spent = budgetExceeded(root.budget, aggregateUsage(cards, root, Date.now()));
+          if (spent) return res.status(409).json({ error: `${spent} — this card's budget covers all of its sub-items` });
+        }
+
         const refusal = canAddChild(parent, childrenOf(cards, parent.id).length);
         // Returned as a reason rather than a silent no-op: the caller (eventually a planner
         // persona) needs to know it was refused and why, or it will simply ask again.

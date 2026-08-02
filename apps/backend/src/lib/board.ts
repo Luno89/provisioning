@@ -49,6 +49,12 @@ export interface Card {
   /** Root cards only — the budget governing this card AND its whole subtree. */
   budget?: CardBudget;
 
+  /**
+   * Resources this card itself has consumed. Aggregated up to the root for budget checks —
+   * see aggregateUsage. Absent means nothing recorded, never zero-and-final.
+   */
+  usage?: Partial<Omit<BudgetUsage, 'wallClockMs'>>;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -104,7 +110,11 @@ export function budgetExceeded(budget: CardBudget | undefined, usage: BudgetUsag
     return `Token budget exhausted (${usage.tokens}/${budget.maxTokens})`;
   }
   if (budget.maxWallClockMs !== undefined && usage.wallClockMs >= budget.maxWallClockMs) {
-    return `Time budget exhausted (${Math.round(usage.wallClockMs / 60000)} minutes)`;
+    // Rounded to whole minutes, a short budget reads as "0 minutes", which sounds like a bug
+    // rather than a limit. Scale the unit to the magnitude instead.
+    const ms = usage.wallClockMs;
+    const elapsed = ms >= 60_000 ? `${Math.round(ms / 60_000)} minutes` : `${(ms / 1000).toFixed(1)} seconds`;
+    return `Time budget exhausted (${elapsed})`;
   }
   if (budget.maxWorkspaces !== undefined && usage.workspaces >= budget.maxWorkspaces) {
     return `Workspace budget exhausted (${usage.workspaces}/${budget.maxWorkspaces})`;
@@ -194,4 +204,38 @@ export function subtreeOf(cards: Card[], rootId: string): Card[] {
     }
   }
   return out;
+}
+
+/** Terminal states — a card here is no longer accruing wall-clock time. */
+const FINISHED: readonly CardStatus[] = ['succeeded', 'failed', 'cancelled'];
+
+/**
+ * Total resources consumed by a root card and its whole subtree.
+ *
+ * Wall-clock is measured from the ROOT's creation rather than summed across cards, because
+ * children run concurrently — summing their individual durations would count the same minutes
+ * several times over and exhaust a time budget that had barely started.
+ *
+ * Tokens, workspaces and replans ARE summed, because those are genuinely consumed per card.
+ *
+ * `now` is injected rather than read from the clock so this stays pure and testable; a budget
+ * check that silently depends on wall-clock time is miserable to write tests for.
+ */
+export function aggregateUsage(cards: Card[], root: Card, now: number): BudgetUsage {
+  const tree = [root, ...subtreeOf(cards, root.id)];
+
+  const sum = (field: keyof NonNullable<Card['usage']>): number =>
+    tree.reduce((total, c) => total + (c.usage?.[field] ?? 0), 0);
+
+  // A finished root stops the clock at its last update; a running one is still accruing.
+  const start = Date.parse(root.createdAt);
+  const end = FINISHED.includes(root.status) ? Date.parse(root.updatedAt) : now;
+  const wallClockMs = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0;
+
+  return {
+    tokens: sum('tokens'),
+    workspaces: sum('workspaces'),
+    replans: sum('replans'),
+    wallClockMs,
+  };
 }

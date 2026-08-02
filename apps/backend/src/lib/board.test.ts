@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  aggregateUsage,
   canAddChild,
   budgetExceeded,
   deriveCardStatus,
@@ -110,6 +111,11 @@ describe('budgetExceeded', () => {
     expect(budgetExceeded({ maxReplans: 3 }, { ...noUsage, replans: 4 })).toMatch(/not converging/);
   });
 
+  it('scales the time unit to the magnitude, so a short budget does not read as "0 minutes"', () => {
+    expect(budgetExceeded({ maxWallClockMs: 1 }, { ...noUsage, wallClockMs: 500 })).toMatch(/0\.5 seconds/);
+    expect(budgetExceeded({ maxWallClockMs: 1 }, { ...noUsage, wallClockMs: 600_000 })).toMatch(/10 minutes/);
+  });
+
   it('allows usage strictly below the cap', () => {
     expect(budgetExceeded({ maxTokens: 100 }, { ...noUsage, tokens: 99 })).toBeUndefined();
   });
@@ -169,5 +175,54 @@ describe('hierarchy helpers', () => {
     ];
     expect(() => subtreeOf(cyclic, 'x')).not.toThrow();
     expect(rootCard(cyclic, cyclic[0]!)).toBeUndefined();
+  });
+});
+
+describe('aggregateUsage', () => {
+  const t0 = Date.parse('2026-08-02T00:00:00Z');
+  const root = card({ id: 'r', status: 'running', createdAt: '2026-08-02T00:00:00Z', usage: { tokens: 100 } });
+  const kids: Card[] = [
+    root,
+    card({ id: 'a', parentCardId: 'r', depth: 1, usage: { tokens: 50, workspaces: 1 } }),
+    card({ id: 'b', parentCardId: 'r', depth: 1, usage: { tokens: 25, workspaces: 1, replans: 2 } }),
+    card({ id: 'a1', parentCardId: 'a', depth: 2, usage: { tokens: 5 } }),
+  ];
+
+  it('sums consumables across the whole subtree, including the root', () => {
+    const u = aggregateUsage(kids, root, t0 + 60_000);
+    expect(u.tokens).toBe(180);
+    expect(u.workspaces).toBe(2);
+    expect(u.replans).toBe(2);
+  });
+
+  it('measures wall-clock from the ROOT rather than summing children', () => {
+    // Children run concurrently. Summing their durations would count the same minutes several
+    // times over and exhaust a time budget that had barely started.
+    expect(aggregateUsage(kids, root, t0 + 60_000).wallClockMs).toBe(60_000);
+  });
+
+  it('stops the clock once the root finishes', () => {
+    const done = card({ id: 'r', status: 'succeeded', createdAt: '2026-08-02T00:00:00Z', updatedAt: '2026-08-02T00:05:00Z' });
+    // Long after the fact, the elapsed figure must not keep growing.
+    expect(aggregateUsage([done], done, t0 + 99_999_999).wallClockMs).toBe(300_000);
+  });
+
+  it('treats missing usage as nothing recorded rather than throwing', () => {
+    const bare = card({ id: 'r', status: 'running' });
+    const u = aggregateUsage([bare], bare, t0);
+    expect(u).toMatchObject({ tokens: 0, workspaces: 0, replans: 0 });
+  });
+
+  it('feeds budgetExceeded — the two halves actually connect', () => {
+    const u = aggregateUsage(kids, root, t0 + 60_000);
+    expect(budgetExceeded({ maxTokens: 150 }, u)).toMatch(/Token/);
+    expect(budgetExceeded({ maxTokens: 500 }, u)).toBeUndefined();
+    expect(budgetExceeded({ maxWallClockMs: 30_000 }, u)).toMatch(/Time/);
+  });
+
+  it('survives an unparseable timestamp instead of producing NaN', () => {
+    // NaN would compare false against every budget and silently disable the time ceiling.
+    const bad = card({ id: 'r', status: 'running', createdAt: 'not-a-date' });
+    expect(aggregateUsage([bad], bad, t0).wallClockMs).toBe(0);
   });
 });
