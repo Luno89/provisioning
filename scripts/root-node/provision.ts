@@ -43,6 +43,15 @@ const KEY_PATH = resolve(HERE, '.root-node-key');
 
 const args = process.argv.slice(2);
 const CONFIRMED = args.includes('--yes');
+/**
+ * Copy THIS machine's JWT_SECRET to the new host instead of letting bootstrap.sh generate one.
+ *
+ * Only correct when migrating a host whose existing data must stay readable — the secret is the
+ * master key for every stored credential. For a fresh host it is a pure downside: it gives a
+ * development machine's compromise the power to forge production sessions and decrypt every
+ * tenant's cloud credentials.
+ */
+const CARRY_SECRET = args.includes('--carry-secret');
 const SERVER_TYPE = (() => {
   const i = args.indexOf('--server-type');
   return i >= 0 && args[i + 1] ? args[i + 1]! : 'cx53';
@@ -128,7 +137,10 @@ async function main() {
     console.log(`\nWould create:
   server   ${SERVER_NAME}  ${SERVER_TYPE}  ${IMAGE}  ${LOCATION}
   DNS      app.${DOMAIN}, mesh.${DOMAIN}, *.${DOMAIN}   (DNS-only, never proxied)
-  then run bootstrap.sh, carrying this machine's JWT_SECRET across.
+  secret   ${CARRY_SECRET
+    ? "CARRIED FROM THIS MACHINE — only correct when migrating existing data"
+    : "freshly generated on the host (pass --carry-secret to migrate instead)"}
+  then run bootstrap.sh.
 
 This bills hourly. Re-run with --yes to proceed.`);
     process.exit(0);
@@ -238,14 +250,30 @@ This bills hourly. Re-run with --yes to proceed.`);
   ok('SSH up');
 
   // ── Repo and secret ──────────────────────────────────────────────────────────────────────────
-  // Done before bootstrap.sh so it finds an .env already carrying THIS machine's JWT_SECRET and
-  // leaves it alone. Generating a fresh one there would make every credential a tenant has stored
-  // permanently undecryptable.
-  step('Placing the repo and carrying JWT_SECRET across');
+  //
+  // JWT_SECRET is the master key for every session and every stored credential, so which one the
+  // host ends up with is close to irreversible: changing it later makes every credential a tenant
+  // has stored permanently undecryptable.
+  //
+  // Two cases, and they want opposite things:
+  //
+  //   MIGRATING an existing host — the secret MUST be carried, or the data coming with it cannot
+  //   be read. That is the case CLAUDE.md documents, and it is what --carry-secret is for.
+  //
+  //   A FRESH host, which is the default — the database starts empty, so nothing there was ever
+  //   encrypted with the local secret and there is nothing to preserve. Copying a development
+  //   machine's secret into production would mean that compromising a laptop lets someone forge
+  //   production sessions and decrypt every tenant's cloud credentials, for no benefit at all.
+  //   bootstrap.sh generates a fresh one when it finds no .env.
+  step(CARRY_SECRET ? 'Placing the repo and carrying JWT_SECRET across' : 'Placing the repo');
   await ssh(ip, 'command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git)');
   await ssh(ip, `test -d ${REPO_DIR}/.git || git clone --quiet ${REPO_URL} ${REPO_DIR}`);
-  await writeRemoteEnv(ip, `JWT_SECRET=${process.env.JWT_SECRET}\nNODE_ENV=production\n`);
-  ok('Repo cloned, JWT_SECRET carried over (never in user_data)');
+  if (CARRY_SECRET) {
+    await writeRemoteEnv(ip, `JWT_SECRET=${process.env.JWT_SECRET}\nNODE_ENV=production\n`);
+    warn('JWT_SECRET carried from this machine — the dev box and production now share a master key');
+  } else {
+    ok('Leaving JWT_SECRET to bootstrap.sh, which generates a fresh one for this host');
+  }
 
   // ── Bootstrap ────────────────────────────────────────────────────────────────────────────────
   step('Running bootstrap.sh (this takes a few minutes)');
