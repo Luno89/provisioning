@@ -46,12 +46,11 @@ interface Message {
   reasoning?: string;
 }
 
-export default function Chat({ apiBase, branchId, mode, onProposals }: {
+export default function Chat({ apiBase, branchId, onProposals }: {
   apiBase: string;
-  /** Set when this chat is a planning conversation — a branch the model can grow leaves on. */
+  /** The branch any proposals land on. Always set from the workspace — any reply may propose. */
   branchId?: string;
-  mode?: 'chat' | 'plan';
-  /** Called after a plan-mode reply, so the board can pick up anything proposed. */
+  /** Called once a reply finishes, so the board picks up anything that was proposed. */
   onProposals?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -192,7 +191,7 @@ export default function Chat({ apiBase, branchId, mode, onProposals }: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ modelId, messages: next, stream: true, mode, branchId }),
+        body: JSON.stringify({ modelId, messages: next, stream: true, branchId }),
         signal: controller.signal,
       });
 
@@ -231,8 +230,8 @@ export default function Chat({ apiBase, branchId, mode, onProposals }: {
       setStreaming(false);
       abortRef.current = null;
       // Proposals are created server-side after the stream closes, so the board only learns about
-      // them once the reply is done.
-      if (mode === 'plan') onProposals?.();
+      // them once the reply is done. Called unconditionally now: any reply may have proposed.
+      onProposals?.();
     }
   };
 
@@ -325,7 +324,7 @@ export default function Chat({ apiBase, branchId, mode, onProposals }: {
             }
           }}
           rows={2}
-          placeholder="Send a message…  (Enter to send, Shift+Enter for a newline)"
+          placeholder="Send a message…  (/plan to insist on a breakdown)"
           className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 focus:border-blue-500 focus:outline-none resize-none"
         />
         {streaming ? (

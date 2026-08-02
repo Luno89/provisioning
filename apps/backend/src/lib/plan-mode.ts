@@ -45,6 +45,49 @@ export const PLAN_SYSTEM_PROMPT = [
 ].join('\n');
 
 /**
+ * The always-on affordance, included in every reply's system prompt.
+ *
+ * There is no plan MODE. Proposing is an ability the model always has and exercises when it is
+ * confident — which is what a skill is, and avoids a toggle that persists and gets forgotten while
+ * a conversation drifts between chatting and planning.
+ *
+ * Deliberately terse. This rides on every message, so length is a per-request cost (mitigated but
+ * not erased by prefix caching) and a long instruction biases ordinary chat toward manufacturing
+ * work. The full PLAN_SYSTEM_PROMPT is reserved for an explicit /plan.
+ *
+ * Safe to leave always on because it was MEASURED, not assumed: against TabbyAPI serving Qwen3, a
+ * greeting, a general opinion question, a factual question and a vague complaint all correctly
+ * produced no proposals, while a concrete request produced exactly one.
+ */
+export const AMBIENT_PROPOSAL_PROMPT = [
+  'If you become confident about concrete work that should be done, you may end your reply with:',
+  '```json',
+  '{"leaves":[{"title":"Imperative title","body":"What it involves"}]}',
+  '```',
+  'Only when the work is clear. Otherwise just talk, or ask a question.',
+].join('\n');
+
+/** Parsed out of a message so an explicit request never depends on the model noticing. */
+export interface ChatCommand {
+  command: 'plan' | null;
+  /** The message with the command stripped. */
+  text: string;
+}
+
+/**
+ * Recognises a leading slash command.
+ *
+ * Client-side intent, not a model judgement: `/plan` must work even when ambient proposing would
+ * have declined, which is the entire reason it exists. Anything else is left untouched — an
+ * unknown slash command is far more likely to be someone typing a path than inventing syntax.
+ */
+export function parseChatCommand(message: string): ChatCommand {
+  const match = /^\s*\/plan\b\s*([\s\S]*)$/i.exec(message ?? '');
+  if (!match) return { command: null, text: message ?? '' };
+  return { command: 'plan', text: (match[1] ?? '').trim() };
+}
+
+/**
  * Default completion budget for plan mode, when the caller does not set one.
  *
  * Deliberately large. Measured against the live TabbyAPI deployment serving Qwen3: a single

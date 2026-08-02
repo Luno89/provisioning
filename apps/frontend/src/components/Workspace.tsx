@@ -1,75 +1,51 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { MessageSquare, GitBranch } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import Chat from './Chat.js';
 import Board from './Board.js';
 
 /**
  * Chat and board together — the harness's main surface.
  *
- * The two are deliberately NOT bound to each other. A branch is one planning conversation, and the
- * board visualises how that work decomposed, but you can also just talk: chat mode has no branch
- * and produces nothing. Tying them would mean every idle question grew a tree.
+ * There is NO plan mode. Proposing is an ability the model always has and exercises when it is
+ * confident, so a conversation can drift between chatting and planning without anyone declaring
+ * intent up front. A toggle would persist, be forgotten, and be wrong exactly when it mattered.
  *
- * Modes:
- *   chat — ordinary conversation, no side effects.
- *   plan — the reply may propose leaves, which appear alongside as Sprouting for you to accept.
+ * That is safe because it was measured rather than assumed: against the live model, a greeting, a
+ * general opinion question, a factual question and a vague complaint all produced no proposals,
+ * while a concrete request produced one. And a false positive costs a dismissal — a proposed leaf
+ * starts no workflow and spends nothing until accepted.
  *
- * The agent is the primary author of leaves; the board stays editable because a plan you cannot
- * correct is a plan you have to argue with.
+ * `/plan` remains for when you want to force it and the model would have declined.
  */
 export default function Workspace({ apiBase }: { apiBase: string }) {
   const qc = useQueryClient();
-  const [mode, setMode] = useState<'chat' | 'plan'>('chat');
-  // One branch per planning session, created on entering plan mode rather than per message —
-  // a branch is the conversation, so every turn in it grows the same tree.
+  // A branch is the conversation, so every turn grows the same tree. "New branch" starts a fresh
+  // one rather than a mode being switched.
   const [branchId, setBranchId] = useState<string>(() => crypto.randomUUID());
 
-  const enterPlan = () => {
-    setMode('plan');
-  };
-
-  const newBranch = () => {
-    setBranchId(crypto.randomUUID());
-    qc.invalidateQueries({ queryKey: ['leaves'] });
-  };
+  const refreshLeaves = () => qc.invalidateQueries({ queryKey: ['leaves'] });
 
   return (
     <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-7rem)]">
       <div className="xl:w-[46%] min-w-0 flex flex-col">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex rounded-xl bg-slate-900 border border-slate-800 p-0.5">
-            <button
-              onClick={() => setMode('chat')}
-              className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-colors ${mode === 'chat' ? 'bg-slate-700 text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-              <MessageSquare size={13} /> Chat
-            </button>
-            <button
-              onClick={enterPlan}
-              className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-colors ${mode === 'plan' ? 'bg-emerald-700 text-emerald-50' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-              <GitBranch size={13} /> Plan
-            </button>
-          </div>
-          {mode === 'plan' && (
-            <button onClick={newBranch} className="text-[11px] text-slate-500 hover:text-slate-300">
-              New branch
-            </button>
-          )}
-          <span className="text-[11px] text-slate-600 ml-auto">
-            {mode === 'plan' ? 'Replies may propose leaves' : 'No side effects'}
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
+            <Sparkles size={12} className="text-emerald-500" />
+            Ask anything — type <span className="font-mono text-slate-400">/plan</span> to insist on a breakdown
           </span>
+          <button
+            onClick={() => { setBranchId(crypto.randomUUID()); refreshLeaves(); }}
+            className="ml-auto text-[11px] text-slate-500 hover:text-slate-300"
+          >
+            New branch
+          </button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <Chat
-            apiBase={apiBase}
-            mode={mode}
-            // Only in plan mode: a chat with no branch cannot grow anything, which is the point.
-            {...(mode === 'plan' ? { branchId } : {})}
-            onProposals={() => qc.invalidateQueries({ queryKey: ['leaves'] })}
-          />
+          {/* branchId is always passed: any reply may propose, so there is always somewhere for
+              proposals to land. */}
+          <Chat apiBase={apiBase} branchId={branchId} onProposals={refreshLeaves} />
         </div>
       </div>
 

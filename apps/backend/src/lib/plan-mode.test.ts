@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractProposals, stripProposalBlock, MAX_PROPOSALS_PER_REPLY } from './plan-mode.js';
+import { extractProposals, stripProposalBlock, parseChatCommand, MAX_PROPOSALS_PER_REPLY } from './plan-mode.js';
 
 /**
  * These cover the shapes models ACTUALLY emit rather than the shape the prompt asks for. A local
@@ -87,5 +87,42 @@ describe('stripProposalBlock', () => {
 
   it('leaves a reply with no blocks untouched', () => {
     expect(stripProposalBlock('Just talking.')).toBe('Just talking.');
+  });
+});
+
+describe('parseChatCommand', () => {
+  it('recognises /plan and strips it', () => {
+    expect(parseChatCommand('/plan add rate limiting')).toEqual({ command: 'plan', text: 'add rate limiting' });
+    expect(parseChatCommand('  /plan   add OAuth  ')).toEqual({ command: 'plan', text: 'add OAuth' });
+  });
+
+  it('is case-insensitive', () => {
+    expect(parseChatCommand('/PLAN do a thing').command).toBe('plan');
+  });
+
+  it('accepts /plan with no text, so it can be used to ask for a plan of what was just discussed', () => {
+    expect(parseChatCommand('/plan')).toEqual({ command: 'plan', text: '' });
+  });
+
+  it('leaves ordinary messages untouched', () => {
+    expect(parseChatCommand('what do you think about rate limiting?')).toEqual({
+      command: null, text: 'what do you think about rate limiting?',
+    });
+  });
+
+  it('does not claim a word that merely starts with plan', () => {
+    // "/planning" is not the command, and treating it as one would silently eat the message.
+    expect(parseChatCommand('/planning permission').command).toBeNull();
+  });
+
+  it('ignores unknown slash commands rather than inventing syntax', () => {
+    // Far more likely to be someone typing a path than a command.
+    expect(parseChatCommand('/usr/local/bin is on PATH').command).toBeNull();
+    expect(parseChatCommand('/deploy now').command).toBeNull();
+  });
+
+  it('handles empty and missing input', () => {
+    expect(parseChatCommand('')).toEqual({ command: null, text: '' });
+    expect(() => parseChatCommand(undefined as any)).not.toThrow();
   });
 });

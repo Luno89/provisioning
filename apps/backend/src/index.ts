@@ -49,7 +49,7 @@ import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
-import { PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals } from './lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand } from './lib/plan-mode.js';
 import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
@@ -1706,10 +1706,27 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * schema, and re-encoding it here would mean tracking every field either adds.
    */
   app.post('/api/chat', async (req, res) => {
-    const { modelId, messages, stream = true, leafId, mode = 'chat', branchId, ...rest } = req.body ?? {};
+    const { modelId, messages, stream = true, leafId, branchId, ...rest } = req.body ?? {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages is required' });
     }
+
+    // There is no plan MODE. Proposing is always available, and an explicit /plan only escalates
+    // it — stronger instructions and a bigger budget — so the user can force it when the model
+    // would have declined. Parsed from the LAST message, which is the one being sent now.
+    const lastIndex = messages.length - 1;
+    const command = parseChatCommand(String(messages[lastIndex]?.content ?? ''));
+    const explicitPlan = command.command === 'plan';
+    const outboundMessages = explicitPlan
+      ? [
+          { role: 'system', content: PLAN_SYSTEM_PROMPT },
+          ...messages.slice(0, lastIndex),
+          // The command itself is stripped: the model should see the request, not the syntax.
+          // An empty /plan is meaningful — "plan what we just discussed" — so the prior turns
+          // carry it, and a placeholder keeps the final message non-empty.
+          { ...messages[lastIndex], content: command.text || 'Propose the work we have been discussing.' },
+        ]
+      : [{ role: 'system', content: AMBIENT_PROPOSAL_PROMPT }, ...messages];
 
     let provider, baseUrl, apiKey;
     try {
@@ -1741,12 +1758,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         body: JSON.stringify({
           ...rest,
           ...(provider.model ? { model: provider.model } : {}),
-          // Plan mode prepends a system message asking the model to put work forward as it goes.
-          // A branch IS the conversation, so this is the whole difference between the two modes.
-          messages: mode === 'plan' ? [{ role: 'system', content: PLAN_SYSTEM_PROMPT }, ...messages] : messages,
+          messages: outboundMessages,
           // A reasoning model spends most of a turn thinking; too small a cap means it never
-          // reaches its answer and the user gets silence. See PLAN_MODE_MAX_TOKENS.
-          ...(mode === 'plan' && rest.max_tokens === undefined ? { max_tokens: PLAN_MODE_MAX_TOKENS } : {}),
+          // reaches its answer and the user gets silence. Applied to an explicit /plan, which asks
+          // for exactly the deliberation that provokes it. See PLAN_MODE_MAX_TOKENS.
+          ...(explicitPlan && rest.max_tokens === undefined ? { max_tokens: PLAN_MODE_MAX_TOKENS } : {}),
           stream,
           // Streaming responses omit usage unless asked, and then only in the final chunk.
           // Confirmed supported by the live TabbyAPI deployment; a server that ignores the field
@@ -1773,7 +1789,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // Usage is watched as the stream passes through rather than read off a response body —
       // see lib/token-usage.ts. The client gets every byte unchanged; this only observes.
       const scanner = new UsageScanner();
-      const content = mode === 'plan' ? new ContentScanner() : undefined;
+      // Watched on every reply: any turn may end with proposals now that there is no mode.
+      const content = branchId ? new ContentScanner() : undefined;
       const decoder = new TextDecoder();
       const reader = upstream.body.getReader();
       for (;;) {
@@ -1793,8 +1810,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           const reply = content.result();
           // Distinguish "nothing worth proposing" from "the model never got to answer". The
           // second is a real failure that otherwise looks identical to the first.
-          if (!reply.trim()) {
-            console.warn(`[chat] plan mode produced no content for branch ${branchId} — the reply was likely consumed by reasoning before reaching an answer; raise max_tokens`);
+          // Only worth flagging for an explicit /plan: an ordinary reply legitimately has no
+          // content only when something went wrong, but that is the streaming path's concern.
+          if (explicitPlan && !reply.trim()) {
+            console.warn(`[chat] /plan produced no content for branch ${branchId} — the reply was likely consumed by reasoning before reaching an answer; raise max_tokens`);
           }
           const proposals = extractProposals(reply);
           const now = new Date().toISOString();
