@@ -488,6 +488,126 @@ export const ovhAdapter: VpsCatalogAdapter = {
   },
 };
 
+
+// ── InterServer ────────────────────────────────────────────────────────────
+// The only provider here that speaks SOAP rather than JSON, and the only one besides Hetzner
+// whose API can actually ORDER a machine (api_api_buy_vps). Its catalogue call needs no auth —
+// verified live against https://my.interserver.net/api.php.
+//
+// Priced by "slice": every slice adds a fixed lump of resources, and a plan is just N slices.
+// The API returns the COST PER SLICE and which slice types are buyable, but NOT what a slice
+// contains — all 119 operations were checked, and none reports RAM or disk. So the ladder below
+// is transcribed from the pricing page and pinned by tests.
+//
+// That is a deliberate, bounded compromise: if InterServer changes the ladder the PRICE stays
+// correct (it is derived from the API) and only the specs go stale, which the test makes findable.
+const INTERSERVER_ENDPOINT = 'https://my.interserver.net/api.php';
+
+/**
+ * Advertised tiers, from https://www.interserver.net/vps/.
+ *
+ * RAM, disk and transfer scale linearly per slice (2GB / 40GB / 2TB each). vCores do NOT — they
+ * are 1 at a single slice and half the slice count above that, which is why this is a table rather
+ * than a multiply.
+ */
+const INTERSERVER_TIERS: readonly { slices: number; vcpu: number }[] = [
+  { slices: 1, vcpu: 1 },
+  { slices: 4, vcpu: 2 },
+  { slices: 8, vcpu: 4 },
+  { slices: 16, vcpu: 8 },
+  { slices: 32, vcpu: 16 },
+];
+const GB_RAM_PER_SLICE = 2;
+const GB_DISK_PER_SLICE = 40;
+const TB_TRANSFER_PER_SLICE = 2;
+
+/**
+ * Pure parse of the get_vps_slice_types SOAP response, exported so the XML handling and the
+ * slice-type filtering can be tested without a network call.
+ *
+ * Hand-parsed rather than pulling in a SOAP client: this is one fixed rpc/encoded response with a
+ * flat shape, and a dependency for a single endpoint is a worse trade than a tested regex.
+ */
+export function interserverOffersFromSliceXml(xml: string): AdapterResult {
+  const offers: VpsOffer[] = [];
+  let skippedNoPrice = 0;
+
+  for (const item of xml.match(/<item[^>]*>[\s\S]*?<\/item>/g) ?? []) {
+    const field = (name: string): string | undefined =>
+      new RegExp(`<${name}[^>]*>([^<]*)</${name}>`).exec(item)?.[1]?.trim();
+
+    const name = field('name');
+    const costPerSlice = Number(field('cost'));
+    if (!name) continue;
+    if (!Number.isFinite(costPerSlice) || costPerSlice <= 0) { skippedNoPrice++; continue; }
+
+    // Not orderable — listing it invites picking a plan that cannot be bought.
+    if (field('buyable') !== '1') continue;
+
+    // Windows costs more and cannot run k3s; "Storage" slices are disk add-ons, not machines.
+    if (/windows|hyper-v|storage/i.test(name)) continue;
+
+    // IPv6-only variants are cheaper and genuinely tempting, but this platform reaches a machine
+    // over IPv4 — SSH bootstrap and the 100.64.0.0/10 mesh both assume it — so an IPv6-only box
+    // would be catalogued as usable and then be unreachable.
+    if (/ipv6/i.test(name)) continue;
+
+    // OpenVZ and Virtuozzo are container virtualisation, kept because this is a general VPS
+    // catalogue, but labelled so the distinction is visible: nested containers there frequently
+    // cannot run k3s, whereas KVM is full virtualisation and can.
+    for (const tier of INTERSERVER_TIERS) {
+      offers.push(withDerived({
+        provider: 'interserver',
+        planId: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${tier.slices}`,
+        label: `${name} × ${tier.slices}`,
+        vcpu: tier.vcpu,
+        cpuType: 'shared' as VpsCpuType,
+        arch: 'x86' as VpsArch,
+        ramGb: GB_RAM_PER_SLICE * tier.slices,
+        diskGb: GB_DISK_PER_SLICE * tier.slices,
+        priceMonthly: Number((costPerSlice * tier.slices).toFixed(2)),
+        bandwidthTb: TB_TRANSFER_PER_SLICE * tier.slices,
+        currency: 'USD',
+        // US providers quote pre-tax, matching the convention the Hetzner adapter documents.
+        taxIncluded: false,
+        hourlyBilling: false,
+        // get_vps_locations_array would fill this, but it is a second SOAP round trip for data the
+        // catalogue does not filter on yet.
+        locations: [],
+        provisionable: false,
+      }));
+    }
+  }
+  return { offers, skippedNoPrice };
+}
+
+export const interserverAdapter: VpsCatalogAdapter = {
+  provider: 'interserver',
+  requiresCredentials: false,
+  // api_api_buy_vps exists, so this could become true — but ordering is a separate job from
+  // cataloguing, and nothing in ProvisionClusterActivity targets InterServer yet.
+  provisionable: false,
+  async fetch() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(INTERSERVER_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: 'urn:myapi#get_vps_slice_types' },
+        body:
+          '<?xml version="1.0" encoding="UTF-8"?>' +
+          '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:myapi">' +
+          '<soap:Body><urn:get_vps_slice_types/></soap:Body></soap:Envelope>',
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return interserverOffersFromSliceXml(await res.text());
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+};
+
 export const ADAPTERS: readonly VpsCatalogAdapter[] = [
   hetznerAdapter,
   linodeAdapter,
@@ -495,4 +615,5 @@ export const ADAPTERS: readonly VpsCatalogAdapter[] = [
   digitalOceanAdapter,
   scalewayAdapter,
   ovhAdapter,
+  interserverAdapter,
 ];
