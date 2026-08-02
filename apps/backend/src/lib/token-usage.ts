@@ -86,3 +86,42 @@ export class UsageScanner {
     return this.usage;
   }
 }
+
+/**
+ * Accumulates assistant content from an SSE stream.
+ *
+ * Only `delta.content` — deliberately NOT `delta.reasoning_content`. A reasoning model thinks out
+ * loud before answering, and its thinking regularly contains draft JSON it then discards. Parsing
+ * proposals out of reasoning would create leaves the model considered and rejected.
+ *
+ * Unlike UsageScanner this keeps everything, because a proposal block sits at the end of a reply
+ * whose length is not known in advance.
+ */
+export class ContentScanner {
+  private buffer = '';
+  private text = '';
+
+  push(chunk: string): void {
+    this.buffer += chunk;
+    const lines = this.buffer.split('\n');
+    // Frames split across network chunks, so the trailing partial line is carried over.
+    this.buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        const delta = JSON.parse(payload)?.choices?.[0]?.delta;
+        if (typeof delta?.content === 'string') this.text += delta.content;
+      } catch {
+        // Partial or non-JSON frames are normal mid-stream.
+      }
+    }
+  }
+
+  result(): string {
+    return this.text;
+  }
+}

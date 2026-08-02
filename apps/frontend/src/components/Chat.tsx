@@ -46,7 +46,14 @@ interface Message {
   reasoning?: string;
 }
 
-export default function Chat({ apiBase }: { apiBase: string }) {
+export default function Chat({ apiBase, branchId, mode, onProposals }: {
+  apiBase: string;
+  /** Set when this chat is a planning conversation — a branch the model can grow leaves on. */
+  branchId?: string;
+  mode?: 'chat' | 'plan';
+  /** Called after a plan-mode reply, so the board can pick up anything proposed. */
+  onProposals?: () => void;
+}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [modelId, setModelId] = useState('');
@@ -185,7 +192,7 @@ export default function Chat({ apiBase }: { apiBase: string }) {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ modelId, messages: next, stream: true }),
+        body: JSON.stringify({ modelId, messages: next, stream: true, mode, branchId }),
         signal: controller.signal,
       });
 
@@ -223,6 +230,9 @@ export default function Chat({ apiBase }: { apiBase: string }) {
     } finally {
       setStreaming(false);
       abortRef.current = null;
+      // Proposals are created server-side after the stream closes, so the board only learns about
+      // them once the reply is done.
+      if (mode === 'plan') onProposals?.();
     }
   };
 

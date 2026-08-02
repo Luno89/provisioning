@@ -48,7 +48,8 @@ import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
-import { UsageScanner } from './lib/token-usage.js';
+import { ContentScanner, UsageScanner } from './lib/token-usage.js';
+import { PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals } from './lib/plan-mode.js';
 import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
@@ -1705,7 +1706,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * schema, and re-encoding it here would mean tracking every field either adds.
    */
   app.post('/api/chat', async (req, res) => {
-    const { modelId, messages, stream = true, leafId, ...rest } = req.body ?? {};
+    const { modelId, messages, stream = true, leafId, mode = 'chat', branchId, ...rest } = req.body ?? {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages is required' });
     }
@@ -1740,7 +1741,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         body: JSON.stringify({
           ...rest,
           ...(provider.model ? { model: provider.model } : {}),
-          messages,
+          // Plan mode prepends a system message asking the model to put work forward as it goes.
+          // A branch IS the conversation, so this is the whole difference between the two modes.
+          messages: mode === 'plan' ? [{ role: 'system', content: PLAN_SYSTEM_PROMPT }, ...messages] : messages,
+          // A reasoning model spends most of a turn thinking; too small a cap means it never
+          // reaches its answer and the user gets silence. See PLAN_MODE_MAX_TOKENS.
+          ...(mode === 'plan' && rest.max_tokens === undefined ? { max_tokens: PLAN_MODE_MAX_TOKENS } : {}),
           stream,
           // Streaming responses omit usage unless asked, and then only in the final chunk.
           // Confirmed supported by the live TabbyAPI deployment; a server that ignores the field
@@ -1767,15 +1773,52 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // Usage is watched as the stream passes through rather than read off a response body —
       // see lib/token-usage.ts. The client gets every byte unchanged; this only observes.
       const scanner = new UsageScanner();
+      const content = mode === 'plan' ? new ContentScanner() : undefined;
       const decoder = new TextDecoder();
       const reader = upstream.body.getReader();
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        scanner.push(decoder.decode(value, { stream: true }));
+        const text = decoder.decode(value, { stream: true });
+        scanner.push(text);
+        content?.push(text);
         res.write(Buffer.from(value));
       }
       res.end();
+
+      // Proposals are created after the stream closes, from the assistant's CONTENT only —
+      // never its reasoning, which routinely contains draft JSON the model then discarded.
+      if (content && branchId) {
+        try {
+          const reply = content.result();
+          // Distinguish "nothing worth proposing" from "the model never got to answer". The
+          // second is a real failure that otherwise looks identical to the first.
+          if (!reply.trim()) {
+            console.warn(`[chat] plan mode produced no content for branch ${branchId} — the reply was likely consumed by reasoning before reaching an answer; raise max_tokens`);
+          }
+          const proposals = extractProposals(reply);
+          const now = new Date().toISOString();
+          for (const proposal of proposals) {
+            await db.saveLeaf({
+              id: uuidv4(),
+              ownerId: (req as any).user.id,
+              branchId: String(branchId),
+              title: proposal.title,
+              ...(proposal.body ? { body: proposal.body } : {}),
+              column: 'todo',
+              // Proposed, always: the model suggests, a human accepts. Nothing runs or spends here.
+              status: 'proposed',
+              depth: 0,
+              blocking: true,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        } catch (err: any) {
+          // A parsing failure must never fail a reply the user already received.
+          console.warn(`[chat] could not record proposals for branch ${branchId}: ${err.message}`);
+        }
+      }
 
       // Recorded after the response is closed: metering must never delay the user's tokens, and a
       // failure to record must never fail a generation that already succeeded.
