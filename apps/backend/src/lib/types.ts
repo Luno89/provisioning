@@ -503,6 +503,15 @@ export interface UserMetadata {
   // migrateLegacyOwnership / the register route) — the only account that can mint invite codes.
   // Not a general RBAC system, just enough to gate registration on an invite-only root node.
   isAdmin?: boolean;
+  /**
+   * Provider id used for structured extraction — turning a conversation into proposed leaves.
+   *
+   * A separate model on purpose: the conversation model reasons, which is what makes it good to
+   * talk to and unreliable at emitting a format (measured at roughly one success in eight). This
+   * points at any provider in the registry, deployment or registered endpoint. Unset means no
+   * extractor, and /plan falls back to parsing the conversation model's own reply.
+   */
+  extractionModelId?: string;
 }
 
 // ── Invite-gated registration (root-node hosting — see /api/auth/register) ──

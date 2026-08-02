@@ -49,7 +49,8 @@ import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
-import { AMBIENT_PROPOSAL_PROMPT, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand } from './lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
+import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
@@ -1633,12 +1634,89 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── MODELS / CHAT — agent harness Phase A (~/.claude/plans/agent-harness.md) ── */
 
+  /**
+   * Runs the extraction model over a conversation and returns proposed leaves.
+   *
+   * Non-streaming, low temperature, schema-constrained: this is a narrow deterministic job, not a
+   * conversation. Every failure returns an empty array — an extractor that is down, slow or
+   * confused must never fail the chat it was called from, because the user already has their reply.
+   */
+  async function extractViaModel(
+    extractor: { baseUrl: string; apiKey?: string; provider: { model: string; name: string } },
+    turns: { role: string; content: string }[],
+  ): Promise<LeafProposal[]> {
+    try {
+      const res = await fetch(`${extractor.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(extractor.apiKey ? { authorization: `Bearer ${extractor.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          ...(extractor.provider.model ? { model: extractor.provider.model } : {}),
+          messages: [
+            { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+            { role: 'user', content: buildExtractionPrompt(turns) },
+          ],
+          // Constrained decoding makes malformed output structurally impossible rather than
+          // merely unlikely. Ignored by engines that do not support it, which the parser survives.
+          json_schema: EXTRACTION_SCHEMA,
+          temperature: 0.1,
+          max_tokens: 800,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) {
+        console.warn(`[extract] ${extractor.provider.name} returned HTTP ${res.status}`);
+        return [];
+      }
+      const body = (await res.json()) as any;
+      return parseExtractionResult(String(body?.choices?.[0]?.message?.content ?? ''), MAX_PROPOSALS_PER_REPLY);
+    } catch (err: any) {
+      console.warn(`[extract] ${extractor.provider.name} failed: ${err.message}`);
+      return [];
+    }
+  }
+
   app.get('/api/models', async (req, res) => {
     try {
       res.json(await modelService.list((req as any).user.id));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  /**
+   * Chooses which model does structured extraction.
+   *
+   * Deliberately explicit rather than auto-picking the smallest available: the right extractor is a
+   * NON-REASONING model, and nothing in the registry records that. Guessing would silently
+   * reproduce the failure this exists to fix.
+   */
+  app.put('/api/models/extractor', async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { modelId } = req.body ?? {};
+      if (modelId !== null && typeof modelId !== 'string') {
+        return res.status(400).json({ error: 'modelId must be a string, or null to clear' });
+      }
+      if (modelId) {
+        const owned = (await modelService.list(user.id)).some((m) => m.id === modelId);
+        if (!owned) return res.status(404).json({ error: 'Model not found' });
+      }
+      const record = await db.getUserById(user.id);
+      if (!record) return res.status(404).json({ error: 'User not found' });
+      await db.saveUser({ ...record, ...(modelId ? { extractionModelId: modelId } : { extractionModelId: undefined }) });
+      res.json({ success: true, extractionModelId: modelId || null });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/models/extractor', async (req, res) => {
+    const record = await db.getUserById((req as any).user.id);
+    res.json({ extractionModelId: record?.extractionModelId ?? null });
   });
 
   /**
@@ -1808,6 +1886,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (content && branchId) {
         try {
           const reply = content.result();
+
+          /**
+           * Extraction path. The conversation model reasons — which is what makes it good to talk
+           * to and unreliable at emitting a format (measured at roughly one success in eight) — so
+           * the structured job goes to a small non-reasoning model with a schema.
+           *
+           * Only for an explicit /plan for now: it is a second inference call, and running it on
+           * every reply needs latency measured rather than assumed.
+           */
+          let extracted: Awaited<ReturnType<typeof extractViaModel>> | undefined;
+          if (explicitPlan) {
+            const extractor = await modelService.resolveExtractor((req as any).user.id).catch(() => undefined);
+            if (extractor) {
+              extracted = await extractViaModel(extractor, [...messages.slice(0, lastIndex), { role: 'assistant', content: reply }]);
+            }
+          }
           // Distinguish "nothing worth proposing" from "the model never got to answer". The
           // second is a real failure that otherwise looks identical to the first.
           // Only worth flagging for an explicit /plan: an ordinary reply legitimately has no
@@ -1815,7 +1909,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           if (explicitPlan && !reply.trim()) {
             console.warn(`[chat] /plan produced no content for branch ${branchId} — the reply was likely consumed by reasoning before reaching an answer; raise max_tokens`);
           }
-          const proposals = extractProposals(reply);
+          // Extractor first when it produced anything; otherwise fall back to parsing the
+          // conversation model's own reply, which works occasionally and beats nothing.
+          const proposals = extracted?.length ? extracted : extractProposals(reply);
           const now = new Date().toISOString();
           for (const proposal of proposals) {
             await db.saveLeaf({

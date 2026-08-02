@@ -69,6 +69,25 @@ export class ModelService extends BaseService {
   }
 
   /**
+   * Resolves this user's extraction model, if they have chosen one.
+   *
+   * Returns undefined rather than falling back to the conversation model: extracting with a
+   * reasoning model is exactly the thing that does not work, so a silent substitution would look
+   * like the feature functioning while reproducing the original failure.
+   */
+  async resolveExtractor(userId: string): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string } | undefined> {
+    const user = await this.db.getUserById(userId);
+    const chosen = user?.extractionModelId;
+    if (!chosen) return undefined;
+    try {
+      return await this.resolveBaseUrl(userId, chosen);
+    } catch {
+      // A deleted or unreachable extractor must not fail the chat it was called from.
+      return undefined;
+    }
+  }
+
+  /**
    * Resolves a model to an OpenAI-compatible base URL reachable from this process, standing up a
    * port-forward if one is not already running.
    *
