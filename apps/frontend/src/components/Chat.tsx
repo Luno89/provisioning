@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
+import { consumeChunk } from '../lib/stream-delta.js';
 import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server } from 'lucide-react';
 
 /**
@@ -34,6 +35,15 @@ interface ModelProvider {
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * Reasoning models stream `delta.reasoning_content` before any `delta.content`.
+   *
+   * Confirmed live against TabbyAPI serving Qwen3: a short prompt produced 35 reasoning frames
+   * and then a single content frame. Parsing only `content` — as this did — left the UI showing a
+   * spinner for the entire thinking phase, and with a small max_tokens budget the answer never
+   * arrived at all, which looks exactly like a broken deployment.
+   */
+  reasoning?: string;
 }
 
 export default function Chat({ apiBase }: { apiBase: string }) {
@@ -186,36 +196,27 @@ export default function Chat({ apiBase }: { apiBase: string }) {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      // SSE frames can split across chunk boundaries, so hold the remainder rather than parsing
-      // each chunk independently — otherwise long replies drop tokens at arbitrary points.
+      // Buffer lives here because SSE frames split across network chunks; consumeChunk is pure and
+      // tested (lib/stream-delta.ts) precisely because this parser has broken twice.
       let buffer = '';
 
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const payload = trimmed.slice(5).trim();
-          if (payload === '[DONE]') continue;
-          try {
-            const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
-            if (!delta) continue;
-            setMessages((prev) => {
-              const copy = [...prev];
-              const last = copy[copy.length - 1];
-              if (last) copy[copy.length - 1] = { ...last, content: last.content + delta };
-              return copy;
-            });
-          } catch {
-            // A partial or non-JSON frame is normal mid-stream; skipping beats aborting the reply.
-          }
-        }
+        const r = consumeChunk(buffer, decoder.decode(value, { stream: true }));
+        buffer = r.buffer;
+        if (!r.delta.content && !r.delta.reasoning) continue;
+        setMessages((prev) => {
+          const copy = [...prev];
+          const last = copy[copy.length - 1];
+          if (!last) return copy;
+          copy[copy.length - 1] = {
+            ...last,
+            ...(r.delta.content ? { content: last.content + r.delta.content } : {}),
+            ...(r.delta.reasoning ? { reasoning: (last.reasoning ?? '') + r.delta.reasoning } : {}),
+          };
+          return copy;
+        });
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') setError(err.message);
@@ -278,10 +279,22 @@ export default function Chat({ apiBase }: { apiBase: string }) {
             <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${m.role === 'user' ? 'bg-blue-600' : 'bg-slate-800'}`}>
               {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
             </div>
-            <div className="flex-1 text-sm text-slate-200 whitespace-pre-wrap leading-relaxed pt-1">
-              {m.content || (streaming && i === messages.length - 1
-                ? <Loader2 className="animate-spin text-slate-500" size={14} />
-                : null)}
+            <div className="flex-1 pt-1 min-w-0">
+              {m.reasoning && (
+                <details className="mb-2 group" open={!m.content}>
+                  <summary className="text-[11px] uppercase tracking-widest text-slate-500 cursor-pointer select-none">
+                    Thinking{!m.content && streaming && i === messages.length - 1 ? '…' : ''}
+                  </summary>
+                  <div className="mt-1 text-[12px] text-slate-500 whitespace-pre-wrap leading-relaxed border-l-2 border-slate-800 pl-3">
+                    {m.reasoning}
+                  </div>
+                </details>
+              )}
+              <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                {m.content || (streaming && i === messages.length - 1 && !m.reasoning
+                  ? <Loader2 className="animate-spin text-slate-500" size={14} />
+                  : null)}
+              </div>
             </div>
           </div>
         ))}

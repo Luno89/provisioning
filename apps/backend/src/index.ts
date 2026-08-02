@@ -1730,7 +1730,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           // returned to the browser.
           ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
         },
-        body: JSON.stringify({ ...rest, model: provider.model || provider.name, messages, stream }),
+        // Omit `model` entirely when unknown rather than falling back to the deployment NAME, which
+        // is never a valid model id. TabbyAPI ignores the field (confirmed live: it serves
+        // "turboderp-qwen3-6-27b-exl3-5-00bpw" regardless of what is sent, having derived its own
+        // id from the repo and bitrate), but a stricter server would reject "Tabbyapi-Production"
+        // outright — and single-model endpoints generally serve whatever they loaded.
+        body: JSON.stringify({ ...rest, ...(provider.model ? { model: provider.model } : {}), messages, stream }),
         signal: upstreamAbort.signal,
       });
 
