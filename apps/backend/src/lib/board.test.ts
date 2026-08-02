@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   aggregateUsage,
+  failureContext,
+  shouldRetry,
+  MAX_CARD_ATTEMPTS,
+  type CardAttempt,
   canAddChild,
   budgetExceeded,
   deriveCardStatus,
@@ -224,5 +228,41 @@ describe('aggregateUsage', () => {
     // NaN would compare false against every budget and silently disable the time ceiling.
     const bad = card({ id: 'r', status: 'running', createdAt: 'not-a-date' });
     expect(aggregateUsage([bad], bad, t0).wallClockMs).toBe(0);
+  });
+});
+
+describe('retry context', () => {
+  const fail = (attempt: number, error: string): CardAttempt =>
+    ({ attempt, error, failedAt: '2026-08-02T00:00:00Z' });
+
+  it('is empty for a first attempt, so callers can append unconditionally', () => {
+    expect(failureContext(undefined)).toBe('');
+    expect(failureContext([])).toBe('');
+  });
+
+  it('names every prior failure, not just the last', () => {
+    // A card that failed three different ways is a different situation from one that failed the
+    // same way three times, and only the full history tells them apart.
+    const ctx = failureContext([fail(0, 'tests did not compile'), fail(1, 'lint failed')]);
+    expect(ctx).toMatch(/tests did not compile/);
+    expect(ctx).toMatch(/lint failed/);
+    expect(ctx).toMatch(/attempted 2 time/);
+  });
+
+  it('numbers attempts from 1 for humans, though they are stored 0-based', () => {
+    expect(failureContext([fail(0, 'boom')])).toMatch(/Attempt 1 failed/);
+  });
+
+  it('instructs the next attempt not to repeat the approach', () => {
+    // Without this the model tends to retry verbatim, which is exactly what Temporal's built-in
+    // retry would have done for free — and why this mechanism exists instead.
+    expect(failureContext([fail(0, 'boom')])).toMatch(/Do not repeat the same approach/);
+  });
+
+  it('permits retries up to the cap and no further', () => {
+    expect(shouldRetry(0)).toBe(true);
+    expect(shouldRetry(MAX_CARD_ATTEMPTS - 1)).toBe(true);
+    expect(shouldRetry(MAX_CARD_ATTEMPTS)).toBe(false);
+    expect(shouldRetry(MAX_CARD_ATTEMPTS + 1)).toBe(false);
   });
 });

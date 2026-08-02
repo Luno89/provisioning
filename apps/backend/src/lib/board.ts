@@ -50,6 +50,16 @@ export interface Card {
   budget?: CardBudget;
 
   /**
+   * Every failed attempt at this card, oldest first.
+   *
+   * Kept rather than overwritten because the point of a retry is that the next attempt SEES why
+   * the last one failed — see failureContext. A card that failed three different ways is a
+   * different situation from one that failed the same way three times, and only the history
+   * distinguishes them.
+   */
+  attempts?: CardAttempt[];
+
+  /**
    * Resources this card itself has consumed. Aggregated up to the root for budget checks —
    * see aggregateUsage. Absent means nothing recorded, never zero-and-final.
    */
@@ -80,6 +90,47 @@ export interface BudgetUsage {
   wallClockMs: number;
   workspaces: number;
   replans: number;
+}
+
+/** A single failed run of a card. */
+export interface CardAttempt {
+  /** 0-based. Attempt 0 is the first try, so `attempt: 2` means two prior failures. */
+  attempt: number;
+  error: string;
+  failedAt: string;
+}
+
+/**
+ * How many times a card is retried before it is failed for good.
+ *
+ * Deliberately small. Retrying an agent task is only useful because the next attempt is given the
+ * previous failure; if three attempts with accumulating context cannot make progress, a fourth is
+ * unlikely to, and each one costs real tokens and wall-clock against the root's budget.
+ */
+export const MAX_CARD_ATTEMPTS = 3;
+
+/**
+ * Formats prior failures for injection into the next attempt's context.
+ *
+ * This is the whole reason retries are not Temporal's built-in retry policy: that replays the
+ * SAME input, so an agent task would fail identically every time. Progress requires the next
+ * attempt to know what went wrong.
+ *
+ * Returns an empty string for a first attempt so callers can append unconditionally.
+ */
+export function failureContext(attempts: CardAttempt[] | undefined): string {
+  if (!attempts?.length) return '';
+  const lines = attempts.map((a) => `Attempt ${a.attempt + 1} failed: ${a.error}`);
+  return [
+    `This work has been attempted ${attempts.length} time(s) before and failed:`,
+    ...lines,
+    'Do not repeat the same approach. Address the failure above.',
+  ].join('\n');
+}
+
+/** Whether another attempt is permitted. */
+export function shouldRetry(failuresSoFar: number, max = MAX_CARD_ATTEMPTS): boolean {
+  return failuresSoFar < max;
 }
 
 /** Three levels is enough to express "epic → task → subtask" and stops runaway decomposition. */

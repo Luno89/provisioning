@@ -13,13 +13,22 @@
  * that a workflow must never clobber — the same full-replace hazard that bites saveClusterInfo.
  */
 import { createDatabase } from '../lib/db-interface.js';
-import type { Card, CardColumn, CardStatus } from '../lib/board.js';
+import type { Card, CardAttempt, CardColumn, CardStatus } from '../lib/board.js';
 
 export interface UpdateCardArgs {
   cardId: string;
   status?: CardStatus;
   column?: CardColumn;
   workflowId?: string;
+  /**
+   * Full attempt history, replacing whatever is stored.
+   *
+   * Replaced rather than appended because the WORKFLOW owns this list — it accumulates failures
+   * across retries and passes the same array into the next attempt's context. Appending here too
+   * would double-count on an activity retry, which is precisely the kind of duplication the
+   * deterministic child ids elsewhere exist to prevent.
+   */
+  attempts?: CardAttempt[];
 }
 
 export async function UpdateCardActivity(args: UpdateCardArgs): Promise<void> {
@@ -38,6 +47,7 @@ export async function UpdateCardActivity(args: UpdateCardArgs): Promise<void> {
       ...(args.status !== undefined ? { status: args.status } : {}),
       ...(args.column !== undefined ? { column: args.column } : {}),
       ...(args.workflowId !== undefined ? { workflowId: args.workflowId } : {}),
+      ...(args.attempts !== undefined ? { attempts: args.attempts } : {}),
       updatedAt: new Date().toISOString(),
     });
   } finally {
