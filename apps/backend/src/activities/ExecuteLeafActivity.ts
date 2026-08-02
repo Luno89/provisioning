@@ -1,13 +1,13 @@
 /**
- * ExecuteCardActivity — where a card's actual work happens.
+ * ExecuteLeafActivity — where a leaf's actual work happens.
  *
  * ── THE ARGUMENT IS JUST AN ID ──
- * This takes a cardId and nothing else. Everything it needs — the card, its body, its failure
+ * This takes a leafId and nothing else. Everything it needs — the leaf, its body, its failure
  * history, and eventually retrieved memory — is read from MongoDB at execution time.
  *
  * That is what makes Temporal's own retry policy usable. The objection to native retries is that
  * they replay identical input, so an agent task fails identically every attempt. That is only true
- * when the context IS the input. Here the input is `{ cardId }` on every attempt while the context
+ * when the context IS the input. Here the input is `{ leafId }` on every attempt while the context
  * is assembled fresh, and the previous attempt's failure was written to Mongo before it threw — so
  * attempt N+1 reads a database that attempt N changed. Same args, different prompt.
  *
@@ -22,28 +22,28 @@
  */
 import { Context } from '@temporalio/activity';
 import { createDatabase } from '../lib/db-interface.js';
-import { failureContext, type Card, type CardAttempt } from '../lib/board.js';
+import { failureContext, type Leaf, type LeafAttempt } from '../lib/leaves.js';
 
-export interface ExecuteCardArgs {
-  cardId: string;
+export interface ExecuteLeafArgs {
+  leafId: string;
 }
 
-export interface ExecuteCardResult {
-  cardId: string;
+export interface ExecuteLeafResult {
+  leafId: string;
   /** Tokens consumed by this attempt, folded into the root's budget by the caller. */
   tokensUsed: number;
   summary: string;
 }
 
 /**
- * Assembles everything a persona needs to act on a card.
+ * Assembles everything a persona needs to act on a leaf.
  *
  * Exported so the prompt-building can be tested without running an activity, and so Phase C adds
  * retrieval sources here rather than changing the workflow contract.
  */
-export function buildCardContext(card: Card, priorFailures: CardAttempt[]): string {
-  const parts = [`Task: ${card.title}`];
-  if (card.body) parts.push(card.body);
+export function buildLeafContext(leaf: Leaf, priorFailures: LeafAttempt[]): string {
+  const parts = [`Task: ${leaf.title}`];
+  if (leaf.body) parts.push(leaf.body);
 
   // The whole point of retrying. Without this the next attempt is identical to the one that just
   // failed, which is exactly what Temporal's built-in retry would give for free.
@@ -53,48 +53,48 @@ export function buildCardContext(card: Card, priorFailures: CardAttempt[]): stri
   return parts.join('\n\n');
 }
 
-export async function ExecuteCardActivity(args: ExecuteCardArgs): Promise<ExecuteCardResult> {
+export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<ExecuteLeafResult> {
   // Falls back to 1 outside an activity context, so the function stays callable from a test.
   const attemptNumber = Context.current?.()?.info?.attempt ?? 1;
 
   const db = createDatabase();
   await db.init();
   try {
-    const card = (await db.getCards()).find((c: Card) => c.id === args.cardId);
-    // A card deleted mid-flight is a normal race, not an error — failing would only produce a
+    const leaf = (await db.getLeaves()).find((c: Leaf) => c.id === args.leafId);
+    // A leaf deleted mid-flight is a normal race, not an error — failing would only produce a
     // retry storm against a row that is never coming back.
-    if (!card) return { cardId: args.cardId, tokensUsed: 0, summary: 'Card no longer exists' };
+    if (!leaf) return { leafId: args.leafId, tokensUsed: 0, summary: 'Leaf no longer exists' };
 
-    const priorFailures = card.attempts ?? [];
-    const context = buildCardContext(card, priorFailures);
+    const priorFailures = leaf.attempts ?? [];
+    const context = buildLeafContext(leaf, priorFailures);
 
     try {
       // Phase C replaces this with a persona: route to a model, run the agent CLI in a workspace,
       // commit, push. The surrounding shape — read context, record failure, report tokens — is what
       // is being established now, so that change is an implementation rather than a redesign.
-      if (!card.personaId) {
+      if (!leaf.personaId) {
         return {
-          cardId: card.id,
+          leafId: leaf.id,
           tokensUsed: 0,
           summary: `No persona assigned; nothing to execute. Context was ${context.length} characters.`,
         };
       }
-      throw new Error(`Persona "${card.personaId}" is not implemented yet (Phase C)`);
+      throw new Error(`Persona "${leaf.personaId}" is not implemented yet (Phase C)`);
     } catch (err: any) {
       // Written BEFORE rethrowing, so Temporal's retry re-reads a database this attempt changed.
-      const attempts: CardAttempt[] = [
+      const attempts: LeafAttempt[] = [
         ...priorFailures,
         {
           // Read from the activity context, not passed in: an argument would be baked into
           // workflow history at the first call and stay 1 forever, mislabelling every retry.
-          // Temporal counts attempts from 1; CardAttempt counts from 0.
+          // Temporal counts attempts from 1; LeafAttempt counts from 0.
           attempt: Math.max(0, attemptNumber - 1),
           error: String(err?.message ?? err).slice(0, 2000),
           failedAt: new Date().toISOString(),
         },
       ];
-      const latest = (await db.getCards()).find((c: Card) => c.id === args.cardId);
-      if (latest) await db.saveCard({ ...latest, attempts, status: 'failed', updatedAt: new Date().toISOString() });
+      const latest = (await db.getLeaves()).find((c: Leaf) => c.id === args.leafId);
+      if (latest) await db.saveLeaf({ ...latest, attempts, status: 'failed', updatedAt: new Date().toISOString() });
       throw err;
     }
   } finally {

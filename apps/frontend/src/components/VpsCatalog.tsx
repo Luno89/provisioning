@@ -304,7 +304,7 @@ export default function VpsCatalog({ apiBase, onDeploy }: VpsCatalogProps) {
                   {hasGpuOffer(o) ? (
                     <>
                       <div className="text-slate-300">
-                        {/* Card count is only shown when the provider actually publishes one.
+                        {/* Leaf count is only shown when the provider actually publishes one.
                             Vultr publishes VRAM and a brand but no count, so requiring a count
                             here blanked out its entire GPU line. */}
                         {o.gpuVramGb ? `${o.gpuVramGb} GB` : o.gpuCount ? `${o.gpuCount}×` : '—'}

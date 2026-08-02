@@ -1,6 +1,6 @@
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
-import type { Card } from './board.js';
+import type { Leaf } from './leaves.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 
 /**
@@ -45,9 +45,9 @@ export interface Database {
   getInvites(): Promise<InviteMetadata[]>;
   saveInvite(invite: InviteMetadata): Promise<void>;
 
-  getCards(): Promise<Card[]>;
-  saveCard(card: Card): Promise<void>;
-  deleteCard(id: string): Promise<void>;
+  getLeaves(): Promise<Leaf[]>;
+  saveLeaf(leaf: Leaf): Promise<void>;
+  deleteLeaf(id: string): Promise<void>;
 
   getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
   saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;

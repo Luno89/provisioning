@@ -23,6 +23,6 @@ export const syncConfigActivityMeta = { name: 'SyncConfigActivity', startToClose
 export const downloadModelActivityMeta = { name: 'DownloadModelActivity', startToCloseTimeout: '80 minutes' } as const;
 export const runPipelineActivityMeta = { name: 'RunPipelineActivity', startToCloseTimeout: '30 minutes' } as const;
 // Short: a single database write. A long timeout here would only delay noticing a stuck worker.
-export const updateCardActivityMeta = { name: 'UpdateCardActivity', startToCloseTimeout: '1 minute' } as const;
-// A card's own work: an agent turn, so generous. Retries are configured at the call site.
-export const executeCardActivityMeta = { name: 'ExecuteCardActivity', startToCloseTimeout: '30 minutes' } as const;
+export const updateLeafActivityMeta = { name: 'UpdateLeafActivity', startToCloseTimeout: '1 minute' } as const;
+// A leaf's own work: an agent turn, so generous. Retries are configured at the call site.
+export const executeLeafActivityMeta = { name: 'ExecuteLeafActivity', startToCloseTimeout: '30 minutes' } as const;

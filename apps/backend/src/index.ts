@@ -49,7 +49,7 @@ import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { UsageScanner } from './lib/token-usage.js';
-import { aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveCardStatus, rootCard, subtreeOf, type Card } from './lib/board.js';
+import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
 dotenv.config();
@@ -1369,8 +1369,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // matching only 'kube-prometheus-stack-grafana' here would never find a release and
       // always show "Not Installed" even when Grafana is actually running. Separate from
       // POD_NAME_PATTERNS below: this is only for the installed/status/chart/version fields,
-      // not which pods list under each card — sharing one list for both would make Prometheus
-      // and Grafana's cards show each other's pods too. Confirmed live.
+      // not which pods list under each leaf — sharing one list for both would make Prometheus
+      // and Grafana's leaves show each other's pods too. Confirmed live.
       const RELEASE_NAMES: Record<string, string[]> = {
         prometheus: ['kube-prometheus-stack', 'prometheus-server', 'prometheus'],
         grafana: ['kube-prometheus-stack', 'kube-prometheus-stack-grafana', 'grafana'],
@@ -1381,14 +1381,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         alertmanager: ['kube-prometheus-stack'],
         // Loki and Promtail (constructs/logging.ts) are two separate Helm releases installed
         // together — matching either is enough for a simple installed/not-installed indicator on
-        // one combined card (imperfect if exactly one of the two is down, acceptable for a
-        // status card, not a health check).
+        // one combined leaf (imperfect if exactly one of the two is down, acceptable for a
+        // status leaf, not a health check).
         loki: ['loki', 'promtail'],
       };
       const POD_NAME_PATTERNS: Record<string, string[]> = {
         // Not 'alertmanager-kube-prometheus-stack' anymore — that now belongs solely to the
-        // dedicated 'alertmanager' card below (same reasoning as Grafana already having its own
-        // separate list: sharing pod patterns between two cards makes them show each other's
+        // dedicated 'alertmanager' leaf below (same reasoning as Grafana already having its own
+        // separate list: sharing pod patterns between two leaves makes them show each other's
         // pods too). Confirmed live.
         prometheus: ['kube-prometheus-stack-prometheus', 'kube-prometheus-stack-operator', 'kube-prometheus-stack-kube-state-metrics', 'kube-prometheus-stack-prometheus-node-exporter'],
         grafana: ['kube-prometheus-stack-grafana'],
@@ -1705,7 +1705,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * schema, and re-encoding it here would mean tracking every field either adds.
    */
   app.post('/api/chat', async (req, res) => {
-    const { modelId, messages, stream = true, cardId, ...rest } = req.body ?? {};
+    const { modelId, messages, stream = true, leafId, ...rest } = req.body ?? {};
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages is required' });
     }
@@ -1780,18 +1780,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // Recorded after the response is closed: metering must never delay the user's tokens, and a
       // failure to record must never fail a generation that already succeeded.
       const used = scanner.result();
-      if (used && cardId) {
+      if (used && leafId) {
         try {
-          const card = (await db.getCards()).find((c) => c.id === cardId && c.ownerId === (req as any).user.id);
-          if (card) {
-            await db.saveCard({
-              ...card,
-              usage: { ...card.usage, tokens: (card.usage?.tokens ?? 0) + used.totalTokens },
+          const leaf = (await db.getLeaves()).find((c) => c.id === leafId && c.ownerId === (req as any).user.id);
+          if (leaf) {
+            await db.saveLeaf({
+              ...leaf,
+              usage: { ...leaf.usage, tokens: (leaf.usage?.tokens ?? 0) + used.totalTokens },
               updatedAt: new Date().toISOString(),
             });
           }
         } catch (err: any) {
-          console.warn(`[chat] could not record ${used.totalTokens} tokens against card ${cardId}: ${err.message}`);
+          console.warn(`[chat] could not record ${used.totalTokens} tokens against leaf ${leafId}: ${err.message}`);
         }
       }
     } catch (err: any) {
@@ -1804,57 +1804,61 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   /** ── BOARD — agent harness Phase B (~/.claude/plans/agent-harness.md) ── */
 
   /**
-   * Cards are the durable unit of work, not a view over one: each card in an active column will map
-   * to a Temporal workflow. Phase B is humans moving cards; the workflow binding arrives with the
+   * Leaves are the durable unit of work, not a view over one: each leaf in an active column will map
+   * to a Temporal workflow. Phase B is humans moving leaves; the workflow binding arrives with the
    * personas that act on them.
    */
-  const ownedCards = async (userId: string): Promise<Card[]> =>
-    (await db.getCards()).filter((c) => c.ownerId === userId);
+  const ownedLeaves = async (userId: string): Promise<Leaf[]> =>
+    (await db.getLeaves()).filter((c) => c.ownerId === userId);
 
-  app.get('/api/cards', async (req, res) => {
-    const cards = await ownedCards((req as any).user.id);
-    // Scoped to a request: a card belongs to the ask that produced it, not to a long-lived board.
+  app.get('/api/leaves', async (req, res) => {
+    const leaves = await ownedLeaves((req as any).user.id);
+    // Scoped to a request: a leaf belongs to the ask that produced it, not to a long-lived board.
     const requestId = req.query.requestId;
-    const scoped = typeof requestId === 'string' ? cards.filter((c) => c.requestId === requestId) : cards;
-    // Effective status is DERIVED for a card with children — a parent dragged around while its
+    const scoped = typeof requestId === 'string' ? leaves.filter((c) => c.requestId === requestId) : leaves;
+    // Effective status is DERIVED for a leaf with children — a parent dragged around while its
     // children are mid-flight would otherwise report something the workflow does not agree with.
     res.json(scoped.map((c) => {
-      const kids = childrenOf(cards, c.id);
+      const kids = childrenOf(leaves, c.id);
       return {
         ...c,
-        status: deriveCardStatus(c.status, kids),
+        status: deriveLeafStatus(c.status, kids),
         childCount: kids.length,
-        // Root cards report their subtree's spend, so the board can show a budget being consumed
+        // Root leaves report their subtree's spend, so the board can show a budget being consumed
         // rather than only refusing once it is gone.
-        ...(c.budget ? { usageTotal: aggregateUsage(cards, c, Date.now()) } : {}),
+        ...(c.budget ? { usageTotal: aggregateUsage(leaves, c, Date.now()) } : {}),
       };
     }));
   });
 
-  app.post('/api/cards', async (req, res) => {
+  app.post('/api/leaves', async (req, res) => {
     try {
       const user = (req as any).user;
-      const { title, body, requestId, column = 'todo', parentCardId, blocking = true, personaId, projectId, budget } = req.body ?? {};
+      const { title, body, requestId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget } = req.body ?? {};
       if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' });
+      // `column` is untrusted JSON; the union type validates nothing here.
+      if (!isLeafColumn(column)) {
+        return res.status(400).json({ error: `column must be one of: ${LEAF_COLUMNS.join(', ')}` });
+      }
 
-      const cards = await ownedCards(user.id);
+      const leaves = await ownedLeaves(user.id);
       let depth = 0;
       // A child ALWAYS belongs to its parent's request — the whole tree lives and dies together,
       // so letting a caller supply a different one would split a decomposition across requests.
       let resolvedRequestId = typeof requestId === 'string' && requestId ? requestId : uuidv4();
-      if (parentCardId) {
-        const parent = cards.find((c) => c.id === parentCardId);
-        // 404 for both "no such card" and "not yours", so this cannot enumerate other tenants.
-        if (!parent) return res.status(404).json({ error: 'Parent card not found' });
+      if (parentLeafId) {
+        const parent = leaves.find((c) => c.id === parentLeafId);
+        // 404 for both "no such leaf" and "not yours", so this cannot enumerate other tenants.
+        if (!parent) return res.status(404).json({ error: 'Parent leaf not found' });
         // The budget lives on the ROOT and covers the whole subtree, so it is checked here —
         // adding work is the moment spend is committed. A budget nothing enforces is decoration.
-        const root = rootCard(cards, parent);
+        const root = rootLeaf(leaves, parent);
         if (root?.budget) {
-          const spent = budgetExceeded(root.budget, aggregateUsage(cards, root, Date.now()));
-          if (spent) return res.status(409).json({ error: `${spent} — this card's budget covers all of its sub-items` });
+          const spent = budgetExceeded(root.budget, aggregateUsage(leaves, root, Date.now()));
+          if (spent) return res.status(409).json({ error: `${spent} — this leaf's budget covers all of its sub-items` });
         }
 
-        const refusal = canAddChild(parent, childrenOf(cards, parent.id).length);
+        const refusal = canAddChild(parent, childrenOf(leaves, parent.id).length);
         // Returned as a reason rather than a silent no-op: the caller (eventually a planner
         // persona) needs to know it was refused and why, or it will simply ask again.
         if (refusal) return res.status(409).json({ error: refusal });
@@ -1863,7 +1867,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       }
 
       const now = new Date().toISOString();
-      const card: Card = {
+      const leaf: Leaf = {
         id: uuidv4(),
         ownerId: user.id,
         requestId: resolvedRequestId,
@@ -1875,95 +1879,98 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         createdAt: now,
         updatedAt: now,
         ...(body ? { body: String(body) } : {}),
-        ...(parentCardId ? { parentCardId: String(parentCardId) } : {}),
+        ...(parentLeafId ? { parentLeafId: String(parentLeafId) } : {}),
         ...(personaId ? { personaId: String(personaId) } : {}),
         ...(projectId ? { projectId: String(projectId) } : {}),
         // Budgets live on the ROOT only: depth and fan-out caps alone still permit hundreds of
         // workspaces, so the ceiling has to cover the whole subtree.
-        ...(!parentCardId && budget ? { budget } : {}),
+        ...(!parentLeafId && budget ? { budget } : {}),
       };
-      await db.saveCard(card);
+      await db.saveLeaf(leaf);
 
-      // Start the workflow that backs this card, and tell the parent's workflow about it so the
+      // Start the workflow that backs this leaf, and tell the parent's workflow about it so the
       // child is a real Temporal child rather than just a row pointing at one. Both are
       // best-effort: Temporal being down must not stop someone writing on the board, the same way
       // cluster listing falls back to plain DB polling.
-      const workflowId = await temporalBridge?.startCard(card);
+      const workflowId = await temporalBridge?.startCard(leaf);
       if (workflowId) {
-        card.workflowId = workflowId;
-        await db.saveCard(card);
+        leaf.workflowId = workflowId;
+        await db.saveLeaf(leaf);
       }
-      if (parentCardId) {
-        await temporalBridge?.signalCard(String(parentCardId), 'addChild', {
-          cardId: card.id,
-          title: card.title,
-          blocking: card.blocking,
+      if (parentLeafId) {
+        await temporalBridge?.signalCard(String(parentLeafId), 'addChild', {
+          leafId: leaf.id,
+          title: leaf.title,
+          blocking: leaf.blocking,
           // Position among siblings — what makes the child's workflow id deterministic, so a
           // retried signal addresses the same child instead of spawning a second.
-          index: childrenOf(cards, String(parentCardId)).length,
+          index: childrenOf(leaves, String(parentLeafId)).length,
         });
       }
-      res.status(201).json(card);
+      res.status(201).json(leaf);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.patch('/api/cards/:id', async (req, res) => {
+  app.patch('/api/leaves/:id', async (req, res) => {
     const user = (req as any).user;
-    const cards = await ownedCards(user.id);
-    const card = cards.find((c) => c.id === req.params.id);
-    if (!card) return res.status(404).json({ error: 'Card not found' });
+    const leaves = await ownedLeaves(user.id);
+    const leaf = leaves.find((c) => c.id === req.params.id);
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
 
     const { column, title, body, personaId } = req.body ?? {};
-    // A card with children has a DERIVED status, so moving it by hand is refused rather than
-    // silently ignored — dragging a parent while its children run is genuinely ambiguous.
-    if (column && childrenOf(cards, card.id).length > 0) {
-      return res.status(409).json({ error: 'This card\'s state follows its sub-items — move those instead' });
+    if (column !== undefined && !isLeafColumn(column)) {
+      return res.status(400).json({ error: `column must be one of: ${LEAF_COLUMNS.join(', ')}` });
     }
-    const updated: Card = {
-      ...card,
+    // A leaf with children has a DERIVED status, so moving it by hand is refused rather than
+    // silently ignored — dragging a parent while its children run is genuinely ambiguous.
+    if (column && childrenOf(leaves, leaf.id).length > 0) {
+      return res.status(409).json({ error: 'This leaf\'s state follows its sub-items — move those instead' });
+    }
+    const updated: Leaf = {
+      ...leaf,
       ...(column ? { column } : {}),
       ...(title ? { title: String(title).trim() } : {}),
       ...(body !== undefined ? { body: String(body) } : {}),
       ...(personaId !== undefined ? { personaId: String(personaId) } : {}),
       updatedAt: new Date().toISOString(),
     };
-    await db.saveCard(updated);
-    // Moving a card IS a signal — that is the whole claim of the board being the state store
+    await db.saveLeaf(updated);
+    // Moving a leaf IS a signal — that is the whole claim of the board being the state store
     // rather than a view over one. The row is written first so the board stays correct even when
     // Temporal is unreachable.
-    if (column) await temporalBridge?.signalCard(card.id, 'moveCard', column);
+    if (column) await temporalBridge?.signalCard(leaf.id, 'moveCard', column);
     res.json(updated);
   });
 
-  app.post('/api/cards/:id/cancel', async (req, res) => {
+  app.post('/api/leaves/:id/cancel', async (req, res) => {
     const user = (req as any).user;
-    const card = (await ownedCards(user.id)).find((c) => c.id === req.params.id);
-    if (!card) return res.status(404).json({ error: 'Card not found' });
-    const signalled = await temporalBridge?.signalCard(card.id, 'cancelCard');
-    await db.saveCard({ ...card, status: 'cancelled', updatedAt: new Date().toISOString() });
+    const leaf = (await ownedLeaves(user.id)).find((c) => c.id === req.params.id);
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+    const signalled = await temporalBridge?.signalCard(leaf.id, 'cancelCard');
+    await db.saveLeaf({ ...leaf, status: 'cancelled', updatedAt: new Date().toISOString() });
     // Reported honestly: with Temporal down the row says cancelled but nothing was actually
     // stopped, and pretending otherwise is how a "cancelled" job keeps burning budget.
     res.json({ success: true, workflowSignalled: signalled === true });
   });
 
-  app.delete('/api/cards/:id', async (req, res) => {
+  app.delete('/api/leaves/:id', async (req, res) => {
     const user = (req as any).user;
-    const cards = await ownedCards(user.id);
-    const card = cards.find((c) => c.id === req.params.id);
-    if (!card) return res.status(404).json({ error: 'Card not found' });
-    // Deleting the whole subtree, not just the card: orphaned children would be invisible on the
+    const leaves = await ownedLeaves(user.id);
+    const leaf = leaves.find((c) => c.id === req.params.id);
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+    // Deleting the whole subtree, not just the leaf: orphaned children would be invisible on the
     // board (nothing renders them) while still counting against their root's budget.
-    for (const descendant of subtreeOf(cards, card.id)) {
+    for (const descendant of subtreeOf(leaves, leaf.id)) {
       // Cancel before deleting: a workflow whose row is gone would keep running, and
-      // UpdateCardActivity would silently no-op forever against a card that no longer exists.
+      // UpdateLeafActivity would silently no-op forever against a leaf that no longer exists.
       await temporalBridge?.signalCard(descendant.id, 'cancelCard');
-      await db.deleteCard(descendant.id);
+      await db.deleteLeaf(descendant.id);
     }
-    await temporalBridge?.signalCard(card.id, 'cancelCard');
-    await db.deleteCard(card.id);
-    res.json({ success: true, deleted: subtreeOf(cards, card.id).length + 1 });
+    await temporalBridge?.signalCard(leaf.id, 'cancelCard');
+    await db.deleteLeaf(leaf.id);
+    res.json({ success: true, deleted: subtreeOf(leaves, leaf.id).length + 1 });
   });
 
   /** ── MODULES ── */

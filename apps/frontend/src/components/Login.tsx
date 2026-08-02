@@ -111,7 +111,7 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
       <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-violet-600/10 blur-[120px]" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[120px]" />
 
-      {/* Main Glass Card */}
+      {/* Main Glass Leaf */}
       <div className="w-full max-w-md bg-[#161a22]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-2xl relative z-10">
         
         {/* Branding Header */}

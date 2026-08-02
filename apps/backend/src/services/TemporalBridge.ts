@@ -27,7 +27,7 @@ import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetad
 import { checkCapacity } from '../lib/cluster-capacity.js'
 import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
-import { CardWorkflow } from '../workflows/CardWorkflow.js'
+import { LeafWorkflow } from '../workflows/LeafWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
 import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
 import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
@@ -448,44 +448,44 @@ export class TemporalBridge {
 
 
   /**
-   * Starts the workflow backing a card.
+   * Starts the workflow backing a leaf.
    *
-   * The workflow id is derived from the card id, so this is idempotent: calling it twice (a double
+   * The workflow id is derived from the leaf id, so this is idempotent: calling it twice (a double
    * click, a retried request) addresses the same workflow rather than starting a second. Returns
    * undefined when Temporal is unreachable — the board must keep working without it, exactly as
    * cluster provisioning falls back to plain DB polling.
    */
-  async startCard(card: { id: string; title: string; column: string; depth: number }): Promise<string | undefined> {
+  async startCard(leaf: { id: string; title: string; column: string; depth: number }): Promise<string | undefined> {
     if (!this.client) return undefined
-    const workflowId = `card-${card.id}`
+    const workflowId = `leaf-${leaf.id}`
     try {
-      await this.client.workflow.start(CardWorkflow, {
+      await this.client.workflow.start(LeafWorkflow, {
         workflowId,
         taskQueue: HOST_QUEUE,
-        args: [{ cardId: card.id, title: card.title, column: card.column as any, depth: card.depth }],
+        args: [{ leafId: leaf.id, title: leaf.title, column: leaf.column as any, depth: leaf.depth }],
       })
       return workflowId
     } catch (err: any) {
       // WorkflowExecutionAlreadyStarted is the idempotent case, not a failure.
       if (/already started/i.test(err?.message ?? '')) return workflowId
-      console.warn(`[TemporalBridge] Could not start card workflow ${workflowId}: ${err.message}`)
+      console.warn(`[TemporalBridge] Could not start leaf workflow ${workflowId}: ${err.message}`)
       return undefined
     }
   }
 
   /**
-   * Signals a card's workflow. Best-effort by design: the database row is already updated by the
+   * Signals a leaf's workflow. Best-effort by design: the database row is already updated by the
    * caller, so a missing or finished workflow must not fail the user's action — it only means the
-   * card is no longer executing, which the board will show anyway.
+   * leaf is no longer executing, which the board will show anyway.
    */
-  async signalCard(cardId: string, signal: 'moveCard' | 'cancelCard' | 'addChild', payload?: unknown): Promise<boolean> {
+  async signalCard(leafId: string, signal: 'moveCard' | 'cancelCard' | 'addChild', payload?: unknown): Promise<boolean> {
     if (!this.client) return false
     try {
-      const handle = this.client.workflow.getHandle(`card-${cardId}`)
+      const handle = this.client.workflow.getHandle(`leaf-${leafId}`)
       await handle.signal(signal, ...(payload === undefined ? [] : [payload]))
       return true
     } catch (err: any) {
-      console.warn(`[TemporalBridge] Could not signal card ${cardId} (${signal}): ${err.message}`)
+      console.warn(`[TemporalBridge] Could not signal leaf ${leafId} (${signal}): ${err.message}`)
       return false
     }
   }

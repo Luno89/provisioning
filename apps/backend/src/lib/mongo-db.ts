@@ -2,7 +2,7 @@ import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
-import type { Card } from './board.js';
+import type { Leaf } from './leaves.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
 
@@ -50,8 +50,8 @@ export class MongoDB implements Database {
     return this.db!.collection('pipelineRuns');
   }
 
-  private get cards(): Collection {
-    return this.db!.collection('cards');
+  private get leaves(): Collection {
+    return this.db!.collection('leaves');
   }
 
   private get modelEndpoints(): Collection {
@@ -296,20 +296,20 @@ export class MongoDB implements Database {
     await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
-  async getCards(): Promise<Card[]> {
-    return (await this.cards.find({}).toArray()).map(doc => fromDoc<Card>(doc));
+  async getLeaves(): Promise<Leaf[]> {
+    return (await this.leaves.find({}).toArray()).map(doc => fromDoc<Leaf>(doc));
   }
 
-  async saveCard(card: Card): Promise<void> {
-    const doc = toDoc(card);
+  async saveLeaf(leaf: Leaf): Promise<void> {
+    const doc = toDoc(leaf);
     const id = doc._id;
     const { _id, ...filter } = doc;
-    await this.cards.replaceOne({ _id: id }, filter, { upsert: true });
+    await this.leaves.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
-  async deleteCard(id: string): Promise<void> {
+  async deleteLeaf(id: string): Promise<void> {
     // Collections here are untyped, so _id infers as ObjectId; every id in this codebase is a uuid.
-    await this.cards.deleteOne({ _id: id as any });
+    await this.leaves.deleteOne({ _id: id as any });
   }
 
   async getModelEndpoints(): Promise<ModelEndpointMetadata[]> {

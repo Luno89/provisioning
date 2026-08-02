@@ -8,53 +8,53 @@ import {
   ParentClosePolicy,
   workflowInfo,
 } from '@temporalio/workflow';
-import type { UpdateCardArgs } from '../activities/UpdateCardActivity.js';
-import type { ExecuteCardArgs, ExecuteCardResult } from '../activities/ExecuteCardActivity.js';
-import { MAX_CARD_ATTEMPTS } from '../lib/board.js';
+import type { UpdateLeafArgs } from '../activities/UpdateLeafActivity.js';
+import type { ExecuteLeafArgs, ExecuteLeafResult } from '../activities/ExecuteLeafActivity.js';
+import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { executeCardActivityMeta, updateCardActivityMeta } from '../lib/activity-timeouts.js';
+import { executeLeafActivityMeta, updateLeafActivityMeta } from '../lib/activity-timeouts.js';
 
-const { UpdateCardActivity } = proxyActivities<{ UpdateCardActivity: (args: UpdateCardArgs) => Promise<void> }>({
-  startToCloseTimeout: updateCardActivityMeta.startToCloseTimeout,
+const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
+  startToCloseTimeout: updateLeafActivityMeta.startToCloseTimeout,
 });
 
 /**
- * The card's actual work, with retries handled by TEMPORAL rather than by hand.
+ * The leaf's actual work, with retries handled by TEMPORAL rather than by hand.
  *
- * Viable because ExecuteCardActivity takes only a cardId and rebuilds its context from Mongo each
+ * Viable because ExecuteLeafActivity takes only a leafId and rebuilds its context from Mongo each
  * attempt — and records the failure before throwing, so the retry reads a database the previous
  * attempt changed. Backoff, attempt counting and the cap all come free, and the workflow stops
  * carrying prompt-sized payloads in its history.
  */
-const { ExecuteCardActivity } = proxyActivities<{ ExecuteCardActivity: (args: ExecuteCardArgs) => Promise<ExecuteCardResult> }>({
-  startToCloseTimeout: executeCardActivityMeta.startToCloseTimeout,
+const { ExecuteLeafActivity } = proxyActivities<{ ExecuteLeafActivity: (args: ExecuteLeafArgs) => Promise<ExecuteLeafResult> }>({
+  startToCloseTimeout: executeLeafActivityMeta.startToCloseTimeout,
   retry: {
-    maximumAttempts: MAX_CARD_ATTEMPTS,
+    maximumAttempts: MAX_LEAF_ATTEMPTS,
     initialInterval: '10 seconds',
     // Modest: a failing agent task is rarely fixed by waiting, and a long backoff just burns the
-    // root card's wall-clock budget while nothing happens.
+    // root leaf's wall-clock budget while nothing happens.
     backoffCoefficient: 2,
   },
 });
 
-export type WorkflowCardColumn = 'todo' | 'in-progress' | 'review';
-export type WorkflowCardStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type WorkflowLeafColumn = 'todo' | 'in-progress' | 'review';
+export type WorkflowLeafStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
-export interface CardWorkflowArgs {
-  cardId: string;
+export interface LeafWorkflowArgs {
+  leafId: string;
   title: string;
-  column: WorkflowCardColumn;
-  /** Depth of THIS card. Children get depth + 1; the cap is enforced before signalling. */
+  column: WorkflowLeafColumn;
+  /** Depth of THIS leaf. Children get depth + 1; the cap is enforced before signalling. */
   depth: number;
   // Deliberately NO context, prompt or failure history here. Those are read from Mongo by
-  // ExecuteCardActivity at execution time, which is what makes Temporal's own retries useful and
+  // ExecuteLeafActivity at execution time, which is what makes Temporal's own retries useful and
   // keeps workflow history from carrying prompt-sized payloads.
 }
 
 export interface ChildRequest {
-  cardId: string;
+  leafId: string;
   title: string;
   /** Whether this parent waits for the child — see the ParentClosePolicy note below. */
   blocking: boolean;
@@ -62,34 +62,34 @@ export interface ChildRequest {
   index: number;
 }
 
-export interface CardWorkflowState {
-  column: WorkflowCardColumn;
-  status: WorkflowCardStatus;
+export interface LeafWorkflowState {
+  column: WorkflowLeafColumn;
+  status: WorkflowLeafStatus;
   blockingChildren: number;
 }
 
-export const moveCardSignal = defineSignal<[WorkflowCardColumn]>('moveCard');
+export const moveLeafSignal = defineSignal<[WorkflowLeafColumn]>('moveCard');
 /**
- * Marks the card's own work finished.
+ * Marks the leaf's own work finished.
  *
  * Completion used to be "moved to the done column", which made the column both a location and a
  * lifecycle event — and duplicated `status: 'succeeded'`. Now a column is only ever where the work
  * currently sits, and finishing is its own signal: raised by the agent when its work succeeds, or
- * by a human for a card nobody is executing.
+ * by a human for a leaf nobody is executing.
  */
-export const completeCardSignal = defineSignal<[]>('completeCard');
-export const cancelCardSignal = defineSignal<[]>('cancelCard');
+export const completeLeafSignal = defineSignal<[]>('completeCard');
+export const cancelLeafSignal = defineSignal<[]>('cancelCard');
 export const addChildSignal = defineSignal<[ChildRequest]>('addChild');
-export const cardStateQuery = defineQuery<CardWorkflowState>('cardState');
+export const leafStateQuery = defineQuery<LeafWorkflowState>('cardState');
 
 /**
- * One workflow per card — the execution half of "the board IS the state store".
+ * One workflow per leaf — the execution half of "the board IS the state store".
  *
  * The database row is what the UI reads; this is what actually survives. A backend restart loses
- * nothing, because the card's live state is Temporal history rather than process memory, and
- * moving a card is a signal rather than a mutation someone has to remember to replay.
+ * nothing, because the leaf's live state is Temporal history rather than process memory, and
+ * moving a leaf is a signal rather than a mutation someone has to remember to replay.
  *
- * Phase B has no personas, so a card's "work" is simply waiting to be moved to `done`. That is
+ * Phase B has no personas, so a leaf's "work" is simply waiting to be moved to `done`. That is
  * deliberately unglamorous: it exercises durability, signalling, child fan-out and cancellation
  * end to end, so the agent work in later phases plugs into a shape that already holds up.
  */
@@ -116,15 +116,15 @@ function describeFailure(err: unknown): string {
   return (parts.join(': ') || String((err as any)?.message ?? err)).slice(0, 2000);
 }
 
-export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflowState> {
-  let column: WorkflowCardColumn = args.column;
-  let status: WorkflowCardStatus = 'running';
+export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflowState> {
+  let column: WorkflowLeafColumn = args.column;
+  let status: WorkflowLeafStatus = 'running';
   let cancelled = false;
   let complete = false;
 
   /**
    * Blocking children only. A non-blocking child is follow-up work that outlives its parent, so
-   * counting it here would mean a card could never finish — the same rule deriveCardStatus applies
+   * counting it here would mean a leaf could never finish — the same rule deriveLeafStatus applies
    * on the read side, and the two must agree or the board will disagree with the workflow.
    */
   const blockingChildren: Promise<unknown>[] = [];
@@ -133,32 +133,32 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
   /** Requests queued by the addChild signal, drained by the loop below. */
   const pending: ChildRequest[] = [];
 
-  setHandler(cardStateQuery, () => ({ column, status, blockingChildren: blockingChildren.length }));
+  setHandler(leafStateQuery, () => ({ column, status, blockingChildren: blockingChildren.length }));
 
-  setHandler(moveCardSignal, (next) => {
+  setHandler(moveLeafSignal, (next) => {
     column = next;
   });
 
-  setHandler(cancelCardSignal, () => {
+  setHandler(cancelLeafSignal, () => {
     cancelled = true;
   });
 
-  setHandler(completeCardSignal, () => {
+  setHandler(completeLeafSignal, () => {
     complete = true;
   });
 
   /**
-   * Starts one child card.
+   * Starts one child leaf.
    *
-   * No retry loop here any more. Retries are Temporal's, on ExecuteCardActivity — see that file for
-   * why taking only a cardId and reading context from Mongo is what makes native retries work.
+   * No retry loop here any more. Retries are Temporal's, on ExecuteLeafActivity — see that file for
+   * why taking only a leafId and reading context from Mongo is what makes native retries work.
    * Removing the loop also removed the attempt number from the child's workflow id, so the id is
    * once again purely (parent, index) and dedup is unambiguous.
    */
-  function startCardChild(req: ChildRequest): Promise<unknown> {
-    const child = startChild(CardWorkflow, {
-      workflowId: `card-${args.cardId}-child-${req.index}`,
-      args: [{ cardId: req.cardId, title: req.title, column: 'todo', depth: args.depth + 1 }],
+  function startLeafChild(req: ChildRequest): Promise<unknown> {
+    const child = startChild(LeafWorkflow, {
+      workflowId: `leaf-${args.leafId}-child-${req.index}`,
+      args: [{ leafId: req.leafId, title: req.title, column: 'todo', depth: args.depth + 1 }],
       // ABANDON for non-blocking children is the whole point of the distinction: "I found
       // follow-up work" must survive its parent closing. Blocking children are terminated with the
       // parent, since nothing will consume their result.
@@ -179,21 +179,21 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
     pending.push(req);
   });
 
-  await UpdateCardActivity({ cardId: args.cardId, status: 'running', workflowId: workflowInfo().workflowId });
+  await UpdateLeafActivity({ leafId: args.leafId, status: 'running', workflowId: workflowInfo().workflowId });
 
   /**
-   * The card's own work, running alongside signal handling rather than blocking it — a card must
+   * The leaf's own work, running alongside signal handling rather than blocking it — a leaf must
    * stay cancellable and stay able to accept sub-items while it is executing.
    *
    * Retries live inside this call (Temporal's policy on the activity), so a failure arriving here
-   * means every attempt was already spent. `tokensUsed` is folded into the card's usage so the
+   * means every attempt was already spent. `tokensUsed` is folded into the leaf's usage so the
    * root's budget sees real consumption rather than only wall-clock.
    */
   let ownWorkFailed: unknown;
-  const ownWork = ExecuteCardActivity({ cardId: args.cardId })
+  const ownWork = ExecuteLeafActivity({ leafId: args.leafId })
     .then(async (result) => {
       if (result.tokensUsed > 0) {
-        await UpdateCardActivity({ cardId: args.cardId, usage: { tokens: result.tokensUsed } });
+        await UpdateLeafActivity({ leafId: args.leafId, usage: { tokens: result.tokensUsed } });
       }
       complete = true;
     })
@@ -206,7 +206,7 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
     await condition(() => cancelled || complete || pending.length > 0);
     while (pending.length > 0) {
       const req = pending.shift()!;
-      const run = startCardChild(req);
+      const run = startLeafChild(req);
       if (req.blocking) blockingChildren.push(run);
       // Detached: nothing will ever await it, so swallow rejections or a failing follow-up task
       // becomes an unhandled rejection that fails the PARENT — the opposite of non-blocking.
@@ -217,7 +217,7 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
 
   if (cancelled) {
     status = 'cancelled';
-    await UpdateCardActivity({ cardId: args.cardId, status });
+    await UpdateLeafActivity({ leafId: args.leafId, status });
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
@@ -226,25 +226,25 @@ export async function CardWorkflow(args: CardWorkflowArgs): Promise<CardWorkflow
   await ownWork;
   if (ownWorkFailed) {
     status = 'failed';
-    // The failure detail is already on the card — ExecuteCardActivity wrote it before throwing,
+    // The failure detail is already on the leaf — ExecuteLeafActivity wrote it before throwing,
     // on every attempt, which is what the next retry reads.
-    await UpdateCardActivity({ cardId: args.cardId, status });
+    await UpdateLeafActivity({ leafId: args.leafId, status });
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
-  // The card's own work is finished; now wait for anything it explicitly blocked on. Ordering
-  // matters: waiting first would mean a card could not be marked done until its children were,
+  // The leaf's own work is finished; now wait for anything it explicitly blocked on. Ordering
+  // matters: waiting first would mean a leaf could not be marked done until its children were,
   // which is backwards for "split this up, then integrate".
   if (blockingChildren.length > 0) {
     const results = await Promise.allSettled(blockingChildren);
     if (results.some((r) => r.status === 'rejected')) {
       status = 'failed';
-      await UpdateCardActivity({ cardId: args.cardId, status });
+      await UpdateLeafActivity({ leafId: args.leafId, status });
       return { column, status, blockingChildren: blockingChildren.length };
     }
   }
 
   status = 'succeeded';
-  await UpdateCardActivity({ cardId: args.cardId, status, column });
+  await UpdateLeafActivity({ leafId: args.leafId, status, column });
   return { column, status, blockingChildren: blockingChildren.length };
 }
