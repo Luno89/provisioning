@@ -1,57 +1,175 @@
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { Sparkles } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
+import { ChevronRight, ChevronDown, GitBranch, Leaf as LeafIcon, Plus, Loader2 } from 'lucide-react';
 import Chat from './Chat.js';
-import Board from './Board.js';
+import LeafDetail from './LeafDetail.js';
+import { STATUS_DOT, type Leaf } from './leaf-types.js';
 
 /**
- * Chat and board together — the harness's main surface.
+ * The harness — a tree on the left, the selected thing on the right.
  *
- * There is NO plan mode. Proposing is an ability the model always has and exercises when it is
- * confident, so a conversation can drift between chatting and planning without anyone declaring
- * intent up front. A toggle would persist, be forgotten, and be wrong exactly when it mattered.
+ * A tree rather than columns because decomposition is a SHAPE, and that is what the board is for:
+ * seeing how the agent broke the work up. Columns only ever showed state, which is one attribute
+ * of a leaf and not the interesting one.
  *
- * That is safe because it was measured rather than assumed: against the live model, a greeting, a
- * general opinion question, a factual question and a vague complaint all produced no proposals,
- * while a concrete request produced one. And a false positive costs a dismissal — a proposed leaf
- * starts no workflow and spends nothing until accepted.
- *
- * `/plan` remains for when you want to force it and the model would have declined.
+ * Selecting a branch shows its conversation; selecting a leaf shows that leaf. The two are not
+ * bound to each other — you can talk without growing anything, and a leaf can be discussed without
+ * being the subject of the chat.
  */
+
+interface BranchNode {
+  id: string;
+  title: string;
+  leaves: Leaf[];
+}
+
 export default function Workspace({ apiBase }: { apiBase: string }) {
   const qc = useQueryClient();
-  // A branch is the conversation, so every turn grows the same tree. "New branch" starts a fresh
-  // one rather than a mode being switched.
-  const [branchId, setBranchId] = useState<string>(() => crypto.randomUUID());
+  // The conversation currently open. Kept client-side: a branch with leaves is recoverable from
+  // them, and a brand-new one has nothing worth persisting until it does.
+  const [activeBranch, setActiveBranch] = useState<string>(() => crypto.randomUUID());
+  const [selected, setSelected] = useState<{ kind: 'branch' | 'leaf'; id: string }>(() => ({ kind: 'branch', id: '' }));
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  const { data: leaves, isLoading } = useQuery<Leaf[]>({
+    queryKey: ['leaves'],
+    queryFn: () => axios.get(`${apiBase}/leaves`, { withCredentials: true }).then((r) => r.data),
+    refetchInterval: 5000,
+  });
+
+  const all = useMemo(() => leaves ?? [], [leaves]);
   const refreshLeaves = () => qc.invalidateQueries({ queryKey: ['leaves'] });
 
+  /**
+   * Branches, derived from the leaves that reference them plus whichever is open.
+   *
+   * Derived rather than stored: a branch is a conversation, and one that produced nothing has
+   * nothing to show in a tree. The active branch is included even when empty so a fresh chat has
+   * somewhere to live.
+   */
+  const branches = useMemo<BranchNode[]>(() => {
+    const byBranch = new Map<string, Leaf[]>();
+    for (const leaf of all) {
+      byBranch.set(leaf.branchId, [...(byBranch.get(leaf.branchId) ?? []), leaf]);
+    }
+    if (!byBranch.has(activeBranch)) byBranch.set(activeBranch, []);
+
+    return [...byBranch.entries()].map(([id, ls]) => {
+      // Named after its first root leaf — the closest thing to a title a derived branch has.
+      const root = ls.filter((l) => !l.parentLeafId)[0];
+      return { id, title: root?.title ?? 'New branch', leaves: ls };
+    });
+  }, [all, activeBranch]);
+
+  const childrenOf = (parentId: string) => all.filter((l) => l.parentLeafId === parentId);
+  const selectedLeaf = selected.kind === 'leaf' ? all.find((l) => l.id === selected.id) : undefined;
+  // An empty branch selection means "the open conversation", so a fresh session lands somewhere.
+  const selectedBranch = selected.kind === 'branch' ? (selected.id || activeBranch) : undefined;
+
+  const renderLeaf = (leaf: Leaf, depth: number) => {
+    const kids = childrenOf(leaf.id);
+    const isCollapsed = collapsed[leaf.id] ?? false;
+    const isSelected = selected.kind === 'leaf' && selected.id === leaf.id;
+
+    return (
+      <div key={leaf.id}>
+        <div
+          onClick={() => setSelected({ kind: 'leaf', id: leaf.id })}
+          className={`flex items-center gap-1.5 py-1 pr-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-900'}`}
+          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+        >
+          {kids.length > 0 ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); setCollapsed((c) => ({ ...c, [leaf.id]: !isCollapsed })); }}
+              className="text-slate-600 hover:text-slate-300 shrink-0"
+            >
+              {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[leaf.status]}`} title={leaf.status} />
+          <span className="truncate">{leaf.title}</span>
+          {kids.length > 0 && <span className="text-[10px] text-slate-600 shrink-0">{kids.length}</span>}
+        </div>
+        {!isCollapsed && kids.map((k) => renderLeaf(k, depth + 1))}
+      </div>
+    );
+  };
+
   return (
-    <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-7rem)]">
-      <div className="xl:w-[46%] min-w-0 flex flex-col">
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
-            <Sparkles size={12} className="text-emerald-500" />
-            Ask anything — type <span className="font-mono text-slate-400">/plan</span> to insist on a breakdown
-          </span>
+    <div className="flex h-[calc(100vh-7rem)] gap-0">
+      {/* ── Tree ── */}
+      <aside className="w-72 shrink-0 border-r border-slate-800 pr-3 overflow-y-auto">
+        <div className="flex items-center justify-between mb-3 pl-2">
+          <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Branches</h2>
           <button
-            onClick={() => { setBranchId(crypto.randomUUID()); refreshLeaves(); }}
-            className="ml-auto text-[11px] text-slate-500 hover:text-slate-300"
+            onClick={() => {
+              const id = crypto.randomUUID();
+              setActiveBranch(id);
+              setSelected({ kind: 'branch', id });
+            }}
+            title="Start a new conversation"
+            className="text-slate-600 hover:text-slate-300"
           >
-            New branch
+            <Plus size={14} />
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {/* branchId is always passed: any reply may propose, so there is always somewhere for
-              proposals to land. */}
-          <Chat apiBase={apiBase} branchId={branchId} onProposals={refreshLeaves} />
-        </div>
-      </div>
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-slate-500 text-xs pl-2"><Loader2 className="animate-spin" size={12} /> Loading…</div>
+        ) : (
+          branches.map((branch) => {
+            const roots = branch.leaves.filter((l) => !l.parentLeafId);
+            const isCollapsed = collapsed[branch.id] ?? false;
+            const isSelected = selected.kind === 'branch' && (selected.id || activeBranch) === branch.id;
+            return (
+              <div key={branch.id} className="mb-1">
+                <div
+                  onClick={() => { setActiveBranch(branch.id); setSelected({ kind: 'branch', id: branch.id }); }}
+                  className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:bg-slate-900'}`}
+                >
+                  {roots.length > 0 ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setCollapsed((c) => ({ ...c, [branch.id]: !isCollapsed })); }}
+                      className="text-slate-600 hover:text-slate-300 shrink-0"
+                    >
+                      {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                  ) : (
+                    <span className="w-3 shrink-0" />
+                  )}
+                  <GitBranch size={12} className="text-slate-500 shrink-0" />
+                  <span className="truncate">{branch.title}</span>
+                </div>
+                {!isCollapsed && roots.map((l) => renderLeaf(l, 1))}
+              </div>
+            );
+          })
+        )}
+      </aside>
 
-      <div className="xl:w-[54%] min-w-0 overflow-y-auto border-t xl:border-t-0 xl:border-l border-slate-800 xl:pl-6 pt-6 xl:pt-0">
-        <Board apiBase={apiBase} />
-      </div>
+      {/* ── Detail ── */}
+      <section className="flex-1 min-w-0 pl-6 overflow-y-auto">
+        {selectedLeaf ? (
+          <LeafDetail apiBase={apiBase} leaf={selectedLeaf} subLeaves={childrenOf(selectedLeaf.id)} />
+        ) : selectedBranch ? (
+          <div className="flex flex-col h-full">
+            <p className="text-[11px] text-slate-600 mb-3 flex items-center gap-1.5">
+              <LeafIcon size={11} className="text-emerald-600" />
+              Ask anything — <span className="font-mono text-slate-500">/plan</span> to insist on a breakdown
+            </p>
+            <div className="flex-1 min-h-0">
+              {/* Keyed on the branch so switching conversations resets the transcript rather than
+                  carrying one branch's messages into another. */}
+              <Chat key={selectedBranch} apiBase={apiBase} branchId={selectedBranch} onProposals={refreshLeaves} />
+            </div>
+          </div>
+        ) : (
+          <p className="text-slate-600 text-sm">Select a branch or leaf.</p>
+        )}
+      </section>
     </div>
   );
 }
