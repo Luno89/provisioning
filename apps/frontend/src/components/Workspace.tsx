@@ -5,6 +5,7 @@ import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2 } from 'lucide-reac
 import Chat from './Chat.js';
 import LeafDetail from './LeafDetail.js';
 import { STATUS_DOT, type Leaf } from './leaf-types.js';
+import { KoalaSpot } from './Koala.js';
 
 
 
@@ -79,7 +80,7 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
       <div key={leaf.id}>
         <div
           onClick={() => setSelected({ kind: 'leaf', id: leaf.id })}
-          className={`flex items-center gap-1.5 py-1 pr-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-900'}`}
+          className={`flex items-center gap-1.5 py-1 pr-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-800)]'}`}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
         >
           {kids.length > 0 ? (
@@ -104,7 +105,7 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   return (
     <div className="flex h-[calc(100vh-7rem)] gap-0">
       {/* ── Tree ── */}
-      <aside className="w-72 shrink-0 border-r border-slate-800 pr-3 overflow-y-auto">
+      <aside className="w-72 shrink-0 border-r border-[var(--bark-600)] pr-3 overflow-y-auto">
         <div className="flex items-center justify-between mb-3 pl-2">
           <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Branches</h2>
           <button
@@ -131,7 +132,7 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
               <div key={branch.id} className="mb-1">
                 <div
                   onClick={() => { setActiveBranch(branch.id); setSelected({ kind: 'branch', id: branch.id }); }}
-                  className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:bg-slate-900'}`}
+                  className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-300 hover:bg-[var(--bark-800)]'}`}
                 >
                   {roots.length > 0 ? (
                     <button
@@ -178,7 +179,10 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
             </div>
           </div>
         ) : (
-          <p className="text-slate-600 text-sm">Select a branch or leaf.</p>
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <KoalaSpot size={72} mood="idle" className="sway opacity-60" />
+            <p className="text-slate-600 text-sm">Select a branch or leaf.</p>
+          </div>
         )}
       </section>
     </div>

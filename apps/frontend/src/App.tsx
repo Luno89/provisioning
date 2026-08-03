@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Layout, Server, Plus, Cloud, Terminal, FileText, X, Trash2, Zap, Cpu, Loader2, AlertTriangle, BellRing, ChevronDown, ChevronUp, Check, ArrowRight, ArrowLeft, Package, Database, Layers, Activity, Box, Blocks, ExternalLink, Puzzle, HardDrive, Shield, Timer, Key, RefreshCw, Settings, GitBranch, Network, Bot } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -14,11 +14,31 @@ import GameServerSettings from './components/GameServerSettings.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import MeshDevices from './components/MeshDevices.js';
 import Workspace from './components/Workspace.js';
+import { Koala } from './components/Koala.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
 
 axios.defaults.withCredentials = true;
+
+/**
+ * Everything that is infrastructure rather than the harness.
+ *
+ * A table rather than eleven hand-written buttons: they differed only in id, icon and label, and
+ * every style tweak previously meant eleven identical edits.
+ */
+const FOREST_TABS = [
+  { id: 'clusters' as const, label: 'Clusters', icon: Cloud },
+  { id: 'apps' as const, label: 'Applications', icon: Server },
+  { id: 'projects' as const, label: 'Projects', icon: GitBranch },
+  { id: 'vps-catalog' as const, label: 'VPS Catalog', icon: Package },
+  { id: 'mesh' as const, label: 'My Machines', icon: Network },
+  { id: 'accounts' as const, label: 'Cloud Accounts', icon: Key },
+  { id: 'services' as const, label: 'Services', icon: Activity },
+  { id: 'nginx' as const, label: 'Nginx Router', icon: Puzzle },
+  { id: 'temporal' as const, label: 'Temporal', icon: Timer },
+  { id: 'settings' as const, label: 'Security', icon: Shield },
+];
 
 const APP_DEFAULTS: Record<string, {
   helm: { webRepo: string; webTag: string; dbRepo: string; dbTag: string };
@@ -154,6 +174,9 @@ const TABBY_TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', '
 
 function App() {
   const queryClient = useQueryClient();
+  // Open by default: collapsed, a first-time user sees two items and no way to tell that ten
+  // more exist. Folding the infrastructure away is about hierarchy, not about hiding it.
+  const [forestOpen, setForestOpen] = useState(true);
   const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
@@ -935,25 +958,53 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex font-sans overflow-hidden">
-      <aside className="w-64 bg-slate-800 border-r border-slate-700 p-6 flex flex-col shadow-xl z-20">
-        <div className="flex items-center gap-2 mb-10"><Layout className="text-blue-500" /><h1 className="text-xl font-bold tracking-tight">NO WRINKLES</h1></div>
-        <nav className="space-y-2 flex-1">
-          <button onClick={() => setView('clusters')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'clusters' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Cloud size={20} /> Clusters</button>
-          <button onClick={() => setView('apps')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'apps' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Server size={20} /> Applications</button>
-          <button onClick={() => setView('projects')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'projects' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><GitBranch size={20} /> Projects</button>
-          <button onClick={() => setView('nginx')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'nginx' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Puzzle size={20} /> Nginx Router</button>
-          <button onClick={() => setView('temporal')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'temporal' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Timer size={20} /> Temporal</button>
-          <button onClick={() => setView('services')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'services' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Activity size={20} /> Services</button>
-          <button onClick={() => setView('accounts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'accounts' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Key size={20} /> Cloud Accounts</button>
-          <button onClick={() => setView('vps-catalog')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'vps-catalog' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Server size={20} /> VPS Catalog</button>
-          <button onClick={() => setView('mesh')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'mesh' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Network size={20} /> My Machines</button>
-          <button onClick={() => setView('chat')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'chat' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Bot size={20} /> Harness</button>
-          
-          <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${view === 'settings' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}><Shield size={20} /> Security</button>
+    <div className="min-h-screen bg-[var(--bark-900)] canopy text-slate-100 flex font-sans overflow-hidden">
+      <aside className="w-64 bg-[var(--bark-800)] border-r border-[var(--bark-600)] p-5 flex flex-col shadow-xl z-20">
+        <div className="flex items-center gap-2.5 mb-8">
+          <Koala size={34} mood="idle" />
+          <div className="leading-none">
+            <h1 className="text-lg font-bold tracking-tight">NO WRINKLES</h1>
+            <p className="text-[10px] text-[var(--leaf)] tracking-widest uppercase mt-0.5">smooth brained ops</p>
+          </div>
+        </div>
+
+        <nav className="space-y-1 flex-1 overflow-y-auto">
+          {/* Koala is the product; everything else is the infrastructure it runs on. Giving the
+              harness top billing and folding ten operational tabs into one keeps that hierarchy
+              legible instead of presenting eleven equal choices. */}
+          <button
+            onClick={() => setView('chat')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${view === 'chat' ? 'bg-[var(--leaf-stem)] text-white' : 'text-slate-300 hover:bg-[var(--bark-700)]'}`}
+          >
+            <Koala size={20} mood={view === 'chat' ? 'happy' : 'idle'} /> Koala
+          </button>
+
+          <button
+            onClick={() => setForestOpen((o) => !o)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-[var(--bark-700)] transition-colors"
+          >
+            <Trees size={20} className="text-[var(--leaf)]" />
+            <span className="flex-1 text-left">Forest</span>
+            {forestOpen ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
+          </button>
+
+          {forestOpen && (
+            <div className="ml-3 pl-3 border-l border-[var(--bark-600)] space-y-0.5">
+              {FOREST_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setView(tab.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-colors ${view === tab.id ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+                >
+                  <tab.icon size={15} /> {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
         </nav>
-        <button onClick={handleLogout} className="w-full mb-6 flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer text-sm font-bold">Log Out</button>
-        <div className="pt-6 border-t border-slate-700 flex items-center gap-3 text-slate-500 text-[10px] uppercase font-black tracking-widest"><Terminal size={14} /> <span>Local Ops Active</span></div>
+
+        <button onClick={handleLogout} className="w-full mt-4 mb-4 flex items-center gap-3 px-3 py-2.5 text-red-400/80 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer text-[13px] font-semibold">Log Out</button>
+        <div className="pt-4 border-t border-[var(--bark-600)] flex items-center gap-2 text-slate-600 text-[10px] uppercase font-black tracking-widest"><Terminal size={13} /> <span>Local Ops Active</span></div>
       </aside>
 
       <main className="flex-1 p-10 overflow-y-auto relative">

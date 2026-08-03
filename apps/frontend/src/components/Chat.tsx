@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { consumeChunk } from '../lib/stream-delta.js';
+import { KoalaSpot } from './Koala.js';
 import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server } from 'lucide-react';
 
 /**
@@ -105,7 +106,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
   // Only rendered in the empty state. In a live conversation it added height below the composer
   // and pushed the transcript out of view — the second half of the double-scroll problem.
   const endpointPanel = (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 mt-6">
+    <div className="bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl p-5 mt-6">
       <div className="flex justify-between items-center">
         <div>
           <h3 className="font-medium text-slate-200">Endpoints</h3>
@@ -115,7 +116,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
         </div>
         <button
           onClick={() => setShowEndpoints((v) => !v)}
-          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm flex items-center gap-2"
+          className="px-3 py-1.5 rounded-lg bg-[var(--bark-700)] hover:bg-slate-700 text-sm flex items-center gap-2"
         >
           <Plus size={14} /> {showEndpoints ? 'Close' : 'Add'}
         </button>
@@ -136,7 +137,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
                 value={form[key]}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                 placeholder={placeholder}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
+                className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-lg px-3 py-2 text-sm font-mono focus:border-[var(--leaf)] focus:outline-none"
               />
             </div>
           ))}
@@ -148,7 +149,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
           <button
             onClick={() => addEndpoint.mutate()}
             disabled={!form.name.trim() || !form.baseUrl.trim() || addEndpoint.isPending}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-sm flex items-center gap-2"
+            className="px-4 py-2 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] disabled:opacity-40 text-sm flex items-center gap-2"
           >
             {addEndpoint.isPending ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />} Register
           </button>
@@ -158,7 +159,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
       {models?.some((m) => m.source === 'endpoint') && (
         <ul className="mt-4 space-y-2">
           {models.filter((m) => m.source === 'endpoint').map((m) => (
-            <li key={m.id} className="flex items-center gap-3 text-sm bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
+            <li key={m.id} className="flex items-center gap-3 text-sm bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-lg px-3 py-2">
               {m.isMesh ? <Network size={14} className="text-blue-400" /> : <Server size={14} className="text-slate-500" />}
               <span className="text-slate-200">{m.name}</span>
               <span className="font-mono text-[11px] text-slate-500 truncate flex-1">{m.baseUrl}</span>
@@ -287,7 +288,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
     return (
       <div className="max-w-2xl">
         <h2 className="text-3xl font-bold mb-2">Chat</h2>
-        <div className="mt-6 bg-slate-900 border border-slate-800 rounded-xl p-6 flex gap-3">
+        <div className="mt-6 bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl p-6 flex gap-3">
           <AlertTriangle className="text-amber-400 shrink-0" size={20} />
           <div>
             <p className="text-slate-300 font-medium">No models yet</p>
@@ -309,7 +310,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
         <select
           value={modelId}
           onChange={(e) => setModelId(e.target.value)}
-          className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none"
+          className="bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
         >
           {models.map((m) => (
             <option key={m.id} value={m.id}>
@@ -321,11 +322,17 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-2">
         {messages.length === 0 && (
-          <p className="text-slate-600 text-sm">No messages yet.</p>
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+            {/* Drop a real GIF in later by giving KoalaSpot a src — the SVG stands in until then,
+                so an empty conversation never looks like a failed load. */}
+            <KoalaSpot size={88} mood="idle" className="sway opacity-80" />
+            <p className="text-slate-500 text-sm">Ask me something.</p>
+            <p className="text-slate-600 text-[11px] font-mono">/chat · /auto · /plan</p>
+          </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className="flex gap-3">
-            <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${m.role === 'user' ? 'bg-blue-600' : 'bg-slate-800'}`}>
+            <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${m.role === 'user' ? 'bg-blue-600' : 'bg-[var(--bark-700)]'}`}>
               {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
             </div>
             <div className="flex-1 pt-1 min-w-0">
@@ -334,7 +341,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
                   <summary className="text-[11px] uppercase tracking-widest text-slate-500 cursor-pointer select-none">
                     Thinking{!m.content && streaming && i === messages.length - 1 ? '…' : ''}
                   </summary>
-                  <div className="mt-1 text-[12px] text-slate-500 whitespace-pre-wrap leading-relaxed border-l-2 border-slate-800 pl-3">
+                  <div className="mt-1 text-[12px] text-slate-500 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
                     {m.reasoning}
                   </div>
                 </details>
@@ -365,7 +372,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
           }}
           rows={2}
           placeholder="Send a message…  (/chat, /auto or /plan to switch mode)"
-          className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 focus:border-blue-500 focus:outline-none resize-none"
+          className="flex-1 bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl px-4 py-3 text-sm text-slate-200 focus:border-[var(--leaf)] focus:outline-none resize-none"
         />
         {streaming ? (
           <button onClick={stop} className="px-5 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2">
@@ -375,7 +382,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
           <button
             onClick={send}
             disabled={!input.trim()}
-            className="px-5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 flex items-center gap-2"
+            className="px-5 rounded-xl bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] disabled:opacity-40 flex items-center gap-2"
           >
             <Send size={16} /> Send
           </button>

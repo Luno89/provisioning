@@ -6,3 +6,50 @@
   --azure-blue: #0078D4;
   --do-blue: #0080FF;
 }
+
+/**
+ * Koala palette.
+ *
+ * Eucalyptus rather than the generic slate/blue: greens for anything alive or growing, warm greys
+ * for the koala itself, and the old provider colours left alone because AWS orange means AWS.
+ *
+ * Declared as variables so the SVG mascot themes with the rest of the site instead of hardcoding
+ * its own colours — a mascot that does not match the page reads as clip art.
+ */
+:root {
+  --koala-fur: #9ca3af;
+  --koala-fur-dark: #6b7280;
+  --koala-ear-inner: #c99;
+
+  --leaf: #65a30d;
+  --leaf-light: #84cc16;
+  --leaf-stem: #4d7c0f;
+
+  /* Bark tones for surfaces, warmer than slate so the greens do not look radioactive. */
+  --bark-900: #171a17;
+  --bark-800: #1e221e;
+  --bark-700: #2a2f2a;
+  --bark-600: #3b423b;
+}
+
+/* Canopy: the faint texture behind the whole app, so a large empty page is not a flat void. */
+.canopy {
+  background-image:
+    radial-gradient(circle at 15% 20%, rgb(101 163 13 / 0.05), transparent 42%),
+    radial-gradient(circle at 85% 8%, rgb(132 204 22 / 0.04), transparent 38%),
+    radial-gradient(circle at 60% 95%, rgb(77 124 15 / 0.05), transparent 45%);
+}
+
+/* Idle sway for decorative foliage. Deliberately slow — anything faster is a distraction next to
+   text people are trying to read. */
+@keyframes sway {
+  0%, 100% { transform: rotate(-2deg); }
+  50%      { transform: rotate(2deg); }
+}
+.sway { animation: sway 6s ease-in-out infinite; transform-origin: bottom center; }
+
+/* Respect the OS setting. A mascot is not worth making someone motion-sick. */
+@media (prefers-reduced-motion: reduce) {
+  .sway { animation: none; }
+  svg animate, svg animateTransform { display: none; }
+}

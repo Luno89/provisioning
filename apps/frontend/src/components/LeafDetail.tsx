@@ -49,21 +49,21 @@ export default function LeafDetail({ apiBase, leaf, subLeaves }: { apiBase: stri
         <div className="flex items-center gap-2 shrink-0">
           {leaf.status === 'proposed' && (
             <button onClick={() => accept.mutate()}
-              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-emerald-50 text-xs flex items-center gap-1.5">
+              className="px-3 py-1.5 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-emerald-50 text-xs flex items-center gap-1.5">
               <Check size={13} /> Accept
             </button>
           )}
           {leaf.status === 'running' && (
             <button onClick={() => cancel.mutate()} title="Cancel"
-              className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-slate-800"><CircleSlash size={15} /></button>
+              className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-[var(--bark-700)]"><CircleSlash size={15} /></button>
           )}
           <button onClick={() => remove.mutate()} title="Delete, with its sub-leaves"
-            className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-800"><Trash2 size={15} /></button>
+            className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><Trash2 size={15} /></button>
         </div>
       </div>
 
       {leaf.body && (
-        <p className="mt-5 text-sm text-slate-300 whitespace-pre-wrap leading-relaxed border-l-2 border-slate-800 pl-4">
+        <p className="mt-5 text-sm text-slate-300 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-4">
           {leaf.body}
         </p>
       )}
@@ -74,7 +74,7 @@ export default function LeafDetail({ apiBase, leaf, subLeaves }: { apiBase: stri
           <div className="flex gap-2">
             {COLUMNS.map((c) => (
               <button key={c.id} onClick={() => move.mutate(c.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs ${leaf.column === c.id ? 'bg-slate-700 text-slate-100' : 'bg-slate-900 text-slate-500 hover:text-slate-300'}`}>
+                className={`px-3 py-1.5 rounded-lg text-xs ${leaf.column === c.id ? 'bg-slate-700 text-slate-100' : 'bg-[var(--bark-800)] text-slate-500 hover:text-slate-300'}`}>
                 {c.label}
               </button>
             ))}
