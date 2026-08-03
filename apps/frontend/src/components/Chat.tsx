@@ -46,12 +46,22 @@ interface Message {
   reasoning?: string;
 }
 
-export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: {
+type Mode = 'chat' | 'auto' | 'plan';
+
+const MODE_HINT: Record<Mode, string> = {
+  chat: 'just talking — nothing is created',
+  auto: 'work is extracted from every reply',
+  plan: 'actively breaking the work down',
+};
+
+export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, onProposals }: {
   apiBase: string;
   /** The branch any proposals land on. */
   branchId?: string;
   /** chat = no side effects; auto = extract after every reply; plan = also ask the model to plan. */
-  mode?: 'chat' | 'auto' | 'plan';
+  mode?: Mode;
+  /** Switching happens through a slash command, so the parent owns the value. */
+  onModeChange?: (mode: Mode) => void;
   /** Called once a reply finishes, so the tree picks up anything that was proposed. */
   onProposals?: () => void;
 }) {
@@ -92,6 +102,8 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
     onSuccess: () => qc.invalidateQueries({ queryKey: ['models'] }),
   });
 
+  // Only rendered in the empty state. In a live conversation it added height below the composer
+  // and pushed the transcript out of view — the second half of the double-scroll problem.
   const endpointPanel = (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 mt-6">
       <div className="flex justify-between items-center">
@@ -179,6 +191,36 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
     const text = input.trim();
     if (!text || streaming) return;
 
+    /**
+     * A leading /chat, /auto or /plan switches mode.
+     *
+     * Bare — send nothing, just switch. With text — switch and send it, so "/plan add rate
+     * limiting" does the obvious thing rather than making you set the mode and then retype.
+     *
+     * Note /plan is ALSO parsed server-side as a per-turn override. That is deliberate belt and
+     * braces: this switch is optimistic local state, and the server must not depend on the client
+     * having applied it before the request lands.
+     */
+    const command = /^\/(chat|auto|plan)\b\s*([\s\S]*)$/i.exec(text);
+    if (command) {
+      const next = command[1]!.toLowerCase() as Mode;
+      const rest = (command[2] ?? '').trim();
+      onModeChange?.(next);
+      setInput('');
+      setError(null);
+      // Nothing else to send — the user only wanted to switch.
+      if (!rest) return;
+      // Fall through with the remainder, sent under the mode just selected. `/plan` keeps its
+      // prefix so the server applies the same override even if this component's state has not
+      // propagated yet.
+      return sendMessage(next === 'plan' ? `/plan ${rest}` : rest, next);
+    }
+
+    return sendMessage(text, mode);
+  };
+
+  const sendMessage = async (text: string, activeMode: Mode) => {
+
     const next: Message[] = [...messages, { role: 'user', content: text }];
     setMessages([...next, { role: 'assistant', content: '' }]);
     setInput('');
@@ -193,7 +235,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ modelId, messages: next, stream: true, branchId, mode }),
+        body: JSON.stringify({ modelId, messages: next, stream: true, branchId, mode: activeMode }),
         signal: controller.signal,
       });
 
@@ -233,7 +275,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
       abortRef.current = null;
       // Proposals are created server-side after the stream closes. Chat mode never produces any,
       // so refreshing then is harmless but pointless.
-      if (mode !== 'chat') onProposals?.();
+      if (activeMode !== 'chat') onProposals?.();
     }
   };
 
@@ -262,12 +304,8 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] max-w-4xl">
-      <header className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-3xl font-bold">Chat</h2>
-          <p className="text-slate-400 text-sm">Talk to a model running on your own hardware.</p>
-        </div>
+    <div className="flex flex-col h-full min-h-0 max-w-4xl">
+      <header className="flex justify-end items-center mb-3 shrink-0">
         <select
           value={modelId}
           onChange={(e) => setModelId(e.target.value)}
@@ -281,7 +319,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
         </select>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 pr-2">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-2">
         {messages.length === 0 && (
           <p className="text-slate-600 text-sm">No messages yet.</p>
         )}
@@ -315,7 +353,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
         <div className="mt-4 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-xl px-4 py-3">{error}</div>
       )}
 
-      <div className="mt-4 flex gap-3">
+      <div className="mt-4 flex gap-3 shrink-0">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -326,7 +364,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
             }
           }}
           rows={2}
-          placeholder="Send a message…  (/plan to insist on a breakdown)"
+          placeholder="Send a message…  (/chat, /auto or /plan to switch mode)"
           className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-200 focus:border-blue-500 focus:outline-none resize-none"
         />
         {streaming ? (
@@ -344,7 +382,14 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: 
         )}
       </div>
 
-      {endpointPanel}
+      {/* Below the input rather than above it: the mode is a property of what you are about to
+          send, and it belongs next to where you type rather than competing with the transcript. */}
+      <div className="mt-2 flex items-center gap-2 text-[11px] shrink-0">
+        <span className={`font-mono ${mode === 'chat' ? 'text-slate-500' : mode === 'plan' ? 'text-emerald-400' : 'text-blue-400'}`}>
+          /{mode}
+        </span>
+        <span className="text-slate-600">{MODE_HINT[mode]}</span>
+      </div>
     </div>
   );
 }

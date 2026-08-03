@@ -1,21 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { ChevronRight, ChevronDown, GitBranch, Leaf as LeafIcon, Plus, Loader2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2 } from 'lucide-react';
 import Chat from './Chat.js';
 import LeafDetail from './LeafDetail.js';
 import { STATUS_DOT, type Leaf } from './leaf-types.js';
 
-/**
- * Each mode is a genuinely different bargain, which is why there are three rather than a toggle.
- * `cost` is stated because auto and plan each spend an extra inference call per message, and that
- * is not obvious from the name.
- */
-const MODES = [
-  { id: 'chat', label: 'Chat', hint: 'Just talk. Nothing is created.' },
-  { id: 'auto', label: 'Auto', hint: 'Work is extracted from every reply. One extra model call per message.' },
-  { id: 'plan', label: 'Plan', hint: 'Actively breaks the work down, then extracts it.' },
-] as const;
+
 
 /**
  * The harness — a tree on the left, the selected thing on the right.
@@ -163,35 +154,27 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
       </aside>
 
       {/* ── Detail ── */}
-      <section className="flex-1 min-w-0 pl-6 overflow-y-auto">
+      {/* overflow-hidden, not auto: the chat manages its own transcript scrolling, and a scrolling
+          parent around a scrolling child is what produced two scrollbars. Leaf detail opts back in. */}
+      <section className="flex-1 min-w-0 pl-6 overflow-hidden flex flex-col">
         {selectedLeaf ? (
-          <LeafDetail apiBase={apiBase} leaf={selectedLeaf} subLeaves={childrenOf(selectedLeaf.id)} />
+          <div className="overflow-y-auto"><LeafDetail apiBase={apiBase} leaf={selectedLeaf} subLeaves={childrenOf(selectedLeaf.id)} /></div>
         ) : selectedBranch ? (
-          <div className="flex flex-col h-full">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5">
-                {MODES.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => setMode(m.id)}
-                    title={m.hint}
-                    className={`px-2.5 py-1 rounded-md text-[11px] transition-colors ${mode === m.id ? 'bg-slate-700 text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[11px] text-slate-600 flex items-center gap-1.5 min-w-0">
-                <LeafIcon size={11} className="text-emerald-600 shrink-0" />
-                <span className="truncate">{MODES.find((m) => m.id === mode)!.hint}</span>
-              </p>
-            </div>
+          <div className="flex flex-col h-full min-h-0">
+
             <div className="flex-1 min-h-0">
               {/* Keyed on the branch so switching conversations resets the transcript rather than
                   carrying one branch's messages into another. */}
               {/* Keyed on the branch only — changing mode mid-conversation must not wipe the
                   transcript, since the whole point is switching as the conversation changes shape. */}
-              <Chat key={selectedBranch} apiBase={apiBase} branchId={selectedBranch} mode={mode} onProposals={refreshLeaves} />
+              <Chat
+                key={selectedBranch}
+                apiBase={apiBase}
+                branchId={selectedBranch}
+                mode={mode}
+                onModeChange={setMode}
+                onProposals={refreshLeaves}
+              />
             </div>
           </div>
         ) : (
