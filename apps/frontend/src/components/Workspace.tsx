@@ -1,8 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
+import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2 } from 'lucide-react';
-import Chat from './Chat.js';
+import Chat, { type Message } from './Chat.js';
 import LeafDetail from './LeafDetail.js';
 import { STATUS_DOT, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
@@ -35,6 +36,13 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   const [selected, setSelected] = useState<{ kind: 'branch' | 'leaf'; id: string }>(() => ({ kind: 'branch', id: '' }));
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [mode, setMode] = useState<'chat' | 'auto' | 'plan'>('auto');
+  /**
+   * Transcripts, per branch, held here rather than inside Chat.
+   *
+   * Chat unmounts every time a leaf is selected, so component state lost the whole conversation on
+   * a single click. Keyed by branch so switching between conversations keeps both.
+   */
+  const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
 
   const { data: leaves, isLoading } = useQuery<Leaf[]>({
     queryKey: ['leaves'],
@@ -67,6 +75,25 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   }, [all, activeBranch]);
 
   const childrenOf = (parentId: string) => all.filter((l) => l.parentLeafId === parentId);
+
+  const accept = useMutation({
+    mutationFn: (id: string) => axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true }),
+    onSuccess: refreshLeaves,
+  });
+  const reject = useMutation({
+    mutationFn: (id: string) => axios.delete(`${apiBase}/leaves/${id}`, { withCredentials: true }),
+    onSuccess: refreshLeaves,
+  });
+  const acceptAll = useMutation({
+    // Sequential, not parallel: each accept re-checks the branch budget, and firing them at once
+    // would let several slip through a ceiling that only had room for one.
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true }).catch(() => {});
+      }
+    },
+    onSuccess: refreshLeaves,
+  });
   const selectedLeaf = selected.kind === 'leaf' ? all.find((l) => l.id === selected.id) : undefined;
   // An empty branch selection means "the open conversation", so a fresh session lands somewhere.
   const selectedBranch = selected.kind === 'branch' ? (selected.id || activeBranch) : undefined;
@@ -168,14 +195,33 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
                   carrying one branch's messages into another. */}
               {/* Keyed on the branch only — changing mode mid-conversation must not wipe the
                   transcript, since the whole point is switching as the conversation changes shape. */}
-              <Chat
-                key={selectedBranch}
-                apiBase={apiBase}
-                branchId={selectedBranch}
-                mode={mode}
-                onModeChange={setMode}
-                onProposals={refreshLeaves}
-              />
+              {(() => {
+                const proposed = all
+                  .filter((l) => l.branchId === selectedBranch && l.status === 'proposed')
+                  .map((l) => ({ id: l.id, title: l.title, ...(l.body ? { body: l.body } : {}) }));
+                return (
+                  <Chat
+                    // No key on the branch any more: remounting is what discarded the transcript.
+                    // The parent holds it per branch instead.
+                    apiBase={apiBase}
+                    branchId={selectedBranch}
+                    mode={mode}
+                    onModeChange={setMode}
+                    onProposals={refreshLeaves}
+                    messages={transcripts[selectedBranch] ?? []}
+                    onMessagesChange={(next) =>
+                      setTranscripts((t) => ({
+                        ...t,
+                        [selectedBranch]: typeof next === 'function' ? next(t[selectedBranch] ?? []) : next,
+                      }))
+                    }
+                    proposed={proposed}
+                    onAccept={(id) => accept.mutate(id)}
+                    onReject={(id) => reject.mutate(id)}
+                    onAcceptAll={() => acceptAll.mutate(proposed.map((p) => p.id))}
+                  />
+                );
+              })()}
             </div>
           </div>
         ) : (

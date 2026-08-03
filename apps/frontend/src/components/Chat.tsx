@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { consumeChunk } from '../lib/stream-delta.js';
 import { KoalaSpot } from './Koala.js';
-import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server } from 'lucide-react';
+import { splitProposalBlock } from '../lib/proposal-display.js';
+import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X } from 'lucide-react';
 
 /**
  * Talk to a model running on your own fleet — Phase A of the agent harness.
@@ -33,7 +34,13 @@ interface ModelProvider {
   gpuCount?: number;
 }
 
-interface Message {
+export interface ProposedLeaf {
+  id: string;
+  title: string;
+  body?: string;
+}
+
+export interface Message {
   role: 'user' | 'assistant';
   content: string;
   /**
@@ -55,7 +62,10 @@ const MODE_HINT: Record<Mode, string> = {
   plan: 'actively breaking the work down',
 };
 
-export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, onProposals }: {
+export default function Chat({
+  apiBase, branchId, mode = 'auto', onModeChange, onProposals,
+  messages, onMessagesChange, proposed = [], onAccept, onReject, onAcceptAll,
+}: {
   apiBase: string;
   /** The branch any proposals land on. */
   branchId?: string;
@@ -65,8 +75,18 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
   onModeChange?: (mode: Mode) => void;
   /** Called once a reply finishes, so the tree picks up anything that was proposed. */
   onProposals?: () => void;
+  /**
+   * The transcript, owned by the parent. Chat unmounts every time a leaf is selected, so keeping
+   * this in component state lost the conversation on a single click.
+   */
+  messages: Message[];
+  onMessagesChange: (next: Message[] | ((prev: Message[]) => Message[])) => void;
+  /** This branch's proposed leaves — real records, so accept/reject act on the actual thing. */
+  proposed?: ProposedLeaf[];
+  onAccept?: (id: string) => void;
+  onReject?: (id: string) => void;
+  onAcceptAll?: () => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [modelId, setModelId] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -223,7 +243,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
   const sendMessage = async (text: string, activeMode: Mode) => {
 
     const next: Message[] = [...messages, { role: 'user', content: text }];
-    setMessages([...next, { role: 'assistant', content: '' }]);
+    onMessagesChange([...next, { role: 'assistant', content: '' }]);
     setInput('');
     setError(null);
     setStreaming(true);
@@ -257,7 +277,7 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
         const r = consumeChunk(buffer, decoder.decode(value, { stream: true }));
         buffer = r.buffer;
         if (!r.delta.content && !r.delta.reasoning) continue;
-        setMessages((prev) => {
+        onMessagesChange((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
           if (!last) return copy;
@@ -346,11 +366,31 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
                   </div>
                 </details>
               )}
-              <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-                {m.content || (streaming && i === messages.length - 1 && !m.reasoning
-                  ? <Loader2 className="animate-spin text-slate-500" size={14} />
-                  : null)}
-              </div>
+              {(() => {
+                // The raw JSON block is machinery: the proposals become leaves in the tree, so
+                // showing the block too displays the same thing twice, once unreadably.
+                const { prose, proposals, pending } = splitProposalBlock(m.content);
+                const waiting = streaming && i === messages.length - 1 && !m.reasoning && !prose;
+                return (
+                  <>
+                    <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                      {prose || (waiting ? <Loader2 className="animate-spin text-slate-500" size={14} /> : null)}
+                    </div>
+
+                    {pending && (
+                      <p className="mt-2 text-[11px] text-[var(--leaf-light)] flex items-center gap-1.5">
+                        <Sprout size={11} className="animate-pulse" /> proposing work…
+                      </p>
+                    )}
+
+                    {proposals.length > 0 && (
+                      <p className="mt-2 text-[11px] text-[var(--leaf-light)] flex items-center gap-1.5">
+                        <Sprout size={11} /> proposed {proposals.length} leaf{proposals.length > 1 ? 'ves' : ''}
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         ))}
@@ -360,7 +400,42 @@ export default function Chat({ apiBase, branchId, mode = 'auto', onModeChange, o
         <div className="mt-4 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-xl px-4 py-3">{error}</div>
       )}
 
-      <div className="mt-4 flex gap-3 shrink-0">
+      {proposed.length > 0 && (
+        <div className="mt-3 shrink-0 rounded-xl border border-[var(--leaf-stem)]/40 bg-[var(--leaf-stem)]/10 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Sprout size={13} className="text-[var(--leaf-light)]" />
+            <h3 className="text-[11px] uppercase tracking-widest text-[var(--leaf-light)] flex-1">
+              {proposed.length} sprouting
+            </h3>
+            {proposed.length > 1 && onAcceptAll && (
+              <button
+                onClick={onAcceptAll}
+                className="text-[11px] px-2 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white"
+              >
+                Accept all
+              </button>
+            )}
+          </div>
+          <ul className="space-y-1.5 max-h-52 overflow-y-auto">
+            {proposed.map((p) => (
+              <li key={p.id} className="flex items-start gap-2 rounded-lg bg-[var(--bark-800)] px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] text-slate-200">{p.title}</p>
+                  {p.body && <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{p.body}</p>}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => onAccept?.(p.id)} title="Accept — starts the work"
+                    className="p-1 rounded-md text-[var(--leaf-light)] hover:bg-[var(--bark-700)]"><Check size={14} /></button>
+                  <button onClick={() => onReject?.(p.id)} title="Reject"
+                    className="p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><X size={14} /></button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-3 flex gap-3 shrink-0">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
