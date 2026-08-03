@@ -50,6 +50,7 @@ import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
 import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
+import { buildLeafContext } from './lib/leaf-context.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
@@ -1799,6 +1800,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     // would have declined. Parsed from the LAST message, which is the one being sent now.
     const lastIndex = messages.length - 1;
     const command = parseChatCommand(String(messages[lastIndex]?.content ?? ''));
+    /**
+     * What already exists on this branch, so the model is not blind to its own output.
+     *
+     * Without it the model proposes the same work every turn — from its point of view nothing was
+     * ever created. Skipped in chat mode, where no leaves are in play and the tokens would be
+     * spent describing work the user explicitly did not want discussed.
+     */
+    const branchLeaves = branchId
+      ? (await ownedLeaves((req as any).user.id)).filter((l) => l.branchId === branchId)
+      : [];
+
     // `/plan` overrides the mode for this turn; otherwise the mode decides.
     const planning = command.command === 'plan' || mode === 'plan';
     // Chat mode is the only one that extracts nothing — it is the "leave me alone" option.
@@ -1807,6 +1819,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const outboundMessages = explicitPlan
       ? [
           { role: 'system', content: PLAN_SYSTEM_PROMPT },
+          ...(branchLeaves.length ? [{ role: 'system', content: buildLeafContext(branchLeaves) }] : []),
           ...messages.slice(0, lastIndex),
           // The command itself is stripped: the model should see the request, not the syntax.
           // An empty /plan is meaningful — "plan what we just discussed" — so the prior turns
@@ -1814,7 +1827,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           { ...messages[lastIndex], content: command.text || 'Propose the work we have been discussing.' },
         ]
       : extracting
-        ? [{ role: 'system', content: AMBIENT_PROPOSAL_PROMPT }, ...messages]
+        ? [
+            { role: 'system', content: AMBIENT_PROPOSAL_PROMPT },
+            ...(branchLeaves.length ? [{ role: 'system', content: buildLeafContext(branchLeaves) }] : []),
+            ...messages,
+          ]
         // Chat mode sends nothing extra: the affordance costs tokens on every turn and biases
         // ordinary conversation toward finding work.
         : messages;
