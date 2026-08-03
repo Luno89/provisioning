@@ -46,11 +46,13 @@ interface Message {
   reasoning?: string;
 }
 
-export default function Chat({ apiBase, branchId, onProposals }: {
+export default function Chat({ apiBase, branchId, mode = 'auto', onProposals }: {
   apiBase: string;
-  /** The branch any proposals land on. Always set from the workspace — any reply may propose. */
+  /** The branch any proposals land on. */
   branchId?: string;
-  /** Called once a reply finishes, so the board picks up anything that was proposed. */
+  /** chat = no side effects; auto = extract after every reply; plan = also ask the model to plan. */
+  mode?: 'chat' | 'auto' | 'plan';
+  /** Called once a reply finishes, so the tree picks up anything that was proposed. */
   onProposals?: () => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -191,7 +193,7 @@ export default function Chat({ apiBase, branchId, onProposals }: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ modelId, messages: next, stream: true, branchId }),
+        body: JSON.stringify({ modelId, messages: next, stream: true, branchId, mode }),
         signal: controller.signal,
       });
 
@@ -229,9 +231,9 @@ export default function Chat({ apiBase, branchId, onProposals }: {
     } finally {
       setStreaming(false);
       abortRef.current = null;
-      // Proposals are created server-side after the stream closes, so the board only learns about
-      // them once the reply is done. Called unconditionally now: any reply may have proposed.
-      onProposals?.();
+      // Proposals are created server-side after the stream closes. Chat mode never produces any,
+      // so refreshing then is harmless but pointless.
+      if (mode !== 'chat') onProposals?.();
     }
   };
 

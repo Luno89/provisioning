@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractProposals, stripProposalBlock, parseChatCommand, MAX_PROPOSALS_PER_REPLY } from './plan-mode.js';
+import { extractProposals, stripProposalBlock, parseChatCommand, isChatMode, MAX_PROPOSALS_PER_REPLY } from './plan-mode.js';
 
 /**
  * These cover the shapes models ACTUALLY emit rather than the shape the prompt asks for. A local
@@ -124,5 +124,17 @@ describe('parseChatCommand', () => {
   it('handles empty and missing input', () => {
     expect(parseChatCommand('')).toEqual({ command: null, text: '' });
     expect(() => parseChatCommand(undefined as any)).not.toThrow();
+  });
+});
+
+describe('isChatMode', () => {
+  it('accepts the three modes', () => {
+    for (const m of ['chat', 'auto', 'plan']) expect(isChatMode(m)).toBe(true);
+  });
+
+  it('rejects anything else, so the caller can fall back rather than trust it', () => {
+    // A chat request must never fail because a selector was out of date, so the route defaults
+    // instead of erroring — which only works if this is honest about what it does not recognise.
+    for (const v of ['planning', 'PLAN', '', undefined, null, 1, {}]) expect(isChatMode(v)).toBe(false);
   });
 });

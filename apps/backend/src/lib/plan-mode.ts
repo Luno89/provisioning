@@ -67,6 +67,28 @@ export const AMBIENT_PROPOSAL_PROMPT = [
   'Only when the work is clear. Otherwise just talk, or ask a question.',
 ].join('\n');
 
+/**
+ * How a conversation treats proposals.
+ *
+ * Three states rather than a toggle, because a toggle forced a choice between two things neither
+ * of which was "leave me alone":
+ *
+ *   chat — nothing is extracted and no affordance is added. Zero extra cost, zero side effects.
+ *   auto — extraction runs after every reply. RELIABLE, unlike the earlier ambient approach which
+ *          hoped the conversation model would emit a block and managed roughly one in eight. The
+ *          cost is one extra inference call per message.
+ *   plan — as auto, plus the conversation model is actively asked to plan and given a larger
+ *          budget for the reasoning that provokes.
+ *
+ * `/plan` in a message forces plan behaviour for that turn regardless of mode, so an explicit
+ * request never depends on what the selector happens to be set to.
+ */
+export type ChatMode = 'chat' | 'auto' | 'plan';
+
+export function isChatMode(value: unknown): value is ChatMode {
+  return value === 'chat' || value === 'auto' || value === 'plan';
+}
+
 /** Parsed out of a message so an explicit request never depends on the model noticing. */
 export interface ChatCommand {
   command: 'plan' | null;

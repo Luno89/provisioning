@@ -49,7 +49,7 @@ import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
-import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
@@ -1786,7 +1786,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * schema, and re-encoding it here would mean tracking every field either adds.
    */
   app.post('/api/chat', async (req, res) => {
-    const { modelId, messages, stream = true, leafId, branchId, ...rest } = req.body ?? {};
+    const { modelId, messages, stream = true, leafId, branchId, mode: rawMode, ...rest } = req.body ?? {};
+    // Unknown or missing modes fall back to 'auto' rather than erroring: a chat request should
+    // never fail because a selector was out of date.
+    const mode: ChatMode = isChatMode(rawMode) ? rawMode : 'auto';
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages is required' });
     }
@@ -1796,7 +1799,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     // would have declined. Parsed from the LAST message, which is the one being sent now.
     const lastIndex = messages.length - 1;
     const command = parseChatCommand(String(messages[lastIndex]?.content ?? ''));
-    const explicitPlan = command.command === 'plan';
+    // `/plan` overrides the mode for this turn; otherwise the mode decides.
+    const planning = command.command === 'plan' || mode === 'plan';
+    // Chat mode is the only one that extracts nothing — it is the "leave me alone" option.
+    const extracting = planning || mode === 'auto';
+    const explicitPlan = planning;
     const outboundMessages = explicitPlan
       ? [
           { role: 'system', content: PLAN_SYSTEM_PROMPT },
@@ -1806,7 +1813,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           // carry it, and a placeholder keeps the final message non-empty.
           { ...messages[lastIndex], content: command.text || 'Propose the work we have been discussing.' },
         ]
-      : [{ role: 'system', content: AMBIENT_PROPOSAL_PROMPT }, ...messages];
+      : extracting
+        ? [{ role: 'system', content: AMBIENT_PROPOSAL_PROMPT }, ...messages]
+        // Chat mode sends nothing extra: the affordance costs tokens on every turn and biases
+        // ordinary conversation toward finding work.
+        : messages;
 
     let provider, baseUrl, apiKey;
     try {
@@ -1869,8 +1880,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // Usage is watched as the stream passes through rather than read off a response body —
       // see lib/token-usage.ts. The client gets every byte unchanged; this only observes.
       const scanner = new UsageScanner();
-      // Watched on every reply: any turn may end with proposals now that there is no mode.
-      const content = branchId ? new ContentScanner() : undefined;
+      // Only accumulated when something will read it — chat mode extracts nothing, so scanning
+      // the whole reply would be pure waste.
+      const content = branchId && extracting ? new ContentScanner() : undefined;
       const decoder = new TextDecoder();
       const reader = upstream.body.getReader();
       for (;;) {
@@ -1898,7 +1910,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            * every reply needs latency measured rather than assumed.
            */
           let extracted: Awaited<ReturnType<typeof extractViaModel>> | undefined;
-          if (explicitPlan) {
+          if (extracting) {
             // Falls back to the CONVERSATION model, which is safe now that extraction disables
             // thinking per-request. The earlier refusal to fall back was because a reasoning model
             // cannot hold a format — with thinking off it can, measured at 3/3 against 1-in-8.

@@ -7,6 +7,17 @@ import LeafDetail from './LeafDetail.js';
 import { STATUS_DOT, type Leaf } from './leaf-types.js';
 
 /**
+ * Each mode is a genuinely different bargain, which is why there are three rather than a toggle.
+ * `cost` is stated because auto and plan each spend an extra inference call per message, and that
+ * is not obvious from the name.
+ */
+const MODES = [
+  { id: 'chat', label: 'Chat', hint: 'Just talk. Nothing is created.' },
+  { id: 'auto', label: 'Auto', hint: 'Work is extracted from every reply. One extra model call per message.' },
+  { id: 'plan', label: 'Plan', hint: 'Actively breaks the work down, then extracts it.' },
+] as const;
+
+/**
  * The harness — a tree on the left, the selected thing on the right.
  *
  * A tree rather than columns because decomposition is a SHAPE, and that is what the board is for:
@@ -31,6 +42,7 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   const [activeBranch, setActiveBranch] = useState<string>(() => crypto.randomUUID());
   const [selected, setSelected] = useState<{ kind: 'branch' | 'leaf'; id: string }>(() => ({ kind: 'branch', id: '' }));
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [mode, setMode] = useState<'chat' | 'auto' | 'plan'>('auto');
 
   const { data: leaves, isLoading } = useQuery<Leaf[]>({
     queryKey: ['leaves'],
@@ -156,14 +168,30 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
           <LeafDetail apiBase={apiBase} leaf={selectedLeaf} subLeaves={childrenOf(selectedLeaf.id)} />
         ) : selectedBranch ? (
           <div className="flex flex-col h-full">
-            <p className="text-[11px] text-slate-600 mb-3 flex items-center gap-1.5">
-              <LeafIcon size={11} className="text-emerald-600" />
-              Ask anything — <span className="font-mono text-slate-500">/plan</span> to insist on a breakdown
-            </p>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5">
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setMode(m.id)}
+                    title={m.hint}
+                    className={`px-2.5 py-1 rounded-md text-[11px] transition-colors ${mode === m.id ? 'bg-slate-700 text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-600 flex items-center gap-1.5 min-w-0">
+                <LeafIcon size={11} className="text-emerald-600 shrink-0" />
+                <span className="truncate">{MODES.find((m) => m.id === mode)!.hint}</span>
+              </p>
+            </div>
             <div className="flex-1 min-h-0">
               {/* Keyed on the branch so switching conversations resets the transcript rather than
                   carrying one branch's messages into another. */}
-              <Chat key={selectedBranch} apiBase={apiBase} branchId={selectedBranch} onProposals={refreshLeaves} />
+              {/* Keyed on the branch only — changing mode mid-conversation must not wipe the
+                  transcript, since the whole point is switching as the conversation changes shape. */}
+              <Chat key={selectedBranch} apiBase={apiBase} branchId={selectedBranch} mode={mode} onProposals={refreshLeaves} />
             </div>
           </div>
         ) : (
