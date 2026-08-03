@@ -1,7 +1,7 @@
 /**
- * Structured extraction — turning a conversation into proposed leaves with a second, small model.
+ * Structured extraction — turning a conversation into proposed leaves.
  *
- * ── WHY A SEPARATE MODEL ──
+ * ── WHY THIS IS A SEPARATE CALL ──
  * Deliberation and structure are different jobs, and the big model is only good at the first.
  * Measured against TabbyAPI serving Qwen3-27B with reasoning on: the same concrete request emitted
  * a usable proposal block roughly ONE TIME IN EIGHT. Not a prompt-wording problem — during 1,600
@@ -10,9 +10,13 @@
  * in this deployment; and `json_schema` is accepted but the reasoning still consumes the budget
  * before any content is produced.
  *
- * Reasoning is worth keeping — it is what makes the conversation good. So the fix is not to
- * cripple the conversation model but to give the narrow job to a model that cannot wander: a small
- * non-reasoning instruct model, low temperature, output constrained by a schema.
+ * Reasoning is worth keeping — it is what makes the conversation good. But it turns out the fix is
+ * not a second model either: the SAME model, called with thinking disabled for this one request,
+ * is a reliable extractor. Measured on the 27B: three runs produced identical, correct output
+ * where the reasoning path had managed roughly one success in eight.
+ *
+ * So the conversation keeps its reasoning and extraction turns it off per-call. A separately
+ * configured extractor is still supported, for a model that cannot disable thinking.
  *
  * Kept pure. The prompt and the parsing are the parts that break quietly, and both are testable
  * without a GPU.
@@ -57,6 +61,19 @@ export const EXTRACTION_SYSTEM_PROMPT = [
   '- Titles are imperative and specific. Body says what the work involves, in one or two sentences.',
   '- One entry per separately deliverable piece of work — not per step of a single change.',
 ].join('\n');
+
+/**
+ * Chat-template variables sent with an extraction request.
+ *
+ * `enable_thinking: false` is what makes this work. Qwen3.5+ dropped the `/no_think` soft switch —
+ * which is why that did nothing when tried — and moved the control to a template parameter. Passed
+ * under `template_vars` specifically: sending `enable_thinking` at the TOP LEVEL also suppressed
+ * reasoning but produced garbage output (mid-sentence language switching), so the nesting is not
+ * cosmetic.
+ *
+ * Harmlessly ignored by templates that do not define the variable.
+ */
+export const EXTRACTION_TEMPLATE_VARS = { enable_thinking: false } as const;
 
 /** Turns fed to the extractor. More context finds plans spread over several turns; more costs latency. */
 export const EXTRACTION_TURN_WINDOW = 6;

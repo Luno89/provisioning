@@ -50,7 +50,7 @@ import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
 import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
-import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
+import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 
@@ -1661,6 +1661,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           // Constrained decoding makes malformed output structurally impossible rather than
           // merely unlikely. Ignored by engines that do not support it, which the parser survives.
           json_schema: EXTRACTION_SCHEMA,
+          // Turns off reasoning for THIS request only; the conversation keeps it. See the constant.
+          template_vars: EXTRACTION_TEMPLATE_VARS,
           temperature: 0.1,
           max_tokens: 800,
           stream: false,
@@ -1897,10 +1899,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            */
           let extracted: Awaited<ReturnType<typeof extractViaModel>> | undefined;
           if (explicitPlan) {
-            const extractor = await modelService.resolveExtractor((req as any).user.id).catch(() => undefined);
-            if (extractor) {
-              extracted = await extractViaModel(extractor, [...messages.slice(0, lastIndex), { role: 'assistant', content: reply }]);
-            }
+            // Falls back to the CONVERSATION model, which is safe now that extraction disables
+            // thinking per-request. The earlier refusal to fall back was because a reasoning model
+            // cannot hold a format — with thinking off it can, measured at 3/3 against 1-in-8.
+            // A separately configured extractor still wins, for a model that cannot disable it.
+            const extractor =
+              (await modelService.resolveExtractor((req as any).user.id).catch(() => undefined)) ??
+              { provider, baseUrl, ...(apiKey ? { apiKey } : {}) };
+            extracted = await extractViaModel(extractor, [...messages.slice(0, lastIndex), { role: 'assistant', content: reply }]);
           }
           // Distinguish "nothing worth proposing" from "the model never got to answer". The
           // second is a real failure that otherwise looks identical to the first.
