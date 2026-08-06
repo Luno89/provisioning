@@ -10,7 +10,7 @@ import { createModelService } from './lib/model-wiring.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
   expandAxes, validateExperiment, summariseResults, overclaimed, plannedRuns,
-  buildTaskMatrix, discriminatingTasks, experimentTasks,
+  buildTaskMatrix, discriminatingTasks, experimentTasks, latestResults,
   type Experiment,
 } from './lib/experiments.js';
 
@@ -168,8 +168,9 @@ while (Date.now() < deadline) {
     if (cur.status === 'failed') console.log(`\n!! ${cur.error ?? 'no reason recorded'}`);
     const tasks = experimentTasks(cur);
 
+    const results = latestResults(cur);
     console.log('\n--- suite total ---');
-    for (const s of summariseResults(cur.results)) {
+    for (const s of summariseResults(results)) {
       console.log(`  ${s.label.padEnd(14)} verified ${s.verified}/${s.runs}  claimed ${s.claimed}/${s.runs}` +
         `  steps ${String(s.medianSteps).padEnd(3)} tokens ${String(s.medianTokens).padEnd(7)} ` +
         `${Math.round(s.medianDurationMs / 1000)}s` + (s.errored ? `  (${s.errored} did not run)` : ''));
@@ -177,7 +178,7 @@ while (Date.now() < deadline) {
 
     // The half that a single aggregate cannot show: two variants can tie above and disagree here.
     console.log('\n--- by task ---');
-    const matrix = buildTaskMatrix(cur.results, tasks, exp.variants);
+    const matrix = buildTaskMatrix(results, tasks, exp.variants);
     const width = Math.max(...tasks.map((t) => t.name.length), 12);
     console.log(`  ${'task'.padEnd(width)}  ${exp.variants.map((v) => v.label.padEnd(12)).join('')}`);
     for (const row of matrix) {
@@ -193,9 +194,9 @@ while (Date.now() < deadline) {
     console.log(`\ntasks that separated the variants: ${
       separated.length ? separated.map((t) => `${t.taskId} (${t.spread.toFixed(2)})`).join(', ') : 'none'}`);
 
-    const lying = overclaimed(cur.results);
+    const lying = overclaimed(results);
     console.log('overclaimed:', lying.length ? lying.map((r) => `${r.taskId}/${r.label}`).join(', ') : 'none');
-    for (const r of cur.results) if (r.error) console.log(`  error [${r.taskId}/${r.label}]: ${r.error.slice(0, 160)}`);
+    for (const r of results) if (r.error) console.log(`  error [${r.taskId}/${r.label}]: ${r.error.slice(0, 160)}`);
 
     /**
      * The trace of anything that failed.
