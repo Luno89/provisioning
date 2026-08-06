@@ -19,6 +19,7 @@ export async function seedProjectDecompositionExperiment() {
     ownerId: DEMO_USER_ID,
     name: 'GitHub API Client & Project Planning Decomposition Benchmark',
     description: 'Evaluates how models break down high-level project requests into 3–6 distinct, imperative proposed leaves.',
+    repeats: 1,
     status: 'draft',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

@@ -488,6 +488,6 @@ export function plannedRuns(
   experiment: Pick<Experiment, 'variants' | 'repeats' | 'tasks' | 'task' | 'verifyCommand' | 'language'>,
 ): number {
   return Math.max(1, experimentTasks(experiment).length)
-    * experiment.variants.length
-    * Math.max(1, experiment.repeats);
+    * (experiment.variants?.length ?? 0)
+    * Math.max(1, experiment.repeats ?? 1);
 }

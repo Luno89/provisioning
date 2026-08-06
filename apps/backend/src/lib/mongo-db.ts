@@ -17,9 +17,16 @@ function toBsonId(id: string): ObjectId | string {
   return id;
 }
 
-function fromDoc<T extends { id: string }>(doc: Record<string, any>): T {
+function fromDoc<T extends { id: string }>(doc: Record<string, any> | null | undefined): T {
+  if (!doc) return null as any;
   const result = { ...doc };
-  result.id = result._id.toString();
+  if (result._id !== undefined && result._id !== null) {
+    result.id = typeof result._id === 'object' && typeof result._id.toString === 'function'
+      ? result._id.toString()
+      : String(result._id);
+  } else if (!result.id) {
+    result.id = '';
+  }
   const { _id, ...rest } = result;
   return rest as T;
 }

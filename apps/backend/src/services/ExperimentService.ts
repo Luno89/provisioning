@@ -254,14 +254,15 @@ export class ExperimentService {
        * variant-outermost would instead give one variant's full suite and nothing to compare it
        * against — a result that cannot be read until the last run lands.
        */
-      for (let repeat = 0; repeat < Math.max(1, experiment.repeats); repeat++) {
+      const maxRepeats = Math.max(1, experiment.repeats ?? 1);
+      for (let repeat = 0; repeat < maxRepeats; repeat++) {
         for (const task of tasks) {
           for (const variant of experiment.variants) {
             if (signal?.aborted) throw new Error('Experiment run was stopped.');
             done += 1;
             current = await this.save(current, {
               progress: `${done}/${total} — ${task.name} · ${variant.label}`
-                + (experiment.repeats > 1 ? ` (run ${repeat + 1})` : ''),
+                + (maxRepeats > 1 ? ` (run ${repeat + 1})` : ''),
             });
 
             this.emit('experiment-run-started', {
