@@ -61,3 +61,64 @@ export function buildLeafContext(leaves: Leaf[]): string {
     'Do not propose work that is already listed. Refer to it by title if it is relevant.',
   ].join('\n');
 }
+
+/** A chat message on the wire. Loose by design — the route passes client messages straight through. */
+export interface OutboundMessage {
+  role: string;
+  content: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Builds the message array sent upstream.
+ *
+ * Extracted from the chat route because the invariant it protects is not obvious and has broken
+ * twice: **there may be at most one system message, and it must be first.** Chat templates reject
+ * anything else outright — `TemplateError: System message must be at the beginning` — and the
+ * failure is total, not degraded, so a branch summary appended as its own message took down every
+ * plan and auto turn the moment branches started owning leaves.
+ *
+ * Chat mode deliberately sends no system message at all: the proposal affordance costs tokens on
+ * every turn and biases ordinary conversation toward finding work.
+ */
+export function buildOutboundMessages(opts: {
+  messages: OutboundMessage[];
+  /** Index of the turn being sent. Only meaningful for an explicit /plan. */
+  lastIndex: number;
+  /** The system prompt for this mode, or undefined for chat mode. */
+  prompt?: string | undefined;
+  /** Leaves already on the branch, summarised into the same system message. */
+  leaves: Leaf[];
+  /** For an explicit /plan: the message with the command stripped off. */
+  planText?: string | undefined;
+  /**
+   * Added whenever tools are offered, in EVERY mode.
+   *
+   * Chat mode otherwise sends no system message at all, but it still gets tools — and the
+   * discipline this carries (never invent a tool result) addresses a failure that happens
+   * regardless of mode, so it is the one thing that can bring a system message into being.
+   */
+  toolPrompt?: string | undefined;
+}): OutboundMessage[] {
+  const { messages, lastIndex, prompt, leaves, planText, toolPrompt } = opts;
+  if (!prompt && !toolPrompt) return messages;
+
+  const context = buildLeafContext(leaves);
+  const system: OutboundMessage = {
+    role: 'system',
+    content: [prompt, context, toolPrompt].filter(Boolean).join('\n\n'),
+  };
+
+  if (planText === undefined) return [system, ...messages];
+
+  const target = messages[lastIndex];
+  if (!target) return [system, ...messages];
+  return [
+    system,
+    ...messages.slice(0, lastIndex),
+    // The command itself is stripped: the model should see the request, not the syntax. An empty
+    // /plan is meaningful — "plan what we just discussed" — so the prior turns carry it, and a
+    // placeholder keeps the final message non-empty.
+    { ...target, content: planText || 'Propose the work we have been discussing.' },
+  ];
+}

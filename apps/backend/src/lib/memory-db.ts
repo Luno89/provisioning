@@ -1,7 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
-import type { Leaf } from './leaves.js';
+import type { Branch, Leaf } from './leaves.js';
+import type { GiteaAccount } from './projects.js';
+import type { Experiment } from './experiments.js';
+import type { HarnessProfile } from './harness-profile.js';
+import type { MemoryItem } from './memory-store.js';
+import { TOOL_REPOSITORY, type ToolRepositoryItem } from './tool-repository.js';
 
 export class MemoryDB implements Database {
   private clusters: ClusterMetadata[] = [];
@@ -12,27 +17,37 @@ export class MemoryDB implements Database {
   private invites: InviteMetadata[] = [];
   private modelEndpoints: ModelEndpointMetadata[] = [];
   private leaves: Leaf[] = [];
+  private branches: Branch[] = [];
+  private giteaAccounts: GiteaAccount[] = [];
+  private experiments: Experiment[] = [];
+  private harnessProfiles: HarnessProfile[] = [];
+  private memories: MemoryItem[] = [];
+  private customTools: ToolRepositoryItem[] = [];
 
   async init(): Promise<void> {
     this.clusters = [];
     this.deployments = [];
     this.users = [];
-    this.projects = [];
     this.pipelineRuns = [];
     this.invites = [];
     this.modelEndpoints = [];
     this.leaves = [];
+    this.branches = [];
+    this.giteaAccounts = [];
+    this.experiments = [];
   }
 
   async close(): Promise<void> {
     this.clusters = [];
     this.deployments = [];
     this.users = [];
-    this.projects = [];
     this.pipelineRuns = [];
     this.invites = [];
     this.modelEndpoints = [];
     this.leaves = [];
+    this.branches = [];
+    this.giteaAccounts = [];
+    this.experiments = [];
   }
 
   async getClusters(): Promise<ClusterMetadata[]> {
@@ -95,6 +110,10 @@ export class MemoryDB implements Database {
     const idx = this.deployments.findIndex(d => d.id === deployment.id);
     if (idx >= 0) this.deployments[idx] = deployment;
     else this.deployments.push(deployment);
+  }
+
+  async deleteDeployment(id: string): Promise<void> {
+    this.deployments = this.deployments.filter((d) => d.id !== id);
   }
 
   async saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void> {
@@ -280,5 +299,94 @@ export class MemoryDB implements Database {
 
   async deleteLeaf(id: string): Promise<void> {
     this.leaves = this.leaves.filter((c) => c.id !== id);
+  }
+
+  async getBranches(): Promise<Branch[]> {
+    return this.branches;
+  }
+
+  async getExperiments(): Promise<Experiment[]> {
+    return this.experiments;
+  }
+
+  async saveExperiment(experiment: Experiment): Promise<void> {
+    const i = this.experiments.findIndex((e) => e.id === experiment.id);
+    if (i >= 0) this.experiments[i] = experiment;
+    else this.experiments.push(experiment);
+  }
+
+  async deleteExperiment(id: string): Promise<void> {
+    this.experiments = this.experiments.filter((e) => e.id !== id);
+  }
+
+  async getHarnessProfile(ownerId: string): Promise<HarnessProfile | null> {
+    return this.harnessProfiles.find((p) => p.ownerId === ownerId) ?? null;
+  }
+
+  async saveHarnessProfile(profile: HarnessProfile): Promise<void> {
+    const i = this.harnessProfiles.findIndex((p) => p.ownerId === profile.ownerId);
+    if (i >= 0) this.harnessProfiles[i] = profile;
+    else this.harnessProfiles.push(profile);
+  }
+
+  async deleteHarnessProfile(ownerId: string): Promise<void> {
+    this.harnessProfiles = this.harnessProfiles.filter((p) => p.ownerId !== ownerId);
+  }
+
+  async getGiteaAccount(ownerId: string): Promise<GiteaAccount | null> {
+    return this.giteaAccounts.find((a) => a.ownerId === ownerId) ?? null;
+  }
+
+  async saveGiteaAccount(account: GiteaAccount): Promise<void> {
+    const i = this.giteaAccounts.findIndex((a) => a.ownerId === account.ownerId);
+    if (i >= 0) this.giteaAccounts[i] = account;
+    else this.giteaAccounts.push(account);
+  }
+
+  async saveBranch(branch: Branch): Promise<void> {
+    const i = this.branches.findIndex((b) => b.id === branch.id);
+    if (i >= 0) this.branches[i] = branch;
+    else this.branches.push(branch);
+  }
+
+  async deleteBranch(id: string): Promise<void> {
+    this.branches = this.branches.filter((b) => b.id !== id);
+  }
+
+  async getMemories(ownerId?: string): Promise<MemoryItem[]> {
+    if (!ownerId) return [...this.memories];
+    return this.memories.filter((m) => m.ownerId === ownerId);
+  }
+
+  async saveMemory(memory: MemoryItem): Promise<void> {
+    const idx = this.memories.findIndex((m) => m.id === memory.id);
+    if (idx >= 0) this.memories[idx] = memory;
+    else this.memories.push(memory);
+  }
+
+  async deleteMemory(id: string): Promise<void> {
+    this.memories = this.memories.filter((m) => m.id !== id);
+  }
+
+  async getTools(): Promise<ToolRepositoryItem[]> {
+    const builtIns = TOOL_REPOSITORY.map((t) => ({ ...t, isBuiltIn: true }));
+    const customMap = new Map(this.customTools.map((t) => [t.id, t]));
+    const result = builtIns.map((t) => customMap.get(t.id) ?? t);
+    for (const c of this.customTools) {
+      if (!result.some((r) => r.id === c.id)) {
+        result.push(c);
+      }
+    }
+    return result;
+  }
+
+  async saveTool(tool: ToolRepositoryItem): Promise<void> {
+    const idx = this.customTools.findIndex((t) => t.id === tool.id);
+    if (idx >= 0) this.customTools[idx] = tool;
+    else this.customTools.push(tool);
+  }
+
+  async deleteTool(id: string): Promise<void> {
+    this.customTools = this.customTools.filter((t) => t.id !== id);
   }
 }

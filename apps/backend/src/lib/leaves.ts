@@ -19,6 +19,8 @@
  * - 'done' duplicated `status: 'succeeded'`, and two sources of truth for completion drift. A
  *   finished leaf leaves the columns entirely rather than piling up in one.
  */
+import type { WorkspaceLanguage } from './workspace-spec.js';
+
 export type LeafColumn = 'todo' | 'in-progress' | 'review';
 
 /**
@@ -83,6 +85,17 @@ export interface Leaf {
   blocking: boolean;
 
   personaId?: string;
+  /**
+   * Which sandbox image this leaf's work runs in.
+   *
+   * Per-leaf rather than per-branch: one plan routinely mixes a Go service with a Python script,
+   * and forcing a whole branch onto one toolchain would make the model propose around the
+   * limitation instead of describing the work.
+   *
+   * Absent means the default. Stored as a language, never an image reference, so the catalogue can
+   * be repinned without rewriting historical leaves.
+   */
+  language?: WorkspaceLanguage;
   /** The Temporal workflow backing this leaf, once started. */
   workflowId?: string;
   projectId?: string;
@@ -333,4 +346,65 @@ export function aggregateUsage(leaves: Leaf[], root: Leaf, now: number): BudgetU
     replans: sum('replans'),
     wallClockMs,
   };
+}
+
+/** One turn of a conversation, stored on the branch. */
+export interface BranchMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  /** Reasoning is kept separately so it can be collapsed, and dropped first when trimming. */
+  reasoning?: string;
+}
+
+/**
+ * A branch — one planning conversation, and the thing leaves hang off.
+ *
+ * Previously derived from the leaves referencing it, which meant a branch that had produced
+ * nothing did not exist, its name was whatever its first leaf happened to be called, and the
+ * transcript lived in React state that a single click discarded.
+ */
+export interface Branch {
+  id: string;
+  ownerId: string;
+  /** Derived from the first message unless renamed. */
+  title: string;
+  messages: BranchMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Turns kept per branch. Beyond this the oldest are dropped — see trimTranscript. */
+export const MAX_BRANCH_MESSAGES = 200;
+
+/**
+ * A title for a brand-new branch, taken from its first message.
+ *
+ * First USER message, not the first leaf: it is what the person actually asked for, available
+ * immediately, and stable even if the decomposition is later rewritten. Naming a branch after its
+ * first leaf made a branch and its only leaf read identically in the tree.
+ */
+export function deriveBranchTitle(firstMessage: string): string {
+  const cleaned = (firstMessage ?? '')
+    // Drop a leading slash command — "/plan add rate limiting" is titled "add rate limiting".
+    .replace(/^\s*\/(chat|auto|plan)\b\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return 'New branch';
+  return cleaned.length > 60 ? `${cleaned.slice(0, 57)}…` : cleaned;
+}
+
+/**
+ * Keeps a transcript bounded.
+ *
+ * Drops the OLDEST turns: a long conversation's recent context is what matters, and an unbounded
+ * transcript eventually makes the branch document too large to save. Reasoning is stripped from
+ * everything but the last few turns first, since it is by far the biggest field and is almost
+ * never re-read.
+ */
+export function trimTranscript(messages: BranchMessage[]): BranchMessage[] {
+  const recent = messages.slice(-MAX_BRANCH_MESSAGES);
+  const keepReasoningFrom = Math.max(0, recent.length - 6);
+  return recent.map((m, i) =>
+    i >= keepReasoningFrom ? m : (({ reasoning: _drop, ...rest }) => rest)(m),
+  );
 }

@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { consumeChunk } from '../lib/stream-delta.js';
+import { consumeChunk, splitThinkTags } from '../lib/stream-delta.js';
 import { KoalaSpot } from './Koala.js';
 import { splitProposalBlock } from '../lib/proposal-display.js';
-import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X } from 'lucide-react';
+import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X, Sliders } from 'lucide-react';
 
 /**
  * Talk to a model running on your own fleet — Phase A of the agent harness.
@@ -52,6 +52,7 @@ export interface Message {
    * arrived at all, which looks exactly like a broken deployment.
    */
   reasoning?: string;
+  interruptedReason?: string;
 }
 
 type Mode = 'chat' | 'auto' | 'plan';
@@ -96,6 +97,14 @@ export default function Chat({
   const qc = useQueryClient();
 
   const [showEndpoints, setShowEndpoints] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [temperature, setTemperature] = useState<number>(0.7);
+  const [frequencyPenalty, setFrequencyPenalty] = useState<number>(0.4);
+  const [presencePenalty, setPresencePenalty] = useState<number>(0.2);
+  const [maxTokens, setMaxTokens] = useState<number>(2048);
+  const [thoughtSensitivity, setThoughtSensitivity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [ngramCap, setNgramCap] = useState(5);
+  const [failureThreshold, setFailureThreshold] = useState(0.85);
   const [form, setForm] = useState({ name: '', baseUrl: '', model: '', apiKey: '' });
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -256,7 +265,20 @@ export default function Chat({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ modelId, messages: next, stream: true, branchId, mode: activeMode }),
+        body: JSON.stringify({
+          modelId,
+          messages: next,
+          stream: true,
+          branchId,
+          mode: activeMode,
+          temperature,
+          frequency_penalty: frequencyPenalty,
+          presence_penalty: presencePenalty,
+          max_tokens: maxTokens,
+          thoughtMonitorSensitivity: thoughtSensitivity,
+          ngramRepeatThreshold: ngramCap,
+          failurePredictionThreshold: failureThreshold,
+        }),
         signal: controller.signal,
       });
 
@@ -276,15 +298,26 @@ export default function Chat({
         if (done) break;
         const r = consumeChunk(buffer, decoder.decode(value, { stream: true }));
         buffer = r.buffer;
-        if (!r.delta.content && !r.delta.reasoning) continue;
+        let deltaContent = r.delta.content;
+        let deltaReasoning = r.delta.reasoning;
+        if (deltaContent.includes('<think>')) {
+          const split = splitThinkTags(deltaContent);
+          deltaContent = split.content;
+          deltaReasoning += split.reasoning;
+        }
+
+        if (!deltaContent && !deltaReasoning && !r.delta.interruptedReason) continue;
         onMessagesChange((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
           if (!last) return copy;
+          const combinedContent = last.content + deltaContent;
+          const finalSplit = combinedContent.includes('<think>') ? splitThinkTags(combinedContent) : null;
           copy[copy.length - 1] = {
             ...last,
-            ...(r.delta.content ? { content: last.content + r.delta.content } : {}),
-            ...(r.delta.reasoning ? { reasoning: (last.reasoning ?? '') + r.delta.reasoning } : {}),
+            content: finalSplit ? finalSplit.content : combinedContent,
+            reasoning: (last.reasoning ?? '') + deltaReasoning + (finalSplit ? finalSplit.reasoning : ''),
+            ...(r.delta.interruptedReason ? { interruptedReason: r.delta.interruptedReason } : {}),
           };
           return copy;
         });
@@ -299,6 +332,50 @@ export default function Chat({
       if (activeMode !== 'chat') onProposals?.();
     }
   };
+
+  /**
+   * Accept/reject for this branch's proposals.
+   *
+   * Held in a variable rather than written inline because it has to survive the no-models early
+   * return below: proposals are real records, and a branch that already has some must stay
+   * actionable even when there is nothing to chat with — an endpoint going away should not strand
+   * work that was already proposed.
+   */
+  const proposalPanel = proposed.length > 0 && (
+    
+      <div className="mt-3 shrink-0 rounded-xl border border-[var(--leaf-stem)]/40 bg-[var(--leaf-stem)]/10 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <Sprout size={13} className="text-[var(--leaf-light)]" />
+          <h3 className="text-[11px] uppercase tracking-widest text-[var(--leaf-light)] flex-1">
+            {proposed.length} sprouting
+          </h3>
+          {proposed.length > 1 && onAcceptAll && (
+            <button
+              onClick={onAcceptAll}
+              className="text-[11px] px-2 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white"
+            >
+              Accept all
+            </button>
+          )}
+        </div>
+        <ul className="space-y-1.5 max-h-52 overflow-y-auto">
+          {proposed.map((p) => (
+            <li key={p.id} className="flex items-start gap-2 rounded-lg bg-[var(--bark-800)] px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] text-slate-200">{p.title}</p>
+                {p.body && <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{p.body}</p>}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => onAccept?.(p.id)} title="Accept — starts the work"
+                  className="p-1 rounded-md text-[var(--leaf-light)] hover:bg-[var(--bark-700)]"><Check size={14} /></button>
+                <button onClick={() => onReject?.(p.id)} title="Reject"
+                  className="p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><X size={14} /></button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+  );
 
   if (isLoading) {
     return <div className="flex items-center gap-2 text-slate-400 p-8"><Loader2 className="animate-spin" size={16} /> Loading models…</div>;
@@ -319,6 +396,7 @@ export default function Chat({
             </p>
           </div>
         </div>
+        {proposalPanel}
         {endpointPanel}
       </div>
     );
@@ -326,7 +404,18 @@ export default function Chat({
 
   return (
     <div className="flex flex-col h-full min-h-0 max-w-4xl">
-      <header className="flex justify-end items-center mb-3 shrink-0">
+      <header className="flex justify-end items-center gap-2 mb-3 shrink-0 relative">
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          title="Thought Monitor Tunables"
+          className={`p-2 rounded-xl border border-[var(--bark-600)] transition-colors flex items-center gap-1.5 text-xs font-medium ${
+            showSettings ? 'bg-[var(--leaf)] text-slate-900 border-[var(--leaf)]' : 'bg-[var(--bark-900)] text-slate-300 hover:bg-[var(--bark-800)]'
+          }`}
+        >
+          <Sliders size={14} />
+          <span>Tunables</span>
+        </button>
+
         <select
           value={modelId}
           onChange={(e) => setModelId(e.target.value)}
@@ -338,6 +427,133 @@ export default function Chat({
             </option>
           ))}
         </select>
+
+        {showSettings && (
+          <div className="absolute top-12 right-0 z-20 w-88 bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl p-4 shadow-xl text-xs space-y-3.5 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-[var(--bark-700)]">
+              <span className="font-semibold text-slate-200">System-Wide Model Tunables</span>
+              <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-slate-200">
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--leaf-light)]">Sampling Controls</div>
+              
+              <div>
+                <div className="flex justify-between text-slate-400 mb-1">
+                  <span>Temperature</span>
+                  <span className="font-mono text-slate-200">{temperature.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="1.5"
+                  step="0.05"
+                  value={temperature}
+                  onChange={(e) => setTemperature(Number(e.target.value))}
+                  className="w-full accent-[var(--leaf)] cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-400 mb-1">
+                  <span>Frequency Penalty</span>
+                  <span className="font-mono text-slate-200">{frequencyPenalty.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="1.5"
+                  step="0.05"
+                  value={frequencyPenalty}
+                  onChange={(e) => setFrequencyPenalty(Number(e.target.value))}
+                  className="w-full accent-[var(--leaf)] cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-400 mb-1">
+                  <span>Presence Penalty</span>
+                  <span className="font-mono text-slate-200">{presencePenalty.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="1.5"
+                  step="0.05"
+                  value={presencePenalty}
+                  onChange={(e) => setPresencePenalty(Number(e.target.value))}
+                  className="w-full accent-[var(--leaf)] cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-400 mb-1">
+                  <span>Max Completion Tokens</span>
+                  <span className="font-mono text-slate-200">{maxTokens}</span>
+                </div>
+                <input
+                  type="range"
+                  min="512"
+                  max="8192"
+                  step="256"
+                  value={maxTokens}
+                  onChange={(e) => setMaxTokens(Number(e.target.value))}
+                  className="w-full accent-[var(--leaf)] cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2.5 pt-2 border-t border-[var(--bark-700)]">
+              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--leaf-light)]">ML Thought Monitor</div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Thought Monitor Sensitivity</label>
+                <select
+                  value={thoughtSensitivity}
+                  onChange={(e) => setThoughtSensitivity(e.target.value as any)}
+                  className="w-full bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-lg px-2.5 py-1.5 text-slate-200"
+                >
+                  <option value="low">Low (relaxed)</option>
+                  <option value="medium">Medium (balanced)</option>
+                  <option value="high">High (strict)</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-400 mb-1">
+                  <span>N-Gram Repeat Cap</span>
+                  <span className="font-mono text-slate-200">{ngramCap}</span>
+                </div>
+                <input
+                  type="range"
+                  min="2"
+                  max="10"
+                  value={ngramCap}
+                  onChange={(e) => setNgramCap(Number(e.target.value))}
+                  className="w-full accent-[var(--leaf)] cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-slate-400 mb-1">
+                  <span>Failure Prediction Cutoff</span>
+                  <span className="font-mono text-slate-200">{(failureThreshold * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.50"
+                  max="0.99"
+                  step="0.05"
+                  value={failureThreshold}
+                  onChange={(e) => setFailureThreshold(Number(e.target.value))}
+                  className="w-full accent-[var(--leaf)] cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-2">
@@ -350,32 +566,38 @@ export default function Chat({
             <p className="text-slate-600 text-[11px] font-mono">/chat · /auto · /plan</p>
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className="flex gap-3">
-            <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${m.role === 'user' ? 'bg-blue-600' : 'bg-[var(--bark-700)]'}`}>
-              {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-            </div>
-            <div className="flex-1 pt-1 min-w-0">
-              {m.reasoning && (
-                <details className="mb-2 group" open={!m.content}>
-                  <summary className="text-[11px] uppercase tracking-widest text-slate-500 cursor-pointer select-none">
-                    Thinking{!m.content && streaming && i === messages.length - 1 ? '…' : ''}
-                  </summary>
-                  <div className="mt-1 text-[12px] text-slate-500 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
-                    {m.reasoning}
-                  </div>
-                </details>
-              )}
-              {(() => {
-                // The raw JSON block is machinery: the proposals become leaves in the tree, so
-                // showing the block too displays the same thing twice, once unreadably.
-                const { prose, proposals, pending } = splitProposalBlock(m.content);
-                const waiting = streaming && i === messages.length - 1 && !m.reasoning && !prose;
-                return (
-                  <>
-                    <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-                      {prose || (waiting ? <Loader2 className="animate-spin text-slate-500" size={14} /> : null)}
+        {messages.map((m, i) => {
+          const reasoning = m.reasoning;
+          const { prose, proposals, pending } = splitProposalBlock(m.content);
+          const waiting = streaming && i === messages.length - 1 && !reasoning && !prose;
+
+          return (
+            <div key={i} className="flex gap-3">
+              <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${m.role === 'user' ? 'bg-blue-600' : 'bg-[var(--bark-700)]'}`}>
+                {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+              </div>
+              <div className="flex-1 pt-1 min-w-0">
+                {reasoning && (
+                  <details className="mb-2 group" open={!prose}>
+                    <summary className="text-[11px] uppercase tracking-widest text-slate-500 cursor-pointer select-none">
+                      Thinking{!prose && streaming && i === messages.length - 1 ? '…' : ''}
+                    </summary>
+                    <div className="mt-1 text-[12px] text-slate-500 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
+                      {reasoning}
                     </div>
+                  </details>
+                )}
+
+                <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
+                  {prose || (waiting ? <Loader2 className="animate-spin text-slate-500" size={14} /> : null)}
+                </div>
+
+                {m.interruptedReason && (
+                  <div className="mt-2 text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2 flex items-center gap-2 select-none">
+                    <AlertTriangle size={14} className="shrink-0 text-amber-400" />
+                    <span><strong>Interrupted:</strong> {m.interruptedReason}</span>
+                  </div>
+                )}
 
                     {pending && (
                       <p className="mt-2 text-[11px] text-[var(--leaf-light)] flex items-center gap-1.5">
@@ -388,52 +610,17 @@ export default function Chat({
                         <Sprout size={11} /> proposed {proposals.length} leaf{proposals.length > 1 ? 'ves' : ''}
                       </p>
                     )}
-                  </>
-                );
-              })()}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {error && (
         <div className="mt-4 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-xl px-4 py-3">{error}</div>
       )}
 
-      {proposed.length > 0 && (
-        <div className="mt-3 shrink-0 rounded-xl border border-[var(--leaf-stem)]/40 bg-[var(--leaf-stem)]/10 p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Sprout size={13} className="text-[var(--leaf-light)]" />
-            <h3 className="text-[11px] uppercase tracking-widest text-[var(--leaf-light)] flex-1">
-              {proposed.length} sprouting
-            </h3>
-            {proposed.length > 1 && onAcceptAll && (
-              <button
-                onClick={onAcceptAll}
-                className="text-[11px] px-2 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white"
-              >
-                Accept all
-              </button>
-            )}
-          </div>
-          <ul className="space-y-1.5 max-h-52 overflow-y-auto">
-            {proposed.map((p) => (
-              <li key={p.id} className="flex items-start gap-2 rounded-lg bg-[var(--bark-800)] px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] text-slate-200">{p.title}</p>
-                  {p.body && <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{p.body}</p>}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => onAccept?.(p.id)} title="Accept — starts the work"
-                    className="p-1 rounded-md text-[var(--leaf-light)] hover:bg-[var(--bark-700)]"><Check size={14} /></button>
-                  <button onClick={() => onReject?.(p.id)} title="Reject"
-                    className="p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><X size={14} /></button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {proposalPanel}
 
       <div className="mt-3 flex gap-3 shrink-0">
         <textarea

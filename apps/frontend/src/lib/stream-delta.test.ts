@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { consumeChunk } from './stream-delta.js';
+import { consumeChunk, splitThinkTags } from './stream-delta.js';
 
 const frame = (delta: Record<string, string>) =>
   `data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`;
@@ -61,5 +61,27 @@ describe('consumeChunk', () => {
   it('ignores non-string deltas rather than concatenating "undefined"', () => {
     expect(run(['data: {"choices":[{"delta":{"content":null}}]}\n\n']).content).toBe('');
     expect(run(['data: {"choices":[]}\n\n']).content).toBe('');
+  });
+
+  it('supports delta.reasoning and delta.thinking fields from various LLM engines', () => {
+    const r1 = run([frame({ reasoning: 'Ollama thought' }), frame({ content: 'Answer' })]);
+    expect(r1.reasoning).toBe('Ollama thought');
+    expect(r1.content).toBe('Answer');
+
+    const r2 = run([frame({ thinking: 'llama.cpp thought' }), frame({ content: 'Answer' })]);
+    expect(r2.reasoning).toBe('llama.cpp thought');
+    expect(r2.content).toBe('Answer');
+  });
+
+  it('correctly splits inline <think> tags using splitThinkTags', () => {
+    const input = '<think>User is greeting me</think>Hello! How are you?';
+    const res = splitThinkTags(input);
+    expect(res.reasoning).toBe('User is greeting me');
+    expect(res.content).toBe('Hello! How are you?');
+  });
+
+  it('extracts interruptedReason from SSE frame', () => {
+    const res = consumeChunk('', 'data: {"interruptedReason":"N-gram loop detected"}\n\n');
+    expect(res.delta.interruptedReason).toBe('N-gram loop detected');
   });
 });

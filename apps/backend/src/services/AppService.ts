@@ -110,7 +110,7 @@ export class AppService extends BaseService {
     }
 
     // Filtered here, at the very end — same reasoning as ClusterService.getAll: saveDeploymentList
-    // does a full deleteMany+insertMany replace (mongo-db.ts), so filtering before that point
+    // reconciles the collection to the list it is given, so filtering before that point
     // would silently wipe every other user's deployment records on the next reconciled save.
     return cleanDeployments.filter((d) => d.ownerId === userId);
   }
@@ -581,8 +581,8 @@ export class AppService extends BaseService {
             // Ignore if already gone
         }
 
-        const deployments = await this.db.getDeployments();
-        await this.db.saveDeploymentList(deployments.filter((d: any) => d.id !== id));
+        // Targeted delete rather than a full-collection rewrite — see mongo-db's saveDeploymentList.
+        await this.db.deleteDeployment(id);
         if (io) io.emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
       } catch (err: any) {
         this.logger.error(`App destruction failed: ${err.message}`);
@@ -617,8 +617,8 @@ export class AppService extends BaseService {
         }
 
         // 3. Remove deployment from state DB
-        const deployments = await this.db.getDeployments();
-        await this.db.saveDeploymentList(deployments.filter((d: any) => d.id !== id));
+        // Targeted delete rather than a full-collection rewrite — see mongo-db's saveDeploymentList.
+        await this.db.deleteDeployment(id);
 
         if (io) {
           io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');
@@ -627,8 +627,8 @@ export class AppService extends BaseService {
         }
       } catch (err: any) {
         this.logger.error(`Abort failed for deployment ${dep.name}: ${err.message}`);
-        const deployments = await this.db.getDeployments();
-        await this.db.saveDeploymentList(deployments.filter((d: any) => d.id !== id));
+        // Targeted delete rather than a full-collection rewrite — see mongo-db's saveDeploymentList.
+        await this.db.deleteDeployment(id);
         if (io) io.emit('deployment:updated');
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during deployment abort: ${err.message}`));

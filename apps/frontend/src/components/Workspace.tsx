@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useMutation } from '@tanstack/react-query';
-import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
 import Chat, { type Message } from './Chat.js';
 import LeafDetail from './LeafDetail.js';
 import { STATUS_DOT, type Leaf } from './leaf-types.js';
@@ -22,6 +22,13 @@ import { KoalaSpot } from './Koala.js';
  * being the subject of the chat.
  */
 
+interface BranchRecord {
+  id: string;
+  title: string;
+  messages: Message[];
+  updatedAt: string;
+}
+
 interface BranchNode {
   id: string;
   title: string;
@@ -32,9 +39,12 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   const qc = useQueryClient();
   // The conversation currently open. Kept client-side: a branch with leaves is recoverable from
   // them, and a brand-new one has nothing worth persisting until it does.
-  const [activeBranch, setActiveBranch] = useState<string>(() => crypto.randomUUID());
+  // Empty until a branch is chosen or created. Branches are server records now, so inventing an
+  // id client-side would make one that the server has never heard of.
+  const [activeBranch, setActiveBranch] = useState<string>('');
   const [selected, setSelected] = useState<{ kind: 'branch' | 'leaf'; id: string }>(() => ({ kind: 'branch', id: '' }));
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mode, setMode] = useState<'chat' | 'auto' | 'plan'>('auto');
   /**
    * Transcripts, per branch, held here rather than inside Chat.
@@ -42,7 +52,15 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
    * Chat unmounts every time a leaf is selected, so component state lost the whole conversation on
    * a single click. Keyed by branch so switching between conversations keeps both.
    */
+  // Local echo of the transcript while a reply streams. The server persists each completed turn,
+  // so this is overlaid on what the branch record already holds rather than being the only copy.
   const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
+
+  const { data: branchRecords } = useQuery<BranchRecord[]>({
+    queryKey: ['branches'],
+    queryFn: () => axios.get(`${apiBase}/branches`, { withCredentials: true }).then((r) => r.data),
+    refetchInterval: 10000,
+  });
 
   const { data: leaves, isLoading } = useQuery<Leaf[]>({
     queryKey: ['leaves'],
@@ -51,7 +69,11 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   });
 
   const all = useMemo(() => leaves ?? [], [leaves]);
-  const refreshLeaves = () => qc.invalidateQueries({ queryKey: ['leaves'] });
+  const refreshLeaves = () => {
+    qc.invalidateQueries({ queryKey: ['leaves'] });
+    // The server persisted the turn and may have titled a new branch from it.
+    qc.invalidateQueries({ queryKey: ['branches'] });
+  };
 
   /**
    * Branches, derived from the leaves that reference them plus whichever is open.
@@ -65,16 +87,51 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
     for (const leaf of all) {
       byBranch.set(leaf.branchId, [...(byBranch.get(leaf.branchId) ?? []), leaf]);
     }
-    if (!byBranch.has(activeBranch)) byBranch.set(activeBranch, []);
 
-    return [...byBranch.entries()].map(([id, ls]) => {
-      // Named after its first root leaf — the closest thing to a title a derived branch has.
-      const root = ls.filter((l) => !l.parentLeafId)[0];
-      return { id, title: root?.title ?? 'New branch', leaves: ls };
-    });
-  }, [all, activeBranch]);
+    // Server records first, so titles come from the branch rather than from whatever its first
+    // leaf happened to be called — which made a branch and its only leaf read identically.
+    const nodes = (branchRecords ?? []).map((b) => ({
+      id: b.id,
+      title: b.title,
+      leaves: byBranch.get(b.id) ?? [],
+    }));
+
+    // Leaves whose branch record predates this (or was deleted) still need somewhere to live.
+    for (const [id, ls] of byBranch) {
+      if (!nodes.some((n) => n.id === id)) {
+        nodes.push({ id, title: ls.find((l) => !l.parentLeafId)?.title ?? 'Untitled branch', leaves: ls });
+      }
+    }
+    return nodes;
+  }, [all, branchRecords]);
 
   const childrenOf = (parentId: string) => all.filter((l) => l.parentLeafId === parentId);
+
+  const createBranch = useMutation({
+    mutationFn: () => axios.post(`${apiBase}/branches`, {}, { withCredentials: true }).then((r) => r.data),
+    onSuccess: (branch: BranchRecord) => {
+      setActiveBranch(branch.id);
+      setSelected({ kind: 'branch', id: branch.id });
+      qc.invalidateQueries({ queryKey: ['branches'] });
+    },
+  });
+
+  const deleteBranch = useMutation({
+    mutationFn: (id: string) => axios.delete(`${apiBase}/branches/${id}`, { withCredentials: true }),
+    onSuccess: (_, deletedId) => {
+      setTranscripts((prev) => {
+        const copy = { ...prev };
+        delete copy[deletedId];
+        return copy;
+      });
+      if (activeBranch === deletedId) {
+        setActiveBranch('');
+        setSelected({ kind: 'branch', id: '' });
+      }
+      qc.invalidateQueries({ queryKey: ['branches'] });
+      qc.invalidateQueries({ queryKey: ['leaves'] });
+    },
+  });
 
   const accept = useMutation({
     mutationFn: (id: string) => axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true }),
@@ -132,20 +189,25 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   return (
     <div className="flex h-[calc(100vh-7rem)] gap-0">
       {/* ── Tree ── */}
-      <aside className="w-72 shrink-0 border-r border-[var(--bark-600)] pr-3 overflow-y-auto">
+      <aside className={`${sidebarCollapsed ? 'w-0 opacity-0 overflow-hidden pr-0 hidden' : 'w-72 pr-3'} shrink-0 border-r border-[var(--bark-600)] overflow-y-auto transition-all duration-200`}>
         <div className="flex items-center justify-between mb-3 pl-2">
           <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Branches</h2>
-          <button
-            onClick={() => {
-              const id = crypto.randomUUID();
-              setActiveBranch(id);
-              setSelected({ kind: 'branch', id });
-            }}
-            title="Start a new conversation"
-            className="text-slate-600 hover:text-slate-300"
-          >
-            <Plus size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => createBranch.mutate()}
+              title="Start a new conversation"
+              className="text-slate-600 hover:text-slate-300 p-0.5 rounded"
+            >
+              <Plus size={14} />
+            </button>
+            <button
+              onClick={() => setSidebarCollapsed(true)}
+              title="Collapse Branches sidebar"
+              className="text-slate-600 hover:text-slate-300 p-0.5 rounded"
+            >
+              <PanelLeftClose size={14} />
+            </button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -159,20 +221,29 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
               <div key={branch.id} className="mb-1">
                 <div
                   onClick={() => { setActiveBranch(branch.id); setSelected({ kind: 'branch', id: branch.id }); }}
-                  className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-300 hover:bg-[var(--bark-800)]'}`}
+                  className={`group flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer text-[13px] ${isSelected ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-300 hover:bg-[var(--bark-800)]'}`}
                 >
-                  {roots.length > 0 ? (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setCollapsed((c) => ({ ...c, [branch.id]: !isCollapsed })); }}
-                      className="text-slate-600 hover:text-slate-300 shrink-0"
-                    >
-                      {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                    </button>
-                  ) : (
-                    <span className="w-3 shrink-0" />
-                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCollapsed((c) => ({ ...c, [branch.id]: !isCollapsed })); }}
+                    className="text-slate-600 hover:text-slate-300 shrink-0"
+                    title={isCollapsed ? "Expand branch" : "Collapse branch"}
+                  >
+                    {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                  </button>
                   <GitBranch size={12} className="text-slate-500 shrink-0" />
-                  <span className="truncate">{branch.title}</span>
+                  <span className="truncate flex-1 min-w-0">{branch.title}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Delete branch "${branch.title}" and all its leaves?`)) {
+                        deleteBranch.mutate(branch.id);
+                      }
+                    }}
+                    title="Delete branch"
+                    className="text-slate-500 hover:text-red-400 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
                 {!isCollapsed && roots.map((l) => renderLeaf(l, 1))}
               </div>
@@ -184,7 +255,16 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
       {/* ── Detail ── */}
       {/* overflow-hidden, not auto: the chat manages its own transcript scrolling, and a scrolling
           parent around a scrolling child is what produced two scrollbars. Leaf detail opts back in. */}
-      <section className="flex-1 min-w-0 pl-6 overflow-hidden flex flex-col">
+      <section className="flex-1 min-w-0 pl-6 overflow-hidden flex flex-col relative">
+        {sidebarCollapsed && (
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            title="Expand Branches sidebar"
+            className="absolute top-0 left-0 z-10 p-1.5 rounded-lg border border-[var(--bark-600)] bg-[var(--bark-900)] text-slate-400 hover:text-slate-200 transition-colors shadow-md"
+          >
+            <PanelLeftOpen size={14} />
+          </button>
+        )}
         {selectedLeaf ? (
           <div className="overflow-y-auto"><LeafDetail apiBase={apiBase} leaf={selectedLeaf} subLeaves={childrenOf(selectedLeaf.id)} /></div>
         ) : selectedBranch ? (
@@ -208,7 +288,11 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
                     mode={mode}
                     onModeChange={setMode}
                     onProposals={refreshLeaves}
-                    messages={transcripts[selectedBranch] ?? []}
+                    messages={
+                      transcripts[selectedBranch] ??
+                      (branchRecords ?? []).find((b) => b.id === selectedBranch)?.messages ??
+                      []
+                    }
                     onMessagesChange={(next) =>
                       setTranscripts((t) => ({
                         ...t,

@@ -1,0 +1,14 @@
+{
+  "name": "@koala/harness-types",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shapes that cross the HTTP boundary between the backend and the Lab. Types only — no runtime.",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

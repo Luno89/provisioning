@@ -2,7 +2,13 @@ import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
-import type { Leaf } from './leaves.js';
+import type { Branch, Leaf } from './leaves.js';
+import type { GiteaAccount } from './projects.js';
+import type { Experiment } from './experiments.js';
+import type { HarnessProfile } from './harness-profile.js';
+import type { MemoryItem } from './memory-store.js';
+import { TOOL_REPOSITORY, type ToolRepositoryItem } from './tool-repository.js';
+import type { ModelThinkingProfile } from './thinking-classifier.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
 
@@ -42,12 +48,28 @@ export class MongoDB implements Database {
     return this.db!.collection('users');
   }
 
+  private get pipelineRuns(): Collection {
+    return this.db!.collection('pipelineRuns');
+  }
+
   private get projects(): Collection {
     return this.db!.collection('projects');
   }
 
-  private get pipelineRuns(): Collection {
-    return this.db!.collection('pipelineRuns');
+  private get experiments(): Collection {
+    return this.db!.collection('experiments');
+  }
+
+  private get harnessProfiles(): Collection {
+    return this.db!.collection('harnessProfiles');
+  }
+
+  private get giteaAccounts(): Collection {
+    return this.db!.collection('giteaAccounts');
+  }
+
+  private get branches(): Collection {
+    return this.db!.collection('branches');
   }
 
   private get leaves(): Collection {
@@ -60,6 +82,18 @@ export class MongoDB implements Database {
 
   private get invites(): Collection {
     return this.db!.collection('invites');
+  }
+
+  private get memories(): Collection {
+    return this.db!.collection('memories');
+  }
+
+  private get tools(): Collection {
+    return this.db!.collection('tools');
+  }
+
+  private get thinkingProfiles(): Collection {
+    return this.db!.collection('model_thinking_profiles');
   }
 
   async init(): Promise<void> {
@@ -156,11 +190,42 @@ export class MongoDB implements Database {
     await this.deployments.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
+  /**
+   * Reconciles the collection to this list, without ever emptying it first.
+   *
+   * ── WHY NOT deleteMany + insertMany ──
+   * That is what this was, and it has two failure modes that both bite in the destroy → deploy
+   * cycle. It is not atomic, so anything writing between the two steps — the 30-second reconcile
+   * loop, a deploy, an exposure sync — inserts a document that `insertMany` then collides with:
+   * `E11000 duplicate key ... index: _id_`, observed on exactly this path.
+   *
+   * The second is worse and silent. `deleteMany({})` had already succeeded when `insertMany` threw,
+   * so a failure did not leave the collection unchanged — it left it EMPTY. One racing write could
+   * therefore delete every deployment record for every user, and the only trace was a warning line
+   * in the reconcile log.
+   *
+   * A bulk upsert plus targeted deletes has neither property: nothing is removed that the caller
+   * did not omit, a concurrent insert is absorbed rather than collided with, and a failure leaves
+   * the collection as it was.
+   */
   async saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void> {
-    await this.deployments.deleteMany({});
-    if (deployments.length > 0) {
-      await this.deployments.insertMany(deployments.map(toDoc));
-    }
+    const keep = deployments.map(toDoc);
+    const keepIds = keep.map((d) => d._id);
+
+    const ops: any[] = keep.map((doc) => {
+      const { _id, ...rest } = doc;
+      return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
+    });
+    // Removals are expressed as "anything not in the list" rather than "empty it and rebuild",
+    // so the window in which the collection is missing records never exists.
+    ops.push({ deleteMany: { filter: keepIds.length ? { _id: { $nin: keepIds } } : {} } });
+
+    await this.deployments.bulkWrite(ops, { ordered: false });
+  }
+
+  /** Removes one deployment. What every "filter it out and rewrite the world" caller actually meant. */
+  async deleteDeployment(id: string): Promise<void> {
+    await this.deployments.deleteOne({ _id: id as any });
   }
 
   async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
@@ -296,6 +361,67 @@ export class MongoDB implements Database {
     await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
+  async getBranches(): Promise<Branch[]> {
+    return (await this.branches.find({}).toArray()).map(doc => fromDoc<Branch>(doc));
+  }
+
+  async saveBranch(branch: Branch): Promise<void> {
+    const doc = toDoc(branch);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.branches.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteBranch(id: string): Promise<void> {
+    await this.branches.deleteOne({ _id: id as any });
+  }
+
+  /** Keyed by ownerId rather than a surrogate id — there is exactly one account per user, and a
+   *  second one would mean a user whose repos are split across two identities. */
+  async getExperiments(): Promise<Experiment[]> {
+    return (await this.experiments.find({}).toArray()).map(doc => fromDoc<Experiment>(doc));
+  }
+
+  async saveExperiment(experiment: Experiment): Promise<void> {
+    const doc = toDoc(experiment);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.experiments.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteExperiment(id: string): Promise<void> {
+    await this.experiments.deleteOne({ _id: id as any });
+  }
+
+  /** Keyed by ownerId, like the Gitea account above — one profile in force per user. */
+  async getHarnessProfile(ownerId: string): Promise<HarnessProfile | null> {
+    const doc = await this.harnessProfiles.findOne({ _id: ownerId as any });
+    if (!doc) return null;
+    const { _id, ...rest } = doc as any;
+    return { ...rest, ownerId: String(_id) } as HarnessProfile;
+  }
+
+  async saveHarnessProfile(profile: HarnessProfile): Promise<void> {
+    const { ownerId, ...rest } = profile;
+    await this.harnessProfiles.replaceOne({ _id: ownerId as any }, rest, { upsert: true });
+  }
+
+  async deleteHarnessProfile(ownerId: string): Promise<void> {
+    await this.harnessProfiles.deleteOne({ _id: ownerId as any });
+  }
+
+  async getGiteaAccount(ownerId: string): Promise<GiteaAccount | null> {
+    const doc = await this.giteaAccounts.findOne({ _id: ownerId as any });
+    if (!doc) return null;
+    const { _id, ...rest } = doc as any;
+    return { ...rest, ownerId: String(_id) } as GiteaAccount;
+  }
+
+  async saveGiteaAccount(account: GiteaAccount): Promise<void> {
+    const { ownerId, ...rest } = account;
+    await this.giteaAccounts.replaceOne({ _id: ownerId as any }, rest, { upsert: true });
+  }
+
   async getLeaves(): Promise<Leaf[]> {
     return (await this.leaves.find({}).toArray()).map(doc => fromDoc<Leaf>(doc));
   }
@@ -356,5 +482,60 @@ export class MongoDB implements Database {
   async getUserById(id: string): Promise<UserMetadata | undefined> {
     const doc = await this.users.findOne({ _id: id as any });
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
+  }
+
+  async getMemories(ownerId?: string): Promise<MemoryItem[]> {
+    const filter = ownerId ? { ownerId } : {};
+    const docs = await this.memories.find(filter).toArray();
+    return docs.map((d) => fromDoc<MemoryItem>(d));
+  }
+
+  async saveMemory(memory: MemoryItem): Promise<void> {
+    const doc = toDoc(memory);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.memories.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteMemory(id: string): Promise<void> {
+    await this.memories.deleteOne({ _id: id as any });
+  }
+
+  async getTools(): Promise<ToolRepositoryItem[]> {
+    const builtIns = TOOL_REPOSITORY.map((t) => ({ ...t, isBuiltIn: true }));
+    const customDocs = await this.tools.find({}).toArray();
+    const customItems = customDocs.map((d) => fromDoc<ToolRepositoryItem>(d));
+    const customMap = new Map(customItems.map((t) => [t.id, t]));
+    
+    const result = builtIns.map((t) => customMap.get(t.id) ?? t);
+    for (const c of customItems) {
+      if (!result.some((r) => r.id === c.id)) {
+        result.push(c);
+      }
+    }
+    return result;
+  }
+
+  async saveTool(tool: ToolRepositoryItem): Promise<void> {
+    const doc = toDoc(tool);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.tools.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteTool(id: string): Promise<void> {
+    await this.tools.deleteOne({ _id: id as any });
+  }
+
+  async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {
+    const doc = await this.thinkingProfiles.findOne({ modelId });
+    return doc ? fromDoc<ModelThinkingProfile>(doc) : null;
+  }
+
+  async saveModelThinkingProfile(profile: ModelThinkingProfile): Promise<void> {
+    const doc = toDoc(profile);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.thinkingProfiles.replaceOne({ modelId: profile.modelId }, filter, { upsert: true });
   }
 }

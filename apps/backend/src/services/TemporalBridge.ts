@@ -393,9 +393,9 @@ export class TemporalBridge {
             if (name === 'FAILED') {
               await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
             } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
-              const deployments = await this.db.getDeployments()
-              const arr = deployments.filter((d: any) => d.id !== resourceId)
-              await this.db.saveDeploymentList(arr)
+              // One row, deleted directly. Rewriting the whole collection to drop it is what
+              // raced with concurrent writes and produced the E11000 on this exact path.
+              await this.db.deleteDeployment(resourceId)
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'app-resize') {
@@ -605,8 +605,7 @@ export class TemporalBridge {
                 await updateDeploymentStatus(this.db, dep.id, dep, 'running', dep.storage)
               }
             } else {
-              const allDeployments = await this.db.getDeployments()
-              await this.db.saveDeploymentList(allDeployments.filter((d: any) => d.id !== dep.id))
+              await this.db.deleteDeployment(dep.id)
             }
             if (this.io) this.io.emit('deployment-updated')
           }

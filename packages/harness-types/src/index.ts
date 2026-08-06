@@ -1,0 +1,547 @@
+/**
+ * The shapes that cross the wire between the backend and the Lab.
+ *
+ * ── WHY THIS PACKAGE EXISTS ──
+ * Every one of these was declared twice — once in `apps/backend/src/lib`, once by hand in
+ * `apps/frontend/src/components/Lab.tsx` — with nothing checking that the two agreed. That is fine
+ * until it isn't, and it stopped being fine twice in one day: changing `AgentRequest.tools` from
+ * `string[]` to `{name, description}[]` needed matching edits in two files plus a test fixture that
+ * was silently wrong until it failed, and `LEGACY_TASK_ID` sat in the UI under a comment reading
+ * "must match the backend" — a constant that must match and could not be checked.
+ *
+ * A drifting wire contract fails in the worst available way: the compiler is happy, the request
+ * succeeds, and a field reads as `undefined` at runtime in a surface whose entire job is reporting
+ * numbers accurately.
+ *
+ * ── TYPES ONLY, DELIBERATELY ──
+ * Not one runtime value lives here, and that is a constraint rather than an accident. Every import
+ * of this package is an `import type`, which both TypeScript configurations erase before anything
+ * executes — so neither `tsx` nor Vite ever has to resolve it, and there is no build step, no
+ * bundling question, and no way for a version of this package to be stale at runtime.
+ *
+ * Adding a `const` here would quietly end that property. Constants that both sides need belong in
+ * the payload the server already sends: the harness limits and the tunable registry are served
+ * over `/api/harness/config` for exactly this reason, and the task-id normalisation that used to
+ * need a shared constant is now done server-side instead.
+ */
+
+/**
+ * The languages a workspace can be created for.
+ *
+ * A closed set rather than a free-text image field, so a model can never name an image nobody
+ * vetted. The catalogue itself — images, tool lists — stays in the backend; only the identifier
+ * crosses the wire.
+ */
+export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base';
+
+/** Inference engine, when the platform deployed it and therefore knows what it is. */
+export type ModelKind = 'vllm' | 'tabbyapi';
+
+/* ── the agent loop ───────────────────────────────────────────────────────── */
+
+/**
+ * One turn of the loop, kept so a run can be read afterwards.
+ *
+ * A step showing no reasoning is itself informative: it means thinking was off for that variant.
+ * A step showing no tool call is the failure the dispatch loop is most vulnerable to.
+ */
+export interface AgentStep {
+  step: number;
+  reasoning?: string;
+  content?: string;
+  toolCalls: { name: string; arguments: string }[];
+  toolResults: { name: string; result: string }[];
+  tokens: number;
+  /** Set when a field was cut to fit the per-field caps. */
+  truncated?: boolean;
+}
+
+/**
+ * One message in the conversation, exactly as it went to the model.
+ *
+ * ── WHY THIS IS NOT THE TRACE ──
+ * `AgentStep` is a reconstruction: fields pulled out of each turn and re-assembled for display.
+ * That is useful and it is not the same thing. The tool results it holds are clipped to 1,200
+ * characters while the model was actually sent up to 8,000, so reading a trace tells you roughly
+ * what happened and quietly misrepresents what the model saw — which is the one question a
+ * transparency view exists to answer.
+ *
+ * This is the array the request was built from. Nothing is inferred.
+ */
+export interface ConversationMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  /** Present on an assistant turn that called tools. */
+  toolCalls?: { id: string; name: string; arguments: string }[];
+  /** Ties a tool result back to the call it answers. */
+  toolCallId?: string;
+  name?: string;
+  /** Set when a field was cut to fit the caps — so a shortened message never reads as complete. */
+  truncated?: boolean;
+}
+
+/**
+ * Exactly what the model was asked.
+ *
+ * A score without its input is a claim nobody can check. Deliberately carries no base URL and no
+ * API key: a record that outlives the run must not carry the means to make more of them.
+ */
+export interface AgentRequest {
+  systemPrompt: string;
+  kickoff: string;
+  model?: string | undefined;
+  /** With descriptions, because a tool the model ignores may simply be one described badly. */
+  tools: { name: string; description: string }[];
+  /** Sampler and template fields as sent, minus messages and tools. */
+  parameters: Record<string, unknown>;
+  /** What was ASKED for. Differs from `parameters` exactly when something was dropped or read locally. */
+  overrides?: Overrides;
+  /** Knobs that could not be sent — an unknown key, or an engine-gated sampler on another engine. */
+  unsupported?: string[];
+  /**
+   * Keys whose value came from the promoted profile rather than from the variant.
+   *
+   * Without this the two are indistinguishable in the record, and a variant named after a
+   * configuration it is no longer running looks exactly like one that is. That happened: a
+   * promoted prompt silently became the baseline for a control arm called `shipped-prompt`.
+   */
+  fromProfile?: string[];
+  /** Loop controls, which never appear in `parameters` because they are never transmitted. */
+  loop?: { maxSteps: number; think: boolean; toolResultCap: number };
+}
+
+/* ── tunables ─────────────────────────────────────────────────────────────── */
+
+/** Overrides as they travel: an open bag, validated against the registry rather than by its type. */
+export type Overrides = Record<string, unknown>;
+
+/**
+ * Where a value goes once it leaves the registry.
+ *
+ * Not a stylistic distinction: `enable_thinking` is read only when nested under `template_vars`,
+ * and sent at the top level it is accepted, ignored, and the model quietly degrades.
+ */
+export type TunablePlacement = 'body' | 'template_vars' | 'loop';
+
+export type TunableType = 'number' | 'boolean' | 'string' | 'enum';
+
+/** One knob the harness can change about a model call, as served to the UI. */
+export interface Tunable {
+  key: string;
+  label: string;
+  group: 'sampling' | 'loop' | 'prompt';
+  type: TunableType;
+  placement: TunablePlacement;
+  /** The wire field when it differs from `key` — `think` is sent as `enable_thinking`. */
+  field?: string;
+  /** Send only to this engine; dropped elsewhere rather than risking a 400. */
+  engine?: ModelKind;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: unknown[];
+  /**
+   * Where the pickable values come from, when they are discovered at runtime rather than fixed.
+   *
+   * The registry cannot list a user's models: they are deployments and endpoints that come and go,
+   * and they differ per tenant. So the knob declares the source and the config fills `choices` in
+   * per request — which keeps the picker honest without the UI knowing that `model` is special.
+   */
+  choicesFrom?: 'models';
+  /** Filled in by `buildHarnessConfig` for knobs with `choicesFrom`. Never authored by hand. */
+  choices?: { value: string; label: string; note?: string }[];
+  /** What the harness runs at today, read from the defining module rather than restated. */
+  default: unknown;
+  /**
+   * The prompt in `HarnessConfig.prompts` this knob replaces, when its default is generated per
+   * task rather than being a constant `default` can hold.
+   *
+   * Declared here so an editor can open on the text actually in force. The alternative — a UI that
+   * checks for `systemPrompt` by name — is the hardcoding that makes a new prompt knob invisible
+   * until someone remembers to add a case.
+   */
+  promptId?: string;
+  /** The two ends worth comparing, which is what makes a knob a one-click axis. */
+  suggested?: unknown[];
+  note?: string;
+  source: string;
+}
+
+/** One knob's actual runtime value, and why it has it. */
+export interface EffectiveKnob {
+  key: string;
+  label: string;
+  group: Tunable['group'];
+  value: unknown;
+  /** `harness` is the built-in constant; `adopted` means a promoted profile supplies it. */
+  source: 'harness' | 'adopted';
+  note?: string;
+  sourceFile: string;
+}
+
+/* ── experiments ──────────────────────────────────────────────────────────── */
+
+/** The settings a variant changes. `language` selects an image, so it is not a request parameter. */
+export type ExperimentOverrides = Overrides & { language?: WorkspaceLanguage };
+
+export interface ExperimentVariant {
+  label: string;
+  overrides: ExperimentOverrides;
+}
+
+/** A file written into the sandbox. Relative to /work; paths that escape it are rejected. */
+export interface TaskFile {
+  path: string;
+  content: string;
+}
+
+/**
+ * One task in the suite.
+ *
+ * The verify command belongs here rather than on the experiment: tasks in a useful suite check
+ * different things, and one shared command would either fit a single task or verify nothing.
+ *
+ * ── WHY A TASK HAS FOUR PARTS ──
+ * It used to have two — a prompt and a verify command — and that shape made a whole category of
+ * task impossible to express. "Read data.txt and print it" needs data.txt to already exist, and
+ * with nowhere to put it the only available move was to have the verify command create its own
+ * input. Which it did, on a real authored suite: the file then existed only at verification time,
+ * the agent spent 24 steps trying to invent it, and the task could never have passed.
+ *
+ * `seed` is the world the agent wakes up in. `solution` is a reference correct answer, used ONLY
+ * to prove the verify command can pass — it is never placed in a real run's sandbox.
+ */
+export interface ExperimentTask {
+  id: string;
+  name: string;
+  prompt: string;
+  verifyCommand: string;
+  /** Present in /work before the agent starts. The given state of the task. */
+  seed?: TaskFile[];
+  /**
+   * A correct answer, for validation only.
+   *
+   * The gate proves a verify command FAILS with only the seed present. That says it is not
+   * vacuous; it does not say it can ever succeed. A verify with a typo — `grep -q 'Hello Wolrd'` —
+   * fails on the seed and fails on a perfect solution, and nothing today can tell those apart.
+   * Running the verify against seed + solution is what turns "achievable" into a fact.
+   */
+  solution?: TaskFile[];
+  /** Overrides the suite default, so one suite can span languages. */
+  language?: WorkspaceLanguage;
+}
+
+export type ExperimentStatus = 'draft' | 'running' | 'complete' | 'failed';
+
+/** One run, in full. Lives on the detail route — never in the polled list. */
+export interface VariantResult {
+  label: string;
+  taskId?: string;
+  /** What the AGENT claimed. */
+  succeeded: boolean;
+  /** What the verify command found. This is the one that counts. */
+  verified: boolean;
+  verifyExitCode: number;
+  verifyOutput: string;
+  steps: number;
+  tokensUsed: number;
+  durationMs: number;
+  summary: string;
+  transcript: string[];
+  /** Exactly what the model was sent. */
+  request?: AgentRequest;
+  /**
+   * The whole conversation, verbatim.
+   *
+   * What the model was SENT, turn by turn, including the tool results as it received them. The
+   * trace below is what it PRODUCED, reasoning included — the two answer different questions and
+   * neither substitutes for the other.
+   */
+  conversation?: ConversationMessage[];
+  /** What the task said success looks like, stored so a result stays readable after an edit. */
+  expected?: { verifyCommand: string; note: string };
+  trace?: AgentStep[];
+  /** Distinct tools called by the agent during this variant execution. */
+  toolsUsed?: string[];
+  /** Whether the agent invoked the expected dedicated tool for this task rather than falling back to run_command alone. */
+  usedDedicatedTool?: boolean;
+  /** Set when the run could not complete at all — a broken endpoint, not a failed task. */
+  error?: string;
+}
+
+/**
+ * One execution of an experiment, with the configuration it ran under.
+ *
+ * ── WHY EXECUTIONS ARE KEPT SEPARATELY ──
+ * Running an experiment used to clear its results, which made an experiment a thing you could only
+ * ask once. The entire reason to record a suite is to ask it AGAIN after changing something — a
+ * reworded prompt, a promoted default, a different model — and see whether the numbers moved. That
+ * comparison is impossible if the previous numbers were deleted to make room.
+ *
+ * The context travels with each execution because "the numbers moved" is only meaningful beside
+ * what changed. A run that does not remember which model produced it cannot be compared with one
+ * that used a different model, and the difference would be attributed to whatever was being tested.
+ */
+export interface ExperimentRun {
+  id: string;
+  startedAt: string;
+  finishedAt?: string;
+  status: 'running' | 'complete' | 'failed';
+  /** The model actually resolved for this execution. */
+  model?: string;
+  /** The promoted profile in force, so an adopted default is visible as part of the conditions. */
+  profileOverrides?: Overrides;
+  results: VariantResult[];
+  progress?: string | undefined;
+  error?: string | undefined;
+}
+
+/** One execution as the list carries it: enough to offer a comparison, none of the evidence. */
+export interface RunSummary {
+  id: string;
+  startedAt: string;
+  finishedAt?: string;
+  status: 'running' | 'complete' | 'failed';
+  model?: string;
+  /** Verified over attempted, across the whole suite — the headline for that execution. */
+  verified: number;
+  runs: number;
+}
+
+export interface Experiment {
+  id: string;
+  ownerId: string;
+  name: string;
+  /**
+   * Every execution, oldest first.
+   *
+   * `results` below mirrors the latest one, so existing readers keep working; this is what makes
+   * "re-run it after the change and compare" possible at all.
+   */
+  runs?: ExperimentRun[];
+  tasks?: ExperimentTask[];
+  /** The single task an experiment used to hold, kept readable rather than migrated. */
+  task?: string;
+  verifyCommand?: string;
+  language: WorkspaceLanguage;
+  variants: ExperimentVariant[];
+  repeats: number;
+  status: ExperimentStatus;
+  results: VariantResult[];
+  progress?: string | undefined;
+  error?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * Recomputed per request: only the running service knows whether work is actually in flight.
+   *
+   * The detail route has always sent this and the summary has always declared it; this did not,
+   * so a reader of the detail could only consult `status` — which lags, because it is written when
+   * a run finishes rather than while it goes.
+   */
+  running?: boolean;
+}
+
+/* ── the list view ────────────────────────────────────────────────────────── */
+
+/**
+ * What the polled list carries: scores, no evidence.
+ *
+ * Traces, prompts, verify output and request records are on the detail route. Anything added here
+ * is re-sent for the whole archive on every poll, which is what made persisting history a
+ * performance regression rather than a feature.
+ */
+export interface ResultSummary {
+  label: string;
+  /** Always resolved by the server, so the client never needs to know about pre-suite records. */
+  taskId: string;
+  succeeded: boolean;
+  verified: boolean;
+  verifyExitCode: number;
+  steps: number;
+  tokensUsed: number;
+  durationMs: number;
+  toolsUsed?: string[];
+  usedDedicatedTool?: boolean;
+  /** Presence drives the medians and the "didn't run" count; the text is on the detail. */
+  error?: string;
+}
+
+/** Task identity only. Prompts are the largest field in a record and the list never shows them. */
+export interface TaskSummary {
+  id: string;
+  name: string;
+  language?: WorkspaceLanguage;
+}
+
+export interface ExperimentSummary {
+  id: string;
+  ownerId: string;
+  name: string;
+  language: WorkspaceLanguage;
+  /** Always present and always normalised, whatever era the record comes from. */
+  tasks: TaskSummary[];
+  variants: ExperimentVariant[];
+  repeats: number;
+  status: ExperimentStatus;
+  /** The latest execution's results. */
+  results: ResultSummary[];
+  /** Every execution, oldest first — what makes "re-run after the change" comparable. */
+  history: RunSummary[];
+  progress?: string | undefined;
+  error?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+  /** Recomputed per request: only the running service knows whether work is actually in flight. */
+  running?: boolean;
+}
+
+/* ── live run events ──────────────────────────────────────────────────────── */
+
+/**
+ * Socket payloads for a run in flight.
+ *
+ * These cross the wire exactly as the HTTP shapes do, and were the last part of the contract still
+ * typed as `any` on the receiving end — which is how a renamed field would have silently emptied
+ * the live panel while everything still compiled.
+ */
+export interface ExperimentRunStarted {
+  experimentId: string;
+  taskId: string;
+  taskName: string;
+  label: string;
+  repeat: number;
+  /** Position in the plan, so the panel can say "run 3/12" without recomputing it. */
+  done: number;
+  total: number;
+}
+
+export interface ExperimentStepEvent {
+  experimentId: string;
+  taskId: string;
+  label: string;
+  step: AgentStep;
+}
+
+export interface ExperimentRunFinished {
+  experimentId: string;
+  taskId: string;
+  label: string;
+  verified: boolean;
+  succeeded: boolean;
+  steps: number;
+  error?: string;
+}
+
+/* ── promoted defaults ────────────────────────────────────────────────────── */
+
+/** Why a promoted default is what it is. A setting that cannot explain itself is an unexplained number. */
+export interface PromotionProvenance {
+  experimentId: string;
+  experimentName: string;
+  variantLabel: string;
+  verified: number;
+  runs: number;
+  tasks: number;
+  /** False is allowed and must stay visible — adopting a loser is a choice, not an accident. */
+  wasBest: boolean;
+  promotedAt: string;
+}
+
+/**
+ * A configuration that WAS in force, kept when something replaced it.
+ *
+ * The promoted profile is the one piece of a run's configuration that lives in the database rather
+ * than in git — the agent prompt is already versioned as code. Without this, adopting a default is
+ * an unrecoverable act: there is no diff, no "what was it before", and no way back.
+ */
+export interface ProfileVersion {
+  id: string;
+  overrides: Overrides;
+  /** Why it was adopted, carried forward so an old version still explains itself. */
+  from?: PromotionProvenance;
+  /** When it stopped being in force. */
+  supersededAt: string;
+}
+
+export interface HarnessProfile {
+  ownerId: string;
+  /** Applied beneath a variant's own overrides, so a promoted value stays testable. */
+  overrides: Overrides;
+  from?: PromotionProvenance;
+  /** Everything this profile used to be, oldest first. Bounded — see MAX_PROFILE_HISTORY. */
+  history?: ProfileVersion[];
+  updatedAt: string;
+}
+
+export interface PromotionStanding {
+  label: string;
+  verified: number;
+  runs: number;
+  tasks: number;
+  /** 1 when this variant verified the most. */
+  rank: number;
+  wasBest: boolean;
+  /** Verified-rate gap to the best variant. Zero when this IS the best. */
+  behindBy: number;
+  /** Median tokens, so a tie can still be decided on cost. */
+  medianTokens: number;
+}
+
+export interface OverrideChange {
+  key: string;
+  label: string;
+  from: unknown;
+  to: unknown;
+}
+
+/* ── the configuration surface ────────────────────────────────────────────── */
+
+export interface HarnessSetting {
+  label: string;
+  value: string;
+  /** Why it is this value — usually the failure that set it. */
+  note?: string;
+  /** Where to change it. */
+  source: string;
+}
+
+export interface HarnessSection {
+  id: string;
+  title: string;
+  summary: string;
+  settings: HarnessSetting[];
+}
+
+export interface HarnessConfig {
+  sections: HarnessSection[];
+  /** Prompts in full, so what the model is told is inspectable rather than described. */
+  prompts: { id: string; title: string; text: string }[];
+  languages: { id: WorkspaceLanguage; image: string; summary: string }[];
+  /**
+   * The model APIs this caller can actually reach — deployed engines and registered endpoints.
+   *
+   * Deliberately trimmed from `ModelProvider`: base URLs and API-key presence describe where a
+   * tenant's machines are, and this page is about what the harness is set to, not reachability.
+   */
+  models: { id: string; name: string; model: string; source: string; kind?: ModelKind }[];
+  /** Served rather than duplicated, so the form cannot promise a run the server refuses. */
+  limits: {
+    maxVariants: number;
+    maxRepeats: number;
+    maxTaskChars: number;
+    maxTasks: number;
+    /** The product ceiling — tasks × variants × repeats — which is the one that binds. */
+    maxTotalRuns: number;
+  };
+  /** Every knob an experiment can vary, so the picker cannot offer one the request never carries. */
+  tunables: Tunable[];
+  /**
+   * What the agent is ACTUALLY running with, adopted defaults folded in.
+   *
+   * Distinct from `tunables[].default`, which is the built-in constant. Once a profile has been
+   * promoted those differ, and the point of the Lab is tuning the harness — so a default shown
+   * anywhere has to be the one in force, not the one in the source file.
+   */
+  effective: EffectiveKnob[];
+}

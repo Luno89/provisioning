@@ -42,6 +42,7 @@ import { signJWT, verifyJWT, hashPassword, verifyPassword } from './lib/auth.js'
 import { AuthService } from './services/AuthService.js';
 import { CredentialService } from './services/CredentialService.js';
 import { GiteaService } from './services/GiteaService.js';
+import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { HeadscaleService } from './services/HeadscaleService.js';
 import { ModelService } from './services/ModelService.js';
 import type { CloudProvider } from './lib/types.js';
@@ -50,10 +51,34 @@ import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
 import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
-import { buildLeafContext } from './lib/leaf-context.js';
+import { buildOutboundMessages } from './lib/leaf-context.js';
+import { isWorkspaceLanguage, imageForLanguage, WORKSPACE_IMAGES } from './lib/workspace-spec.js';
+import { conversationSampling, TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js';
+import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token-controller.js';
+import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
+import { buildHarnessConfig } from './lib/harness-config.js';
+import type { HarnessConfig } from '@koala/harness-types';
+import {
+  buildTaskAuthorPrompt, buildTaskChatPrompt, extractTaskProposals, extractTaskRevision, stripTaskBlock,
+  AUTHORING_SAMPLING, AUTHORING_MAX_TOKENS,
+} from './lib/experiment-authoring.js';
+import { AuthoringService, acceptedTasks } from './services/AuthoringService.js';
+import { WorkbenchService } from './services/WorkbenchService.js';
+import { buildPromotion, supersede, revertTo } from './lib/harness-profile.js';
+import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
+import { validateOverrides } from './lib/tunables.js';
+import { ExperimentService } from './services/ExperimentService.js';
+import {
+  expandAxes, validateExperiment, plannedRuns, experimentTasks, taskIdOf, summariseExperiment, normaliseExperiment, latestResults,
+  MAX_REPEATS, MAX_TASK_CHARS, MAX_TASKS, MAX_TASK_FILES, MAX_TASK_FILE_CHARS,
+  type Experiment, type ExperimentTask,
+} from './lib/experiments.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
-import { LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
+import { LEAF_TOOLS, MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
+import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
+import { getToolRepository } from './lib/tool-repository.js';
+import type { MemoryItem } from './lib/memory-store.js';
 
 dotenv.config();
 
@@ -148,8 +173,25 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
   const clusterProxyService = new ClusterProxyService();
   const giteaService = new GiteaService(infraService, JWT_SECRET, '/tmp/kubeconfig-provisioning-lunorica');
+  const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
+  const experimentService = new ExperimentService(db, modelService, undefined, io);
+  const authoringService = new AuthoringService();
+  const workbenchService = new WorkbenchService();
+
+  // Pods whose session this process has no memory of — a restart empties the map and leaves them
+  // running. Asks the cluster, which is the only question that survives a restart.
+  workbenchService.sweepOrphans()
+    .then((ids) => ids.length && console.log(`[bootstrap] Swept ${ids.length} orphaned workbench pod(s)`))
+    .catch((err: any) => console.warn(`[bootstrap] Workbench sweep failed: ${err.message}`));
+
+  // An experiment's "running" flag lives in process memory, so a restart mid-run leaves the record
+  // claiming to be running with nothing driving it — a spinner that never resolves and no way to
+  // start it again. Cleared here, before any route can serve that state.
+  experimentService.reconcileInterrupted()
+    .then((n) => n && console.log(`[bootstrap] Closed out ${n} experiment(s) interrupted by a restart`))
+    .catch((err: any) => console.warn(`[bootstrap] Experiment reconcile failed: ${err.message}`));
 
   // Best-effort background check — see ClusterService.ensureSystemClusterGpuReady for why this
   // can't just be a side effect of the normal provisioning flow. Never blocks startup.
@@ -1571,10 +1613,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     try {
       const { name, giteaOwner, giteaRepo, createRepo, targetClusterId, targetNamespace, autoDeployOnBuild } = req.body;
       if (!name || !giteaRepo) return res.status(400).json({ error: 'name and giteaRepo are required' });
-      const owner = giteaOwner || giteaService.adminUsername;
+
+      // A NEW repository is created under the requesting user's own Gitea account, not the shared
+      // admin one. That is what makes a sandbox push token safe to hand out: its reach is one
+      // user's repositories rather than every tenant's. Registering an EXISTING repo still honours
+      // an explicit owner, so the pipeline projects that predate per-user accounts keep working.
+      let owner = giteaOwner || giteaService.adminUsername;
 
       if (createRepo) {
-        await giteaService.createRepo(giteaRepo, { description: `Provisioning project: ${name}` });
+        const account = await projectRepoService.ensureAccountFor((req as any).user.id);
+        owner = account.username;
+        await giteaService.createRepoForUser(owner, giteaRepo, { description: `Provisioning project: ${name}` });
       } else {
         await giteaService.getRepo(owner, giteaRepo); // throws if it doesn't exist / isn't reachable
       }
@@ -1633,6 +1682,1006 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  async function executeWebSearch(query: string): Promise<{ title: string; snippet: string; url: string }[]> {
+    try {
+      const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const res = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      });
+      if (!res.ok) return [];
+      const html = await res.text();
+      const results: { title: string; snippet: string; url: string }[] = [];
+      const matches = html.matchAll(/<a class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g);
+      for (const match of matches) {
+        if (results.length >= 5) break;
+        const rawUrl = match[1].replace(/&amp;/g, '&');
+        const cleanTitle = match[2].replace(/<[^>]+>/g, '').trim();
+        const cleanSnippet = match[3].replace(/<[^>]+>/g, '').trim();
+        let finalUrl = rawUrl;
+        const uddgMatch = rawUrl.match(/uddg=([^&]+)/);
+        if (uddgMatch) finalUrl = decodeURIComponent(uddgMatch[1]);
+        if (cleanTitle && finalUrl) {
+          results.push({ title: cleanTitle, snippet: cleanSnippet, url: finalUrl });
+        }
+      }
+      return results;
+    } catch {
+      return [];
+    }
+  }
+
+  async function executeFetchWebPage(url: string): Promise<string> {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      });
+      if (!res.ok) return `HTTP error ${res.status}`;
+      const html = await res.text();
+      const cleanText = html
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return cleanText.slice(0, 4000);
+    } catch (err: any) {
+      return `Failed to fetch page: ${err?.message || err}`;
+    }
+  }
+
+  /**
+   * Runs a tool the model asked for, against this user's own data.
+   *
+   * Every lookup is ownership-scoped: a tool call is model output, so an id in it is untrusted
+   * input exactly like one from a URL. Errors are returned as tool RESULTS rather than thrown —
+   * the model can recover from "no such leaf" if it is told, and cannot if the request dies.
+   */
+  async function runLeafTool(userId: string, branchId: string, call: { name: string; arguments: string }): Promise<string> {
+    const args = parseToolArguments(call.arguments);
+    const leaves = (await ownedLeaves(userId)).filter((l) => l.branchId === branchId);
+
+    try {
+      if (call.name === 'list_leaves') {
+        const status = typeof args.status === 'string' ? args.status : undefined;
+        const filtered = status ? leaves.filter((l) => l.status === status) : leaves;
+        return JSON.stringify({ leaves: filtered.map(summariseLeaf) });
+      }
+
+      if (call.name === 'get_leaf') {
+        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
+        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+        return JSON.stringify(detailLeaf(leaf, childrenOf(leaves, leaf.id)));
+      }
+
+      if (call.name === 'propose_leaf') {
+        const title = typeof args.title === 'string' ? args.title.trim() : '';
+        if (!title) return JSON.stringify({ error: 'title is required' });
+
+        // The same caps the HTTP route enforces. A tool is not a way around them.
+        const parent = args.parentLeafId ? leaves.find((l) => l.id === String(args.parentLeafId)) : undefined;
+        if (args.parentLeafId && !parent) return JSON.stringify({ error: 'No leaf with that parentLeafId.' });
+        if (parent) {
+          const refusal = canAddChild(parent, childrenOf(leaves, parent.id).length);
+          if (refusal) return JSON.stringify({ error: refusal });
+        }
+
+        const now = new Date().toISOString();
+        const leaf: Leaf = {
+          id: uuidv4(),
+          ownerId: userId,
+          branchId,
+          title: title.slice(0, 200),
+          ...(typeof args.body === 'string' && args.body.trim() ? { body: args.body.trim().slice(0, 4000) } : {}),
+          // Silently dropped when it is not a known language: the model picking something outside
+          // the enum should get the default sandbox, not a leaf that fails when it runs.
+          ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
+          column: 'todo',
+          // Proposed, always. A tool call is still the model suggesting, not deciding.
+          status: 'proposed',
+          depth: parent ? parent.depth + 1 : 0,
+          blocking: true,
+          ...(parent ? { parentLeafId: parent.id } : {}),
+          createdAt: now,
+          updatedAt: now,
+        };
+        await db.saveLeaf(leaf);
+        return JSON.stringify({ proposed: { id: leaf.id, title: leaf.title } });
+      }
+
+      if (call.name === 'list_projects') {
+        // ownerId comes from the SESSION, never from the model. A projectId argument could name
+        // anyone's repository; the user it belongs to is not the model's to choose.
+        const mine = await projectRepoService.listForOwner(userId);
+        return JSON.stringify({
+          projects: mine.map((p) => ({ id: p.id, name: p.name, repo: `${p.giteaOwner}/${p.giteaRepo}` })),
+        });
+      }
+
+      if (call.name === 'create_project') {
+        const name = typeof args.name === 'string' ? args.name.trim() : '';
+        if (!name) return JSON.stringify({ error: 'name is required' });
+        const project = await projectRepoService.register(userId, name, {
+          ...(typeof args.description === 'string' && args.description.trim()
+            ? { description: args.description.trim().slice(0, 300) }
+            : {}),
+        });
+        return JSON.stringify({
+          created: { id: project.id, name: project.name, repo: `${project.giteaOwner}/${project.giteaRepo}` },
+        });
+      }
+
+      if (call.name === 'set_leaf_project') {
+        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
+        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+        // Resolved through the owner-filtered list, so naming another user's project id reads as
+        // "no such project" rather than attaching their repo to this leaf.
+        const project = (await projectRepoService.listForOwner(userId))
+          .find((p) => p.id === String(args.projectId ?? ''));
+        if (!project) return JSON.stringify({ error: 'No project with that id.' });
+        if (leaf.status !== 'proposed' && leaf.status !== 'pending') {
+          return JSON.stringify({ error: `That leaf is already ${leaf.status}; its sandbox exists and cannot be repointed.` });
+        }
+        await db.saveLeaf({ ...leaf, projectId: project.id, updatedAt: new Date().toISOString() });
+        return JSON.stringify({ updated: { id: leaf.id, projectId: project.id, repo: `${project.giteaOwner}/${project.giteaRepo}` } });
+      }
+
+      if (call.name === 'set_leaf_workspace') {
+        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
+        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+        if (!isWorkspaceLanguage(args.language)) {
+          return JSON.stringify({ error: `Unknown language. Choose one of: ${Object.keys(WORKSPACE_IMAGES).join(', ')}.` });
+        }
+        // Allowed while proposed OR pending — unlike the text, the toolchain can still be corrected
+        // after a human accepts, right up until the sandbox is built from it. After that the work
+        // is already running somewhere and changing the image would mean nothing.
+        if (leaf.status !== 'proposed' && leaf.status !== 'pending') {
+          return JSON.stringify({ error: `That leaf is already ${leaf.status}; its sandbox exists and cannot be changed.` });
+        }
+        await db.saveLeaf({ ...leaf, language: args.language, updatedAt: new Date().toISOString() });
+        return JSON.stringify({ updated: { id: leaf.id, language: args.language, image: imageForLanguage(args.language) } });
+      }
+
+      // Both editing verbs stop at 'proposed'. Once a human has accepted a leaf there may be a
+      // workflow running against its text, and the model rewriting or deleting it underneath would
+      // change what the work means after the person agreed to it.
+      if (call.name === 'revise_leaf' || call.name === 'withdraw_leaf') {
+        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
+        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+        if (leaf.status !== 'proposed') {
+          return JSON.stringify({
+            error: `That leaf is already ${leaf.status}, so it is no longer yours to change. Say what you would do differently and let the user decide.`,
+          });
+        }
+
+        if (call.name === 'withdraw_leaf') {
+          // Children would be orphaned into an unreachable subtree, so they go too — safe here
+          // because everything below a proposal is itself still a proposal.
+          const doomed = [leaf, ...childrenOf(leaves, leaf.id)];
+          for (const l of doomed) await db.deleteLeaf(l.id);
+          return JSON.stringify({ withdrawn: { id: leaf.id, title: leaf.title, alsoRemoved: doomed.length - 1 } });
+        }
+
+        const title = typeof args.title === 'string' ? args.title.trim() : '';
+        const body = typeof args.body === 'string' ? args.body.trim() : '';
+        if (!title && !body) return JSON.stringify({ error: 'Nothing to change — pass title, body, or both.' });
+
+        const updated: Leaf = {
+          ...leaf,
+          ...(title ? { title: title.slice(0, 200) } : {}),
+          ...(body ? { body: body.slice(0, 4000) } : {}),
+          updatedAt: new Date().toISOString(),
+        };
+        await db.saveLeaf(updated);
+        return JSON.stringify({ revised: { id: updated.id, title: updated.title } });
+      }
+
+      if (call.name === 'list_tool_repository') {
+        const repo = [
+          { id: 'web_search', name: 'Web Search', category: 'http', description: 'Live DuckDuckGo web search engine.' },
+          { id: 'fetch_web_page', name: 'Fetch Web Page', category: 'http', description: 'Fetches clean text content from web URLs.' },
+          { id: 'pytest_runner', name: 'PyTest Runner', category: 'testing', description: 'Executes Python unit test suites in sandbox.' },
+          { id: 'git_inspector', name: 'Git Inspector', category: 'git', description: 'Inspects commit history, diffs, and branch refs.' },
+          { id: 'linter_audit', name: 'Linter Audit', category: 'linter', description: 'Runs ESLint/Ruff/Static analysis check.' },
+          { id: 'http_tester', name: 'HTTP Tester', category: 'http', description: 'Tests API endpoints and HTTP payloads.' },
+        ];
+        const category = typeof args.category === 'string' ? args.category : undefined;
+        const filtered = category ? repo.filter((t) => t.category === category) : repo;
+        return JSON.stringify({ tools: filtered });
+      }
+
+      if (call.name === 'attach_tool_to_leaf') {
+        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
+        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+        const toolId = String(args.toolId ?? '');
+        await db.saveLeaf({ ...leaf, attachedTools: [...(leaf as any).attachedTools ?? [], toolId], updatedAt: new Date().toISOString() } as any);
+        return JSON.stringify({ attached: { leafId: leaf.id, toolId } });
+      }
+
+      if (call.name === 'update_leaf_memory') {
+        const category = String(args.category ?? 'lessons_learned');
+        const title = String(args.title ?? '');
+        const text = String(args.text ?? '');
+        return JSON.stringify({ savedMemory: { category, title, text, timestamp: new Date().toISOString() } });
+      }
+
+      if (call.name === 'web_search') {
+        const query = String(args.query ?? '').trim();
+        if (!query) return JSON.stringify({ error: 'query parameter is required' });
+        const results = await executeWebSearch(query);
+        return JSON.stringify({ query, results: results.length ? results : [{ snippet: 'No results found or request failed' }] });
+      }
+
+      if (call.name === 'fetch_web_page') {
+        const url = String(args.url ?? '').trim();
+        if (!url) return JSON.stringify({ error: 'url parameter is required' });
+        const content = await executeFetchWebPage(url);
+        return JSON.stringify({ url, content });
+      }
+
+      return JSON.stringify({ error: `Unknown tool ${call.name}` });
+    } catch (err: any) {
+      return JSON.stringify({ error: String(err?.message ?? err).slice(0, 300) });
+    }
+  }
+
+  /** ── HARNESS — what the agent is configured to do, and experiments against it ── */
+
+  /**
+   * Client task shapes → stored tasks.
+   *
+   * Ids are generated here rather than trusted. The client's copy only has to be unique within its
+   * own form, while these become part of a Kubernetes namespace and are what results are attributed
+   * by — so position decides identity, and editing a task in place keeps its results attached.
+   */
+  const normaliseTasks = (tasks: any[]): ExperimentTask[] =>
+    tasks.slice(0, MAX_TASKS).map((t: any, i: number) => ({
+      id: `t${i + 1}`,
+      name: String(t?.name ?? '').trim().slice(0, 80) || `Task ${i + 1}`,
+      prompt: String(t?.prompt ?? '').slice(0, MAX_TASK_CHARS),
+      verifyCommand: String(t?.verifyCommand ?? '').trim().slice(0, 2000),
+      // The world the agent wakes up in, and a reference answer used only by the gate. Both
+      // optional; a task that starts from nothing carries neither.
+      ...(Array.isArray(t?.seed) && t.seed.length ? { seed: taskFiles(t.seed) } : {}),
+      ...(Array.isArray(t?.solution) && t.solution.length ? { solution: taskFiles(t.solution) } : {}),
+      ...(isWorkspaceLanguage(t?.language) ? { language: t.language } : {}),
+    }));
+
+  /** File lists from a client, bounded and stripped of anything that could escape /work. */
+  const taskFiles = (raw: any[]): { path: string; content: string }[] =>
+    raw
+      .slice(0, MAX_TASK_FILES)
+      .map((f: any) => ({
+        path: String(f?.path ?? '').trim(),
+        content: String(f?.content ?? '').slice(0, MAX_TASK_FILE_CHARS),
+      }))
+      .filter((f) => f.path && !f.path.startsWith('/') && !f.path.includes('..'));
+
+  /**
+   * The live configuration, assembled from the modules the running code uses.
+   *
+   * Never a hand-written copy: a stale number here would have someone tune a sampler, read the old
+   * value, and conclude the change did nothing.
+   */
+  app.get('/api/harness/config', async (req, res) => {
+    // The caller's adopted defaults, folded in — otherwise this page describes a configuration
+    // nobody is running.
+    const userId = (req as any).user.id;
+    const profile = await db.getHarnessProfile(userId);
+
+    /**
+     * The model APIs this caller can reach, so the picker offers what exists instead of taking a
+     * free-text id that only ever resolves to "Model X not found".
+     *
+     * Failure here is not failure of the page. Listing touches deployments and the cluster, and a
+     * cluster being down should cost you the model dropdown, not every prompt and sampler setting
+     * on the screen.
+     */
+    let models: HarnessConfig['models'] = [];
+    try {
+      models = (await modelService.list(userId)).map((m) => ({
+        id: m.id,
+        name: m.name,
+        model: m.model,
+        source: m.source,
+        ...(m.kind ? { kind: m.kind } : {}),
+      }));
+    } catch (err: any) {
+      console.warn('[harness] could not list models:', err?.message ?? err);
+    }
+
+    res.json(buildHarnessConfig(profile?.overrides ?? {}, models));
+  });
+
+  /** ── WORKBENCH — a live sandbox for writing a verify command against ── */
+
+  app.post('/api/harness/workbench/open', async (req, res) => {
+    try {
+      const { language, seed } = req.body ?? {};
+      res.json(await workbenchService.open((req as any).user.id, {
+        ...(isWorkspaceLanguage(language) ? { language } : {}),
+        ...(Array.isArray(seed) ? { seed: taskFiles(seed) } : {}),
+      }));
+    } catch (err: any) {
+      res.status(503).json({ error: `Could not open a sandbox: ${String(err?.message ?? err).slice(0, 200)}` });
+    }
+  });
+
+  app.post('/api/harness/workbench/exec', async (req, res) => {
+    const { sessionId, command } = req.body ?? {};
+    if (!String(command ?? '').trim()) return res.status(400).json({ error: 'No command.' });
+    try {
+      res.json(await workbenchService.exec((req as any).user.id, String(sessionId), String(command)));
+    } catch (err: any) {
+      // A dead session is the common case — the idle reaper took it — and is worth saying plainly
+      // so the client can reopen rather than showing a failure that looks like the command's.
+      res.status(409).json({ error: String(err?.message ?? err).slice(0, 200) });
+    }
+  });
+
+  app.post('/api/harness/workbench/reset', async (req, res) => {
+    const { sessionId, seed } = req.body ?? {};
+    try {
+      await workbenchService.reset(
+        (req as any).user.id,
+        String(sessionId),
+        Array.isArray(seed) ? taskFiles(seed) : undefined,
+      );
+      res.json({ reset: true });
+    } catch (err: any) {
+      res.status(409).json({ error: String(err?.message ?? err).slice(0, 200) });
+    }
+  });
+
+  app.delete('/api/harness/workbench/:sessionId', async (req, res) => {
+    await workbenchService.close((req as any).user.id, req.params.sessionId).catch(() => undefined);
+    res.json({ closed: true });
+  });
+
+  /** ── AUTHORING — Koala proposes the suite, the sandbox proves the verify commands ── */
+
+  /**
+   * Asks Koala for tasks. Proposals only — nothing is stored and nothing runs.
+   *
+   * Reasoning is OFF here, unlike the planning chat. Authoring is one-shot structured output, and
+   * measured on this prompt with reasoning on the model produced 16,664 characters of deliberation,
+   * hit the token ceiling and emitted no answer at all.
+   */
+  app.post('/api/harness/author/tasks', async (req, res) => {
+    const { goal, existing, modelId } = req.body ?? {};
+    if (!String(goal ?? '').trim()) return res.status(400).json({ error: 'Say what the suite should test.' });
+
+    let provider, baseUrl, apiKey;
+    try {
+      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl((req as any).user.id, modelId));
+    } catch (err: any) {
+      return res.status(404).json({ error: err.message });
+    }
+
+    try {
+      const upstream = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          ...(provider.model ? { model: provider.model } : {}),
+          messages: [
+            {
+              role: 'system',
+              content: buildTaskAuthorPrompt(
+                Array.isArray(existing) ? { existing: existing.map((n: unknown) => String(n)) } : {},
+              ),
+            },
+            { role: 'user', content: String(goal).slice(0, 2000) },
+          ],
+          stream: false,
+          ...conversationSampling(provider.kind),
+          ...AUTHORING_SAMPLING,
+          max_tokens: AUTHORING_MAX_TOKENS,
+        }),
+      });
+
+      if (!upstream.ok) {
+        return res.status(502).json({ error: `Model call failed (${upstream.status})` });
+      }
+      const body: any = await upstream.json();
+      const reply = body?.choices?.[0]?.message?.content ?? '';
+      const { tasks, rejected } = extractTaskProposals(reply);
+
+      // The prose without the payload — the tasks are rendered as cards, so leaving the JSON in
+      // would show the same thing twice.
+      res.json({ tasks, rejected, note: stripTaskBlock(reply) });
+    } catch (err: any) {
+      res.status(502).json({ error: String(err?.message ?? err).slice(0, 300) });
+    }
+  });
+
+  /**
+   * Runs each proposed verify command in an empty sandbox and requires it to FAIL.
+   *
+   * The gate that matters. A command that passes where no work has been done passes always, so a
+   * suite built from such commands scores every variant a winner — the exact failure the Lab
+   * exists to catch, produced automatically. One sandbox for the batch; see AuthoringService.
+   */
+  app.post('/api/harness/author/validate', async (req, res) => {
+    const { tasks } = req.body ?? {};
+    if (!Array.isArray(tasks) || !tasks.length) {
+      return res.status(400).json({ error: 'Nothing to validate.' });
+    }
+    if (tasks.length > MAX_TASKS) {
+      return res.status(400).json({ error: `At most ${MAX_TASKS} tasks in a suite.` });
+    }
+
+    try {
+      const validated = await authoringService.validateOnEmptyWorkspace(
+        (req as any).user.id,
+        // Through `normaliseTasks` rather than a second hand-written mapping. The duplicate here
+        // silently dropped seed and solution, so the gate validated a task with neither and
+        // reported it fine — the exact class of silent drop the gate exists to catch.
+        normaliseTasks(tasks),
+      );
+      res.json({ tasks: validated, accepted: acceptedTasks(validated) });
+    } catch (err: any) {
+      // A cluster problem is not a verdict on the commands — saying otherwise would reject good
+      // tasks for a reason that has nothing to do with them.
+      res.status(503).json({ error: `Could not reach a sandbox: ${String(err?.message ?? err).slice(0, 200)}` });
+    }
+  });
+
+  /**
+   * The configuration as a file you can commit.
+   *
+   * Makes git available without making it load-bearing: the running system keeps reading from the
+   * database, and this is the artifact to review, share or restore. Carries suite DEFINITIONS and
+   * adopted defaults — never results, which mean nothing on another machine.
+   */
+  app.get('/api/harness/export', async (req, res) => {
+    const userId = (req as any).user.id;
+    const mine = (await db.getExperiments()).filter((e) => e.ownerId === userId);
+    res.json(buildConfigExport(mine, await db.getHarnessProfile(userId)));
+  });
+
+  /** Restores suites from an exported document. Definitions only — each side answers for itself. */
+  app.post('/api/harness/import', async (req, res) => {
+    const userId = (req as any).user.id;
+    const parsed = parseConfigExport(req.body);
+    if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+
+    const created: string[] = [];
+    const failed: string[] = [];
+    for (const suite of parsed.suites) {
+      const now = new Date().toISOString();
+      const draft: Experiment = {
+        id: uuidv4(),
+        ownerId: userId,
+        name: suite.name.slice(0, 120),
+        tasks: normaliseTasks(suite.tasks),
+        language: 'node',
+        variants: suite.variants,
+        repeats: Math.max(1, Math.min(MAX_REPEATS, suite.repeats)),
+        status: 'draft',
+        results: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      // Validated like anything else: an imported suite gets no exemption from the rules that stop
+      // a malformed one burning GPU time.
+      const invalid = validateExperiment(draft);
+      if (invalid) { failed.push(`${suite.name}: ${invalid}`); continue; }
+      await db.saveExperiment(draft);
+      created.push(draft.name);
+    }
+    res.json({ created, failed, rejected: parsed.rejected });
+  });
+
+  /** ── PROMOTED DEFAULTS — a winning configuration adopted as the harness's own ── */
+
+  app.get('/api/harness/profile', async (req, res) => {
+    res.json(await db.getHarnessProfile((req as any).user.id));
+  });
+
+  /** Directly updates adopted profile overrides. */
+  app.put('/api/harness/profile', async (req, res) => {
+    const userId = (req as any).user.id;
+    const { overrides } = req.body ?? {};
+    if (typeof overrides !== 'object' || overrides === null) {
+      return res.status(400).json({ error: 'overrides must be an object' });
+    }
+    const invalid = validateOverrides(overrides);
+    if (invalid) return res.status(400).json({ error: invalid });
+
+    const current = await db.getHarnessProfile(userId);
+    const updatedProfile: HarnessProfile = {
+      ownerId: userId,
+      overrides,
+      updatedAt: new Date().toISOString(),
+      ...(current?.reason ? { reason: current.reason } : {}),
+      ...(current?.promotedFrom ? { promotedFrom: current.promotedFrom } : {}),
+    };
+    await db.saveHarnessProfile(supersede(current, updatedProfile));
+    res.json(updatedProfile);
+  });
+
+  /**
+   * Adopts a variant's configuration as the default.
+   *
+   * Deliberately does NOT refuse a variant that lost. A variant that ties on verification while
+   * costing half the tokens is worth adopting, and so is one that loses on a suite you have judged
+   * unrepresentative — refusing would push the same decision into a hand-edited config where no
+   * evidence is recorded at all. What it does instead is compute the standing server-side and
+   * store it, so a default can always explain what it beat and by how much.
+   */
+  app.post('/api/harness/profile/promote', async (req, res) => {
+    const userId = (req as any).user.id;
+    const { experimentId, label } = req.body ?? {};
+
+    const experiment = (await db.getExperiments())
+      .find((e) => e.id === experimentId && e.ownerId === userId);
+    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
+
+    const current = await db.getHarnessProfile(userId);
+    const built = buildPromotion(experiment, String(label ?? ''), current, userId);
+    if (!built) return res.status(400).json({ error: 'That variant has no results to promote.' });
+
+    const invalid = validateOverrides(built.profile.overrides);
+    if (invalid) return res.status(400).json({ error: invalid });
+
+    // Filed rather than overwritten: adopting a default has to be undoable, and a diff needs
+    // something to diff against.
+    await db.saveHarnessProfile(supersede(current, built.profile));
+    res.json(built);
+  });
+
+  /** Previews a promotion without applying it, so the diff can be shown before the button. */
+  app.get('/api/harness/profile/preview', async (req, res) => {
+    const userId = (req as any).user.id;
+    const experiment = (await db.getExperiments())
+      .find((e) => e.id === req.query.experimentId && e.ownerId === userId);
+    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
+
+    const built = buildPromotion(
+      experiment,
+      String(req.query.label ?? ''),
+      await db.getHarnessProfile(userId),
+      userId,
+    );
+    if (!built) return res.status(400).json({ error: 'That variant has no results to promote.' });
+    res.json({ standing: built.standing, changes: built.changes });
+  });
+
+  /** Back to the harness's built-in settings — but the configuration dropped is kept. */
+  app.delete('/api/harness/profile', async (req, res) => {
+    const userId = (req as any).user.id;
+    const current = await db.getHarnessProfile(userId);
+    if (!current) return res.json({ reset: true });
+
+    // Not a delete. Resetting is a change like any other, and a reset you cannot undo is how an
+    // afternoon of tuning disappears on one click.
+    await db.saveHarnessProfile(supersede(current, { ownerId: userId, overrides: {}, updatedAt: '' }));
+    res.json({ reset: true });
+  });
+
+  /** Restores a superseded configuration, filing the current one on the way. */
+  app.post('/api/harness/profile/revert', async (req, res) => {
+    const userId = (req as any).user.id;
+    const current = await db.getHarnessProfile(userId);
+    if (!current) return res.status(404).json({ error: 'Nothing has been adopted yet.' });
+
+    const reverted = revertTo(current, String(req.body?.versionId ?? ''));
+    if (!reverted) return res.status(404).json({ error: 'No such version.' });
+
+    await db.saveHarnessProfile(reverted);
+    res.json(reverted);
+  });
+
+  /**
+   * The list: scores only.
+   *
+   * Full records carry a trace per run — up to 24 steps of several kilobytes each — plus every
+   * task's prompt and every run's verify output. Returning those here meant the client re-fetched
+   * the entire archive every five seconds, which was survivable only while probe experiments
+   * deleted themselves. Once history persists it grows without bound, so evidence moved to the
+   * detail route and this carries what the matrix renders.
+   */
+  app.get('/api/harness/experiments', async (req, res) => {
+    const mine = (await db.getExperiments()).filter((e) => e.ownerId === (req as any).user.id);
+    res.json(
+      mine
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        // Recomputed rather than stored: a backend restart during a run leaves the record saying
+        // "running" forever, and the service is the only thing that knows the truth.
+        .map((e) => ({ ...summariseExperiment(e), running: experimentService.isRunning(e.id) })),
+    );
+  });
+
+  /** One experiment in full — prompts, traces, requests. Fetched when something is expanded. */
+  app.get('/api/harness/experiments/:id', async (req, res) => {
+    const experiment = (await db.getExperiments())
+      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
+    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
+    // Normalised like the list is, so the client never branches on a record's age.
+    res.json({ ...normaliseExperiment(experiment), running: experimentService.isRunning(experiment.id) });
+  });
+
+  app.post('/api/harness/experiments', async (req, res) => {
+    const { name, tasks, task, verifyCommand, language, variants, axes, repeats } = req.body ?? {};
+    // Axes are the friendlier form — one question at a time — and expand to explicit variants so a
+    // stored experiment always says exactly what it ran.
+    const resolved = Array.isArray(variants) && variants.length
+      ? variants
+      : expandAxes(axes && typeof axes === 'object' ? axes : {});
+
+    // A suite, or the single task the older client sends — both normalise to the same stored
+    // shape, so nothing downstream has to ask which one arrived.
+    const suite: ExperimentTask[] = Array.isArray(tasks) && tasks.length
+      ? normaliseTasks(tasks)
+      : [{
+          id: 't1',
+          name: 'Task',
+          prompt: String(task ?? '').slice(0, MAX_TASK_CHARS),
+          verifyCommand: String(verifyCommand ?? '').trim().slice(0, 2000),
+        }];
+
+    const draft: Experiment = {
+      id: uuidv4(),
+      ownerId: (req as any).user.id,
+      name: String(name ?? '').trim().slice(0, 120),
+      tasks: suite,
+      language: isWorkspaceLanguage(language) ? language : 'node',
+      variants: resolved,
+      repeats: Math.max(1, Math.min(MAX_REPEATS, Number(repeats) || 1)),
+      status: 'draft',
+      results: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const invalid = validateExperiment(draft);
+    if (invalid) return res.status(400).json({ error: invalid });
+
+    await db.saveExperiment(draft);
+    res.status(201).json(draft);
+  });
+
+  /**
+   * Edits an experiment in place.
+   *
+   * ── WHY EDITING A PROMPT DISCARDS THAT TASK'S RESULTS ──
+   * A result is a measurement OF a prompt. Change the prompt and keep the number and the record
+   * quietly asserts something that was never run — the worst kind of wrong, because it looks like
+   * evidence. So results are dropped for exactly the tasks whose prompt or verify command moved,
+   * and kept for the ones that did not. `duplicate` is the non-destructive path when the old
+   * numbers are worth keeping alongside the new ones.
+   */
+  app.put('/api/harness/experiments/:id', async (req, res) => {
+    const existing = (await db.getExperiments())
+      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
+    if (!existing) return res.status(404).json({ error: 'No such experiment' });
+    if (experimentService.isRunning(existing.id)) {
+      return res.status(409).json({ error: 'Still running — wait for it to finish before editing.' });
+    }
+
+    const { name, tasks, variants, axes, repeats } = req.body ?? {};
+    const before = experimentTasks(existing);
+    const suite = Array.isArray(tasks) && tasks.length ? normaliseTasks(tasks) : before;
+    const resolvedVariants = Array.isArray(variants) && variants.length
+      ? variants
+      : axes && typeof axes === 'object'
+        ? expandAxes(axes)
+        : existing.variants;
+
+    // Spread the existing record: saveExperiment replaces the whole document, so anything not
+    // carried forward here would be silently deleted.
+    const next: Experiment = {
+      ...existing,
+      name: name === undefined ? existing.name : String(name).trim().slice(0, 120),
+      tasks: suite,
+      variants: resolvedVariants,
+      repeats: repeats === undefined
+        ? existing.repeats
+        : Math.max(1, Math.min(MAX_REPEATS, Number(repeats) || 1)),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const invalid = validateExperiment(next);
+    if (invalid) return res.status(400).json({ error: invalid });
+
+    /**
+     * Editing keeps every past execution.
+     *
+     * This used to delete results whose prompt had changed, on the reasoning that a number
+     * attached to wording it never measured is a lie. That was right when a record held ONE set of
+     * results and nothing about the conditions. It stopped being right when runs became history:
+     * every execution now stores the prompt it was actually sent, the parameters as they went out,
+     * and which keys came from the profile — so an old run is a self-describing record of what was
+     * asked then, not a claim about what is asked now.
+     *
+     * Deleting it would throw away the very evidence that makes "re-run it after the change"
+     * answerable, which is the entire reason the suite is written down.
+     */
+    const changedTasks = suite
+      .filter((t) => {
+        const was = before.find((b) => b.id === t.id);
+        return !was || was.prompt !== t.prompt || was.verifyCommand !== t.verifyCommand;
+      })
+      .map((t) => t.name);
+    const variantsChanged = JSON.stringify(resolvedVariants) !== JSON.stringify(existing.variants);
+
+    await db.saveExperiment(next);
+    // Reported rather than acted on: the next run answers the new question, and the history says
+    // what the old one answered.
+    res.json({
+      ...next,
+      changedTasks,
+      variantsChanged,
+      priorRuns: (existing.runs?.length ?? 0) || (latestResults(existing).length ? 1 : 0),
+    });
+  });
+
+  /** Copies an experiment without its results — the non-destructive way to try a reworded prompt. */
+  app.post('/api/harness/experiments/:id/duplicate', async (req, res) => {
+    const existing = (await db.getExperiments())
+      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
+    if (!existing) return res.status(404).json({ error: 'No such experiment' });
+
+    const now = new Date().toISOString();
+    const copy: Experiment = {
+      ...existing,
+      id: uuidv4(),
+      name: `${existing.name} (copy)`.slice(0, 120),
+      tasks: experimentTasks(existing),
+      status: 'draft',
+      results: [],
+      progress: undefined,
+      error: undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.saveExperiment(copy);
+    res.status(201).json(copy);
+  });
+
+  app.post('/api/harness/experiments/:id/run', async (req, res) => {
+    const experiment = (await db.getExperiments())
+      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
+    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
+    if (experimentService.isRunning(experiment.id)) {
+      return res.status(409).json({ error: 'Already running' });
+    }
+
+    // Returns immediately: an experiment is minutes of real sandboxes and inference, and the UI
+    // polls for results as each variant lands.
+    experimentService.start(experiment);
+    res.status(202).json({ started: true, runs: plannedRuns(experiment) });
+  });
+
+  app.post('/api/harness/experiments/:id/stop', async (req, res) => {
+    const experiment = (await db.getExperiments())
+      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
+    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
+    if (experimentService.isRunning(experiment.id)) {
+      experimentService.stop(experiment.id);
+    }
+    const runs = (experiment as any).runs ?? [];
+    const updatedRuns = runs.map((r: any) => ({
+      ...r,
+      status: r.status === 'running' ? 'complete' : r.status,
+      finishedAt: r.finishedAt || new Date().toISOString(),
+    }));
+    await db.saveExperiment({
+      ...experiment,
+      status: experiment.results?.length || updatedRuns.some((r: any) => r.results?.length) ? 'complete' : 'draft',
+      runs: updatedRuns,
+      progress: undefined,
+      updatedAt: new Date().toISOString(),
+    });
+    res.json({ stopped: true });
+  });
+
+  app.delete('/api/harness/experiments/:id', async (req, res) => {
+    const experiment = (await db.getExperiments())
+      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
+    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
+    if (experimentService.isRunning(experiment.id)) {
+      experimentService.stop(experiment.id);
+    }
+    await db.deleteExperiment(experiment.id);
+    res.json({ deleted: true });
+  });
+
+  // ── TOOL REPOSITORY ──
+  app.get('/api/harness/tools', async (req, res) => {
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+    const all = await db.getTools();
+    if (category && category !== 'all') {
+      return res.json(all.filter((t) => t.category === category));
+    }
+    res.json(all);
+  });
+
+  app.post('/api/harness/tools', async (req, res) => {
+    const { name, category, description, requiresBinaries, parameters, scriptCommand } = req.body;
+    if (!name || !description) {
+      return res.status(400).json({ error: 'name and description are required' });
+    }
+    const item = {
+      id: uuidv4(),
+      name: String(name).trim(),
+      category: category || 'custom',
+      description: String(description).trim(),
+      requiresBinaries: Array.isArray(requiresBinaries) ? requiresBinaries : [],
+      parameters: parameters || { type: 'object', properties: {} },
+      scriptCommand: scriptCommand ? String(scriptCommand) : undefined,
+      isBuiltIn: false,
+    };
+    await db.saveTool(item as any);
+    res.status(201).json(item);
+  });
+
+  app.put('/api/harness/tools/:id', async (req, res) => {
+    const existing = (await db.getTools()).find((t) => t.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'No such tool' });
+    const { name, category, description, requiresBinaries, parameters, scriptCommand } = req.body;
+    const updated = {
+      ...existing,
+      ...(name ? { name: String(name).trim() } : {}),
+      ...(category ? { category } : {}),
+      ...(description ? { description: String(description).trim() } : {}),
+      ...(requiresBinaries ? { requiresBinaries: Array.isArray(requiresBinaries) ? requiresBinaries : [] } : {}),
+      ...(parameters ? { parameters } : {}),
+      ...(scriptCommand !== undefined ? { scriptCommand: String(scriptCommand) } : {}),
+    };
+    await db.saveTool(updated as any);
+    res.json(updated);
+  });
+
+  app.delete('/api/harness/tools/:id', async (req, res) => {
+    const existing = (await db.getTools()).find((t) => t.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'No such tool' });
+    await db.deleteTool(req.params.id);
+    res.json({ deleted: true });
+  });
+
+  // ── MEMORY BANK ──
+  app.get('/api/harness/memories', async (req, res) => {
+    const ownerId = (req as any).user.id;
+    const memories = await db.getMemories(ownerId);
+    res.json(memories);
+  });
+
+  app.post('/api/harness/memories', async (req, res) => {
+    const ownerId = (req as any).user.id;
+    const { category, title, text, projectId, scope, recommendedScope, status } = req.body;
+    if (!category || !title || !text) {
+      return res.status(400).json({ error: 'category, title, and text are required' });
+    }
+    const item: MemoryItem = {
+      id: uuidv4(),
+      ownerId,
+      projectId: projectId ? String(projectId) : undefined,
+      category,
+      scope: scope === 'global' ? 'global' : 'project',
+      recommendedScope: recommendedScope === 'global' ? 'global' : 'project',
+      status: status === 'pending_review' ? 'pending_review' : 'active',
+      source: 'manual',
+      title: String(title).trim(),
+      text: String(text).trim(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await db.saveMemory(item);
+    res.status(201).json(item);
+  });
+
+  app.put('/api/harness/memories/:id/approve', async (req, res) => {
+    const ownerId = (req as any).user.id;
+    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'No such memory item' });
+    const updated: MemoryItem = {
+      ...existing,
+      status: 'active',
+      updatedAt: new Date().toISOString(),
+    };
+    await db.saveMemory(updated);
+    res.json(updated);
+  });
+
+  app.put('/api/harness/memories/:id/promote', async (req, res) => {
+    const ownerId = (req as any).user.id;
+    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'No such memory item' });
+    const updated: MemoryItem = {
+      ...existing,
+      scope: 'global',
+      updatedAt: new Date().toISOString(),
+    };
+    await db.saveMemory(updated);
+    res.json(updated);
+  });
+
+  app.put('/api/harness/memories/:id', async (req, res) => {
+    const ownerId = (req as any).user.id;
+    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'No such memory item' });
+    const { category, title, text, scope, status, projectId } = req.body;
+    const updated: MemoryItem = {
+      ...existing,
+      ...(category ? { category } : {}),
+      ...(title ? { title: String(title).trim() } : {}),
+      ...(text ? { text: String(text).trim() } : {}),
+      ...(scope ? { scope } : {}),
+      ...(status ? { status } : {}),
+      ...(projectId !== undefined ? { projectId } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    await db.saveMemory(updated);
+    res.json(updated);
+  });
+
+  app.delete('/api/harness/memories/:id', async (req, res) => {
+    const ownerId = (req as any).user.id;
+    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'No such memory item' });
+    await db.deleteMemory(req.params.id);
+    res.json({ deleted: true });
+  });
+
+  /** ── BRANCHES — one planning conversation each ── */
+
+  const ownedBranches = async (userId: string): Promise<Branch[]> =>
+    (await db.getBranches()).filter((b) => b.ownerId === userId);
+
+  app.get('/api/branches', async (req, res) => {
+    const branches = await ownedBranches((req as any).user.id);
+    // Newest first: a conversation you just had is the one you want.
+    res.json([...branches].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  });
+
+  app.post('/api/branches', async (req, res) => {
+    const user = (req as any).user;
+    const now = new Date().toISOString();
+    const branch: Branch = {
+      id: uuidv4(),
+      ownerId: user.id,
+      title: typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim() : 'New branch',
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.saveBranch(branch);
+    res.status(201).json(branch);
+  });
+
+  app.patch('/api/branches/:id', async (req, res) => {
+    const user = (req as any).user;
+    const branch = (await ownedBranches(user.id)).find((b) => b.id === req.params.id);
+    if (!branch) return res.status(404).json({ error: 'Branch not found' });
+    const { title } = req.body ?? {};
+    if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: 'title is required' });
+    const updated = { ...branch, title: title.trim().slice(0, 200), updatedAt: new Date().toISOString() };
+    await db.saveBranch(updated);
+    res.json(updated);
+  });
+
+  app.delete('/api/branches/:id', async (req, res) => {
+    const user = (req as any).user;
+    const branch = (await ownedBranches(user.id)).find((b) => b.id === req.params.id);
+    if (!branch) return res.status(404).json({ error: 'Branch not found' });
+    // Its leaves go too. A leaf without its branch is unreachable in the tree and would still
+    // count against nothing — an orphan nobody can see or delete.
+    for (const leaf of (await ownedLeaves(user.id)).filter((l) => l.branchId === branch.id)) {
+      await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
+      await db.deleteLeaf(leaf.id);
+    }
+    await db.deleteBranch(branch.id);
+    res.json({ success: true });
+  });
+
   /** ── MODELS / CHAT — agent harness Phase A (~/.claude/plans/agent-harness.md) ── */
 
   /**
@@ -1646,40 +2695,64 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     extractor: { baseUrl: string; apiKey?: string; provider: { model: string; name: string } },
     turns: { role: string; content: string }[],
   ): Promise<LeafProposal[]> {
-    try {
-      const res = await fetch(`${extractor.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(extractor.apiKey ? { authorization: `Bearer ${extractor.apiKey}` } : {}),
+    const payloadBase = {
+      ...(extractor.provider.model ? { model: extractor.provider.model } : {}),
+      messages: [
+        { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+        { role: 'user', content: buildExtractionPrompt(turns) },
+      ],
+      template_vars: EXTRACTION_TEMPLATE_VARS,
+      temperature: 0.1,
+      max_tokens: 800,
+      stream: false,
+    };
+
+    // Try standard OpenAI / vLLM json_schema response_format first, then json_object, then legacy top-level json_schema
+    const formats: Record<string, unknown>[] = [
+      {
+        ...payloadBase,
+        response_format: {
+          type: 'json_schema',
+          json_schema: { name: 'leaf_proposals', schema: EXTRACTION_SCHEMA },
         },
-        body: JSON.stringify({
-          ...(extractor.provider.model ? { model: extractor.provider.model } : {}),
-          messages: [
-            { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-            { role: 'user', content: buildExtractionPrompt(turns) },
-          ],
-          // Constrained decoding makes malformed output structurally impossible rather than
-          // merely unlikely. Ignored by engines that do not support it, which the parser survives.
-          json_schema: EXTRACTION_SCHEMA,
-          // Turns off reasoning for THIS request only; the conversation keeps it. See the constant.
-          template_vars: EXTRACTION_TEMPLATE_VARS,
-          temperature: 0.1,
-          max_tokens: 800,
-          stream: false,
-        }),
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (!res.ok) {
-        console.warn(`[extract] ${extractor.provider.name} returned HTTP ${res.status}`);
-        return [];
+      },
+      {
+        ...payloadBase,
+        response_format: { type: 'json_object' },
+      },
+      {
+        ...payloadBase,
+        json_schema: EXTRACTION_SCHEMA,
+      },
+    ];
+
+    for (const bodyPayload of formats) {
+      try {
+        const res = await fetch(`${extractor.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(extractor.apiKey ? { authorization: `Bearer ${extractor.apiKey}` } : {}),
+          },
+          body: JSON.stringify(bodyPayload),
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        if (!res.ok) {
+          continue; // Try next payload format fallback
+        }
+
+        const body = (await res.json()) as any;
+        const text = String(body?.choices?.[0]?.message?.content ?? '');
+        const proposals = parseExtractionResult(text, MAX_PROPOSALS_PER_REPLY);
+        if (proposals.length > 0) return proposals;
+        if (text.trim()) return proposals; // Valid response (even if 0 proposals)
+      } catch (err: any) {
+        console.warn(`[extract] attempt failed for ${extractor.provider.name}: ${err.message}`);
       }
-      const body = (await res.json()) as any;
-      return parseExtractionResult(String(body?.choices?.[0]?.message?.content ?? ''), MAX_PROPOSALS_PER_REPLY);
-    } catch (err: any) {
-      console.warn(`[extract] ${extractor.provider.name} failed: ${err.message}`);
-      return [];
     }
+
+    return [];
   }
 
   app.get('/api/models', async (req, res) => {
@@ -1813,28 +2886,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
     // `/plan` overrides the mode for this turn; otherwise the mode decides.
     const planning = command.command === 'plan' || mode === 'plan';
-    // Chat mode is the only one that extracts nothing — it is the "leave me alone" option.
-    const extracting = planning || mode === 'auto';
     const explicitPlan = planning;
-    const outboundMessages = explicitPlan
-      ? [
-          { role: 'system', content: PLAN_SYSTEM_PROMPT },
-          ...(branchLeaves.length ? [{ role: 'system', content: buildLeafContext(branchLeaves) }] : []),
-          ...messages.slice(0, lastIndex),
-          // The command itself is stripped: the model should see the request, not the syntax.
-          // An empty /plan is meaningful — "plan what we just discussed" — so the prior turns
-          // carry it, and a placeholder keeps the final message non-empty.
-          { ...messages[lastIndex], content: command.text || 'Propose the work we have been discussing.' },
-        ]
-      : extracting
-        ? [
-            { role: 'system', content: AMBIENT_PROPOSAL_PROMPT },
-            ...(branchLeaves.length ? [{ role: 'system', content: buildLeafContext(branchLeaves) }] : []),
-            ...messages,
-          ]
-        // Chat mode sends nothing extra: the affordance costs tokens on every turn and biases
-        // ordinary conversation toward finding work.
-        : messages;
+    const extracting = planning || mode === 'auto';
+    const strategy = estimatePromptComplexity(messages, mode, explicitPlan);
+    const offerTools = Boolean(branchId) && mode !== 'chat' && (explicitPlan || strategy.tier !== 'casual');
+    const outboundMessages = buildOutboundMessages({
+      messages,
+      lastIndex,
+      prompt: explicitPlan ? PLAN_SYSTEM_PROMPT : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
+      leaves: branchLeaves,
+      // Only when tools are actually offered — otherwise it is instructions about a capability the
+      // model does not have this turn.
+      ...(offerTools ? { toolPrompt: TOOL_DISCIPLINE_PROMPT } : {}),
+      ...(explicitPlan ? { planText: command.text } : {}),
+    });
 
     let provider, baseUrl, apiKey;
     try {
@@ -1867,10 +2932,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           ...rest,
           ...(provider.model ? { model: provider.model } : {}),
           messages: outboundMessages,
-          // A reasoning model spends most of a turn thinking; too small a cap means it never
-          // reaches its answer and the user gets silence. Applied to an explicit /plan, which asks
-          // for exactly the deliberation that provokes it. See PLAN_MODE_MAX_TOKENS.
-          ...(explicitPlan && rest.max_tokens === undefined ? { max_tokens: PLAN_MODE_MAX_TOKENS } : {}),
+          // Offered only when in proposal/plan mode on a task-relevant turn. Selective tool framing
+          // prevents casual Q&A turns from degenerating into tool-schema deliberation loops.
+          ...(offerTools ? { tools: LEAF_TOOLS } : {}),
+          // Reasoning stays ON here — it is what makes the conversation worth having, and turning
+          // it off was explicitly rejected. Only the DECODING pathology is suppressed: without
+          // this, a turn can degenerate into dozens of identical lines and never reach an answer.
+          ...conversationSampling(provider.kind),
+          // Intelligent Mechanism: Dynamic Token Allocation & Reasoning Control based on prompt complexity
+          max_tokens: rest.max_tokens ?? strategy.maxTokens,
+          max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
+          reasoning_effort: rest.reasoning_effort ?? strategy.reasoningEffort,
           stream,
           // Streaming responses omit usage unless asked, and then only in the final chunk.
           // Confirmed supported by the live TabbyAPI deployment; a server that ignores the field
@@ -1894,29 +2966,222 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // point of streaming at all.
       res.setHeader('X-Accel-Buffering', 'no');
 
+      const targetModelId = provider.model ?? modelId ?? 'default-model';
+      const globalProfile = await db.getModelThinkingProfile?.(targetModelId).catch(() => null) ?? undefined;
+      const lastUserMsg = messages[messages.length - 1]?.content ?? '';
+      const featureExtractor = new ThoughtFeatureExtractor(lastUserMsg);
+
       // Usage is watched as the stream passes through rather than read off a response body —
       // see lib/token-usage.ts. The client gets every byte unchanged; this only observes.
       const scanner = new UsageScanner();
-      // Only accumulated when something will read it — chat mode extracts nothing, so scanning
-      // the whole reply would be pure waste.
-      const content = branchId && extracting ? new ContentScanner() : undefined;
+      // Accumulated for every branch-scoped reply now, not just extracting ones: the transcript is
+      // persisted server-side, so it must be captured even in chat mode. String accumulation is
+      // cheap next to the inference that produced it.
+      const content = branchId ? new ContentScanner() : undefined;
+      const finishScanner = new FinishReasonScanner();
+      const reasoningScanner = new ReasoningScanner();
       const decoder = new TextDecoder();
-      const reader = upstream.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const text = decoder.decode(value, { stream: true });
-        scanner.push(text);
-        content?.push(text);
-        res.write(Buffer.from(value));
+      let wasInterrupted = false;
+
+      /**
+       * Stream a response through to the client, watching for tool calls.
+       *
+       * Tool frames carry no content, so they are NOT forwarded — the client would render empty
+       * assistant turns. Everything else passes through byte for byte.
+       */
+      const pump = async (body: ReadableStream<Uint8Array>): Promise<ToolCall[]> => {
+        const tools = new ToolCallScanner();
+        const reader = body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value, { stream: true });
+          scanner.push(text);
+          content?.push(text);
+          tools.push(text);
+          finishScanner.push(text);
+          const addedReasoning = reasoningScanner.push(text);
+          if (addedReasoning) {
+            featureExtractor.pushReasoning(addedReasoning);
+          }
+
+          const features = featureExtractor.extract();
+          const sensitivity = (rest.thoughtMonitorSensitivity as any) ?? 'medium';
+          const threshold = rest.failurePredictionThreshold !== undefined ? Number(rest.failurePredictionThreshold) : 0.85;
+          const repeatCap = rest.ngramRepeatThreshold !== undefined ? Number(rest.ngramRepeatThreshold) : 5;
+          const pred = predictFailure(features, globalProfile, sensitivity, threshold, repeatCap);
+          if (pred.shouldInterrupt && !wasInterrupted) {
+            wasInterrupted = true;
+            const reasonMsg = pred.reason ?? 'Overthinking loop detected';
+            res.write(`data: ${JSON.stringify({ interruptedReason: reasonMsg })}\n\n`);
+            upstreamAbort.abort();
+            break;
+          }
+
+          res.write(Buffer.from(value));
+        }
+        return tools.result();
+      };
+
+      let calls = await pump(upstream.body);
+
+      /**
+       * Tool loop. Each round is a full inference pass, so it is capped — a model that keeps
+       * calling tools without answering is a loop, not a thorough one.
+       */
+      const conversation: any[] = [...outboundMessages];
+      for (let round = 0; round < MAX_TOOL_ROUNDS && calls.length > 0 && branchId; round++) {
+        conversation.push({
+          role: 'assistant',
+          content: null,
+          tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
+        });
+        for (const call of calls) {
+          const result = await runLeafTool((req as any).user.id, String(branchId), call);
+          conversation.push({ role: 'tool', tool_call_id: call.id, name: call.name, content: result });
+        }
+
+        const followUp = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+          body: JSON.stringify({
+            ...rest,
+            ...(provider.model ? { model: provider.model } : {}),
+            messages: conversation,
+            tools: LEAF_TOOLS,
+            max_tokens: rest.max_tokens ?? strategy.maxTokens,
+            max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
+            reasoning_effort: rest.reasoning_effort ?? strategy.reasoningEffort,
+            stream: true,
+            stream_options: { include_usage: true },
+            ...conversationSampling(provider.kind),
+          }),
+          signal: upstreamAbort.signal,
+        });
+        if (!followUp.ok || !followUp.body) break;
+        calls = await pump(followUp.body);
       }
+
+      // Automatic Continuation Pass: if the response ran out of tokens mid-thought (finish_reason === 'length'),
+      // automatically send a seamless continuation pass so the model finishes its answer completely.
+      if (finishScanner.result() === 'length' && calls.length === 0) {
+        res.write(`data: ${JSON.stringify({ interruptedReason: 'Completion token cap reached (finish_reason: length) — auto-continuing...' })}\n\n`);
+        const partialAnswer = content?.result() ?? '';
+        const continuationMessages: any[] = [
+          ...outboundMessages,
+          { role: 'assistant', content: partialAnswer },
+          { role: 'user', content: 'Continue your response from exactly where you left off.' },
+        ];
+        const continuationPass = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+          },
+          body: JSON.stringify({
+            ...rest,
+            ...(provider.model ? { model: provider.model } : {}),
+            messages: continuationMessages,
+            max_tokens: strategy.maxTokens,
+            max_completion_tokens: strategy.maxTokens,
+            reasoning_effort: strategy.reasoningEffort,
+            stream: true,
+            stream_options: { include_usage: true },
+            ...conversationSampling(provider.kind),
+          }),
+          signal: upstreamAbort.signal,
+        });
+        if (continuationPass.ok && continuationPass.body) {
+          await pump(continuationPass.body);
+        }
+      }
+
+      // Two-Stage Reasoning Architecture: If the model spent its generation on an inner monologue
+      // without outputting final response prose, automatically trigger Stage 2 to stream the answer.
+      const proseResult = (content?.result() ?? '').trim();
+      if (!wasInterrupted && calls.length === 0 && !proseResult) {
+        const monologueText = reasoningScanner.result() || featureExtractor.getText();
+        if (monologueText && monologueText.length > 20) {
+          const stage2Messages: any[] = [
+            ...outboundMessages,
+            { role: 'assistant', content: monologueText },
+            { role: 'user', content: 'Based on your thoughts above, now state your concise final answer directly to the user.' },
+          ];
+          const stage2Pass = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+            },
+            body: JSON.stringify({
+              ...rest,
+              ...(provider.model ? { model: provider.model } : {}),
+              messages: stage2Messages,
+              max_tokens: strategy.maxTokens,
+              max_completion_tokens: strategy.maxTokens,
+              reasoning_effort: strategy.reasoningEffort,
+              stream: true,
+              stream_options: { include_usage: true },
+              ...conversationSampling(provider.kind),
+            }),
+            signal: upstreamAbort.signal,
+          });
+          if (stage2Pass.ok && stage2Pass.body) {
+            await pump(stage2Pass.body);
+          }
+        }
+      }
+
       res.end();
+
+      // Update system-wide model thinking profile in MongoDB based on turn outcome
+      try {
+        const finalFeatures = featureExtractor.extract();
+        const outcome = wasInterrupted ? 'failure' : 'success';
+        const updatedProfile = updateModelProfile(globalProfile, targetModelId, finalFeatures, outcome);
+        await db.saveModelThinkingProfile?.(updatedProfile);
+      } catch {
+        // Non-fatal training profile save error
+      }
 
       // Proposals are created after the stream closes, from the assistant's CONTENT only —
       // never its reasoning, which routinely contains draft JSON the model then discarded.
       if (content && branchId) {
         try {
           const reply = content.result();
+
+          /**
+           * Persist the turn.
+           *
+           * Server-side rather than a client PATCH: a closed tab or a crashed browser would
+           * otherwise lose the exchange that was just paid for. The branch is created on demand so
+           * a conversation does not need to be declared before it starts.
+           */
+          try {
+            const existing = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === (req as any).user.id);
+            const userText = String(messages[lastIndex]?.content ?? '');
+            const now = new Date().toISOString();
+            const cleanReply = reply.includes('<think>')
+              ? reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim() || reply
+              : reply;
+            const turns: BranchMessage[] = [
+              { role: 'user', content: userText },
+              { role: 'assistant', content: cleanReply },
+            ];
+            await db.saveBranch({
+              id: String(branchId),
+              ownerId: (req as any).user.id,
+              // Named from the first message only — renaming is explicit, and re-deriving on every
+              // turn would rewrite a title the user had chosen.
+              title: existing?.title ?? deriveBranchTitle(userText),
+              messages: trimTranscript([...(existing?.messages ?? []), ...turns]),
+              createdAt: existing?.createdAt ?? now,
+              updatedAt: now,
+            });
+          } catch (err: any) {
+            // Losing the transcript must not fail a reply the user already received.
+            console.warn(`[chat] could not persist transcript for branch ${branchId}: ${err.message}`);
+          }
 
           /**
            * Extraction path. The conversation model reasons — which is what makes it good to talk

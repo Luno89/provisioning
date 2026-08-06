@@ -1,0 +1,94 @@
+# The one way out of a sandbox.
+#
+# Sandboxes have no DNS resolver and no general egress (see lib/workspace-spec.ts). They reach
+# package registries only by sending CONNECT to this proxy, which resolves the name itself and
+# refuses anything not on the filter list below. That inversion is the whole point: the sandbox
+# cannot look up an address, so it cannot encode data into a hostname and let a DNS query carry it
+# out, and it cannot dial an address it was never able to resolve.
+#
+# FilterDefaultDeny is the load-bearing line. Without it the filter file becomes a blocklist and
+# the proxy becomes plain internet access with extra steps.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: koala-egress
+  labels:
+    name: koala-egress
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tinyproxy-conf
+  namespace: koala-egress
+data:
+  tinyproxy.conf: |
+    Port 8888
+    Listen 0.0.0.0
+    Timeout 600
+    # Reachable only from sandbox namespaces — every one of them carries a NetworkPolicy that
+    # permits egress here and nowhere else, so this does not need its own source restriction.
+    Allow 0.0.0.0/0
+    # 443 only. A CONNECT to any other port is refused outright, so the tunnel cannot be pointed
+    # at an arbitrary service that happens to be running on an allowlisted host.
+    ConnectPort 443
+    Filter "/etc/tinyproxy/filter"
+    FilterDefaultDeny Yes
+    FilterExtended On
+    FilterURLs Off
+    LogLevel Connect
+  # Anchored, so "registry.npmjs.org.evil.com" does not match. Every addition here widens what
+  # every sandbox on the platform can reach, which is why it is a file in git and not a setting.
+  filter: |
+    ^registry\.npmjs\.org$
+    ^.+\.npmjs\.org$
+    ^pypi\.org$
+    ^files\.pythonhosted\.org$
+    ^proxy\.golang\.org$
+    ^sum\.golang\.org$
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egress-proxy
+  namespace: koala-egress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: egress-proxy
+  template:
+    metadata:
+      labels:
+        app: egress-proxy
+    spec:
+      containers:
+        - name: tinyproxy
+          image: docker.io/vimagick/tinyproxy:latest
+          ports:
+            - containerPort: 8888
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/tinyproxy
+      volumes:
+        - name: conf
+          configMap:
+            name: tinyproxy-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: koala-egress
+spec:
+  selector:
+    app: egress-proxy
+  ports:
+    - port: 8888
+      targetPort: 8888

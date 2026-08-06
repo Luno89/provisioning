@@ -14,6 +14,8 @@
  * with language tags, prose wrapped around JSON, trailing commentary — without a model in the loop.
  */
 
+import { describeSandbox } from './workspace-spec.js';
+
 export interface LeafProposal {
   title: string;
   body?: string;
@@ -42,6 +44,12 @@ export const PLAN_SYSTEM_PROMPT = [
   '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
   '- Titles are imperative and specific: "Add a rate limit to /api/chat", not "Rate limiting".',
   '- Anything you propose is only a suggestion; a human accepts it before it runs.',
+  '- Each leaf is carried out later by an agent in the sandbox described below. Do not propose work',
+  '  that environment cannot do.',
+  '',
+  // The planner is the one deciding what the work IS, so it needs the constraints more than the
+  // executor does — an executor handed an impossible leaf can only fail it.
+  describeSandbox(),
 ].join('\n');
 
 /**

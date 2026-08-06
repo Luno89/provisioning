@@ -211,6 +211,103 @@ export class GiteaService {
     });
   }
 
+  /**
+   * The in-cluster base URL a SANDBOX uses, which is not the one the backend uses.
+   *
+   * The backend reaches Gitea on a NodePort. A sandbox cannot: kube-proxy DNATs NodePort traffic to
+   * the backing pod before NetworkPolicy is evaluated, so an egress rule naming the node silently
+   * fails closed and the clone is refused. Measured. Service DNS routes to the pod directly, which
+   * a namespace-selector egress rule can actually match.
+   */
+  get internalBaseUrl(): string {
+    return `http://gitea-http.${NAMESPACE}.svc.cluster.local:3000`;
+  }
+
+  /** The namespace a sandbox must be allowed to reach to clone or push. */
+  get namespace(): string {
+    return NAMESPACE;
+  }
+
+  /**
+   * Creates the Gitea account backing a platform user, if it does not exist.
+   *
+   * Returns the account's password so the caller can persist it encrypted — Gitea mints tokens
+   * against a user's own basic auth, with no admin override, so without it the account can never
+   * be used again. Callers must store it and never return it anywhere.
+   */
+  async createUserAccount(username: string, email: string): Promise<{ password: string }> {
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const password = crypto.randomBytes(24).toString('base64url');
+
+    const res = await fetch(`${baseUrl}/api/v1/admin/users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`,
+      },
+      body: JSON.stringify({ username, email, password, must_change_password: false }),
+    });
+    if (!res.ok) throw new Error(`Failed to create Gitea account ${username}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    return { password };
+  }
+
+  /**
+   * Creates a repository OWNED BY a platform user's account, using admin rights.
+   *
+   * Deliberately not done with the user's own token: repository creation needs `write:user`, and
+   * granting that to the token the sandbox holds would let a model create and delete repositories
+   * across that account. The backend holds the power to create; the sandbox only gets to push.
+   */
+  async createRepoForUser(username: string, name: string, opts: { private?: boolean; description?: string } = {}) {
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const res = await fetch(`${baseUrl}/api/v1/admin/users/${encodeURIComponent(username)}/repos`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`,
+      },
+      body: JSON.stringify({ name, private: opts.private ?? true, description: opts.description, auto_init: true }),
+    });
+    if (!res.ok) throw new Error(`Failed to create repo ${username}/${name}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const body = await res.json() as { clone_url: string; full_name: string };
+    return { fullName: body.full_name, cloneUrl: body.clone_url };
+  }
+
+  /**
+   * Mints a push token for one user, for the life of one sandbox.
+   *
+   * `write:repository` and nothing else. Verified against Gitea 1.27: this token cannot create a
+   * repository, cannot read the account it belongs to, and gets "Repository not found" for another
+   * user's repo. It is the credential that goes INTO the sandbox, so its scope is the blast radius
+   * of every prompt injection the agent will ever read.
+   */
+  async createPushToken(username: string, password: string): Promise<{ name: string; token: string }> {
+    const baseUrl = await this.resolveBaseUrl();
+    const tokenName = `koala-run-${crypto.randomBytes(4).toString('hex')}`;
+    const res = await fetch(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
+      },
+      body: JSON.stringify({ name: tokenName, scopes: ['write:repository'] }),
+    });
+    if (!res.ok) throw new Error(`Failed to mint push token for ${username}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const body = await res.json() as { sha1: string };
+    return { name: tokenName, token: body.sha1 };
+  }
+
+  /** Revokes a push token. Called when a sandbox is torn down, whether or not the work succeeded. */
+  async revokeUserToken(username: string, password: string, tokenName: string): Promise<void> {
+    const baseUrl = await this.resolveBaseUrl();
+    await fetch(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens/${encodeURIComponent(tokenName)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
+    });
+  }
+
   /** For build-Job manifests that need Gitea's internal registry host + credential shape directly. */
   get adminUsername(): string {
     return ADMIN_USERNAME;

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -12,6 +12,7 @@ import Projects from './components/Projects.js';
 import ClusterWizard from './components/ClusterWizard.js';
 import GameServerSettings from './components/GameServerSettings.js';
 import VpsCatalog from './components/VpsCatalog.js';
+import Lab from './components/Lab';
 import MeshDevices from './components/MeshDevices.js';
 import Workspace from './components/Workspace.js';
 import { Koala } from './components/Koala.js';
@@ -38,6 +39,9 @@ const FOREST_TABS = [
   { id: 'nginx' as const, label: 'Nginx Router', icon: Puzzle },
   { id: 'temporal' as const, label: 'Temporal', icon: Timer },
   { id: 'settings' as const, label: 'Security', icon: Shield },
+  // Last, and deliberately inside the Forest rather than beside Koala: it is where you inspect and
+  // tune the harness, not part of using it.
+  { id: 'lab' as const, label: 'Lab', icon: FlaskConical },
 ];
 
 const APP_DEFAULTS: Record<string, {
@@ -177,7 +181,7 @@ function App() {
   // Open by default: collapsed, a first-time user sees two items and no way to tell that ten
   // more exist. Folding the infrastructure away is about hierarchy, not about hiding it.
   const [forestOpen, setForestOpen] = useState(true);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
@@ -1417,6 +1421,7 @@ function App() {
           <CloudAccounts apiBase={API_BASE} />
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
+        {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
         {(view === 'chat' || view === 'board') && <Workspace apiBase={API_BASE} />}
         {view === 'vps-catalog' && (
           <VpsCatalog

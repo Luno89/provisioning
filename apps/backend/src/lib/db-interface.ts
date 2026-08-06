@@ -1,6 +1,12 @@
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
-import type { Leaf } from './leaves.js';
+import type { Branch, Leaf } from './leaves.js';
+import type { GiteaAccount } from './projects.js';
+import type { Experiment } from './experiments.js';
+import type { HarnessProfile } from './harness-profile.js';
+import type { MemoryItem } from './memory-store.js';
+import type { ToolRepositoryItem } from './tool-repository.js';
+import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 
 /**
@@ -26,6 +32,8 @@ export interface Database {
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeployment(deployment: DeploymentMetadata): Promise<void>;
   saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void>;
+  /** Removes one deployment, rather than rewriting the whole collection to drop it. */
+  deleteDeployment(id: string): Promise<void>;
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
 
   getUsers(): Promise<UserMetadata[]>;
@@ -45,6 +53,23 @@ export interface Database {
   getInvites(): Promise<InviteMetadata[]>;
   saveInvite(invite: InviteMetadata): Promise<void>;
 
+  getExperiments(): Promise<Experiment[]>;
+  saveExperiment(experiment: Experiment): Promise<void>;
+  deleteExperiment(id: string): Promise<void>;
+
+  /** Keyed by ownerId — the promoted harness settings in force for one user. */
+  getHarnessProfile(ownerId: string): Promise<HarnessProfile | null>;
+  saveHarnessProfile(profile: HarnessProfile): Promise<void>;
+  deleteHarnessProfile(ownerId: string): Promise<void>;
+
+  /** Keyed by ownerId — one Gitea account per platform user. */
+  getGiteaAccount(ownerId: string): Promise<GiteaAccount | null>;
+  saveGiteaAccount(account: GiteaAccount): Promise<void>;
+
+  getBranches(): Promise<Branch[]>;
+  saveBranch(branch: Branch): Promise<void>;
+  deleteBranch(id: string): Promise<void>;
+
   getLeaves(): Promise<Leaf[]>;
   saveLeaf(leaf: Leaf): Promise<void>;
   deleteLeaf(id: string): Promise<void>;
@@ -52,6 +77,17 @@ export interface Database {
   getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
   saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
   deleteModelEndpoint(id: string): Promise<void>;
+
+  getMemories(ownerId?: string): Promise<MemoryItem[]>;
+  saveMemory(memory: MemoryItem): Promise<void>;
+  deleteMemory(id: string): Promise<void>;
+
+  getTools(): Promise<ToolRepositoryItem[]>;
+  saveTool(tool: ToolRepositoryItem): Promise<void>;
+  deleteTool(id: string): Promise<void>;
+
+  getModelThinkingProfile?(modelId: string): Promise<ModelThinkingProfile | null>;
+  saveModelThinkingProfile?(profile: ModelThinkingProfile): Promise<void>;
 }
 
 export function createDatabase(): Database {

@@ -180,4 +180,14 @@ describe('routeProvider', () => {
   it('returns undefined when there are no providers at all', () => {
     expect(routeProvider([])).toBeUndefined();
   });
+
+  it('matches on the provider id and never on the model it serves', () => {
+    // Why the `model` knob is a picker rather than free text, and why a run must send
+    // `provider.model` rather than the override: the override is an id, so passing it along as the
+    // model name asked the API for a model called "dep-a". Anything else here does not resolve at
+    // all, which is the error people actually hit when they typed a model name in.
+    const served = listProviders([dep({ id: 'dep-a', vllmModel: 'Qwen3-32B' })]);
+    expect(routeProvider(served, 'dep-a')?.model).toBe('Qwen3-32B');
+    expect(routeProvider(served, 'Qwen3-32B')).toBeUndefined();
+  });
 });
