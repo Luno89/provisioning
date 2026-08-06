@@ -2,79 +2,115 @@ import { describe, it, expect } from 'vitest';
 import { extractProposals, PLAN_SYSTEM_PROMPT } from './lib/plan-mode.js';
 import { buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 
-describe('Project Planning & Leaf Decomposition Evaluator', () => {
+describe('Project Planning & Leaf Decomposition Rigorous Evaluator', () => {
   it('includes clear instructions in PLAN_SYSTEM_PROMPT for breaking down projects', () => {
     expect(PLAN_SYSTEM_PROMPT).toContain('You are helping plan a piece of work.');
     expect(PLAN_SYSTEM_PROMPT).toContain('{"leaves":[');
     expect(PLAN_SYSTEM_PROMPT).toContain('Short imperative title');
   });
 
-  it('extracts structured project leaves from a model reply containing fenced JSON', () => {
-    const mockReply = `
-I have analyzed the request for building a GitHub API client to search for codebases by framework.
+  it('handles reasoning monologues (<think>...</think>) preceding JSON proposal blocks', () => {
+    const reasoningReply = `
+<think>
+The user wants an API client for GitHub to search codebases by framework.
+I need to break this down into clear architectural components:
+1. Authentication (OAuth + PAT)
+2. Search query builder for GET /search/code
+3. AST / framework identifier
+4. Rate limiting and pagination middleware
+Let's format these as a clean leaves JSON block.
+</think>
 
-Here is the proposed architectural breakdown:
+Here is the plan to build the GitHub API client:
 
 \`\`\`json
 {
   "leaves": [
     {
-      "title": "Implement GitHub OAuth and Personal Access Token Auth Module",
-      "body": "Build authentication wrapper supporting Bearer token headers and rate-limit header parsing."
+      "title": "Implement GitHub OAuth and PAT Authentication Module",
+      "body": "Create auth handler supporting Bearer token headers and rate-limit tracking."
     },
     {
-      "title": "Create GitHub Code Search API Client Endpoint",
-      "body": "Implement GET /search/code query builder filtering by repository language and topic tags."
+      "title": "Create GitHub Code Search Endpoint Wrapper",
+      "body": "Build GET /search/code query string builder for language and topic filters."
     },
     {
-      "title": "Add Framework Classifier and AST Parser",
-      "body": "Parse package.json and requirements.txt in retrieved repositories to identify specific framework versions."
+      "title": "Build Framework Detection AST Parser",
+      "body": "Parse package.json and requirements.txt to detect framework versions."
     },
     {
-      "title": "Build Pagination and Retry Middleware",
-      "body": "Add automatic cursor pagination and exponential backoff for GitHub REST API secondary rate limits."
+      "title": "Add Exponential Backoff and Pagination Handler",
+      "body": "Handle cursor pagination and secondary rate limit 403 responses."
     }
   ]
 }
 \`\`\`
 `;
 
-    const proposals = extractProposals(mockReply);
+    const proposals = extractProposals(reasoningReply);
     expect(proposals).toHaveLength(4);
-    expect(proposals[0].title).toBe('Implement GitHub OAuth and Personal Access Token Auth Module');
-    expect(proposals[1].title).toBe('Create GitHub Code Search API Client Endpoint');
-    expect(proposals[2].title).toBe('Add Framework Classifier and AST Parser');
-    expect(proposals[3].title).toBe('Build Pagination and Retry Middleware');
-    expect(proposals[0].body).toContain('rate-limit');
+
+    // Verify imperative title quality across all extracted items
+    const imperativeVerbs = ['Implement', 'Create', 'Build', 'Add', 'Configure', 'Setup'];
+    for (const prop of proposals) {
+      const firstWord = prop.title.split(' ')[0];
+      expect(imperativeVerbs).toContain(firstWord);
+      expect(prop.body).toBeDefined();
+      expect(prop.body!.length).toBeGreaterThan(10);
+    }
   });
 
-  it('parses bare JSON extraction result seamlessly', () => {
-    const mockJson = JSON.stringify({
+  it('rejects general Q&A prose turns and returns zero proposals', () => {
+    const qaReply = `
+GitHub's REST API exposes the \`/search/code\` endpoint which allows searching code by language, repo, or path.
+To search for React projects, you can pass \`q=language:typescript+framework:react\`. Let me know if you want me to write code for this!
+`;
+
+    const proposals = extractProposals(qaReply);
+    expect(proposals).toHaveLength(0);
+  });
+
+  it('parses bare JSON extraction results without fences and enforces title caps', () => {
+    const rawJson = JSON.stringify({
       leaves: [
         {
-          title: 'Implement CLI Resource Auditor for K8s',
-          body: 'Queries K8s pod spec limits and requests across all namespaces.',
+          title: 'Setup Redis connection pool with ioredis',
+          body: 'Configures cluster node endpoints and healthcheck ping.',
         },
         {
-          title: 'Generate Memory/CPU Utilization Report',
-          body: 'Computes namespace totals and flags over-provisioned containers.',
+          title: 'Implement Express cache middleware for GET routes',
+          body: 'Intercepts response JSON and stores in Redis with configurable TTL.',
         },
       ],
     });
 
-    const proposals = parseExtractionResult(mockJson, 8);
+    const proposals = parseExtractionResult(rawJson, 8);
     expect(proposals).toHaveLength(2);
-    expect(proposals[0].title).toBe('Implement CLI Resource Auditor for K8s');
-    expect(proposals[1].title).toBe('Generate Memory/CPU Utilization Report');
+    expect(proposals[0].title).toBe('Setup Redis connection pool with ioredis');
+    expect(proposals[1].title).toBe('Implement Express cache middleware for GET routes');
   });
 
-  it('formats extraction prompt with turns', () => {
+  it('truncates oversized titles and bodies to safe limits', () => {
+    const longTitle = 'Implement ' + 'a'.repeat(300);
+    const longBody = 'Body ' + 'b'.repeat(5000);
+    const rawJson = JSON.stringify({
+      leaves: [{ title: longTitle, body: longBody }],
+    });
+
+    const proposals = parseExtractionResult(rawJson, 8);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].title.length).toBeLessThanOrEqual(200);
+    expect(proposals[0].body!.length).toBeLessThanOrEqual(4000);
+  });
+
+  it('formats extraction prompt correctly from turn history window', () => {
     const turns = [
       { role: 'user', content: 'Let us plan out an API client for GitHub API.' },
-      { role: 'assistant', content: 'Sure! I can help structure this.' },
+      { role: 'assistant', content: 'Sure! I can help structure this into modules.' },
     ];
     const prompt = buildExtractionPrompt(turns);
     expect(prompt).toContain('User: Let us plan out an API client for GitHub API.');
+    expect(prompt).toContain('Assistant: Sure! I can help structure this into modules.');
     expect(prompt).toContain('Extract the concrete work items.');
   });
 });
