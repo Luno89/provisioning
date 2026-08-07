@@ -113,3 +113,45 @@ describe('buildOutboundMessages', () => {
     expect(out.slice(1)).toEqual(turns);
   });
 });
+
+describe('a persona in the system message', () => {
+  const messages = [{ role: 'user', content: 'hello' }];
+
+  it('never produces a second system message, whatever else is set', () => {
+    // The invariant this whole function exists for. Chat templates reject more than one system
+    // message outright — TemplateError, total failure, not degradation — and it has broken twice.
+    const out = buildOutboundMessages({
+      messages, lastIndex: 0,
+      personaPrompt: 'You are a reviewer.',
+      prompt: 'PLAN MODE',
+      toolPrompt: 'TOOL DISCIPLINE',
+      leaves: [],
+    });
+
+    expect(out.filter((m) => m.role === 'system')).toHaveLength(1);
+    expect(out[0]!.role).toBe('system');
+  });
+
+  it('puts identity before instructions', () => {
+    // Who is answering, then what this turn is for. A persona buried under the mode prompt reads
+    // as an afterthought to the model too.
+    const out = buildOutboundMessages({
+      messages, lastIndex: 0, personaPrompt: 'IDENTITY', prompt: 'MODE', leaves: [],
+    });
+
+    const content = String(out[0]!.content);
+    expect(content.indexOf('IDENTITY')).toBeLessThan(content.indexOf('MODE'));
+  });
+
+  it('gives chat mode a system message it would not otherwise have', () => {
+    // Chat sends none by default so conversation is not biased toward finding work. Choosing a
+    // persona is an explicit request to be answered by someone in particular, so it overrides that.
+    const withPersona = buildOutboundMessages({
+      messages, lastIndex: 0, personaPrompt: 'You are terse.', leaves: [],
+    });
+    const without = buildOutboundMessages({ messages, lastIndex: 0, leaves: [] });
+
+    expect(withPersona[0]!.role).toBe('system');
+    expect(without).toEqual(messages);
+  });
+});

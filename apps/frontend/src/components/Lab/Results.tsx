@@ -53,7 +53,7 @@ export function Results({
             {suite.map(({ label, t }) => {
               const lying = t.claimed > t.verified;
               const dash = (n: number, render: (v: number) => string) =>
-                (t.runs - t.errored ? render(n) : '—');
+                (t.attempted ? render(n) : '—');
               return (
                 <Fragment key={label}>
                 <tr className="border-t border-[var(--bark-700)]">
@@ -66,13 +66,15 @@ export function Results({
                     )}
                   </td>
                   <td className="py-2 text-right">
-                    <span className={t.runs && t.verified === t.runs ? 'text-[var(--leaf-light)]' : 'text-red-400'}>
-                      {t.verified}/{t.runs}
+                    {/* Over fair attempts: a run the harness killed is not evidence about this
+                        arm, and counting it here is how an outage becomes a capability claim. */}
+                    <span className={t.attempted && t.verified === t.attempted ? 'text-[var(--leaf-light)]' : 'text-red-400'}>
+                      {t.verified}/{t.attempted}
                     </span>
                   </td>
                   <td className="py-2 text-right">
                     <span className={lying ? 'text-amber-400 font-semibold' : 'text-slate-500'}>
-                      {t.claimed}/{t.runs}
+                      {t.claimed}/{t.attempted}
                       {lying && <AlertTriangle size={11} className="inline ml-1 mb-0.5" />}
                     </span>
                   </td>
@@ -82,7 +84,7 @@ export function Results({
                   <td className="py-2 pl-3 text-right">
                     {/* Only once it has run: promoting a configuration on no evidence is the thing
                         the whole surface exists to prevent. */}
-                    {t.runs > 0 && (
+                    {t.attempted > 0 && (
                       <button
                         onClick={() => setPromoting(promoting === label ? null : label)}
                         title="Adopt this configuration as the default"
@@ -136,8 +138,8 @@ export function Results({
               // Only cells that ran: mid-experiment a variant with no results yet is a gap, and
               // reading its zero as agreement would call a task uninformative before it had been
               // measured.
-              const scored = cells.filter((c) => c.t.runs > 0);
-              const rates = new Set(scored.map((c) => c.t.verified / c.t.runs));
+              const scored = cells.filter((c) => c.t.attempted > 0);
+              const rates = new Set(scored.map((c) => c.t.verified / c.t.attempted));
               const uninformative = scored.length > 1 && rates.size === 1;
               const allFailed = scored.length > 0 && scored.every((c) => c.t.verified === 0);
               const openCell = cells.find((c) => openResult === `${scope}:${task.id}:${c.label}`);
@@ -171,12 +173,25 @@ export function Results({
                           <button
                             disabled={!t.runs}
                             onClick={() => setOpenResult(open ? null : key)}
-                            title={t.runs ? `${label} — ${t.verified} of ${t.runs} verified` : 'not run yet'}
+                            // Over fair attempts here too — the cell is where a suite is actually
+                            // read, so a denominator that differs from the total row is worse than
+                            // either one alone.
+                            /**
+                             * Three states, not two. A cell with no runs has not been asked yet; a
+                             * cell whose runs all died was asked and got no answer. Collapsing them
+                             * into "not run yet" hides a broken harness behind an idle one.
+                             */
+                            title={t.runs === 0
+                              ? 'not run yet'
+                              : t.attempted
+                                ? `${label} — ${t.verified} of ${t.attempted} verified`
+                                  + (t.runs > t.attempted ? ` (${t.runs - t.attempted} never completed)` : '')
+                                : `${label} — ${t.runs} run${t.runs === 1 ? '' : 's'} never completed`}
                             className={`px-2 py-1 rounded font-mono ${tone} ${
                               open ? 'bg-[var(--bark-700)]' : t.runs ? 'hover:bg-[var(--bark-700)]/60' : ''
                             }`}
                           >
-                            {t.runs ? `${t.verified}/${t.runs}` : '·'}
+                            {t.attempted ? `${t.verified}/${t.attempted}` : t.runs ? '!' : '·'}
                             {t.claimed > t.verified && (
                               <AlertTriangle size={10} className="inline ml-1 mb-0.5 text-amber-400" />
                             )}

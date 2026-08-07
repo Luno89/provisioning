@@ -26,7 +26,7 @@ import { failureContext, type Leaf, type LeafAttempt } from '../lib/leaves.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
-import { effectiveOverrides } from '../lib/harness-profile.js';
+import { resolveConfig } from '../lib/personas.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
@@ -101,7 +101,32 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * was carried into the loop and ignored, and leaves silently kept running whichever provider
        * happened to be listed first.
        */
-      const adopted = effectiveOverrides(await db.getHarnessProfile(leaf.ownerId));
+      /**
+       * The leaf's persona, if it was assigned one.
+       *
+       * `Leaf.personaId` has existed since the board did and was read by nothing — LeafWorkflow
+       * still says "Phase B has no personas". This is where it starts meaning something: the same
+       * precedence the chat route uses, so a persona behaves identically whether you talk to it or
+       * hand it work.
+       *
+       * A dangling id resolves to null and the leaf runs with no persona rather than failing —
+       * deleting a persona must not break the leaves that already ran under it.
+       */
+      const persona = leaf.personaId
+        ? (await db.getPersonas()).find((p) => p.id === leaf.personaId && p.ownerId === leaf.ownerId) ?? null
+        : null;
+      const resolved = resolveConfig(await db.getHarnessProfile(leaf.ownerId), persona);
+      /**
+       * The prompt goes back into the bag here, unlike in chat.
+       *
+       * Two transports for one value: the chat route composes it into a system MESSAGE, while the
+       * agent loop reads `overrides.systemPrompt` as a loop-placement knob. `resolveConfig` keeps
+       * them apart so neither caller has to know about the other's mechanism, which means this
+       * caller has to say which one it is.
+       */
+      const adopted = resolved.systemPrompt
+        ? { ...resolved.overrides, systemPrompt: resolved.systemPrompt }
+        : resolved.overrides;
       const chosen = typeof adopted.model === 'string' ? adopted.model : undefined;
       const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen);
 

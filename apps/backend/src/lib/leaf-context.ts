@@ -87,6 +87,15 @@ export function buildOutboundMessages(opts: {
   lastIndex: number;
   /** The system prompt for this mode, or undefined for chat mode. */
   prompt?: string | undefined;
+  /**
+   * The chosen persona's prompt — WHO is answering, as opposed to what this turn is for.
+   *
+   * Composed into the same single system message, first: identity before instructions. It is also
+   * the one thing that gives chat mode a system message at all, which is a deliberate exception —
+   * chat sends none by default so ordinary conversation is not biased toward finding work, but
+   * picking a persona is an explicit request to be answered by someone in particular.
+   */
+  personaPrompt?: string | undefined;
   /** Leaves already on the branch, summarised into the same system message. */
   leaves: Leaf[];
   /** For an explicit /plan: the message with the command stripped off. */
@@ -100,13 +109,13 @@ export function buildOutboundMessages(opts: {
    */
   toolPrompt?: string | undefined;
 }): OutboundMessage[] {
-  const { messages, lastIndex, prompt, leaves, planText, toolPrompt } = opts;
-  if (!prompt && !toolPrompt) return messages;
+  const { messages, lastIndex, prompt, personaPrompt, leaves, planText, toolPrompt } = opts;
+  if (!prompt && !toolPrompt && !personaPrompt) return messages;
 
   const context = buildLeafContext(leaves);
   const system: OutboundMessage = {
     role: 'system',
-    content: [prompt, context, toolPrompt].filter(Boolean).join('\n\n'),
+    content: [personaPrompt, prompt, context, toolPrompt].filter(Boolean).join('\n\n'),
   };
 
   if (planText === undefined) return [system, ...messages];

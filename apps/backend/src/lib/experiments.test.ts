@@ -393,8 +393,10 @@ describe('run history', () => {
   it('summarises every execution so two can be compared without their traces', () => {
     const e: any = { runs: [runOf('r1', 1, 3, { model: 'qwen3' }), runOf('r2', 3, 3, { model: 'qwen4' })] };
     expect(summariseRuns(e)).toEqual([
-      { id: 'r1', startedAt: '2026-08-04T01:00:00Z', status: 'complete', model: 'qwen3', verified: 1, runs: 3 },
-      { id: 'r2', startedAt: '2026-08-04T02:00:00Z', status: 'complete', model: 'qwen4', verified: 3, runs: 3 },
+      // `attempted` sits beside `runs` rather than replacing it: an execution where half the runs
+      // died is a different fact from one where they all ran, and one number cannot carry both.
+      { id: 'r1', startedAt: '2026-08-04T01:00:00Z', status: 'complete', model: 'qwen3', verified: 1, runs: 3, attempted: 3, broken: 0 },
+      { id: 'r2', startedAt: '2026-08-04T02:00:00Z', status: 'complete', model: 'qwen4', verified: 3, runs: 3, attempted: 3, broken: 0 },
     ]);
   });
 

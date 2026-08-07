@@ -17,6 +17,32 @@ import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { buildAppEnv } from '../lib/app-env.js';
 import { GiteaService } from '../services/GiteaService.js';
+import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
+
+/**
+ * The smallest allocatable memory across the cluster's nodes.
+ *
+ * The smallest rather than the sum: the pod lands on ONE node, and sizing against a total would
+ * pass a check the scheduler then fails — or worse, place it on the node it exhausts.
+ *
+ * Returns undefined when the cluster cannot be asked, so the caller can plan without a budget
+ * rather than treating an unreachable API as "no memory available" and refusing every deploy.
+ */
+async function nodeAllocatableBytes(
+  infra: InfrastructureService,
+  kubeconfigPath: string,
+  logId: string,
+): Promise<number | undefined> {
+  const res = await infra.runCommand('kubectl', [
+    '--kubeconfig', kubeconfigPath,
+    'get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}',
+  ], logId) as { stdout: string; exitCode: number };
+  if (res.exitCode !== 0) return undefined;
+  const sizes = res.stdout.trim().split(/\s+/)
+    .map((q: string) => parseQuantity(q))
+    .filter((n): n is number => n !== undefined);
+  return sizes.length ? Math.min(...sizes) : undefined;
+}
 
 export interface DeployAppArgs {
   name: string;
@@ -290,6 +316,31 @@ export async function DeployAppActivity(
     }
   }
 
+  /**
+   * Refuse a deployment the node cannot hold, before it takes the machine down with it.
+   *
+   * The construct sizes its own limit but floors it at 32G, which on a 30 GiB workstation is not a
+   * limit at all — Kubernetes cannot evict a pod whose ceiling is above physical memory, so the
+   * host swaps instead. Measured live: 28 GiB of 30 in use, 244 MiB free, and an experiment
+   * variant that burned its full 15-minute timeout without completing one turn.
+   *
+   * Decided here rather than in the construct because this is where the facts are: the model's
+   * real size is already fetched above, and the cluster can be asked what the node actually has.
+   */
+  let tabbyMemoryPlan: HostMemoryPlan | undefined;
+  if (args.appType === 'tabbyapi') {
+    const allocatableBytes = await nodeAllocatableBytes(infra, kubeconfigPath, physicalName).catch(() => undefined);
+    tabbyMemoryPlan = planHostMemory({
+      modelBytes: tabbyModelSizeBytes,
+      gpuCount: effectiveTabbyGpuCount,
+      maxSeqLen: args.tabbyMaxSeqLen ?? 262144,
+      inlineModelLoading: args.tabbyInlineModelLoading === true,
+      allocatableBytes,
+    });
+    if (tabbyMemoryPlan.refusal) throw new Error(tabbyMemoryPlan.refusal);
+    console.log(`[DeployAppActivity] host memory plan: ${tabbyMemoryPlan.basis}`);
+  }
+
   const env = buildAppEnv({
     physicalName,
     strategy: args.strategy,
@@ -331,6 +382,12 @@ export async function DeployAppActivity(
     tabbyReasoning: args.tabbyReasoning,
     tabbyToolFormat: args.tabbyToolFormat,
     tabbyInlineModelLoading: args.tabbyInlineModelLoading,
+    // Explicit, so the construct's own estimate is a fallback for callers that never ran the plan
+    // rather than a second opinion that silently disagrees with this one.
+    ...(tabbyMemoryPlan ? {
+      tabbyMemoryLimit: `${Math.ceil(tabbyMemoryPlan.limitBytes / 1e9)}G`,
+      tabbyShmSize: `${Math.ceil(tabbyMemoryPlan.shmBytes / 1024 ** 3)}Gi`,
+    } : {}),
     tabbyDisableAuth: args.tabbyDisableAuth,
     tabbyExtraEnv: args.tabbyExtraEnv,
     openaiApiBaseUrl: args.openaiApiBaseUrl,

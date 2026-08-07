@@ -158,3 +158,57 @@ describe('what a leaf leaves behind', () => {
     expect(resolveBaseUrl).not.toHaveBeenCalled();
   });
 });
+
+describe('personas on a leaf', () => {
+  const withPersona = async (leafOver: Partial<Leaf>, personas: any[], profile?: Record<string, unknown>) => {
+    const fresh = await seeded([leaf(leafOver)], profile);
+    for (const p of personas) await fresh.savePersona(p);
+    return fresh;
+  };
+
+  const reviewer = {
+    id: 'persona-1', ownerId: 'u1', name: 'Reviewer',
+    systemPrompt: 'You are terse and you review.',
+    overrides: { temperature: 0.1 },
+    createdAt: '2026-08-07T00:00:00.000Z', updatedAt: '2026-08-07T00:00:00.000Z',
+  };
+
+  it('runs a leaf under its assigned persona', async () => {
+    // personaId has existed since the board did and was read by nothing.
+    db = await withPersona({ personaId: 'persona-1' }, [reviewer]);
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    const opts = runAgentLoop.mock.calls[0]![0];
+    expect(opts.overrides).toMatchObject({ temperature: 0.1, systemPrompt: 'You are terse and you review.' });
+  });
+
+  it('lets the persona beat the adopted default, since assigning one is the more specific act', async () => {
+    db = await withPersona({ personaId: 'persona-1' }, [reviewer], { temperature: 0.9, think: true });
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    const opts = runAgentLoop.mock.calls[0]![0];
+    expect(opts.overrides.temperature).toBe(0.1);
+    // Everything the persona did not speak to still comes from the profile.
+    expect(opts.overrides.think).toBe(true);
+  });
+
+  it('runs with no persona when the id dangles, rather than failing', async () => {
+    // Deleting a persona must not break the leaves that already ran under it.
+    db = await withPersona({ personaId: 'deleted' }, [], { temperature: 0.9 });
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    expect(runAgentLoop.mock.calls[0]![0].overrides).toMatchObject({ temperature: 0.9 });
+  });
+
+  it('will not run a leaf under another user’s persona', async () => {
+    // getPersonas returns every user's; the filter is the only thing keeping them apart.
+    db = await withPersona({ personaId: 'persona-1' }, [{ ...reviewer, ownerId: 'someone-else' }]);
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    expect(runAgentLoop.mock.calls[0]![0].overrides.systemPrompt).toBeUndefined();
+  });
+});

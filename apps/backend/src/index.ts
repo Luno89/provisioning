@@ -66,7 +66,8 @@ import { AuthoringService, acceptedTasks } from './services/AuthoringService.js'
 import { WorkbenchService } from './services/WorkbenchService.js';
 import { buildPromotion, supersede, revertTo } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
-import { validateOverrides } from './lib/tunables.js';
+import { validateOverrides, loopKeys } from './lib/tunables.js';
+import { resolveConfig, validatePersona, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
   expandAxes, validateExperiment, plannedRuns, experimentTasks, taskIdOf, summariseExperiment, normaliseExperiment, latestResults,
@@ -75,7 +76,7 @@ import {
 } from './lib/experiments.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 import { LEAF_TOOLS, MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
-import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, type Leaf } from './lib/leaves.js';
+import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, blockedBy, wouldCycle, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 import { getToolRepository } from './lib/tool-repository.js';
 import type { MemoryItem } from './lib/memory-store.js';
@@ -1740,6 +1741,21 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * input exactly like one from a URL. Errors are returned as tool RESULTS rather than thrown —
    * the model can recover from "no such leaf" if it is told, and cannot if the request dies.
    */
+  /**
+   * Whether a tool result is a refusal rather than a completed action.
+   *
+   * Every handler reports failure as `{ error }` in its JSON result, so this reads the same shape
+   * they all write. Unparseable output is treated as a refusal: the callers use this to decide
+   * whether something was really created, and guessing "yes" there is the expensive direction.
+   */
+  function toolRefused(result: string): boolean {
+    try {
+      return Boolean(JSON.parse(result)?.error);
+    } catch {
+      return true;
+    }
+  }
+
   async function runLeafTool(userId: string, branchId: string, call: { name: string; arguments: string }): Promise<string> {
     const args = parseToolArguments(call.arguments);
     const leaves = (await ownedLeaves(userId)).filter((l) => l.branchId === branchId);
@@ -1769,12 +1785,32 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           if (refusal) return JSON.stringify({ error: refusal });
         }
 
+        /**
+         * Dependencies arrive as TITLES and are resolved here.
+         *
+         * The model proposes several leaves in one turn and cannot know the ids of the ones it
+         * created seconds earlier, so asking for ids would produce either guesses or nothing. A
+         * title that matches nothing is dropped rather than refused: the ordering is lost, which
+         * is what would have happened anyway, and refusing the whole leaf over a typo is worse.
+         */
+        const id = uuidv4();
+        const wanted = Array.isArray(args.dependsOn) ? args.dependsOn.map(String) : [];
+        const dependsOn = wanted
+          .map((t) => leaves.find((l) => l.title.toLowerCase() === t.trim().toLowerCase())?.id)
+          .filter((x): x is string => Boolean(x));
+        if (wouldCycle(id, dependsOn, leaves)) {
+          // Refused rather than dropped: a cycle does not fail, it waits forever, and every leaf
+          // in it looks like work that is merely slow.
+          return JSON.stringify({ error: 'Those dependencies would form a cycle — nothing in it could ever start.' });
+        }
+
         const now = new Date().toISOString();
         const leaf: Leaf = {
-          id: uuidv4(),
+          id,
           ownerId: userId,
           branchId,
           title: title.slice(0, 200),
+          ...(dependsOn.length ? { dependsOn } : {}),
           ...(typeof args.body === 'string' && args.body.trim() ? { body: args.body.trim().slice(0, 4000) } : {}),
           // Silently dropped when it is not a known language: the model picking something outside
           // the enum should get the default sandbox, not a leaf that fails when it runs.
@@ -2181,6 +2217,104 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── PROMOTED DEFAULTS — a winning configuration adopted as the harness's own ── */
 
+  /**
+   * Refuses an arm pointing at a persona that is not yours or no longer exists.
+   *
+   * Checked at save rather than at run: an arm labelled "runs as Reviewer" that silently resolves
+   * to nobody produces numbers filed under a configuration nothing used, which is the single
+   * failure this whole surface is built to prevent.
+   */
+  const unknownPersona = async (userId: string, variants: unknown): Promise<string | undefined> => {
+    if (!Array.isArray(variants)) return undefined;
+    const wanted = variants
+      .map((v) => (v && typeof v === 'object' ? (v as any).personaId : undefined))
+      .filter((id): id is string => typeof id === 'string' && id !== '');
+    if (!wanted.length) return undefined;
+    const mine = new Set((await db.getPersonas()).filter((p) => p.ownerId === userId).map((p) => p.id));
+    const missing = wanted.find((id) => !mine.has(id));
+    return missing ? `No persona ${missing} — it may have been deleted.` : undefined;
+  };
+
+  /** ── PERSONAS — named configurations you pick, rather than the one everybody gets ── */
+
+  /** Owner-filtered here, never by id alone: `getPersonas` returns every user's. */
+  const ownedPersonas = async (userId: string): Promise<Persona[]> =>
+    (await db.getPersonas()).filter((p) => p.ownerId === userId);
+
+  app.get('/api/personas', async (req, res) => {
+    res.json(await ownedPersonas((req as any).user.id));
+  });
+
+  app.post('/api/personas', async (req, res) => {
+    const userId = (req as any).user.id;
+    const { name, description, systemPrompt, overrides } = req.body ?? {};
+
+    const existing = await ownedPersonas(userId);
+    const refusal = validatePersona({ name: String(name ?? ''), systemPrompt }, existing);
+    if (refusal) return res.status(400).json({ error: refusal });
+
+    // The same registry check every other override bag gets. A persona is not a way around it.
+    const invalid = validateOverrides(overrides ?? {});
+    if (invalid) return res.status(400).json({ error: invalid });
+
+    const now = new Date().toISOString();
+    const persona: Persona = {
+      id: uuidv4(),
+      ownerId: userId,
+      name: String(name).trim(),
+      ...(description ? { description: String(description).slice(0, 200) } : {}),
+      ...(systemPrompt ? { systemPrompt: String(systemPrompt) } : {}),
+      overrides: overrides ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.savePersona(persona);
+    res.status(201).json(persona);
+  });
+
+  app.put('/api/personas/:id', async (req, res) => {
+    const userId = (req as any).user.id;
+    const existing = await ownedPersonas(userId);
+    const persona = existing.find((p) => p.id === req.params.id);
+    if (!persona) return res.status(404).json({ error: 'No such persona' });
+
+    const { name, description, systemPrompt, overrides } = req.body ?? {};
+    const nextName = name === undefined ? persona.name : String(name);
+    const refusal = validatePersona({ name: nextName, systemPrompt }, existing, persona.id);
+    if (refusal) return res.status(400).json({ error: refusal });
+    if (overrides !== undefined) {
+      const invalid = validateOverrides(overrides);
+      if (invalid) return res.status(400).json({ error: invalid });
+    }
+
+    const updated: Persona = {
+      ...persona,
+      name: nextName.trim(),
+      ...(description !== undefined ? { description: String(description).slice(0, 200) } : {}),
+      ...(systemPrompt !== undefined ? { systemPrompt: String(systemPrompt) } : {}),
+      ...(overrides !== undefined ? { overrides } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    await db.savePersona(updated);
+    res.json(updated);
+  });
+
+  app.delete('/api/personas/:id', async (req, res) => {
+    const userId = (req as any).user.id;
+    const persona = (await ownedPersonas(userId)).find((p) => p.id === req.params.id);
+    if (!persona) return res.status(404).json({ error: 'No such persona' });
+
+    /**
+     * Leaves keep their `personaId` after the persona is gone.
+     *
+     * Clearing it would rewrite the record of what a completed leaf ran under, which is the one
+     * thing history must never do — the same reason a superseded profile is filed rather than
+     * overwritten. A dangling id resolves to nobody and the leaf simply runs with no persona.
+     */
+    await db.deletePersona(persona.id);
+    res.json({ deleted: true });
+  });
+
   app.get('/api/harness/profile', async (req, res) => {
     res.json(await db.getHarnessProfile((req as any).user.id));
   });
@@ -2369,6 +2503,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const { name, tasks, variants, axes, repeats } = req.body ?? {};
     const before = experimentTasks(existing);
     const suite = Array.isArray(tasks) && tasks.length ? normaliseTasks(tasks) : before;
+    const badPersona = await unknownPersona((req as any).user.id, variants);
+    if (badPersona) return res.status(400).json({ error: badPersona });
+
     const resolvedVariants = Array.isArray(variants) && variants.length
       ? variants
       : axes && typeof axes === 'object'
@@ -2860,7 +2997,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * schema, and re-encoding it here would mean tracking every field either adds.
    */
   app.post('/api/chat', async (req, res) => {
-    const { modelId, messages, stream = true, leafId, branchId, mode: rawMode, ...rest } = req.body ?? {};
+    const { modelId, messages, stream = true, leafId, branchId, mode: rawMode, personaId, ...rest } = req.body ?? {};
     // Unknown or missing modes fall back to 'auto' rather than erroring: a chat request should
     // never fail because a selector was out of date.
     const mode: ChatMode = isChatMode(rawMode) ? rawMode : 'auto';
@@ -2884,6 +3021,29 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ? (await ownedLeaves((req as any).user.id)).filter((l) => l.branchId === branchId)
       : [];
 
+    /**
+     * What this turn actually runs under: built-in constants, then the adopted profile, then the
+     * chosen persona, then whatever the client posted.
+     *
+     * The profile step is new. This route read no profile at all — measured, not assumed — so a
+     * configuration promoted from an experiment applied to leaf runs and to the Lab while chat
+     * quietly kept running the shipped values, and the promote dialog's "applies to leaf runs too"
+     * read as "applies everywhere".
+     */
+    const chatPersona = personaId
+      ? (await db.getPersonas()).find((p) => p.id === String(personaId) && p.ownerId === (req as any).user.id) ?? null
+      : null;
+    if (personaId && !chatPersona) {
+      // Not silently ignored: a turn answered by nobody in particular, when a persona was asked
+      // for, is the failure that looks like the model forgetting who it is.
+      return res.status(404).json({ error: 'No such persona' });
+    }
+    const resolved = resolveConfig(
+      await db.getHarnessProfile((req as any).user.id),
+      chatPersona,
+      rest,
+    );
+
     // `/plan` overrides the mode for this turn; otherwise the mode decides.
     const planning = command.command === 'plan' || mode === 'plan';
     const explicitPlan = planning;
@@ -2899,6 +3059,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // model does not have this turn.
       ...(offerTools ? { toolPrompt: TOOL_DISCIPLINE_PROMPT } : {}),
       ...(explicitPlan ? { planText: command.text } : {}),
+      ...(resolved.systemPrompt ? { personaPrompt: resolved.systemPrompt } : {}),
     });
 
     let provider, baseUrl, apiKey;
@@ -2929,7 +3090,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         // id from the repo and bitrate), but a stricter server would reject "Tabbyapi-Production"
         // outright — and single-model endpoints generally serve whatever they loaded.
         body: JSON.stringify({
-          ...rest,
+          /**
+           * The resolved bag, not the raw request: this is what makes a persona's temperature —
+           * or an adopted default's — actually reach the model rather than being decoration.
+           *
+           * Loop-placement knobs are dropped because they are READ here, never transmitted:
+           * `systemPrompt` is composed into a message above, and sending it as a body field would
+           * be a parameter the engine ignores at best and rejects at worst.
+           */
+          ...Object.fromEntries(
+            Object.entries(resolved.overrides).filter(([key]) => !loopKeys().includes(key)),
+          ),
           ...(provider.model ? { model: provider.model } : {}),
           messages: outboundMessages,
           // Offered only when in proposal/plan mode on a task-relevant turn. Selective tool framing
@@ -3030,6 +3201,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        * calling tools without answering is a loop, not a thorough one.
        */
       const conversation: any[] = [...outboundMessages];
+
+      /**
+       * Whether this turn created leaves through the TOOLS.
+       *
+       * Tracked here rather than read off `calls`, which the loop below overwrites with each
+       * round's result and which is empty by the time anyone would ask.
+       */
+      let proposedViaTools = false;
+
       for (let round = 0; round < MAX_TOOL_ROUNDS && calls.length > 0 && branchId; round++) {
         conversation.push({
           role: 'assistant',
@@ -3038,6 +3218,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         });
         for (const call of calls) {
           const result = await runLeafTool((req as any).user.id, String(branchId), call);
+          // A refused call created nothing, so it must not suppress extraction — that would turn a
+          // rejected proposal into a turn that proposed nothing at all.
+          if (call.name === 'propose_leaf' && !toolRefused(result)) proposedViaTools = true;
           conversation.push({ role: 'tool', tool_call_id: call.id, name: call.name, content: result });
         }
 
@@ -3192,7 +3375,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            * every reply needs latency measured rather than assumed.
            */
           let extracted: Awaited<ReturnType<typeof extractViaModel>> | undefined;
-          if (extracting) {
+          if (extracting && !proposedViaTools) {
             // Falls back to the CONVERSATION model, which is safe now that extraction disables
             // thinking per-request. The earlier refusal to fall back was because a reasoning model
             // cannot hold a format — with thinking off it can, measured at 3/3 against 1-in-8.
@@ -3211,7 +3394,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           }
           // Extractor first when it produced anything; otherwise fall back to parsing the
           // conversation model's own reply, which works occasionally and beats nothing.
-          const proposals = extracted?.length ? extracted : extractProposals(reply);
+          /**
+           * Nothing to extract once the tools have run.
+           *
+           * These are two paths to the same outcome and they were both live on every `auto` turn
+           * with a branch: the model called `propose_leaf`, then its own prose summary — "I've
+           * proposed 5 leaves. Here is the plan: 1. … 2. …" — was parsed into five MORE. Measured
+           * live: ten leaves on one branch, the same five titles twice, and a second approval
+           * prompt for work that was already running.
+           *
+           * The tools win because they are the deliberate path: a model that called them has said
+           * exactly what it wants, while the prose is a report of having done so.
+           */
+          const proposals = proposedViaTools ? [] : (extracted?.length ? extracted : extractProposals(reply));
           const now = new Date().toISOString();
           for (const proposal of proposals) {
             await db.saveLeaf({
@@ -3405,10 +3600,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const accepted = { ...leaf, status: 'pending' as const, updatedAt: new Date().toISOString() };
     await db.saveLeaf(accepted);
 
-    const workflowId = await temporalBridge?.startLeaf(accepted);
+    /**
+     * Started only when its turn has come.
+     *
+     * A leaf waiting on another stays `pending` with no workflow — which is what `pending` already
+     * means. The reconcile loop starts it when the last thing it waits on succeeds. Accepting five
+     * leaves at once used to start five workflows at once, so a plan whose steps built on each
+     * other ran every step against an empty sandbox.
+     */
+    const waiting = blockedBy(accepted, leaves);
+    const workflowId = waiting.length === 0 ? await temporalBridge?.startLeaf(accepted) : undefined;
     if (workflowId) {
       accepted.workflowId = workflowId;
       await db.saveLeaf(accepted);
+    }
+    if (waiting.length > 0) {
+      // Said back, because a leaf that is accepted and not running otherwise looks broken.
+      return res.json({ ...accepted, waitingFor: waiting.map((w) => ({ id: w.id, title: w.title })) });
     }
     if (accepted.parentLeafId) {
       await temporalBridge?.signalLeaf(accepted.parentLeafId, 'addChild', {

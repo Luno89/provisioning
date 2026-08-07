@@ -40,6 +40,8 @@ import type {
   WorkspaceLanguage,
 } from '@koala/harness-types';
 import { validateOverrides } from './tunables.js';
+import { countOutcomes, attempted } from './run-outcome.js';
+import type { OutcomeCounts } from '@koala/harness-types';
 
 /**
  * Re-exported so the modules that already import these from here keep working.
@@ -166,6 +168,8 @@ export function summariseRuns(experiment: Pick<Experiment, 'runs'>): RunSummary[
     ...(r.model ? { model: r.model } : {}),
     verified: r.results.filter((x) => x.verified).length,
     runs: r.results.length,
+    attempted: attempted(r.results).length,
+    broken: countOutcomes(r.results).broken,
   }));
 }
 
@@ -281,6 +285,21 @@ export interface VariantSummary {
    * rest on one surviving run out of five cannot look like a clean result.
    */
   errored: number;
+  /**
+   * How the runs actually fell out. `verified + wrong + incomplete + broken === runs`.
+   *
+   * Beside the score rather than folded into it: `incomplete` is work that may well be correct and
+   * `broken` is not evidence about this arm at all, so collapsing either into a failure count is
+   * how a step budget or an outage gets read as incapability.
+   */
+  outcomes: OutcomeCounts;
+  /**
+   * Runs that got a fair attempt — `runs` minus the broken ones.
+   *
+   * The denominator a score should be read over. Scoring 2 passes out of 15 when 13 never executed
+   * is not a cautious reading, it is a wrong one.
+   */
+  attempted: number;
   /** Medians over COMPLETED runs only. Zero when every run errored. */
   medianTokens: number;
   medianSteps: number;
@@ -307,12 +326,15 @@ const completed = (runs: VariantResult[]): VariantResult[] => runs.filter((r) =>
 
 const tally = (label: string, runs: VariantResult[]): VariantSummary => {
   const measured = completed(runs);
+  const fair = attempted(runs);
   return {
     label,
     runs: runs.length,
     verified: runs.filter((r) => r.verified).length,
     claimed: runs.filter((r) => r.succeeded).length,
     errored: runs.length - measured.length,
+    outcomes: countOutcomes(runs),
+    attempted: fair.length,
     medianTokens: median(measured.map((r) => r.tokensUsed)),
     medianSteps: median(measured.map((r) => r.steps)),
     medianDurationMs: median(measured.map((r) => r.durationMs)),

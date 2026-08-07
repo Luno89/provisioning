@@ -109,6 +109,8 @@ export interface AgentRunOptions {
   overrides?: Overrides | undefined;
   /** Keys supplied by the promoted profile, recorded so a run says where each value came from. */
   fromProfile?: string[] | undefined;
+  /** Keys supplied by a persona, recorded beside `fromProfile` rather than merged into it. */
+  fromPersona?: string[] | undefined;
   /**
    * Leave the reasoning pass on. Off by default: every turn here exists to produce a tool call,
    * and a turn spent deliberating is a turn that produces nothing while consuming the budget.
@@ -232,6 +234,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     overrides,
     unsupported,
     ...(opts.fromProfile?.length ? { fromProfile: opts.fromProfile } : {}),
+    ...(opts.fromPersona?.length ? { fromPersona: opts.fromPersona } : {}),
     loop: {
       maxSteps,
       think,

@@ -7,9 +7,10 @@
  */
 import { createDatabase } from './lib/db-interface.js';
 import { createModelService } from './lib/model-wiring.js';
+import { claimGap, droppedOverrides } from './lib/run-outcome.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
-  expandAxes, validateExperiment, summariseResults, overclaimed, plannedRuns,
+  expandAxes, validateExperiment, summariseResults, plannedRuns,
   buildTaskMatrix, discriminatingTasks, experimentTasks, latestResults,
   type Experiment,
 } from './lib/experiments.js';
@@ -75,7 +76,7 @@ const SMOKE_TASKS = [{
  */
 const runId = `lab-${new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)}`;
 
-const exp: Experiment = {
+let exp: Experiment = {
   id: runId, ownerId: '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991',
   name: minimal ? 'does the agent call a tool at all'
     : smoke ? 'smoke — can the harness finish anything'
@@ -130,6 +131,27 @@ const exp: Experiment = {
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
 };
 
+/**
+ * `--id=<experimentId>` — re-run a suite that already exists instead of the built-in one.
+ *
+ * The reason experiments are recorded rather than printed: a suite is a question, and the point of
+ * keeping it is asking it again after the harness changes. Without this the only way to re-run one
+ * was the UI, so a headless check after a config change meant hand-copying tasks into this file.
+ *
+ * The stored definition is used as-is. Editing it here would mean the run no longer matches the
+ * record it is filed under, which is the one thing the history must never do.
+ */
+const idArg = process.argv.find((a) => a.startsWith('--id='))?.slice('--id='.length);
+if (idArg) {
+  const stored = (await db.getExperiments()).find((e) => e.id === idArg);
+  if (!stored) {
+    console.error(`No experiment ${idArg}. Nothing was run.`);
+    process.exit(1);
+  }
+  exp = stored;
+  console.log(`re-running: ${exp.name}`);
+}
+
 console.log('validate:', validateExperiment(exp) ?? 'ok');
 console.log('variants:', exp.variants.map((v) => v.label).join(', '));
 console.log(`suite:    ${experimentTasks(exp).map((t) => t.name).join(', ')}`);
@@ -171,9 +193,21 @@ while (Date.now() < deadline) {
     const results = latestResults(cur);
     console.log('\n--- suite total ---');
     for (const s of summariseResults(results)) {
-      console.log(`  ${s.label.padEnd(14)} verified ${s.verified}/${s.runs}  claimed ${s.claimed}/${s.runs}` +
+      /**
+       * Scored over ATTEMPTED runs, not every run.
+       *
+       * A suite where the model server died mid-way once read "2/15" — a dramatic number, and a
+       * false one, since thirteen of those runs never executed a step. It is 2/2 with thirteen
+       * broken, and the two are not close to the same claim.
+       */
+      const o = s.outcomes;
+      const notes = [
+        o.incomplete ? `${o.incomplete} ran out of steps` : '',
+        o.broken ? `${o.broken} never ran` : '',
+      ].filter(Boolean).join(', ');
+      console.log(`  ${s.label.padEnd(16)} verified ${s.verified}/${s.attempted}  claimed ${s.claimed}/${s.attempted}` +
         `  steps ${String(s.medianSteps).padEnd(3)} tokens ${String(s.medianTokens).padEnd(7)} ` +
-        `${Math.round(s.medianDurationMs / 1000)}s` + (s.errored ? `  (${s.errored} did not run)` : ''));
+        `${Math.round(s.medianDurationMs / 1000)}s` + (notes ? `  (${notes})` : ''));
     }
 
     // The half that a single aggregate cannot show: two variants can tie above and disagree here.
@@ -194,8 +228,23 @@ while (Date.now() < deadline) {
     console.log(`\ntasks that separated the variants: ${
       separated.length ? separated.map((t) => `${t.taskId} (${t.spread.toFixed(2)})`).join(', ') : 'none'}`);
 
-    const lying = overclaimed(results);
+    const { overclaimed: lying, underclaimed: modest } = claimGap(results);
     console.log('overclaimed:', lying.length ? lying.map((r) => `${r.taskId}/${r.label}`).join(', ') : 'none');
+    // Reported because it was not being reported: an arm that verified 4/4 while claiming 0/4 has a
+    // step budget or a finish-discipline problem wearing the costume of a capability problem.
+    console.log('underclaimed:', modest.length ? modest.map((r) => `${r.taskId}/${r.label}`).join(', ') : 'none');
+
+    // Every knob asked for that never reached the request. Twice now a variant has been named after
+    // a configuration it was not running; this is the check that would have said so at the time.
+    const dropped = new Map<string, string[]>();
+    for (const r of results) {
+      const missing = droppedOverrides(r);
+      if (missing.length) dropped.set(r.label, missing);
+    }
+    if (dropped.size) {
+      console.log('SETTINGS THAT NEVER REACHED THE MODEL:');
+      for (const [label, keys] of dropped) console.log(`  ${label}: ${keys.join(', ')}`);
+    }
     for (const r of results) if (r.error) console.log(`  error [${r.taskId}/${r.label}]: ${r.error.slice(0, 160)}`);
 
     /**

@@ -22,6 +22,7 @@ import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
+import { readyToStart } from '../lib/leaves.js'
 import type { Database } from '../lib/db-interface.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
 import { checkCapacity } from '../lib/cluster-capacity.js'
@@ -612,6 +613,33 @@ export class TemporalBridge {
         }
       } catch (err: any) {
         console.warn(`[Reconcile] Error: ${err.message}`)
+      }
+
+      /**
+       * Start leaves whose turn has come.
+       *
+       * Its own try/catch, and deliberately AFTER the one above: that block covers clusters and
+       * deployments under a single catch, so a transient Temporal error while polling one cluster
+       * would otherwise skip the rest of the pass — and work waiting on a dependency would sit
+       * there until something unrelated started succeeding again.
+       *
+       * Polled rather than signalled on completion. A leaf finishes inside a Temporal activity
+       * with no route back into this process, and an event that can be missed strands work
+       * permanently; a pass that re-derives readiness from the database recovers on its own.
+       */
+      try {
+        const leaves = await this.db.getLeaves()
+        for (const leaf of readyToStart(leaves)) {
+          const workflowId = await this.startLeaf(leaf)
+          if (!workflowId) continue
+          // Written before the next iteration, so a crash mid-pass cannot start it twice: the
+          // next pass reads a leaf that already has a workflow and skips it.
+          await this.db.saveLeaf({ ...leaf, workflowId, updatedAt: new Date().toISOString() })
+          console.log(`[Reconcile] Started ${leaf.title} — its dependencies have completed`)
+          if (this.io) this.io.emit('leaf-updated')
+        }
+      } catch (err: any) {
+        console.warn(`[Reconcile] Could not release waiting leaves: ${err.message}`)
       }
     }
 

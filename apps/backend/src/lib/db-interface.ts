@@ -1,3 +1,4 @@
+import type { Persona } from '@koala/harness-types';
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
 import type { Branch, Leaf } from './leaves.js';
@@ -60,6 +61,11 @@ export interface Database {
   /** Keyed by ownerId — the promoted harness settings in force for one user. */
   getHarnessProfile(ownerId: string): Promise<HarnessProfile | null>;
   saveHarnessProfile(profile: HarnessProfile): Promise<void>;
+
+  /** Owner-filtered by the caller, like leaves and experiments — never trust the id alone. */
+  getPersonas(): Promise<Persona[]>;
+  savePersona(persona: Persona): Promise<void>;
+  deletePersona(id: string): Promise<void>;
   deleteHarnessProfile(ownerId: string): Promise<void>;
 
   /** Keyed by ownerId — one Gitea account per platform user. */

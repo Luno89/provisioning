@@ -106,6 +106,14 @@ export interface AgentRequest {
    * promoted prompt silently became the baseline for a control arm called `shipped-prompt`.
    */
   fromProfile?: string[];
+  /**
+   * Keys whose value came from a persona rather than from the variant or the profile.
+   *
+   * Separate from `fromProfile` because they answer different questions — "this install decided
+   * that" versus "this arm was run as someone" — and an experiment comparing two personas is
+   * unreadable if both collapse into one list.
+   */
+  fromPersona?: string[];
   /** Loop controls, which never appear in `parameters` because they are never transmitted. */
   loop?: { maxSteps: number; think: boolean; toolResultCap: number };
 }
@@ -187,6 +195,16 @@ export type ExperimentOverrides = Overrides & { language?: WorkspaceLanguage };
 export interface ExperimentVariant {
   label: string;
   overrides: ExperimentOverrides;
+  /**
+   * A persona this arm runs as, resolved beneath its own overrides.
+   *
+   * What makes personas comparable: a variant is already a named override bag, so pointing two of
+   * them at different personas runs those personas head to head on the same suite — which is the
+   * only way to answer "which one is actually better" rather than preferring the one you wrote
+   * most recently. The variant's own overrides still win, so an arm can borrow a persona and
+   * change one knob.
+   */
+  personaId?: string;
 }
 
 /** A file written into the sandbox. Relative to /work; paths that escape it are rejected. */
@@ -305,7 +323,17 @@ export interface RunSummary {
   model?: string;
   /** Verified over attempted, across the whole suite — the headline for that execution. */
   verified: number;
+  /** Every run in the execution, including the ones nothing could be learned from. */
   runs: number;
+  /**
+   * Runs that got a fair attempt — `runs` minus the broken ones, and the denominator to show.
+   *
+   * Kept beside `runs` rather than replacing it: an execution where half the runs died is a
+   * different fact from one where they all ran, and a single number cannot carry both.
+   */
+  attempted: number;
+  /** Runs that never got a fair attempt. Non-zero means the score rests on less than it appears. */
+  broken: number;
 }
 
 export interface Experiment {
@@ -478,6 +506,16 @@ export interface PromotionStanding {
   label: string;
   verified: number;
   runs: number;
+  /**
+   * Fair attempts — what the rate is computed over.
+   *
+   * `standingOf` documented its intent as ranking by rate "because variants can differ in run count
+   * when one errored", then divided by the total anyway. An arm whose runs were killed by the
+   * harness therefore ranked below one that merely lost, and promotion is the decision least able
+   * to afford that.
+   */
+  attempted: number;
+  broken: number;
   tasks: number;
   /** 1 when this variant verified the most. */
   rank: number;
@@ -544,4 +582,69 @@ export interface HarnessConfig {
    * anywhere has to be the one in force, not the one in the source file.
    */
   effective: EffectiveKnob[];
+}
+
+/* ── personas ─────────────────────────────────────────────────────────────── */
+
+/**
+ * A named configuration you can pick, rather than the single one everybody gets.
+ *
+ * ── A PERSONA IS A PROFILE WITH A NAME ──
+ * Deliberately the same shape as `HarnessProfile`: a system prompt and an overrides bag validated
+ * against the same registry. The difference is arity and scope — a profile is one adopted default
+ * for everything, a persona is one of several, chosen per conversation or per leaf. Inventing a
+ * second configuration mechanism would mean a second validator, a second provenance record, and
+ * two places for "what did this actually run" to disagree.
+ *
+ * What it is NOT, yet: a router, a tool policy, or an actor that delegates. Those are real
+ * features and each needs its own design; none of them are implied by giving a prompt a name.
+ */
+export interface Persona {
+  id: string;
+  ownerId: string;
+  name: string;
+  /** One line, shown in the picker — why you would choose this one. */
+  description?: string;
+  /**
+   * Composed into the SINGLE system message, never appended as a second one.
+   *
+   * Chat templates reject more than one system message outright, and the failure is total. See
+   * `buildOutboundMessages`, which exists to protect exactly this.
+   */
+  systemPrompt?: string;
+  /** Validated against the tunable registry, like every other override bag. */
+  overrides: Overrides;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ── run outcomes ─────────────────────────────────────────────────────────── */
+
+/**
+ * What actually happened to one run, as opposed to whether it scored.
+ *
+ * ── WHY A BOOLEAN WAS NOT ENOUGH ──
+ * `verified` collapses four different facts into one bit, and all four occurred in a single
+ * afternoon: a run whose answer was wrong, a run that produced correct work and never declared it
+ * done, a run the model server died underneath, and a run that passed. Scored identically, the
+ * middle two are indistinguishable from incapability — which is how thirteen runs that never
+ * executed were nearly read as a dramatic result, and how three arms hitting a step cap read as a
+ * capability difference rather than a budget that was too low.
+ */
+export type RunOutcome =
+  /** Verify passed. The only outcome that counts toward a score. */
+  | 'verified'
+  /** Ran to a conclusion and verify rejected the result. A real, attributable failure. */
+  | 'wrong'
+  /** Exhausted its step budget without finishing. The work may well be correct — check before reading it as failure. */
+  | 'incomplete'
+  /** Never got a fair attempt: no model, no sandbox, a timeout. Evidence about the harness, not the arm. */
+  | 'broken';
+
+/** How a variant's runs fell out, beside the score rather than folded into it. */
+export interface OutcomeCounts {
+  verified: number;
+  wrong: number;
+  incomplete: number;
+  broken: number;
 }

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  dependenciesMet,
+  blockedBy,
+  readyToStart,
+  wouldCycle,
   isLeafColumn,
   LEAF_COLUMNS,
   aggregateUsage,
@@ -284,5 +288,79 @@ describe('isLeafColumn', () => {
 
   it('rejects non-strings without throwing', () => {
     for (const v of [undefined, null, 42, {}, []]) expect(isLeafColumn(v)).toBe(false);
+  });
+});
+
+describe('dependency ordering', () => {
+  const leaf = (over: Partial<Leaf>): Leaf => ({
+    id: 'l1', ownerId: 'u1', branchId: 'b1', title: 't', column: 'todo',
+    status: 'pending', depth: 0, blocking: true,
+    createdAt: '2026-08-06T00:00:00.000Z', updatedAt: '2026-08-06T00:00:00.000Z',
+    ...over,
+  });
+
+  it('holds a leaf until every dependency has SUCCEEDED', () => {
+    // The measured failure: five siblings fanned out, and the four that needed the first one's
+    // output each woke in an empty sandbox and spent all 24 steps rebuilding it.
+    const base = leaf({ id: 'base', status: 'running' });
+    const next = leaf({ id: 'next', dependsOn: ['base'] });
+
+    expect(dependenciesMet(next, [base, next])).toBe(false);
+    expect(readyToStart([base, next])).toEqual([]);
+    expect(blockedBy(next, [base, next]).map((l) => l.id)).toEqual(['base']);
+  });
+
+  it('releases it once they have', () => {
+    const base = leaf({ id: 'base', status: 'succeeded' });
+    const next = leaf({ id: 'next', dependsOn: ['base'] });
+
+    expect(readyToStart([base, next]).map((l) => l.id)).toEqual(['next']);
+  });
+
+  it('keeps holding a leaf whose dependency FAILED, since a retry can still satisfy it', () => {
+    // Distinct from a deleted dependency below: the work is still expected, it just has not
+    // happened. Releasing here would run the dependent against output that does not exist.
+    const base = leaf({ id: 'base', status: 'failed' });
+    const next = leaf({ id: 'next', dependsOn: ['base'] });
+
+    expect(dependenciesMet(next, [base, next])).toBe(false);
+  });
+
+  it('treats a deleted dependency as met rather than stranding the leaf forever', () => {
+    // There is no future in which a leaf that no longer exists succeeds, so waiting on it is
+    // waiting for nothing — and nothing in the UI can clear it.
+    const next = leaf({ id: 'next', dependsOn: ['deleted'] });
+
+    expect(dependenciesMet(next, [next])).toBe(true);
+  });
+
+  it('never starts a leaf that already has a workflow', () => {
+    // Starting twice is the expensive mistake: two sandboxes, two sets of tokens, one leaf.
+    const started = leaf({ id: 'started', workflowId: 'leaf-started' });
+
+    expect(readyToStart([started])).toEqual([]);
+  });
+
+  it('refuses a dependency that would close a cycle', () => {
+    // A cycle does not fail — every leaf in it waits forever, which looks exactly like slow work.
+    const a = leaf({ id: 'a', dependsOn: ['b'] });
+    const b = leaf({ id: 'b', dependsOn: ['c'] });
+    const c = leaf({ id: 'c' });
+
+    expect(wouldCycle('c', ['a'], [a, b, c])).toBe(true);
+    expect(wouldCycle('c', [], [a, b, c])).toBe(false);
+    // Self-reference is the degenerate case and the easiest one to write by accident.
+    expect(wouldCycle('c', ['c'], [a, b, c])).toBe(true);
+  });
+
+  it('releases a whole chain one step at a time, not all at once', () => {
+    // The shape the plan actually had: build → search → query builder, strictly in order.
+    const one = leaf({ id: 'one', status: 'succeeded' });
+    const two = leaf({ id: 'two', dependsOn: ['one'] });
+    const three = leaf({ id: 'three', dependsOn: ['two'] });
+
+    expect(readyToStart([one, two, three]).map((l) => l.id)).toEqual(['two']);
+    const done = { ...two, status: 'succeeded' as const };
+    expect(readyToStart([one, done, three]).map((l) => l.id)).toEqual(['three']);
   });
 });

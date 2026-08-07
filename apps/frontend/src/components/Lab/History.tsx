@@ -12,7 +12,8 @@ export function RunHistory({ history }: { history: RunSummary[] }) {
   const latest = history[history.length - 1];
   const previous = history[history.length - 2];
   // Verified RATE, since executions can differ in how many runs completed.
-  const rate = (r: RunSummary) => (r.runs ? r.verified / r.runs : 0);
+  // Over fair attempts, so an execution the model server died during does not read as a regression.
+  const rate = (r: RunSummary) => (r.attempted ? r.verified / r.attempted : 0);
   const delta = latest && previous ? rate(latest) - rate(previous) : 0;
 
   return (
@@ -29,8 +30,8 @@ export function RunHistory({ history }: { history: RunSummary[] }) {
               <td className="py-1 text-slate-500">{new Date(h.startedAt).toLocaleString()}</td>
               <td className="py-1 text-slate-600 font-mono">{h.model ?? '—'}</td>
               <td className="py-1 text-right">
-                <span className={h.runs && h.verified === h.runs ? 'text-[var(--leaf-light)]' : 'text-slate-400'}>
-                  {h.verified}/{h.runs}
+                <span className={h.attempted && h.verified === h.attempted ? 'text-[var(--leaf-light)]' : 'text-slate-400'}>
+                  {h.verified}/{h.attempted}
                 </span>
               </td>
               <td className="py-1 text-right text-slate-600">{i === 0 ? 'latest' : h.status}</td>

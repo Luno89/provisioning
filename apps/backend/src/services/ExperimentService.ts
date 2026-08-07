@@ -18,7 +18,8 @@ import type { ModelService } from './ModelService.js';
 import { WorkspaceService } from './WorkspaceService.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
-import { effectiveOverrides, keysFromProfile, type HarnessProfile } from '../lib/harness-profile.js';
+import { type HarnessProfile } from '../lib/harness-profile.js';
+import { resolveConfig, type Persona } from '../lib/personas.js';
 import { buildMemoryContext, type MemoryItem } from '../lib/memory-store.js';
 import type { ExperimentRun } from '@koala/harness-types';
 import type {
@@ -206,6 +207,9 @@ export class ExperimentService {
     const tasks = experimentTasks(experiment);
     // Once, before anything runs — see runVariant's `profile` parameter for why.
     const profile = await this.db.getHarnessProfile(experiment.ownerId);
+    // Same reasoning, same snapshot: a persona edited mid-run must not make the arms after it
+    // differ from the arms before it.
+    const personas = (await this.db.getPersonas()).filter((p) => p.ownerId === experiment.ownerId);
 
     /**
      * A NEW execution, appended — never a reset.
@@ -275,7 +279,7 @@ export class ExperimentService {
               total,
             });
 
-            const result = await this.runVariant(experiment, task, variant, repeat, execution.id, profile, signal);
+            const result = await this.runVariant(experiment, task, variant, repeat, execution.id, profile, personas, signal);
             current = await this.save(current, {
               runs: appendResult(current.runs, execution.id, result),
             });
@@ -327,8 +331,25 @@ export class ExperimentService {
      * recorded, which is the exact failure the verify command exists to prevent elsewhere.
      */
     profile: HarnessProfile | null,
+    /** Snapshotted with the profile, and for the same reason. */
+    personas: Persona[],
     signal?: AbortSignal,
   ): Promise<VariantResult> {
+    /**
+     * What this arm actually runs: profile, then its persona, then its own overrides.
+     *
+     * The same chain the chat route uses, with the variant sitting where the request does — an arm
+     * can borrow a persona and still change one knob, which is what makes "this persona but hotter"
+     * expressible as a variant instead of a second persona.
+     */
+    const variantPersona = variant.personaId
+      ? personas.find((p) => p.id === variant.personaId) ?? null
+      : null;
+    const resolvedForVariant = resolveConfig(profile, variantPersona, variant.overrides);
+    if (resolvedForVariant.systemPrompt) {
+      // The agent loop reads the prompt from the bag, unlike chat which composes it into a message.
+      resolvedForVariant.overrides.systemPrompt = resolvedForVariant.systemPrompt;
+    }
     // A variant override beats the task's language, which beats the suite default — the variant is
     // the thing under test, so it has to be able to make the language the axis.
     const language = variant.overrides.language ?? task.language ?? experiment.language;
@@ -404,8 +425,11 @@ export class ExperimentService {
               label: variant.label,
               step: agentStep,
             }),
-            overrides: effectiveOverrides(profile, variant.overrides),
-            fromProfile: keysFromProfile(profile, variant.overrides),
+            overrides: resolvedForVariant.overrides,
+            fromProfile: resolvedForVariant.from.profile,
+            ...(resolvedForVariant.from.persona.length
+              ? { fromPersona: resolvedForVariant.from.persona }
+              : {}),
             memoryContext,
             sandbox: {
               exec: (command) => this.workspaces.exec(runId, command),

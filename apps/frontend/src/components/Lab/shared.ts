@@ -61,8 +61,25 @@ export const median = (ns: number[]) => {
 
 export interface Tally {
   runs: number; verified: number; claimed: number; errored: number;
+  /** Runs that got a fair attempt — the denominator every rate here is shown over. */
+  attempted: number;
   steps: number; tokens: number; ms: number;
 }
+
+/**
+ * A run that never got a fair attempt.
+ *
+ * ── DUPLICATED, KNOWINGLY ──
+ * This mirrors `classifyOutcome`'s `broken` case in `apps/backend/src/lib/run-outcome.ts`, which is
+ * the source of truth. It cannot be imported: the shared package is types-only by design, and that
+ * constraint is what keeps it free of a build step. So the rule lives in two places and they can
+ * drift — if this ever disagrees with the backend, the backend is right.
+ *
+ * Zero steps AND zero tokens means no turn ever completed. A genuine attempt that failed instantly
+ * still spends a turn, so a fast wrong answer cannot land here.
+ */
+const isBroken = (r: ResultSummary): boolean =>
+  Boolean(r.error) || (r.steps === 0 && r.tokensUsed === 0);
 
 /**
  * One cell's worth of arithmetic.
@@ -74,11 +91,13 @@ export interface Tally {
 // full record without either side needing to know which it has.
 export const tally = (runs: ResultSummary[]): Tally => {
   const measured = runs.filter((r) => !r.error);
+  const fair = runs.filter((r) => !isBroken(r));
   return {
     runs: runs.length,
     verified: runs.filter((r) => r.verified).length,
     claimed: runs.filter((r) => r.succeeded).length,
     errored: runs.length - measured.length,
+    attempted: fair.length,
     steps: median(measured.map((r) => r.steps)),
     tokens: median(measured.map((r) => r.tokensUsed)),
     ms: median(measured.map((r) => r.durationMs)),
@@ -95,6 +114,7 @@ export const tally = (runs: ResultSummary[]): Tally => {
  *
  * `verified` leads and `claimed` sits beside it throughout, because the interesting outcome is when
  * they disagree — that is a run the agent called a success on work that never happened.
+ */
 
 /** Group headings for the registry's `group` field. */
 export const GROUP_LABEL: Record<string, string> = {

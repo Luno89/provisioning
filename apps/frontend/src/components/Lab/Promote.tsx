@@ -96,7 +96,14 @@ export function PromoteConfirm({
     <div className="bg-[var(--bark-900)]/70 border border-[var(--bark-600)] rounded-lg p-3 my-2">
       <p className="text-[11px] text-slate-400 mb-2">
         Adopt <span className="font-mono text-slate-200">{label}</span> as the default — verified{' '}
-        {standing.verified}/{standing.runs} across {standing.tasks} task{standing.tasks > 1 ? 's' : ''}.
+        {standing.verified}/{standing.attempted} across {standing.tasks} task{standing.tasks > 1 ? 's' : ''}
+        {standing.broken ? (
+          // Said before adopting, not after: a configuration promoted on two surviving runs out of
+          // ten is a different claim from one promoted on ten.
+          <span className="text-amber-400">
+            {` — ${standing.broken} of ${standing.runs} run${standing.runs === 1 ? '' : 's'} never completed`}
+          </span>
+        ) : null}.
         {!standing.wasBest && (
           <span className="text-amber-400">
             {' '}It placed {standing.rank}, behind the best by {Math.round(standing.behindBy * 100)}

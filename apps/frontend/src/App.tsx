@@ -314,14 +314,14 @@ function App() {
     tabbyHfToken: '',
     tabbyImageTag: 'latest',
     tabbyCacheMode: 'Q8',
-    tabbyMaxSeqLen: '262144',
+    tabbyMaxSeqLen: '32768',
     tabbyMaxBatchSize: '',
     tabbyReasoning: true,
     tabbyToolFormat: 'qwen3_coder',
-    tabbyInlineModelLoading: true,
+    tabbyInlineModelLoading: false,
     tabbyDisableAuth: true,
-    tabbyMemoryLimit: '32G',
-    tabbyShmSize: '16Gi',
+    tabbyMemoryLimit: '',
+    tabbyShmSize: '',
     tabbyCpuLimit: '10',
     tabbyExtraEnv: '',
     openWebuiTargetId: '',
@@ -1184,7 +1184,7 @@ function App() {
 
         {view === 'apps' && (
           <section>
-            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, tabbyModel: 'turboderp/Qwen3.6-27B-exl3', tabbyRevision: '', tabbyGpuCount: '2', tabbyHfToken: '', tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: '262144', tabbyMaxBatchSize: '', tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: true, tabbyDisableAuth: true, tabbyMemoryLimit: '32G', tabbyShmSize: '16Gi', tabbyCpuLimit: '10', tabbyExtraEnv: '', openWebuiTargetId: '', hermesTargetId: '', webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '', palworldPlayers: '16' }); setShowVllmAdvanced(false); setShowTabbyAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
+            <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Applications</h2><p className="text-slate-400">Deploy application instances.</p></div><button onClick={() => { setShowAppModal(true); setWizardStep(1); setWizardData({ name: 'Odoo-Production', clusterId: '', appType: 'odoo', strategy: 'native', odooRepo: 'library/odoo', odooTag: '18.0', pgRepo: 'library/postgres', pgTag: '16.4', modules: [], vpnEnabled: false, vpnProtocol: 'wireguard', vpnConfig: '', vpnDedicatedIp: '', vllmMaxModelLen: '', vllmGpuMemUtil: '', vllmExtraArgs: '', vllmToolCallingEnabled: false, vllmToolCallParser: '', vllmServedModelName: '', vllmMaxNumSeqs: '', vllmDtype: '', vllmEnablePrefixCaching: false, tabbyModel: 'turboderp/Qwen3.6-27B-exl3', tabbyRevision: '', tabbyGpuCount: '2', tabbyHfToken: '', tabbyImageTag: 'latest', tabbyCacheMode: 'Q8', tabbyMaxSeqLen: '32768', tabbyMaxBatchSize: '', tabbyReasoning: true, tabbyToolFormat: 'qwen3_coder', tabbyInlineModelLoading: false, tabbyDisableAuth: true, tabbyMemoryLimit: '', tabbyShmSize: '', tabbyCpuLimit: '10', tabbyExtraEnv: '', openWebuiTargetId: '', hermesTargetId: '', webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '', palworldPlayers: '16' }); setShowVllmAdvanced(false); setShowTabbyAdvanced(false); }} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Deploy App</button></header>
             <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden shadow-sm">
                <table className="w-full text-left">
                   <thead className="bg-slate-700/30 text-slate-400 text-[10px] uppercase tracking-widest font-bold"><tr><th className="px-8 py-4">App</th><th className="px-8 py-4">Cluster</th><th className="px-8 py-4">Strategy</th><th className="px-8 py-4">Status</th><th className="px-8 py-4 text-right">Actions</th></tr></thead>

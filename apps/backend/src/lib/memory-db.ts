@@ -1,3 +1,4 @@
+import type { Persona } from '@koala/harness-types';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
@@ -21,6 +22,7 @@ export class MemoryDB implements Database {
   private giteaAccounts: GiteaAccount[] = [];
   private experiments: Experiment[] = [];
   private harnessProfiles: HarnessProfile[] = [];
+  private personas: Persona[] = [];
   private memories: MemoryItem[] = [];
   private customTools: ToolRepositoryItem[] = [];
 
@@ -317,6 +319,20 @@ export class MemoryDB implements Database {
 
   async deleteExperiment(id: string): Promise<void> {
     this.experiments = this.experiments.filter((e) => e.id !== id);
+  }
+
+  async getPersonas(): Promise<Persona[]> {
+    return this.personas;
+  }
+
+  async savePersona(persona: Persona): Promise<void> {
+    const i = this.personas.findIndex((p) => p.id === persona.id);
+    if (i >= 0) this.personas[i] = persona;
+    else this.personas.push(persona);
+  }
+
+  async deletePersona(id: string): Promise<void> {
+    this.personas = this.personas.filter((p) => p.id !== id);
   }
 
   async getHarnessProfile(ownerId: string): Promise<HarnessProfile | null> {

@@ -84,6 +84,20 @@ export interface Leaf {
    */
   blocking: boolean;
 
+  /**
+   * Leaves that must SUCCEED before this one may start. Sibling ordering, not hierarchy.
+   *
+   * `parentLeafId` already expresses "this is part of that", and `blocking` expresses "the parent
+   * waits" — but neither orders siblings, so a five-step plan fanned out and every step after the
+   * first woke in an empty sandbox looking for work the previous one had done. Measured live:
+   * "Create base GitHub API client" succeeded for 45,488 tokens, its sandbox was destroyed, and
+   * the four leaves that depended on it each spent all 24 steps rebuilding it from nothing.
+   *
+   * A dependency is about ORDER, not about state transfer: sharing the work itself is what
+   * `projectId` and the git checkout are for. Ordering without shared state just fails later.
+   */
+  dependsOn?: string[];
+
   personaId?: string;
   /**
    * Which sandbox image this leaf's work runs in.
@@ -407,4 +421,65 @@ export function trimTranscript(messages: BranchMessage[]): BranchMessage[] {
   return recent.map((m, i) =>
     i >= keepReasoningFrom ? m : (({ reasoning: _drop, ...rest }) => rest)(m),
   );
+}
+
+/* ── dependency ordering ──────────────────────────────────────────────────── */
+
+/**
+ * Whether every leaf this one waits on has succeeded.
+ *
+ * ── A DANGLING DEPENDENCY COUNTS AS MET ──
+ * An id that resolves to nothing means the leaf it named was deleted, and there is no future in
+ * which it succeeds. Treating that as unmet would strand the dependent forever with no way to
+ * clear it by hand; treating it as met costs an ordering guarantee that was already lost when the
+ * dependency was removed. The failure is loud either way, and this one is recoverable.
+ *
+ * A FAILED dependency is a different matter and is genuinely unmet: the work is still expected,
+ * it just has not happened yet, and a retry can still satisfy it.
+ */
+export function dependenciesMet(leaf: Pick<Leaf, 'dependsOn'>, all: Leaf[]): boolean {
+  return (leaf.dependsOn ?? []).every((id) => {
+    const dep = all.find((l) => l.id === id);
+    return !dep || dep.status === 'succeeded';
+  });
+}
+
+/** The leaves actually holding this one up, for saying so rather than showing a silent queue. */
+export function blockedBy(leaf: Pick<Leaf, 'dependsOn'>, all: Leaf[]): Leaf[] {
+  return (leaf.dependsOn ?? [])
+    .map((id) => all.find((l) => l.id === id))
+    .filter((d): d is Leaf => d !== undefined && d.status !== 'succeeded');
+}
+
+/**
+ * Accepted leaves whose turn has come — nothing started them yet and nothing is holding them back.
+ *
+ * `pending` is the resting state for a gated leaf rather than a new status: it already means
+ * "accepted, not yet running", which is exactly true of one waiting its turn. A leaf that has a
+ * workflow has already been started and must never be started twice.
+ */
+export function readyToStart(all: Leaf[]): Leaf[] {
+  return all.filter((l) => l.status === 'pending' && !l.workflowId && dependenciesMet(l, all));
+}
+
+/**
+ * Whether adding these dependencies to `leafId` would close a cycle.
+ *
+ * Refused at proposal time rather than detected later: a cycle does not fail, it simply means
+ * every leaf in it waits forever, which is indistinguishable from work that is merely slow.
+ */
+export function wouldCycle(leafId: string, dependsOn: string[], all: Leaf[]): boolean {
+  const edges = new Map(all.map((l) => [l.id, l.dependsOn ?? []]));
+  edges.set(leafId, dependsOn);
+
+  const seen = new Set<string>();
+  const stack = [...dependsOn];
+  while (stack.length) {
+    const next = stack.pop()!;
+    if (next === leafId) return true;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    stack.push(...(edges.get(next) ?? []));
+  }
+  return false;
 }

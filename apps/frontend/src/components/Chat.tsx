@@ -90,6 +90,8 @@ export default function Chat({
 }) {
   const [input, setInput] = useState('');
   const [modelId, setModelId] = useState('');
+  // Empty means nobody in particular, which is the default and a real choice — not a missing one.
+  const [personaId, setPersonaId] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -112,6 +114,11 @@ export default function Chat({
     queryKey: ['models'],
     queryFn: () => axios.get(`${apiBase}/models`, { withCredentials: true }).then((r) => r.data),
     refetchInterval: 30000,
+  });
+
+  const { data: personas } = useQuery<{ id: string; name: string; description?: string }[]>({
+    queryKey: ['personas'],
+    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
   });
 
   const addEndpoint = useMutation({
@@ -271,6 +278,8 @@ export default function Chat({
           stream: true,
           branchId,
           mode: activeMode,
+          // Omitted rather than sent empty: the route 404s an unknown persona, and "" is not one.
+          ...(personaId ? { personaId } : {}),
           temperature,
           frequency_penalty: frequencyPenalty,
           presence_penalty: presencePenalty,
@@ -415,6 +424,20 @@ export default function Chat({
           <Sliders size={14} />
           <span>Tunables</span>
         </button>
+
+        {personas && personas.length > 0 && (
+          <select
+            value={personaId}
+            onChange={(e) => setPersonaId(e.target.value)}
+            title="Who answers — a named prompt and sampling configuration"
+            className="bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
+          >
+            <option value="">No persona</option>
+            {personas.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        )}
 
         <select
           value={modelId}

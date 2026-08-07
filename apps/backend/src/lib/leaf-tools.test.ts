@@ -151,3 +151,28 @@ describe('LEAF_TOOLS', () => {
     expect((propose.function.parameters as { required?: string[] }).required).toEqual(['title']);
   });
 });
+
+describe('dependency ordering in the tool schema', () => {
+  const propose = LEAF_TOOLS.find((t) => t.function.name === 'propose_leaf')!;
+
+  it('lets a proposal say what it must follow', () => {
+    // Without this the model has no way to express order at all, so a five-step plan fans out and
+    // every step after the first runs against an empty sandbox.
+    const dep = (propose.function.parameters as any).properties.dependsOn;
+    expect(dep).toBeDefined();
+    expect(dep.type).toBe('array');
+    expect(dep.items.type).toBe('string');
+  });
+
+  it('asks for titles, not ids, and says why in the description', () => {
+    // The model proposes several leaves in one turn and cannot know the ids of the ones it just
+    // created — asking for ids would get guesses.
+    const dep = (propose.function.parameters as any).properties.dependsOn;
+    expect(dep.description).toMatch(/titles/i);
+    expect(dep.description).not.toMatch(/\bids\b/i);
+  });
+
+  it('stays optional, so ordinary independent work needs no ceremony', () => {
+    expect((propose.function.parameters as any).required).toEqual(['title']);
+  });
+});

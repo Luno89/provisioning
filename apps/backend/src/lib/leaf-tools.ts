@@ -84,6 +84,20 @@ export const LEAF_TOOLS = [
           title: { type: 'string', description: 'Short imperative title, e.g. "Add a rate limit to /api/chat".' },
           body: { type: 'string', description: 'What doing this involves, in one or two sentences.' },
           parentLeafId: { type: 'string', description: 'Optional — the leaf this is a sub-item of.' },
+          /**
+           * Titles rather than ids, because the model is proposing several leaves in one turn and
+           * does not yet know the ids of the ones it created moments ago. Resolved server-side
+           * against this branch.
+           */
+          dependsOn: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Optional — titles of leaves on this branch that must FINISH before this one starts. '
+              + 'Use it whenever this work builds on another leaf\'s output: without it every leaf '
+              + 'starts at the same time in its own empty sandbox, and later steps find nothing to '
+              + 'build on. Give the titles exactly as you proposed them.',
+          },
           language: LANGUAGE_PARAM,
         },
         required: ['title'],

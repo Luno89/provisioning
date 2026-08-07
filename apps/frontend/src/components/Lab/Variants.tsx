@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ExpandableText } from './ExpandableText';
 import { useMutation } from '@tanstack/react-query';
 import axios from 'axios';
@@ -27,22 +28,44 @@ export function VariantPanel({
 }) {
   // No disclosure of its own: this is a tab, so its content has already been chosen.
   const [shown, setShown] = useState<string | null>(null);
+  const { data: personas } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['personas'],
+    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
+  });
   const [draft, setDraft] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [error, setError] = useState('');
 
   const save = useMutation({
     mutationFn: () => axios.put(
       `${apiBase}/harness/experiments/${experiment.id}`,
-      { variants: experiment.variants.map((v) => ({ label: v.label, overrides: draft?.[v.label] ?? v.overrides })) },
+      {
+        variants: experiment.variants.map((v) => ({
+          label: v.label,
+          overrides: draft?.[v.label] ?? v.overrides,
+          ...(personaFor(v.label) ? { personaId: personaFor(v.label) } : {}),
+        })),
+      },
       { withCredentials: true },
     ),
-    onSuccess: () => { setDraft(null); setError(''); onSaved(); },
+    onSuccess: () => { setDraft(null); setPersonaDraft(null); setError(''); onSaved(); },
     onError: (err: unknown) => setError(errorMessage(err)),
   });
+
+  /**
+   * Which persona an arm runs as, draft-aware.
+   *
+   * Held beside the override draft rather than inside it: a persona is not a knob, and folding it
+   * into the bag would put it through `validateOverrides`, which would reject an id it has never
+   * heard of — correctly, since it is not a tunable.
+   */
+  const [personaDraft, setPersonaDraft] = useState<Record<string, string> | null>(null);
+  const personaFor = (label: string) =>
+    personaDraft?.[label] ?? experiment.variants.find((v) => v.label === label)?.personaId ?? '';
 
   const editing = draft !== null;
   const beginEdit = () => {
     setDraft(Object.fromEntries(experiment.variants.map((v) => [v.label, { ...v.overrides }])));
+    setPersonaDraft(Object.fromEntries(experiment.variants.map((v) => [v.label, v.personaId ?? ''])));
     setError('');
   };
   const overridesFor = (label: string) =>
@@ -92,6 +115,31 @@ export function VariantPanel({
 
                 {isOpen && (
                   <div className="mt-2 space-y-3">
+                    {(personas?.length ?? 0) > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-slate-400 min-w-[150px]">runs as</span>
+                        {editing ? (
+                          <select
+                            className={field}
+                            value={personaFor(v.label)}
+                            onChange={(e) => setPersonaDraft((d) => ({ ...(d ?? {}), [v.label]: e.target.value }))}
+                          >
+                            <option value="">— no persona —</option>
+                            {(personas ?? []).map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-[10px] font-mono text-[var(--leaf-light)]">
+                            {(personas ?? []).find((p) => p.id === personaFor(v.label))?.name ?? '—'}
+                          </span>
+                        )}
+                        <span className="ml-auto text-[9px] text-slate-600">
+                          {/* The point of pointing arms at personas: it is how you compare them. */}
+                          resolved under this arm's own knobs
+                        </span>
+                      </div>
+                    )}
                     {['prompt', 'sampling', 'loop'].map((group) => {
                       const rows = tunables.filter((t) => t.group === group);
                       if (!rows.length) return null;
@@ -143,7 +191,10 @@ export function VariantPanel({
               >
                 Save variants
               </button>
-              <button onClick={() => setDraft(null)} className="text-[12px] text-slate-500 hover:text-slate-300">
+              <button
+                onClick={() => { setDraft(null); setPersonaDraft(null); }}
+                className="text-[12px] text-slate-500 hover:text-slate-300"
+              >
                 Cancel
               </button>
               <span className="text-[11px] text-slate-500">

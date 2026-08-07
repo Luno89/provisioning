@@ -1,3 +1,4 @@
+import type { Persona } from '@koala/harness-types';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
@@ -65,6 +66,10 @@ export class MongoDB implements Database {
 
   private get experiments(): Collection {
     return this.db!.collection('experiments');
+  }
+
+  private get personas(): Collection {
+    return this.db!.collection('personas');
   }
 
   private get harnessProfiles(): Collection {
@@ -398,6 +403,22 @@ export class MongoDB implements Database {
 
   async deleteExperiment(id: string): Promise<void> {
     await this.experiments.deleteOne({ _id: id as any });
+  }
+
+  /** Keyed by its own id, unlike the profile: a user has several personas, not one. */
+  async getPersonas(): Promise<Persona[]> {
+    return (await this.personas.find({}).toArray()).map(doc => fromDoc<Persona>(doc));
+  }
+
+  async savePersona(persona: Persona): Promise<void> {
+    const doc = toDoc(persona);
+    const id = doc._id;
+    delete (doc as any)._id;
+    await this.personas.replaceOne({ _id: id }, doc, { upsert: true });
+  }
+
+  async deletePersona(id: string): Promise<void> {
+    await this.personas.deleteOne({ _id: id as any });
   }
 
   /** Keyed by ownerId, like the Gitea account above — one profile in force per user. */

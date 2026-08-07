@@ -103,7 +103,15 @@ export function standingOf(experiment: Experiment, label: string): PromotionStan
   const mine = summaries.find((s) => s.label === label);
   if (!mine) return null;
 
-  const rate = (s: { verified: number; runs: number }) => (s.runs ? s.verified / s.runs : 0);
+  /**
+   * Over ATTEMPTED, not over every run.
+   *
+   * This function already said it ranks by rate "because variants can differ in run count when one
+   * errored" — and then divided by the total, so a variant the harness killed ranked below one that
+   * genuinely lost. Promotion decides what every later run inherits, so it is the worst place for a
+   * denominator that counts an outage against an arm.
+   */
+  const rate = (s: { verified: number; attempted: number }) => (s.attempted ? s.verified / s.attempted : 0);
   const best = Math.max(...summaries.map(rate));
   // Rank by verified RATE, not count: variants can differ in run count when one errored.
   const rank = summaries.filter((s) => rate(s) > rate(mine)).length + 1;
@@ -112,6 +120,8 @@ export function standingOf(experiment: Experiment, label: string): PromotionStan
     label,
     verified: mine.verified,
     runs: mine.runs,
+    attempted: mine.attempted,
+    broken: mine.outcomes.broken,
     tasks: experimentTasks(experiment).length,
     rank,
     wasBest: rate(mine) >= best,

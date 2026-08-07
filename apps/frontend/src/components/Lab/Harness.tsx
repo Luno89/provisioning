@@ -11,6 +11,7 @@ import axios from 'axios';
 import { ChevronRight, ChevronDown, Download, Upload, Save, RefreshCw, CheckCircle2, Sliders } from 'lucide-react';
 import { card, describeValue, describeTunable, type HarnessConfig, type HarnessProfile, errorMessage } from './shared';
 import { ProfileBanner } from './Promote';
+import { Personas } from './Personas';
 
 export function Harness({
   apiBase, config, profile, onProfileChanged, onImported,
@@ -210,6 +211,9 @@ export function Harness({
           </div>
         </div>
       </section>
+
+      {/* ── the configurations you can choose between, above the one everybody gets ── */}
+      <Personas apiBase={apiBase} config={config} />
 
       {/* ── built-in settings, each with the failure that set it ── */}
       <section>

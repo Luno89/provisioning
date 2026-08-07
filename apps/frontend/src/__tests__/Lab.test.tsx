@@ -112,7 +112,7 @@ const run = (taskId: string, label: string, verified: boolean, over: Record<stri
   result({ taskId, label, verified, succeeded: verified, ...over });
 
 const preview = {
-  standing: { label: 'think=true', verified: 4, runs: 4, tasks: 2, rank: 1, wasBest: true, behindBy: 0, medianTokens: 5000 },
+  standing: { label: 'think=true', verified: 4, runs: 4, attempted: 4, broken: 0, tasks: 2, rank: 1, wasBest: true, behindBy: 0, medianTokens: 5000 },
   changes: [{ key: 'think', label: 'Reasoning on dispatch turns', from: undefined, to: true }],
 };
 
@@ -234,7 +234,9 @@ describe('results', () => {
   it('shows a run that could not complete as an error, not a failed task', async () => {
     mockApi([experiment({ results: [result({ error: 'Model call failed (502)', succeeded: false, verified: false })] })]);
     renderLab();
-    fireEvent.click(await screen.findByTitle(/think=false — 0 of 1 verified/));
+    // No longer scored as a failed task: the cell says it never completed, which is the whole
+    // point of the test's name and was not previously what it showed.
+    fireEvent.click(await screen.findByTitle(/think=false — 1 run never completed/));
     await waitFor(() => expect(screen.getByText(/Model call failed \(502\)/)).toBeInTheDocument());
   });
 });
@@ -322,7 +324,7 @@ describe('promoting a winning configuration', () => {
   it('warns when the variant did not win, since adopting a loser must be deliberate', async () => {
     mockApi([experiment({ results: [result()] })], {
       preview: {
-        standing: { label: 'a', verified: 1, runs: 4, tasks: 2, rank: 2, wasBest: false, behindBy: 0.5, medianTokens: 100 },
+        standing: { label: 'a', verified: 1, runs: 4, attempted: 4, broken: 0, tasks: 2, rank: 2, wasBest: false, behindBy: 0.5, medianTokens: 100 },
         changes: [{ key: 'think', label: 'Reasoning on dispatch turns', from: true, to: false }],
       },
     });
@@ -1332,8 +1334,8 @@ describe('hover descriptions on options', () => {
 describe('run history', () => {
   const hist = (over: Record<string, unknown> = {}) => experiment({
     history: [
-      { id: 'r1', startedAt: '2026-08-04T09:00:00Z', status: 'complete', model: 'qwen3', verified: 1, runs: 3 },
-      { id: 'r2', startedAt: '2026-08-04T14:00:00Z', status: 'complete', model: 'qwen3', verified: 3, runs: 3 },
+      { id: 'r1', startedAt: '2026-08-04T09:00:00Z', status: 'complete', model: 'qwen3', verified: 1, runs: 3, attempted: 3, broken: 0 },
+      { id: 'r2', startedAt: '2026-08-04T14:00:00Z', status: 'complete', model: 'qwen3', verified: 3, runs: 3, attempted: 3, broken: 0 },
     ],
     ...over,
   });
@@ -1357,7 +1359,7 @@ describe('run history', () => {
 
   it('shows no history panel for an experiment run only once', async () => {
     mockApi([experiment({ history: [
-      { id: 'r1', startedAt: '2026-08-04T09:00:00Z', status: 'complete', verified: 1, runs: 3 },
+      { id: 'r1', startedAt: '2026-08-04T09:00:00Z', status: 'complete', verified: 1, runs: 3, attempted: 3, broken: 0 },
     ] })]);
     renderLab();
     await screen.findByText('reasoning on/off');
@@ -1573,5 +1575,48 @@ describe('creating an experiment', () => {
     fireEvent.change(screen.getByDisplayValue('1 run per task'), { target: { value: '5' } });
     await waitFor(() => expect(screen.getByText(/10 × 2 × 5 is 100 sandboxes/)).toBeInTheDocument());
     expect(screen.getByText('Create')).toBeDisabled();
+  });
+});
+
+describe('scoring over fair attempts', () => {
+  const result = (over: any = {}) => ({
+    taskId: 't1', label: 'a', verified: false, succeeded: false,
+    steps: 5, tokensUsed: 1000, durationMs: 1000, verifyExitCode: 1, verifyOutput: '',
+    summary: '', transcript: [], ...over,
+  });
+
+  it('leaves runs that never executed out of the denominator', async () => {
+    // The reading that nearly stood: two passes and thirteen runs the model server died under,
+    // scored as 2/15. It is 2/2 — those thirteen are evidence about the harness, not the arm.
+    mockApi([experiment({
+      tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
+      variants: [{ label: 'a', overrides: {} }],
+      results: [
+        result({ verified: true, succeeded: true }),
+        result({ verified: true, succeeded: true }),
+        result({ steps: 0, tokensUsed: 0, error: 'fetch failed' }),
+        result({ steps: 0, tokensUsed: 0, error: 'fetch failed' }),
+      ],
+    })]);
+    renderLab();
+    await cardTab(/^Results/);
+
+    // Appears in both the suite total and the single matrix cell, which is why this counts rather
+    // than fetching one. The assertion that matters is the second: 2/4 must appear nowhere.
+    expect((await screen.findAllByText('2/2')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('2/4')).not.toBeInTheDocument();
+  });
+
+  it('still counts a genuine failure against the arm', async () => {
+    // Only INFRASTRUCTURE failures leave the denominator. A wrong answer is the arm's own.
+    mockApi([experiment({
+      tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
+      variants: [{ label: 'a', overrides: {} }],
+      results: [result({ verified: true, succeeded: true }), result({ verified: false, succeeded: true })],
+    })]);
+    renderLab();
+    await cardTab(/^Results/);
+
+    expect((await screen.findAllByText('1/2')).length).toBeGreaterThan(0);
   });
 });
