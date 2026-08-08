@@ -266,6 +266,52 @@ describe('runAgentLoop', () => {
   });
 });
 
+describe('the step budget the agent can see', () => {
+  const runner = (maxSteps: number) => {
+    const model = scriptedModel([{ tool_calls: [toolCall('exec', { command: 'ls' })] }]);
+    return { model, done: run(model, sandbox(), maxSteps) };
+  };
+
+  it('says nothing while there is plenty left', async () => {
+    // A counter on every turn is noise the model learns to skip. The number only changes a
+    // decision when there is barely any left.
+    const { model, done } = runner(10);
+    await done;
+
+    expect(toolMessageOf(model, 1).content).not.toMatch(/steps? left/i);
+  });
+
+  it('warns near the end, and says what to do about it', async () => {
+    /**
+     * The budget was stated once in the system prompt and never again, so an agent twenty steps in
+     * had no way to know where it was. The axe then falls with everything uncommitted — which is
+     * how one leaf spent three attempts and 91,818 tokens without getting past `mkdir`.
+     */
+    const { model, done } = runner(4);
+    const result = await done;
+
+    const warned = model.mock.calls
+      .map((c: any) => JSON.parse(c[1].body).messages.filter((m: any) => m.role === 'tool'))
+      .flat()
+      .filter((m: any) => /steps? left/i.test(m.content));
+
+    expect(warned.length).toBeGreaterThan(0);
+    expect(warned[0].content).toMatch(/commit and push/i);
+    expect(result.succeeded).toBe(false);
+  });
+
+  it('attaches the warning to a tool result rather than spending a step on it', async () => {
+    // An extra turn would cost a step, which is a perverse way to warn someone about running out.
+    const { model, done } = runner(4);
+    await done;
+
+    const bodies = model.mock.calls.map((c: any) => JSON.parse(c[1].body));
+    const extraUserTurns = bodies[bodies.length - 1].messages
+      .filter((m: any) => m.role === 'user' && /steps? left/i.test(m.content ?? ''));
+    expect(extraUserTurns).toEqual([]);
+  });
+});
+
 describe('the stored conversation', () => {
   it('is the array the request was built from, not a reconstruction', async () => {
     // The trace clips tool results to 1,200 characters while the model was sent up to 8,000 — so

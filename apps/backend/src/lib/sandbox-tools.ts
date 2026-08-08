@@ -15,6 +15,14 @@ import { describeSandbox, type WorkspaceLanguage, imageForLanguage } from './wor
  *  command, so this bounds both spend and wall-clock. */
 export const MAX_AGENT_STEPS = 24;
 
+/**
+ * How close to the cap the agent starts being warned.
+ *
+ * Enough room to commit and push (two commands) and still call `finish`, with one spare for the
+ * command that fails first time. Warning earlier trains the model to ignore it.
+ */
+export const WRAPUP_STEPS = 4;
+
 /** Tool results are fed back into context and billed by the token. */
 export const MAX_TOOL_RESULT_CHARS = 8_000;
 
@@ -96,7 +104,19 @@ export const SANDBOX_TOOLS = [
  * that works and one that discovers the sandbox has no network. `describeSandbox` generates it from
  * the same constants the pod is built from, so it cannot drift from reality.
  */
-export function buildAgentPrompt(language: WorkspaceLanguage | undefined, taskContext: string): string {
+export function buildAgentPrompt(
+  language: WorkspaceLanguage | undefined,
+  taskContext: string,
+  /**
+   * The cap the LOOP will actually enforce, not the shipped constant.
+   *
+   * These were two different numbers. The prompt hardcoded MAX_AGENT_STEPS while the loop ran on
+   * `maxSteps`, which `overrides.maxSteps` can change — so raising the cap told the agent nothing
+   * and it kept budgeting for 24. The same shape as every other bug in this codebase where one
+   * value was stated in two places: it typechecks, it runs, and the two quietly disagree.
+   */
+  maxSteps: number = MAX_AGENT_STEPS,
+): string {
   return [
     'You are completing one piece of work inside a sandboxed container. You have shell access and',
     'can read and write files. Work autonomously — nobody is available to answer questions.',
@@ -107,7 +127,8 @@ export function buildAgentPrompt(language: WorkspaceLanguage | undefined, taskCo
     '- Look before you edit: list the directory and read a file rather than assuming its contents.',
     '- Verify your work by running it. A task is not done because the code looks right.',
     '- Call `finish` when done, or when genuinely stuck. Do not stop responding without calling it.',
-    `- You have at most ${MAX_AGENT_STEPS} steps. Spend them on the task, not on exploring.`,
+    `- You have at most ${maxSteps} steps. Spend them on the task, not on exploring.`,
+    '- Commit and push as you go. Work that is only in the container is lost if you run out of steps.',
     '',
     'YOUR TASK',
     taskContext,

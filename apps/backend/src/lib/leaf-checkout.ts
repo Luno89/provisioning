@@ -167,3 +167,37 @@ export function parsePushedBranch(stdout: string): string | undefined {
   const match = /^PUSHED:(\S+)$/m.exec(stdout);
   return match?.[1];
 }
+
+/**
+ * What the attempt actually left behind, for the next attempt to read.
+ *
+ * The failure recorded on a leaf was the loop's own summary — "Ran out of steps (24) without
+ * calling finish. Last commands: mkdir | write | git status". That tells a retry what the previous
+ * attempt TYPED and nothing about what it ACHIEVED, which is the only thing that decides whether to
+ * continue or start over. Now that the repository survives a failure, the retry needs to be told
+ * what is in it.
+ */
+export function buildRepoStateScript(): string {
+  return [
+    'cd /work/repo 2>/dev/null || exit 0',
+    'echo "COMMITS:"',
+    'git log --oneline -5 2>/dev/null || true',
+    'echo "TRACKED FILES:"',
+    // Names only, capped: a file listing is orientation, not content, and the whole thing is going
+    // into a prompt.
+    'git ls-files 2>/dev/null | head -40 || true',
+    'echo "UNCOMMITTED:"',
+    'git status --short 2>/dev/null | head -20 || true',
+  ].join('\n');
+}
+
+/** Trims the repo-state output to something worth putting in a prompt. */
+export function summariseRepoState(stdout: string): string {
+  const text = stdout.trim();
+  if (!text) return '';
+  // A repo with no commits and no files says nothing useful — and saying "the repo is empty" is
+  // better than a wall of empty headings.
+  const bare = text.replace(/COMMITS:|TRACKED FILES:|UNCOMMITTED:/g, '').trim();
+  if (!bare) return 'The repository is still empty — nothing was committed.';
+  return text.slice(0, 1500);
+}

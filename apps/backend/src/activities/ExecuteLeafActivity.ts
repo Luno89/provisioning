@@ -36,6 +36,7 @@ import type { ProjectMetadata } from '../lib/types.js';
 import { resolveLeafProject } from '../lib/leaf-project.js';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
+  buildRepoStateScript, summariseRepoState,
 } from '../lib/leaf-checkout.js';
 
 export interface ExecuteLeafArgs {
@@ -325,6 +326,18 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * than corrupting anything.
            */
           const partial = await pushBack();
+          /**
+           * What the attempt LEFT, not what it typed.
+           *
+           * The loop's summary reports the last three shell commands, which tells the retry
+           * nothing about whether there is anything to build on. Read after the push so it
+           * describes the state the next attempt will actually clone.
+           */
+          const state = checkout
+            ? await workspaces.exec(leaf.id, buildRepoStateScript(), 60_000)
+                .then((r) => summariseRepoState(r.stdout))
+                .catch(() => '')
+            : '';
           await db.saveLeaf({
             ...leaf,
             usage: spent,
@@ -334,11 +347,11 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           });
           // Thrown so the failure lands in the catch below, which is the ONE place that records an
           // attempt. A second recording path is how histories end up inconsistent.
-          throw new Error(
-            partial
-              ? `${run.summary} (work so far is committed on ${partial} and will be there next attempt)`
-              : run.summary,
-          );
+          throw new Error([
+            run.summary,
+            ...(partial ? [`Work so far is committed on ${partial} and will be waiting at /work/repo next attempt.`] : []),
+            ...(state ? [`State of the repository when this attempt ended:\n${state}`] : []),
+          ].join('\n\n'));
         }
 
         const outputBranch = await pushBack();

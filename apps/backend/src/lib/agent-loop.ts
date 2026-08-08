@@ -23,6 +23,7 @@ import {
   MAX_TOOL_RESULT_CHARS,
   buildAgentPrompt,
   clampToolResult,
+  WRAPUP_STEPS,
 } from './sandbox-tools.js';
 import { parseToolArguments, ToolCallScanner } from './leaf-tools.js';
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
@@ -182,7 +183,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     ? overrides.extraInstructions
     : '';
   const systemPrompt = [
-    custom || buildAgentPrompt(opts.language, opts.taskContext),
+    custom || buildAgentPrompt(opts.language, opts.taskContext, maxSteps),
     ...(custom ? ['', 'YOUR TASK', opts.taskContext] : []),
     ...(extra ? ['', extra] : []),
     ...(memoryContext ? ['', memoryContext] : []),
@@ -369,6 +370,27 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
         name,
         content: clampToolResult(result, toolResultCap),
       });
+    }
+
+    /**
+     * ── THE AGENT HAS TO KNOW WHERE IT IS ──
+     *
+     * The budget was stated once, in the system prompt, and never again — so an agent twenty steps
+     * in had no way to know it. The axe then falls mid-task with nothing committed, which is
+     * exactly how one leaf spent three attempts and 91,818 tokens without ever getting past
+     * `mkdir` and `write package.json`.
+     *
+     * Attached to a tool result rather than sent as its own message: an extra turn would cost a
+     * step, which is a perverse way to warn someone they are running out of steps.
+     *
+     * Silent until the end. A counter on every turn is noise the model learns to skip, and the
+     * only moment the number changes a decision is when there is barely any left.
+     */
+    const remaining = maxSteps - (step + 1);
+    if (remaining <= WRAPUP_STEPS && remaining > 0) {
+      const last = messages[messages.length - 1] as { content?: string };
+      last.content = `${last.content ?? ''}\n\n[${remaining} step${remaining === 1 ? '' : 's'} left of ${maxSteps}. `
+        + 'Commit and push what you have NOW, then call `finish` — anything uncommitted is lost.]';
     }
 
     // After the whole tool loop, so the step arrives complete with its results rather than as a
