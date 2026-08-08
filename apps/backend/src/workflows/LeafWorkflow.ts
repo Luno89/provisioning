@@ -12,11 +12,12 @@ import type { UpdateLeafArgs } from '../activities/UpdateLeafActivity.js';
 import type { ExecuteLeafArgs, ExecuteLeafResult } from '../activities/ExecuteLeafActivity.js';
 import type { LeafGateArgs, LeafGateResult, ReleaseDependentsResult } from '../activities/LeafGateActivity.js';
 import type { LandRequestArgs, LandRequestResult } from '../activities/LandRequestActivity.js';
+import type { ResolveLandingArgs, ResolveLandingResult } from '../activities/ResolveLandingActivity.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta } from '../lib/activity-timeouts.js';
+import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta } from '../lib/activity-timeouts.js';
 
 const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
   startToCloseTimeout: updateLeafActivityMeta.startToCloseTimeout,
@@ -63,6 +64,16 @@ const { ReleaseDependentsActivity } = proxyActivities<{ ReleaseDependentsActivit
  */
 const { LandRequestActivity } = proxyActivities<{ LandRequestActivity: (args: LandRequestArgs) => Promise<LandRequestResult> }>({
   startToCloseTimeout: landRequestActivityMeta.startToCloseTimeout,
+});
+
+/**
+ * The agent-assisted merge, run only when the plain one left work stuck. Retries are off: a
+ * conflict the agent could not resolve will not resolve differently on a second identical attempt,
+ * and each one costs a workspace and a model loop.
+ */
+const { ResolveLandingActivity } = proxyActivities<{ ResolveLandingActivity: (args: ResolveLandingArgs) => Promise<ResolveLandingResult> }>({
+  startToCloseTimeout: resolveLandingActivityMeta.startToCloseTimeout,
+  retry: { maximumAttempts: 1 },
 });
 
 export type WorkflowLeafColumn = 'todo' | 'in-progress' | 'review';
@@ -380,6 +391,9 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
    * rather than trying to identify the last leaf, which has no stable answer while dependents are
    * still being released.
    */
-  await LandRequestActivity({ leafId: args.leafId });
+  const landing = await LandRequestActivity({ leafId: args.leafId });
+  // Only when the mechanical merge left something behind. Every other exit path is a leaf that
+  // failed or was cancelled, where there is nothing verified to land.
+  if (landing.stuck.length > 0) await ResolveLandingActivity({ leafId: args.leafId });
   return { column, status, blockingChildren: blockingChildren.length };
 }

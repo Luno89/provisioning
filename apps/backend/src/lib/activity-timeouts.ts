@@ -32,3 +32,5 @@ export const checkLeafGateActivityMeta = { name: 'CheckLeafGateActivity', startT
 export const releaseDependentsActivityMeta = { name: 'ReleaseDependentsActivity', startToCloseTimeout: '2 minutes' } as const;
 // A handful of API merges, no workspace. Generous only because a big fan-out means more of them.
 export const landRequestActivityMeta = { name: 'LandRequestActivity', startToCloseTimeout: '5 minutes' } as const;
+// Runs an agent loop in a workspace, so it is a leaf-sized operation, not an API call.
+export const resolveLandingActivityMeta = { name: 'ResolveLandingActivity', startToCloseTimeout: '30 minutes' } as const;
