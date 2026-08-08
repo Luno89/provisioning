@@ -3363,7 +3363,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.post('/api/leaves', async (req, res) => {
     try {
       const user = (req as any).user;
-      const { title, body, branchId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget, proposed = false } = req.body ?? {};
+      const { title, body, branchId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget, proposed = false, dependsOn: rawDependsOn } = req.body ?? {};
       if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' });
       // `column` is untrusted JSON; the union type validates nothing here.
       if (!isLeafColumn(column)) {
@@ -3399,9 +3399,28 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         resolvedBranchId = parent.branchId;
       }
 
+      /**
+       * Dependencies were accepted by the type and dropped by this route.
+       *
+       * `dependsOn` is what makes a plan's steps run in order AND inherit each other's work (see
+       * lib/leaf-checkout.ts), and every leaf created through this route silently lost it —
+       * verified live: a leaf created with a dependency ran concurrently with the leaf it named.
+       * Only the chat proposal path ever set it, so the API said it supported ordering and did not.
+       */
+      const id = uuidv4();
+      const wanted = Array.isArray(rawDependsOn) ? rawDependsOn.map(String) : [];
+      // Scoped to leaves this user owns: an id in a request body is untrusted, and depending on
+      // another tenant's leaf would leak both its existence and its completion time.
+      const dependsOn = wanted.filter((d) => leaves.some((l) => l.id === d));
+      if (wouldCycle(id, dependsOn, leaves)) {
+        // Refused rather than dropped: a cycle does not fail, it waits forever, and every leaf in
+        // it looks like work that is merely slow.
+        return res.status(409).json({ error: 'Those dependencies would form a cycle — nothing in it could ever start.' });
+      }
+
       const now = new Date().toISOString();
       const leaf: Leaf = {
-        id: uuidv4(),
+        id,
         ownerId: user.id,
         branchId: resolvedBranchId,
         title: title.trim(),
@@ -3416,6 +3435,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ...(parentLeafId ? { parentLeafId: String(parentLeafId) } : {}),
         ...(personaId ? { personaId: String(personaId) } : {}),
         ...(projectId ? { projectId: String(projectId) } : {}),
+        ...(dependsOn.length ? { dependsOn } : {}),
         // Budgets live on the ROOT only: depth and fan-out caps alone still permit hundreds of
         // workspaces, so the ceiling has to cover the whole subtree.
         ...(!parentLeafId && budget ? { budget } : {}),
@@ -3425,6 +3445,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // A proposal gets no workflow at all — that is the entire point of the status. Nothing runs
       // and nothing is spent until someone accepts it, which the accept route handles.
       if (leaf.status === 'proposed') return res.status(201).json(leaf);
+
+      /**
+       * Gated the same way the accept route is.
+       *
+       * This route started the workflow unconditionally, so a leaf created with dependencies ran
+       * immediately alongside the leaf it was waiting for — verified live, both were `running` on
+       * the first poll. The gate existed in exactly one of the two places a leaf can be started
+       * from, which is indistinguishable from no gate for anything created directly.
+       *
+       * `pending` with no workflow is the resting state; the reconcile loop starts it when the
+       * last thing it waits on succeeds.
+       */
+      const waiting = blockedBy(leaf, leaves);
+      if (waiting.length > 0) {
+        return res.status(201).json({ ...leaf, waitingFor: waiting.map((w) => ({ id: w.id, title: w.title })) });
+      }
 
       // Start the workflow that backs this leaf, and tell the parent's workflow about it so the
       // child is a real Temporal child rather than just a row pointing at one. Both are

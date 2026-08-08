@@ -99,6 +99,16 @@ export interface Leaf {
   dependsOn?: string[];
 
   /**
+   * The branch this leaf pushed its work to, once the remote confirmed it.
+   *
+   * This is what makes `dependsOn` transfer state rather than only order it — a dependent leaf
+   * clones and starts from these. Set from `git ls-remote`, never from the agent's report: an
+   * outputBranch nothing can check out would strand every leaf that depends on it, which is worse
+   * than having none.
+   */
+  outputBranch?: string;
+
+  /**
    * What the agent reported when it finished — the leaf's actual output.
    *
    * Absent until now, which meant a leaf could run for two minutes, spend 144,000 tokens, report

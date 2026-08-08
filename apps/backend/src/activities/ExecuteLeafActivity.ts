@@ -31,6 +31,12 @@ import { imageForLanguage } from '../lib/workspace-spec.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { v4 as uuidv4 } from 'uuid';
+import type { ProjectMetadata } from '../lib/types.js';
+import { resolveLeafProject } from '../lib/leaf-project.js';
+import {
+  branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
+} from '../lib/leaf-checkout.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -79,7 +85,10 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
   const db = createDatabase();
   await db.init();
   try {
-    const leaf = (await db.getLeaves()).find((c: Leaf) => c.id === args.leafId);
+    // The whole list, not just this leaf: `baseBranchesFor` needs the dependencies' output
+    // branches to know where this leaf should start from.
+    const allLeaves = await db.getLeaves();
+    const leaf = allLeaves.find((c: Leaf) => c.id === args.leafId);
     // A leaf deleted mid-flight is a normal race, not an error — failing would only produce a
     // retry storm against a row that is never coming back.
     if (!leaf) return { leafId: args.leafId, tokensUsed: 0, summary: 'Leaf no longer exists' };
@@ -137,22 +146,43 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * Gitea namespace ONLY — so the token the sandbox holds has both a narrow scope (push to
        * this user's repos, nothing else) and nowhere to be exfiltrated to.
        */
-      const project = leaf.projectId
-        ? (await db.getProjects()).find((p) => p.id === leaf.projectId && p.ownerId === leaf.ownerId)
-        : undefined;
-
+      let branchName: string | undefined;
       let repos: ProjectRepoService | undefined;
       let checkout: { cloneUrl: string; tokenName: string; username: string } | undefined;
       let gitea0 = '';
-      if (project) {
-        const gitea = new GiteaService(
-          new InfrastructureService(),
-          process.env.JWT_SECRET ?? '',
-          process.env.MANAGEMENT_KUBECONFIG ?? '/tmp/kubeconfig-provisioning-lunorica',
-        );
-        repos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
+      /**
+       * Every leaf gets a repository now, not only one that was given a project.
+       *
+       * Opt-in persistence meant the DEFAULT path threw the work away: the sandbox is a pod, and
+       * when it is destroyed an uncommitted file goes with it while the leaf still reports success.
+       * Failing to provision is not fatal — the leaf runs without a repository, exactly as before,
+       * which is worse than persisting but better than not running.
+       */
+      const gitea = new GiteaService(
+        new InfrastructureService(),
+        process.env.JWT_SECRET ?? '',
+        process.env.MANAGEMENT_KUBECONFIG ?? '/tmp/kubeconfig-provisioning-lunorica',
+      );
+      let project: ProjectMetadata | undefined;
+      try {
+        const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
+        project = await resolveLeafProject({
+          db,
+          ensureAccount: (ownerId) => projectRepos.ensureAccountFor(ownerId),
+          repoExists: (username, name) => gitea.getRepo(username, name).then(() => true, () => false),
+          createRepo: (username, name) => gitea.createRepoForUser(username, name, {
+            description: `Koala request ${leaf.branchId.slice(0, 8)}`,
+          }).then(() => undefined),
+          newId: () => uuidv4(),
+        }, leaf);
+        repos = projectRepos;
         gitea0 = gitea.internalBaseUrl;
         checkout = await repos.checkoutCredential(leaf.ownerId, project);
+      } catch (err) {
+        console.warn(`[ExecuteLeafActivity] no repository for leaf ${leaf.id}, work will not persist: ${(err as Error).message}`);
+        project = undefined;
+        repos = undefined;
+        checkout = undefined;
       }
 
       const workspaces = new WorkspaceService(process.env.WORKSPACE_KUBECONFIG);
@@ -182,22 +212,24 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * scope (push to this user's repos, nothing else), the egress policy (Gitea is the only
            * reachable host, so there is nowhere to send it), and revocation at teardown.
            */
-          const branchName = `koala/${leaf.id.slice(0, 8)}`;
+          branchName = branchNameFor(leaf.id);
+          /**
+           * Starts from what this leaf's dependencies pushed, not from the default branch.
+           *
+           * The previous script cut a fresh branch straight off the clone, so a leaf ordered after
+           * another began with no trace of its work — `dependsOn` ordered the work and moved none
+           * of it. Measured: four dependents each spent their whole budget rebuilding a client
+           * their dependency had already written.
+           */
+          const baseBranches = baseBranchesFor(leaf, allLeaves);
           const cloned = await workspaces.exec(
             leaf.id,
-            [
-              'set -e',
-              'git clone "$0" /work/repo',
-              'cd /work/repo',
-              'git checkout -b "$1"',
-              'git config user.email koala@local',
-              'git config user.name Koala',
-              // Strip the credential out of .git/config and hand it to the store helper instead.
-              'git remote set-url origin "$2"',
-              'git config credential.helper store',
-              'printf "%s\\n" "$0" > "$HOME/.git-credentials"',
-              'chmod 600 "$HOME/.git-credentials"',
-            ].join('\n'),
+            buildCheckoutScript({
+              cloneUrl: checkout.cloneUrl,
+              cleanUrl: `${gitea0}/${project.giteaOwner}/${project.giteaRepo}.git`,
+              branch: branchName,
+              baseBranches,
+            }),
             180_000,
             [checkout.cloneUrl, branchName, `${gitea0}/${project.giteaOwner}/${project.giteaRepo}.git`],
           );
@@ -208,6 +240,11 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             context,
             '',
             `The repository ${project.giteaOwner}/${project.giteaRepo} is cloned at /work/repo, on a new branch "${branchName}".`,
+            // Said explicitly: the agent otherwise treats an unexpectedly populated repository as
+            // someone else's code to work around, and rewrites it from scratch anyway.
+            ...(baseBranches.length
+              ? [`It already contains the work of the leaves this one depends on (${baseBranches.join(', ')}). Build on what is there rather than starting over.`]
+              : []),
             'Work there. Commit your changes with git as you go. Do NOT change the git remote or credentials —',
             'they are already configured. When you are done, push with `git push -u origin HEAD`.',
           ].join('\n');
@@ -243,12 +280,35 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           throw new Error(run.summary);
         }
 
+        /**
+         * What actually reached the remote — asked of Gitea, not of the agent.
+         *
+         * Two distinct saves: an agent that commits and forgets to push leaves the work in a pod
+         * about to be destroyed, which is the original failure arriving one step later, so this
+         * pushes on its behalf. And `outputBranch` is recorded only when `git ls-remote` confirms
+         * the branch, because a branch name that cannot be checked out would strand every dependent
+         * leaf while looking exactly like a successful hand-off.
+         */
+        let outputBranch: string | undefined;
+        if (checkout && branchName) {
+          const pushed = await workspaces
+            .exec(leaf.id, buildPushScript(branchName), 120_000, [branchName])
+            .catch(() => undefined);
+          outputBranch = pushed ? parsePushedBranch(pushed.stdout) : undefined;
+          if (!outputBranch) {
+            console.warn(`[ExecuteLeafActivity] leaf ${leaf.id} pushed nothing to ${branchName}; dependents will start from the default branch`);
+          }
+        }
+
         const now = new Date().toISOString();
         // The summary is persisted, not just returned: a caller that reads the workflow result is
         // not the same as a board someone can look at.
         await db.saveLeaf({
           ...leaf, usage: spent, status: 'succeeded', column: 'review',
           ...(run.summary ? { summary: run.summary.slice(0, 8000) } : {}),
+          // Recorded so a later leaf can find the work, and so the board can link to it.
+          ...(project ? { projectId: project.id } : {}),
+          ...(outputBranch ? { outputBranch } : {}),
           updatedAt: now,
         });
         return { leafId: leaf.id, tokensUsed: run.tokensUsed, summary: run.summary };
