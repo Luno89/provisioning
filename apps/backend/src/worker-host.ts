@@ -10,6 +10,7 @@ import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
 import { UpdateLeafActivity } from './activities/UpdateLeafActivity.js';
 import { ExecuteLeafActivity } from './activities/ExecuteLeafActivity.js';
 import { CheckLeafGateActivity, ReleaseDependentsActivity } from './activities/LeafGateActivity.js';
+import { LandRequestActivity } from './activities/LandRequestActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 
@@ -70,6 +71,7 @@ async function main() {
           ExecuteLeafActivity,
           CheckLeafGateActivity,
           ReleaseDependentsActivity,
+          LandRequestActivity,
         },
       });
       break;

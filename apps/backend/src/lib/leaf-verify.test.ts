@@ -26,8 +26,12 @@ describe('what gets run', () => {
   it('finds tests at the root as well as under test/', () => {
     // Caught while backfilling: two repositories with green suites scored as unverified purely
     // because their test files sat beside the source instead of in a directory.
-    expect(defaultVerifyCommand('node')).toContain('*.test.js');
-    expect(defaultVerifyCommand('node')).toContain('test/*.test.js');
+    const cmd = defaultVerifyCommand('node')!;
+    expect(cmd).toContain('test/*.test.js');
+    expect(cmd).toContain('*.test.js');
+    // Separate invocations for the same reason as the guard: one empty pattern must not suppress
+    // the other's output.
+    expect(cmd).toContain(';');
   });
 
   it('has a command per toolchain, and none for the bare image', () => {
@@ -53,8 +57,20 @@ describe('the verify script', () => {
     // failing test — a leaf that simply is not test-shaped would be marked broken.
     const s = buildVerifyScript('node --test test/*.test.js', 'node');
 
-    expect(s).toContain('ls test/*.test.js *.test.js');
     expect(s).toContain('=127');
+  });
+
+  it('tests each layout separately, because ls fails on a missing operand', () => {
+    /**
+     * `ls a b` exits non-zero when EITHER operand is missing, even when the other matched. A single
+     * `ls test/*.test.js *.test.js` therefore reported "no suite" for every repository keeping its
+     * tests in test/ — caught live, two leaves with green suites came back unverified and fell
+     * through to trusting the agent's claim.
+     */
+    const s = buildVerifyScript('x', 'node');
+
+    expect(s).toContain('ls test/*.test.js >/dev/null 2>&1 || ls *.test.js >/dev/null 2>&1');
+    expect(s).not.toContain('ls test/*.test.js *.test.js');
   });
 
   it('runs inside the repository', () => {

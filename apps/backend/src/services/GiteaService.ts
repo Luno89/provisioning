@@ -344,6 +344,83 @@ export class GiteaService {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
+  /**
+   * Merges one branch into another through a pull request.
+   *
+   * ── WHY A PR RATHER THAN A PUSH ──
+   * The alternative is a workspace pod that clones, merges and pushes — which is what a leaf's own
+   * merge does, because it already has a pod and a credential in hand. This runs after every leaf
+   * of a request has finished and its pod is long gone, and spinning one up to run three git
+   * commands is a poor trade. It also leaves a reviewable record of what landed and why, which a
+   * force-push to main does not.
+   *
+   * Every outcome is returned rather than thrown. Landing is a best-effort tidy-up at the end of a
+   * request: the work is already safe on its branch, and failing the workflow over a merge conflict
+   * would turn "some work needs a human" into "the leaf failed".
+   */
+  async mergeBranch(
+    owner: string,
+    repo: string,
+    head: string,
+    base: string,
+  ): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {
+    const repoPath = `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+
+    /**
+     * Look for an existing request before opening one.
+     *
+     * The sweep runs on EVERY leaf's terminal exit, so a request whose leaves finish together runs
+     * it more than once — observed live: two sweeps raced and left duplicate pull requests for the
+     * same branch. Checking first makes the whole operation idempotent, and also picks up a request
+     * left open by an earlier failed landing.
+     */
+    const existing = await this.apiFetch(`${repoPath}/pulls?state=open&limit=50`);
+    if (existing.ok) {
+      const open = (await existing.json().catch(() => [])) as any[];
+      const already = open.find((pr) => pr?.head?.ref === head && pr?.base?.ref === base)?.number;
+      if (typeof already === 'number') return this.mergePull(repoPath, already);
+    }
+
+    const created = await this.apiFetch(`${repoPath}/pulls`, {
+      method: 'POST',
+      body: JSON.stringify({ head, base, title: `Land ${head}` }),
+    });
+
+    let index: number | undefined;
+    if (created.ok) {
+      index = ((await created.json().catch(() => ({}))) as { number?: number }).number;
+    } else {
+      const detail = await created.text().catch(() => '');
+      // Gitea reports "no merge base" / an identical branch as a 409 or 422 with a message. That is
+      // not a failure: it means everything on this branch is already on the base.
+      if (/already exists/i.test(detail)) {
+        // A PR from an earlier landing attempt. Find it and merge that instead of giving up.
+        const open = await this.apiFetch(`${repoPath}/pulls?state=open&limit=50`);
+        const list = open.ok ? (await open.json().catch(() => [])) as any[] : [];
+        index = list.find((pr) => pr?.head?.ref === head && pr?.base?.ref === base)?.number;
+      } else if (/no merge base|identical|nothing to compare|not different/i.test(detail)) {
+        return 'nothing';
+      }
+      if (index === undefined) return 'failed';
+    }
+    if (index === undefined) return 'failed';
+    return this.mergePull(repoPath, index);
+  }
+
+  private async mergePull(repoPath: string, index: number): Promise<'merged' | 'conflict' | 'failed'> {
+    const merged = await this.apiFetch(`${repoPath}/pulls/${index}/merge`, {
+      method: 'POST',
+      // Capital D — Gitea's field, not a typo.
+      body: JSON.stringify({ Do: 'merge' }),
+    });
+    if (merged.ok) return 'merged';
+
+    // 405 is Gitea's "this pull request cannot be merged" — a conflict needing a human. The request
+    // is deliberately left open: it is the review surface for exactly this case.
+    if (merged.status === 405) return 'conflict';
+    return 'failed';
+  }
+
   async getRegistryHost(): Promise<string> {
     // Deliberately the *same* node-IP:nodePort address resolveBaseUrl() uses for the HTTP API —
     // see that method's comment for why an in-cluster DNS name doesn't work here even though it

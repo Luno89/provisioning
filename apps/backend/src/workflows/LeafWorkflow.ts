@@ -11,11 +11,12 @@ import {
 import type { UpdateLeafArgs } from '../activities/UpdateLeafActivity.js';
 import type { ExecuteLeafArgs, ExecuteLeafResult } from '../activities/ExecuteLeafActivity.js';
 import type { LeafGateArgs, LeafGateResult, ReleaseDependentsResult } from '../activities/LeafGateActivity.js';
+import type { LandRequestArgs, LandRequestResult } from '../activities/LandRequestActivity.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta } from '../lib/activity-timeouts.js';
+import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta } from '../lib/activity-timeouts.js';
 
 const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
   startToCloseTimeout: updateLeafActivityMeta.startToCloseTimeout,
@@ -53,6 +54,15 @@ const { CheckLeafGateActivity } = proxyActivities<{ CheckLeafGateActivity: (args
 
 const { ReleaseDependentsActivity } = proxyActivities<{ ReleaseDependentsActivity: (args: LeafGateArgs) => Promise<ReleaseDependentsResult> }>({
   startToCloseTimeout: releaseDependentsActivityMeta.startToCloseTimeout,
+});
+
+/**
+ * The end-of-request sweep. A no-op until this leaf was the last one still moving, so it is safe to
+ * call from every leaf rather than trying to work out which one is last — that question has no
+ * stable answer while dependents are still being released.
+ */
+const { LandRequestActivity } = proxyActivities<{ LandRequestActivity: (args: LandRequestArgs) => Promise<LandRequestResult> }>({
+  startToCloseTimeout: landRequestActivityMeta.startToCloseTimeout,
 });
 
 export type WorkflowLeafColumn = 'todo' | 'in-progress' | 'review';
@@ -303,6 +313,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
     status = 'cancelled';
     await UpdateLeafActivity({ leafId: args.leafId, status });
     await ReleaseDependentsActivity({ leafId: args.leafId });
+    await LandRequestActivity({ leafId: args.leafId });
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
@@ -322,6 +333,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
      * failed arm strands the other arm's dependents on a signal that never arrives.
      */
     await ReleaseDependentsActivity({ leafId: args.leafId });
+    await LandRequestActivity({ leafId: args.leafId });
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
@@ -334,6 +346,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
       status = 'failed';
       await UpdateLeafActivity({ leafId: args.leafId, status });
       await ReleaseDependentsActivity({ leafId: args.leafId });
+      await LandRequestActivity({ leafId: args.leafId });
       return { column, status, blockingChildren: blockingChildren.length };
     }
   }
@@ -361,5 +374,12 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
    * been sent.
    */
   await ReleaseDependentsActivity({ leafId: args.leafId });
+  /**
+   * Sweeps up anything verified that never reached the default branch — see LandRequestActivity.
+   * A no-op unless this leaf was the last one still moving, so it is safe to call from every exit
+   * rather than trying to identify the last leaf, which has no stable answer while dependents are
+   * still being released.
+   */
+  await LandRequestActivity({ leafId: args.leafId });
   return { column, status, blockingChildren: blockingChildren.length };
 }

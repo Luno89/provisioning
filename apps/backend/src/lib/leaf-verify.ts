@@ -64,7 +64,8 @@ export function defaultVerifyCommand(language: WorkspaceLanguage | undefined): s
       // Both layouts. A repo whose tests sit at the root read as "no suite" and fell back to the
       // agent's claim — caught while backfilling: two repositories with green suites were being
       // scored as unverified purely because of where the files were.
-      return 'node --test $(ls test/*.test.js *.test.js 2>/dev/null)';
+      // Two invocations, so one pattern matching nothing does not suppress the other's output.
+      return 'node --test $(ls test/*.test.js 2>/dev/null; ls *.test.js 2>/dev/null)';
     case 'python':
       return 'python -m pytest -q';
     case 'go':
@@ -86,7 +87,15 @@ export function buildVerifyScript(command: string, language: WorkspaceLanguage |
     // The glob must match something, or the shell passes the pattern through literally and node
     // reports a missing file as a test failure. Checks both layouts for the same reason the
     // command does.
-    ? 'ls test/*.test.js *.test.js >/dev/null 2>&1 || { echo "' + SENTINEL + '=127"; exit 0; }'
+    /**
+     * Each pattern tested SEPARATELY.
+     *
+     * `ls a b` exits non-zero when either operand is missing, even when the other matched — so a
+     * single `ls test/*.test.js *.test.js` reported "no suite" for every repository that keeps its
+     * tests in test/ and nothing beside the source. Caught live: two leaves with green suites came
+     * back unverified, which then silently fell through to trusting the agent's claim.
+     */
+    ? 'ls test/*.test.js >/dev/null 2>&1 || ls *.test.js >/dev/null 2>&1 || { echo "' + SENTINEL + '=127"; exit 0; }'
     : '';
 
   return [

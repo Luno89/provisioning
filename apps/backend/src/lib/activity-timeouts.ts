@@ -30,3 +30,5 @@ export const executeLeafActivityMeta = { name: 'ExecuteLeafActivity', startToClo
 // same reason as UpdateLeafActivity: a long timeout here only delays noticing a stuck worker.
 export const checkLeafGateActivityMeta = { name: 'CheckLeafGateActivity', startToCloseTimeout: '1 minute' } as const;
 export const releaseDependentsActivityMeta = { name: 'ReleaseDependentsActivity', startToCloseTimeout: '2 minutes' } as const;
+// A handful of API merges, no workspace. Generous only because a big fan-out means more of them.
+export const landRequestActivityMeta = { name: 'LandRequestActivity', startToCloseTimeout: '5 minutes' } as const;

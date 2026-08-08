@@ -531,6 +531,35 @@ export function dependentsOf(leafId: string, all: Leaf[]): Leaf[] {
 }
 
 /**
+ * Whether every leaf of a request has stopped moving.
+ *
+ * `proposed` does not count as outstanding: a proposal nobody accepted is not work in flight, and
+ * waiting on one would mean a request never finishes because somebody declined a suggestion.
+ */
+export function requestFinished(leaves: Leaf[]): boolean {
+  return !leaves.some((l) => l.status === 'pending' || l.status === 'running');
+}
+
+/**
+ * Verified work that has not reached the default branch, oldest first.
+ *
+ * ── WHY THERE IS ANYTHING LEFT AT ALL ──
+ * A leaf merges itself the moment it verifies, and for a chain that always works: each leaf
+ * contains its predecessor, so every merge fast-forwards. Parallel leaves are the gap. Two branches
+ * cut independently can touch the same file, and the second one's merge is abandoned rather than
+ * forced — correctly, since resolving it would mean guessing. That work is then verified, intact,
+ * and nowhere anybody looks.
+ *
+ * Ordered by creation so a later leaf's merge is attempted after the one it was probably built
+ * beside, which is the order most likely to apply cleanly.
+ */
+export function unlandedWork(leaves: Leaf[]): Leaf[] {
+  return leaves
+    .filter((l) => l.status === 'succeeded' && l.verified === true && !l.merged && Boolean(l.outputBranch))
+    .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+}
+
+/**
  * Matches the TITLES a planner declared against leaves that exist, and says what it could not find.
  *
  * ── WHY TITLES AT ALL ──
