@@ -3,6 +3,7 @@
  * deployment values. Shared by DeployAppActivity (first deploy) and SyncConfigActivity (re-apply
  * an existing deployment's current config) so the two can never drift out of sync on env var names.
  */
+import { randomBytes } from 'node:crypto';
 import type { DeploymentMetadata } from './types.js';
 import { isSelfManagedCluster } from './cluster-topology.js';
 
@@ -55,6 +56,11 @@ export interface AppEnvArgs {
   tabbyShmSize?: string | undefined;
   tabbyCpuLimit?: string | undefined;
   tabbyExtraEnv?: string | undefined;
+  searxngSecretKey?: string | undefined;
+  searxngEngines?: string | undefined;
+  crawl4aiApiToken?: string | undefined;
+  crawl4aiMemoryLimit?: string | undefined;
+  crawl4aiShmSize?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
@@ -83,10 +89,53 @@ export const VLLM_DEFAULT_GPU_VENDOR: 'nvidia' | 'amd' = 'nvidia';
 export const TABBYAPI_DEFAULT_MODEL = 'turboderp/Qwen3.6-27B-exl3';
 export const TABBYAPI_DEFAULT_GPU_COUNT = 2;
 export const TABBYAPI_DEFAULT_CACHE_MODE: 'FP16' | 'Q8' | 'Q6' | 'Q4' = 'Q8';
-export const TABBYAPI_DEFAULT_MAX_SEQ_LEN = 262144;
+/**
+ * 32K, not 256K.
+ *
+ * Measured: at 262144 this model held ~27 GiB of VRAM for a KV cache nothing used, and the host
+ * memory plan correctly REFUSES that configuration on a 30 GiB node. Dropping to 32768 freed 7.7
+ * GiB of VRAM with no observed cost — the harness clips conversation messages at 6,000 characters
+ * and tool results at 8,000, so nothing here comes close to the old ceiling.
+ */
+export const TABBYAPI_DEFAULT_MAX_SEQ_LEN = 32768;
 export const TABBYAPI_DEFAULT_REASONING = true;
 export const TABBYAPI_DEFAULT_TOOL_FORMAT = 'qwen3_coder';
-export const TABBYAPI_DEFAULT_INLINE_MODEL_LOADING = true;
+/**
+ * Off.
+ *
+ * Inline loading keeps a host-side copy of the weights so a model can be swapped without re-reading
+ * it — worth paying only if you actually swap models. Measured on the same deployment: 21.4 GiB of
+ * host RAM with it on, 7.8 GiB with it off, identical VRAM either way. On by default it left a
+ * 30 GiB machine with 244 MiB free and 8.6 GiB swapped.
+ */
+export const TABBYAPI_DEFAULT_INLINE_MODEL_LOADING = false;
+
+/**
+ * Mints the Crawl4AI credential HERE rather than letting the construct generate one.
+ *
+ * The construct can generate a token, and if it does nothing else ever learns it — the agent needs
+ * the same secret to call the service, and reading it back out of a Kubernetes Secret at tool-call
+ * time is a round trip that can fail on a path that has no way to report it. Resolving it before
+ * the record is persisted means the deployment stores what it deployed, which is the same reason
+ * `resolveVllmDefaults` resolves model names here instead of leaving them to vllm.ts.
+ *
+ * Not optional: with no token the image's entrypoint binds loopback and refuses to expose itself,
+ * so a Service in front of it never answers.
+ */
+export function resolveCrawl4aiDefaults(dep: DeploymentMetadata): DeploymentMetadata {
+  if (dep.appType !== 'crawl4ai') return dep;
+  return Object.assign({}, dep, {
+    crawl4aiApiToken: dep.crawl4aiApiToken || randomBytes(32).toString('hex'),
+  });
+}
+
+/** Same reasoning as `resolveCrawl4aiDefaults` — a key generated in the construct is unknowable. */
+export function resolveSearxngDefaults(dep: DeploymentMetadata): DeploymentMetadata {
+  if (dep.appType !== 'searxng') return dep;
+  return Object.assign({}, dep, {
+    searxngSecretKey: dep.searxngSecretKey || randomBytes(32).toString('hex'),
+  });
+}
 
 // Not generic on purpose — every caller in this codebase passes a real DeploymentMetadata, and
 // a generic here fights TypeScript's control-flow narrowing at call sites where `dep` starts as
@@ -177,6 +226,11 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     TABBYAPI_SHM_SIZE: a.tabbyShmSize || '',
     TABBYAPI_CPU_LIMIT: a.tabbyCpuLimit || '',
     TABBYAPI_EXTRA_ENV: a.tabbyExtraEnv || '',
+    SEARXNG_SECRET_KEY: a.searxngSecretKey || '',
+    SEARXNG_ENGINES: a.searxngEngines || '',
+    CRAWL4AI_API_TOKEN: a.crawl4aiApiToken || '',
+    CRAWL4AI_MEMORY_LIMIT: a.crawl4aiMemoryLimit || '',
+    CRAWL4AI_SHM_SIZE: a.crawl4aiShmSize || '',
     OPENAI_API_BASE_URL: a.openaiApiBaseUrl || '',
     // Empty string (not 'true'/'false') when unset, not a default value baked in here — lets
     // main.ts's own `=== 'false'` check (and the construct's `!== false` default-true beneath

@@ -99,6 +99,7 @@ describe('LEAF_TOOLS', () => {
   it('covers what a planning turn needs: read, add, revise, withdraw, toolchain, repository', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name)).toEqual([
       'list_leaves', 'get_leaf', 'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'set_leaf_workspace',
+      'list_personas',
       'list_projects', 'create_project', 'set_leaf_project',
       'list_tool_repository', 'attach_tool_to_leaf', 'update_leaf_memory', 'web_search', 'fetch_web_page',
     ]);
@@ -174,5 +175,37 @@ describe('dependency ordering in the tool schema', () => {
 
   it('stays optional, so ordinary independent work needs no ceremony', () => {
     expect((propose.function.parameters as any).required).toEqual(['title']);
+  });
+});
+
+describe('assigning work to a persona', () => {
+  const propose = LEAF_TOOLS.find((t) => t.function.name === 'propose_leaf')!;
+
+  it('lets a proposal name the persona best suited to it', () => {
+    // Leaf.personaId has flowed through to execution since personas landed; until now nothing
+    // could set it, so every leaf ran as the default no matter who should have done it.
+    const persona = (propose.function.parameters as any).properties.persona;
+    expect(persona).toBeDefined();
+    expect(persona.type).toBe('string');
+  });
+
+  it('asks for a name rather than an id, and says so', () => {
+    // Same reasoning as dependsOn taking titles: the model knows the names it was shown, and
+    // cannot know an id for something it created seconds ago.
+    const persona = (propose.function.parameters as any).properties.persona;
+    expect(persona.description).toMatch(/name/i);
+    expect(persona.description).not.toMatch(/\bid\b/i);
+  });
+
+  it('stays optional, so work with no obvious owner needs no ceremony', () => {
+    expect((propose.function.parameters as any).required).toEqual(['title']);
+  });
+
+  it('offers a way to find out which personas exist', () => {
+    // A model cannot assign by name to a list it has never seen, and inventing names it half
+    // remembers is the failure this prevents.
+    const list = LEAF_TOOLS.find((t) => t.function.name === 'list_personas');
+    expect(list).toBeDefined();
+    expect(list!.function.description).toMatch(/before assigning/i);
   });
 });

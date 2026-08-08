@@ -112,6 +112,18 @@ const APP_DEFAULTS: Record<string, {
     hasDatabase: false,
     strategies: ['native']
   },
+  searxng: {
+    helm: { webRepo: 'searxng/searxng', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'searxng/searxng', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
+  crawl4ai: {
+    helm: { webRepo: 'unclecode/crawl4ai', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'unclecode/crawl4ai', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native']
+  },
   papra: {
     helm: { webRepo: 'ghcr.io/papra-hq/papra', webTag: 'latest', dbRepo: '', dbTag: '' },
     native: { webRepo: 'ghcr.io/papra-hq/papra', webTag: 'latest', dbRepo: '', dbTag: '' },
@@ -288,7 +300,7 @@ function App() {
   const [wizardData, setWizardData] = useState({
     name: 'Odoo-Production',
     clusterId: '',
-    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant',
+    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai',
     strategy: 'native' as 'helm' | 'native',
     odooRepo: 'library/odoo',
     odooTag: '18.0',
@@ -516,6 +528,25 @@ function App() {
     </div>
   );
 
+  /**
+   * What the resource ceilings resolve to when left blank.
+   *
+   * Shown as placeholders, never written into the fields: an empty box here means "size this for
+   * me", and pre-filling it would turn a computed default into an explicit choice that then
+   * overrides the plan forever.
+   */
+  const { data: resourcePlan } = useQuery<{
+    applicable: boolean; memoryLimit?: string; shmSize?: string; cpuLimit?: string;
+    basis?: string; refusal?: string;
+  }>({
+    queryKey: ['resource-plan', currentDeployment?.id],
+    queryFn: () => axios.get(`${API_BASE}/deployments/${currentDeployment?.id}/resource-plan`).then(r => r.data),
+    // Only for the app that is open, and only where the plan applies — the endpoint answers
+    // `applicable: false` for anything that is not TabbyAPI rather than guessing.
+    enabled: !!currentDeployment && currentDeployment?.appType === 'tabbyapi',
+    staleTime: 60_000,
+  });
+
   const { data: initialLogs } = useQuery({
     queryKey: ['logs', showLogModal?.type, showLogModal?.id], 
     queryFn: () => axios.get(`${API_BASE}/logs/${showLogModal?.type}/${showLogModal?.id}`).then(res => res.data), 
@@ -547,6 +578,8 @@ function App() {
     });
     socket.on('reconnect', () => {
       if (activeLogRoomRef.current) {
+        // Same clear as on first join — a reconnect replays history from scratch.
+        setSocketLogs('');
         socket.emit('join-room', activeLogRoomRef.current);
       }
       if (activeKubePodRef.current) {
@@ -569,6 +602,13 @@ function App() {
     if (showLogModal && socketRef.current) {
       const socket = socketRef.current;
       activeLogRoomRef.current = showLogModal.id;
+      /**
+       * Cleared before joining, because the server now replays recent history on join.
+       *
+       * The same reason the pod tail clears: a replay landing on top of what was already
+       * accumulated shows as the identical lines repeating, and every reconnect triggers it.
+       */
+      setSocketLogs('');
       socket.emit('join-room', showLogModal.id);
       socket.on('log', (chunk: string) => setSocketLogs(prev => prev + chunk));
       return () => {
@@ -892,7 +932,7 @@ function App() {
     }
   };
 
-  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant') => {
+  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai') => {
     const config = APP_DEFAULTS[newAppType];
     const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : config.strategies[0];
     const defaults = config[newStrategy];
@@ -1928,7 +1968,11 @@ function App() {
                          <div className="grid grid-cols-3 gap-3">
                            <div>
                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Memory Limit (RAM)</label>
-                             <input value={configInputs.tabbyMemoryLimit} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyMemoryLimit: e.target.value }))} placeholder="e.g. 32G, 48G, 64G" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                             <input value={configInputs.tabbyMemoryLimit} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyMemoryLimit: e.target.value }))} title={resourcePlan?.basis ? `Computed from ${resourcePlan.basis}` : undefined} placeholder={resourcePlan?.memoryLimit ? `${resourcePlan.memoryLimit} — sized from the model` : 'e.g. 32G, 48G, 64G'} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
+                             {resourcePlan?.refusal && (
+                               // Said where the number is chosen, not after a pod has been killed.
+                               <p className="text-[11px] text-amber-400 mt-1">{resourcePlan.refusal}</p>
+                             )}
                            </div>
                            <div>
                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Shared Memory (/dev/shm)</label>
@@ -2406,6 +2450,8 @@ function App() {
                       <option value="kavita">Kavita Digital Library</option>
                       <option value="immich">Immich Photo & Video Backup</option>
                       <option value="papra">Papra Document Management</option>
+                      <option value="searxng">SearXNG (agent web search)</option>
+                      <option value="crawl4ai">Crawl4AI (agent page fetch)</option>
                       <option value="homeassistant">Home Assistant</option>
                     </select>
                   </div>

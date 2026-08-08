@@ -85,8 +85,24 @@ export interface DeployAppArgs {
   tabbyReasoning?: boolean | undefined;
   tabbyToolFormat?: string | undefined;
   tabbyInlineModelLoading?: boolean | undefined;
+  /**
+   * Resource ceilings, chosen in the UI.
+   *
+   * Declared here because they were being SENT and not received: `TemporalBridge` puts all three
+   * in the workflow arguments, and this activity never passed them to `buildAppEnv` — so changing
+   * the memory limit in the UI did nothing, and nothing said so. The value simply never appeared
+   * in the Terraform plan.
+   */
+  tabbyMemoryLimit?: string | undefined;
+  tabbyShmSize?: string | undefined;
+  tabbyCpuLimit?: string | undefined;
   tabbyDisableAuth?: boolean | undefined;
   tabbyExtraEnv?: string | undefined;
+  searxngSecretKey?: string | undefined;
+  searxngEngines?: string | undefined;
+  crawl4aiApiToken?: string | undefined;
+  crawl4aiMemoryLimit?: string | undefined;
+  crawl4aiShmSize?: string | undefined;
   // Set only by TemporalBridge.deploy() for clusters where the worker shares a filesystem with
   // the K8s node (see DownloadModelActivity.ts) — AppDeployWorkflow.ts uses this to decide
   // whether to pre-download the model before this activity ever runs. Not read here; DeployAppActivity
@@ -339,6 +355,22 @@ export async function DeployAppActivity(
     });
     if (tabbyMemoryPlan.refusal) throw new Error(tabbyMemoryPlan.refusal);
     console.log(`[DeployAppActivity] host memory plan: ${tabbyMemoryPlan.basis}`);
+
+    /**
+     * A chosen limit below the estimate is allowed, and said out loud.
+     *
+     * Not refused: it is the user's machine and a too-small limit fails SAFELY — the cgroup kills
+     * the pod rather than the host OOM killer taking the desktop with it, which is the whole point
+     * of having a limit that binds. But it should not be a surprise when the pod restarts.
+     */
+    const chosen = args.tabbyMemoryLimit ? parseQuantity(args.tabbyMemoryLimit) : undefined;
+    if (chosen !== undefined && chosen < tabbyMemoryPlan.limitBytes) {
+      console.warn(
+        `[DeployAppActivity] memory limit set to ${args.tabbyMemoryLimit}, below the estimated `
+        + `${Math.ceil(tabbyMemoryPlan.limitBytes / 1e9)}G — the pod may be OOMKilled under load. `
+        + `Basis: ${tabbyMemoryPlan.basis}`,
+      );
+    }
   }
 
   const env = buildAppEnv({
@@ -382,14 +414,26 @@ export async function DeployAppActivity(
     tabbyReasoning: args.tabbyReasoning,
     tabbyToolFormat: args.tabbyToolFormat,
     tabbyInlineModelLoading: args.tabbyInlineModelLoading,
-    // Explicit, so the construct's own estimate is a fallback for callers that never ran the plan
-    // rather than a second opinion that silently disagrees with this one.
-    ...(tabbyMemoryPlan ? {
-      tabbyMemoryLimit: `${Math.ceil(tabbyMemoryPlan.limitBytes / 1e9)}G`,
-      tabbyShmSize: `${Math.ceil(tabbyMemoryPlan.shmBytes / 1024 ** 3)}Gi`,
-    } : {}),
+    /**
+     * The plan fills these in only when nobody chose.
+     *
+     * It used to overwrite them unconditionally, which silently discarded whatever the user had
+     * typed — they would change the memory limit, redeploy, and find their value nowhere in the
+     * Terraform plan. A computed default exists to save you from having to decide, not to overrule
+     * you once you have.
+     */
+    tabbyMemoryLimit: args.tabbyMemoryLimit
+      || (tabbyMemoryPlan ? `${Math.ceil(tabbyMemoryPlan.limitBytes / 1e9)}G` : undefined),
+    tabbyShmSize: args.tabbyShmSize
+      || (tabbyMemoryPlan ? `${Math.ceil(tabbyMemoryPlan.shmBytes / 1024 ** 3)}Gi` : undefined),
+    tabbyCpuLimit: args.tabbyCpuLimit,
     tabbyDisableAuth: args.tabbyDisableAuth,
     tabbyExtraEnv: args.tabbyExtraEnv,
+    searxngSecretKey: args.searxngSecretKey,
+    searxngEngines: args.searxngEngines,
+    crawl4aiApiToken: args.crawl4aiApiToken,
+    crawl4aiMemoryLimit: args.crawl4aiMemoryLimit,
+    crawl4aiShmSize: args.crawl4aiShmSize,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
     webuiEnableWebSearch: args.webuiEnableWebSearch,
     webuiWebSearchEngine: args.webuiWebSearchEngine,

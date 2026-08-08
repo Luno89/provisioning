@@ -56,6 +56,11 @@ export interface SyncConfigArgs {
   tabbyInlineModelLoading?: boolean | undefined;
   tabbyDisableAuth?: boolean | undefined;
   tabbyExtraEnv?: string | undefined;
+  searxngSecretKey?: string | undefined;
+  searxngEngines?: string | undefined;
+  crawl4aiApiToken?: string | undefined;
+  crawl4aiMemoryLimit?: string | undefined;
+  crawl4aiShmSize?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
@@ -138,6 +143,11 @@ export async function SyncConfigActivity(
     tabbyInlineModelLoading: args.tabbyInlineModelLoading,
     tabbyDisableAuth: args.tabbyDisableAuth,
     tabbyExtraEnv: args.tabbyExtraEnv,
+    searxngSecretKey: args.searxngSecretKey,
+    searxngEngines: args.searxngEngines,
+    crawl4aiApiToken: args.crawl4aiApiToken,
+    crawl4aiMemoryLimit: args.crawl4aiMemoryLimit,
+    crawl4aiShmSize: args.crawl4aiShmSize,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
     webuiEnableWebSearch: args.webuiEnableWebSearch,
     webuiWebSearchEngine: args.webuiWebSearchEngine,

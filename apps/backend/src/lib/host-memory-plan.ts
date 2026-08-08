@@ -78,9 +78,16 @@ export function planHostMemory(input: HostMemoryInputs): HostMemoryPlan {
   const gpus = Math.max(input.gpuCount, 1);
   const factor = seqLenFactor(input.maxSeqLen);
 
-  // Unknown model size is not a reason to guess low: an under-sized limit OOMKills the pod on
-  // load, which looks like a broken image rather than a number someone chose.
-  const modelBytes = input.modelBytes ?? 20e9;
+  /**
+   * Unknown model size is not a reason to guess low: an under-sized limit OOMKills the pod on
+   * load, which looks like a broken image rather than a number someone chose.
+   *
+   * Truthiness, not `??`. The HuggingFace lookup returns 0 rather than throwing when it cannot
+   * read a repo's file tree — measured live against the exl3 repo in use here — and `?? 20e9`
+   * happily accepts 0, so the fallback this comment describes never ran. The plan came out at 12G
+   * for a model needing about 19G, which is precisely the OOMKill it exists to prevent.
+   */
+  const modelBytes = input.modelBytes || 20e9;
 
   // Per shard: tensor parallelism divides the weights across workers by design, so each one's
   // staging footprint tracks its own shard rather than the whole model.

@@ -65,7 +65,32 @@ const TABBY_LOOP_GUARD = {
 export function toolTurnSampling(kind?: ModelKind): Record<string, unknown> {
   return {
     temperature: 0.3,
-    ...PORTABLE_LOOP_GUARD,
+    /**
+     * NO frequency or presence penalty on a turn that has to call a tool.
+     *
+     * ── MEASURED, NOT REASONED ──
+     * `frequency_penalty: 0.4` + `presence_penalty: 0.3` do not degrade tool calling on this
+     * harness, they eliminate it. A 24-run experiment (exp-penalties-001, two hidden-spec tasks,
+     * three repeats, two prompts) scored 0/12 with the penalties and 12/12 without — perfect
+     * separation on both tasks. The failing runs burned all 40 steps in five seconds having made
+     * ZERO tool calls: the loop spins through its whole budget because the agent cannot emit a
+     * call at all.
+     *
+     * The mechanism is plain once seen. Emitting a tool call means reproducing function names and
+     * JSON keys that already appear in the prompt, and these penalties push the model away from
+     * exactly those tokens. More tools makes it worse — the 14-tool planner never called anything,
+     * while the 3-tool agent loop managed 1 in 3.
+     *
+     * ── WHAT IS LOST ──
+     * The guard was added for a real pathology: forty identical lines of output. DRY still covers
+     * that on TabbyAPI and is innocent here (3/3 tool calls with DRY alone). On an engine with no
+     * DRY support a tool turn now has no repetition guard — accepted deliberately, because a turn
+     * that cannot call a tool is worthless whether or not it repeats itself, and the loop's step
+     * cap bounds the damage.
+     *
+     * Measured on TabbyAPI serving Qwen3. The mechanism is general to how these penalties work,
+     * but only one engine was tested.
+     */
     ...(kind === 'tabbyapi' ? TABBY_LOOP_GUARD : {}),
   };
 }

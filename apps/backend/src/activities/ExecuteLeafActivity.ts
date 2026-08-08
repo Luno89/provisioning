@@ -244,7 +244,13 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         }
 
         const now = new Date().toISOString();
-        await db.saveLeaf({ ...leaf, usage: spent, status: 'succeeded', column: 'review', updatedAt: now });
+        // The summary is persisted, not just returned: a caller that reads the workflow result is
+        // not the same as a board someone can look at.
+        await db.saveLeaf({
+          ...leaf, usage: spent, status: 'succeeded', column: 'review',
+          ...(run.summary ? { summary: run.summary.slice(0, 8000) } : {}),
+          updatedAt: now,
+        });
         return { leafId: leaf.id, tokensUsed: run.tokensUsed, summary: run.summary };
       } finally {
         // Always. The pod holds CPU and memory, and reapStale is a safety net for crashes, not the

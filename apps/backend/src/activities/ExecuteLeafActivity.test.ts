@@ -212,3 +212,30 @@ describe('personas on a leaf', () => {
     expect(runAgentLoop.mock.calls[0]![0].overrides.systemPrompt).toBeUndefined();
   });
 });
+
+describe('what a finished leaf leaves to read', () => {
+  it('stores the summary, not just returns it', async () => {
+    // A leaf ran for two minutes, spent 144,000 tokens, reported success — and left nothing on the
+    // board. The summary went to the workflow result, which lands in Temporal history and nowhere
+    // a person looks.
+    db = await seeded([leaf()]);
+    runAgentLoop.mockResolvedValue({
+      succeeded: true, summary: 'Air quality tomorrow is Moderate (AQI 62).', tokensUsed: 120, transcript: [],
+    });
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    const saved = (await db.getLeaves()).find((l) => l.id === 'leaf-1')!;
+    expect(saved.summary).toMatch(/Moderate/);
+  });
+
+  it('moves a finished leaf out of To Do', async () => {
+    // Finished work is not still To Do. The workflow then writes its own stale column over this —
+    // fixed in LeafWorkflow, which has no unit harness, so this pins the activity's half.
+    db = await seeded([leaf({ column: 'todo' })]);
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    expect((await db.getLeaves())[0]!.column).toBe('review');
+  });
+});

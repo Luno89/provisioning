@@ -29,13 +29,34 @@ describe('sampler portability', () => {
     expect(toolTurnSampling(undefined)).not.toHaveProperty('dry_multiplier');
   });
 
-  it('always applies a repetition guard, whatever the engine', () => {
+  it('guards a CONVERSATION turn against repetition, whatever the engine', () => {
     // The observed failure was forty identical lines. That is a decoding pathology, and every
-    // engine gets at least the portable defence against it.
+    // engine gets at least the portable defence against it on a turn that produces prose.
     for (const kind of ['tabbyapi', 'vllm', undefined] as const) {
       expect(conversationSampling(kind).frequency_penalty).toBeGreaterThan(0);
-      expect(toolTurnSampling(kind).frequency_penalty).toBeGreaterThan(0);
     }
+  });
+
+  it('never penalises repetition on a turn that has to call a tool', () => {
+    /**
+     * The penalties do not degrade tool calling, they eliminate it. exp-penalties-001: 0/12
+     * verified with them, 12/12 without, perfect separation on both tasks and under both prompts.
+     * The failing runs made ZERO tool calls and burned all 40 steps in five seconds.
+     *
+     * Emitting a call means reproducing function names and JSON keys already in the prompt, which
+     * is precisely what these penalties suppress. Pinned so it cannot be reinstated as an obvious
+     * safety measure — it reads like one.
+     */
+    for (const kind of ['tabbyapi', 'vllm', undefined] as const) {
+      expect(toolTurnSampling(kind).frequency_penalty).toBeUndefined();
+      expect(toolTurnSampling(kind).presence_penalty).toBeUndefined();
+    }
+  });
+
+  it('keeps DRY on a tool turn, which was measured innocent', () => {
+    // DRY alone scored 3/3 on tool calls. It is the repetition guard that survives, so the
+    // pathology the penalties were added for is still covered where the engine supports it.
+    expect(toolTurnSampling('tabbyapi')).toHaveProperty('dry_multiplier');
   });
 });
 

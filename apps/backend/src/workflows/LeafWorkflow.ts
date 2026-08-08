@@ -245,6 +245,19 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
   }
 
   status = 'succeeded';
+  /**
+   * Moved to `review`, because finished work is not still To Do.
+   *
+   * `column` here is whatever the workflow STARTED with — it changes only when a human drags the
+   * card. `ExecuteLeafActivity` already writes `review` when the work succeeds, and this write
+   * lands after it, so the stale value overwrote the fresh one and a completed leaf reappeared in
+   * To Do. Measured on a real run: 144,044 tokens spent, zero failed attempts, and the card looked
+   * untouched.
+   *
+   * Set here rather than dropped from the write, so the workflow's own state query agrees with the
+   * board instead of the two quietly diverging again.
+   */
+  column = 'review';
   await UpdateLeafActivity({ leafId: args.leafId, status, column });
   return { column, status, blockingChildren: blockingChildren.length };
 }

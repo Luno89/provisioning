@@ -18,6 +18,7 @@
  * spuriously — reintroducing the bug this exists to prevent, one command later.
  */
 import type { ExperimentTask } from '@koala/harness-types';
+import { boardFile } from '../lib/planning-board.js';
 import { WorkspaceService } from './WorkspaceService.js';
 import { imageForLanguage, DEFAULT_WORKSPACE_LANGUAGE } from '../lib/workspace-spec.js';
 import {
@@ -84,6 +85,20 @@ export class AuthoringService {
         // The seed is the world the agent would wake up in, so it is the baseline both sides of
         // the gate are measured against — not an empty directory.
         for (const f of task.seed ?? []) await this.workspaces.writeFile(runId, f.path, f.content);
+
+        /**
+         * A planning task starts from an EMPTY board, not a missing one.
+         *
+         * Without this the seed-only half fails because `leaves.json` does not exist, which every
+         * predicate does regardless of what it checks — so the gate would pass any planning verify
+         * ever written, including one that asserts nothing. The same class of false pass as
+         * "created by verify" being a listing rather than a difference, which this function already
+         * exists to have caught once.
+         */
+        if (task.kind === 'planning') {
+          const empty = boardFile([]);
+          await this.workspaces.writeFile(runId, empty.path, empty.content);
+        }
 
         // Snapshotted AFTER seeding, so "what the verify command created" is a difference rather
         // than a listing. Without this a seeded file looks exactly like one the command wrote for

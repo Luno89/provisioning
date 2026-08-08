@@ -29,9 +29,10 @@ import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
 import {
-  toolTurnSampling, NO_THINKING, TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS,
+  TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS,
 } from './sampling.js';
-import { applyOverrides, type Overrides } from './tunables.js';
+import { type Overrides } from './tunables.js';
+import { buildModelRequest } from './model-request.js';
 import type { AgentStep, AgentRequest, ConversationMessage } from '@koala/harness-types';
 
 /** Re-exported: these cross the wire, so the Lab consumes the same declarations. */
@@ -212,17 +213,27 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   }
   const activeTools = Array.from(toolMap.values());
 
-  const baseBody: Record<string, unknown> = {
-    ...(model ? { model } : {}),
+  /**
+   * Built through the shared builder, like every other model call.
+   *
+   * This one was already correct — sampling first, then `applyOverrides` — and it is the shape the
+   * builder encodes. Routing it through anyway removes the last copy: four chat sites and the
+   * planning turn each had their own version of this assembly and every one of them got the order
+   * or the placement wrong, silently.
+   */
+  const { body: requestBody, unsupported } = buildModelRequest({
+    turn: 'tool-turn',
+    ...(opts.kind ? { kind: opts.kind } : {}),
     messages,
     tools: activeTools,
     stream: true,
-    stream_options: { include_usage: true },
-    ...toolTurnSampling(opts.kind),
-    ...(think ? {} : NO_THINKING),
-    max_tokens: think ? THINKING_TURN_MAX_TOKENS : TOOL_TURN_MAX_TOKENS,
-  };
-  const { body: requestBody, unsupported } = applyOverrides(baseBody, overrides, opts.kind);
+    maxTokens: think ? THINKING_TURN_MAX_TOKENS : TOOL_TURN_MAX_TOKENS,
+    ...(model ? { model } : {}),
+    // Reasoning is a registry knob, so it travels as one — `NO_THINKING` wrote `template_vars`
+    // by hand, which is the mistake that lost `think` entirely on the chat path.
+    overrides: { ...(think ? {} : { think: false }), ...overrides },
+    extra: { stream_options: { include_usage: true } },
+  });
 
   const { messages: _messages, tools: _tools, ...parameters } = requestBody;
   const request: AgentRequest = {

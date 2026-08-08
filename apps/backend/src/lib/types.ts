@@ -118,7 +118,7 @@ export interface DeploymentMetadata {
   // existed; migrateLegacyOwnership backfills those to the admin user once, at startup.
   ownerId?: string;
   strategy: 'helm' | 'native';
-  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'gitapp' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant';
+  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'gitapp' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai';
   // gitapp-specific fields — image comes from a Project's pipeline run, not a typed repo/tag
   gitappProjectId?: string;
   gitappImageTag?: string;
@@ -197,6 +197,19 @@ export interface DeploymentMetadata {
   tabbyShmSize?: string;
   tabbyCpuLimit?: string;
   tabbyExtraEnv?: string;
+  /**
+   * ── The agent's own web access (see lib/web-tools.ts) ──
+   *
+   * These two credentials are stored rather than left to the constructs to generate, because the
+   * agent has to present the same secret the service was deployed with. A construct-generated one
+   * is unknowable to everything except the pod holding it.
+   */
+  searxngSecretKey?: string;
+  /** Comma-separated engine names to restrict SearXNG to. Empty means its own default set. */
+  searxngEngines?: string;
+  crawl4aiApiToken?: string;
+  crawl4aiMemoryLimit?: string;
+  crawl4aiShmSize?: string;
   // Schema-driven settings for app types with too many options to give each a first-class field
   // (game servers: ~120 apiece). One map threaded through the pipeline once, validated at runtime
   // against lib/app-settings-schema.ts instead of at compile time. See that file for why.

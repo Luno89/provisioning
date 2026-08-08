@@ -235,6 +235,19 @@ export interface ExperimentTask {
   prompt: string;
   verifyCommand: string;
   /** Present in /work before the agent starts. The given state of the task. */
+  /**
+   * Which cycle this task exercises.
+   *
+   * `sandbox` (the default) runs the execution loop: the agent works in /work and verify checks
+   * what it left. `planning` runs the decomposition loop instead — the agent answers a request by
+   * proposing leaves, and verify reads those leaves as `leaves.json`.
+   *
+   * A field rather than two task types because everything else is identical: both have a prompt,
+   * both are gated the same two-sided way, and both are verified by a command's exit code in a
+   * sandbox. The first experiment written against planning used a sandbox task and checked for a
+   * file the sandbox loop has no tool to produce — this is what makes that unrepresentable.
+   */
+  kind?: 'sandbox' | 'planning';
   seed?: TaskFile[];
   /**
    * A correct answer, for validation only.

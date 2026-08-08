@@ -98,6 +98,19 @@ export interface Leaf {
    */
   dependsOn?: string[];
 
+  /**
+   * What the agent reported when it finished — the leaf's actual output.
+   *
+   * Absent until now, which meant a leaf could run for two minutes, spend 144,000 tokens, report
+   * success, and leave nothing behind to read. The activity returned this to the workflow, where
+   * it landed in Temporal history and nowhere a person would look. "I don't see it doing anything"
+   * was literally true of the board even though the work had happened.
+   *
+   * The agent's own claim, not a verified result — leaves have no verify command the way an
+   * experiment task does, so this says what it believes it did.
+   */
+  summary?: string;
+
   personaId?: string;
   /**
    * Which sandbox image this leaf's work runs in.

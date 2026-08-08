@@ -1,0 +1,121 @@
+/**
+ * Finding the agent's web services — the impure half of `web-tools.ts`.
+ *
+ * Kept apart from that module deliberately: the resolution logic there is worth testing against
+ * every failure a live service can produce, and it stays trivially testable only by having no idea
+ * where a URL came from. This file is the part that knows about the database, kubeconfigs and
+ * port-forwards.
+ *
+ * ── WHY A PORT-FORWARD ──
+ * The backend runs on the host; the services run in the cluster. `.svc.cluster.local` does not
+ * resolve here, and a NodePort would mean discovering an allocated port that changes on every
+ * redeploy — the TabbyAPI endpoint moved from 31195 to 30697 doing exactly that. The proxy service
+ * already solves this for the in-cluster dashboards, caches one forward per service, and hands back
+ * a `http://localhost:<port>` that stays valid.
+ */
+import type { Database } from './db-interface.js';
+import type { DeploymentMetadata } from './types.js';
+import type { ServiceTarget } from '../services/ClusterProxyService.js';
+import { createWebTools, type WebTools } from './web-tools.js';
+
+/** Namespace naming has to match what the constructs deploy into — `namespace: deploymentName`. */
+const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+
+export interface WebToolsDeps {
+  db: Pick<Database, 'getDeployments'>;
+  /** Returns a `http://localhost:<port>` base, or throws if the forward cannot be established. */
+  ensurePortForward: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ServiceTarget) => Promise<string>;
+  /** Undefined when the cluster is gone or has no usable kubeconfig. */
+  kubeconfigFor: (clusterId: string) => Promise<string | undefined>;
+  env?: NodeJS.ProcessEnv;
+}
+
+/** A deployment is only usable if it finished and is still meant to be up. */
+function liveDeployment(deployments: DeploymentMetadata[], appType: string, ownerId?: string): DeploymentMetadata | undefined {
+  return deployments.find((d) =>
+    d.appType === appType
+    && d.status === 'running'
+    && d.clusterId
+    // Scoped to the caller when we know who they are: another tenant's search service is not this
+    // tenant's to route queries through, and the queries themselves are the agent's own reasoning.
+    && (!ownerId || !d.ownerId || d.ownerId === ownerId));
+}
+
+async function baseUrlFor(
+  deps: WebToolsDeps,
+  dep: DeploymentMetadata,
+  service: string,
+  remotePort: number,
+): Promise<string | undefined> {
+  try {
+    const kubeconfig = await deps.kubeconfigFor(dep.clusterId!);
+    if (!kubeconfig) {
+      // Logged, not silent: this is a distinct failure from the forward itself failing, and an
+      // unlogged `return undefined` here cost real time — it looks identical to the deployment
+      // never having been found.
+      console.warn(`[web-tools] ${service} deployment "${dep.name}" has no resolvable kubeconfig for cluster ${dep.clusterId}`);
+      return undefined;
+    }
+    const ns = sanitize(dep.name);
+    const url = await deps.ensurePortForward(dep.clusterId!, `${service}-${dep.id}`, kubeconfig, {
+      service, namespace: ns, remotePort,
+    });
+    // ensurePortForward appends the target's dashboardPath, which defaults to "/". Both APIs here
+    // build their own paths, so a trailing slash would produce `//search`.
+    return url.replace(/\/$/, '');
+  } catch (err) {
+    // Never fatal: a service that cannot be reached demotes the agent to the built-in scrape,
+    // which is the whole point of the chain. Logged because a silent demotion is precisely the
+    // failure that made the built-ins worth replacing.
+    console.warn(`[web-tools] could not reach ${service} deployment "${dep.name}": ${(err as Error).message}`);
+    return undefined;
+  }
+}
+
+/**
+ * Resolves the agent's web tools: deployed service → environment variable → the built-in scrape.
+ *
+ * The env vars come SECOND on purpose, unlike `credential-resolver.ts` where they come first. A
+ * deployment is something the user made through this platform and can see in the UI; an env var is
+ * invisible from there, so letting it silently shadow a running deployment would make the Config
+ * tab lie about what the agent is using.
+ */
+export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Promise<WebTools> {
+  const env = deps.env ?? process.env;
+  const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
+
+  const searxDep = liveDeployment(deployments, 'searxng', ownerId);
+  const crawlDep = liveDeployment(deployments, 'crawl4ai', ownerId);
+
+  const searxngUrl = (searxDep ? await baseUrlFor(deps, searxDep, 'searxng', 8080) : undefined)
+    || env.SEARXNG_URL || undefined;
+
+  const crawl4aiUrl = (crawlDep ? await baseUrlFor(deps, crawlDep, 'crawl4ai', 11235) : undefined)
+    || env.CRAWL4AI_URL || undefined;
+
+  // The token has to come from the same place the URL did. Pairing a deployment's URL with an
+  // env var's token — or the reverse — authenticates against the wrong service and 401s on every
+  // fetch, which then looks exactly like the crawler being down.
+  const crawl4aiToken = (crawlDep && crawl4aiUrl && crawlDep.crawl4aiApiToken)
+    || (!crawlDep ? env.CRAWL4AI_API_TOKEN : undefined)
+    || undefined;
+
+  const tools = createWebTools({
+    ...(searxngUrl ? { searxngUrl } : {}),
+    ...(crawl4aiUrl && crawl4aiToken ? { crawl4aiUrl, crawl4aiToken } : {}),
+  });
+
+  /**
+   * Says which implementation won, every time.
+   *
+   * The whole reason these services exist is that the built-ins fail silently — a stripped page and
+   * a page with nothing on it are the same bytes. A resolver that quietly falls back would
+   * reintroduce exactly that, one level up: this line is how you tell "the crawler is not being
+   * used" from "the crawler is being used and the page really is empty". It found a real bug the
+   * first time it ran.
+   */
+  console.log(`[web-tools] search=${tools.sources.search} fetch=${tools.sources.fetch}`
+    + ` (deployments: searxng=${searxDep ? searxDep.name : 'none'}, crawl4ai=${crawlDep ? crawlDep.name : 'none'})`);
+
+  return tools;
+}

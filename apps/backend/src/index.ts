@@ -9,6 +9,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 
+/**
+ * Lines replayed when a client joins a log room.
+ *
+ * Enough to see what just happened without shipping a whole provisioning run down a socket on
+ * every reconnect — the same tail depth `kubectl logs` uses for pods here.
+ */
+const LOG_TAIL_LINES = 200;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
@@ -57,6 +65,9 @@ import { conversationSampling, TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js'
 import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token-controller.js';
 import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
 import { buildHarnessConfig } from './lib/harness-config.js';
+import { buildModelRequest } from './lib/model-request.js';
+import { planHostMemory, parseQuantity } from './lib/host-memory-plan.js';
+import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
 import type { HarnessConfig } from '@koala/harness-types';
 import {
   buildTaskAuthorPrompt, buildTaskChatPrompt, extractTaskProposals, extractTaskRevision, stripTaskBlock,
@@ -67,6 +78,8 @@ import { WorkbenchService } from './services/WorkbenchService.js';
 import { buildPromotion, supersede, revertTo } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
+import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
+import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { resolveConfig, validatePersona, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
@@ -177,7 +190,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
-  const experimentService = new ExperimentService(db, modelService, undefined, io);
+  // The search functions are hoisted declarations, so passing them here — far above where they are
+  // written — is safe. They reach the research SUB-AGENT only; the planner itself still has none.
+  const experimentService = new ExperimentService(
+    db, modelService, undefined, io, executeWebSearch, executeFetchWebPage,
+  );
   const authoringService = new AuthoringService();
   const workbenchService = new WorkbenchService();
 
@@ -425,7 +442,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           await fs.writeFile(resource.lastLogPath, '').catch(() => {});
         }
 
-        const tail = spawn('tail', ['-n', '0', '-f', resource.lastLogPath]);
+        /**
+         * Recent history, not follow-only.
+         *
+         * `-n 0` meant joining a room showed nothing that had already been written — a log opened
+         * after a step finished stayed blank, and the only thing that ever filled it was
+         * react-query refetching the HTTP copy on window focus. Reported exactly that way: the log
+         * appeared after switching browser tabs and coming back.
+         *
+         * The client clears its buffer on join, so replaying history cannot double up the way it
+         * did for pod tails before they started clearing.
+         */
+        const tail = spawn('tail', ['-n', String(LOG_TAIL_LINES), '-f', resource.lastLogPath]);
         socketTails.set(id, tail);
 
         tail.stdout.on('data', (data) => {
@@ -1683,55 +1711,40 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  /**
+   * The agent's web access, resolved per call — see lib/web-tools.ts and lib/web-tools-resolver.ts.
+   *
+   * Both implementations used to live here inline: a regex over DuckDuckGo's HTML, and a tag
+   * stripper. They are still the floor, and still run when nothing better is deployed; what has
+   * changed is that a SearXNG or Crawl4AI deployment now gets used automatically when one exists.
+   *
+   * Resolved per call rather than once at bootstrap because the deployment can appear, move or go
+   * away while the process is up, and a service cached at boot is one the user cannot fix without
+   * restarting the backend. The port-forward underneath is cached, so the repeat cost is a database
+   * read.
+   */
+  async function webTools() {
+    return resolveWebTools({
+      db,
+      ensurePortForward: (clusterId, serviceKey, kubeconfigPath, target) =>
+        clusterProxyService.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target),
+      kubeconfigFor: async (clusterId: string) => {
+        // getByIdUnscoped, NOT db.getClusters(): the management cluster is SYNTHESIZED by
+        // ClusterService and never written to the database, so a direct DB read finds nothing for
+        // the one cluster almost everything is deployed to. Unscoped is right here — this runs on
+        // the agent's tool path, which has already resolved ownership of the deployment itself.
+        const cluster = await clusterService.getByIdUnscoped(clusterId);
+        return cluster ? clusterService.getKubeconfigPath(cluster) : undefined;
+      },
+    });
+  }
+
   async function executeWebSearch(query: string): Promise<{ title: string; snippet: string; url: string }[]> {
-    try {
-      const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      const res = await fetch(searchUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-      });
-      if (!res.ok) return [];
-      const html = await res.text();
-      const results: { title: string; snippet: string; url: string }[] = [];
-      const matches = html.matchAll(/<a class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g);
-      for (const match of matches) {
-        if (results.length >= 5) break;
-        const rawUrl = match[1].replace(/&amp;/g, '&');
-        const cleanTitle = match[2].replace(/<[^>]+>/g, '').trim();
-        const cleanSnippet = match[3].replace(/<[^>]+>/g, '').trim();
-        let finalUrl = rawUrl;
-        const uddgMatch = rawUrl.match(/uddg=([^&]+)/);
-        if (uddgMatch) finalUrl = decodeURIComponent(uddgMatch[1]);
-        if (cleanTitle && finalUrl) {
-          results.push({ title: cleanTitle, snippet: cleanSnippet, url: finalUrl });
-        }
-      }
-      return results;
-    } catch {
-      return [];
-    }
+    return (await webTools()).search(query);
   }
 
   async function executeFetchWebPage(url: string): Promise<string> {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-      });
-      if (!res.ok) return `HTTP error ${res.status}`;
-      const html = await res.text();
-      const cleanText = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      return cleanText.slice(0, 4000);
-    } catch (err: any) {
-      return `Failed to fetch page: ${err?.message || err}`;
-    }
+    return (await webTools()).fetchPage(url);
   }
 
   /**
@@ -1756,212 +1769,29 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   }
 
+  /** Owner-filtered here, never by id alone: `getPersonas` returns every user's. */
+  const ownedPersonas = async (userId: string): Promise<Persona[]> =>
+    (await db.getPersonas()).filter((p) => p.ownerId === userId);
+
+  /**
+   * Delegates to the shared runner so the route and a headless experiment execute the same code.
+   *
+   * The body used to live here, which meant anything measuring how well a model decomposes work
+   * would have had to reimplement it — and a reimplementation is what produced the first planning
+   * experiment's null result.
+   */
   async function runLeafTool(userId: string, branchId: string, call: { name: string; arguments: string }): Promise<string> {
-    const args = parseToolArguments(call.arguments);
-    const leaves = (await ownedLeaves(userId)).filter((l) => l.branchId === branchId);
-
-    try {
-      if (call.name === 'list_leaves') {
-        const status = typeof args.status === 'string' ? args.status : undefined;
-        const filtered = status ? leaves.filter((l) => l.status === status) : leaves;
-        return JSON.stringify({ leaves: filtered.map(summariseLeaf) });
-      }
-
-      if (call.name === 'get_leaf') {
-        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-        return JSON.stringify(detailLeaf(leaf, childrenOf(leaves, leaf.id)));
-      }
-
-      if (call.name === 'propose_leaf') {
-        const title = typeof args.title === 'string' ? args.title.trim() : '';
-        if (!title) return JSON.stringify({ error: 'title is required' });
-
-        // The same caps the HTTP route enforces. A tool is not a way around them.
-        const parent = args.parentLeafId ? leaves.find((l) => l.id === String(args.parentLeafId)) : undefined;
-        if (args.parentLeafId && !parent) return JSON.stringify({ error: 'No leaf with that parentLeafId.' });
-        if (parent) {
-          const refusal = canAddChild(parent, childrenOf(leaves, parent.id).length);
-          if (refusal) return JSON.stringify({ error: refusal });
-        }
-
-        /**
-         * Dependencies arrive as TITLES and are resolved here.
-         *
-         * The model proposes several leaves in one turn and cannot know the ids of the ones it
-         * created seconds earlier, so asking for ids would produce either guesses or nothing. A
-         * title that matches nothing is dropped rather than refused: the ordering is lost, which
-         * is what would have happened anyway, and refusing the whole leaf over a typo is worse.
-         */
-        const id = uuidv4();
-        const wanted = Array.isArray(args.dependsOn) ? args.dependsOn.map(String) : [];
-        const dependsOn = wanted
-          .map((t) => leaves.find((l) => l.title.toLowerCase() === t.trim().toLowerCase())?.id)
-          .filter((x): x is string => Boolean(x));
-        if (wouldCycle(id, dependsOn, leaves)) {
-          // Refused rather than dropped: a cycle does not fail, it waits forever, and every leaf
-          // in it looks like work that is merely slow.
-          return JSON.stringify({ error: 'Those dependencies would form a cycle — nothing in it could ever start.' });
-        }
-
-        const now = new Date().toISOString();
-        const leaf: Leaf = {
-          id,
-          ownerId: userId,
-          branchId,
-          title: title.slice(0, 200),
-          ...(dependsOn.length ? { dependsOn } : {}),
-          ...(typeof args.body === 'string' && args.body.trim() ? { body: args.body.trim().slice(0, 4000) } : {}),
-          // Silently dropped when it is not a known language: the model picking something outside
-          // the enum should get the default sandbox, not a leaf that fails when it runs.
-          ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
-          column: 'todo',
-          // Proposed, always. A tool call is still the model suggesting, not deciding.
-          status: 'proposed',
-          depth: parent ? parent.depth + 1 : 0,
-          blocking: true,
-          ...(parent ? { parentLeafId: parent.id } : {}),
-          createdAt: now,
-          updatedAt: now,
-        };
-        await db.saveLeaf(leaf);
-        return JSON.stringify({ proposed: { id: leaf.id, title: leaf.title } });
-      }
-
-      if (call.name === 'list_projects') {
-        // ownerId comes from the SESSION, never from the model. A projectId argument could name
-        // anyone's repository; the user it belongs to is not the model's to choose.
-        const mine = await projectRepoService.listForOwner(userId);
-        return JSON.stringify({
-          projects: mine.map((p) => ({ id: p.id, name: p.name, repo: `${p.giteaOwner}/${p.giteaRepo}` })),
-        });
-      }
-
-      if (call.name === 'create_project') {
-        const name = typeof args.name === 'string' ? args.name.trim() : '';
-        if (!name) return JSON.stringify({ error: 'name is required' });
-        const project = await projectRepoService.register(userId, name, {
-          ...(typeof args.description === 'string' && args.description.trim()
-            ? { description: args.description.trim().slice(0, 300) }
-            : {}),
-        });
-        return JSON.stringify({
-          created: { id: project.id, name: project.name, repo: `${project.giteaOwner}/${project.giteaRepo}` },
-        });
-      }
-
-      if (call.name === 'set_leaf_project') {
-        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-        // Resolved through the owner-filtered list, so naming another user's project id reads as
-        // "no such project" rather than attaching their repo to this leaf.
-        const project = (await projectRepoService.listForOwner(userId))
-          .find((p) => p.id === String(args.projectId ?? ''));
-        if (!project) return JSON.stringify({ error: 'No project with that id.' });
-        if (leaf.status !== 'proposed' && leaf.status !== 'pending') {
-          return JSON.stringify({ error: `That leaf is already ${leaf.status}; its sandbox exists and cannot be repointed.` });
-        }
-        await db.saveLeaf({ ...leaf, projectId: project.id, updatedAt: new Date().toISOString() });
-        return JSON.stringify({ updated: { id: leaf.id, projectId: project.id, repo: `${project.giteaOwner}/${project.giteaRepo}` } });
-      }
-
-      if (call.name === 'set_leaf_workspace') {
-        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-        if (!isWorkspaceLanguage(args.language)) {
-          return JSON.stringify({ error: `Unknown language. Choose one of: ${Object.keys(WORKSPACE_IMAGES).join(', ')}.` });
-        }
-        // Allowed while proposed OR pending — unlike the text, the toolchain can still be corrected
-        // after a human accepts, right up until the sandbox is built from it. After that the work
-        // is already running somewhere and changing the image would mean nothing.
-        if (leaf.status !== 'proposed' && leaf.status !== 'pending') {
-          return JSON.stringify({ error: `That leaf is already ${leaf.status}; its sandbox exists and cannot be changed.` });
-        }
-        await db.saveLeaf({ ...leaf, language: args.language, updatedAt: new Date().toISOString() });
-        return JSON.stringify({ updated: { id: leaf.id, language: args.language, image: imageForLanguage(args.language) } });
-      }
-
-      // Both editing verbs stop at 'proposed'. Once a human has accepted a leaf there may be a
-      // workflow running against its text, and the model rewriting or deleting it underneath would
-      // change what the work means after the person agreed to it.
-      if (call.name === 'revise_leaf' || call.name === 'withdraw_leaf') {
-        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-        if (leaf.status !== 'proposed') {
-          return JSON.stringify({
-            error: `That leaf is already ${leaf.status}, so it is no longer yours to change. Say what you would do differently and let the user decide.`,
-          });
-        }
-
-        if (call.name === 'withdraw_leaf') {
-          // Children would be orphaned into an unreachable subtree, so they go too — safe here
-          // because everything below a proposal is itself still a proposal.
-          const doomed = [leaf, ...childrenOf(leaves, leaf.id)];
-          for (const l of doomed) await db.deleteLeaf(l.id);
-          return JSON.stringify({ withdrawn: { id: leaf.id, title: leaf.title, alsoRemoved: doomed.length - 1 } });
-        }
-
-        const title = typeof args.title === 'string' ? args.title.trim() : '';
-        const body = typeof args.body === 'string' ? args.body.trim() : '';
-        if (!title && !body) return JSON.stringify({ error: 'Nothing to change — pass title, body, or both.' });
-
-        const updated: Leaf = {
-          ...leaf,
-          ...(title ? { title: title.slice(0, 200) } : {}),
-          ...(body ? { body: body.slice(0, 4000) } : {}),
-          updatedAt: new Date().toISOString(),
-        };
-        await db.saveLeaf(updated);
-        return JSON.stringify({ revised: { id: updated.id, title: updated.title } });
-      }
-
-      if (call.name === 'list_tool_repository') {
-        const repo = [
-          { id: 'web_search', name: 'Web Search', category: 'http', description: 'Live DuckDuckGo web search engine.' },
-          { id: 'fetch_web_page', name: 'Fetch Web Page', category: 'http', description: 'Fetches clean text content from web URLs.' },
-          { id: 'pytest_runner', name: 'PyTest Runner', category: 'testing', description: 'Executes Python unit test suites in sandbox.' },
-          { id: 'git_inspector', name: 'Git Inspector', category: 'git', description: 'Inspects commit history, diffs, and branch refs.' },
-          { id: 'linter_audit', name: 'Linter Audit', category: 'linter', description: 'Runs ESLint/Ruff/Static analysis check.' },
-          { id: 'http_tester', name: 'HTTP Tester', category: 'http', description: 'Tests API endpoints and HTTP payloads.' },
-        ];
-        const category = typeof args.category === 'string' ? args.category : undefined;
-        const filtered = category ? repo.filter((t) => t.category === category) : repo;
-        return JSON.stringify({ tools: filtered });
-      }
-
-      if (call.name === 'attach_tool_to_leaf') {
-        const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-        if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-        const toolId = String(args.toolId ?? '');
-        await db.saveLeaf({ ...leaf, attachedTools: [...(leaf as any).attachedTools ?? [], toolId], updatedAt: new Date().toISOString() } as any);
-        return JSON.stringify({ attached: { leafId: leaf.id, toolId } });
-      }
-
-      if (call.name === 'update_leaf_memory') {
-        const category = String(args.category ?? 'lessons_learned');
-        const title = String(args.title ?? '');
-        const text = String(args.text ?? '');
-        return JSON.stringify({ savedMemory: { category, title, text, timestamp: new Date().toISOString() } });
-      }
-
-      if (call.name === 'web_search') {
-        const query = String(args.query ?? '').trim();
-        if (!query) return JSON.stringify({ error: 'query parameter is required' });
-        const results = await executeWebSearch(query);
-        return JSON.stringify({ query, results: results.length ? results : [{ snippet: 'No results found or request failed' }] });
-      }
-
-      if (call.name === 'fetch_web_page') {
-        const url = String(args.url ?? '').trim();
-        if (!url) return JSON.stringify({ error: 'url parameter is required' });
-        const content = await executeFetchWebPage(url);
-        return JSON.stringify({ url, content });
-      }
-
-      return JSON.stringify({ error: `Unknown tool ${call.name}` });
-    } catch (err: any) {
-      return JSON.stringify({ error: String(err?.message ?? err).slice(0, 300) });
-    }
+    return runLeafToolShared(
+      {
+        db,
+        userId,
+        branchId,
+        webSearch: executeWebSearch,
+        fetchWebPage: executeFetchWebPage,
+        projects: projectRepoService,
+      },
+      call,
+    );
   }
 
   /** ── HARNESS — what the agent is configured to do, and experiments against it ── */
@@ -2236,10 +2066,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   };
 
   /** ── PERSONAS — named configurations you pick, rather than the one everybody gets ── */
-
-  /** Owner-filtered here, never by id alone: `getPersonas` returns every user's. */
-  const ownedPersonas = async (userId: string): Promise<Persona[]> =>
-    (await db.getPersonas()).filter((p) => p.ownerId === userId);
 
   app.get('/api/personas', async (req, res) => {
     res.json(await ownedPersonas((req as any).user.id));
@@ -3070,6 +2896,32 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       return res.status(404).json({ error: err.message });
     }
 
+    /**
+     * One builder for every call this turn makes.
+     *
+     * Built-in sampling, then the resolved chain written through the registry so each knob lands
+     * where the engine actually reads it. Four call sites used to assemble this inline and no two
+     * agreed: three spread the raw request instead of the resolved chain, all four applied the
+     * built-in defaults LAST (which silently undid the adopted profile), and the hand-rolled
+     * filter sent `think` as a top-level field the engine ignores.
+     */
+    const turnRequest = (
+      messages: unknown,
+      opts: { tools?: unknown; stream: boolean; maxTokens: number; reasoningEffort?: string; extra?: Record<string, unknown> },
+    ) => buildModelRequest({
+      turn: 'conversation',
+      ...(provider.kind ? { kind: provider.kind } : {}),
+      messages,
+      ...(opts.tools ? { tools: opts.tools } : {}),
+      stream: opts.stream,
+      maxTokens: opts.maxTokens,
+      ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+      ...(provider.model ? { model: provider.model } : {}),
+      overrides: resolved.overrides,
+      ...(opts.extra ? { extra: opts.extra } : {}),
+    }).body;
+
+
     // Abort the upstream request if the browser goes away mid-stream, or a closed tab leaves a
     // generation running on the GPU until it finishes.
     const upstreamAbort = new AbortController();
@@ -3089,37 +2941,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         // "turboderp-qwen3-6-27b-exl3-5-00bpw" regardless of what is sent, having derived its own
         // id from the repo and bitrate), but a stricter server would reject "Tabbyapi-Production"
         // outright — and single-model endpoints generally serve whatever they loaded.
-        body: JSON.stringify({
-          /**
-           * The resolved bag, not the raw request: this is what makes a persona's temperature —
-           * or an adopted default's — actually reach the model rather than being decoration.
-           *
-           * Loop-placement knobs are dropped because they are READ here, never transmitted:
-           * `systemPrompt` is composed into a message above, and sending it as a body field would
-           * be a parameter the engine ignores at best and rejects at worst.
-           */
-          ...Object.fromEntries(
-            Object.entries(resolved.overrides).filter(([key]) => !loopKeys().includes(key)),
-          ),
-          ...(provider.model ? { model: provider.model } : {}),
-          messages: outboundMessages,
+        body: JSON.stringify(turnRequest(outboundMessages, {
           // Offered only when in proposal/plan mode on a task-relevant turn. Selective tool framing
           // prevents casual Q&A turns from degenerating into tool-schema deliberation loops.
           ...(offerTools ? { tools: LEAF_TOOLS } : {}),
-          // Reasoning stays ON here — it is what makes the conversation worth having, and turning
-          // it off was explicitly rejected. Only the DECODING pathology is suppressed: without
-          // this, a turn can degenerate into dozens of identical lines and never reach an answer.
-          ...conversationSampling(provider.kind),
-          // Intelligent Mechanism: Dynamic Token Allocation & Reasoning Control based on prompt complexity
-          max_tokens: rest.max_tokens ?? strategy.maxTokens,
-          max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
-          reasoning_effort: rest.reasoning_effort ?? strategy.reasoningEffort,
           stream,
-          // Streaming responses omit usage unless asked, and then only in the final chunk.
-          // Confirmed supported by the live TabbyAPI deployment; a server that ignores the field
-          // simply yields no usage, and metering records nothing rather than guessing.
-          ...(stream ? { stream_options: { include_usage: true } } : {}),
-        }),
+          maxTokens: rest.max_tokens ?? strategy.maxTokens,
+          reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
+          extra: {
+            max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
+            // Streaming responses omit usage unless asked, and then only in the final chunk.
+            ...(stream ? { stream_options: { include_usage: true } } : {}),
+          },
+        })),
         signal: upstreamAbort.signal,
       });
 
@@ -3227,22 +3061,56 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         const followUp = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
-          body: JSON.stringify({
-            ...rest,
-            ...(provider.model ? { model: provider.model } : {}),
-            messages: conversation,
+          body: JSON.stringify(turnRequest(conversation, {
             tools: LEAF_TOOLS,
-            max_tokens: rest.max_tokens ?? strategy.maxTokens,
-            max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
-            reasoning_effort: rest.reasoning_effort ?? strategy.reasoningEffort,
             stream: true,
-            stream_options: { include_usage: true },
-            ...conversationSampling(provider.kind),
-          }),
+            maxTokens: rest.max_tokens ?? strategy.maxTokens,
+            reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
+            extra: {
+              max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
+              stream_options: { include_usage: true },
+            },
+          })),
           signal: upstreamAbort.signal,
         });
         if (!followUp.ok || !followUp.body) break;
         calls = await pump(followUp.body);
+      }
+
+      /**
+       * Out of tool rounds and still asking for more — so make it answer.
+       *
+       * Measured on a real conversation: four rounds, every one `finish_reason: tool_calls`, every
+       * one zero characters of content. web_search returned five hits, fetch_web_page returned
+       * pages whose stripped HTML held no usable figure, and the model simply searched again. The
+       * loop then exited with a call still pending and the response ended having streamed NOTHING.
+       * From the outside that is a chat that stops mid-thought for no stated reason.
+       *
+       * The final pass offers no tools at all, which is what makes it terminal — a nudge with the
+       * tools still attached is just a fifth round. It says plainly that the budget is spent, so
+       * the model reports what it found and what it could not confirm rather than inventing the
+       * part it never reached.
+       */
+      if (calls.length > 0 && branchId) {
+        res.write(`data: ${JSON.stringify({ interruptedReason: `Used all ${MAX_TOOL_ROUNDS} research steps — answering with what was found.` })}\n\n`);
+        conversation.push({
+          role: 'user',
+          content:
+            'You have used all available research steps. Answer now with what you found. State '
+            + 'plainly what you could not confirm rather than guessing at it.',
+        });
+        const finalPass = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+          body: JSON.stringify(turnRequest(conversation, {
+            stream: true,
+            maxTokens: rest.max_tokens ?? strategy.maxTokens,
+            reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
+            extra: { stream_options: { include_usage: true } },
+          })),
+          signal: upstreamAbort.signal,
+        });
+        if (finalPass.ok && finalPass.body) await pump(finalPass.body);
       }
 
       // Automatic Continuation Pass: if the response ran out of tokens mid-thought (finish_reason === 'length'),
@@ -3261,17 +3129,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             'content-type': 'application/json',
             ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
           },
-          body: JSON.stringify({
-            ...rest,
-            ...(provider.model ? { model: provider.model } : {}),
-            messages: continuationMessages,
-            max_tokens: strategy.maxTokens,
-            max_completion_tokens: strategy.maxTokens,
-            reasoning_effort: strategy.reasoningEffort,
+          body: JSON.stringify(turnRequest(continuationMessages, {
             stream: true,
-            stream_options: { include_usage: true },
-            ...conversationSampling(provider.kind),
-          }),
+            maxTokens: strategy.maxTokens,
+            reasoningEffort: strategy.reasoningEffort,
+            extra: {
+              max_completion_tokens: strategy.maxTokens,
+              stream_options: { include_usage: true },
+            },
+          })),
           signal: upstreamAbort.signal,
         });
         if (continuationPass.ok && continuationPass.body) {
@@ -3296,17 +3162,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               'content-type': 'application/json',
               ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
             },
-            body: JSON.stringify({
-              ...rest,
-              ...(provider.model ? { model: provider.model } : {}),
-              messages: stage2Messages,
-              max_tokens: strategy.maxTokens,
-              max_completion_tokens: strategy.maxTokens,
-              reasoning_effort: strategy.reasoningEffort,
+            body: JSON.stringify(turnRequest(stage2Messages, {
               stream: true,
-              stream_options: { include_usage: true },
-              ...conversationSampling(provider.kind),
-            }),
+              maxTokens: strategy.maxTokens,
+              reasoningEffort: strategy.reasoningEffort,
+              extra: {
+                max_completion_tokens: strategy.maxTokens,
+                stream_options: { include_usage: true },
+              },
+            })),
             signal: upstreamAbort.signal,
           });
           if (stage2Pass.ok && stage2Pass.body) {
@@ -3347,9 +3211,21 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             const cleanReply = reply.includes('<think>')
               ? reply.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '').trim() || reply
               : reply;
+            /**
+             * Reasoning is persisted alongside the reply.
+             *
+             * `BranchMessage.reasoning` has existed since branches did — "kept separately so it can
+             * be collapsed, and dropped first when trimming" — and nothing ever wrote it. So the
+             * deliberation was visible while the tab was open and gone the moment you navigated
+             * away, because the only copy lived in the browser.
+             *
+             * Stored second to `content` and trimmed first, which is what the field was designed
+             * for: it is the part you can afford to lose.
+             */
+            const thinking = reasoningScanner.result().trim();
             const turns: BranchMessage[] = [
               { role: 'user', content: userText },
-              { role: 'assistant', content: cleanReply },
+              { role: 'assistant', content: cleanReply, ...(thinking ? { reasoning: thinking } : {}) },
             ];
             await db.saveBranch({
               id: String(branchId),
@@ -3727,6 +3603,61 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  /**
+   * What the resource ceilings resolve to when you leave them blank.
+   *
+   * Computed on demand rather than stored. A stored figure goes stale the moment the GPU count or
+   * sequence length changes, and — worse — a persisted default would be sent on every deploy,
+   * permanently overriding the very plan it came from. Blank has to keep meaning "size this for
+   * me", so the number exists only to be SHOWN.
+   *
+   * The UI renders it as a placeholder, which is what makes an empty field read as "20G, computed
+   * from the model" rather than as a missing value.
+   */
+  app.get('/api/deployments/:id/resource-plan', async (req, res) => {
+    const user = (req as any).user;
+    const dep = (await db.getDeployments()).find((d) => d.id === req.params.id && d.ownerId === user.id);
+    if (!dep) return res.status(404).json({ error: 'Deployment not found' });
+    if (dep.appType !== 'tabbyapi') return res.json({ applicable: false });
+
+    // Non-fatal: a rate-limited lookup should cost the placeholder its precision, not the panel.
+    let modelBytes: number | undefined;
+    try {
+      const { getHfModelSize } = await import('./lib/huggingface.js');
+      modelBytes = (await getHfModelSize(dep.tabbyModel!, dep.tabbyRevision, dep.tabbyHfToken)).totalBytes;
+    } catch { /* falls back to the conservative assumption inside the plan */ }
+
+    let allocatableBytes: number | undefined;
+    try {
+      const nodes = await infraService.runCommand("kubectl", [
+        'get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}',
+      ], `resource-plan-${dep.id}`) as { stdout: string; exitCode: number };
+      if (nodes.exitCode === 0) {
+        const sizes = nodes.stdout.trim().split(/\s+/).map((q) => parseQuantity(q))
+          .filter((n): n is number => n !== undefined);
+        if (sizes.length) allocatableBytes = Math.min(...sizes);
+      }
+    } catch { /* no node reading means no budget, which the plan reports honestly */ }
+
+    const plan = planHostMemory({
+      modelBytes,
+      gpuCount: Number(dep.tabbyGpuCount) || 1,
+      maxSeqLen: Number(dep.tabbyMaxSeqLen) || TABBYAPI_DEFAULT_MAX_SEQ_LEN,
+      inlineModelLoading: dep.tabbyInlineModelLoading === true,
+      allocatableBytes,
+    });
+
+    res.json({
+      applicable: true,
+      memoryLimit: `${Math.ceil(plan.limitBytes / 1e9)}G`,
+      shmSize: `${Math.ceil(plan.shmBytes / 1024 ** 3)}Gi`,
+      // Not part of the memory plan — this is simply what the construct uses when nothing is set.
+      cpuLimit: '10',
+      basis: plan.basis,
+      ...(plan.refusal ? { refusal: plan.refusal } : {}),
+    });
+  });
+
   app.patch('/api/deployments/:id/config', async (req, res) => {
     try {
       if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
@@ -3742,6 +3673,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         'tabbyModel', 'tabbyRevision', 'tabbyGpuCount', 'tabbyHfToken', 'tabbyCachePvc',
         'tabbyImageTag', 'tabbyCacheMode', 'tabbyMaxSeqLen', 'tabbyMaxBatchSize',
         'tabbyReasoning', 'tabbyToolFormat', 'tabbyInlineModelLoading', 'tabbyDisableAuth',
+        // Resource ceilings. Absent from this list, they were stripped here before anything else
+        // saw them — so the UI offered three fields that could be edited, saved without complaint,
+        // and changed nothing. The bridge and the activity both handle them; only this list did not.
+        'tabbyMemoryLimit', 'tabbyShmSize', 'tabbyCpuLimit',
         'tabbyExtraEnv',
         'webuiEnableWebSearch', 'webuiWebSearchEngine', 'webuiWebSearchApiKey',
         // Map-valued: deep-merged in updateConfigAndSync and key-validated against the app's

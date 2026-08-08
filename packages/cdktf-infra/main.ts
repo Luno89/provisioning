@@ -25,6 +25,8 @@ import { KavitaNativeApp } from "./constructs/kavita-native.js";
 import { ImmichNativeApp } from "./constructs/immich-native.js";
 import { PapraNativeApp } from "./constructs/papra-native.js";
 import { HomeassistantNativeApp } from "./constructs/homeassistant-native.js";
+import { SearxngNativeApp } from "./constructs/searxng-native.js";
+import { Crawl4aiNativeApp } from "./constructs/crawl4ai-native.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
 import { DashboardsStack } from "./constructs/dashboards.js";
@@ -331,6 +333,25 @@ class AppStack extends TerraformStack {
           ...(webTag ? { webTag } : {}),
           ...(storageData ? { dataStorage: storageData } : {}),
           ...(storageMedia ? { mediaStorage: storageMedia } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'searxng') {
+        new SearxngNativeApp(this, "searxng-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.SEARXNG_SECRET_KEY ? { secretKey: process.env.SEARXNG_SECRET_KEY } : {}),
+          ...(process.env.SEARXNG_ENGINES ? { engines: process.env.SEARXNG_ENGINES } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'crawl4ai') {
+        new Crawl4aiNativeApp(this, "crawl4ai-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.CRAWL4AI_API_TOKEN ? { apiToken: process.env.CRAWL4AI_API_TOKEN } : {}),
+          ...(process.env.CRAWL4AI_MEMORY_LIMIT ? { memoryLimit: process.env.CRAWL4AI_MEMORY_LIMIT } : {}),
+          ...(process.env.CRAWL4AI_SHM_SIZE ? { shmSize: process.env.CRAWL4AI_SHM_SIZE } : {}),
           ...vpnProps,
         });
       } else if (appType === 'homeassistant') {

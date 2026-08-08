@@ -294,6 +294,11 @@ export class MongoDB implements Database {
     if (deployment.tabbyInlineModelLoading !== undefined) d.tabbyInlineModelLoading = deployment.tabbyInlineModelLoading;
     if (deployment.tabbyDisableAuth !== undefined) d.tabbyDisableAuth = deployment.tabbyDisableAuth;
     if (deployment.tabbyExtraEnv !== undefined) d.tabbyExtraEnv = deployment.tabbyExtraEnv;
+    if (deployment.searxngSecretKey !== undefined) d.searxngSecretKey = deployment.searxngSecretKey;
+    if (deployment.searxngEngines !== undefined) d.searxngEngines = deployment.searxngEngines;
+    if (deployment.crawl4aiApiToken !== undefined) d.crawl4aiApiToken = deployment.crawl4aiApiToken;
+    if (deployment.crawl4aiMemoryLimit !== undefined) d.crawl4aiMemoryLimit = deployment.crawl4aiMemoryLimit;
+    if (deployment.crawl4aiShmSize !== undefined) d.crawl4aiShmSize = deployment.crawl4aiShmSize;
     if (deployment.openWebuiTargetId !== undefined) d.openWebuiTargetId = deployment.openWebuiTargetId;
     if (deployment.hermesTargetId !== undefined) d.hermesTargetId = deployment.hermesTargetId;
     if (deployment.webuiEnableWebSearch !== undefined) d.webuiEnableWebSearch = deployment.webuiEnableWebSearch;

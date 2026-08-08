@@ -20,6 +20,10 @@ import { runAgentLoop } from '../lib/agent-loop.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
+import { runPlanningTurn } from '../lib/planning-turn.js';
+import { boardFile } from '../lib/planning-board.js';
+import type { LeafToolContext } from '../lib/leaf-tool-runner.js';
+import type { ModelKind } from '@koala/harness-types';
 import { buildMemoryContext, type MemoryItem } from '../lib/memory-store.js';
 import type { ExperimentRun } from '@koala/harness-types';
 import type {
@@ -66,6 +70,13 @@ export class ExperimentService {
      * run should require in order to happen.
      */
     private io?: SocketServer,
+    /**
+     * How a research sub-agent reaches the web. Defaults to refusing, so a service constructed
+     * without them plans from what the model knows rather than silently returning empty findings.
+     */
+    private webSearch: (q: string) => Promise<{ title: string; snippet: string; url: string }[]>
+      = async () => [],
+    private fetchWebPage: (url: string) => Promise<string> = async () => '',
   ) {}
 
   /**
@@ -316,6 +327,128 @@ export class ExperimentService {
     }
   }
 
+
+  /**
+   * One run of a PLANNING task — the decomposition cycle rather than the sandbox one.
+   *
+   * The agent never touches the sandbox here; it answers a request by proposing leaves. The
+   * sandbox is used only at the end, to run the verify command against the board those leaves
+   * form. That keeps one trust boundary rather than two: a predicate about decomposition quality
+   * is arbitrary code, and it runs where all the other arbitrary code runs.
+   *
+   * A fresh branch per run, named from the run id. Reusing one would let a previous repeat's leaves
+   * count toward this one's board — the same class of bug as reusing a sandbox namespace, which
+   * cost 90 seconds and produced an error that read exactly like a failed task.
+   */
+  private async runPlanningVariant(
+    experiment: Experiment,
+    task: ExperimentTask,
+    variant: ExperimentVariant,
+    runId: string,
+    blank: Omit<VariantResult, 'durationMs'>,
+    startedAt: number,
+    resolved: ReturnType<typeof resolveConfig>,
+    persona: Persona | null,
+    profile: HarnessProfile | null,
+    provider: { model: string; kind?: ModelKind },
+    baseUrl: string,
+    apiKey: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<VariantResult> {
+    const branchId = `plan-${runId}`;
+    const personas = (await this.db.getPersonas()).filter((p) => p.ownerId === experiment.ownerId);
+
+    const turn = await withTimeout(
+      runPlanningTurn({
+        baseUrl,
+        ...(apiKey ? { apiKey } : {}),
+        model: provider.model,
+        ...(provider.kind ? { kind: provider.kind } : {}),
+        prompt: task.prompt,
+        tools: {
+          db: this.db,
+          userId: experiment.ownerId,
+          branchId,
+          /**
+           * The PLANNER gets no search, and is told so — it asks for findings instead, and a
+           * sub-agent does the searching. So these stay empty here on purpose: they are the
+           * planner's own tools, and it does not have them.
+           */
+          webSearch: async () => [],
+          fetchWebPage: async () => '',
+          /**
+           * Inert on purpose — but only this one.
+           *
+           * `create_project` registers a real Gitea repository. A benchmark that quietly created
+           * one per run would leave a trail of repos named after test prompts, and a measurement
+           * that mutates the world outside the sandbox it was given is not a measurement.
+           * `list_projects` returning nothing is honest here: this branch has none.
+           */
+          projects: {
+            listForOwner: async () => [],
+            register: async () => { throw new Error('Projects cannot be created from an experiment run.'); },
+          } as unknown as LeafToolContext['projects'],
+        },
+        profile,
+        persona,
+        overrides: variant.overrides,
+        // Research IS available — to the sub-agent, which is the whole point of the split: the
+        // planning turn stays offline and reproducible while the information still arrives.
+        research: { webSearch: this.webSearch, fetchWebPage: this.fetchWebPage },
+        ...(signal ? { signal } : {}),
+      }),
+      VARIANT_TIMEOUT_MS,
+    );
+
+    // The board is the artifact. Written into a sandbox so the verify command reads it the same
+    // way every other verify command reads its input.
+    await this.workspaces.create({
+      leafId: runId,
+      ownerId: experiment.ownerId,
+      image: imageForLanguage(task.language ?? experiment.language),
+    });
+    try {
+      for (const file of task.seed ?? []) {
+        await this.workspaces.writeFile(runId, file.path, file.content);
+      }
+      const board = boardFile(turn.leaves, personas);
+      await this.workspaces.writeFile(runId, board.path, board.content);
+
+      const check = await this.workspaces.exec(runId, task.verifyCommand, 120_000);
+
+      return {
+        ...blank,
+        // A planning turn has no `finish` tool, so there is no claim to compare against — it
+        // proposed something or it did not.
+        succeeded: turn.leaves.length > 0,
+        verified: check.exitCode === 0,
+        verifyExitCode: check.exitCode,
+        verifyOutput: mergeStreams(check.stdout, check.stderr),
+        steps: turn.rounds,
+        tokensUsed: turn.tokensUsed,
+        durationMs: Date.now() - startedAt,
+        summary: turn.reply.slice(0, 4000)
+          || `Proposed ${turn.leaves.length} leaves without commenting on them.`,
+        transcript: turn.toolCalls.map((c) => `${c.name} ${c.arguments}`),
+        request: {
+          systemPrompt: turn.request.systemPrompt,
+          kickoff: task.prompt,
+          tools: turn.request.tools.map((name) => ({ name, description: '' })),
+          parameters: turn.request.parameters,
+          overrides: resolved.overrides,
+          fromProfile: resolved.from.profile,
+          ...(resolved.from.persona.length ? { fromPersona: resolved.from.persona } : {}),
+        },
+        expected: {
+          verifyCommand: task.verifyCommand,
+          note: 'Verified when this exits 0 against the proposed board, written as leaves.json.',
+        },
+      };
+    } finally {
+      await this.workspaces.destroy(runId).catch(() => undefined);
+    }
+  }
+
   private async runVariant(
     experiment: Experiment,
     task: ExperimentTask,
@@ -388,6 +521,22 @@ export class ExperimentService {
         experiment.ownerId,
         typeof variant.overrides.model === 'string' ? variant.overrides.model : undefined,
       );
+
+      /**
+       * A planning task never enters the sandbox loop.
+       *
+       * Dispatched here rather than branched through the block below, so the execution path stays
+       * exactly as it was: it is the one every existing suite runs, and a planning feature is not
+       * worth destabilising it for.
+       */
+      if (task.kind === 'planning') {
+        return await this.runPlanningVariant(
+          experiment, task, variant, runId, blank, startedAt,
+          resolvedForVariant, variantPersona, profile,
+          { model: provider.model, ...(provider.kind ? { kind: provider.kind } : {}) },
+          baseUrl, apiKey, signal,
+        );
+      }
 
       await this.workspaces.create({
         leafId: runId,

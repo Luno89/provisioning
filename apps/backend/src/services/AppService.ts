@@ -164,7 +164,7 @@ export class AppService extends BaseService {
       if (nsReleases.length > 0) {
         strategy = 'helm';
         const releaseName = nsReleases[0].Chart?.split(':')[0]?.toLowerCase() ?? '';
-        const knownApps = ['odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik', 'vllm', 'tabbyapi', 'openwebui', 'hermes', 'palworld', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich', 'papra', 'homeassistant'];
+        const knownApps = ['odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik', 'vllm', 'tabbyapi', 'openwebui', 'hermes', 'palworld', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich', 'papra', 'homeassistant', 'searxng', 'crawl4ai'];
         appType = knownApps.find(a => releaseName.includes(a)) as DeploymentMetadata['appType'] | undefined;
       } else {
         // Try to infer from deployment names in the namespace
@@ -172,7 +172,7 @@ export class AppService extends BaseService {
           const podsOutput = await this.infra.runKubectl(['get', 'pods', '-n', ns, '-o', 'json'], kubeconfigPath);
           const podsData = JSON.parse(podsOutput);
           const podNames = podsData.items.map((p: any) => p.metadata.name ?? '').map((n: string) => n.split('-')[0]);
-          const knownApps = ['odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik', 'vllm', 'tabbyapi', 'openwebui', 'hermes', 'palworld', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich', 'papra', 'homeassistant'];
+          const knownApps = ['odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik', 'vllm', 'tabbyapi', 'openwebui', 'hermes', 'palworld', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich', 'papra', 'homeassistant', 'searxng', 'crawl4ai'];
           appType = knownApps.find(a => podNames.some((p: string) => p.includes(a))) as DeploymentMetadata['appType'] | undefined;
         } catch {
           // Best-effort

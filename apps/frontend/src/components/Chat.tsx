@@ -100,10 +100,28 @@ export default function Chat({
 
   const [showEndpoints, setShowEndpoints] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [temperature, setTemperature] = useState<number>(0.7);
-  const [frequencyPenalty, setFrequencyPenalty] = useState<number>(0.4);
-  const [presencePenalty, setPresencePenalty] = useState<number>(0.2);
-  const [maxTokens, setMaxTokens] = useState<number>(2048);
+  /**
+   * Sampling the user has DELIBERATELY changed — not every value the panel displays.
+   *
+   * These used to be plain numbers seeded with invented defaults (0.7, 0.4, 0.2) and sent on every
+   * single turn. That put them at the request layer, which outranks everything, so the adopted
+   * harness profile could never take effect — and the 0.4 frequency penalty it kept reinstating is
+   * the one that stops this model emitting a tool call at all, which showed up as empty replies.
+   *
+   * Undefined means "whatever the harness decides". The panel still shows a number, because a
+   * blank slider is unusable — it shows the EFFECTIVE one, read from the server.
+   */
+  const [touched, setTouched] = useState<Record<string, number>>({});
+  const setKnob = (key: string, value: number) => setTouched((t) => ({ ...t, [key]: value }));
+  /**
+   * Hands a knob back to the chain.
+   *
+   * Switching persona deliberately does NOT clear what you moved — an explicit act should not be
+   * undone by picking a different name. But without a way back, one nudged slider silently follows
+   * you across every persona you try, and the panel would say `you` while you believed you were
+   * running the persona as written.
+   */
+  const releaseKnob = (key: string) => setTouched(({ [key]: _dropped, ...rest }) => rest);
   const [thoughtSensitivity, setThoughtSensitivity] = useState<'low' | 'medium' | 'high'>('medium');
   const [ngramCap, setNgramCap] = useState(5);
   const [failureThreshold, setFailureThreshold] = useState(0.85);
@@ -116,7 +134,42 @@ export default function Chat({
     refetchInterval: 30000,
   });
 
-  const { data: personas } = useQuery<{ id: string; name: string; description?: string }[]>({
+  /** What the harness is actually set to, so the panel reflects reality rather than invention. */
+  const { data: harness } = useQuery<{
+    effective?: { key: string; value: unknown; source?: 'harness' | 'adopted' }[];
+  }>({
+    queryKey: ['harness-config'],
+    queryFn: () => axios.get(`${apiBase}/harness/config`, { withCredentials: true }).then((r) => r.data),
+    staleTime: 60_000,
+  });
+  /**
+   * The value in force for a knob, resolved the way the SERVER resolves it.
+   *
+   *   adopted profile → chosen persona → what you moved
+   *
+   * The persona layer is the one that was missing: picking "Coder" applies its temperature on the
+   * server and the panel went on showing the profile's, so a setting that was genuinely in force
+   * looked like it had been ignored. A panel that disagrees with the request it describes is worse
+   * than no panel.
+   */
+  const knob = (key: string, fallback: number): number => {
+    if (touched[key] !== undefined) return touched[key]!;
+    const persona = personas?.find((p) => p.id === personaId)?.overrides?.[key];
+    if (typeof persona === 'number') return persona;
+    const live = harness?.effective?.find((e) => e.key === key)?.value;
+    return typeof live === 'number' ? live : fallback;
+  };
+
+  /** Where the displayed value came from, so a number is never just a number. */
+  const knobSource = (key: string): string => {
+    if (touched[key] !== undefined) return 'you';
+    if (personas?.find((p) => p.id === personaId)?.overrides?.[key] !== undefined) return 'persona';
+    return harness?.effective?.find((e) => e.key === key)?.source === 'adopted' ? 'adopted' : 'built-in';
+  };
+
+  const { data: personas } = useQuery<{
+    id: string; name: string; description?: string; overrides?: Record<string, unknown>;
+  }[]>({
     queryKey: ['personas'],
     queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
   });
@@ -280,10 +333,9 @@ export default function Chat({
           mode: activeMode,
           // Omitted rather than sent empty: the route 404s an unknown persona, and "" is not one.
           ...(personaId ? { personaId } : {}),
-          temperature,
-          frequency_penalty: frequencyPenalty,
-          presence_penalty: presencePenalty,
-          max_tokens: maxTokens,
+          // Only knobs the user actually moved. Sending the panel's displayed values would put
+          // them at the request layer and outrank the adopted profile on every turn.
+          ...touched,
           thoughtMonitorSensitivity: thoughtSensitivity,
           ngramRepeatThreshold: ngramCap,
           failurePredictionThreshold: failureThreshold,
@@ -463,18 +515,36 @@ export default function Chat({
             <div className="space-y-2.5">
               <div className="text-[10px] font-black uppercase tracking-widest text-[var(--leaf-light)]">Sampling Controls</div>
               
+              <p className="text-[10px] text-slate-500 leading-snug mb-1">
+                {/* Said plainly: these are not this panel's numbers, they are the harness's — and
+                    moving one is what makes it yours for this conversation. */}
+                Showing what the harness is set to. Move a control to override it for this
+                conversation only; anything untouched follows the adopted defaults.
+              </p>
+
               <div>
                 <div className="flex justify-between text-slate-400 mb-1">
                   <span>Temperature</span>
-                  <span className="font-mono text-slate-200">{temperature.toFixed(2)}</span>
+                  <span className="font-mono text-slate-200">
+                    {knob('temperature', 0.7).toFixed(2)}
+                    {knobSource('temperature') === 'you' ? (
+                      <button
+                        onClick={() => releaseKnob('temperature')}
+                        title="Hand this back to the persona or the adopted default"
+                        className="ml-1.5 text-[10px] font-sans text-amber-400 hover:text-amber-300 underline decoration-dotted"
+                      >you ✕</button>
+                    ) : (
+                      <span className="ml-1.5 text-[10px] font-sans text-slate-500">{knobSource('temperature')}</span>
+                    )}
+                  </span>
                 </div>
                 <input
                   type="range"
                   min="0.0"
                   max="1.5"
                   step="0.05"
-                  value={temperature}
-                  onChange={(e) => setTemperature(Number(e.target.value))}
+                  value={knob('temperature', 0.7)}
+                  onChange={(e) => setKnob('temperature', Number(e.target.value))}
                   className="w-full accent-[var(--leaf)] cursor-pointer"
                 />
               </div>
@@ -482,15 +552,26 @@ export default function Chat({
               <div>
                 <div className="flex justify-between text-slate-400 mb-1">
                   <span>Frequency Penalty</span>
-                  <span className="font-mono text-slate-200">{frequencyPenalty.toFixed(2)}</span>
+                  <span className="font-mono text-slate-200">
+                    {knob('frequency_penalty', 0.4).toFixed(2)}
+                    {knobSource('frequency_penalty') === 'you' ? (
+                      <button
+                        onClick={() => releaseKnob('frequency_penalty')}
+                        title="Hand this back to the persona or the adopted default"
+                        className="ml-1.5 text-[10px] font-sans text-amber-400 hover:text-amber-300 underline decoration-dotted"
+                      >you ✕</button>
+                    ) : (
+                      <span className="ml-1.5 text-[10px] font-sans text-slate-500">{knobSource('frequency_penalty')}</span>
+                    )}
+                  </span>
                 </div>
                 <input
                   type="range"
                   min="0.0"
                   max="1.5"
                   step="0.05"
-                  value={frequencyPenalty}
-                  onChange={(e) => setFrequencyPenalty(Number(e.target.value))}
+                  value={knob('frequency_penalty', 0.4)}
+                  onChange={(e) => setKnob('frequency_penalty', Number(e.target.value))}
                   className="w-full accent-[var(--leaf)] cursor-pointer"
                 />
               </div>
@@ -498,15 +579,26 @@ export default function Chat({
               <div>
                 <div className="flex justify-between text-slate-400 mb-1">
                   <span>Presence Penalty</span>
-                  <span className="font-mono text-slate-200">{presencePenalty.toFixed(2)}</span>
+                  <span className="font-mono text-slate-200">
+                    {knob('presence_penalty', 0.2).toFixed(2)}
+                    {knobSource('presence_penalty') === 'you' ? (
+                      <button
+                        onClick={() => releaseKnob('presence_penalty')}
+                        title="Hand this back to the persona or the adopted default"
+                        className="ml-1.5 text-[10px] font-sans text-amber-400 hover:text-amber-300 underline decoration-dotted"
+                      >you ✕</button>
+                    ) : (
+                      <span className="ml-1.5 text-[10px] font-sans text-slate-500">{knobSource('presence_penalty')}</span>
+                    )}
+                  </span>
                 </div>
                 <input
                   type="range"
                   min="0.0"
                   max="1.5"
                   step="0.05"
-                  value={presencePenalty}
-                  onChange={(e) => setPresencePenalty(Number(e.target.value))}
+                  value={knob('presence_penalty', 0.2)}
+                  onChange={(e) => setKnob('presence_penalty', Number(e.target.value))}
                   className="w-full accent-[var(--leaf)] cursor-pointer"
                 />
               </div>
@@ -514,15 +606,15 @@ export default function Chat({
               <div>
                 <div className="flex justify-between text-slate-400 mb-1">
                   <span>Max Completion Tokens</span>
-                  <span className="font-mono text-slate-200">{maxTokens}</span>
+                  <span className="font-mono text-slate-200">{knob('max_tokens', 2048)}</span>
                 </div>
                 <input
                   type="range"
                   min="512"
                   max="8192"
                   step="256"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(Number(e.target.value))}
+                  value={knob('max_tokens', 2048)}
+                  onChange={(e) => setKnob('max_tokens', Number(e.target.value))}
                   className="w-full accent-[var(--leaf)] cursor-pointer"
                 />
               </div>

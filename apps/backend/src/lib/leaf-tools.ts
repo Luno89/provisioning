@@ -98,6 +98,18 @@ export const LEAF_TOOLS = [
               + 'starts at the same time in its own empty sandbox, and later steps find nothing to '
               + 'build on. Give the titles exactly as you proposed them.',
           },
+          /**
+           * A persona NAME, not an id — same reasoning as `dependsOn` taking titles. The model is
+           * proposing several leaves in one turn and has no way to know an id; it knows the names
+           * it was shown.
+           */
+          persona: {
+            type: 'string',
+            description:
+              'Optional — the name of the persona best suited to this work, exactly as listed. '
+              + 'Assign the one whose strengths match what the leaf actually requires; leave it out '
+              + 'if no listed persona is a better fit than the default.',
+          },
           language: LANGUAGE_PARAM,
         },
         required: ['title'],
@@ -155,6 +167,16 @@ export const LEAF_TOOLS = [
         },
         required: ['id', 'language'],
       },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_personas',
+      description:
+        'List the personas available to assign work to, with what each is for. Call this before '
+        + 'assigning personas so the names you use are real ones.',
+      parameters: { type: 'object', properties: {} },
     },
   },
   {

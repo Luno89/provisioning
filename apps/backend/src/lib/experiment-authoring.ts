@@ -61,6 +61,11 @@ export interface DraftTask {
   /** A correct answer, used only to prove the verify command can pass. Never given to the agent. */
   solution?: TaskFile[];
   language?: WorkspaceLanguage;
+  /**
+   * Which cycle the task exercises. Carried through the gate because the two are seeded
+   * differently: a planning task's baseline is an empty board, not an absent one.
+   */
+  kind?: 'sandbox' | 'planning';
 }
 
 /**

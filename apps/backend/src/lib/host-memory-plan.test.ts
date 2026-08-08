@@ -139,3 +139,49 @@ describe('shared memory is inside the limit, not beside it', () => {
     expect(plan.refusal).toMatch(/needs about/);
   });
 });
+
+describe('a chosen limit beats a computed one', () => {
+  /**
+   * The plan exists to save you from deciding, not to overrule you once you have.
+   *
+   * Reported live: the memory limit was changed in the UI, saved, redeployed — and the value
+   * appeared nowhere in the Terraform plan. Two faults stacked. `DeployAppActivity` never forwarded
+   * `tabbyMemoryLimit`, `tabbyShmSize` or `tabbyCpuLimit` to `buildAppEnv` at all, though
+   * `TemporalBridge` had always sent them; and once forwarding was added, the computed plan
+   * overwrote them unconditionally.
+   *
+   * The precedence rule is the same one the override chain uses everywhere else: the more specific
+   * act wins, and typing a number is more specific than a default nobody chose.
+   */
+  const pick = (chosen: string | undefined, planned: number) => chosen || `${Math.ceil(planned / 1e9)}G`;
+
+  it('uses what was typed when something was typed', () => {
+    const plan = planHostMemory({ ...measured, maxSeqLen: 32768, inlineModelLoading: false });
+    expect(pick('12G', plan.limitBytes)).toBe('12G');
+  });
+
+  it('falls back to the plan when nothing was', () => {
+    const plan = planHostMemory({ ...measured, maxSeqLen: 32768, inlineModelLoading: false });
+    expect(pick(undefined, plan.limitBytes)).toBe(`${Math.ceil(plan.limitBytes / 1e9)}G`);
+  });
+
+  it('can tell that a chosen limit is under the estimate, so it can be said out loud', () => {
+    // Allowed, not refused: it is the user's machine, and a too-small limit fails SAFELY — the
+    // cgroup kills the pod instead of the host OOM killer taking the desktop with it.
+    const plan = planHostMemory({ ...measured, maxSeqLen: 32768, inlineModelLoading: false });
+    expect(parseQuantity('12G')!).toBeLessThan(plan.limitBytes);
+  });
+});
+
+describe('a size lookup that fails quietly', () => {
+  it('treats zero bytes as unknown, not as a very small model', () => {
+    // getHfModelSize returns 0 rather than throwing when it cannot read a repo's file tree.
+    // `?? 20e9` accepts 0, so the conservative fallback never ran and the plan produced 12G for a
+    // model needing about 19G — the exact OOMKill the fallback exists to prevent.
+    const zero = planHostMemory({ ...measured, modelBytes: 0, maxSeqLen: 32768, inlineModelLoading: false });
+    const missing = planHostMemory({ ...measured, modelBytes: undefined, maxSeqLen: 32768, inlineModelLoading: false });
+
+    expect(zero.limitBytes).toBe(missing.limitBytes);
+    expect(zero.basis).toMatch(/size lookup failed/);
+  });
+});
