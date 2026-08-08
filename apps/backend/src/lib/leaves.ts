@@ -109,6 +109,24 @@ export interface Leaf {
   outputBranch?: string;
 
   /**
+   * A command that proves this leaf's work, run in the workspace when it finishes.
+   *
+   * Optional: absent means the language's default is used (the test suite the work itself
+   * produced). See lib/leaf-verify.ts for why a model-authored command is not the default — a
+   * leaf has no known solution to gate one against, so a trivially-true command would launder a
+   * claim into a "verified" badge.
+   */
+  verifyCommand?: string;
+
+  /**
+   * Whether anything actually checked the work, as opposed to the agent saying it was done.
+   *
+   * A `succeeded` leaf with this false is still a success — most leaves are not test-shaped — it
+   * is just not evidence, and the board should not show the same tick for both.
+   */
+  verified?: boolean;
+
+  /**
    * What the agent reported when it finished — the leaf's actual output.
    *
    * Absent until now, which meant a leaf could run for two minutes, spend 144,000 tokens, report

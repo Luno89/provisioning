@@ -38,6 +38,9 @@ import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
   buildRepoStateScript, summariseRepoState,
 } from '../lib/leaf-checkout.js';
+import {
+  defaultVerifyCommand, buildVerifyScript, parseVerifyResult, decideStatus, type VerifyResult,
+} from '../lib/leaf-verify.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -307,7 +310,28 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           return confirmed;
         };
 
-        if (!run.succeeded) {
+        /**
+         * ── THE REPOSITORY GETS THE LAST WORD ──
+         *
+         * `run.succeeded` is the agent calling `finish(succeeded: true)` — a claim about its own
+         * work. Observed wrong in both directions: a leaf reported creating a file it had not
+         * committed and was marked succeeded, and a leaf capped at 7 steps failed three attempts
+         * while its branch accumulated all nine expected files with nine passing tests.
+         *
+         * Run for BOTH outcomes, deliberately. Verifying only the successes would leave exactly the
+         * second case unrescued.
+         */
+        let verify: VerifyResult = { outcome: 'unverified', output: '' };
+        const verifyCommand = leaf.verifyCommand?.trim() || defaultVerifyCommand(leaf.language);
+        if (verifyCommand) {
+          verify = await workspaces
+            .exec(leaf.id, buildVerifyScript(verifyCommand, leaf.language), 300_000)
+            .then((r) => parseVerifyResult(r.stdout))
+            .catch(() => ({ outcome: 'unverified' as const, output: '' }));
+        }
+        const settled = decideStatus(run.succeeded, verify.outcome);
+
+        if (settled === 'failed') {
           /**
            * ── A FAILED ATTEMPT KEEPS ITS WORK ──
            *
@@ -348,7 +372,12 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           // Thrown so the failure lands in the catch below, which is the ONE place that records an
           // attempt. A second recording path is how histories end up inconsistent.
           throw new Error([
-            run.summary,
+            // The agent's own claim is reported when it CONTRADICTS the check, because "it said it
+            // was done" is the most useful thing the next attempt can know about the last one.
+            verify.outcome === 'failed' && run.succeeded
+              ? `The agent reported success, but the checks failed. Its report: ${run.summary}`
+              : run.summary,
+            ...(verify.outcome === 'failed' ? [`Verification failed (\`${verifyCommand}\`):\n${verify.output}`] : []),
             ...(partial ? [`Work so far is committed on ${partial} and will be waiting at /work/repo next attempt.`] : []),
             ...(state ? [`State of the repository when this attempt ended:\n${state}`] : []),
           ].join('\n\n'));
@@ -362,6 +391,12 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         await db.saveLeaf({
           ...leaf, usage: spent, status: 'succeeded', column: 'review',
           ...(run.summary ? { summary: run.summary.slice(0, 8000) } : {}),
+          /**
+           * Whether anything actually checked this, so the board can say "verified" or "claimed"
+           * rather than showing the same green tick for both. An unverified success is still a
+           * success — most leaves are not test-shaped — it is just not evidence.
+           */
+          verified: verify.outcome === 'passed',
           // Recorded so a later leaf can find the work, and so the board can link to it.
           ...(project ? { projectId: project.id } : {}),
           ...(outputBranch ? { outputBranch } : {}),
