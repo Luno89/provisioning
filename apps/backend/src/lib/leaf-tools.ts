@@ -96,7 +96,9 @@ export const LEAF_TOOLS = [
               'Optional — titles of leaves on this branch that must FINISH before this one starts. '
               + 'Use it whenever this work builds on another leaf\'s output: without it every leaf '
               + 'starts at the same time in its own empty sandbox, and later steps find nothing to '
-              + 'build on. Give the titles exactly as you proposed them.',
+              + 'build on. Give the titles exactly as you proposed them. The result confirms which '
+              + 'ones were recorded and warns about any that matched no leaf — check it, because an '
+              + 'unmatched title means this leaf will not wait after all.',
           },
           /**
            * A persona NAME, not an id — same reasoning as `dependsOn` taking titles. The model is

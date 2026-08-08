@@ -14,7 +14,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
-import { canAddChild, childrenOf, subtreeOf, wouldCycle, type Leaf } from './leaves.js';
+import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, type Leaf } from './leaves.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { imageForLanguage, isWorkspaceLanguage, WORKSPACE_IMAGES } from './workspace-spec.js';
@@ -74,18 +74,12 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       }
 
       /**
-       * Dependencies arrive as TITLES and are resolved here.
-       *
-       * The model proposes several leaves in one turn and cannot know the ids of the ones it
-       * created seconds earlier, so asking for ids would produce either guesses or nothing. A
-       * title that matches nothing is dropped rather than refused: the ordering is lost, which
-       * is what would have happened anyway, and refusing the whole leaf over a typo is worse.
+       * Dependencies arrive as TITLES and are resolved here — see `resolveDependencyTitles` for
+       * why titles, why a miss is not fatal, and why the misses come back rather than vanishing.
        */
       const id = uuidv4();
       const wanted = Array.isArray(args.dependsOn) ? args.dependsOn.map(String) : [];
-      const dependsOn = wanted
-        .map((t) => leaves.find((l) => l.title.toLowerCase() === t.trim().toLowerCase())?.id)
-        .filter((x): x is string => Boolean(x));
+      const { ids: dependsOn, unresolved } = resolveDependencyTitles(wanted, leaves);
       if (wouldCycle(id, dependsOn, leaves)) {
         // Refused rather than dropped: a cycle does not fail, it waits forever, and every leaf
         // in it looks like work that is merely slow.
@@ -126,7 +120,31 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         updatedAt: now,
       };
       await db.saveLeaf(leaf);
-      return JSON.stringify({ proposed: { id: leaf.id, title: leaf.title } });
+      /**
+       * The result states what was actually recorded, not just that something was.
+       *
+       * `dependsOn` is echoed back by TITLE because that is what the model wrote and what it can
+       * check against its own plan — an id it has never seen tells it nothing. When something
+       * matched nothing, the existing titles come with it, so the next call can name one correctly
+       * instead of guessing again.
+       */
+      const recorded = dependsOn
+        .map((depId) => leaves.find((l) => l.id === depId)?.title)
+        .filter((t): t is string => Boolean(t));
+
+      return JSON.stringify({
+        proposed: { id: leaf.id, title: leaf.title },
+        ...(wanted.length ? { dependsOn: recorded } : {}),
+        ...(unresolved.length
+          ? {
+              // Named `warning` rather than buried in a field the model may not read: this leaf
+              // will start immediately alongside the work it was supposed to follow.
+              warning: `These dependencies matched no leaf and were NOT recorded, so this leaf will start immediately instead of waiting: ${unresolved.map((t) => `"${t}"`).join(', ')}. Use a title exactly as it appears in existingTitles, or propose the missing leaf first.`,
+              unresolvedDependencies: unresolved,
+              existingTitles: leaves.map((l) => l.title),
+            }
+          : {}),
+      });
     }
 
     if (call.name === 'list_projects') {

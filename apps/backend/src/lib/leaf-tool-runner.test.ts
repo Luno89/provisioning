@@ -117,6 +117,55 @@ describe('dependency ordering', () => {
     expect(leaf!.dependsOn).toBeUndefined();
   });
 
+  it('TELLS the model when a dependency matched nothing', async () => {
+    /**
+     * The drop is right; the silence was not. `propose_leaf` reported plain success, so a model
+     * that paraphrased its own title by one word believed it had built a chain and had actually
+     * built a fan-out — every step starting at once against work that did not exist yet.
+     */
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'Build the client' }));
+    const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', {
+      title: 'Test it', dependsOn: ['Build an client'],
+    })));
+
+    expect(out.proposed).toBeTruthy();
+    expect(out.unresolvedDependencies).toEqual(['Build an client']);
+    // Says the consequence, not just the fact — this leaf will now start immediately.
+    expect(out.warning).toMatch(/start immediately/i);
+    // The real titles come back so the next call can name one correctly instead of guessing.
+    expect(out.existingTitles).toContain('Build the client');
+  });
+
+  it('confirms the dependencies it DID record, by title', async () => {
+    // An id the model has never seen tells it nothing; the title is what it can check against its
+    // own plan.
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'Build the client' }));
+    const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', {
+      title: 'Test it', dependsOn: ['Build the client'],
+    })));
+
+    expect(out.dependsOn).toEqual(['Build the client']);
+    expect(out.warning).toBeUndefined();
+  });
+
+  it('says nothing about dependencies when none were asked for', async () => {
+    // A leaf with no ordering must not read as one whose ordering was lost.
+    const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', { title: 'Standalone' })));
+
+    expect('dependsOn' in out).toBe(false);
+    expect(out.warning).toBeUndefined();
+  });
+
+  it('reports the partial case: one matched, one did not', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'Build the client' }));
+    const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', {
+      title: 'Test it', dependsOn: ['Build the client', 'Write the docs'],
+    })));
+
+    expect(out.dependsOn).toEqual(['Build the client']);
+    expect(out.unresolvedDependencies).toEqual(['Write the docs']);
+  });
+
   it('refuses a dependency that would close a cycle', async () => {
     // A cycle does not fail — everything in it waits forever, which looks like slow work.
     await runLeafTool(ctx(), call('propose_leaf', { title: 'A' }));

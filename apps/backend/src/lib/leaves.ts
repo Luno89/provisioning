@@ -504,6 +504,55 @@ export function dependentsOf(leafId: string, all: Leaf[]): Leaf[] {
 }
 
 /**
+ * Matches the TITLES a planner declared against leaves that exist, and says what it could not find.
+ *
+ * ── WHY TITLES AT ALL ──
+ * The model proposes several leaves in one turn and cannot know the ids of the ones it created
+ * seconds earlier, so asking for ids would produce guesses or nothing.
+ *
+ * ── WHY THE UNMATCHED ONES ARE RETURNED RATHER THAN DROPPED ──
+ * They were dropped silently, and the tool reported plain success. Paraphrase your own title by one
+ * word — which is exactly what a model does when it writes the same idea twice — and you have
+ * declared a dependency chain, been told it worked, and actually built a fan-out where every step
+ * starts at once. Nothing anywhere reported the difference.
+ *
+ * Still not an error: refusing a whole proposal over a spelling slip trades real work for a typo,
+ * and the ordering was lost either way. The caller reports them instead, so the model can correct
+ * itself on the next call.
+ */
+export interface ResolvedDependencies {
+  ids: string[];
+  /** Titles that matched nothing, exactly as they were given. */
+  unresolved: string[];
+}
+
+/**
+ * Case, surrounding whitespace, internal runs of whitespace, wrapping quotes and a trailing full
+ * stop. Deliberately NOT fuzzy: matching approximately would attach the dependency to the wrong
+ * leaf, which is silent and worse than reporting that nothing matched.
+ */
+function normaliseTitle(title: string): string {
+  return title.trim().toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/\.$/, '');
+}
+
+export function resolveDependencyTitles(titles: string[], all: Leaf[]): ResolvedDependencies {
+  const byTitle = new Map(all.map((l) => [normaliseTitle(l.title), l.id]));
+  const ids: string[] = [];
+  const unresolved: string[] = [];
+
+  for (const title of titles) {
+    const id = byTitle.get(normaliseTitle(title));
+    if (!id) { unresolved.push(title); continue; }
+    // A title named twice is one dependency, not two.
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return { ids, unresolved };
+}
+
+/**
  * Whether adding these dependencies to `leafId` would close a cycle.
  *
  * Refused at proposal time rather than detected later: a cycle does not fail, it simply means
