@@ -486,6 +486,24 @@ export function readyToStart(all: Leaf[]): Leaf[] {
 }
 
 /**
+ * Leaves waiting on this one — who to wake when it finishes.
+ *
+ * The counterpart to `blockedBy`, and the reason the release is an EVENT rather than a scan. The
+ * board used to be swept every 30 seconds to re-derive readiness, which meant every edge in a plan
+ * cost up to half a minute of nothing happening: a five-step chain spent about 75 seconds on
+ * average waiting for a timer to come round, and the scan ran forever whether or not anything was
+ * blocked.
+ *
+ * Deliberately NOT filtered by readiness. A leaf with two dependencies is woken by each of them and
+ * decides for itself whether the last one has landed — the alternative is this caller evaluating a
+ * DAG it only half-sees, and two dependencies finishing at once each concluding the other will do
+ * it.
+ */
+export function dependentsOf(leafId: string, all: Leaf[]): Leaf[] {
+  return all.filter((l) => (l.dependsOn ?? []).includes(leafId));
+}
+
+/**
  * Whether adding these dependencies to `leafId` would close a cycle.
  *
  * Refused at proposal time rather than detected later: a cycle does not fail, it simply means

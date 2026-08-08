@@ -44,6 +44,12 @@ const HOST_QUEUE = 'host-ops-queue'
 const CLUSTER_QUEUE = 'cluster-ops-queue'
 const WORKFLOW_POLL_INTERVAL = 5000
 const RECONCILE_INTERVAL = 30000
+/**
+ * The dependency backstop runs far less often than the cluster/deployment reconciliation above.
+ * It is not how work gets released any more — see the note at its call site — so a fast interval
+ * would only mean scanning every leaf on the board twice a minute to find nothing.
+ */
+const DEPENDENCY_BACKSTOP_INTERVAL = 300000
 const MAX_POLL_FAILURES = 12
 
 /**
@@ -615,36 +621,50 @@ export class TemporalBridge {
         console.warn(`[Reconcile] Error: ${err.message}`)
       }
 
-      /**
-       * Start leaves whose turn has come.
-       *
-       * Its own try/catch, and deliberately AFTER the one above: that block covers clusters and
-       * deployments under a single catch, so a transient Temporal error while polling one cluster
-       * would otherwise skip the rest of the pass — and work waiting on a dependency would sit
-       * there until something unrelated started succeeding again.
-       *
-       * Polled rather than signalled on completion. A leaf finishes inside a Temporal activity
-       * with no route back into this process, and an event that can be missed strands work
-       * permanently; a pass that re-derives readiness from the database recovers on its own.
-       */
-      try {
-        const leaves = await this.db.getLeaves()
-        for (const leaf of readyToStart(leaves)) {
-          const workflowId = await this.startLeaf(leaf)
-          if (!workflowId) continue
-          // Written before the next iteration, so a crash mid-pass cannot start it twice: the
-          // next pass reads a leaf that already has a workflow and skips it.
-          await this.db.saveLeaf({ ...leaf, workflowId, updatedAt: new Date().toISOString() })
-          console.log(`[Reconcile] Started ${leaf.title} — its dependencies have completed`)
-          if (this.io) this.io.emit('leaf-updated')
-        }
-      } catch (err: any) {
-        console.warn(`[Reconcile] Could not release waiting leaves: ${err.message}`)
-      }
     }
+
+    const releaseBackstop = async () => {
+    /**
+     * Start leaves whose turn has come.
+     *
+     * Its own try/catch, and deliberately AFTER the one above: that block covers clusters and
+     * deployments under a single catch, so a transient Temporal error while polling one cluster
+     * would otherwise skip the rest of the pass — and work waiting on a dependency would sit
+     * there until something unrelated started succeeding again.
+     *
+     * ── A BACKSTOP NOW, NOT THE MECHANISM ──
+     * Release is event-driven: a finishing leaf wakes its dependents with `signalWithStart` from
+     * inside its own workflow (see activities/LeafGateActivity.ts). That is a Temporal activity,
+     * so it is retried and cannot be lost the way an in-process event can — which was the whole
+     * argument for polling in the first place, and it was wrong.
+     *
+     * This pass survives for the one case activities cannot cover: a workflow TERMINATED from
+     * outside runs no more activities, so nothing wakes what it was blocking. Slow on purpose,
+     * and loud when it fires — by the time it does, the primary path has already failed, and
+     * that is worth seeing rather than quietly papering over.
+     */
+    try {
+      const leaves = await this.db.getLeaves()
+      for (const leaf of readyToStart(leaves)) {
+        const workflowId = await this.startLeaf(leaf)
+        if (!workflowId) continue
+        // Written before the next iteration, so a crash mid-pass cannot start it twice: the
+        // next pass reads a leaf that already has a workflow and skips it.
+        await this.db.saveLeaf({ ...leaf, workflowId, updatedAt: new Date().toISOString() })
+        // WARN, not log: the finishing dependency should have woken this leaf directly. Reaching
+        // here means that never happened.
+        console.warn(`[Reconcile] BACKSTOP started "${leaf.title}" — its dependencies completed but nothing woke it. A leaf workflow was probably terminated.`)
+        if (this.io) this.io.emit('leaf-updated')
+      }
+    } catch (err: any) {
+      console.warn(`[Reconcile] Could not release waiting leaves: ${err.message}`)
+    }
+  }
 
     reconcile()
     setInterval(reconcile, RECONCILE_INTERVAL)
+    releaseBackstop()
+    setInterval(releaseBackstop, DEPENDENCY_BACKSTOP_INTERVAL)
   }
 
   // ────────────────────────────────────────────────────────────────────

@@ -10,11 +10,12 @@ import {
 } from '@temporalio/workflow';
 import type { UpdateLeafArgs } from '../activities/UpdateLeafActivity.js';
 import type { ExecuteLeafArgs, ExecuteLeafResult } from '../activities/ExecuteLeafActivity.js';
+import type { LeafGateArgs, LeafGateResult, ReleaseDependentsResult } from '../activities/LeafGateActivity.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { executeLeafActivityMeta, updateLeafActivityMeta } from '../lib/activity-timeouts.js';
+import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta } from '../lib/activity-timeouts.js';
 
 const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
   startToCloseTimeout: updateLeafActivityMeta.startToCloseTimeout,
@@ -37,6 +38,21 @@ const { ExecuteLeafActivity } = proxyActivities<{ ExecuteLeafActivity: (args: Ex
     // root leaf's wall-clock budget while nothing happens.
     backoffCoefficient: 2,
   },
+});
+
+/**
+ * The dependency gate and the release, both activities so the rules are not replay-bound.
+ *
+ * Retried by Temporal, which is the whole reason the release can replace a polling loop: a worker
+ * that dies mid-release resumes it, so the event cannot be silently lost the way an in-process
+ * event can. See activities/LeafGateActivity.ts.
+ */
+const { CheckLeafGateActivity } = proxyActivities<{ CheckLeafGateActivity: (args: LeafGateArgs) => Promise<LeafGateResult> }>({
+  startToCloseTimeout: checkLeafGateActivityMeta.startToCloseTimeout,
+});
+
+const { ReleaseDependentsActivity } = proxyActivities<{ ReleaseDependentsActivity: (args: LeafGateArgs) => Promise<ReleaseDependentsResult> }>({
+  startToCloseTimeout: releaseDependentsActivityMeta.startToCloseTimeout,
 });
 
 export type WorkflowLeafColumn = 'todo' | 'in-progress' | 'review';
@@ -80,6 +96,14 @@ export const moveLeafSignal = defineSignal<[WorkflowLeafColumn]>('moveLeaf');
 export const completeLeafSignal = defineSignal<[]>('completeLeaf');
 export const cancelLeafSignal = defineSignal<[]>('cancelLeaf');
 export const addChildSignal = defineSignal<[ChildRequest]>('addChild');
+/**
+ * Raised by a dependency when it finishes, successfully or not.
+ *
+ * Carries the finished leaf's id for the log only — readiness is re-read from the board rather than
+ * derived from which signals have arrived. Counting arrivals would go wrong the moment the plan is
+ * edited mid-flight, and would double-count a dependency whose release activity was retried.
+ */
+export const dependencyCompletedSignal = defineSignal<[string]>('dependencyCompleted');
 export const leafStateQuery = defineQuery<LeafWorkflowState>('leafState');
 
 /**
@@ -179,7 +203,67 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
     pending.push(req);
   });
 
-  await UpdateLeafActivity({ leafId: args.leafId, status: 'running', workflowId: workflowInfo().workflowId });
+  /**
+   * ── THE DEPENDENCY GATE ──
+   *
+   * The workflow id is claimed immediately but the status stays `pending`, because a leaf parked
+   * on its dependencies is not running and must not look like it is. Claiming the id first is what
+   * stops anything starting a second execution: `readyToStart` skips a leaf that already has one.
+   */
+  await UpdateLeafActivity({ leafId: args.leafId, workflowId: workflowInfo().workflowId });
+
+  /** Set by a dependency finishing. Only a nudge to re-read — never counted. */
+  let dependencyFinished = false;
+  setHandler(dependencyCompletedSignal, () => {
+    dependencyFinished = true;
+  });
+
+  let gate = await CheckLeafGateActivity({ leafId: args.leafId });
+  /**
+   * Stops a completing dependency from resurrecting work nobody asked for.
+   *
+   * `signalWithStart` starts a workflow whose id names a CLOSED execution, so without this a leaf
+   * that was cancelled — or has already run — would come back to life the moment something it
+   * depended on finished. `stop` leaves the row exactly as it was found.
+   */
+  if (gate.decision === 'stop') return { column, status: 'cancelled', blockingChildren: 0 };
+
+  while (gate.decision === 'wait' && !cancelled) {
+    /**
+     * Waiting is an OPEN WORKFLOW, not a row nobody is acting on.
+     *
+     * This replaced a 30-second sweep that re-derived readiness for every leaf on the board. That
+     * cost up to half a minute per edge — a five-step chain averaged about 75 seconds of pure
+     * waiting — and ran forever whether or not anything was blocked. Parked here the leaf costs
+     * nothing, wakes the instant its last dependency lands, and its state is queryable.
+     */
+    await condition(() => cancelled || dependencyFinished);
+    if (cancelled) break;
+    dependencyFinished = false;
+    // Re-read rather than assume this was the last one: a leaf with two dependencies is woken by
+    // each of them, and the board may have been edited while it waited.
+    gate = await CheckLeafGateActivity({ leafId: args.leafId });
+    if (gate.decision === 'stop') return { column, status: 'cancelled', blockingChildren: 0 };
+  }
+
+  /**
+   * A dependency was cancelled, so this can never run. Marked cancelled and released rather than
+   * left parked: an open workflow waiting on a signal that is never coming is invisible except as
+   * a card that never moves, and anything waiting on THIS leaf would inherit the same fate.
+   */
+  if (gate.decision === 'abandon') {
+    await UpdateLeafActivity({ leafId: args.leafId, status: 'cancelled' });
+    await ReleaseDependentsActivity({ leafId: args.leafId });
+    return { column, status: 'cancelled', blockingChildren: 0 };
+  }
+
+  if (cancelled) {
+    await UpdateLeafActivity({ leafId: args.leafId, status: 'cancelled' });
+    await ReleaseDependentsActivity({ leafId: args.leafId });
+    return { column, status: 'cancelled', blockingChildren: 0 };
+  }
+
+  await UpdateLeafActivity({ leafId: args.leafId, status: 'running' });
 
   /**
    * The leaf's own work, running alongside signal handling rather than blocking it — a leaf must
@@ -218,6 +302,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
   if (cancelled) {
     status = 'cancelled';
     await UpdateLeafActivity({ leafId: args.leafId, status });
+    await ReleaseDependentsActivity({ leafId: args.leafId });
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
@@ -229,6 +314,14 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
     // The failure detail is already on the leaf — ExecuteLeafActivity wrote it before throwing,
     // on every attempt, which is what the next retry reads.
     await UpdateLeafActivity({ leafId: args.leafId, status });
+    /**
+     * Released on FAILURE too, not only success.
+     *
+     * A dependent whose dependency failed will never satisfy `dependenciesMet` and must not start
+     * — but it still has to be WOKEN to find that out. Skipping this is how a diamond with one
+     * failed arm strands the other arm's dependents on a signal that never arrives.
+     */
+    await ReleaseDependentsActivity({ leafId: args.leafId });
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
@@ -240,6 +333,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
     if (results.some((r) => r.status === 'rejected')) {
       status = 'failed';
       await UpdateLeafActivity({ leafId: args.leafId, status });
+      await ReleaseDependentsActivity({ leafId: args.leafId });
       return { column, status, blockingChildren: blockingChildren.length };
     }
   }
@@ -259,5 +353,13 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
    */
   column = 'review';
   await UpdateLeafActivity({ leafId: args.leafId, status, column });
+  /**
+   * Wakes whatever was waiting on this leaf — the event that replaced the 30-second sweep.
+   *
+   * LAST, after the board says `succeeded`: a dependent woken any earlier would re-read the board,
+   * still see this leaf unfinished, and go straight back to waiting for a signal that has already
+   * been sent.
+   */
+  await ReleaseDependentsActivity({ leafId: args.leafId });
   return { column, status, blockingChildren: blockingChildren.length };
 }

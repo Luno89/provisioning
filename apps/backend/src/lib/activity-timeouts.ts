@@ -26,3 +26,7 @@ export const runPipelineActivityMeta = { name: 'RunPipelineActivity', startToClo
 export const updateLeafActivityMeta = { name: 'UpdateLeafActivity', startToCloseTimeout: '1 minute' } as const;
 // A leaf's own work: an agent turn, so generous. Retries are configured at the call site.
 export const executeLeafActivityMeta = { name: 'ExecuteLeafActivity', startToCloseTimeout: '30 minutes' } as const;
+// Both are a database read plus, for the release, a handful of signalWithStart calls. Short for the
+// same reason as UpdateLeafActivity: a long timeout here only delays noticing a stuck worker.
+export const checkLeafGateActivityMeta = { name: 'CheckLeafGateActivity', startToCloseTimeout: '1 minute' } as const;
+export const releaseDependentsActivityMeta = { name: 'ReleaseDependentsActivity', startToCloseTimeout: '2 minutes' } as const;

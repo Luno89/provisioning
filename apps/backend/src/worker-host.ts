@@ -9,6 +9,7 @@ import { ProvisionClusterActivity } from './activities/ProvisionClusterActivity.
 import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
 import { UpdateLeafActivity } from './activities/UpdateLeafActivity.js';
 import { ExecuteLeafActivity } from './activities/ExecuteLeafActivity.js';
+import { CheckLeafGateActivity, ReleaseDependentsActivity } from './activities/LeafGateActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 
@@ -67,6 +68,8 @@ async function main() {
           // need none of the in-cluster worker's Docker or kubeconfig access.
           UpdateLeafActivity,
           ExecuteLeafActivity,
+          CheckLeafGateActivity,
+          ReleaseDependentsActivity,
         },
       });
       break;
