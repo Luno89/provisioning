@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
+  buildMergeScript, parseMergeResult,
 } from './leaf-checkout.js';
 import type { Leaf } from './leaves.js';
 
@@ -162,6 +163,50 @@ describe('resuming a failed attempt', () => {
 
     expect(s).toContain('git rev-parse --verify --quiet "origin/$b"');
     expect(s).toContain('continue');
+  });
+});
+
+describe('landing verified work on the default branch', () => {
+  const merge = () => buildMergeScript('koala/deadbeef');
+
+  it('detects the default branch instead of assuming main', () => {
+    // `main` is what the initialiser makes today, but a repository registered from elsewhere can
+    // be on `master` — and pushing to the wrong name silently creates a third branch nobody looks
+    // at either, which is the bug this whole thing exists to fix.
+    expect(merge()).toContain('refs/remotes/origin/HEAD');
+    expect(merge()).toContain('DEFAULT=main');
+  });
+
+  it('fast-forwards when it can', () => {
+    // A chain already contains the default branch's history, so a merge commit would be noise.
+    expect(merge()).toContain('git merge --ff-only');
+  });
+
+  it('falls back to a real merge when it cannot fast-forward', () => {
+    expect(merge()).toContain('git merge --no-edit');
+  });
+
+  it('abandons a conflict rather than forcing it', () => {
+    // The work is safe on its own branch. Resolving here would mean guessing at someone else's
+    // changes with no way to check the result.
+    const s = merge();
+    expect(s).toContain('git merge --abort');
+    expect(s).toContain('MERGE=conflict');
+  });
+
+  it('reports a push that was rejected separately from one that conflicted', () => {
+    // Different problems: one needs a human to merge, the other needs permissions looking at.
+    expect(merge()).toContain('MERGE=rejected');
+  });
+
+  it('reads the verdict back', () => {
+    expect(parseMergeResult('MERGE=merged')).toBe('merged');
+    expect(parseMergeResult('MERGE=conflict')).toBe('conflict');
+  });
+
+  it('treats unreadable output as "did not land"', () => {
+    // Never guess that work reached main. The board would then point at a branch that has nothing.
+    expect(parseMergeResult('some noise')).toBe('skipped');
   });
 });
 

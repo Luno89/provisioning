@@ -127,6 +127,15 @@ export interface Leaf {
   verified?: boolean;
 
   /**
+   * Whether the work reached the repository's default branch.
+   *
+   * False with `verified` true means the merge conflicted or was rejected — the work is intact on
+   * `outputBranch` and needs a human. False with `verified` false is the ordinary case: nothing
+   * checked it, so nothing landed it.
+   */
+  merged?: boolean;
+
+  /**
    * What the agent reported when it finished — the leaf's actual output.
    *
    * Absent until now, which meant a leaf could run for two minutes, spend 144,000 tokens, report

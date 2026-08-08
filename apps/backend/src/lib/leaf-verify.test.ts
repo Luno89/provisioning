@@ -19,8 +19,15 @@ describe('what gets run', () => {
      * MODULE_NOT_FOUND, and reports one failing test — which reads as a real failure of the work.
      * It produced a false report against correct code twice in one session.
      */
-    expect(defaultVerifyCommand('node')).toBe('node --test test/*.test.js');
+    expect(defaultVerifyCommand('node')).toContain('node --test');
     expect(defaultVerifyCommand('node')).not.toContain('--test test/ ');
+  });
+
+  it('finds tests at the root as well as under test/', () => {
+    // Caught while backfilling: two repositories with green suites scored as unverified purely
+    // because their test files sat beside the source instead of in a directory.
+    expect(defaultVerifyCommand('node')).toContain('*.test.js');
+    expect(defaultVerifyCommand('node')).toContain('test/*.test.js');
   });
 
   it('has a command per toolchain, and none for the bare image', () => {
@@ -46,7 +53,7 @@ describe('the verify script', () => {
     // failing test — a leaf that simply is not test-shaped would be marked broken.
     const s = buildVerifyScript('node --test test/*.test.js', 'node');
 
-    expect(s).toContain('ls test/*.test.js');
+    expect(s).toContain('ls test/*.test.js *.test.js');
     expect(s).toContain('=127');
   });
 

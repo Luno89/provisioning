@@ -36,7 +36,7 @@ import type { ProjectMetadata } from '../lib/types.js';
 import { resolveLeafProject } from '../lib/leaf-project.js';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
-  buildRepoStateScript, summariseRepoState,
+  buildRepoStateScript, summariseRepoState, buildMergeScript, parseMergeResult,
 } from '../lib/leaf-checkout.js';
 import {
   defaultVerifyCommand, buildVerifyScript, parseVerifyResult, decideStatus, type VerifyResult,
@@ -385,6 +385,29 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
 
         const outputBranch = await pushBack();
 
+        /**
+         * Verified work lands on the default branch.
+         *
+         * Without this a leaf pushed `koala/<id>` and stopped, so every repository's main held
+         * nothing but its initial README while the actual work sat on a branch nobody would think
+         * to look at — twelve projects that read as empty.
+         *
+         * Gated on verification passing, which is what makes `verified` mean something concrete.
+         * A conflict or a rejected push is not a failure of the leaf: the work is safe on its own
+         * branch, and forcing a resolution here would mean guessing at someone else's changes.
+         */
+        let merged = false;
+        if (outputBranch && verify.outcome === 'passed') {
+          const result = await workspaces
+            .exec(leaf.id, buildMergeScript(outputBranch), 120_000, [outputBranch])
+            .then((r) => parseMergeResult(r.stdout))
+            .catch(() => 'skipped' as const);
+          merged = result === 'merged';
+          if (!merged) {
+            console.warn(`[ExecuteLeafActivity] leaf ${leaf.id} verified but not merged (${result}); work remains on ${outputBranch}`);
+          }
+        }
+
         const now = new Date().toISOString();
         // The summary is persisted, not just returned: a caller that reads the workflow result is
         // not the same as a board someone can look at.
@@ -397,6 +420,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * success — most leaves are not test-shaped — it is just not evidence.
            */
           verified: verify.outcome === 'passed',
+          // Recorded so the board can point at the default branch when the work landed there, and
+          // at the leaf's own branch when it did not.
+          merged,
           // Recorded so a later leaf can find the work, and so the board can link to it.
           ...(project ? { projectId: project.id } : {}),
           ...(outputBranch ? { outputBranch } : {}),

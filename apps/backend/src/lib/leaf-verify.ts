@@ -61,7 +61,10 @@ export function defaultVerifyCommand(language: WorkspaceLanguage | undefined): s
        * MODULE_NOT_FOUND, and reports one failing test — which reads as a real failure of the work.
        * It cost me a false report against an agent whose code was correct, twice.
        */
-      return 'node --test test/*.test.js';
+      // Both layouts. A repo whose tests sit at the root read as "no suite" and fell back to the
+      // agent's claim — caught while backfilling: two repositories with green suites were being
+      // scored as unverified purely because of where the files were.
+      return 'node --test $(ls test/*.test.js *.test.js 2>/dev/null)';
     case 'python':
       return 'python -m pytest -q';
     case 'go':
@@ -81,8 +84,9 @@ export function defaultVerifyCommand(language: WorkspaceLanguage | undefined): s
 export function buildVerifyScript(command: string, language: WorkspaceLanguage | undefined): string {
   const guard = (language ?? 'node') === 'node'
     // The glob must match something, or the shell passes the pattern through literally and node
-    // reports a missing file as a test failure.
-    ? 'ls test/*.test.js >/dev/null 2>&1 || { echo "' + SENTINEL + '=127"; exit 0; }'
+    // reports a missing file as a test failure. Checks both layouts for the same reason the
+    // command does.
+    ? 'ls test/*.test.js *.test.js >/dev/null 2>&1 || { echo "' + SENTINEL + '=127"; exit 0; }'
     : '';
 
   return [

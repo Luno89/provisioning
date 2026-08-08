@@ -169,6 +169,60 @@ export function parsePushedBranch(stdout: string): string | undefined {
 }
 
 /**
+ * Lands verified work on the repository's default branch.
+ *
+ * ── WHY THIS EXISTS ──
+ * A leaf pushed `koala/<id>` and stopped. Every repository's `main` therefore held nothing but the
+ * `README.md` the initialiser wrote, so browsing Gitea showed twelve empty projects while nine
+ * files of working, tested code sat on a branch nobody would think to look at. Every "verified"
+ * result reported was against a branch the owner would never see by default.
+ *
+ * Only verified work is merged. That is what makes `verified` mean something concrete rather than
+ * being a badge on a card: if the tests the work produced actually ran and passed, it lands; if
+ * nothing could be checked, it stays on its branch to be looked at.
+ *
+ * A chain fast-forwards cleanly, because each leaf branches from the previous one's output — so
+ * merging the last leaf brings everything before it. Independent leaves that both touched the same
+ * file are the case that can genuinely conflict, and a conflict is reported rather than forced: the
+ * work is still safe on its own branch.
+ */
+export function buildMergeScript(branch: string): string {
+  return [
+    'cd /work/repo || exit 0',
+    'git fetch --quiet origin || true',
+    // Detected rather than assumed: `main` is what the initialiser makes today, but a repository
+    // registered from elsewhere can be on `master`, and pushing to the wrong name silently creates
+    // a third branch nobody looks at either.
+    'DEFAULT=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed "s|^origin/||")',
+    '[ -n "$DEFAULT" ] || DEFAULT=main',
+    'git rev-parse --verify --quiet "origin/$DEFAULT" >/dev/null || { echo "MERGE=skipped"; exit 0; }',
+    'git checkout -B "__merge" "origin/$DEFAULT" >/dev/null 2>&1 || { echo "MERGE=skipped"; exit 0; }',
+    // Fast-forward first: the common case is a chain, where the leaf's branch already contains the
+    // default branch's history and a merge commit would be noise.
+    'if git merge --ff-only "$0" >/dev/null 2>&1; then',
+    '  :',
+    'elif git merge --no-edit "$0" >/dev/null 2>&1; then',
+    '  :',
+    'else',
+    // Left on its own branch, intact. Forcing a resolution here would mean guessing at someone
+    // else's work with no way to check the result.
+    '  git merge --abort >/dev/null 2>&1 || true',
+    '  echo "MERGE=conflict"',
+    '  exit 0',
+    'fi',
+    'if git push origin "HEAD:$DEFAULT" >/dev/null 2>&1; then echo "MERGE=merged"; else echo "MERGE=rejected"; fi',
+  ].join('\n');
+}
+
+export type MergeOutcome = 'merged' | 'conflict' | 'rejected' | 'skipped';
+
+/** Reads `buildMergeScript`'s verdict. Anything unrecognised is treated as "did not land". */
+export function parseMergeResult(stdout: string): MergeOutcome {
+  const match = /MERGE=(merged|conflict|rejected|skipped)/.exec(stdout);
+  return (match?.[1] as MergeOutcome) ?? 'skipped';
+}
+
+/**
  * What the attempt actually left behind, for the next attempt to read.
  *
  * The failure recorded on a leaf was the loop's own summary — "Ran out of steps (24) without
