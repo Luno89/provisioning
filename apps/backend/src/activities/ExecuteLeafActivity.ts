@@ -221,7 +221,17 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * of it. Measured: four dependents each spent their whole budget rebuilding a client
            * their dependency had already written.
            */
-          const baseBranches = baseBranchesFor(leaf, allLeaves);
+          /**
+           * This leaf's OWN branch comes first, when a previous attempt left one.
+           *
+           * That branch was itself cut from the dependencies, so it already contains their work —
+           * the dependency branches stay in the list only so a retry still picks them up if the
+           * earlier attempt never managed to push.
+           */
+          const baseBranches = [
+            ...(leaf.outputBranch ? [leaf.outputBranch] : []),
+            ...baseBranchesFor(leaf, allLeaves),
+          ];
           const cloned = await workspaces.exec(
             leaf.id,
             buildCheckoutScript({
@@ -242,8 +252,11 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             `The repository ${project.giteaOwner}/${project.giteaRepo} is cloned at /work/repo, on a new branch "${branchName}".`,
             // Said explicitly: the agent otherwise treats an unexpectedly populated repository as
             // someone else's code to work around, and rewrites it from scratch anyway.
-            ...(baseBranches.length
-              ? [`It already contains the work of the leaves this one depends on (${baseBranches.join(', ')}). Build on what is there rather than starting over.`]
+            ...(leaf.outputBranch
+              ? ['A PREVIOUS ATTEMPT at this same task already committed here. Read what is there first and continue from it — do not start over.']
+              : []),
+            ...(baseBranchesFor(leaf, allLeaves).length
+              ? [`It also contains the work of the leaves this one depends on. Build on what is there rather than starting over.`]
               : []),
             'Work there. Commit your changes with git as you go. Do NOT change the git remote or credentials —',
             'they are already configured. When you are done, push with `git push -u origin HEAD`.',
@@ -273,32 +286,62 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         // a leaf that fails repeatedly becomes the cheapest thing on the board.
         const spent = { ...(leaf.usage ?? {}), tokens: (leaf.usage?.tokens ?? 0) + run.tokensUsed };
 
-        if (!run.succeeded) {
-          // Thrown so the failure lands in the catch below, which is the ONE place that records an
-          // attempt. A second recording path is how histories end up inconsistent.
-          await db.saveLeaf({ ...leaf, usage: spent, updatedAt: new Date().toISOString() });
-          throw new Error(run.summary);
-        }
-
         /**
          * What actually reached the remote — asked of Gitea, not of the agent.
          *
-         * Two distinct saves: an agent that commits and forgets to push leaves the work in a pod
-         * about to be destroyed, which is the original failure arriving one step later, so this
-         * pushes on its behalf. And `outputBranch` is recorded only when `git ls-remote` confirms
-         * the branch, because a branch name that cannot be checked out would strand every dependent
-         * leaf while looking exactly like a successful hand-off.
+         * Two distinct jobs: an agent that commits and forgets to push leaves the work in a pod
+         * about to be destroyed, so this pushes on its behalf; and `outputBranch` is recorded only
+         * when `git ls-remote` confirms the branch, because a branch name that cannot be checked
+         * out would strand every dependent leaf while looking exactly like a successful hand-off.
          */
-        let outputBranch: string | undefined;
-        if (checkout && branchName) {
+        const pushBack = async (): Promise<string | undefined> => {
+          if (!checkout || !branchName) return undefined;
           const pushed = await workspaces
             .exec(leaf.id, buildPushScript(branchName), 120_000, [branchName])
             .catch(() => undefined);
-          outputBranch = pushed ? parsePushedBranch(pushed.stdout) : undefined;
-          if (!outputBranch) {
-            console.warn(`[ExecuteLeafActivity] leaf ${leaf.id} pushed nothing to ${branchName}; dependents will start from the default branch`);
+          const confirmed = pushed ? parsePushedBranch(pushed.stdout) : undefined;
+          if (!confirmed) {
+            console.warn(`[ExecuteLeafActivity] leaf ${leaf.id} pushed nothing to ${branchName}`);
           }
+          return confirmed;
+        };
+
+        if (!run.succeeded) {
+          /**
+           * ── A FAILED ATTEMPT KEEPS ITS WORK ──
+           *
+           * This activity's whole retry design is that attempt N+1 reads a database attempt N
+           * changed. That was true of the failure log and false of the work itself: the pod was
+           * destroyed and the next attempt cloned an empty repository, so three attempts produced
+           * one attempt's progress three times over.
+           *
+           * Measured on "Implement JSON config parser module": three attempts, 91,818 tokens, and
+           * each one's final commands were still `mkdir` and `write package.json` — it never got
+           * past scaffolding because it rebuilt the scaffolding every time.
+           *
+           * Pushing a partial, possibly broken state is the deliberate trade. The next attempt is
+           * told what happened and can see the tree; inheriting half-built work it can read beats
+           * re-deriving it blind, and the observed failure is running out of steps mid-setup rather
+           * than corrupting anything.
+           */
+          const partial = await pushBack();
+          await db.saveLeaf({
+            ...leaf,
+            usage: spent,
+            ...(partial ? { outputBranch: partial } : {}),
+            ...(project ? { projectId: project.id } : {}),
+            updatedAt: new Date().toISOString(),
+          });
+          // Thrown so the failure lands in the catch below, which is the ONE place that records an
+          // attempt. A second recording path is how histories end up inconsistent.
+          throw new Error(
+            partial
+              ? `${run.summary} (work so far is committed on ${partial} and will be there next attempt)`
+              : run.summary,
+          );
         }
+
+        const outputBranch = await pushBack();
 
         const now = new Date().toISOString();
         // The summary is persisted, not just returned: a caller that reads the workflow result is

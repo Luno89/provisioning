@@ -18,12 +18,27 @@
  * Temporal owns WHEN things run; the board owns WHAT depends on what. There is no second source of
  * truth because only one of them decides execution.
  */
-import { dependenciesMet, blockedBy, dependentsOf, type Leaf } from '../lib/leaves.js';
+import { dependenciesMet, blockedBy, dependentsOf, shouldRetry, type Leaf } from '../lib/leaves.js';
 import { createDatabase } from '../lib/db-interface.js';
 import { getTemporalClient } from '../lib/temporal-client.js';
 
 export interface LeafGateArgs {
   leafId: string;
+}
+
+/**
+ * A failure with no attempts left — never going to succeed, so anything waiting on it is stuck.
+ *
+ * Distinct from an ordinary `failed`, which is genuinely temporary: Temporal retries the activity,
+ * and each attempt reads a database (and now a repository) the previous one changed, so the work is
+ * still expected. Only once the attempts are spent does the leaf become a dead end.
+ *
+ * Observed: "Implement JSON config parser module" failed all three attempts, and the leaf that
+ * depended on it sat `pending` with no workflow and no prospect of ever getting one — indefinitely,
+ * and looking exactly like work that had not started yet.
+ */
+function isTerminallyFailed(leaf: Leaf): boolean {
+  return leaf.status === 'failed' && !shouldRetry((leaf.attempts ?? []).length);
 }
 
 /**
@@ -75,12 +90,14 @@ export async function CheckLeafGateActivity(args: LeafGateArgs): Promise<LeafGat
      * the grounds that the ordering was lost when the leaf was removed and stranding the dependent
      * is the worse failure.
      */
-    const dead = blockers.find((b) => b.status === 'cancelled');
+    const dead = blockers.find((b) => b.status === 'cancelled' || isTerminallyFailed(b));
     if (dead) {
       return {
         decision: 'abandon',
         waitingFor: blockers.map((l) => l.title),
-        reason: `"${dead.title}" was cancelled, so this work can never start`,
+        reason: dead.status === 'cancelled'
+          ? `"${dead.title}" was cancelled, so this work can never start`
+          : `"${dead.title}" failed every attempt, so this work can never start`,
       };
     }
 

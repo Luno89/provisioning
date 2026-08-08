@@ -6,7 +6,7 @@
  * nobody accepted. None of it shows up without a live Temporal server and a plan in flight.
  */
 import { describe, it, expect } from 'vitest';
-import { dependenciesMet, blockedBy, dependentsOf, readyToStart, type Leaf } from './leaves.js';
+import { dependenciesMet, blockedBy, dependentsOf, readyToStart, shouldRetry, type Leaf } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'l', ownerId: 'u1', branchId: 'b', title: 't', body: '', column: 'todo',
@@ -89,6 +89,30 @@ describe('a dependency that can never succeed', () => {
 
     expect(dependenciesMet(target, all)).toBe(false);
     expect(blockedBy(target, all).some((b) => b.status === 'cancelled')).toBe(true);
+  });
+
+  it('treats a dependency that failed every attempt the same way', () => {
+    /**
+     * Observed: "Implement JSON config parser module" failed all three attempts, and the leaf that
+     * depended on it sat `pending` with no workflow and no prospect of getting one — indefinitely,
+     * and indistinguishable from work that simply had not started.
+     */
+    const spent = leaf({
+      id: 'a', status: 'failed',
+      attempts: [{ attempt: 0, error: 'x', failedAt: '' }, { attempt: 1, error: 'x', failedAt: '' }, { attempt: 2, error: 'x', failedAt: '' }],
+    });
+    const target = leaf({ id: 'b', dependsOn: ['a'] });
+
+    expect(shouldRetry((spent.attempts ?? []).length)).toBe(false);
+    expect(dependenciesMet(target, [spent, target])).toBe(false);
+  });
+
+  it('still waits on a failure that has retries left', () => {
+    // A failure with attempts remaining is temporary: the retry reads a database — and now a
+    // repository — the previous attempt changed, so the work is still expected.
+    const retrying = leaf({ id: 'a', status: 'failed', attempts: [{ attempt: 0, error: 'x', failedAt: '' }] });
+
+    expect(shouldRetry((retrying.attempts ?? []).length)).toBe(true);
   });
 
   it('leaves an ordinary blocked leaf alone', () => {

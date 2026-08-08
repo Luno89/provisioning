@@ -133,6 +133,38 @@ describe('the checkout script', () => {
   });
 });
 
+describe('resuming a failed attempt', () => {
+  it('starts from this leaf\'s own branch before its dependencies', () => {
+    /**
+     * The retry design says attempt N+1 reads what attempt N changed. That was true of the failure
+     * log and false of the work: the pod was destroyed and the next attempt cloned an empty
+     * repository. Measured on one leaf — three attempts, 91,818 tokens, and every attempt's last
+     * commands were still `mkdir` and `write package.json`, because it rebuilt the scaffolding
+     * from nothing each time.
+     *
+     * Own branch first because it was itself cut from the dependencies, so it already contains
+     * their work; theirs stay in the list only in case the earlier attempt never pushed.
+     */
+    const s = buildCheckoutScript({
+      cloneUrl: 'u', cleanUrl: 'c', branch: 'koala/deadbeef',
+      baseBranches: ['koala/deadbeef', 'koala/aaaaaaaa'],
+    });
+
+    expect(s).toContain('for b in koala/deadbeef koala/aaaaaaaa; do');
+  });
+
+  it('falls back to the dependency branch when the previous attempt pushed nothing', () => {
+    // The loop skips a branch that is not on the remote, so a first attempt that died before
+    // committing anything still starts from its dependencies rather than from nothing.
+    const s = buildCheckoutScript({
+      cloneUrl: 'u', cleanUrl: 'c', branch: 'koala/deadbeef', baseBranches: ['koala/aaaaaaaa'],
+    });
+
+    expect(s).toContain('git rev-parse --verify --quiet "origin/$b"');
+    expect(s).toContain('continue');
+  });
+});
+
 describe('the push-back script', () => {
   it('commits and pushes work the agent left behind', () => {
     // Committed-but-unpushed is the original failure arriving one step later: the work is in a pod

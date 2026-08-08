@@ -339,6 +339,9 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
           ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
           ...(opts.model ? { model: opts.model } : {}),
           ...(opts.kind ? { kind: opts.kind } : {}),
+          // The planner's own resolved config, so the sub-agent it spawns runs under the same
+          // profile and persona rather than under the shipped defaults.
+          ...(resolved.overrides ? { overrides: resolved.overrides } : {}),
           webSearch: opts.research.webSearch,
           fetchWebPage: opts.research.fetchWebPage,
           ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),

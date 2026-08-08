@@ -78,6 +78,17 @@ export interface ResearchOptions {
   apiKey?: string | undefined;
   model?: string | undefined;
   kind?: ModelKind | undefined;
+  /**
+   * The resolved chain the CALLER is running under — adopted profile, then persona.
+   *
+   * Inherited because this sub-agent works on that persona's behalf, and a persona that was tuned
+   * for a model (samplers, penalties, a served model name) should not have half its turn run under
+   * different settings. It reached here as nothing at all, so the one agent spawned INSIDE a
+   * persona's turn was the one agent that ignored it.
+   *
+   * Reasoning stays off regardless — see the floor applied below.
+   */
+  overrides?: Record<string, unknown> | undefined;
   webSearch: (query: string) => Promise<{ title: string; snippet: string; url: string }[]>;
   fetchWebPage: (url: string) => Promise<string>;
   fetchImpl?: typeof fetch;
@@ -119,7 +130,15 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         stream: true,
         maxTokens: 1500,
         ...(opts.model ? { model: opts.model } : {}),
-        overrides: { think: false },
+        /**
+         * The caller's configuration, with reasoning forced off on top.
+         *
+         * A FLOOR, not a default: `think: false` is applied after the inherited bag so a persona
+         * cannot turn it back on. This is a dispatch loop whose only useful output is a tool call,
+         * and reasoning here talks the model out of emitting one — the same failure measured on the
+         * authoring route, where it produced 16,664 characters of deliberation and no answer.
+         */
+        overrides: { ...(opts.overrides ?? {}), think: false },
         extra: { stream_options: { include_usage: true } },
       }).body),
       ...(opts.signal ? { signal: opts.signal } : {}),

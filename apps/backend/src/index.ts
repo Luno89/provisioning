@@ -61,7 +61,7 @@ import { ContentScanner, UsageScanner } from './lib/token-usage.js';
 import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
 import { buildOutboundMessages } from './lib/leaf-context.js';
 import { isWorkspaceLanguage, imageForLanguage, WORKSPACE_IMAGES } from './lib/workspace-spec.js';
-import { conversationSampling, TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js';
+import { TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js';
 import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token-controller.js';
 import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
 import { buildHarnessConfig } from './lib/harness-config.js';
@@ -1934,7 +1934,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           'content-type': 'application/json',
           ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
         },
-        body: JSON.stringify({
+        /**
+         * Built through the shared builder, and honouring an adopted profile.
+         *
+         * This route spread `conversationSampling` and then its own bag by hand — the exact pattern
+         * the builder exists to delete. It meant an adopted profile did not apply here (so a
+         * configuration promoted from an experiment reached leaves and chat but not the authoring
+         * that produces the next experiment), and any knob set on it would have gone out at the top
+         * level regardless of where the engine actually reads it.
+         *
+         * Profile only, no persona, and that is deliberate: this is the Lab writing a test suite,
+         * not a persona doing its job. `AUTHORING_SAMPLING` is applied last as a floor rather than a
+         * default — reasoning off is not a preference here, it is what makes the route work at all
+         * (measured: with it on, 16,664 characters of deliberation, the token ceiling hit, and no
+         * answer emitted).
+         */
+        body: JSON.stringify(buildModelRequest({
+          turn: 'conversation',
+          ...(provider.kind ? { kind: provider.kind } : {}),
           ...(provider.model ? { model: provider.model } : {}),
           messages: [
             {
@@ -1946,10 +1963,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             { role: 'user', content: String(goal).slice(0, 2000) },
           ],
           stream: false,
-          ...conversationSampling(provider.kind),
-          ...AUTHORING_SAMPLING,
-          max_tokens: AUTHORING_MAX_TOKENS,
-        }),
+          maxTokens: AUTHORING_MAX_TOKENS,
+          overrides: resolveConfig(await db.getHarnessProfile((req as any).user.id), null).overrides,
+          extra: AUTHORING_SAMPLING,
+        }).body),
       });
 
       if (!upstream.ok) {
