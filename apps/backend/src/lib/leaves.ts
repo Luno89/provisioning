@@ -428,6 +428,15 @@ export interface BranchMessage {
   content: string;
   /** Reasoning is kept separately so it can be collapsed, and dropped first when trimming. */
   reasoning?: string;
+  /**
+   * Written by the system rather than said by anyone — a leaf failing, an acceptance check running.
+   *
+   * Carries the assistant role because `BranchMessage` has no system role and assistant is the
+   * least wrong of the two: it renders as Koala reporting, and the next turn reads it as context it
+   * already has rather than as an instruction. This flag is how the UI can tell the difference
+   * without inferring it from the wording. See lib/branch-notice.ts.
+   */
+  notice?: boolean;
 }
 
 /**
@@ -443,6 +452,17 @@ export interface Branch {
   /** Derived from the first message unless renamed. */
   title: string;
   messages: BranchMessage[];
+  /**
+   * The command that decides whether this request actually delivered — run against the assembled
+   * default branch once every leaf has finished.
+   *
+   * Declared by the planner while planning, so it is visible in the conversation before anyone
+   * accepts the work. That visibility is the safeguard, not the model's restraint: see
+   * lib/acceptance.ts.
+   */
+  acceptance?: string;
+  /** Set once the check has run, so one request produces one verdict rather than one per leaf. */
+  acceptanceRunAt?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -131,6 +131,31 @@ export const LEAF_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'set_acceptance',
+      description:
+        'Declare the one command that proves this whole request delivered what was asked for. It '
+        + 'runs against the finished, merged result once every leaf is done, and its verdict goes '
+        + 'to the user. Set it whenever a request produces something runnable, and make it the '
+        + 'thing the user would actually type — `node src/cli.js "Fall City, WA"`, not `npm test`. '
+        + 'Per-leaf checks only prove each piece; this is the only thing that proves the assembled '
+        + 'whole works.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            description:
+              'A single command, run from the repository root. It must exit non-zero when the '
+              + 'deliverable is broken, or it proves nothing.',
+          },
+        },
+        required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'revise_leaf',
       description:
         'Change the title or description of a leaf that is still a PROPOSAL. Use this when asked ' +

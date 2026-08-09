@@ -13,11 +13,12 @@ import type { ExecuteLeafArgs, ExecuteLeafResult } from '../activities/ExecuteLe
 import type { LeafGateArgs, LeafGateResult, ReleaseDependentsResult } from '../activities/LeafGateActivity.js';
 import type { LandRequestArgs, LandRequestResult } from '../activities/LandRequestActivity.js';
 import type { ResolveLandingArgs, ResolveLandingResult } from '../activities/ResolveLandingActivity.js';
+import type { AcceptRequestArgs, AcceptRequestResult } from '../activities/AcceptRequestActivity.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta } from '../lib/activity-timeouts.js';
+import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta } from '../lib/activity-timeouts.js';
 
 const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
   startToCloseTimeout: updateLeafActivityMeta.startToCloseTimeout,
@@ -73,6 +74,15 @@ const { LandRequestActivity } = proxyActivities<{ LandRequestActivity: (args: La
  */
 const { ResolveLandingActivity } = proxyActivities<{ ResolveLandingActivity: (args: ResolveLandingArgs) => Promise<ResolveLandingResult> }>({
   startToCloseTimeout: resolveLandingActivityMeta.startToCloseTimeout,
+  retry: { maximumAttempts: 1 },
+});
+
+/**
+ * Runs the delivered thing once the whole request has landed. Not retried: a deliverable that does
+ * not work will not work on a second identical run, and each attempt boots a workspace.
+ */
+const { AcceptRequestActivity } = proxyActivities<{ AcceptRequestActivity: (args: AcceptRequestArgs) => Promise<AcceptRequestResult> }>({
+  startToCloseTimeout: acceptRequestActivityMeta.startToCloseTimeout,
   retry: { maximumAttempts: 1 },
 });
 
@@ -395,5 +405,8 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
   // Only when the mechanical merge left something behind. Every other exit path is a leaf that
   // failed or was cancelled, where there is nothing verified to land.
   if (landing.stuck.length > 0) await ResolveLandingActivity({ leafId: args.leafId });
+  // Last, and only after everything is on the default branch: the point is to run what the user
+  // would actually get, not this leaf's branch.
+  await AcceptRequestActivity({ leafId: args.leafId });
   return { column, status, blockingChildren: blockingChildren.length };
 }

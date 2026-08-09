@@ -34,3 +34,5 @@ export const releaseDependentsActivityMeta = { name: 'ReleaseDependentsActivity'
 export const landRequestActivityMeta = { name: 'LandRequestActivity', startToCloseTimeout: '5 minutes' } as const;
 // Runs an agent loop in a workspace, so it is a leaf-sized operation, not an API call.
 export const resolveLandingActivityMeta = { name: 'ResolveLandingActivity', startToCloseTimeout: '30 minutes' } as const;
+// Boots a workspace and runs the delivered program, which may make real network calls.
+export const acceptRequestActivityMeta = { name: 'AcceptRequestActivity', startToCloseTimeout: '15 minutes' } as const;

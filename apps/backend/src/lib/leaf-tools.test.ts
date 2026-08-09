@@ -98,7 +98,7 @@ describe('tool results', () => {
 describe('LEAF_TOOLS', () => {
   it('covers what a planning turn needs: read, add, revise, withdraw, toolchain, repository', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name)).toEqual([
-      'list_leaves', 'get_leaf', 'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'set_leaf_workspace',
+      'list_leaves', 'get_leaf', 'propose_leaf', 'set_acceptance', 'revise_leaf', 'withdraw_leaf', 'set_leaf_workspace',
       'list_personas',
       'list_projects', 'create_project', 'set_leaf_project',
       'list_tool_repository', 'attach_tool_to_leaf', 'update_leaf_memory', 'web_search', 'fetch_web_page',
@@ -114,6 +114,19 @@ describe('LEAF_TOOLS', () => {
       expect(Object.keys(params.properties ?? {})).not.toContain('owner');
       expect(Object.keys(params.properties ?? {})).not.toContain('user');
     }
+  });
+
+  it('asks for the command a USER would type, not a test run', () => {
+    /**
+     * The distinction the whole acceptance idea rests on. `npm test` re-runs the per-leaf checks
+     * that were already green while the delivered program printed its own name and exited; only
+     * running the deliverable catches that.
+     */
+    const tool = LEAF_TOOLS.find((t) => t.function.name === 'set_acceptance')!;
+
+    expect(tool.function.description).toMatch(/user would actually type/i);
+    expect(tool.function.description).toMatch(/not `npm test`/);
+    expect(tool.function.description).toMatch(/assembled whole/i);
   });
 
   it('puts the whole image catalogue in the schema, so choosing costs no tool round', () => {

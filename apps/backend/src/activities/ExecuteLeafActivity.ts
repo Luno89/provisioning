@@ -22,7 +22,7 @@
  */
 import { Context } from '@temporalio/activity';
 import { createDatabase } from '../lib/db-interface.js';
-import { failureContext, type Leaf, type LeafAttempt } from '../lib/leaves.js';
+import { failureContext, type Branch, type Leaf, type LeafAttempt } from '../lib/leaves.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
@@ -45,6 +45,8 @@ import {
   buildArtifactCheckScript, parseArtifactResult, combineVerification,
 } from '../lib/leaf-artifacts.js';
 import { buildMemoryContext } from '../lib/memory-store.js';
+import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
+import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
 
 export interface ExecuteLeafArgs {
@@ -537,6 +539,31 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       ];
       const latest = (await db.getLeaves()).find((c: Leaf) => c.id === args.leafId);
       if (latest) await db.saveLeaf({ ...latest, attempts, status: 'failed', updatedAt: new Date().toISOString() });
+
+      /**
+       * Tell the conversation.
+       *
+       * Nothing wrote to the branch when a leaf failed, so the transcript ended wherever planning
+       * stopped and everything after — three attempts, 91,818 tokens, a permanently stranded
+       * dependent — happened where the user was not looking and the model could not see. Asked how
+       * it was going, the model reported on a board it last saw before any work ran.
+       *
+       * Best-effort, and deliberately after the leaf is saved: the failure record is what a retry
+       * reads, and it must not be lost because the branch write failed.
+       */
+      try {
+        const branch = (await db.getBranches()).find((b: Branch) => b.id === latest?.branchId);
+        if (branch && latest) {
+          await db.saveBranch(withNotice(branch, buildFailureNotice(
+            latest.title,
+            String((err as Error)?.message ?? err),
+            attempts.length,
+            MAX_LEAF_ATTEMPTS,
+          )));
+        }
+      } catch (noticeErr) {
+        console.warn(`[ExecuteLeafActivity] could not report the failure of ${args.leafId}: ${(noticeErr as Error).message}`);
+      }
       throw err;
     }
   } finally {
