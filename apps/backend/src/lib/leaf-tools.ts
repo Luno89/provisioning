@@ -175,6 +175,31 @@ export const LEAF_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'replace_leaf',
+      description:
+        'Swap a PROPOSAL for a better version, carrying anything that depends on it across to the '
+        + 'replacement. Use this instead of withdrawing and proposing again: a withdrawn leaf is '
+        + 'deleted, and anything that named it silently loses the ordering and starts without it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The proposal being replaced.' },
+          title: { type: 'string', description: 'Title for the replacement.' },
+          body: { type: 'string', description: 'What doing it involves, and what to avoid repeating.' },
+          expects: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Repository paths the replacement must leave behind.',
+          },
+          language: LANGUAGE_PARAM,
+        },
+        required: ['id', 'title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'withdraw_leaf',
       description:
         'Withdraw a PROPOSAL you no longer stand behind — a duplicate, or something the user ruled ' +

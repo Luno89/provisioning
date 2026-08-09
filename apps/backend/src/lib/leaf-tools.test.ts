@@ -98,7 +98,7 @@ describe('tool results', () => {
 describe('LEAF_TOOLS', () => {
   it('covers what a planning turn needs: read, add, revise, withdraw, toolchain, repository', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name)).toEqual([
-      'list_leaves', 'get_leaf', 'propose_leaf', 'set_acceptance', 'revise_leaf', 'withdraw_leaf', 'set_leaf_workspace',
+      'list_leaves', 'get_leaf', 'propose_leaf', 'set_acceptance', 'revise_leaf', 'replace_leaf', 'withdraw_leaf', 'set_leaf_workspace',
       'list_personas',
       'list_projects', 'create_project', 'set_leaf_project',
       'list_tool_repository', 'attach_tool_to_leaf', 'update_leaf_memory', 'web_search', 'fetch_web_page',
@@ -114,6 +114,18 @@ describe('LEAF_TOOLS', () => {
       expect(Object.keys(params.properties ?? {})).not.toContain('owner');
       expect(Object.keys(params.properties ?? {})).not.toContain('user');
     }
+  });
+
+  it('points at replace_leaf rather than withdraw for a substitution', () => {
+    /**
+     * A withdrawn leaf is DELETED, and `dependenciesMet` counts an id that resolves to nothing as
+     * met — so anything that named it does not wait, it starts early with no trace of why. That
+     * happened in a real run and took a person to spot.
+     */
+    const tool = LEAF_TOOLS.find((t) => t.function.name === 'replace_leaf')!;
+
+    expect(tool.function.description).toMatch(/carrying anything that depends on it/i);
+    expect(tool.function.description).toMatch(/silently loses the ordering/i);
   });
 
   it('asks for the command a USER would type, not a test run', () => {

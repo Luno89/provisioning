@@ -81,6 +81,8 @@ import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
+import { reviewPlan, planNotice } from './lib/plan-review.js';
+import { withNotice } from './lib/branch-notice.js';
 import { resolveConfig, validatePersona, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
@@ -3317,6 +3319,25 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               createdAt: now,
               updatedAt: now,
             });
+          }
+          /**
+           * Read the plan back before anyone commits to it.
+           *
+           * The two plan-shaped things a person had to point out during a real end-to-end run —
+           * five leaves with no ordering, and a dependency on a leaf that had been withdrawn — are
+           * both mechanically detectable, and neither is something a user would know to look for.
+           * Posted as a notice so it sits in the conversation next to the proposals it is about.
+           *
+           * Only when this turn actually proposed something: re-stating the same warnings on every
+           * later turn is how a warning becomes wallpaper.
+           */
+          if (proposedViaTools || proposals.length) {
+            const warnings = planNotice(reviewPlan(await ownedLeaves((req as any).user.id)
+              .then((all) => all.filter((l) => l.branchId === String(branchId)))));
+            if (warnings) {
+              const fresh = (await db.getBranches()).find((b) => b.id === String(branchId));
+              if (fresh) await db.saveBranch(withNotice(fresh, { text: warnings }));
+            }
           }
         } catch (err: any) {
           // A parsing failure must never fail a reply the user already received.

@@ -14,9 +14,10 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
-import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, type Leaf } from './leaves.js';
+import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
 import { usablePaths } from './leaf-artifacts.js';
 import { usableAcceptance } from './acceptance.js';
+import { rewireDependents } from './plan-review.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { imageForLanguage, isWorkspaceLanguage, WORKSPACE_IMAGES } from './workspace-spec.js';
@@ -230,6 +231,48 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     // Both editing verbs stop at 'proposed'. Once a human has accepted a leaf there may be a
     // workflow running against its text, and the model rewriting or deleting it underneath would
     // change what the work means after the person agreed to it.
+    if (call.name === 'replace_leaf') {
+      const old = leaves.find((l) => l.id === String(args.id ?? ''));
+      if (!old) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+      if (old.status !== 'proposed') {
+        return JSON.stringify({
+          error: `That leaf is already ${old.status}, so it is no longer yours to change. Say what you would do differently and let the user decide.`,
+        });
+      }
+      const title = typeof args.title === 'string' ? args.title.trim() : '';
+      if (!title) return JSON.stringify({ error: 'title is required' });
+
+      const now = new Date().toISOString();
+      const replacement: Leaf = {
+        ...old,
+        id: uuidv4(),
+        title: title.slice(0, 200),
+        ...(typeof args.body === 'string' && args.body.trim() ? { body: args.body.trim().slice(0, 4000) } : {}),
+        ...(Array.isArray(args.expects) ? { expects: usablePaths(args.expects.map(String)) } : {}),
+        ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await db.saveLeaf(replacement);
+
+      /**
+       * Dependents move BEFORE the old leaf goes.
+       *
+       * `dependenciesMet` treats an id that resolves to nothing as met, so between the delete and
+       * the rewire a dependent is a leaf whose ordering has silently evaporated. Doing it in this
+       * order means that window does not exist.
+       */
+      const moved = rewireDependents(leaves, old.id, replacement.id);
+      for (const l of moved) await db.saveLeaf({ ...l, updatedAt: now });
+      await db.deleteLeaf(old.id);
+
+      return JSON.stringify({
+        replaced: { was: old.title, now: replacement.title, id: replacement.id },
+        // Reported so the model can see the ordering survived rather than assuming it.
+        ...(moved.length ? { movedDependents: moved.map((l) => l.title) } : {}),
+      });
+    }
+
     if (call.name === 'revise_leaf' || call.name === 'withdraw_leaf') {
       const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
       if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
@@ -243,8 +286,25 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         // Children would be orphaned into an unreachable subtree, so they go too — safe here
         // because everything below a proposal is itself still a proposal.
         const doomed = [leaf, ...childrenOf(leaves, leaf.id)];
+        /**
+         * Anything that named it loses the ordering, silently.
+         *
+         * A deleted dependency resolves to nothing, and `dependenciesMet` counts that as met — so
+         * the dependent does not wait, it starts early with no trace of why. Reported rather than
+         * prevented, and `replace_leaf` is the way to avoid it.
+         */
+        const orphaned = doomed.flatMap((d) => dependentsOf(d.id, leaves))
+          .filter((l) => !doomed.some((d) => d.id === l.id));
         for (const l of doomed) await db.deleteLeaf(l.id);
-        return JSON.stringify({ withdrawn: { id: leaf.id, title: leaf.title, alsoRemoved: doomed.length - 1 } });
+        return JSON.stringify({
+          withdrawn: { id: leaf.id, title: leaf.title, alsoRemoved: doomed.length - 1 },
+          ...(orphaned.length
+            ? {
+                warning: `${orphaned.map((l) => `"${l.title}"`).join(', ')} depended on this and will now `
+                  + 'start without waiting for anything. Use replace_leaf if you meant to substitute it.',
+              }
+            : {}),
+        });
       }
 
       const title = typeof args.title === 'string' ? args.title.trim() : '';
