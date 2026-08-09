@@ -13,10 +13,10 @@
  * went wrong: what went wrong was an agent saying it produced something and producing nothing. The
  * ARTIFACT is checkable even when the ANSWER is not.
  *
- * So this asks one question and no more: is the file the leaf was asked to leave actually there,
- * committed, and not empty? It makes no claim about whether the contents are any good. Keeping that
- * boundary sharp is the point — a check that pretended to judge substance would put a "verified"
- * badge on something nothing had read.
+ * So this asks three narrow questions and no more: is the file the leaf was asked to leave actually
+ * there, committed, and different from what was already on the default branch? It makes no claim
+ * about whether the contents are any GOOD. Keeping that boundary sharp is the point — a check that
+ * pretended to judge substance would put a "verified" badge on something nothing had read.
  *
  * ── WHY THE MODEL CAN BE TRUSTED TO NAME THESE ──
  * A planner-authored verify COMMAND is a predicate whose meaning the planner controls, so it can be
@@ -46,23 +46,40 @@ export function usablePaths(paths: string[]): string[] {
 }
 
 /**
- * Checks each declared path is tracked by git and not empty.
+ * Checks each declared path is tracked, not empty, and actually CHANGED by this leaf.
  *
- * Tracked, not merely present: an untracked file is in a container that is about to be deleted,
- * which is the precise failure being guarded against. `git ls-files` answers that in one call.
+ * Tracked, not merely present: an untracked file is in a container about to be deleted, which is
+ * the first failure this guarded against.
+ *
+ * ── AND CHANGED, WHICH IS THE HOLE THE FIRST VERSION LEFT ──
+ * Existence is not achievement. A leaf asked to rewrite `src/cli.js` could declare it, never touch
+ * it, and pass — because the three-line stub a previous leaf committed is tracked and non-empty and
+ * therefore satisfies every question being asked. Observed end to end: a five-leaf plan delivered a
+ * CLI that printed its own name and exited, with every leaf green.
+ *
+ * Diffed against the DEFAULT BRANCH rather than the previous attempt. A retry inherits its own
+ * earlier commits, so diffing against where this attempt started would fail a leaf for work its
+ * first attempt already did; and a file that only exists on the default branch is, by definition,
+ * not something this leaf produced.
  */
-export function buildArtifactCheckScript(paths: string[]): string {
+export function buildArtifactCheckScript(paths: string[], defaultBranch = 'main'): string {
   const safe = usablePaths(paths);
   if (safe.length === 0) return `echo "${SENTINEL}=none"`;
+  const base = /^[A-Za-z0-9._/-]+$/.test(defaultBranch) ? defaultBranch : 'main';
 
   return [
     'cd /work/repo 2>/dev/null || cd /work || exit 0',
     'MISSING=""',
+    // Absent on a repository with no default branch yet — then every file is new by definition and
+    // the change check is skipped rather than failing everything.
+    `BASE=""; git rev-parse --verify --quiet "origin/${base}" >/dev/null 2>&1 && BASE="origin/${base}"`,
     ...safe.flatMap((p) => [
       `if [ -z "$(git ls-files -- "${p}" 2>/dev/null)" ]; then MISSING="$MISSING ${p}(uncommitted)"`,
       // -s is "exists and has size greater than zero". A file created and never written to is not
       // the artifact anybody asked for.
       `elif [ ! -s "${p}" ]; then MISSING="$MISSING ${p}(empty)"`,
+      // Identical to the default branch means this leaf left it exactly as it found it.
+      `elif [ -n "$BASE" ] && git diff --quiet "$BASE" -- "${p}" 2>/dev/null; then MISSING="$MISSING ${p}(unchanged)"`,
       'fi',
     ]),
     `if [ -n "$MISSING" ]; then echo "${SENTINEL}=missing$MISSING"; else echo "${SENTINEL}=present"; fi`,

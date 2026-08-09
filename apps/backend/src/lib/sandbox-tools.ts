@@ -11,9 +11,21 @@
  */
 import { describeSandbox, type WorkspaceLanguage, imageForLanguage } from './workspace-spec.js';
 
-/** Ceiling on model↔sandbox round trips for one attempt. Each is a full inference pass plus a
- *  command, so this bounds both spend and wall-clock. */
-export const MAX_AGENT_STEPS = 24;
+/**
+ * Ceiling on model↔sandbox round trips for one attempt. Each is a full inference pass plus a
+ * command, so this bounds both spend and wall-clock.
+ *
+ * Raised from 24, which lost to exploration on any repository that already had content in it.
+ * Measured on a five-leaf plan: one leaf spent its whole budget twice on `ls -la`, `cat
+ * package.json`, `git log` and reading two source files, and never wrote the one small module it
+ * was asked for. A later leaf did the same hunting for a test runner. Both tasks were minutes of
+ * work; neither was short of ability, only of room.
+ *
+ * The real fix is the agent not needing to rediscover the same repository every time — see the
+ * memory context threaded through ExecuteLeafActivity. This is the blunt half, and deliberately
+ * still bounded: a leaf that cannot finish in 40 steps is not usually one step short.
+ */
+export const MAX_AGENT_STEPS = 40;
 
 /**
  * How close to the cap the agent starts being warned.

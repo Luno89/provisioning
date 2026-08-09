@@ -44,6 +44,8 @@ import {
 import {
   buildArtifactCheckScript, parseArtifactResult, combineVerification,
 } from '../lib/leaf-artifacts.js';
+import { buildMemoryContext } from '../lib/memory-store.js';
+import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -270,6 +272,20 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ].join('\n');
         }
 
+        /**
+         * What earlier leaves on this project already established.
+         *
+         * The memory bank existed and was wired into the Lab only, so every leaf rediscovered the
+         * same repository from scratch — one spent its whole budget twice on `ls -la`, `cat
+         * package.json` and `git log` while three finished leaves had already built the thing it
+         * was standing in. `buildMemoryContext` filters to active, in-scope entries, which is what
+         * keeps an unreviewed inference from reaching this prompt.
+         */
+        const memoryContext = buildMemoryContext(
+          await db.getMemories(leaf.ownerId).catch(() => []),
+          project?.id,
+        );
+
         const run = await runAgentLoop({
           baseUrl,
           apiKey,
@@ -277,6 +293,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ...(provider.kind ? { kind: provider.kind } : {}),
           language: leaf.language,
           taskContext,
+          ...(memoryContext ? { memoryContext } : {}),
           // The point of promoting a configuration: a setting that won on the bench takes effect on
           // the work that matters, not only on the next experiment. Without this the Lab measures a
           // harness that real leaves never run.
@@ -348,13 +365,54 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         const pushedBranch = await pushBack();
         const artifacts = leaf.expects?.length
           ? await workspaces
-              .exec(leaf.id, buildArtifactCheckScript(leaf.expects), 60_000)
+              .exec(leaf.id, buildArtifactCheckScript(leaf.expects, project?.defaultBranch || 'main'), 60_000)
               .then((r) => parseArtifactResult(r.stdout))
               .catch(() => ({ outcome: 'unknown' as const, missing: [] }))
           : { outcome: 'none' as const, missing: [] };
 
         const combined = combineVerification(verify.outcome, artifacts.outcome);
         const settled = decideStatus(run.succeeded, combined);
+
+        /**
+         * What this attempt learned, for the leaves that come after it.
+         *
+         * Written on BOTH outcomes: the repository layout is worth knowing whether or not this
+         * particular leaf finished, and a failure is exactly when there is something to record.
+         *
+         * Best-effort throughout — a leaf that did its work must not be failed because the memory
+         * bank was unreachable.
+         */
+        try {
+          const tracked = await workspaces
+            .exec(leaf.id, 'cd /work/repo 2>/dev/null && git ls-files | head -60', 60_000)
+            .then((r) => r.stdout.split('\n').map((l) => l.trim()).filter(Boolean))
+            .catch(() => [] as string[]);
+
+          const learned = extractLeafMemories({
+            /**
+             * `project.id`, not `leaf.projectId` — the leaf record only gains its projectId in the
+             * save BELOW, so reading it here produced a project-scoped memory with no project on
+             * it, which `buildMemoryContext` then filtered out of every future prompt. Written,
+             * active, and unreadable.
+             */
+            leaf: { ...leaf, ...(project ? { projectId: project.id } : {}) },
+            trackedFiles: tracked,
+            summary: run.summary,
+            succeeded: settled === 'succeeded',
+            missingArtifacts: artifacts.missing,
+            ...(verify.output ? { verifyOutput: verify.output } : {}),
+          });
+
+          if (learned.length) {
+            const { save, remove } = supersede(await db.getMemories(leaf.ownerId), learned);
+            // Removed first: the replacement carries the same title, and leaving both in place for
+            // even a moment is how a prompt ends up with two contradictory file listings.
+            for (const id of remove) await db.deleteMemory(id).catch(() => undefined);
+            for (const item of save) await db.saveMemory(item);
+          }
+        } catch (err) {
+          console.warn(`[ExecuteLeafActivity] could not record what leaf ${leaf.id} learned: ${(err as Error).message}`);
+        }
 
         if (settled === 'failed') {
           /**

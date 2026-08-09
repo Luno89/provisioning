@@ -43,6 +43,40 @@ describe('the check itself', () => {
     expect(buildArtifactCheckScript(['NOTES.md'])).toContain('[ ! -s "NOTES.md" ]');
   });
 
+  it('requires the file to have CHANGED, not merely to exist', () => {
+    /**
+     * The hole the first version left. A leaf asked to rewrite src/cli.js could declare it, never
+     * touch it, and pass — the three-line stub a previous leaf committed is tracked and non-empty
+     * and satisfies every other question. Observed end to end: a five-leaf plan delivered a CLI
+     * that printed its own name and exited, with every leaf green.
+     */
+    const s = buildArtifactCheckScript(['src/cli.js'], 'main');
+
+    expect(s).toContain('git diff --quiet "$BASE" -- "src/cli.js"');
+    expect(s).toContain('(unchanged)');
+  });
+
+  it('diffs against the default branch, not the previous attempt', () => {
+    // A retry inherits its own earlier commits, so diffing against where THIS attempt started would
+    // fail a leaf for work its first attempt already did.
+    expect(buildArtifactCheckScript(['a.md'], 'trunk')).toContain('origin/trunk');
+  });
+
+  it('skips the change check when there is no default branch yet', () => {
+    // A repository with no base: every file is new by definition, and failing everything would be
+    // wrong rather than strict.
+    expect(buildArtifactCheckScript(['a.md'])).toContain('BASE=""');
+  });
+
+  it('refuses a default branch name it could not have come from', () => {
+    expect(buildArtifactCheckScript(['a.md'], 'main; rm -rf /')).not.toContain('rm -rf');
+  });
+
+  it('reports an unchanged file as missing', () => {
+    expect(parseArtifactResult('KOALA_ARTIFACTS=missing src/cli.js(unchanged)').missing)
+      .toEqual(['src/cli.js(unchanged)']);
+  });
+
   it('says which paths were missing, and why', () => {
     const r = parseArtifactResult('KOALA_ARTIFACTS=missing NOTES.md(uncommitted) docs/x.md(empty)');
 
