@@ -82,6 +82,7 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
+import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
 import { resolveConfig, validatePersona, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
@@ -3113,11 +3114,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        */
       if (calls.length > 0 && branchId) {
         res.write(`data: ${JSON.stringify({ interruptedReason: `Used all ${MAX_TOOL_ROUNDS} research steps — answering with what was found.` })}\n\n`);
+        /**
+         * Say WHICH calls were dropped, not just that the budget ran out.
+         *
+         * The calls in `calls` at this point were never executed, and the model does not know that
+         * — it wrote them and moved on. Observed: a turn ended having reported that it attached a
+         * project and set the acceptance plan, and neither call had run. Naming them is the
+         * difference between the model correcting itself next turn and confidently claiming work
+         * that never happened.
+         */
+        const dropped = [...new Set(calls.map((c) => c.name))].join(', ');
         conversation.push({
           role: 'user',
           content:
-            'You have used all available research steps. Answer now with what you found. State '
-            + 'plainly what you could not confirm rather than guessing at it.',
+            'You have used all available research steps. These calls were NOT executed and did not '
+            + `happen: ${dropped}. Answer now with what you found, say plainly that those were not `
+            + 'done, and do not claim otherwise.',
         });
         const finalPass = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
@@ -3247,7 +3259,21 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               { role: 'user', content: userText },
               { role: 'assistant', content: cleanReply, ...(thinking ? { reasoning: thinking } : {}) },
             ];
+            /**
+             * Spread `existing` rather than naming the fields.
+             *
+             * `db.saveBranch` is a full replace, so every field not listed here was being DELETED
+             * on every turn. That silently ate `acceptance` — the model called `set_acceptance`
+             * during the turn, the tool wrote it, and this save immediately overwrote the branch
+             * without it. Verified live: the sibling `set_leaf_project` call in the same turn stuck,
+             * because it writes a LEAF.
+             *
+             * Fourth time this shape of bug has appeared here (saveDeploymentInfo's allowlist,
+             * `dependsOn`, `expects`, and now this), which is why the fields below are the ones this
+             * block genuinely owns and everything else rides on the spread.
+             */
             await db.saveBranch({
+              ...existing,
               id: String(branchId),
               ownerId: (req as any).user.id,
               // Named from the first message only — renaming is explicit, and re-deriving on every
@@ -3332,8 +3358,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            * later turn is how a warning becomes wallpaper.
            */
           if (proposedViaTools || proposals.length) {
-            const warnings = planNotice(reviewPlan(await ownedLeaves((req as any).user.id)
-              .then((all) => all.filter((l) => l.branchId === String(branchId)))));
+            const onBranch = (await ownedLeaves((req as any).user.id))
+              .filter((l) => l.branchId === String(branchId));
+            const declared = (await db.getBranches()).find((b) => b.id === String(branchId))?.acceptance;
+            const warnings = planNotice(reviewPlan(onBranch, usableAcceptancePlan(declared).length));
             if (warnings) {
               const fresh = (await db.getBranches()).find((b) => b.id === String(branchId));
               if (fresh) await db.saveBranch(withNotice(fresh, { text: warnings }));

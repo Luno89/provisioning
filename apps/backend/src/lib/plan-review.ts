@@ -18,7 +18,7 @@ import { dependentsOf, type Leaf } from './leaves.js';
 
 export interface PlanWarning {
   /** Stable enough to test against and to suppress individually later. */
-  code: 'no-ordering' | 'unchecked' | 'dangling-dependency' | 'duplicate-title';
+  code: 'no-ordering' | 'unchecked' | 'dangling-dependency' | 'duplicate-title' | 'no-acceptance';
   text: string;
 }
 
@@ -33,7 +33,7 @@ function unchecked(leaves: Leaf[]): Leaf[] {
   return leaves.filter((l) => !l.expects?.length && !l.verifyCommand?.trim());
 }
 
-export function reviewPlan(leaves: Leaf[]): PlanWarning[] {
+export function reviewPlan(leaves: Leaf[], acceptanceChecks = 0): PlanWarning[] {
   const live = leaves.filter((l) => l.status === 'proposed' || l.status === 'pending');
   if (live.length === 0) return [];
   const warnings: PlanWarning[] = [];
@@ -50,6 +50,21 @@ export function reviewPlan(leaves: Leaf[]): PlanWarning[] {
       code: 'no-ordering',
       text: `All ${live.length} of these will start at the same time, each in its own empty sandbox. `
         + 'If any of them builds on another\'s output, it will find nothing there.',
+    });
+  }
+
+  /**
+   * Nothing will run the finished thing.
+   *
+   * The per-leaf checks each prove a piece. A request with none of these has nobody responsible for
+   * the WHOLE — which is exactly how a five-leaf plan delivered a CLI that printed its own name and
+   * exited with every leaf green.
+   */
+  if (acceptanceChecks === 0) {
+    warnings.push({
+      code: 'no-acceptance',
+      text: 'Nothing will run the finished result. Per-leaf checks prove each piece works; without '
+        + 'acceptance checks nothing proves the assembled whole does.',
     });
   }
 

@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
 import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
 import { usablePaths } from './leaf-artifacts.js';
-import { usableAcceptance } from './acceptance.js';
+import { usableAcceptancePlan } from './acceptance.js';
 import { rewireDependents } from './plan-review.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -159,20 +159,24 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     }
 
     if (call.name === 'set_acceptance') {
-      const command = usableAcceptance(args.command);
-      if (!command) {
+      // `checks` is the plan; a bare `command` is what the first version took, and accepting it
+      // still costs nothing.
+      const plan = usableAcceptancePlan(args.checks ?? args.command);
+      if (plan.length === 0) {
         // Refused rather than stored: the value of showing this to a human before they accept
         // depends on what they read being all of what runs.
         return JSON.stringify({
-          error: 'That is not usable as an acceptance command. It must be a single line with no '
-            + 'command substitution, backgrounding, or chaining beyond `&&`.',
+          error: 'No usable checks. Each needs a name and a single-line command, with no command '
+            + 'substitution, backgrounding, or chaining beyond `&&`.',
         });
       }
       const branches = await db.getBranches();
       const branch = branches.find((b) => b.id === branchId && b.ownerId === userId);
       if (!branch) return JSON.stringify({ error: 'No such branch.' });
-      await db.saveBranch({ ...branch, acceptance: command, updatedAt: new Date().toISOString() });
-      return JSON.stringify({ acceptance: command });
+      await db.saveBranch({ ...branch, acceptance: plan, updatedAt: new Date().toISOString() });
+      // Echoed back so a check dropped for being malformed does not silently become a promise
+      // nothing will run.
+      return JSON.stringify({ acceptance: plan });
     }
 
     if (call.name === 'list_projects') {

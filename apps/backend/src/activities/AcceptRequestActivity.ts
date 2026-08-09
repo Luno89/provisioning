@@ -23,7 +23,7 @@ import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
-import { buildAcceptanceScript, parseAcceptance } from '../lib/acceptance.js';
+import { buildAcceptanceScript, parseAcceptance, usableAcceptancePlan } from '../lib/acceptance.js';
 import { buildAcceptanceNotice, withNotice } from '../lib/branch-notice.js';
 import type { ProjectMetadata } from '../lib/types.js';
 
@@ -52,10 +52,10 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
     ownerId = self.ownerId;
 
     const branch = (await db.getBranches()).find((b: Branch) => b.id === self.branchId);
-    const command = branch?.acceptance?.trim();
+    const plan = usableAcceptancePlan(branch?.acceptance);
     // No acceptance declared. Reported as skipped rather than passed — "nobody checked" and "it
     // works" are the distinction this whole file exists to preserve.
-    if (!branch || !command) { console.log(`[AcceptRequest] skip: branch=${Boolean(branch)} command=${command ?? 'none'}`); return { outcome: 'skipped' }; }
+    if (!branch || plan.length === 0) { console.log(`[AcceptRequest] skip: branch=${Boolean(branch)} checks=${plan.length}`); return { outcome: 'skipped' }; }
 
     const leaves = all.filter((l: Leaf) => l.branchId === self.branchId);
     if (!requestFinished(leaves)) { console.log('[AcceptRequest] skip: request still working'); return { outcome: 'skipped' }; }
@@ -117,24 +117,36 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
       return { outcome: 'unknown' };
     }
 
-    const result = parseAcceptance(
-      (await workspaces.exec(workspaceId, buildAcceptanceScript(command), 300_000)).stdout,
-    );
-    if (result.outcome === 'unknown') {
-      console.warn(`[AcceptRequest] the acceptance command produced no verdict: ${result.output.slice(0, 200)}`);
-      return { outcome: 'unknown' };
+    /**
+     * In order, stopping at the first failure.
+     *
+     * Continuing past one would report a pile of consequences: a project whose install failed
+     * fails its tests and its run too, and three red checks say no more than the first. Stopping
+     * also means the reported failure is the one worth acting on.
+     */
+    let failed: { name: string; output: string } | undefined;
+    for (const check of plan) {
+      const result = parseAcceptance(
+        (await workspaces.exec(workspaceId, buildAcceptanceScript(check.command), 300_000)).stdout,
+      );
+      if (result.outcome === 'unknown') {
+        console.warn(`[AcceptRequest] "${check.name}" produced no verdict: ${result.output.slice(0, 200)}`);
+        return { outcome: 'unknown' };
+      }
+      if (result.outcome === 'failed') { failed = { name: check.name, output: result.output }; break; }
     }
+    const result = { outcome: failed ? 'failed' as const : 'passed' as const };
 
     // Re-read: the branch has been sitting in memory while a workspace booted and a program ran,
     // and a full-object save from stale state would drop whatever was said meanwhile.
     const latest = (await db.getBranches()).find((b: Branch) => b.id === self.branchId);
     if (latest) {
       await db.saveBranch({
-        ...withNotice(latest, buildAcceptanceNotice(command, result.outcome === 'passed', result.output)),
+        ...withNotice(latest, buildAcceptanceNotice(plan, failed)),
         acceptanceRunAt: new Date().toISOString(),
       });
     }
-    console.log(`[AcceptRequest] "${command}" ${result.outcome} for request ${self.branchId.slice(0, 8)}`);
+    console.log(`[AcceptRequest] ${plan.length} check(s) ${result.outcome}${failed ? ` at "${failed.name}"` : ''} for request ${self.branchId.slice(0, 8)}`);
     return { outcome: result.outcome };
   } catch (err) {
     // Never fatal: the work is landed either way, and failing a leaf's workflow over the acceptance

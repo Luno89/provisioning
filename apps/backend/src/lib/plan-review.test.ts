@@ -20,36 +20,51 @@ describe('a plan with no ordering', () => {
   it('warns when several leaves depend on nothing', () => {
     // The first intervention: five leaves, no dependsOn, and the leaf that assembled the others
     // would have found nothing to import.
-    const w = reviewPlan([leaf({ id: 'a' }), leaf({ id: 'b' }), leaf({ id: 'c' })]);
+    const w = reviewPlan([leaf({ id: 'a' }), leaf({ id: 'b' }), leaf({ id: 'c' })], 1);
     expect(w.map((x) => x.code)).toContain('no-ordering');
   });
 
   it('says nothing about a single leaf', () => {
     // It cannot depend on anything.
-    expect(reviewPlan([leaf()]).map((w) => w.code)).not.toContain('no-ordering');
+    expect(reviewPlan([leaf()], 1).map((w) => w.code)).not.toContain('no-ordering');
   });
 
   it('says nothing when SOME ordering exists', () => {
     // A genuine fan-out is a normal shape; flagging it would train everyone to ignore this.
-    const w = reviewPlan([leaf({ id: 'a' }), leaf({ id: 'b' }), leaf({ id: 'c', dependsOn: ['a'] })]);
+    const w = reviewPlan([leaf({ id: 'a' }), leaf({ id: 'b' }), leaf({ id: 'c', dependsOn: ['a'] })], 1);
     expect(w.map((x) => x.code)).not.toContain('no-ordering');
+  });
+});
+
+describe('nothing that runs the finished thing', () => {
+  it('warns when a request declares no acceptance checks', () => {
+    /**
+     * The per-leaf checks each prove a piece. With none of these, nobody is responsible for the
+     * whole — which is how a five-leaf plan delivered a CLI that printed its own name and exited
+     * with every leaf green.
+     */
+    expect(reviewPlan([leaf({ id: 'a' })], 0).map((w) => w.code)).toContain('no-acceptance');
+  });
+
+  it('says nothing once some are declared', () => {
+    expect(reviewPlan([leaf({ id: 'a' })], 2).map((w) => w.code)).not.toContain('no-acceptance');
   });
 });
 
 describe('a plan nothing will check', () => {
   it('warns about leaves with neither expects nor a verify command', () => {
-    const w = reviewPlan([leaf({ id: 'a', expects: [] }), leaf({ id: 'b', dependsOn: ['a'] })]);
+    const w = reviewPlan([leaf({ id: 'a', expects: [] }), leaf({ id: 'b', dependsOn: ['a'] })], 1);
     expect(w.map((x) => x.code)).toContain('unchecked');
   });
 
   it('names the leaves rather than just counting them', () => {
-    const w = reviewPlan([leaf({ id: 'a', title: 'Write the docs', expects: [] }), leaf({ id: 'b', dependsOn: ['a'] })]);
+    const w = reviewPlan([leaf({ id: 'a', title: 'Write the docs', expects: [] }), leaf({ id: 'b', dependsOn: ['a'] })], 1);
     expect(w.find((x) => x.code === 'unchecked')?.text).toContain('Write the docs');
   });
 
   it('is satisfied by a verify command alone', () => {
     const ok = [leaf({ id: 'a', expects: [], verifyCommand: 'npm test' }), leaf({ id: 'b', dependsOn: ['a'] })];
-    expect(reviewPlan(ok).map((w) => w.code)).not.toContain('unchecked');
+    expect(reviewPlan(ok, 1).map((w) => w.code)).not.toContain('unchecked');
   });
 });
 
@@ -60,13 +75,13 @@ describe('a dependency on something that is gone', () => {
      * forever is worse. It also means a withdrawn dependency silently becomes no dependency, the
      * ordering is lost, and nothing at runtime ever mentions it.
      */
-    const w = reviewPlan([leaf({ id: 'b', dependsOn: ['deleted'] })]);
+    const w = reviewPlan([leaf({ id: 'b', dependsOn: ['deleted'] })], 1);
     expect(w.map((x) => x.code)).toContain('dangling-dependency');
   });
 
   it('does not warn about a dependency that exists but has finished', () => {
     const done = leaf({ id: 'a', status: 'succeeded' });
-    const w = reviewPlan([done, leaf({ id: 'b', dependsOn: ['a'] })]);
+    const w = reviewPlan([done, leaf({ id: 'b', dependsOn: ['a'] })], 1);
     expect(w.map((x) => x.code)).not.toContain('dangling-dependency');
   });
 });
@@ -75,7 +90,7 @@ describe('two leaves with the same name', () => {
   it('warns, because dependencies are declared by title', () => {
     // The resolver keeps the last match, so which one a dependency means is decided by database
     // order rather than by anything anyone intended.
-    const w = reviewPlan([leaf({ id: 'a', title: 'Write the mapper' }), leaf({ id: 'b', title: 'write the MAPPER' })]);
+    const w = reviewPlan([leaf({ id: 'a', title: 'Write the mapper' }), leaf({ id: 'b', title: 'write the MAPPER' })], 1);
     expect(w.map((x) => x.code)).toContain('duplicate-title');
   });
 
@@ -83,7 +98,7 @@ describe('two leaves with the same name', () => {
     const w = reviewPlan([
       leaf({ id: 'a', title: 'Write the mapper', status: 'failed' }),
       leaf({ id: 'b', title: 'Write the mapper' }),
-    ]);
+    ], 1);
     expect(w.map((x) => x.code)).not.toContain('duplicate-title');
   });
 });
@@ -91,11 +106,11 @@ describe('two leaves with the same name', () => {
 describe('what the conversation sees', () => {
   it('says nothing at all about a sound plan', () => {
     const sound = [leaf({ id: 'a' }), leaf({ id: 'b', dependsOn: ['a'] })];
-    expect(planNotice(reviewPlan(sound))).toBeUndefined();
+    expect(planNotice(reviewPlan(sound, 1))).toBeUndefined();
   });
 
   it('renders the warnings as a list', () => {
-    const text = planNotice(reviewPlan([leaf({ id: 'a' }), leaf({ id: 'b' })]))!;
+    const text = planNotice(reviewPlan([leaf({ id: 'a' }), leaf({ id: 'b' })], 1))!;
     expect(text).toMatch(/before accepting/i);
     expect(text).toContain('- ');
   });

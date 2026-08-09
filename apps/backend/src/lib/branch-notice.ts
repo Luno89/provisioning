@@ -19,6 +19,7 @@
  * style it and nobody has to infer it from the wording.
  */
 import { trimTranscript, type Branch, type BranchMessage } from './leaves.js';
+import type { AcceptanceCheck } from './acceptance.js';
 
 export interface Notice {
   text: string;
@@ -50,21 +51,35 @@ export function buildFailureNotice(
   };
 }
 
-export function buildAcceptanceNotice(command: string, passed: boolean, output: string): Notice {
+export function buildAcceptanceNotice(
+  plan: AcceptanceCheck[],
+  failed?: { name: string; output: string } | undefined,
+): Notice {
+  if (!failed) {
+    return {
+      text: [
+        '**The work is done and every acceptance check passes.**',
+        '',
+        ...plan.map((c) => `- ✅ ${c.name} — \`${c.command}\``),
+      ].join('\n'),
+    };
+  }
+
+  // Everything before the failure passed; everything after was not reached. Saying which is which
+  // is the difference between "it is broken" and "it is broken HERE".
+  const at = plan.findIndex((c) => c.name === failed.name);
   return {
     text: [
-      passed
-        ? `**The work is done and the acceptance check passes.**`
-        : `**Every leaf finished, but the acceptance check fails.**`,
+      `**Every leaf finished, but the acceptance check "${failed.name}" fails.**`,
       '',
-      `\`${command}\``,
+      ...plan.map((c, i) => {
+        const mark = i < at ? '✅' : i === at ? '❌' : '⏭️';
+        return `- ${mark} ${c.name} — \`${c.command}\``;
+      }),
       '',
-      output.trim().slice(0, MAX_NOTICE_CHARS) || '(no output)',
-      ...(passed
-        ? []
-        // The failure this whole idea exists for: individually green leaves, an assembled thing
-        // that does not work.
-        : ['', 'The parts each passed their own checks; assembled they do not. Something needs to change.']),
+      failed.output.trim().slice(0, MAX_NOTICE_CHARS) || '(no output)',
+      '',
+      'The parts each passed their own checks; assembled they do not. Something needs to change.',
     ].join('\n'),
   };
 }

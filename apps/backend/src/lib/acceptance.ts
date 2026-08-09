@@ -48,6 +48,50 @@ export function usableAcceptance(command: unknown): string | undefined {
 }
 
 /**
+ * One step of the acceptance plan.
+ *
+ * Named, because "the acceptance check failed" tells nobody anything. A plan that installs, tests
+ * and then runs the program has three ways to fail that need three different responses, and the
+ * name is what turns an exit code into a sentence a person can act on.
+ */
+export interface AcceptanceCheck {
+  name: string;
+  command: string;
+}
+
+/** Enough to express install → build → test → run without becoming a build system. */
+export const MAX_ACCEPTANCE_CHECKS = 6;
+
+/**
+ * Filters a proposed plan to the checks that will actually be run.
+ *
+ * Dropped rather than rejected wholesale: a plan whose fourth step is malformed is still worth
+ * running the first three of, and the result reports what was kept so nobody is misled about what
+ * was checked.
+ */
+export function usableAcceptancePlan(raw: unknown): AcceptanceCheck[] {
+  // A bare string is what the first version of this stored. Read rather than migrated, so branches
+  // created before the plan existed keep working.
+  if (typeof raw === 'string') {
+    const one = usableAcceptance(raw);
+    return one ? [{ name: 'works', command: one }] : [];
+  }
+  if (!Array.isArray(raw)) return [];
+
+  const out: AcceptanceCheck[] = [];
+  for (const entry of raw) {
+    if (out.length >= MAX_ACCEPTANCE_CHECKS) break;
+    const command = usableAcceptance((entry as { command?: unknown })?.command ?? entry);
+    if (!command) continue;
+    const rawName = typeof (entry as { name?: unknown })?.name === 'string'
+      ? (entry as { name: string }).name.trim()
+      : '';
+    out.push({ name: (rawName || command).slice(0, 80), command });
+  }
+  return out;
+}
+
+/**
  * Runs the command against the assembled default branch.
  *
  * A generous timeout because a real acceptance check does the real thing — the CLI that motivated

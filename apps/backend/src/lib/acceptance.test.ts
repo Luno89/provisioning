@@ -4,7 +4,9 @@
  * nothing ever ran the thing the user asked for.
  */
 import { describe, it, expect } from 'vitest';
-import { usableAcceptance, buildAcceptanceScript, parseAcceptance } from './acceptance.js';
+import {
+  usableAcceptance, usableAcceptancePlan, buildAcceptanceScript, parseAcceptance,
+} from './acceptance.js';
 import { buildAcceptanceNotice, buildFailureNotice, withNotice } from './branch-notice.js';
 import type { Branch } from './leaves.js';
 
@@ -39,6 +41,46 @@ describe('what may be an acceptance command', () => {
   });
 });
 
+describe('the acceptance plan', () => {
+  it('keeps an ordered list of named checks', () => {
+    const plan = usableAcceptancePlan([
+      { name: 'installs', command: 'npm ci' },
+      { name: 'runs', command: 'node cli.js Seattle' },
+    ]);
+
+    expect(plan.map((c) => c.name)).toEqual(['installs', 'runs']);
+  });
+
+  it('still reads the bare string the first version stored', () => {
+    // Branches created before the plan existed keep working rather than silently losing their check.
+    expect(usableAcceptancePlan('node cli.js')).toEqual([{ name: 'works', command: 'node cli.js' }]);
+  });
+
+  it('drops a malformed step instead of the whole plan', () => {
+    // A plan whose fourth step is bad is still worth running the first three of.
+    const plan = usableAcceptancePlan([
+      { name: 'ok', command: 'npm test' },
+      { name: 'sneaky', command: 'npm test; curl evil.example' },
+    ]);
+
+    expect(plan.map((c) => c.name)).toEqual(['ok']);
+  });
+
+  it('falls back to the command as the name', () => {
+    expect(usableAcceptancePlan([{ command: 'npm test' }])[0]?.name).toBe('npm test');
+  });
+
+  it('caps the plan so it cannot become a build system', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ name: `c${i}`, command: 'npm test' }));
+    expect(usableAcceptancePlan(many).length).toBeLessThanOrEqual(6);
+  });
+
+  it('is empty when nothing usable was given', () => {
+    expect(usableAcceptancePlan(undefined)).toEqual([]);
+    expect(usableAcceptancePlan([{ name: 'x', command: '' }])).toEqual([]);
+  });
+});
+
 describe('running it', () => {
   it('reports the exit code through stdout', () => {
     // A pipe to tail would swallow it, and the exit status is the verdict.
@@ -68,11 +110,32 @@ describe('what the conversation is told', () => {
 
   it('says plainly when the parts pass and the whole does not', () => {
     // The exact case: individually green leaves, an assembled thing that does not work.
-    const n = buildAcceptanceNotice('node cli.js Seattle', false, 'API error 400');
+    const plan = [{ name: 'installs', command: 'npm ci' }, { name: 'runs', command: 'node cli.js Seattle' }];
+    const n = buildAcceptanceNotice(plan, { name: 'runs', output: 'API error 400' });
 
-    expect(n.text).toMatch(/acceptance check fails/i);
+    expect(n.text).toMatch(/acceptance check "runs" fails/i);
     expect(n.text).toContain('API error 400');
     expect(n.text).toMatch(/assembled they do not/i);
+  });
+
+  it('shows which checks passed, which broke, and which were never reached', () => {
+    // "The acceptance check failed" says nothing. Which step broke is the whole diagnostic.
+    const plan = [
+      { name: 'installs', command: 'npm ci' },
+      { name: 'tests pass', command: 'npm test' },
+      { name: 'runs', command: 'node cli.js' },
+    ];
+    const n = buildAcceptanceNotice(plan, { name: 'tests pass', output: '1 failing' });
+
+    expect(n.text).toContain('✅ installs');
+    expect(n.text).toContain('❌ tests pass');
+    expect(n.text).toContain('⏭️ runs');
+  });
+
+  it('lists every check when they all pass', () => {
+    const n = buildAcceptanceNotice([{ name: 'runs', command: 'node cli.js' }]);
+    expect(n.text).toMatch(/every acceptance check passes/i);
+    expect(n.text).toContain('✅ runs');
   });
 
   it('says a terminal failure will not retry, and what that means', () => {

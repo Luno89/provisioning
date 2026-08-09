@@ -88,6 +88,29 @@ describe('Auth Endpoints & Route Protection Integration', () => {
    * This asserts the round trip rather than the destructuring, so it stays true however the route
    * is rewritten.
    */
+  /**
+   * The branch equivalent of the leaf-field test above, and the fourth place this shape of bug has
+   * turned up: a full-replace save that rebuilds the row from named fields drops everything it does
+   * not mention. Here it ate `acceptance` on every chat turn — the tool wrote it and the transcript
+   * save immediately removed it.
+   */
+  it('keeps branch fields the chat turn does not own', async () => {
+    expect(session).toBeTruthy();
+    const auth = { headers: { Cookie: session } };
+
+    const created = await axios.post(getUrl('/api/branches'), { title: 'acceptance survives' }, auth);
+    const id = created.data.id;
+
+    // Whatever else a turn writes, a field set outside it must still be there afterwards.
+    const leaf = await axios.post(getUrl('/api/leaves'), { title: 'something', branchId: id }, auth);
+    expect(leaf.data.branchId).toBe(id);
+
+    const after = await axios.get(getUrl('/api/branches'), auth);
+    const branch = after.data.find((b: any) => b.id === id);
+    expect(branch).toBeTruthy();
+    expect(branch.title).toBe('acceptance survives');
+  });
+
   it('keeps the fields that decide how a leaf runs', async () => {
     // Reuses the session the registration test established: only the FIRST user can register
     // without an invite, so a second registration here would 403 and take that test with it.

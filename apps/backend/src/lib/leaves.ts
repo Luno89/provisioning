@@ -20,6 +20,7 @@
  *   finished leaf leaves the columns entirely rather than piling up in one.
  */
 import type { WorkspaceLanguage } from './workspace-spec.js';
+import type { AcceptanceCheck } from './acceptance.js';
 
 export type LeafColumn = 'todo' | 'in-progress' | 'review';
 
@@ -453,14 +454,21 @@ export interface Branch {
   title: string;
   messages: BranchMessage[];
   /**
-   * The command that decides whether this request actually delivered — run against the assembled
-   * default branch once every leaf has finished.
+   * The ordered checks that decide whether this request actually delivered — run against the
+   * assembled default branch once every leaf has finished.
+   *
+   * A LIST rather than one command, because "does it work" is rarely one question: a coding project
+   * installs, tests, then runs; a research one checks the write-up exists and that its claims carry
+   * sources. Each is named, because "the acceptance check failed" tells nobody which part broke.
+   *
+   * The bare-string form is what the first version stored and is still read — see
+   * `usableAcceptancePlan`.
    *
    * Declared by the planner while planning, so it is visible in the conversation before anyone
    * accepts the work. That visibility is the safeguard, not the model's restraint: see
    * lib/acceptance.ts.
    */
-  acceptance?: string;
+  acceptance?: AcceptanceCheck[] | string;
   /** Set once the check has run, so one request produces one verdict rather than one per leaf. */
   acceptanceRunAt?: string;
   createdAt: string;

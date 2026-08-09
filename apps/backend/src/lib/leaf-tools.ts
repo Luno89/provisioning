@@ -32,9 +32,16 @@ const LANGUAGE_PARAM = {
     Object.entries(WORKSPACE_IMAGES).map(([name, entry]) => `"${name}": ${entry.summary}`).join(' '),
 } as const;
 
-/** Ceiling on tool round trips in one turn. A model that keeps calling tools without answering is
- *  a loop, and each round is a full inference pass. */
-export const MAX_TOOL_ROUNDS = 4;
+/**
+ * Ceiling on tool round trips in one turn. A model that keeps calling tools without answering is a
+ * loop, and each round is a full inference pass.
+ *
+ * Raised from 4, which a real planning turn outgrew. Observed: the model read the board, inspected
+ * two leaves, listed projects, attached one, and set the acceptance plan — six calls, and the last
+ * TWO fell past the cap and were dropped while it reported having made them. A turn that
+ * legitimately inspects before it acts needs room for both.
+ */
+export const MAX_TOOL_ROUNDS = 8;
 
 /** Definitions sent to the model, in OpenAI's function-calling shape. */
 export const LEAF_TOOLS = [
@@ -133,23 +140,42 @@ export const LEAF_TOOLS = [
     function: {
       name: 'set_acceptance',
       description:
-        'Declare the one command that proves this whole request delivered what was asked for. It '
-        + 'runs against the finished, merged result once every leaf is done, and its verdict goes '
-        + 'to the user. Set it whenever a request produces something runnable, and make it the '
-        + 'thing the user would actually type — `node src/cli.js "Fall City, WA"`, not `npm test`. '
-        + 'Per-leaf checks only prove each piece; this is the only thing that proves the assembled '
-        + 'whole works.',
+        'Declare how we will know this request actually delivered. These checks run in order '
+        + 'against the finished, merged result once every leaf is done, and the verdict goes to the '
+        + 'user. Set this for any request that produces something — it is the only thing that '
+        + 'proves the ASSEMBLED whole works, where per-leaf checks only prove each piece.\n'
+        + 'Choose checks that fit what is being built:\n'
+        + '- Software: install dependencies, run the test suite, then RUN the thing the way the user '
+        + 'described it — `node src/cli.js "Fall City, WA"`. The run is the important one; a test '
+        + 'suite alone will happily pass while the entry point is still a stub.\n'
+        + '- Research or writing: check the deliverable exists and is substantial, and that its '
+        + 'claims are traceable — for example that the write-up contains source links.\n'
+        + '- Configuration or infrastructure: check the file parses or validates with whatever tool '
+        + 'reads it.\n'
+        + 'Each check must exit non-zero when that aspect is broken, or it proves nothing.',
       parameters: {
         type: 'object',
         properties: {
-          command: {
-            type: 'string',
-            description:
-              'A single command, run from the repository root. It must exit non-zero when the '
-              + 'deliverable is broken, or it proves nothing.',
+          checks: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'What this proves, in a few words — "tests pass", "prints an AQI", "cites sources".',
+                },
+                command: {
+                  type: 'string',
+                  description: 'A single command run from the repository root.',
+                },
+              },
+              required: ['name', 'command'],
+            },
+            description: 'Ordered. The first one that fails is the one reported; later ones are not run.',
           },
         },
-        required: ['command'],
+        required: ['checks'],
       },
     },
   },

@@ -136,9 +136,14 @@ describe('LEAF_TOOLS', () => {
      */
     const tool = LEAF_TOOLS.find((t) => t.function.name === 'set_acceptance')!;
 
-    expect(tool.function.description).toMatch(/user would actually type/i);
-    expect(tool.function.description).toMatch(/not `npm test`/);
-    expect(tool.function.description).toMatch(/assembled whole/i);
+    const d = tool.function.description;
+    // The run is the check that catches a stub entry point; a suite alone passes right over it.
+    expect(d).toMatch(/RUN the thing the way the user described it/i);
+    expect(d).toMatch(/test suite alone will happily pass/i);
+    expect(d).toMatch(/ASSEMBLED whole/);
+    // And the guidance is by KIND, because a research request has nothing to run.
+    expect(d).toMatch(/Research or writing/i);
+    expect(d).toMatch(/source links/i);
   });
 
   it('puts the whole image catalogue in the schema, so choosing costs no tool round', () => {
