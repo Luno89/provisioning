@@ -41,6 +41,9 @@ import {
 import {
   defaultVerifyCommand, buildVerifyScript, parseVerifyResult, decideStatus, type VerifyResult,
 } from '../lib/leaf-verify.js';
+import {
+  buildArtifactCheckScript, parseArtifactResult, combineVerification,
+} from '../lib/leaf-artifacts.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -329,7 +332,29 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             .then((r) => parseVerifyResult(r.stdout))
             .catch(() => ({ outcome: 'unverified' as const, output: '' }));
         }
-        const settled = decideStatus(run.succeeded, verify.outcome);
+
+        /**
+         * The check that works for work with no tests to run.
+         *
+         * Running a suite covers code and nothing else, so a research, docs or config leaf came
+         * back unverified and its claim was believed — leaving the original failure live for
+         * exactly the work that cannot be tested. This asks only whether the promised file is
+         * there, committed and non-empty, and says nothing about whether it is any good.
+         *
+         * Run AFTER the push below, so "committed" means committed. `pushBack` commits whatever the
+         * agent left uncommitted, and checking before it would fail a leaf over a file our own
+         * rescue was about to commit a moment later.
+         */
+        const pushedBranch = await pushBack();
+        const artifacts = leaf.expects?.length
+          ? await workspaces
+              .exec(leaf.id, buildArtifactCheckScript(leaf.expects), 60_000)
+              .then((r) => parseArtifactResult(r.stdout))
+              .catch(() => ({ outcome: 'unknown' as const, missing: [] }))
+          : { outcome: 'none' as const, missing: [] };
+
+        const combined = combineVerification(verify.outcome, artifacts.outcome);
+        const settled = decideStatus(run.succeeded, combined);
 
         if (settled === 'failed') {
           /**
@@ -349,7 +374,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * re-deriving it blind, and the observed failure is running out of steps mid-setup rather
            * than corrupting anything.
            */
-          const partial = await pushBack();
+          const partial = pushedBranch;
           /**
            * What the attempt LEFT, not what it typed.
            *
@@ -378,12 +403,15 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
               ? `The agent reported success, but the checks failed. Its report: ${run.summary}`
               : run.summary,
             ...(verify.outcome === 'failed' ? [`Verification failed (\`${verifyCommand}\`):\n${verify.output}`] : []),
+            ...(artifacts.outcome === 'missing'
+              ? [`These files were required and are not committed: ${artifacts.missing.join(', ')}. Create them and commit before finishing.`]
+              : []),
             ...(partial ? [`Work so far is committed on ${partial} and will be waiting at /work/repo next attempt.`] : []),
             ...(state ? [`State of the repository when this attempt ended:\n${state}`] : []),
           ].join('\n\n'));
         }
 
-        const outputBranch = await pushBack();
+        const outputBranch = pushedBranch;
 
         /**
          * Verified work lands on the default branch.
@@ -397,7 +425,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * branch, and forcing a resolution here would mean guessing at someone else's changes.
          */
         let merged = false;
-        if (outputBranch && verify.outcome === 'passed') {
+        if (outputBranch && combined === 'passed') {
           const result = await workspaces
             .exec(leaf.id, buildMergeScript(outputBranch), 120_000, [outputBranch])
             .then((r) => parseMergeResult(r.stdout))
@@ -419,7 +447,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * rather than showing the same green tick for both. An unverified success is still a
            * success — most leaves are not test-shaped — it is just not evidence.
            */
-          verified: verify.outcome === 'passed',
+          verified: combined === 'passed',
           // Recorded so the board can point at the default branch when the work landed there, and
           // at the leaf's own branch when it did not.
           merged,

@@ -80,6 +80,7 @@ import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
+import { usablePaths } from './lib/leaf-artifacts.js';
 import { resolveConfig, validatePersona, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
@@ -3380,7 +3381,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.post('/api/leaves', async (req, res) => {
     try {
       const user = (req as any).user;
-      const { title, body, branchId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget, proposed = false, dependsOn: rawDependsOn } = req.body ?? {};
+      const { title, body, branchId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget, proposed = false, dependsOn: rawDependsOn, expects: rawExpects } = req.body ?? {};
       if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' });
       // `column` is untrusted JSON; the union type validates nothing here.
       if (!isLeafColumn(column)) {
@@ -3425,6 +3426,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        * Only the chat proposal path ever set it, so the API said it supported ordering and did not.
        */
       const id = uuidv4();
+      /**
+       * Filtered to paths the checker would act on — the same rule the tool path uses.
+       *
+       * This route dropped `expects` entirely at first, exactly as it dropped `dependsOn`: the
+       * field existed on the type, the request carried it, and the leaf was created without it. A
+       * leaf that silently loses its verification looks identical to one that never had any.
+       */
+      const expects = usablePaths(Array.isArray(rawExpects) ? rawExpects.map(String) : []);
       const wanted = Array.isArray(rawDependsOn) ? rawDependsOn.map(String) : [];
       // Scoped to leaves this user owns: an id in a request body is untrusted, and depending on
       // another tenant's leaf would leak both its existence and its completion time.
@@ -3453,6 +3462,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ...(personaId ? { personaId: String(personaId) } : {}),
         ...(projectId ? { projectId: String(projectId) } : {}),
         ...(dependsOn.length ? { dependsOn } : {}),
+        ...(expects.length ? { expects } : {}),
         // Budgets live on the ROOT only: depth and fan-out caps alone still permit hundreds of
         // workspaces, so the ceiling has to cover the whole subtree.
         ...(!parentLeafId && budget ? { budget } : {}),

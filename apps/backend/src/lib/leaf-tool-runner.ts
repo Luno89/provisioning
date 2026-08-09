@@ -15,6 +15,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
 import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, type Leaf } from './leaves.js';
+import { usablePaths } from './leaf-artifacts.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { imageForLanguage, isWorkspaceLanguage, WORKSPACE_IMAGES } from './workspace-spec.js';
@@ -80,6 +81,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const id = uuidv4();
       const wanted = Array.isArray(args.dependsOn) ? args.dependsOn.map(String) : [];
       const { ids: dependsOn, unresolved } = resolveDependencyTitles(wanted, leaves);
+      const expects = usablePaths(Array.isArray(args.expects) ? args.expects.map(String) : []);
       if (wouldCycle(id, dependsOn, leaves)) {
         // Refused rather than dropped: a cycle does not fail, it waits forever, and every leaf
         // in it looks like work that is merely slow.
@@ -105,6 +107,10 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         branchId,
         title: title.slice(0, 200),
         ...(dependsOn.length ? { dependsOn } : {}),
+        // Filtered here rather than at check time so the stored record only ever holds paths the
+        // checker would act on — a leaf promising "../../etc/passwd" should not look like it has a
+        // requirement nothing will ever test.
+        ...(expects.length ? { expects } : {}),
         ...(persona ? { personaId: persona.id } : {}),
         ...(typeof args.body === 'string' && args.body.trim() ? { body: args.body.trim().slice(0, 4000) } : {}),
         // Silently dropped when it is not a known language: the model picking something outside
@@ -134,6 +140,9 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
 
       return JSON.stringify({
         proposed: { id: leaf.id, title: leaf.title },
+        // Echoed so a path that was dropped for looking unsafe does not silently become a promise
+        // nothing will check.
+        ...(expects.length ? { expects } : {}),
         ...(wanted.length ? { dependsOn: recorded } : {}),
         ...(unresolved.length
           ? {

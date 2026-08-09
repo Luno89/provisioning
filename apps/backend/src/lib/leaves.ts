@@ -116,6 +116,16 @@ export interface Leaf {
    * leaf has no known solution to gate one against, so a trivially-true command would launder a
    * claim into a "verified" badge.
    */
+  /**
+   * Files this leaf is expected to leave behind, checked after it runs.
+   *
+   * The verification that works for research, docs and config — anything with no test suite to
+   * run. It asks only whether the artifact is there, committed and non-empty; it makes no claim
+   * about whether the contents are any good. See lib/leaf-artifacts.ts for why a filename is safe
+   * to take from a planner when a verify COMMAND is not.
+   */
+  expects?: string[];
+
   verifyCommand?: string;
 
   /**

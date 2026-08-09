@@ -89,6 +89,16 @@ export const LEAF_TOOLS = [
            * does not yet know the ids of the ones it created moments ago. Resolved server-side
            * against this branch.
            */
+          expects: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Optional — repository paths this work must leave behind, e.g. ["NOTES.md"] or '
+              + '["src/client.js","test/client.test.js"]. Checked after the leaf runs: each must be '
+              + 'committed and non-empty, or the leaf is marked failed. Give these for work that has '
+              + 'no tests to run (research, documentation, configuration) — without them nothing can '
+              + 'check that the work was actually produced.',
+          },
           dependsOn: {
             type: 'array',
             items: { type: 'string' },

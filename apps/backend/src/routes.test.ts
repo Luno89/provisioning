@@ -8,6 +8,8 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   let app: express.Application;
   let server: http.Server;
   let port: number;
+  /** Set by the registration test and reused below — see the note there. */
+  let session = '';
 
   beforeAll(async () => {
     // Bootstrap backend
@@ -59,6 +61,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     expect(loginRes.headers['set-cookie']).toBeDefined();
     
     const sessionCookie = loginRes.headers['set-cookie']![0]!.split(';')[0]!;
+    session = sessionCookie;
     expect(sessionCookie).toContain('session=');
 
     // Access profile using the cookie
@@ -74,6 +77,34 @@ describe('Auth Endpoints & Route Protection Integration', () => {
       headers: { Cookie: sessionCookie },
     });
     expect(clustersRes.status).toBe(200);
+  });
+
+  /**
+   * Three fields have now been dropped by a route that destructures its body field-by-field:
+   * the deployment config group, `dependsOn`, and `expects`. Each time the type had the field, the
+   * request carried it, the code typechecked, and the record was written without it — a leaf that
+   * silently loses its ordering or its verification looks identical to one that never had any.
+   *
+   * This asserts the round trip rather than the destructuring, so it stays true however the route
+   * is rewritten.
+   */
+  it('keeps the fields that decide how a leaf runs', async () => {
+    // Reuses the session the registration test established: only the FIRST user can register
+    // without an invite, so a second registration here would 403 and take that test with it.
+    expect(session).toBeTruthy();
+    const auth = { headers: { Cookie: session } };
+
+    const first = await axios.post(getUrl('/api/leaves'), { title: 'First step' }, auth);
+    const second = await axios.post(getUrl('/api/leaves'), {
+      title: 'Second step',
+      branchId: first.data.branchId,
+      dependsOn: [first.data.id],
+      expects: ['NOTES.md'],
+    }, auth);
+
+    // Ordering, and the verification that covers work with no tests to run.
+    expect(second.data.dependsOn).toEqual([first.data.id]);
+    expect(second.data.expects).toEqual(['NOTES.md']);
   });
 
   it('should support Mock social oauth redirect loops', async () => {
