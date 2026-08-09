@@ -81,6 +81,7 @@ import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
+import { normaliseLeafInput } from './lib/leaf-input.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
@@ -3498,7 +3499,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         id,
         ownerId: user.id,
         branchId: resolvedBranchId,
-        title: title.trim(),
+        // Shared with the `propose_leaf` tool, so a field cannot be settable on one path and not
+        // the other — which is how `dependsOn`, `expects` and `language` each went missing.
+        ...normaliseLeafInput(req.body ?? {}),
+        title: title.trim().slice(0, 200),
         column,
         // A proposal is a suggestion until someone accepts it: no workflow, no budget spent.
         status: proposed === true ? 'proposed' : 'pending',
@@ -3506,12 +3510,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         blocking: blocking !== false,
         createdAt: now,
         updatedAt: now,
-        ...(body ? { body: String(body) } : {}),
         ...(parentLeafId ? { parentLeafId: String(parentLeafId) } : {}),
         ...(personaId ? { personaId: String(personaId) } : {}),
         ...(projectId ? { projectId: String(projectId) } : {}),
         ...(dependsOn.length ? { dependsOn } : {}),
-        ...(expects.length ? { expects } : {}),
         // Budgets live on the ROOT only: depth and fan-out caps alone still permit hundreds of
         // workspaces, so the ceiling has to cover the whole subtree.
         ...(!parentLeafId && budget ? { budget } : {}),

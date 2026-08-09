@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
 import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
 import { usablePaths } from './leaf-artifacts.js';
+import { normaliseLeafInput } from './leaf-input.js';
 import { usableAcceptancePlan } from './acceptance.js';
 import { rewireDependents } from './plan-review.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
@@ -107,17 +108,11 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         id,
         ownerId: userId,
         branchId,
+        // Shared with the HTTP route — see lib/leaf-input.ts for why these are not named twice.
+        ...normaliseLeafInput(args),
         title: title.slice(0, 200),
         ...(dependsOn.length ? { dependsOn } : {}),
-        // Filtered here rather than at check time so the stored record only ever holds paths the
-        // checker would act on — a leaf promising "../../etc/passwd" should not look like it has a
-        // requirement nothing will ever test.
-        ...(expects.length ? { expects } : {}),
         ...(persona ? { personaId: persona.id } : {}),
-        ...(typeof args.body === 'string' && args.body.trim() ? { body: args.body.trim().slice(0, 4000) } : {}),
-        // Silently dropped when it is not a known language: the model picking something outside
-        // the enum should get the default sandbox, not a leaf that fails when it runs.
-        ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
         column: 'todo',
         // Proposed, always. A tool call is still the model suggesting, not deciding.
         status: 'proposed',

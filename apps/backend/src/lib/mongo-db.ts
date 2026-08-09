@@ -1,6 +1,7 @@
 import type { Persona } from '@koala/harness-types';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
+import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
@@ -157,29 +158,24 @@ export class MongoDB implements Database {
   }
 
   async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
+    const id = cluster.id || uuidv4();
+    /**
+     * Merged onto the stored record, not rebuilt from a list of fields.
+     *
+     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
+     * for the two times that lost real data. Absence now means unchanged, which is what
+     * "save this partial info" already promised.
+     */
+    const previous = (await this.getClusters()).find((x: ClusterMetadata) => x.id === id);
+    const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
     const c: ClusterMetadata = {
-      id: cluster.id || uuidv4(),
-      name: cluster.name || '',
-      provider: cluster.provider || 'k3d',
-      status: cluster.status || 'provisioning',
+      ...merged,
+
+      id: id,
+      name: merged.name || '',
+      provider: merged.provider || 'k3d',
+      status: merged.status || 'provisioning',
     };
-    if (cluster.kubeconfigPath !== undefined) c.kubeconfigPath = cluster.kubeconfigPath;
-    if (cluster.lastLogPath !== undefined) c.lastLogPath = cluster.lastLogPath;
-    if (cluster.temporalWorkflowId !== undefined) c.temporalWorkflowId = cluster.temporalWorkflowId;
-    if (cluster.progress !== undefined) c.progress = cluster.progress;
-    if (cluster.gpuEnabled !== undefined) c.gpuEnabled = cluster.gpuEnabled;
-    if (cluster.ownerId !== undefined) c.ownerId = cluster.ownerId;
-    if (cluster.remoteHost !== undefined) c.remoteHost = cluster.remoteHost;
-    if (cluster.remoteUsername !== undefined) c.remoteUsername = cluster.remoteUsername;
-    if (cluster.remoteSshPort !== undefined) c.remoteSshPort = cluster.remoteSshPort;
-    if (cluster.remoteK3sApiPort !== undefined) c.remoteK3sApiPort = cluster.remoteK3sApiPort;
-    if (cluster.remoteSshPrivateKeyEnc !== undefined) c.remoteSshPrivateKeyEnc = cluster.remoteSshPrivateKeyEnc;
-    if (cluster.meshNodeId !== undefined) c.meshNodeId = cluster.meshNodeId;
-    if (cluster.createdAt !== undefined) c.createdAt = cluster.createdAt;
-    if (cluster.hetznerServerId !== undefined) c.hetznerServerId = cluster.hetznerServerId;
-    if (cluster.hetznerServerType !== undefined) c.hetznerServerType = cluster.hetznerServerType;
-    if (cluster.hetznerLocation !== undefined) c.hetznerLocation = cluster.hetznerLocation;
-    if (cluster.hetznerImage !== undefined) c.hetznerImage = cluster.hetznerImage;
     await this.saveCluster(c);
     return c;
   }
@@ -241,70 +237,25 @@ export class MongoDB implements Database {
   }
 
   async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
+    const id = deployment.id || uuidv4();
+    /**
+     * Merged onto the stored record, not rebuilt from a list of fields.
+     *
+     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
+     * for the two times that lost real data. Absence now means unchanged, which is what
+     * "save this partial info" already promised.
+     */
+    const previous = (await this.getDeployments()).find((x: DeploymentMetadata) => x.id === id);
+    const merged = mergeRecord(previous, deployment as Partial<DeploymentMetadata>);
     const d: DeploymentMetadata = {
-      id: deployment.id || uuidv4(),
-      name: deployment.name || '',
-      clusterId: deployment.clusterId || '',
-      strategy: deployment.strategy || 'helm',
-      status: deployment.status || 'deploying',
+      ...merged,
+
+      id: id,
+      name: merged.name || '',
+      clusterId: merged.clusterId || '',
+      strategy: merged.strategy || 'helm',
+      status: merged.status || 'deploying',
     };
-    if (deployment.deploymentId !== undefined) d.deploymentId = deployment.deploymentId;
-    if (deployment.appType !== undefined) d.appType = deployment.appType;
-    if (deployment.webRepo !== undefined) d.webRepo = deployment.webRepo;
-    if (deployment.webTag !== undefined) d.webTag = deployment.webTag;
-    if (deployment.dbRepo !== undefined) d.dbRepo = deployment.dbRepo;
-    if (deployment.dbTag !== undefined) d.dbTag = deployment.dbTag;
-    if (deployment.url !== undefined) d.url = deployment.url;
-    if (deployment.isExposed !== undefined) d.isExposed = deployment.isExposed;
-    if (deployment.exposureUrl !== undefined) d.exposureUrl = deployment.exposureUrl;
-    if (deployment.lastLogPath !== undefined) d.lastLogPath = deployment.lastLogPath;
-    if (deployment.modules !== undefined) d.modules = deployment.modules;
-    if (deployment.storage !== undefined) d.storage = deployment.storage;
-    if (deployment.appSettings !== undefined) d.appSettings = deployment.appSettings;
-    if (deployment.vpnEnabled !== undefined) d.vpnEnabled = deployment.vpnEnabled;
-    if (deployment.vpnProtocol !== undefined) d.vpnProtocol = deployment.vpnProtocol;
-    if (deployment.vpnConfig !== undefined) d.vpnConfig = deployment.vpnConfig;
-    if (deployment.vpnDedicatedIp !== undefined) d.vpnDedicatedIp = deployment.vpnDedicatedIp;
-    if (deployment.temporalWorkflowId !== undefined) d.temporalWorkflowId = deployment.temporalWorkflowId;
-    if (deployment.vllmModel !== undefined) d.vllmModel = deployment.vllmModel;
-    if (deployment.vllmGpuCount !== undefined) d.vllmGpuCount = deployment.vllmGpuCount;
-    if (deployment.vllmGpuVendor !== undefined) d.vllmGpuVendor = deployment.vllmGpuVendor;
-    if (deployment.vllmCachePvc !== undefined) d.vllmCachePvc = deployment.vllmCachePvc;
-    if (deployment.vllmHfToken !== undefined) d.vllmHfToken = deployment.vllmHfToken;
-    if (deployment.vllmMaxModelLen !== undefined) d.vllmMaxModelLen = deployment.vllmMaxModelLen;
-    if (deployment.vllmGpuMemUtil !== undefined) d.vllmGpuMemUtil = deployment.vllmGpuMemUtil;
-    if (deployment.vllmExtraArgs !== undefined) d.vllmExtraArgs = deployment.vllmExtraArgs;
-    if (deployment.vllmToolCallingEnabled !== undefined) d.vllmToolCallingEnabled = deployment.vllmToolCallingEnabled;
-    if (deployment.vllmToolCallParser !== undefined) d.vllmToolCallParser = deployment.vllmToolCallParser;
-    if (deployment.vllmServedModelName !== undefined) d.vllmServedModelName = deployment.vllmServedModelName;
-    if (deployment.vllmMaxNumSeqs !== undefined) d.vllmMaxNumSeqs = deployment.vllmMaxNumSeqs;
-    if (deployment.vllmDtype !== undefined) d.vllmDtype = deployment.vllmDtype;
-    if (deployment.vllmEnablePrefixCaching !== undefined) d.vllmEnablePrefixCaching = deployment.vllmEnablePrefixCaching;
-    if (deployment.tabbyModel !== undefined) d.tabbyModel = deployment.tabbyModel;
-    if (deployment.tabbyRevision !== undefined) d.tabbyRevision = deployment.tabbyRevision;
-    if (deployment.tabbyGpuCount !== undefined) d.tabbyGpuCount = deployment.tabbyGpuCount;
-    if (deployment.tabbyHfToken !== undefined) d.tabbyHfToken = deployment.tabbyHfToken;
-    if (deployment.tabbyCachePvc !== undefined) d.tabbyCachePvc = deployment.tabbyCachePvc;
-    if (deployment.tabbyImageTag !== undefined) d.tabbyImageTag = deployment.tabbyImageTag;
-    if (deployment.tabbyCacheMode !== undefined) d.tabbyCacheMode = deployment.tabbyCacheMode;
-    if (deployment.tabbyMaxSeqLen !== undefined) d.tabbyMaxSeqLen = deployment.tabbyMaxSeqLen;
-    if (deployment.tabbyMaxBatchSize !== undefined) d.tabbyMaxBatchSize = deployment.tabbyMaxBatchSize;
-    if (deployment.tabbyReasoning !== undefined) d.tabbyReasoning = deployment.tabbyReasoning;
-    if (deployment.tabbyToolFormat !== undefined) d.tabbyToolFormat = deployment.tabbyToolFormat;
-    if (deployment.tabbyInlineModelLoading !== undefined) d.tabbyInlineModelLoading = deployment.tabbyInlineModelLoading;
-    if (deployment.tabbyDisableAuth !== undefined) d.tabbyDisableAuth = deployment.tabbyDisableAuth;
-    if (deployment.tabbyExtraEnv !== undefined) d.tabbyExtraEnv = deployment.tabbyExtraEnv;
-    if (deployment.searxngSecretKey !== undefined) d.searxngSecretKey = deployment.searxngSecretKey;
-    if (deployment.searxngEngines !== undefined) d.searxngEngines = deployment.searxngEngines;
-    if (deployment.crawl4aiApiToken !== undefined) d.crawl4aiApiToken = deployment.crawl4aiApiToken;
-    if (deployment.crawl4aiMemoryLimit !== undefined) d.crawl4aiMemoryLimit = deployment.crawl4aiMemoryLimit;
-    if (deployment.crawl4aiShmSize !== undefined) d.crawl4aiShmSize = deployment.crawl4aiShmSize;
-    if (deployment.openWebuiTargetId !== undefined) d.openWebuiTargetId = deployment.openWebuiTargetId;
-    if (deployment.hermesTargetId !== undefined) d.hermesTargetId = deployment.hermesTargetId;
-    if (deployment.webuiEnableWebSearch !== undefined) d.webuiEnableWebSearch = deployment.webuiEnableWebSearch;
-    if (deployment.webuiWebSearchEngine !== undefined) d.webuiWebSearchEngine = deployment.webuiWebSearchEngine;
-    if (deployment.webuiWebSearchApiKey !== undefined) d.webuiWebSearchApiKey = deployment.webuiWebSearchApiKey;
-    if (deployment.ownerId !== undefined) d.ownerId = deployment.ownerId;
     await this.saveDeployment(d);
     return d;
   }
@@ -321,19 +272,26 @@ export class MongoDB implements Database {
   }
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
+    const id = project.id || uuidv4();
+    /**
+     * Merged onto the stored record, not rebuilt from a list of fields.
+     *
+     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
+     * for the two times that lost real data. Absence now means unchanged, which is what
+     * "save this partial info" already promised.
+     */
+    const previous = (await this.getProjects()).find((x: ProjectMetadata) => x.id === id);
+    const merged = mergeRecord(previous, project as Partial<ProjectMetadata>);
     const p: ProjectMetadata = {
-      id: project.id || uuidv4(),
-      name: project.name || '',
-      giteaOwner: project.giteaOwner || '',
-      giteaRepo: project.giteaRepo || '',
-      appType: project.appType || 'gitapp',
-      createdAt: project.createdAt || new Date().toISOString(),
+      ...merged,
+
+      id: id,
+      name: merged.name || '',
+      giteaOwner: merged.giteaOwner || '',
+      giteaRepo: merged.giteaRepo || '',
+      appType: merged.appType || 'gitapp',
+      createdAt: merged.createdAt || new Date().toISOString(),
     };
-    if (project.targetClusterId !== undefined) p.targetClusterId = project.targetClusterId;
-    if (project.targetNamespace !== undefined) p.targetNamespace = project.targetNamespace;
-    if (project.autoDeployOnBuild !== undefined) p.autoDeployOnBuild = project.autoDeployOnBuild;
-    if (project.lastBuildStatus !== undefined) p.lastBuildStatus = project.lastBuildStatus;
-    if (project.webhookSecretEnc !== undefined) p.webhookSecretEnc = project.webhookSecretEnc;
     await this.saveProject(p);
     return p;
   }
@@ -350,19 +308,26 @@ export class MongoDB implements Database {
   }
 
   async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
+    const id = run.id || uuidv4();
+    /**
+     * Merged onto the stored record, not rebuilt from a list of fields.
+     *
+     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
+     * for the two times that lost real data. Absence now means unchanged, which is what
+     * "save this partial info" already promised.
+     */
+    const previous = (await this.getPipelineRuns()).find((x: PipelineRunMetadata) => x.id === id);
+    const merged = mergeRecord(previous, run as Partial<PipelineRunMetadata>);
     const r: PipelineRunMetadata = {
-      id: run.id || uuidv4(),
-      projectId: run.projectId || '',
-      commitSha: run.commitSha || '',
-      ref: run.ref || '',
-      status: run.status || 'queued',
-      startedAt: run.startedAt || new Date().toISOString(),
+      ...merged,
+
+      id: id,
+      projectId: merged.projectId || '',
+      commitSha: merged.commitSha || '',
+      ref: merged.ref || '',
+      status: merged.status || 'queued',
+      startedAt: merged.startedAt || new Date().toISOString(),
     };
-    if (run.imageTag !== undefined) r.imageTag = run.imageTag;
-    if (run.logFile !== undefined) r.logFile = run.logFile;
-    if (run.temporalWorkflowId !== undefined) r.temporalWorkflowId = run.temporalWorkflowId;
-    if (run.finishedAt !== undefined) r.finishedAt = run.finishedAt;
-    if (run.errorMessage !== undefined) r.errorMessage = run.errorMessage;
     await this.savePipelineRun(r);
     return r;
   }
