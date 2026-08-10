@@ -8,6 +8,8 @@ import { log, proxyActivities } from '@temporalio/workflow';
 // remoteSshPrivateKey, remoteSshPort), even though TemporalBridge.provision() built and passed
 // them correctly — the workflow was the thing throwing them away.
 import type { ProvisionClusterArgs, ProvisionClusterResult } from '../activities/ProvisionClusterActivity.js';
+// Type-only, so it is erased before Temporal's workflow bundling — see the note above.
+import type { ClusterCapacity } from '../lib/cluster-capacity.js';
 // From lib/activity-timeouts.ts, not the activity file directly — see AppDeployWorkflow.ts for
 // why (a value import from an activity file breaks Temporal's webpack workflow bundling).
 import { provisionClusterActivityMeta } from '../lib/activity-timeouts.js';
@@ -45,6 +47,16 @@ export async function ClusterProvisionWorkflow(args: ProvisionClusterArgs): Prom
   createdHost?: string;
   createdUsername?: string;
   createdPrivateKey?: string;
+  /**
+   * Measured node capacity, passed through from the activity.
+   *
+   * It was measured and then dropped here: this return literal did not carry it, so
+   * `TemporalBridge`'s `if (capacity)` never fired and every provisioned cluster stored none. That
+   * is not cosmetic — `checkCapacity` skips the deploy preflight entirely for a cluster with no
+   * measured capacity, so the check that stops a pod sitting in Pending forever was silently off
+   * for every cluster a user made.
+   */
+  capacity?: ClusterCapacity;
 }> {
   logger.info(`Starting ClusterProvisionWorkflow for cluster: ${args.name}`);
 
@@ -61,6 +73,7 @@ export async function ClusterProvisionWorkflow(args: ProvisionClusterArgs): Prom
       ...(result.createdHost ? { createdHost: result.createdHost } : {}),
       ...(result.createdUsername ? { createdUsername: result.createdUsername } : {}),
       ...(result.createdPrivateKey ? { createdPrivateKey: result.createdPrivateKey } : {}),
+      ...(result.capacity ? { capacity: result.capacity } : {}),
     };
   } catch (err: any) {
     logger.error(`ClusterProvisionWorkflow failed: ${err.message}`);
