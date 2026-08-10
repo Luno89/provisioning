@@ -23,6 +23,9 @@ import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { readyToStart } from '../lib/leaves.js'
+import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
+import { InfrastructureService } from './InfrastructureService.js'
+import { sanitizeNamespace } from '../lib/model-registry.js'
 import type { Database } from '../lib/db-interface.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
 import { checkCapacity } from '../lib/cluster-capacity.js'
@@ -593,6 +596,41 @@ export class TemporalBridge {
 
         // Reconcile deployments
         const deployments = await this.db.getDeployments()
+
+        /**
+         * ── DOES THE WORKLOAD ACTUALLY RUN? ──
+         *
+         * Everything above reconciles a deployment against its WORKFLOW, which only ever answers
+         * "did the apply finish". Nothing looked at the pod afterwards, so a deployment whose
+         * container never started stayed `running` forever. Observed on the first
+         * promote-to-staging: six minutes of `running` against a pod in CrashLoopBackOff with four
+         * restarts, and no path to noticing except kubectl.
+         *
+         * Deliberately separate from the block below, and only for deployments that are NOT
+         * mid-flight: a workflow that is still deploying owns that deployment's status, and a
+         * second writer would race it.
+         */
+        for (const dep of deployments) {
+          if (dep.status !== 'running' && dep.status !== 'failed') continue
+          try {
+            const cluster = await this.clusterService?.getByIdUnscoped(dep.clusterId)
+            if (!cluster) continue
+            const kubeconfig = await this.clusterService!.getKubeconfigPath(cluster)
+            const namespace = sanitizeNamespace(dep.name)
+            const raw = await new InfrastructureService().runKubectl(['get', 'pods', '-n', namespace, '-o', 'json'], kubeconfig)
+            const { health, reason } = assessWorkload(JSON.parse(raw))
+            const next = reconciledStatus(dep.status, health)
+            if (next) {
+              console.warn(`[Reconcile] ${dep.name} is ${dep.status} but the workload is ${health}${reason ? ` (${reason})` : ''} — marking ${next}`)
+              await updateDeploymentStatus(this.db, dep.id, dep, next, dep.storage)
+              if (this.io) this.io.emit('deployment-updated')
+            }
+          } catch {
+            // A cluster that is unreachable, or a namespace that is gone, says nothing about the
+            // workload's health — and must never flip a deployment to failed on its own.
+          }
+        }
+
         for (const dep of deployments) {
           if (dep.status !== 'deploying' && dep.status !== 'destroying') continue
           const depWfId = dep.temporalWorkflowId
