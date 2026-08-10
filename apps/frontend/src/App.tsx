@@ -183,6 +183,22 @@ const GPU_ONLY_APP_TYPES = new Set(['vllm', 'tabbyapi']);
 // nothing. Also suppresses the clickable app link, whose url is a meaningless placeholder.
 const NO_WEB_UI_APP_TYPES = new Set(['palworld']);
 
+/**
+ * Colour for a deployment's status pill.
+ *
+ * Every status used to render in the same blue, so `failed` and `running` were distinguishable only
+ * by reading the word — which defeats the point of a status pill in a list. `unhealthy` gets amber
+ * rather than red on purpose: the deploy worked, and colouring it like a failed deploy sends people
+ * to the wrong logs.
+ */
+const deployStatusClass = (status: string) => (
+  status === 'running' ? 'bg-green-500/10 text-green-400'
+  : status === 'unhealthy' ? 'bg-amber-500/10 text-amber-400'
+  : status === 'failed' ? 'bg-red-500/10 text-red-400'
+  : status === 'deploying' || status === 'destroying' ? 'bg-yellow-500/10 text-yellow-400'
+  : 'bg-slate-500/10 text-slate-400'
+);
+
 // TabbyAPI's tool-call parsers (endpoints/OAI/utils/toolcall_formats/*.py) — 'harmony' is
 // documented as equivalent to setting the separate `harmony: true` config flag, so it's passed
 // through as a plain tool_format value rather than needing special-casing.
@@ -1253,7 +1269,7 @@ function App() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-8 py-5 text-slate-400">{clusters.find((c:any) => c.id === a.clusterId)?.name || 'Unknown'}</td><td className="px-8 py-5"><div className="flex flex-col gap-1.5 items-start"><span className="text-[10px] px-3 py-1 rounded-full font-bold uppercase bg-slate-500/10 text-slate-400">{a.strategy || 'helm'}</span>{a.vpnEnabled && (<span className="text-[9px] px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-green-500/10 text-green-400 border border-green-500/20 flex items-center gap-1"><Shield size={10} /> VPN</span>)}</div></td><td className="px-8 py-5"><span className="text-[10px] px-3 py-1 rounded-full font-bold uppercase bg-blue-500/10 text-blue-400">{a.status}</span></td>
+                      <td className="px-8 py-5 text-slate-400">{clusters.find((c:any) => c.id === a.clusterId)?.name || 'Unknown'}</td><td className="px-8 py-5"><div className="flex flex-col gap-1.5 items-start"><span className="text-[10px] px-3 py-1 rounded-full font-bold uppercase bg-slate-500/10 text-slate-400">{a.strategy || 'helm'}</span>{a.vpnEnabled && (<span className="text-[9px] px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-green-500/10 text-green-400 border border-green-500/20 flex items-center gap-1"><Shield size={10} /> VPN</span>)}</div></td><td className="px-8 py-5"><span title={a.healthReason || undefined} className={`text-[10px] px-3 py-1 rounded-full font-bold uppercase ${deployStatusClass(a.status)}`}>{a.status}</span></td>
                       <td className="px-8 py-5 text-right flex justify-end items-center gap-3">
                         <button onClick={() => openDashboard('app', a.id)} className="px-4 py-2 bg-blue-600/10 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"><Activity size={14} /> Manage</button>
                         <button onClick={() => setConfirmDestroy({ type: 'app', id: a.id, name: a.name, isAbort: a.status === 'deploying' })} className="px-4 py-2 bg-slate-700/50 hover:bg-red-600 border border-slate-600 hover:border-red-500 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"><Trash2 size={14} /> Destroy</button>
@@ -2157,6 +2173,37 @@ function App() {
                 )}
                {logTab === 'general' && currentDeployment && (
                  <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
+                    {/*
+                      * A deploy that failed and a workload that will not start are different
+                      * problems with different evidence, and the deployment log only explains the
+                      * first. Sending someone to it for a CrashLoopBackOff wastes their time: the
+                      * deploy succeeded, so its log ends in success.
+                      */}
+                    {currentDeployment.status === 'unhealthy' && (
+                      <div className="bg-amber-950/20 border-2 border-amber-500/30 rounded-2xl p-6 flex flex-col gap-4 animate-in fade-in duration-300">
+                        <div className="flex items-center gap-3 text-amber-400">
+                          <AlertTriangle size={24} />
+                          <h4 className="font-bold text-lg">Deployed, but not running</h4>
+                        </div>
+                        <p className="text-slate-300 text-sm">
+                          The deploy finished and the Kubernetes objects were created correctly — the
+                          container inside them isn't staying up. The pod is left in place so its logs
+                          and events survive; destroy this deployment when you're done looking.
+                        </p>
+                        {currentDeployment.healthReason && (
+                          <div className="bg-slate-950 rounded-xl p-4 font-mono text-[11px] whitespace-pre-wrap border border-amber-500/20 text-amber-200/90 leading-relaxed shadow-inner">
+                            {currentDeployment.healthReason}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          The deployment log won't explain this one — it ends in success. Use{' '}
+                          <code className="text-amber-300/90">
+                            kubectl logs -n {(currentDeployment.name || '').toLowerCase().replace(/[^a-z0-9-]/g, '-')} --previous -l app
+                          </code>{' '}
+                          to see why the container exited.
+                        </p>
+                      </div>
+                    )}
                     {currentDeployment.status === 'failed' && (
                       <div className="bg-red-950/20 border-2 border-red-500/30 rounded-2xl p-6 flex flex-col gap-4 animate-in fade-in duration-300">
                         <div className="flex items-center gap-3 text-red-400">
@@ -2183,7 +2230,8 @@ function App() {
                      <div className="bg-slate-900/50 border border-slate-700/60 p-6 rounded-2xl">
                        <div className="text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1">Status</div>
                        <div className="flex items-center gap-2">
-                         <div className={`w-2.5 h-2.5 rounded-full ${currentDeployment.status === 'running' ? 'bg-green-500' : currentDeployment.status === 'deploying' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></div>
+                         {/* Amber for unhealthy: it deployed, so it is not the same red as a deploy that never landed. */}
+                         <div className={`w-2.5 h-2.5 rounded-full ${currentDeployment.status === 'running' ? 'bg-green-500' : currentDeployment.status === 'deploying' ? 'bg-yellow-500 animate-pulse' : currentDeployment.status === 'unhealthy' ? 'bg-amber-500' : 'bg-red-500'}`}></div>
                          <span className="font-bold text-lg uppercase text-slate-200">{currentDeployment.status}</span>
                        </div>
                      </div>

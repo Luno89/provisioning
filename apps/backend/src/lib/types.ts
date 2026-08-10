@@ -122,7 +122,20 @@ export interface DeploymentMetadata {
   // gitapp-specific fields — image comes from a Project's pipeline run, not a typed repo/tag
   gitappProjectId?: string;
   gitappImageTag?: string;
-  status: 'deploying' | 'running' | 'failed' | 'destroying' | 'discovered';
+  /**
+   * `failed` and `unhealthy` are different events and are deliberately not merged.
+   *
+   * `failed` means the deploy itself did not complete — the apply errored, the image would not
+   * build, the workflow was cancelled. Nothing is running because nothing was placed.
+   *
+   * `unhealthy` means the deploy worked and the workload does not. The objects exist and are
+   * correct; the container inside them crashes, or its image cannot be pulled. Collapsing the two
+   * sent people to the deploy logs for a problem the deploy logs cannot show, because the deploy
+   * succeeded.
+   */
+  status: 'deploying' | 'running' | 'failed' | 'unhealthy' | 'destroying' | 'discovered';
+  /** Why the workload is unhealthy, e.g. "koala-web-7d4f: CrashLoopBackOff". Empty when healthy. */
+  healthReason?: string;
   webRepo?: string;
   webTag?: string;
   dbRepo?: string;

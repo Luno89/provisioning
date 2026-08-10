@@ -2,10 +2,15 @@
  * Whether a deployed workload is actually running, as opposed to having been successfully applied.
  *
  * ── THE GAP THIS FILLS ──
- * A deployment is marked `running` when the CDKTF apply succeeds. Nothing has ever looked at the
- * pod afterwards. Observed on the first promote-to-staging: the platform reported `running` for six
- * minutes while the pod sat in CrashLoopBackOff with four restarts, and nothing would ever have
- * reconciled the two — the only way to find out was `kubectl`.
+ * A deployment is marked `running` when the CDKTF apply succeeds. For most app types that already
+ * means something — Terraform waits for the rollout — but it is a verdict delivered once, at apply
+ * time, and never revisited. A workload that dies afterwards keeps its `running` record forever.
+ *
+ * And one app type never got even that: `constructs/gitapp.ts` must set `waitForRollout: false` to
+ * avoid a deadlock with its imagePullSecret, so its apply returns before any pod has started. That
+ * is the app type the agent builds. Observed on the first promote-to-staging: `running` reported for
+ * six minutes while the pod sat in CrashLoopBackOff with four restarts, and the only way to find out
+ * was `kubectl`.
  *
  * That is the deployment-level version of the failure this codebase keeps producing: a record that
  * says success while reality disagrees, discoverable only by someone who knows where to look.
@@ -107,21 +112,28 @@ export function assessWorkload(podListJson: unknown): WorkloadStatus {
 /**
  * What the deployment record should say, given what the cluster shows.
  *
- * Only ever moves a deployment between `running` and `failed`, and only on a settled verdict.
- * `deploying` and `destroying` belong to the workflow that is mid-flight — reaching in and
- * relabelling one from outside would race the thing doing the work.
+ * ── THE TWO STATES THIS OWNS ──
+ * Only `running` and `unhealthy`, and only on a settled verdict. Everything else belongs to
+ * someone else:
+ *
+ *   · `deploying` / `destroying` belong to the workflow that is mid-flight. Relabelling one from
+ *     outside would race the thing doing the work.
+ *   · `failed` belongs to the deploy that failed. A deploy that never completed is a fact about
+ *     history, and no amount of later pod-watching makes it untrue — only a new deploy clears it.
+ *     Letting this function flip `failed` to `running` would erase the record of a broken deploy
+ *     because something unrelated in the namespace happened to look healthy.
  */
 export function reconciledStatus(
   current: string,
   health: WorkloadHealth,
-): 'running' | 'failed' | undefined {
-  if (current !== 'running' && current !== 'failed') return undefined;
-  if (health === 'unhealthy' && current !== 'failed') return 'failed';
+): 'running' | 'unhealthy' | undefined {
+  if (current !== 'running' && current !== 'unhealthy') return undefined;
+  if (health === 'unhealthy' && current !== 'unhealthy') return 'unhealthy';
   /**
    * Recovery counts too.
    *
    * A workload fixed by a later deploy, or one that finally pulled its image, would otherwise stay
-   * marked failed forever — and a status that only ever gets worse is one people learn to ignore.
+   * marked unhealthy forever — and a status that only ever gets worse is one people learn to ignore.
    */
   if (health === 'healthy' && current !== 'running') return 'running';
   return undefined;

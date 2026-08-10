@@ -365,6 +365,28 @@ export class TemporalBridge {
               }
             } catch {}
           }
+          /**
+           * The rollout verdict, for the three workflows that change what a pod is running.
+           *
+           * A completed deploy whose container crashes on startup is not a failed deploy — the
+           * apply did everything right. `awaitWorkload` returns the verdict instead of throwing so
+           * this can record `unhealthy`, which points at the container rather than at the deploy.
+           * Absent on an older running workflow, which reads as healthy: the previous behaviour.
+           */
+          let workloadVerdict: { workload?: string; workloadReason?: string } = {}
+          if (name === 'COMPLETED' && (action === 'app-deploy' || action === 'app-sync-config' || action === 'app-resize')) {
+            try {
+              const handle = this.client.workflow.getHandle(wfId)
+              workloadVerdict = (await handle.result()) as typeof workloadVerdict
+            } catch {}
+          }
+          const unhealthy = workloadVerdict.workload === 'unhealthy'
+          const appliedStatus = unhealthy ? 'unhealthy' : 'running'
+          // Written on both branches, and empty on the healthy one. Absent would not do: writes
+          // merge onto the stored record now, so leaving it out would keep a stale reason on a
+          // deployment that a redeploy just fixed.
+          const appliedMeta = { ...meta, healthReason: unhealthy ? (workloadVerdict.workloadReason ?? '') : '' }
+
           let pipelineImageTag: string | undefined
           if (name === 'COMPLETED' && action === 'pipeline-run') {
             try {
@@ -396,7 +418,7 @@ export class TemporalBridge {
             } else if (name === 'TERMINATED' || name === 'CANCELLED') {
               await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'running', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, appliedMeta, appliedStatus, meta?.storage)
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'app-destroy') {
@@ -415,14 +437,14 @@ export class TemporalBridge {
             } else if (name === 'TERMINATED' || name === 'CANCELLED') {
               await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'running', newStorage)
+              await updateDeploymentStatus(this.db, resourceId, appliedMeta, appliedStatus, newStorage)
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'app-sync-config') {
             if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
               await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'running', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, appliedMeta, appliedStatus, meta?.storage)
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'pipeline-run') {
@@ -600,34 +622,57 @@ export class TemporalBridge {
         /**
          * ── DOES THE WORKLOAD ACTUALLY RUN? ──
          *
-         * Everything above reconciles a deployment against its WORKFLOW, which only ever answers
-         * "did the apply finish". Nothing looked at the pod afterwards, so a deployment whose
-         * container never started stayed `running` forever. Observed on the first
-         * promote-to-staging: six minutes of `running` against a pod in CrashLoopBackOff with four
-         * restarts, and no path to noticing except kubectl.
+         * Everything above reconciles a deployment against its WORKFLOW, and a workflow's verdict
+         * is delivered once and never revisited. Even where the apply genuinely waited for the
+         * rollout, that wait ended when the apply did — a workload killed an hour later by an OOM,
+         * an evicted node, or a crash on first real traffic keeps its `running` record forever.
+         * This is the only thing that watches a deployment for the rest of its life.
          *
          * Deliberately separate from the block below, and only for deployments that are NOT
          * mid-flight: a workflow that is still deploying owns that deployment's status, and a
          * second writer would race it.
+         *
+         * ── WHY THE KUBECONFIG IS RESOLVED ONCE PER CLUSTER ──
+         * Resolving one is far from free. For the system cluster `getByIdUnscoped` shells out for
+         * the kubeconfig, writes it to disk and reads live node capacity, and `getKubeconfigPath`
+         * then repeats the fetch and the write. Done per deployment on a 30-second loop that is
+         * several exec calls and file writes a minute, forever, to answer a question that has the
+         * same answer for every deployment on the cluster. The cache lives for one cycle only —
+         * long enough to deduplicate, short enough that a re-provisioned cluster is picked up on
+         * the next pass.
          */
-        for (const dep of deployments) {
-          if (dep.status !== 'running' && dep.status !== 'failed') continue
+        const kubeconfigForCluster = new Map<string, string | undefined>()
+        const resolveKubeconfig = async (clusterId: string): Promise<string | undefined> => {
+          if (kubeconfigForCluster.has(clusterId)) return kubeconfigForCluster.get(clusterId)
+          let path: string | undefined
           try {
-            const cluster = await this.clusterService?.getByIdUnscoped(dep.clusterId)
-            if (!cluster) continue
-            const kubeconfig = await this.clusterService!.getKubeconfigPath(cluster)
+            const cluster = await this.clusterService?.getByIdUnscoped(clusterId)
+            if (cluster) path = await this.clusterService!.getKubeconfigPath(cluster)
+          } catch {
+            // Cached as undefined below: an unreachable cluster should not be retried once per
+            // deployment within the same cycle.
+          }
+          kubeconfigForCluster.set(clusterId, path)
+          return path
+        }
+
+        for (const dep of deployments) {
+          if (dep.status !== 'running' && dep.status !== 'unhealthy') continue
+          try {
+            const kubeconfig = await resolveKubeconfig(dep.clusterId)
+            if (!kubeconfig) continue
             const namespace = sanitizeNamespace(dep.name)
             const raw = await new InfrastructureService().runKubectl(['get', 'pods', '-n', namespace, '-o', 'json'], kubeconfig)
             const { health, reason } = assessWorkload(JSON.parse(raw))
             const next = reconciledStatus(dep.status, health)
             if (next) {
               console.warn(`[Reconcile] ${dep.name} is ${dep.status} but the workload is ${health}${reason ? ` (${reason})` : ''} — marking ${next}`)
-              await updateDeploymentStatus(this.db, dep.id, dep, next, dep.storage)
+              await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: reason }, next, dep.storage)
               if (this.io) this.io.emit('deployment-updated')
             }
           } catch {
             // A cluster that is unreachable, or a namespace that is gone, says nothing about the
-            // workload's health — and must never flip a deployment to failed on its own.
+            // workload's health — and must never flip a deployment on its own.
           }
         }
 

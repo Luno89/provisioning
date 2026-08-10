@@ -82,13 +82,14 @@ describe('a workload that has settled into failing', () => {
 });
 
 describe('what the record should say', () => {
-  it('marks a settled failure failed', () => {
-    expect(reconciledStatus('running', 'unhealthy')).toBe('failed');
+  it('marks a settled failure unhealthy, not failed', () => {
+    // `failed` means the deploy did not complete. This deploy completed; the container is broken.
+    expect(reconciledStatus('running', 'unhealthy')).toBe('unhealthy');
   });
 
   it('lets a recovered workload go back to running', () => {
     // A status that only ever gets worse is one people learn to ignore.
-    expect(reconciledStatus('failed', 'healthy')).toBe('running');
+    expect(reconciledStatus('unhealthy', 'healthy')).toBe('running');
   });
 
   it('changes nothing while a workload is starting or unreadable', () => {
@@ -103,8 +104,18 @@ describe('what the record should say', () => {
     expect(reconciledStatus('destroying', 'unhealthy')).toBeUndefined();
   });
 
+  it('leaves a failed deploy failed, however the namespace looks', () => {
+    /**
+     * A deploy that never completed is a fact about history. Flipping it to `running` because
+     * something in the namespace looks healthy — a leftover pod from the previous release, say —
+     * would erase the record of the failure. Only a new deploy clears it.
+     */
+    expect(reconciledStatus('failed', 'healthy')).toBeUndefined();
+    expect(reconciledStatus('failed', 'unhealthy')).toBeUndefined();
+  });
+
   it('does not rewrite a status that already agrees', () => {
     expect(reconciledStatus('running', 'healthy')).toBeUndefined();
-    expect(reconciledStatus('failed', 'unhealthy')).toBeUndefined();
+    expect(reconciledStatus('unhealthy', 'unhealthy')).toBeUndefined();
   });
 });
