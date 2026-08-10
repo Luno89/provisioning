@@ -4,6 +4,7 @@ import axios from 'axios';
 import { consumeChunk, splitThinkTags } from '../lib/stream-delta.js';
 import { KoalaSpot } from './Koala.js';
 import { splitProposalBlock } from '../lib/proposal-display.js';
+import Markdown from './Markdown.js';
 import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X, Sliders, Info } from 'lucide-react';
 
 /**
@@ -709,9 +710,11 @@ export default function Chat({
                 <div className="shrink-0 w-8 h-8 flex items-center justify-center text-slate-600">
                   <Info size={15} />
                 </div>
-                <div className="flex-1 pt-1 min-w-0 text-[12px] text-slate-400 whitespace-pre-wrap leading-relaxed
+                <div className="flex-1 pt-1 min-w-0 text-[12px] text-slate-400 leading-relaxed
                                 border-l-2 border-[var(--bark-600)] pl-3 py-1">
-                  {m.content}
+                  {/* The harness writes these with emphasis and check lists of its own, so a
+                      failure notice was showing its own asterisks. */}
+                  <Markdown>{m.content}</Markdown>
                 </div>
               </div>
             );
@@ -723,19 +726,34 @@ export default function Chat({
                 {m.role === 'user' ? <User size={16} /> : <Bot size={16} />}
               </div>
               <div className="flex-1 pt-1 min-w-0">
-                {reasoning && (
+                {/*
+                  * `.trim()`, because a whitespace-only string is truthy.
+                  *
+                  * Reasoning that was nothing but newlines still rendered — measured in the DOM as
+                  * empty blocks 156px and 390px tall, since `pre-wrap` faithfully preserves every
+                  * one of them. That is where the mysterious vertical gaps in a transcript came
+                  * from: not spacing, but a disclosure holding nothing.
+                  */}
+                {reasoning?.trim() && (
                   <details className="mb-2 group" open={!prose}>
                     <summary className="text-[11px] uppercase tracking-widest text-slate-500 cursor-pointer select-none">
                       Thinking{!prose && streaming && i === messages.length - 1 ? '…' : ''}
                     </summary>
+                    {/* Left as pre-wrap rather than markdown: deliberation is not written as
+                        markdown, and its indentation is often the only structure it has. */}
                     <div className="mt-1 text-[12px] text-slate-500 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
-                      {reasoning}
+                      {reasoning.trim()}
                     </div>
                   </details>
                 )}
 
-                <div className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed">
-                  {prose || (waiting ? <Loader2 className="animate-spin text-slate-500" size={14} /> : null)}
+                {/* Rendered as markdown, not printed as its own syntax. A table of five fields
+                    used to arrive as rows of pipe characters — the better the model formatted an
+                    answer, the worse it read. */}
+                <div className="text-sm text-slate-200 leading-relaxed">
+                  {prose
+                    ? <Markdown>{prose}</Markdown>
+                    : (waiting ? <Loader2 className="animate-spin text-slate-500" size={14} /> : null)}
                 </div>
 
                 {m.interruptedReason && (

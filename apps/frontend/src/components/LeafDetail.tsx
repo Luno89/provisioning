@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, Clock, ShieldCheck, ShieldQuestion, GitBranch, GitMerge, FileCheck } from 'lucide-react';
+import Markdown from './Markdown.js';
 import { STATUS_LABEL, STATUS_STYLE, COLUMNS, type Leaf, type ColumnId } from './leaf-types.js';
 
 /**
@@ -117,9 +118,11 @@ export default function LeafDetail({ apiBase, leaf, subLeaves }: { apiBase: stri
       {leaf.summary && (
         <div className="mt-5">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">What it reported</h3>
-          <p className="text-[12px] text-slate-400 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
-            {leaf.summary}
-          </p>
+          <div className="text-[12px] text-slate-400 leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
+            {/* Agents write their summaries in markdown — lists of what they changed, file names in
+                backticks — so this had the same problem as the chat. */}
+            <Markdown>{leaf.summary}</Markdown>
+          </div>
         </div>
       )}
 
