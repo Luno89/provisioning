@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 
 import { DeployAppActivity } from './activities/DeployAppActivity.js';
+import { CheckWorkloadActivity } from './activities/CheckWorkloadActivity.js';
 import { DestroyAppActivity } from './activities/DestroyAppActivity.js';
 import { ResizeDiskActivity } from './activities/ResizeDiskActivity.js';
 import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
@@ -84,6 +85,7 @@ async function main() {
         workflowsPath: resolve(__dirname, 'workflows'),
         activities: {
           DeployAppActivity,
+          CheckWorkloadActivity,
           DestroyAppActivity,
           ResizeDiskActivity,
           SyncConfigActivity,

@@ -20,6 +20,8 @@ export const destroyClusterActivityMeta = { name: 'DestroyClusterActivity', star
 export const resizeDiskActivityMeta = { name: 'ResizeDiskActivity', startToCloseTimeout: '80 minutes' } as const;
 export const provisionClusterActivityMeta = { name: 'ProvisionClusterActivity', startToCloseTimeout: '80 minutes' } as const;
 export const syncConfigActivityMeta = { name: 'SyncConfigActivity', startToCloseTimeout: '80 minutes' } as const;
+// One kubectl read. Short on purpose: the WAITING is durable workflow timers, not this.
+export const checkWorkloadActivityMeta = { name: 'CheckWorkloadActivity', startToCloseTimeout: '2 minutes' } as const;
 export const downloadModelActivityMeta = { name: 'DownloadModelActivity', startToCloseTimeout: '80 minutes' } as const;
 export const runPipelineActivityMeta = { name: 'RunPipelineActivity', startToCloseTimeout: '30 minutes' } as const;
 // Short: a single database write. A long timeout here would only delay noticing a stuck worker.
