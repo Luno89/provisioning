@@ -36,6 +36,26 @@ export interface Leaf {
   childCount: number;
   workflowId?: string;
   attempts?: LeafAttempt[];
+
+  /**
+   * ── WHAT ACTUALLY CHECKED THIS, AND WHERE THE WORK WENT ──
+   *
+   * The backend has recorded all of this for a while and none of it reached the screen: a leaf
+   * showed a status dot and nothing about whether anything verified it, or which branch to look at.
+   * A green tick that means "an agent said so" and one that means "its tests ran and passed" are
+   * very different claims, and the board rendered them identically.
+   */
+  verified?: boolean;
+  merged?: boolean;
+  /** The branch this leaf pushed to — the only pointer from a card to the actual work. */
+  outputBranch?: string;
+  projectId?: string;
+  /** Files it promised to leave behind, checked after it ran. */
+  expects?: string[];
+  /** Ids of the leaves it waits on — the ordering you are agreeing to when you accept. */
+  dependsOn?: string[];
+  /** What the agent reported doing. Its claim, not a result. */
+  summary?: string;
   budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number };
   usageTotal?: { tokens: number; wallClockMs: number; workspaces: number; replans: number };
 }

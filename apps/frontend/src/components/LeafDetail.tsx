@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, Clock } from 'lucide-react';
+import { Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, Clock, ShieldCheck, ShieldQuestion, GitBranch, GitMerge, FileCheck } from 'lucide-react';
 import { STATUS_LABEL, STATUS_STYLE, COLUMNS, type Leaf, type ColumnId } from './leaf-types.js';
 
 /**
@@ -61,6 +61,67 @@ export default function LeafDetail({ apiBase, leaf, subLeaves }: { apiBase: stri
             className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><Trash2 size={15} /></button>
         </div>
       </div>
+
+      {/*
+        * ── WHAT CHECKED THIS, AND WHERE THE WORK WENT ──
+        *
+        * All of this was recorded by the backend and none of it reached the screen. A leaf showed a
+        * status dot, so a success meaning "its tests ran and passed" and one meaning "the agent said
+        * so" looked identical — and there was no path at all from a finished leaf to the branch it
+        * produced, which made checking the work a matter of knowing your way around Gitea.
+        */}
+      {leaf.status === 'succeeded' && (
+        <div className="mt-5 flex items-center gap-4 flex-wrap text-[12px]">
+          {leaf.verified ? (
+            <span className="flex items-center gap-1.5 text-green-400" title="Its tests ran and passed, or a promised file was checked">
+              <ShieldCheck size={13} /> verified
+            </span>
+          ) : (
+            /* Deliberately not styled as a failure. An unverified success is still a success — most
+               work is not test-shaped — it is just not evidence, and saying so is the whole point. */
+            <span className="flex items-center gap-1.5 text-amber-400/80" title="Nothing checked this — the agent reported it succeeded">
+              <ShieldQuestion size={13} /> unverified claim
+            </span>
+          )}
+          {leaf.merged ? (
+            <span className="flex items-center gap-1.5 text-slate-400" title="Merged into the project's default branch">
+              <GitMerge size={13} /> on main
+            </span>
+          ) : leaf.outputBranch ? (
+            <span className="flex items-center gap-1.5 text-slate-500" title="Pushed, but not merged — it may need a look">
+              <GitBranch size={13} /> {leaf.outputBranch}
+            </span>
+          ) : null}
+        </div>
+      )}
+
+      {/* The ordering you agreed to when you accepted, and the files it promised. Neither was
+          visible anywhere, so a plan's shape could only be checked by reading the API. */}
+      {(leaf.dependsOn?.length || leaf.expects?.length) && (
+        <div className="mt-4 flex flex-col gap-1.5 text-[12px] text-slate-500">
+          {leaf.dependsOn?.length ? (
+            <span title="This does not start until they have succeeded">
+              waits on {leaf.dependsOn.length} other {leaf.dependsOn.length === 1 ? 'leaf' : 'leaves'}
+            </span>
+          ) : null}
+          {leaf.expects?.length ? (
+            <span className="flex items-center gap-1.5" title="Checked after it runs: committed, non-empty, and changed">
+              <FileCheck size={12} /> must produce {leaf.expects.join(', ')}
+            </span>
+          ) : null}
+        </div>
+      )}
+
+      {/* The agent's own account of what it did. Labelled as a report rather than presented as
+          fact, because that is exactly what it is. */}
+      {leaf.summary && (
+        <div className="mt-5">
+          <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">What it reported</h3>
+          <p className="text-[12px] text-slate-400 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
+            {leaf.summary}
+          </p>
+        </div>
+      )}
 
       {leaf.body && (
         <p className="mt-5 text-sm text-slate-300 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-4">

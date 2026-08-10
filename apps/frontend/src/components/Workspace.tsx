@@ -5,6 +5,7 @@ import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
 import Chat, { type Message } from './Chat.js';
 import LeafDetail from './LeafDetail.js';
+import AcceptancePlan from './AcceptancePlan.js';
 import { STATUS_DOT, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
 
@@ -27,6 +28,14 @@ interface BranchRecord {
   title: string;
   messages: Message[];
   updatedAt: string;
+  /**
+   * How this request will be judged once every leaf is done.
+   *
+   * Surfaced because the entire safety argument for letting the planner author these is that you
+   * read them BEFORE accepting the work — and until now they appeared nowhere in the UI, which made
+   * that argument untrue. A bare string is the older single-command form.
+   */
+  acceptance?: { name: string; command: string }[] | string;
 }
 
 interface BranchNode {
@@ -269,6 +278,10 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
           <div className="overflow-y-auto"><LeafDetail apiBase={apiBase} leaf={selectedLeaf} subLeaves={childrenOf(selectedLeaf.id)} /></div>
         ) : selectedBranch ? (
           <div className="flex flex-col h-full min-h-0">
+
+            {/* Shown above the conversation, where the work is accepted. `echo ok` is only a
+                harmless check if somebody actually sees it. */}
+            <AcceptancePlan acceptance={(branchRecords ?? []).find((b) => b.id === selectedBranch)?.acceptance} />
 
             <div className="flex-1 min-h-0">
               {/* Keyed on the branch so switching conversations resets the transcript rather than

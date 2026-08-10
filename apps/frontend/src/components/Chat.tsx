@@ -4,7 +4,7 @@ import axios from 'axios';
 import { consumeChunk, splitThinkTags } from '../lib/stream-delta.js';
 import { KoalaSpot } from './Koala.js';
 import { splitProposalBlock } from '../lib/proposal-display.js';
-import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X, Sliders } from 'lucide-react';
+import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X, Sliders, Info } from 'lucide-react';
 
 /**
  * Talk to a model running on your own fleet — Phase A of the agent harness.
@@ -43,6 +43,16 @@ export interface ProposedLeaf {
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * Written by the system, not said by anyone — a leaf failing, an acceptance verdict, a warning
+   * about the plan.
+   *
+   * It carries the assistant role because `BranchMessage` has no system role, which meant these
+   * rendered as Koala talking: an automated report of a failure was indistinguishable from the
+   * model claiming to have noticed it. Styling them as events is the difference between reading
+   * "the harness observed this" and "the assistant said this".
+   */
+  notice?: boolean;
   /**
    * Reasoning models stream `delta.reasoning_content` before any `delta.content`.
    *
@@ -685,6 +695,27 @@ export default function Chat({
           const reasoning = m.reasoning;
           const { prose, proposals, pending } = splitProposalBlock(m.content);
           const waiting = streaming && i === messages.length - 1 && !reasoning && !prose;
+
+          /**
+           * System notices are events, not speech.
+           *
+           * Rendered inline in the transcript because that is where they belong chronologically —
+           * a leaf failed AT that point in the conversation — but without an avatar, so nothing
+           * reads as the assistant having said it.
+           */
+          if (m.notice) {
+            return (
+              <div key={i} className="flex gap-3">
+                <div className="shrink-0 w-8 h-8 flex items-center justify-center text-slate-600">
+                  <Info size={15} />
+                </div>
+                <div className="flex-1 pt-1 min-w-0 text-[12px] text-slate-400 whitespace-pre-wrap leading-relaxed
+                                border-l-2 border-[var(--bark-600)] pl-3 py-1">
+                  {m.content}
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div key={i} className="flex gap-3">
