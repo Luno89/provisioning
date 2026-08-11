@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { consumeChunk, splitThinkTags } from '../lib/stream-delta.js';
@@ -106,7 +106,15 @@ export default function Chat({
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * Whether the reader is following the newest message, as opposed to having scrolled up to read.
+   *
+   * Kept in a ref, not state: it is read inside a ResizeObserver and updated on every scroll event,
+   * and neither should re-render the conversation.
+   */
+  const pinnedRef = useRef(true);
+  const observerRef = useRef<MutationObserver | null>(null);
   const qc = useQueryClient();
 
   const [showEndpoints, setShowEndpoints] = useState(false);
@@ -278,9 +286,54 @@ export default function Chat({
     if (!modelId && models?.length) setModelId(models[0]!.id);
   }, [models, modelId]);
 
+  /**
+   * Keep the newest message in view.
+   *
+   * ── WHY A CALLBACK REF AND AN OBSERVER, NOT `useEffect([messages])` ──
+   * That is what this was, and it silently never ran. Measured in the browser: on opening an
+   * existing branch the effect fired twice with `scrollRef.current === null` and the container not
+   * yet in the document, then never again — so a saved conversation opened scrolled to its FIRST
+   * turn with everything after it below the fold, which reads as "the history isn't there".
+   *
+   * It never re-ran because TanStack Query does structural sharing: a refetch returning deep-equal
+   * data hands back the SAME array, so `[messages]` is referentially stable and the effect has no
+   * reason to fire again. The one chance it had, it took too early.
+   *
+   * A callback ref fires exactly when the node attaches, whenever that turns out to be, and a
+   * MutationObserver covers everything that changes the content's height afterwards — a turn being
+   * added, markdown laying out, tokens streaming into the last message. Neither depends on guessing
+   * a render order, which is what the previous version got wrong.
+   */
+  const pin = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight });
+  }, []);
+
+  const attachScroll = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    scrollRef.current = el;
+    if (!el) return;
+    pinnedRef.current = true;
+    pin();
+    // Re-pin only while the reader is at the bottom. Yanking someone back down while they are
+    // reading earlier turns is worse than the problem this fixes.
+    const mo = new MutationObserver(() => { if (pinnedRef.current) pin(); });
+    mo.observe(el, { childList: true, subtree: true, characterData: true });
+    observerRef.current = mo;
+  }, [pin]);
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+
+  /**
+   * Opening a different conversation always jumps to its latest turn, even though the container
+   * itself never unmounts — switching branches is the case the old code got wrong.
+   */
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages]);
+    pinnedRef.current = true;
+    const id = requestAnimationFrame(pin);
+    return () => cancelAnimationFrame(id);
+  }, [branchId, messages, pin]);
 
   const stop = () => {
     abortRef.current?.abort();
@@ -682,7 +735,16 @@ export default function Chat({
         )}
       </header>
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-2">
+      <div
+        ref={attachScroll}
+        // Within a few pixels of the bottom counts as "following along" — scroll positions are
+        // fractional, so an exact comparison would drop out of follow mode on its own.
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+        className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-2"
+      >
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
             {/* Drop a real GIF in later by giving KoalaSpot a src — the SVG stands in until then,
