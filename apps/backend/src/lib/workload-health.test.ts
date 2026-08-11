@@ -81,6 +81,25 @@ describe('a workload that has settled into failing', () => {
   });
 });
 
+describe('a namespace with nothing long-running in it', () => {
+  it('does not call a finished Job a healthy workload', () => {
+    /**
+     * Every pod skipped meant the loop never set `starting`, so this fell through to `healthy` —
+     * a namespace running nothing at all reported as fine.
+     */
+    const r = assessWorkload({ items: [{ metadata: { name: 'migrate' }, status: { phase: 'Succeeded' } }] });
+    expect(r.health).toBe('starting');
+  });
+
+  it('still judges a real pod sitting alongside a finished Job', () => {
+    const r = assessWorkload({ items: [
+      { metadata: { name: 'migrate' }, status: { phase: 'Succeeded' } },
+      { metadata: { name: 'web' }, status: { phase: 'Running', containerStatuses: [{ ready: true, restartCount: 0 }] } },
+    ] });
+    expect(r.health).toBe('healthy');
+  });
+});
+
 describe('what the record should say', () => {
   it('marks a settled failure unhealthy, not failed', () => {
     // `failed` means the deploy did not complete. This deploy completed; the container is broken.

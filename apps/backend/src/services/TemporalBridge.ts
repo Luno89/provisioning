@@ -302,6 +302,39 @@ export class TemporalBridge {
     }
   }
 
+  /**
+   * What a COMPLETED deploy/sync/resize workflow means for the deployment record.
+   *
+   * ── WHY THIS IS A FUNCTION AND NOT WRITTEN TWICE ──
+   * Two places reconcile a finished app workflow: the per-workflow tracker, and the backstop loop
+   * that catches one the tracker missed. Both decided the resulting status, and only the tracker
+   * was taught about the rollout verdict — so the backstop kept hardcoding `running` and raced it.
+   *
+   * Confirmed live: a gitapp deploy whose container crashlooped ended up stored as `running` with
+   * `healthReason: "CrashLoopBackOff"` still attached, because the two writers landed in that
+   * order. The record contradicted itself, and only the pod-health pass eventually corrected it.
+   *
+   * A workflow with no verdict — an older run, or a result that cannot be read — reads as healthy,
+   * which is the behaviour that predates the verdict entirely.
+   */
+  private async appliedOutcome(
+    wfId: string,
+    meta: any,
+  ): Promise<{ status: 'running' | 'unhealthy'; meta: any }> {
+    let verdict: { workload?: string; workloadReason?: string } = {}
+    try {
+      verdict = (await this.client.workflow.getHandle(wfId).result()) as typeof verdict
+    } catch {}
+    const unhealthy = verdict.workload === 'unhealthy'
+    return {
+      status: unhealthy ? 'unhealthy' : 'running',
+      // Written on both branches, and empty on the healthy one. Absent would not do: writes merge
+      // onto the stored record now, so leaving it out would keep a stale reason on a deployment
+      // that a redeploy just fixed.
+      meta: { ...meta, healthReason: unhealthy ? (verdict.workloadReason ?? '') : '' },
+    }
+  }
+
   trackWorkflow(
     wfId: string,
     action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize' | 'app-sync-config' | 'pipeline-run',
@@ -365,27 +398,11 @@ export class TemporalBridge {
               }
             } catch {}
           }
-          /**
-           * The rollout verdict, for the three workflows that change what a pod is running.
-           *
-           * A completed deploy whose container crashes on startup is not a failed deploy — the
-           * apply did everything right. `awaitWorkload` returns the verdict instead of throwing so
-           * this can record `unhealthy`, which points at the container rather than at the deploy.
-           * Absent on an older running workflow, which reads as healthy: the previous behaviour.
-           */
-          let workloadVerdict: { workload?: string; workloadReason?: string } = {}
-          if (name === 'COMPLETED' && (action === 'app-deploy' || action === 'app-sync-config' || action === 'app-resize')) {
-            try {
-              const handle = this.client.workflow.getHandle(wfId)
-              workloadVerdict = (await handle.result()) as typeof workloadVerdict
-            } catch {}
-          }
-          const unhealthy = workloadVerdict.workload === 'unhealthy'
-          const appliedStatus = unhealthy ? 'unhealthy' : 'running'
-          // Written on both branches, and empty on the healthy one. Absent would not do: writes
-          // merge onto the stored record now, so leaving it out would keep a stale reason on a
-          // deployment that a redeploy just fixed.
-          const appliedMeta = { ...meta, healthReason: unhealthy ? (workloadVerdict.workloadReason ?? '') : '' }
+          const applied = name === 'COMPLETED' && (action === 'app-deploy' || action === 'app-sync-config' || action === 'app-resize')
+            ? await this.appliedOutcome(wfId, meta)
+            : { status: 'running' as const, meta }
+          const appliedStatus = applied.status
+          const appliedMeta = applied.meta
 
           let pipelineImageTag: string | undefined
           if (name === 'COMPLETED' && action === 'pipeline-run') {
@@ -692,7 +709,10 @@ export class TemporalBridge {
               if (depStatusName === 'FAILED' || depStatusName === 'TERMINATED' || depStatusName === 'CANCELLED') {
                 await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
               } else {
-                await updateDeploymentStatus(this.db, dep.id, dep, 'running', dep.storage)
+                // Same verdict the tracker applies. Hardcoding `running` here is what let this
+                // backstop overwrite a correct `unhealthy` written moments earlier.
+                const applied = await this.appliedOutcome(depWfId, dep)
+                await updateDeploymentStatus(this.db, dep.id, applied.meta, applied.status, dep.storage)
               }
             } else {
               await this.db.deleteDeployment(dep.id)
@@ -1143,6 +1163,21 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
     }
 
+    /**
+     * The link back to the project whose build produced this image.
+     *
+     * Applied here rather than in the record-construction block above, because that block only
+     * runs for a BRAND-NEW deployment — a redeploy reuses the existing row and would drop the
+     * link. Since the field has never been written before, every existing gitapp deployment has
+     * none, and a redeploy is exactly the moment to backfill it.
+     *
+     * Without this the only thing connecting a deployment to its project is that
+     * promoteProjectBuild passes the project's name through and deployApp finds-or-creates by
+     * name — a join on a display name the user can change.
+     */
+    if (config.gitappProjectId) dep.gitappProjectId = config.gitappProjectId
+    if (config.gitappImageTag) dep.gitappImageTag = config.gitappImageTag
+
     const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, unresolved);
 
     if (!dep.vllmHfToken && !dep.tabbyHfToken && (dep.appType === 'vllm' || config.appType === 'vllm' || dep.appType === 'tabbyapi' || config.appType === 'tabbyapi')) {
@@ -1245,6 +1280,10 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...dep,
       id: dep.id || dep.name,
       status: 'deploying',
+      // Cleared as the work restarts. Writes merge onto the stored record now, so a reason left
+      // over from the last run would sit beside the new `deploying` and describe a pod that no
+      // longer exists.
+      healthReason: '',
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
     })
@@ -1335,6 +1374,10 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...dep,
       storage: { ...dep.storage, ...storage },
       status: 'deploying',
+      // Cleared as the work restarts. Writes merge onto the stored record now, so a reason left
+      // over from the last run would sit beside the new `deploying` and describe a pod that no
+      // longer exists.
+      healthReason: '',
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
     })
@@ -1430,6 +1473,10 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     this.db.saveDeploymentInfo({
       ...dep,
       status: 'deploying',
+      // Cleared as the work restarts. Writes merge onto the stored record now, so a reason left
+      // over from the last run would sit beside the new `deploying` and describe a pod that no
+      // longer exists.
+      healthReason: '',
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
     })
@@ -1622,6 +1669,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       odooRepo,
       odooTag,
       storage: {},
+      // What makes "show me this project's deployment" answerable without matching on name.
+      gitappProjectId: project.id,
+      gitappImageTag: run.imageTag,
     }, userId);
   }
 }

@@ -77,12 +77,22 @@ export function assessWorkload(podListJson: unknown): WorkloadStatus {
   if (items.length === 0) return { health: 'starting', reason: 'no pods yet' };
 
   let starting = false;
+  /**
+   * Whether any pod here was actually judged.
+   *
+   * Without this, a namespace whose pods were ALL skipped fell through to `healthy` — the loop
+   * simply never set `starting`. A namespace containing nothing but a completed Job would report a
+   * healthy workload while running nothing at all, which is the exact false reassurance this
+   * module exists to remove.
+   */
+  let judged = false;
 
   for (const pod of items) {
     const name = pod.metadata?.name ?? 'pod';
     const phase = pod.status?.phase;
     // A finished Job's pod is not a sick Deployment. Neither state says anything about health.
     if (phase === 'Succeeded') continue;
+    judged = true;
 
     const containers = pod.status?.containerStatuses ?? [];
     // Scheduled but no container status yet: still coming up.
@@ -106,7 +116,11 @@ export function assessWorkload(podListJson: unknown): WorkloadStatus {
     }
   }
 
-  return starting ? { health: 'starting', reason: 'containers not ready yet' } : { health: 'healthy', reason: '' };
+  if (starting) return { health: 'starting', reason: 'containers not ready yet' };
+  // Nothing left to judge means no long-running workload was found, not a healthy one. `starting`
+  // rather than `unhealthy`: a namespace mid-rollout looks exactly like this for a moment.
+  if (!judged) return { health: 'starting', reason: 'no running workload yet' };
+  return { health: 'healthy', reason: '' };
 }
 
 /**

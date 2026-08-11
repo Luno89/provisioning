@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io, type Socket } from 'socket.io-client';
-import { GitBranch, Plus, X, Loader2, CheckCircle2, XCircle, Clock, Rocket, RefreshCw } from 'lucide-react';
+import { GitBranch, Plus, X, Loader2, CheckCircle2, XCircle, Clock, Rocket, RefreshCw, AlertTriangle } from 'lucide-react';
 import { AnsiText } from './AnsiText.js';
 
 interface Project {
@@ -15,6 +15,10 @@ interface Project {
   appType: string;
   autoDeployOnBuild?: boolean;
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
+  /** End-to-end rollup from the server — see lib/project-status.ts. Worst state in the chain wins. */
+  status?: 'no-build' | 'building' | 'build-failed' | 'built' | 'deploying' | 'deploy-failed' | 'unhealthy' | 'running';
+  /** Why, for the states that need explaining: a build error, or the pod's health reason. */
+  reason?: string;
   createdAt: string;
 }
 
@@ -49,6 +53,44 @@ function StatusBadge({ status }: { status?: string }) {
   return (
     <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit ${s.className}`}>
       <Icon size={12} className={status === 'running' ? 'animate-spin' : ''} /> {status || 'queued'}
+    </span>
+  );
+}
+
+/**
+ * The project's end-to-end state, not just its build's.
+ *
+ * The card used to show `lastBuildStatus`, which answers "did the image get made" — and was being
+ * read as "does this work". A project could sit there green while the pod running its image had
+ * been in CrashLoopBackOff for an hour.
+ *
+ * The rollup is computed on the server (lib/project-status.ts) so this and the branch view cannot
+ * disagree about what healthy means. Worst state wins, so green here is trustworthy.
+ *
+ * `unhealthy` is amber rather than red for the same reason it is on a deployment: the build and
+ * the deploy both worked, and sending someone to the build log would waste their time.
+ */
+const PROJECT_STATUS: Record<string, { icon: any; className: string; label: string }> = {
+  'no-build': { icon: Clock, className: 'text-slate-400 bg-slate-500/10', label: 'no build yet' },
+  building: { icon: Loader2, className: 'text-blue-400 bg-blue-500/10', label: 'building' },
+  'build-failed': { icon: XCircle, className: 'text-red-400 bg-red-500/10', label: 'build failed' },
+  built: { icon: CheckCircle2, className: 'text-slate-300 bg-slate-500/10', label: 'built, not deployed' },
+  deploying: { icon: Loader2, className: 'text-blue-400 bg-blue-500/10', label: 'deploying' },
+  'deploy-failed': { icon: XCircle, className: 'text-red-400 bg-red-500/10', label: 'deploy failed' },
+  unhealthy: { icon: AlertTriangle, className: 'text-amber-400 bg-amber-500/10', label: 'not running' },
+  running: { icon: CheckCircle2, className: 'text-green-400 bg-green-500/10', label: 'running' },
+};
+
+function ProjectStatusBadge({ status, reason }: { status?: string; reason?: string }) {
+  const s = PROJECT_STATUS[status || 'no-build'] || PROJECT_STATUS['no-build']!;
+  const Icon = s.icon;
+  const spinning = status === 'building' || status === 'deploying';
+  return (
+    <span
+      title={reason || undefined}
+      className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit ${s.className}`}
+    >
+      <Icon size={12} className={spinning ? 'animate-spin' : ''} /> {s.label}
     </span>
   );
 }
@@ -110,6 +152,21 @@ export default function Projects({ apiBase, socketUrl, clusters }: { apiBase: st
     };
   }, [logRunId]);
 
+  /**
+   * Refresh when a deployment changes, rather than only every 5s.
+   *
+   * The project rollup now depends on deployment health, which the background reconciler can flip
+   * to `unhealthy` at any moment — this card was previously deaf to that event and only ever
+   * listened for build logs, so a pod that died showed up whenever the poll happened to land.
+   */
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+    const onChange = () => queryClient.invalidateQueries({ queryKey: ['projects'] });
+    socket.on('deployment-updated', onChange);
+    return () => { socket.off('deployment-updated', onChange); };
+  }, [queryClient]);
+
   return (
     <section>
       <header className="flex justify-between items-center mb-10">
@@ -144,7 +201,7 @@ export default function Projects({ apiBase, socketUrl, clusters }: { apiBase: st
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <StatusBadge status={p.lastBuildStatus} />
+                    <ProjectStatusBadge status={p.status} reason={p.reason} />
                     <button
                       onClick={() => setExpandedProject(expandedProject === p.id ? null : p.id)}
                       className="text-slate-400 hover:text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-slate-700 transition-all flex items-center gap-2"

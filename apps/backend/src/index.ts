@@ -82,6 +82,7 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
 import { normaliseLeafInput } from './lib/leaf-input.js';
+import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
@@ -1632,7 +1633,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.get('/api/projects', async (req, res) => {
     const projects = await db.getProjects();
-    res.json(projects.filter((p: any) => ownsProject(p, (req as any).user)));
+    const mine = projects.filter((p: any) => ownsProject(p, (req as any).user));
+    /**
+     * Each project carries its end-to-end verdict, derived here rather than in the UI.
+     *
+     * The list previously showed `lastBuildStatus`, so a project could read "succeeded" while the
+     * pod its image was promoted into had been crashlooping for an hour — "built" was being shown
+     * where people read "works". The rule for what counts as healthy lives in one place because a
+     * Koala branch asks the same question about the same project.
+     */
+    const [runs, deployments] = await Promise.all([db.getPipelineRuns(), db.getDeployments()]);
+    res.json(mine.map((p: any) => ({
+      ...p,
+      ...rollupProjectStatus(p, runs, deploymentForProject(p, deployments)),
+    })));
   });
 
   app.get('/api/projects/:id/runs', async (req, res) => {
