@@ -93,14 +93,28 @@ describe('where a request got to', () => {
     expect(stage(s, 'accepted')).toMatchObject({ state: 'warn', detail: 'verdict not recorded' });
   });
 
-  it('does not mark a research request unmerged, unbuilt and undeployed', () => {
+  it('gives a research request a shorter chain, not struck-through stages', () => {
     /**
-     * Research produces an answer, not a commit. Counting it in those stages left a request that
-     * behaved correctly showing three stalled stages — a red mark for doing the right thing.
+     * Landed, Built and Deployed are not steps a research request skipped — they are steps it never
+     * had. Showing them greyed out claims three things did not happen, about work that was never
+     * going to do them.
      */
-    const s = summariseDelivery(branch(), [leaf({ kind: 'research', verified: true })], undefined);
+    const s = summariseDelivery(branch(), [leaf({ kind: 'research', verified: true, findings: 'an answer' })], undefined);
+    expect(s.map((x) => x.key)).toEqual(['work', 'answered', 'accepted']);
     expect(stage(s, 'work')).toMatchObject({ state: 'done', detail: '1 of 1 verified' });
-    for (const key of ['landed', 'built', 'deployed']) expect(stage(s, key).state).toBe('skipped');
+    expect(stage(s, 'answered')).toMatchObject({ state: 'done', detail: 'answer written' });
+  });
+
+  it('reports a research leaf that finished without writing anything', () => {
+    const s = summariseDelivery(branch(), [leaf({ kind: 'research' })], undefined);
+    expect(stage(s, 'answered')).toMatchObject({ state: 'pending', detail: '0 of 1 written' });
+  });
+
+  it('brings the build chain back the moment a request also produces code', () => {
+    // One research leaf beside a code leaf is the normal shape: the planner looks something up and
+    // then builds. The build stages are real again.
+    const s = summariseDelivery(branch(), [leaf({ id: 'r', kind: 'research', findings: 'x' }), leaf({ id: 'c' })], undefined);
+    expect(s.map((x) => x.key)).toEqual(['work', 'landed', 'built', 'deployed', 'accepted']);
   });
 
   it('still tracks merges when a request mixes research with code', () => {

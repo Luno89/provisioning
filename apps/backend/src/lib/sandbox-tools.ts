@@ -28,6 +28,23 @@ import { describeSandbox, type WorkspaceLanguage, imageForLanguage } from './wor
 export const MAX_AGENT_STEPS = 40;
 
 /**
+ * The budget for a research leaf, which spends its steps differently.
+ *
+ * A coding leaf's steps go on a repository that is already in front of it. A research leaf has to
+ * FIND its material first, and every search and every page fetch is a step that produces no
+ * deliverable — then the writing still has to happen afterwards.
+ *
+ * Measured, twice, at 40: the agent searched and fetched until the budget was gone and never
+ * finished. The first run wrote nothing at all; the second wrote a real 1,200-character answer and
+ * ran out before adding the citations it had already fetched. Neither was short of ability, and
+ * neither was one step short — the shape of the work simply costs more than reading a repo does.
+ *
+ * Still bounded, and still with the same wrap-up warning, because an agent that cannot answer in a
+ * hundred steps is looping rather than working.
+ */
+export const RESEARCH_AGENT_STEPS = 100;
+
+/**
  * How close to the cap the agent starts being warned.
  *
  * Enough room to commit and push (two commands) and still call `finish`, with one spare for the
@@ -35,8 +52,159 @@ export const MAX_AGENT_STEPS = 40;
  */
 export const WRAPUP_STEPS = 4;
 
+/** A thing to say to the agent once its remaining budget drops to `atRemaining`. */
+export interface PacingNote {
+  atRemaining: number;
+  message: string;
+}
+
+/**
+ * What a coding leaf is told as its budget runs out.
+ *
+ * Committing is how a coding leaf's work survives, so that is what the warning is about.
+ */
+export const CODE_PACING: PacingNote[] = [
+  { atRemaining: WRAPUP_STEPS, message: 'Commit and push what you have NOW, then call `finish` — anything uncommitted is lost.' },
+];
+
+/**
+ * What a research leaf is told, and much earlier.
+ *
+ * ── WHY THIS EXISTS ──
+ * The default warning says "commit and push", which a research leaf cannot do and does not need —
+ * it has no repository. It also arrives four steps from the end, which is far too late for the
+ * failure that actually happens.
+ *
+ * Measured three times: the agent searches and fetches until the budget is gone and never writes.
+ * Raising the budget from 40 to 100 did not help — it simply searched for 100 steps instead of 40
+ * and still produced an empty file. The constraint is not room, it is that nothing ever tells the
+ * agent to stop looking. So the first note lands at the halfway mark, where there is still time to
+ * act on it.
+ */
+export function researchPacing(maxSteps: number, findingsPath: string): PacingNote[] {
+  return [
+    {
+      atRemaining: Math.floor(maxSteps / 2),
+      message:
+        `Half your budget is gone. STOP SEARCHING NOW and write what you have to ${findingsPath}. `
+        + 'You can search again afterwards if something is missing, but the file must exist first.',
+    },
+    {
+      atRemaining: WRAPUP_STEPS,
+      message:
+        `Write ${findingsPath} NOW and call \`finish\`. It is the only thing kept — an answer that `
+        + 'exists only in your replies is lost, and an empty file fails the leaf.',
+    },
+  ];
+}
+
+/**
+ * Tools taken away partway through a run, and when.
+ *
+ * ── WHY INSTRUCTIONS WERE NOT ENOUGH ──
+ * A research agent was told, in four separate ways, to stop searching and write: in the task
+ * context, in a step budget it could see, in a halfway warning, and in a final one. Measured across
+ * four runs on the local model, it searched until the budget was gone every single time and wrote
+ * nothing — at 40 steps and again at 100, before and after the warnings existed.
+ *
+ * An agent that can search will keep searching, because the next page always looks like it might
+ * help. Removing the tool is the only version of "stop now" that does not depend on the model
+ * agreeing. It still has read_file, write_file and run_command, so the work it has left to do is
+ * exactly the work it has been avoiding.
+ */
+export interface ToolWithdrawal {
+  afterStep: number;
+  names: readonly string[];
+}
+
+/** The tools available on a given step, given what has been withdrawn. */
+export function toolsForStep<T extends { function: { name: string } }>(
+  step: number,
+  all: T[],
+  withdrawal: ToolWithdrawal | undefined,
+): T[] {
+  if (!withdrawal || step < withdrawal.afterStep) return all;
+  return all.filter((t) => !withdrawal.names.includes(t.function.name));
+}
+
+/**
+ * The note to show at a given point, or nothing.
+ *
+ * The most urgent match wins: with several notes triggered, the one with the smallest threshold is
+ * the one whose deadline is closest, and showing the gentler halfway message four steps from the
+ * end would be actively misleading.
+ */
+export function pacingNoteFor(remaining: number, notes: PacingNote[]): PacingNote | undefined {
+  if (remaining <= 0) return undefined;
+  return notes
+    .filter((n) => remaining <= n.atRemaining)
+    .sort((a, b) => a.atRemaining - b.atRemaining)[0];
+}
+
 /** Tool results are fed back into context and billed by the token. */
 export const MAX_TOOL_RESULT_CHARS = 8_000;
+
+/**
+ * How much of the conversation is sent back to the model.
+ *
+ * ── THE CEILING NOBODY WAS COUNTING ──
+ * The loop appended every assistant turn and every tool result and re-sent the lot each step, so
+ * the context grew without bound while the budget was counted in STEPS. The two are unrelated
+ * numbers, and the model's window is the one that actually binds.
+ *
+ * Measured against the local TabbyAPI deployment, whose window is 32,768 tokens: a research run
+ * raised to 100 steps died with "requires 34816 cache tokens, which exceeds the available context
+ * size of 32768". At 8,000 characters per tool result, roughly sixteen full-size results fill that
+ * window — so a hundred-step run could never have finished, and raising the step budget from 40 to
+ * 100 made failure certain rather than more likely.
+ *
+ * Conservative on purpose: ~60k characters is roughly 15k tokens, leaving room for the system
+ * prompt, the tool declarations and the reply on a 32k model.
+ */
+export const CONVERSATION_CHAR_BUDGET = 60_000;
+
+/** What replaces an old tool result once it no longer fits. */
+const DROPPED = '[earlier tool output dropped to fit the context window — re-run the tool if you still need it]';
+
+/**
+ * The conversation as it should be SENT: recent turns intact, older bulk elided.
+ *
+ * ── WHY CONTENT IS REPLACED AND MESSAGES ARE NOT REMOVED ──
+ * A `tool` message must stay paired with the assistant `tool_calls` entry that requested it;
+ * deleting one and leaving the other is a malformed request that the API rejects outright. Blanking
+ * the content keeps every pairing intact while reclaiming the space, which is where the space is.
+ *
+ * The first two messages are never touched — they are the system prompt and the task itself, and an
+ * agent that loses the task will confidently do the wrong thing for the rest of its budget.
+ */
+export function trimConversation<T extends { role?: string; content?: unknown }>(
+  messages: T[],
+  budget: number = CONVERSATION_CHAR_BUDGET,
+): T[] {
+  const size = (m: T) => (typeof m.content === 'string' ? m.content.length : 0);
+  const total = messages.reduce((n, m) => n + size(m), 0);
+  if (total <= budget) return messages;
+
+  const PRESERVE_HEAD = 2;
+  const out = [...messages];
+  // Newest first: the most recent exchanges are the ones the next decision depends on.
+  let used = 0;
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (i < PRESERVE_HEAD) continue;
+    const m = out[i]!;
+    const len = size(m);
+    if (used + len <= budget) { used += len; continue; }
+    // Only tool output is elided. An assistant turn is the model's own reasoning and its tool
+    // calls; blanking those loses the thread of what it was doing and why.
+    if (m.role === 'tool' && len > DROPPED.length) {
+      out[i] = { ...m, content: DROPPED };
+      used += DROPPED.length;
+    } else {
+      used += len;
+    }
+  }
+  return out;
+}
 
 export const SANDBOX_TOOLS = [
   {

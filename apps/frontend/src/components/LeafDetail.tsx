@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, Clock, ShieldCheck, ShieldQuestion, GitBranch, GitMerge, FileCheck } from 'lucide-react';
+import { Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, Clock, ShieldCheck, ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen } from 'lucide-react';
 import Markdown from './Markdown.js';
 import { STATUS_LABEL, STATUS_STYLE, COLUMNS, type Leaf, type ColumnId } from './leaf-types.js';
 
@@ -84,7 +84,15 @@ export default function LeafDetail({ apiBase, leaf, subLeaves }: { apiBase: stri
               <ShieldQuestion size={13} /> unverified claim
             </span>
           )}
-          {leaf.merged ? (
+          {/*
+            * Research has no branch and never will, so the merge state is not a gap to report.
+            * Saying "not merged" about work that produces an answer would invent a problem.
+            */}
+          {leaf.kind === 'research' ? (
+            <span className="flex items-center gap-1.5 text-slate-500" title="Research — the answer is stored on this leaf, not in a repository">
+              <BookOpen size={13} /> answer, not code
+            </span>
+          ) : leaf.merged ? (
             <span className="flex items-center gap-1.5 text-slate-400" title="Merged into the project's default branch">
               <GitMerge size={13} /> on main
             </span>

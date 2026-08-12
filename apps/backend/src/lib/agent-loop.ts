@@ -23,7 +23,12 @@ import {
   MAX_TOOL_RESULT_CHARS,
   buildAgentPrompt,
   clampToolResult,
-  WRAPUP_STEPS,
+  CODE_PACING,
+  pacingNoteFor,
+  trimConversation,
+  toolsForStep,
+  type PacingNote,
+  type ToolWithdrawal,
 } from './sandbox-tools.js';
 import { parseToolArguments, ToolCallScanner, WEB_TOOLS } from './leaf-tools.js';
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
@@ -120,6 +125,21 @@ export interface AgentRunOptions {
    * in front of an agent with a repo to read is a way to spend steps not writing code.
    */
   webTools?: boolean | undefined;
+  /**
+   * What to tell the agent as its budget runs down, and when.
+   *
+   * Supplied by the caller because it depends on how the work is SAVED. The default says "commit
+   * and push", which a research leaf can neither do nor needs — it has no repository, and was being
+   * told to preserve its answer somewhere that does not exist.
+   */
+  pacing?: PacingNote[] | undefined;
+  /**
+   * Tools to take away partway through, when telling the agent to stop using them does not work.
+   *
+   * See ToolWithdrawal — measured across four research runs, the model searched until its budget
+   * was gone every time regardless of what it was told.
+   */
+  withdrawTools?: ToolWithdrawal | undefined;
   /**
    * Leave the reasoning pass on. Off by default: every turn here exists to produce a tool call,
    * and a turn spent deliberating is a turn that produces nothing while consuming the budget.
@@ -279,8 +299,20 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   };
 
   for (let step = 0; step < maxSteps; step++) {
-    // `messages` is mutated across steps, and the body was built once — so the array reference is
-    // shared and the conversation grows in place rather than being rebuilt per turn.
+    /**
+     * `messages` is mutated across steps and the body was built once, so the array reference is
+     * shared and the conversation grows in place rather than being rebuilt per turn.
+     *
+     * Which is exactly why the trim has to happen HERE, per request, rather than where the body was
+     * assembled: at that point the conversation is two messages long and there is nothing to trim.
+     * Reassigned each turn so the full `messages` array stays intact for the trace and for the next
+     * turn's own trimming.
+     */
+    requestBody.messages = trimConversation(messages);
+    // Per turn, for the same reason as the messages above: the body is assembled once, and a tool
+    // list fixed at that moment could never change partway through a run.
+    requestBody.tools = toolsForStep(step, activeTools, opts.withdrawTools);
+
     const response = await doFetch(`${opts.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -411,10 +443,11 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
      * only moment the number changes a decision is when there is barely any left.
      */
     const remaining = maxSteps - (step + 1);
-    if (remaining <= WRAPUP_STEPS && remaining > 0) {
+    const note = pacingNoteFor(remaining, opts.pacing ?? CODE_PACING);
+    if (note) {
       const last = messages[messages.length - 1] as { content?: string };
       last.content = `${last.content ?? ''}\n\n[${remaining} step${remaining === 1 ? '' : 's'} left of ${maxSteps}. `
-        + 'Commit and push what you have NOW, then call `finish` — anything uncommitted is lost.]';
+        + `${note.message}]`;
     }
 
     // After the whole tool loop, so the step arrives complete with its results rather than as a

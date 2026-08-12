@@ -49,6 +49,8 @@ import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
 import { assessFindings } from '../lib/research-verify.js';
+import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
+import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -118,6 +120,20 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
 
     const priorFailures = leaf.attempts ?? [];
     const context = buildLeafContext(leaf, priorFailures);
+
+    /**
+     * Whether this leaf still exists, asked immediately before every write.
+     *
+     * Deleting a branch cancels its leaves' workflows and removes the rows, but an activity already
+     * inside the agent loop does not stop — and `saveLeaf` is an upsert, so its final write
+     * RECREATES the leaf pointing at a branch that is gone. Observed live: an orphan reappeared in
+     * the tree under a derived node, and deleting the branch again could not remove it because the
+     * branch was already deleted.
+     *
+     * A read before each write rather than one check up front: the whole race is that the delete
+     * lands DURING the run, so a check at the start would answer the wrong question.
+     */
+    const stillExists = async () => (await db.getLeaves()).some((l: Leaf) => l.id === leaf.id);
 
     try {
       // Resolved HERE rather than passed in: an API key is a secret, and a workflow argument ends
@@ -339,6 +355,18 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             'Use web_search and fetch_web_page to check what you write rather than answering from memory,',
             'and include the URLs you used — an answer citing no sources fails. Spend no more than about',
             'half your steps searching; the rest belongs to writing.',
+            '',
+            /**
+             * Said explicitly because the alternative is silent.
+             *
+             * The sandbox has default-deny egress, so `curl` and `wget` fail with no output rather
+             * than an error the agent can read. Measured: once web_search was withdrawn halfway
+             * through, the agent spent its entire remaining budget curling the same URL and getting
+             * nothing back, never learning why.
+             */
+            'This sandbox has NO network access. curl and wget will silently return nothing —',
+            'web_search and fetch_web_page are the only way out, and they stop working halfway',
+            'through the run so that the second half is spent writing.',
             /**
              * What this leaf's own previous attempt wrote.
              *
@@ -384,8 +412,24 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ...(provider.kind ? { kind: provider.kind } : {}),
           language: leaf.language,
           taskContext,
-          // Only research gets the web. See AgentRunOptions.webTools.
-          ...(isResearch ? { webTools: true } : {}),
+          // Only research gets the web, and it gets a bigger budget to use it in — finding the
+          // material is itself work, and the writing still has to happen afterwards. See
+          // RESEARCH_AGENT_STEPS. An adopted profile's own maxSteps still wins over this.
+          ...(isResearch
+            ? {
+                webTools: true,
+                maxSteps: RESEARCH_AGENT_STEPS,
+                // Its own pacing: the default warning is about committing, which this leaf cannot
+                // do, and it lands far too late for the failure research actually has.
+                pacing: researchPacing(RESEARCH_AGENT_STEPS, FINDINGS_PATH),
+                // The searching stops halfway whether the agent agrees or not. Telling it to stop
+                // failed four runs in a row; taking the tools away cannot.
+                withdrawTools: {
+                  afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2),
+                  names: WEB_TOOL_NAMES,
+                },
+              }
+            : {}),
           ...(memoryContext ? { memoryContext } : {}),
           // The point of promoting a configuration: a setting that won on the bench takes effect on
           // the work that matters, not only on the next experiment. Without this the Lab measures a
@@ -558,7 +602,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                 .then((r) => summariseRepoState(r.stdout))
                 .catch(() => '')
             : '';
-          await db.saveLeaf({
+          if (await stillExists()) await db.saveLeaf({
             ...leaf,
             usage: spent,
             ...(partial ? { outputBranch: partial } : {}),
@@ -613,7 +657,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         const now = new Date().toISOString();
         // The summary is persisted, not just returned: a caller that reads the workflow result is
         // not the same as a board someone can look at.
-        await db.saveLeaf({
+        if (await stillExists()) await db.saveLeaf({
           ...leaf, usage: spent, status: 'succeeded', column: 'review',
           ...(run.summary ? { summary: run.summary.slice(0, 8000) } : {}),
           /**
@@ -654,7 +698,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         },
       ];
       const latest = (await db.getLeaves()).find((c: Leaf) => c.id === args.leafId);
-      if (latest) await db.saveLeaf({ ...latest, attempts, status: 'failed', updatedAt: new Date().toISOString() });
+      if (latest && await stillExists()) {
+        await db.saveLeaf({ ...latest, attempts, status: 'failed', updatedAt: new Date().toISOString() });
+      }
 
       /**
        * Tell the conversation.

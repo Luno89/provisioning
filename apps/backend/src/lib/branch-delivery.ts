@@ -33,7 +33,7 @@ export type StageState =
   | 'skipped';
 
 export interface DeliveryStage {
-  key: 'work' | 'landed' | 'built' | 'deployed' | 'accepted';
+  key: 'work' | 'answered' | 'landed' | 'built' | 'deployed' | 'accepted';
   label: string;
   state: StageState;
   /** One short phrase. Shown next to the stage, so it must stand alone. */
@@ -72,9 +72,7 @@ export function summariseDelivery(
   const buildable = succeeded.filter((l) => l.kind !== 'research');
   const allResearch = mine.length > 0 && mine.every((l) => l.kind === 'research');
 
-  const landed: DeliveryStage = allResearch
-    ? { key: 'landed', label: 'Landed', state: 'skipped', detail: 'research — nothing to merge' }
-    : !buildable.length
+  const landed: DeliveryStage = !buildable.length
       ? { key: 'landed', label: 'Landed', state: 'pending', detail: 'nothing to merge yet' }
       : merged >= buildable.length
         ? { key: 'landed', label: 'Landed', state: 'done', detail: `${merged} merged to main` }
@@ -84,9 +82,7 @@ export function summariseDelivery(
    * Build and deploy come from the project rollup, so a branch and the Projects list can never
    * disagree. Absent when the request never produced a project — a chat that proposed nothing.
    */
-  const built: DeliveryStage = allResearch
-    ? { key: 'built', label: 'Built', state: 'skipped', detail: 'research — nothing to build' }
-    : !project
+  const built: DeliveryStage = !project
     ? { key: 'built', label: 'Built', state: 'pending', detail: 'no project yet' }
     : project.status === 'no-build'
       ? { key: 'built', label: 'Built', state: 'pending', detail: 'no build has run' }
@@ -96,9 +92,7 @@ export function summariseDelivery(
           ? { key: 'built', label: 'Built', state: 'failed', detail: project.reason || 'the build failed' }
           : { key: 'built', label: 'Built', state: 'done', detail: 'image ready' };
 
-  const deployed: DeliveryStage = allResearch
-    ? { key: 'deployed', label: 'Deployed', state: 'skipped', detail: 'research — nothing to deploy' }
-    : !project || project.status === 'no-build' || project.status === 'building' || project.status === 'build-failed'
+  const deployed: DeliveryStage = !project || project.status === 'no-build' || project.status === 'building' || project.status === 'build-failed'
     ? { key: 'deployed', label: 'Deployed', state: 'pending', detail: 'nothing to deploy yet' }
     : project.status === 'built'
       // Not a failure. Plenty of requests produce something that is never meant to be a service.
@@ -110,6 +104,20 @@ export function summariseDelivery(
           : project.status === 'unhealthy'
             ? { key: 'deployed', label: 'Deployed', state: 'warn', detail: project.reason || 'deployed, not running' }
             : { key: 'deployed', label: 'Deployed', state: 'done', detail: 'running' };
+
+  /**
+   * The research equivalent of Landed: the answer exists and is stored.
+   *
+   * `findings` rather than `verified`, because this stage is about the deliverable being THERE.
+   * Whether it was any good is what the Work stage's verified count already reports.
+   */
+  const research = mine.filter((l) => l.kind === 'research');
+  const answeredCount = research.filter((l) => l.findings?.trim()).length;
+  const answered: DeliveryStage = !research.length
+    ? { key: 'answered', label: 'Answered', state: 'pending', detail: 'no answer yet' }
+    : answeredCount >= research.length
+      ? { key: 'answered', label: 'Answered', state: 'done', detail: answeredCount === 1 ? 'answer written' : `${answeredCount} answers written` }
+      : { key: 'answered', label: 'Answered', state: answeredCount ? 'active' : 'pending', detail: `${answeredCount} of ${research.length} written` };
 
   const plan = usableAcceptancePlan(branch.acceptance);
   const accepted: DeliveryStage = !plan.length
@@ -136,5 +144,15 @@ export function summariseDelivery(
               detail: branch.acceptanceOutcome === 'unknown' ? 'ran without a verdict' : 'verdict not recorded',
             };
 
+  /**
+   * A research request gets a SHORTER chain, not five stages with three struck through.
+   *
+   * Landed, Built and Deployed are not steps a research request skipped — they are steps it never
+   * had. Rendering them greyed out says "three things did not happen here" about work that was
+   * never going to do them, and it buries the one stage that matters. Composition decides the
+   * shape: the moment a request contains anything that produces code, the build chain is real and
+   * comes back.
+   */
+  if (allResearch) return [work, answered, accepted];
   return [work, landed, built, deployed, accepted];
 }

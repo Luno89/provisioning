@@ -116,7 +116,22 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
         nodes.push({ id, title: ls.find((l) => !l.parentLeafId)?.title ?? 'Untitled branch', leaves: ls });
       }
     }
-    return nodes;
+    /**
+     * Newest first, derived nodes included.
+     *
+     * The server sorts its records that way, but a derived node was appended AFTER all of them
+     * regardless of when its work ran — so a branch reconstructed from leaves landed at the bottom
+     * of the list however recent it was. With thirty-odd branches that reads as missing: the thing
+     * you just watched run is the one furthest from the top.
+     *
+     * Sorted on the leaves' own timestamps, since a derived node has no record to take one from.
+     */
+    const lastTouched = (n: BranchNode) => {
+      const record = (branchRecords ?? []).find((b) => b.id === n.id);
+      if (record) return record.updatedAt;
+      return n.leaves.reduce((newest, l) => (l.updatedAt > newest ? l.updatedAt : newest), '');
+    };
+    return nodes.sort((a, b) => lastTouched(b).localeCompare(lastTouched(a)));
   }, [all, branchRecords]);
 
   const childrenOf = (parentId: string) => all.filter((l) => l.parentLeafId === parentId);

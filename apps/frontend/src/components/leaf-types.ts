@@ -36,6 +36,8 @@ export interface Leaf {
   childCount: number;
   workflowId?: string;
   attempts?: LeafAttempt[];
+  /** Last write, ISO 8601. Used to order branches reconstructed from their leaves. */
+  updatedAt: string;
 
   /**
    * ── WHAT ACTUALLY CHECKED THIS, AND WHERE THE WORK WENT ──
