@@ -50,7 +50,6 @@ import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
 import { assessFindings } from '../lib/research-verify.js';
-import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
@@ -60,10 +59,13 @@ export interface ExecuteLeafArgs {
 }
 
 /**
- * Where a persona writes its answer when it does not declare one of its own.
+ * The conventional place for an answer, for a persona that names no file of its own.
  *
- * Outside /work/repo on purpose: a persona that produces an answer has no checkout, and a path
- * under one would imply a repository that was never cloned.
+ * Outside /work/repo on purpose: a persona producing an answer has no checkout, and a path under
+ * one would imply a repository that was never cloned.
+ *
+ * Not used as a fallback by the activity — a persona with no `output` is not checked against a file
+ * it never promised. This is what the seeds are written against.
  */
 export const FINDINGS_PATH = '/work/findings.md';
 
@@ -352,7 +354,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ].join('\n');
         }
 
-        if (!wantsRepo) {
+        if (outputPath) {
           /**
            * The hand-off for work with no branch to check out.
            *
@@ -379,11 +381,11 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           taskContext = [
             context,
             '',
-            'This is RESEARCH. There is no repository and nothing to commit.',
-            `Your answer goes in ${FINDINGS_PATH}. That file IS the deliverable — it is the only thing`,
+            'There is no repository here and nothing to commit.',
+            `Your answer goes in ${outputPath}. That file IS the deliverable — it is the only thing`,
             'kept when this sandbox is destroyed, and an answer that exists only in your replies is lost.',
             '',
-            `WRITE ${FINDINGS_PATH} EARLY, even if it is only an outline, and then keep rewriting it as`,
+            `WRITE ${outputPath} EARLY, even if it is only an outline, and then keep rewriting it as`,
             'you learn more. A run that spends its whole budget researching and never writes the file has',
             'produced nothing.',
             '',
@@ -418,7 +420,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             ...(leaf.findings?.trim()
               ? [
                   '',
-                  `A PREVIOUS ATTEMPT wrote this. Start by writing it back to ${FINDINGS_PATH}, then fix`,
+                  `A PREVIOUS ATTEMPT wrote this. Start by writing it back to ${outputPath}, then fix`,
                   'what the failure above says was wrong with it. Do not start over.',
                   '',
                   leaf.findings.trim(),
@@ -449,7 +451,14 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           apiKey,
           model: provider.model,
           ...(provider.kind ? { kind: provider.kind } : {}),
-          language: leaf.language,
+          /**
+           * What the container ACTUALLY is, not what the leaf asked for.
+           *
+           * This drives the prompt's description of the available toolchain. The persona decides
+           * the image, so taking the language from the leaf could tell an agent it has Go while it
+           * is sitting in the base image — a claim it would only discover by a command failing.
+           */
+          language: (persona?.scope?.language as typeof leaf.language) ?? leaf.language,
           // Everything the persona decides — toolset, budget, pacing, withdrawal — plus the parts
           // only this caller knows. One assembly, shared with the Lab and the landing resolver,
           // because three hand-maintained copies of it drifted in three different directions.

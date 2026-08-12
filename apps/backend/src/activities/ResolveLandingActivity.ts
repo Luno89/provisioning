@@ -27,7 +27,8 @@ import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { agentRunOptions } from '../lib/agent-run.js';
-import { flattenPersona } from '../lib/persona-scope.js';
+import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
+import { MERGER_PERSONA } from '../lib/well-known-personas.js';
 import { resolveConfig } from '../lib/personas.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
 import {
@@ -83,15 +84,34 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     checkout = await repos.checkoutCredential(ownerId, project);
 
     const language = outstanding[0]!.language;
+    /**
+     * The Merger, by name — NOT the adopted profile's persona.
+     *
+     * Resolving conflicts is fixed internal work with fixed needs, and inheriting whatever won a
+     * benchmark would hand it an environment chosen for something else. Measured: with a promoted
+     * Researcher, this agent would be given that persona's toolset, which has no `run_command` —
+     * so it could not run git, which is the entire job.
+     *
+     * Absent resolves to no persona and the loop's raw defaults, which is what this did before it
+     * had one at all.
+     */
+    const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === ownerId);
+    const assigned = ownPersonas.find((p) => p.name === MERGER_PERSONA);
+    const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
+    if (!assigned) console.warn(`[ResolveLanding] no "${MERGER_PERSONA}" persona — running with harness defaults`);
     await workspaces.destroy(workspaceId).catch(() => undefined);
-    await workspaces.create({
-      leafId: workspaceId,
-      ownerId,
-      image: imageForLanguage(language),
-      // Gitea only, same as a leaf's sandbox: the credential in here can push to this user's
-      // repositories and has nowhere else to go.
-      egress: [{ namespace: 'gitea', ports: [3000] }],
-    });
+    /**
+     * The Merger's own container, from its record.
+     *
+     * Hardcoding the image and the Gitea rule here made this the last place a sandbox was shaped by
+     * something other than a persona — and it is the persona that knows it needs git and somewhere
+     * to push. The outstanding leaf's toolchain is the fallback, for a Merger that names none.
+     */
+    await workspaces.create(personaWorkspace(
+      persona,
+      { leafId: workspaceId, ownerId },
+      { image: imageForLanguage(language) },
+    ));
 
     const cleanUrl = `${gitea.internalBaseUrl}/${project.giteaOwner}/${project.giteaRepo}.git`;
     const cloned = await workspaces.exec(workspaceId, [
@@ -118,16 +138,6 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const profile = await db.getHarnessProfile(ownerId);
-    /**
-     * Resolving conflicts is code work, so it runs as whoever does code work here.
-     *
-     * It used to pass `null` and take the loop's raw defaults — no persona prompt, no toolset, no
-     * memory. Nobody had noticed, because nothing compared this call to the other two. Same
-     * resolution a leaf uses: the adopted persona, or the saved default for code.
-     */
-    const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === ownerId);
-    const assigned = profile?.personaId ? ownPersonas.find((p) => p.id === profile.personaId) : undefined;
-    const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
     const resolved = resolveConfig(profile, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen);

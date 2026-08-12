@@ -21,6 +21,7 @@
 import { MongoDB } from '../lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Persona } from '@koala/harness-types';
+import { MERGER_PERSONA } from '../lib/well-known-personas.js';
 import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 
@@ -153,6 +154,28 @@ const SEEDS: Seed[] = [
       run: { maxSteps: 30 },
     },
     overrides: { temperature: 0.5 },
+  },
+  {
+    name: MERGER_PERSONA,
+    description: 'Resolves merge conflicts when leaves land on the default branch.',
+    systemPrompt: [
+      'You resolve merge conflicts in a git repository.',
+      '',
+      'Both sides of every conflict are work somebody meant to keep. Read what each was doing and',
+      'combine them; deleting one side to make the tree clean is not resolving the conflict.',
+      '',
+      'Leave no conflict markers. Commit when the tree is clean.',
+    ].join('\n'),
+    scope: {
+      // git is the whole job, so run_command is not optional here.
+      tools: ['run_command', 'read_file', 'write_file', 'finish'],
+      repo: true,
+      egress: [{ namespace: 'gitea', ports: [3000] }],
+      tunedFor: TUNED_FOR,
+      // Conflicts are read and edited, not investigated. A long budget here buys rewriting.
+      run: { maxSteps: 30 },
+    },
+    overrides: { temperature: 0.2 },
   },
   {
     name: 'Builder',
