@@ -229,25 +229,6 @@ export interface TaskFile {
  * `seed` is the world the agent wakes up in. `solution` is a reference correct answer, used ONLY
  * to prove the verify command can pass — it is never placed in a real run's sandbox.
  */
-/**
- * What a piece of work IS — the one vocabulary for it.
- *
- * ── WHY THIS IS ONE TYPE ──
- * The same distinction was written out five times, in two vocabularies that disagreed: a Lab task
- * said `sandbox` where a leaf said `code`, a persona's scope listed all three again, and its
- * `defaultFor` listed them a fourth time. Nothing checked that any of them meant the same thing,
- * so a task and a leaf could use the same word for different work and different words for the same
- * work.
- *
- *   · `planning`  — deciding what work exists. The conversation, with board tools and no sandbox.
- *   · `code`      — producing files in a repository, proved by tests and artifacts.
- *   · `research`  — producing an answer, proved by whether it exists and cites sources.
- *
- * `sandbox` was the old name for `code` on experiment tasks. It survives only as something
- * `asWorkKind` accepts on the way in; nothing writes it.
- */
-export type WorkKind = 'planning' | 'code' | 'research';
-
 export interface ExperimentTask {
   id: string;
   name: string;
@@ -267,14 +248,13 @@ export interface ExperimentTask {
    * file the sandbox loop has no tool to produce — this is what makes that unrepresentable.
    */
   /**
-   * Which LOOP the task runs — `planning` drives the decomposition turn, anything else drives the
-   * execution loop.
+   * Whether this task runs the planning turn instead of the execution loop.
    *
-   * It no longer configures the environment. That is the arm's persona's job, so a task saying
-   * `research` and a task saying `code` differ only in how they are verified, exactly as two leaves
-   * would.
+   * A structural difference, not a classification: the planning turn has no sandbox at all, so its
+   * result is a set of proposed leaves rather than a workspace to inspect. Everything else about
+   * the run — model, sampling, tools, network, budget — comes off the arm's persona.
    */
-  kind?: WorkKind;
+  planning?: boolean;
   seed?: TaskFile[];
   /**
    * A correct answer, for validation only.
@@ -672,15 +652,35 @@ export type PersonaEgressRule =
 
 export interface PersonaScope {
   /**
-   * The job this persona is for.
+   * The workspace image this persona works in.
    *
-   * `planning` is the conversation that decides what work exists — it has the board tools and no
-   * sandbox. `code` and `research` are both execution, and differ in what the sandbox contains:
-   * one has a repository, the other has the web.
+   * Environment, not a filter: it says what toolchain the sandbox has, rather than restricting what
+   * the persona is permitted to be asked. Absent leaves the caller's own default.
    */
-  contexts?: WorkKind[];
-  /** Workspace toolchains this makes sense in. Absent = any. */
-  languages?: string[];
+  language?: string;
+  /**
+   * Whether the project's repository is checked out into the sandbox.
+   *
+   * Absent means YES, which is what every leaf did before personas owned their environment — a
+   * persona written before this field must not silently lose its repository. A persona whose output
+   * is an answer rather than files sets it false and gets no checkout, no branch and no push.
+   */
+  repo?: boolean;
+  /**
+   * The single file this persona's deliverable lands in, if it has one.
+   *
+   * Declared because the persona is the thing doing the writing, and because it is what makes
+   * verification possible without asking what CATEGORY of work this is: the check is "the thing you
+   * said you would produce is there and is not a stub".
+   */
+  output?: string;
+  /**
+   * Whether claims in that output must carry a source URL.
+   *
+   * Measured: an answer with no sources passed as verified, and an outline of headings with
+   * "(To be filled)" passed as verified, because the only check was that the file was non-empty.
+   */
+  requireSources?: boolean;
   /**
    * The tools this persona may use, by name.
    *
@@ -749,18 +749,6 @@ export interface PersonaScope {
      */
     pacing?: { atRemaining: number; message: string }[];
   };
-  /**
-   * The contexts this persona is the fallback for.
-   *
-   * There is no such thing as an unassigned leaf: work is handed TO someone. The planner picks a
-   * persona when it proposes a leaf, and when it does not, the answer has to be a real persona with
-   * a real environment rather than "none" — because "none" meant a bare sandbox with whatever
-   * defaults the caller happened to hardcode, which is the thing this whole record exists to stop.
-   *
-   * At most one persona should claim each context. Two is an authoring mistake, resolved by name
-   * order so the behaviour is at least deterministic while it is wrong.
-   */
-  defaultFor?: WorkKind[];
   /**
    * The model this persona's PROMPT was written and checked against.
    *

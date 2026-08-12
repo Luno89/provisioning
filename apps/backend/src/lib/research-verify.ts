@@ -54,7 +54,19 @@ export interface FindingsVerdict {
   reason: string;
 }
 
-export function assessFindings(raw: string, path = '/work/findings.md'): FindingsVerdict {
+export function assessFindings(
+  raw: string,
+  path = '/work/findings.md',
+  /**
+   * Whether claims must carry a source URL.
+   *
+   * A persona decides this, because it depends on what the answer IS: a comparison of licences must
+   * cite where it read them, while a summary of a repository the agent just walked has nothing to
+   * link to. Requiring it unconditionally would fail honest work; never requiring it is how an
+   * uncited 1,200-character answer passed as verified.
+   */
+  requireSources = true,
+): FindingsVerdict {
   const text = (raw ?? '').trim();
   if (!text) return { outcome: 'failed', reason: `nothing was written to ${path}` };
 
@@ -87,7 +99,7 @@ export function assessFindings(raw: string, path = '/work/findings.md'): Finding
 
   // Sources are the one artefact of having actually looked something up. The leaf is told to cite
   // them, so their absence is a failure to follow the brief, not an unfair surprise.
-  if (!URL_PATTERN.test(text)) {
+  if (requireSources && !URL_PATTERN.test(text)) {
     return { outcome: 'failed', reason: `${path} cites no sources — every claim needs a URL it came from` };
   }
 

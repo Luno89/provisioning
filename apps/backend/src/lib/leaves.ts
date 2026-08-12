@@ -21,7 +21,6 @@
  */
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { AcceptanceCheck } from './acceptance.js';
-import type { WorkKind } from '@koala/harness-types';
 
 export type LeafColumn = 'todo' | 'in-progress' | 'review';
 
@@ -130,28 +129,6 @@ export interface Leaf {
 
   verifyCommand?: string;
 
-  /**
-   * What this leaf produces, which decides where its output goes.
-   *
-   * ── WHY THIS EXISTS ──
-   * Every leaf used to get a Gitea repository, a branch, a checkout and a push — including one
-   * whose entire output is a written answer. That repo was pure overhead for research work, and
-   * worse, it made the verification meaningless: `defaultVerifyCommand` looks for a test suite a
-   * research leaf will never have, so it came back unverified and the agent's own claim was
-   * believed. Confirmed on a live branch: a research leaf failed with nothing to verify, not
-   * because the research was bad.
-   *
-   * `code` writes files and is verified by tests and artifacts in git. `research` writes an answer,
-   * stored in `findings` on this record, and is verified by whether that answer exists.
-   *
-   * Absent means `code` — every leaf written before this field was one.
-   */
-  /**
-   * Never `planning` — deciding what work exists is the conversation's job, not a leaf's. Expressed
-   * as an exclusion rather than a second literal union so there stays exactly one declaration of
-   * the vocabulary.
-   */
-  kind?: Exclude<WorkKind, 'planning'>;
 
   /**
    * A research leaf's actual output, stored here rather than committed.

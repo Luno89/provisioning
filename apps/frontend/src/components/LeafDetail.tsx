@@ -85,10 +85,11 @@ export default function LeafDetail({ apiBase, leaf, subLeaves }: { apiBase: stri
             </span>
           )}
           {/*
-            * Research has no branch and never will, so the merge state is not a gap to report.
-            * Saying "not merged" about work that produces an answer would invent a problem.
+            * Work that produced an ANSWER has no branch and never will, so the merge state is not a
+            * gap to report. Read from what the leaf produced rather than from a label saying what it
+            * was meant to be — the label was a second description of the same fact.
             */}
-          {leaf.kind === 'research' ? (
+          {leaf.findings && !leaf.outputBranch ? (
             <span className="flex items-center gap-1.5 text-slate-500" title="Research — the answer is stored on this leaf, not in a repository">
               <BookOpen size={13} /> answer, not code
             </span>

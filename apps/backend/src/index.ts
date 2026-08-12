@@ -83,7 +83,6 @@ import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
 import { normaliseLeafInput } from './lib/leaf-input.js';
 import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
-import { asWorkKind } from './lib/work-kind.js';
 import { summariseDelivery } from './lib/branch-delivery.js';
 import { TREE_TYPES, normaliseTreeInput, type Tree } from './lib/trees.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
@@ -1848,7 +1847,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        * unrecognised kind would select no loop at all, and the old `sandbox` spelling still has to
        * be readable.
        */
-      ...(((k) => (k ? { kind: k } : {}))(asWorkKind(t?.kind))),
+      /**
+       * Whether this task runs the planning turn. Dropped by this normaliser until recently, which
+       * made the field that exists to prevent a planning experiment being written as an execution
+       * one unreachable over the API.
+       *
+       * The old `kind: 'planning'` spelling is still accepted: experiments are stored documents.
+       */
+      ...(t?.planning === true || t?.kind === 'planning' ? { planning: true } : {}),
     }));
 
   /** File lists from a client, bounded and stripped of anything that could escape /work. */

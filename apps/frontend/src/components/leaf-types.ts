@@ -1,5 +1,3 @@
-import type { WorkKind } from '@koala/harness-types';
-
 /**
  * Shared leaf vocabulary for the harness UI.
  *
@@ -60,14 +58,6 @@ export interface Leaf {
   dependsOn?: string[];
   /** What the agent reported doing. Its claim, not a result. */
   summary?: string;
-  /**
-   * What this leaf produces. Absent means code — every leaf written before the field was one.
-   *
-   * The shared vocabulary rather than a hand-written copy: this file exists because two
-   * declarations of one thing drift, and a fourth copy of the work kinds would be the same mistake
-   * one level down.
-   */
-  kind?: Exclude<WorkKind, 'planning'>;
   /** A research leaf's answer, stored on the record because it has no repository. */
   findings?: string;
   budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number };

@@ -19,7 +19,6 @@ import { WorkspaceService } from './WorkspaceService.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
-import { asWorkKind } from '../lib/work-kind.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
@@ -540,9 +539,9 @@ export class ExperimentService {
        * exactly as it was: it is the one every existing suite runs, and a planning feature is not
        * worth destabilising it for.
        */
-      // Through asWorkKind: tasks are stored documents that outlive a rename, and older ones spell
-      // execution work `sandbox`.
-      if (asWorkKind(task.kind) === 'planning') {
+      // A structural difference — the planning turn has no sandbox at all. `kind: 'planning'` is
+      // still read, because experiments are stored documents that outlive a field rename.
+      if (task.planning || (task as { kind?: string }).kind === 'planning') {
         return await this.runPlanningVariant(
           experiment, task, variant, runId, blank, startedAt,
           resolvedForVariant, variantPersona, profile,

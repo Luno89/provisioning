@@ -95,7 +95,7 @@ export class AuthoringService {
          * "created by verify" being a listing rather than a difference, which this function already
          * exists to have caught once.
          */
-        if (task.kind === 'planning') {
+        if (task.planning) {
           const empty = boardFile([]);
           await this.workspaces.writeFile(runId, empty.path, empty.content);
         }

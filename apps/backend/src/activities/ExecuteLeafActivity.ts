@@ -27,7 +27,7 @@ import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { resolveConfig } from '../lib/personas.js';
-import { personaFits, resolvePersona, flattenPersona } from '../lib/persona-scope.js';
+import { flattenPersona, usesRepo } from '../lib/persona-scope.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
@@ -60,10 +60,10 @@ export interface ExecuteLeafArgs {
 }
 
 /**
- * Where a research leaf writes its answer.
+ * Where a persona writes its answer when it does not declare one of its own.
  *
- * Outside /work/repo on purpose — a research leaf has no repository, and a path under one would
- * imply a checkout that never happened.
+ * Outside /work/repo on purpose: a persona that produces an answer has no checkout, and a path
+ * under one would imply a repository that was never cloned.
  */
 export const FINDINGS_PATH = '/work/findings.md';
 
@@ -174,39 +174,21 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * Leaf first, deliberately: an adopted default is a default, and work that named a persona
        * has already made a more specific choice.
        */
-      const isResearch = leaf.kind === 'research';
       /**
-       * Work is handed to someone, so there is always a persona.
+       * Whoever the planner chose, or whoever won in the Lab. Nothing else.
        *
-       * Leaf first, then whatever won in the Lab, then the saved default for this kind of work. The
-       * old fallback was "no persona", which meant a sandbox configured entirely by what this
-       * activity happened to hardcode — the coupling the persona record exists to remove.
+       * There is deliberately no category-based fallback: a persona picked because the work was
+       * filed as "research" is a persona nobody chose, configured by a label rather than by a
+       * decision. A leaf that reaches here with neither is a planning failure and says so.
        */
       const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId);
-      const assigned = resolvePersona(
-        ownPersonas,
-        { context: isResearch ? 'research' : 'code', language: leaf.language },
-        leaf.personaId,
-        profile?.personaId,
-      );
+      const wanted = leaf.personaId ?? profile?.personaId;
+      const assigned = wanted ? ownPersonas.find((p) => p.id === wanted) : undefined;
       // Flattened, so a persona defined as "that one, but ..." runs with everything it inherits.
       const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-
-      /**
-       * A persona pointed at work it does not suit is run anyway, and said so.
-       *
-       * Refusing would strand a leaf over a filing decision. Silence is what let the Framer — which
-       * must never search — spend a whole budget on a research leaf that hands out web tools.
-       */
-      if (persona) {
-        const verdict = personaFits(persona, {
-          context: isResearch ? 'research' : 'code',
-          language: leaf.language,
-          // Model deliberately omitted: `provider` is resolved below, and reordering that to satisfy
-          // an advisory warning would move a network call ahead of the checks that gate it.
-        });
-        if (verdict.reason) console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: ${verdict.reason}`);
-      }
+      const wantsRepo = usesRepo(persona);
+      // Where this persona says its deliverable goes. Absent means it produces files, not an answer.
+      const outputPath = persona?.scope?.output;
 
       const resolved = resolveConfig(profile, persona);
       /**
@@ -256,8 +238,8 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * believed. Its answer is stored on the leaf record instead — see `findings`.
        */
       let project: ProjectMetadata | undefined;
-      if (isResearch) {
-        console.log(`[ExecuteLeafActivity] leaf ${leaf.id} is research — no repository`);
+      if (!wantsRepo) {
+        console.log(`[ExecuteLeafActivity] leaf ${leaf.id}: persona works without a repository`);
       } else try {
         const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
         project = await resolveLeafProject({
@@ -368,7 +350,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ].join('\n');
         }
 
-        if (isResearch) {
+        if (!wantsRepo) {
           /**
            * The hand-off for work with no branch to check out.
            *
@@ -529,14 +511,26 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * leaving nothing behind.
          */
         let findings = '';
-        if (isResearch) {
-          findings = await workspaces.readFile(leaf.id, FINDINGS_PATH).catch(() => '');
+        if (outputPath) {
+          findings = await workspaces.readFile(leaf.id, outputPath).catch(() => '');
         }
 
+        /**
+         * ── ONE VERIFICATION PATH, NOT A BRANCH PER CATEGORY ──
+         *
+         * Every check that APPLIES runs, and what applies is read off what was declared: a persona
+         * that named an output has that output checked; a leaf with a test command has it run; a
+         * leaf that promised files has them looked for. Nothing consults a category, because a
+         * category was only ever a guess at which of these to trust.
+         *
+         * Which strategy is actually the right one is an open question. Every outcome is recorded
+         * on the leaf (see `checks`) so it can be answered with numbers later rather than by
+         * picking now.
+         */
         let verify: VerifyResult = { outcome: 'unverified', output: '' };
-        const verifyCommand = isResearch ? '' : (leaf.verifyCommand?.trim() || defaultVerifyCommand(leaf.language));
-        if (isResearch) {
-          const verdict = assessFindings(findings, FINDINGS_PATH);
+        const verifyCommand = wantsRepo ? (leaf.verifyCommand?.trim() || defaultVerifyCommand(leaf.language)) : '';
+        if (outputPath) {
+          const verdict = assessFindings(findings, outputPath, persona?.scope?.requireSources !== false);
           verify = { outcome: verdict.outcome, output: verdict.reason };
         } else if (verifyCommand) {
           verify = await workspaces
@@ -558,9 +552,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * rescue was about to commit a moment later.
          */
         const pushedBranch = await pushBack();
-        // `expects` names repository paths, and research has no repository. A planner that gives
-        // both is asking for a file check that could only ever fail.
-        const artifacts = !isResearch && leaf.expects?.length
+        // `expects` names repository paths, so it only means anything where there is one. A planner
+        // that promises files to a persona with no checkout is asking for a check that can only fail.
+        const artifacts = wantsRepo && leaf.expects?.length
           ? await workspaces
               .exec(leaf.id, buildArtifactCheckScript(leaf.expects, project?.defaultBranch || 'main'), 60_000)
               .then((r) => parseArtifactResult(r.stdout))

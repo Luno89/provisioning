@@ -51,8 +51,6 @@ const SEEDS: Seed[] = [
       'You do not answer the questions. You only produce the list.',
     ].join('\n'),
     scope: {
-      contexts: ['planning'],
-      defaultFor: ['planning'],
       /**
        * No search tool, and no network.
        *
@@ -61,6 +59,11 @@ const SEEDS: Seed[] = [
        */
       tools: ['read_file', 'write_file', 'finish'],
       egress: [],
+      // No repository: it produces a list of questions, not files in a project.
+      repo: false,
+      output: '/work/questions.md',
+      // The questions are its own reasoning, not something it looked up.
+      requireSources: false,
       tunedFor: TUNED_FOR,
       // Deciding what to ask is short work. A large budget here is a budget spent second-guessing.
       run: { maxSteps: 20 },
@@ -83,8 +86,8 @@ const SEEDS: Seed[] = [
       'say so and cite both.',
     ].join('\n'),
     scope: {
-      contexts: ['research'],
-      defaultFor: ['research'],
+      repo: false,
+      output: '/work/findings.md',
       tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
       /**
        * Still no direct network.
@@ -131,7 +134,11 @@ const SEEDS: Seed[] = [
       '- Write it as one piece, not as a list of the answers you were handed.',
     ].join('\n'),
     scope: {
-      contexts: ['research'],
+      repo: false,
+      output: '/work/findings.md',
+      // It is handed the sources; it does not go and find more. Requiring URLs it never fetched
+      // would fail honest work, so the sources rule is off and the prompt carries them through.
+      requireSources: false,
       // "You do not search" is in the prompt AND enforced here. The prompt explains why; the toolset
       // is what makes it true.
       tools: ['read_file', 'write_file', 'finish'],
@@ -155,8 +162,6 @@ const SEEDS: Seed[] = [
       'reports success is a claim.',
     ].join('\n'),
     scope: {
-      contexts: ['code'],
-      defaultFor: ['code'],
       /**
        * No web, deliberately.
        *

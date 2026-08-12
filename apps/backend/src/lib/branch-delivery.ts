@@ -65,12 +65,16 @@ export function summariseDelivery(
         : { key: 'work', label: 'Work', state: 'done', detail: `${verified} of ${mine.length} verified` };
 
   /**
-   * Research produces an answer, not a commit, so it is excluded from everything downstream of the
-   * work itself. Counting it would leave a research request permanently showing "0 of 1 merged"
-   * against work that was never going to merge — a red mark for behaving correctly.
+   * Answer-shaped work is excluded from everything downstream of the work itself.
+   *
+   * Recognised by what a leaf PRODUCED — an answer on the record and no branch — rather than by a
+   * label saying what it was meant to be. The label was a second description of the same fact, and
+   * the fact is the one that cannot be wrong. Counting these would leave a request that behaved
+   * correctly permanently showing "0 of 1 merged" against work that was never going to merge.
    */
-  const buildable = succeeded.filter((l) => l.kind !== 'research');
-  const allResearch = mine.length > 0 && mine.every((l) => l.kind === 'research');
+  const isAnswer = (l: Leaf) => Boolean(l.findings?.trim()) && !l.outputBranch;
+  const buildable = succeeded.filter((l) => !isAnswer(l));
+  const allResearch = mine.length > 0 && mine.every(isAnswer);
 
   const landed: DeliveryStage = !buildable.length
       ? { key: 'landed', label: 'Landed', state: 'pending', detail: 'nothing to merge yet' }
@@ -111,8 +115,8 @@ export function summariseDelivery(
    * `findings` rather than `verified`, because this stage is about the deliverable being THERE.
    * Whether it was any good is what the Work stage's verified count already reports.
    */
-  const research = mine.filter((l) => l.kind === 'research');
-  const answeredCount = research.filter((l) => l.findings?.trim()).length;
+  const research = mine.filter(isAnswer);
+  const answeredCount = research.length;
   const answered: DeliveryStage = !research.length
     ? { key: 'answered', label: 'Answered', state: 'pending', detail: 'no answer yet' }
     : answeredCount >= research.length

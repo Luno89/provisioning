@@ -99,26 +99,31 @@ describe('where a request got to', () => {
      * had. Showing them greyed out claims three things did not happen, about work that was never
      * going to do them.
      */
-    const s = summariseDelivery(branch(), [leaf({ kind: 'research', verified: true, findings: 'an answer' })], undefined);
+    const s = summariseDelivery(branch(), [leaf({ verified: true, findings: 'an answer' })], undefined);
     expect(s.map((x) => x.key)).toEqual(['work', 'answered', 'accepted']);
     expect(stage(s, 'work')).toMatchObject({ state: 'done', detail: '1 of 1 verified' });
     expect(stage(s, 'answered')).toMatchObject({ state: 'done', detail: 'answer written' });
   });
 
-  it('reports a research leaf that finished without writing anything', () => {
-    const s = summariseDelivery(branch(), [leaf({ kind: 'research' })], undefined);
-    expect(stage(s, 'answered')).toMatchObject({ state: 'pending', detail: '0 of 1 written' });
+  it('does not treat a leaf that wrote nothing as answer-shaped work', () => {
+    /**
+     * Recognised by what it PRODUCED, not by what it was labelled. A leaf that wrote no answer and
+     * pushed no branch has simply not delivered, and calling it research on the strength of a label
+     * would report a chain it never had.
+     */
+    const s = summariseDelivery(branch(), [leaf({})], undefined);
+    expect(s.map((x) => x.key)).toEqual(['work', 'landed', 'built', 'deployed', 'accepted']);
   });
 
   it('brings the build chain back the moment a request also produces code', () => {
     // One research leaf beside a code leaf is the normal shape: the planner looks something up and
     // then builds. The build stages are real again.
-    const s = summariseDelivery(branch(), [leaf({ id: 'r', kind: 'research', findings: 'x' }), leaf({ id: 'c' })], undefined);
+    const s = summariseDelivery(branch(), [leaf({ id: 'r', findings: 'x' }), leaf({ id: 'c' })], undefined);
     expect(s.map((x) => x.key)).toEqual(['work', 'landed', 'built', 'deployed', 'accepted']);
   });
 
   it('still tracks merges when a request mixes research with code', () => {
-    const s = summariseDelivery(branch(), [leaf({ id: 'r', kind: 'research' }), leaf({ id: 'c' })], undefined);
+    const s = summariseDelivery(branch(), [leaf({ id: 'r', findings: 'x' }), leaf({ id: 'c' })], undefined);
     // One code leaf, unmerged — the research leaf must not inflate the denominator.
     expect(stage(s, 'landed')).toMatchObject({ state: 'pending', detail: '0 of 1 merged' });
   });

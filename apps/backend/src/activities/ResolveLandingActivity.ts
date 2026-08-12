@@ -27,7 +27,7 @@ import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { agentRunOptions } from '../lib/agent-run.js';
-import { resolvePersona, flattenPersona } from '../lib/persona-scope.js';
+import { flattenPersona } from '../lib/persona-scope.js';
 import { resolveConfig } from '../lib/personas.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
 import {
@@ -126,7 +126,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
      * resolution a leaf uses: the adopted persona, or the saved default for code.
      */
     const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === ownerId);
-    const assigned = resolvePersona(ownPersonas, { context: 'code' }, undefined, profile?.personaId);
+    const assigned = profile?.personaId ? ownPersonas.find((p) => p.id === profile.personaId) : undefined;
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
     const resolved = resolveConfig(profile, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
