@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { personaFits, personasFor, allowedTools, resolvePersona, type WorkContext } from './persona-scope.js';
-import type { PersonaScope } from '@koala/harness-types';
+import { personaFits, personasFor, allowedTools, resolvePersona, flattenPersona, type WorkContext } from './persona-scope.js';
+import type { Persona, PersonaScope } from '@koala/harness-types';
 
 const p = (name: string, scope?: any) => ({ name, ...(scope ? { scope } : {}) });
 const work = (over: Partial<WorkContext> = {}): WorkContext => ({ context: 'code', ...over });
@@ -130,5 +130,50 @@ describe('which persona a piece of work runs as', () => {
     // An authoring mistake either way; a wrong answer that moves is far harder to notice.
     expect(resolvePersona(clashing, work({ context: 'code' }))?.id).toBe('a');
     expect(resolvePersona([...clashing].reverse(), work({ context: 'code' }))?.id).toBe('a');
+  });
+});
+
+describe('a persona defined as "that one, but ..."', () => {
+  type Flat = Pick<Persona, 'id' | 'name' | 'basedOn' | 'systemPrompt' | 'overrides' | 'scope'>;
+  const parent: Flat = {
+    id: 'researcher', name: 'Researcher', systemPrompt: 'answer one question',
+    overrides: { temperature: 0.4 },
+    scope: {
+      contexts: ['research'],
+      tools: ['web_search', 'write_file', 'finish'],
+      egress: [],
+      run: { maxSteps: 100, withdraw: { afterStep: 50, tools: ['web_search'] } },
+    },
+  };
+
+  it('inherits everything it does not change', () => {
+    const child: Flat = { id: 'short', name: 'Researcher (short)', overrides: {}, basedOn: 'researcher',
+      scope: { run: { maxSteps: 40 } } };
+    const flat = flattenPersona(child, [parent, child]);
+    expect(flat.scope!.run!.maxSteps).toBe(40);
+    // The parent's prompt, tools and withdrawal survive — a variation must differ in ONE place, or
+    // the comparison it exists for is meaningless.
+    expect(flat.systemPrompt).toBe('answer one question');
+    expect(flat.scope!.tools).toEqual(['web_search', 'write_file', 'finish']);
+    expect(flat.scope!.run!.withdraw).toEqual({ afterStep: 50, tools: ['web_search'] });
+    expect(flat.overrides).toEqual({ temperature: 0.4 });
+  });
+
+  it('lets the child win field by field', () => {
+    const child: Flat = { id: 'cold', name: 'Researcher (cold)', overrides: { temperature: 0.1 }, basedOn: 'researcher' };
+    const flat = flattenPersona(child, [parent, child]);
+    expect(flat.overrides).toEqual({ temperature: 0.1 });
+    expect(flat.scope!.run!.maxSteps).toBe(100);
+  });
+
+  it('ignores a parent that no longer exists rather than failing the work', () => {
+    const orphan: Flat = { id: 'x', name: 'Orphan', overrides: {}, basedOn: 'deleted' };
+    expect(flattenPersona(orphan, [orphan]).name).toBe('Orphan');
+  });
+
+  it('stops at a cycle instead of looping forever', () => {
+    const a: Flat = { id: 'a', name: 'A', overrides: {}, basedOn: 'b' };
+    const b: Flat = { id: 'b', name: 'B', overrides: {}, basedOn: 'a' };
+    expect(flattenPersona(a, [a, b]).name).toBe('A');
   });
 });

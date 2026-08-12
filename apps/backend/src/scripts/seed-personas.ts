@@ -60,6 +60,8 @@ const SEEDS: Seed[] = [
       tools: ['read_file', 'write_file', 'finish'],
       egress: [],
       tunedFor: TUNED_FOR,
+      // Deciding what to ask is short work. A large budget here is a budget spent second-guessing.
+      run: { maxSteps: 20 },
     },
     overrides: { temperature: 0.3 },
   },
@@ -92,6 +94,32 @@ const SEEDS: Seed[] = [
        */
       egress: [],
       tunedFor: TUNED_FOR,
+      /**
+       * The whole research environment, saved rather than derived.
+       *
+       * Finding material is itself work and the writing still has to happen afterwards, so the
+       * budget is large. Half of it buys searching; then the search tools are taken away, because
+       * across four measured runs the agent searched until the budget was gone no matter what it
+       * was told. The pacing notes talk about writing rather than committing — this persona has no
+       * repository to commit to, and the default note was telling it to save its work somewhere
+       * that does not exist.
+       */
+      run: {
+        maxSteps: 100,
+        withdraw: { afterStep: 50, tools: ['web_search', 'fetch_web_page'] },
+        pacing: [
+          {
+            atRemaining: 50,
+            message: 'Half your budget is gone. STOP SEARCHING NOW and write what you have to /work/findings.md. '
+              + 'You can search again afterwards if something is missing, but the file must exist first.',
+          },
+          {
+            atRemaining: 4,
+            message: 'Write /work/findings.md NOW and call `finish`. It is the only thing kept — an answer that '
+              + 'exists only in your replies is lost, and an empty file fails the leaf.',
+          },
+        ],
+      },
     },
     overrides: { temperature: 0.4 },
   },
@@ -116,6 +144,8 @@ const SEEDS: Seed[] = [
       tools: ['read_file', 'write_file', 'finish'],
       egress: [],
       tunedFor: TUNED_FOR,
+      // Short: everything it needs is already in front of it, so a long budget only buys drift.
+      run: { maxSteps: 30 },
     },
     overrides: { temperature: 0.5 },
   },

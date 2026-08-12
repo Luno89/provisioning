@@ -138,3 +138,53 @@ export function resolvePersona<T extends Pick<Persona, 'id' | 'name' | 'scope'>>
       .find((p) => p.scope?.defaultFor?.includes(work.context))
   );
 }
+
+/**
+ * A persona with everything it inherits already folded in.
+ *
+ * ── WHY INHERITANCE ──
+ * Testing a variation should not mean copying a persona. A copy drifts from its original the first
+ * time either is edited, and the Lab's whole job is comparing two things that differ in one place.
+ * "Researcher, but forty steps" is a record with a parent and one field.
+ *
+ * The child wins field by field, not wholesale: a variant that changes `run.maxSteps` keeps its
+ * parent's prompt, tools and network rather than silently losing them — which is the same
+ * full-replace hazard this codebase has now hit five times in other shapes.
+ *
+ * Defensive by construction. A missing parent resolves to the child alone and a cycle stops at the
+ * first repeat, because a filing mistake must never be able to stop work from running.
+ */
+export function flattenPersona<T extends Pick<Persona, 'id' | 'basedOn' | 'systemPrompt' | 'overrides' | 'scope'>>(
+  persona: T,
+  all: T[],
+): T {
+  const chain: T[] = [];
+  const seen = new Set<string>();
+  let node: T | undefined = persona;
+  while (node && !seen.has(node.id)) {
+    seen.add(node.id);
+    chain.push(node);
+    node = node.basedOn ? all.find((p) => p.id === node!.basedOn) : undefined;
+  }
+
+  // Root first, so each descendant overwrites what it inherited.
+  return chain.reduceRight((base, layer) => ({
+    ...base,
+    ...layer,
+    ...(layer.systemPrompt ?? base.systemPrompt ? { systemPrompt: layer.systemPrompt ?? base.systemPrompt } : {}),
+    overrides: { ...base.overrides, ...layer.overrides },
+    ...(base.scope || layer.scope
+      ? {
+          scope: {
+            ...base.scope,
+            ...layer.scope,
+            // `run` merges too. A variant changing the step budget must not drop the pacing and
+            // withdrawal that made its parent work.
+            ...(base.scope?.run || layer.scope?.run
+              ? { run: { ...base.scope?.run, ...layer.scope?.run } }
+              : {}),
+          },
+        }
+      : {}),
+  }), chain[chain.length - 1]!);
+}

@@ -702,6 +702,38 @@ export interface PersonaScope {
    */
   egress?: PersonaEgressRule[];
   /**
+   * The shape of the run itself: how long it gets, what it is told as time runs out, and what is
+   * taken away partway through.
+   *
+   * ── WHY THIS IS HERE AND NOT DERIVED ──
+   * These were computed from the kind of work — research meant a hundred steps, the pacing notes
+   * about writing rather than committing, and losing search halfway. That put the environment back
+   * in the caller after the tools and the network had just been moved onto the record, and it meant
+   * a Lab arm could only test a configuration the harness already knew how to name.
+   *
+   * With them here, a variation IS a persona: "Researcher, but forty steps" is a persona, testable
+   * against its parent on the same suite. Nothing needs a new branch in the code to become
+   * measurable.
+   */
+  run?: {
+    maxSteps?: number;
+    /**
+     * Tools removed once the run passes a step, and which.
+     *
+     * Instructions were not enough: across four measured runs a research agent searched until its
+     * budget was gone regardless of what it was told. Removing the tool is the only version of
+     * "stop now" that does not require the model to agree.
+     */
+    withdraw?: { afterStep: number; tools: string[] };
+    /**
+     * What to say as the budget runs down, and when.
+     *
+     * The default talks about committing and pushing, which is wrong for a persona with no
+     * repository — it was being told to save its work somewhere that does not exist.
+     */
+    pacing?: { atRemaining: number; message: string }[];
+  };
+  /**
    * The contexts this persona is the fallback for.
    *
    * There is no such thing as an unassigned leaf: work is handed TO someone. The planner picks a
@@ -730,6 +762,17 @@ export interface Persona {
   id: string;
   ownerId: string;
   name: string;
+  /**
+   * A persona this one refines.
+   *
+   * Its prompt, sampling and scope are the base; anything set here wins. This is what makes trying
+   * a variation cheap — "Researcher, but colder and with half the steps" is a three-line record
+   * rather than a copy that drifts from its original the first time either is edited.
+   *
+   * Resolved defensively: a missing parent is ignored and a cycle is broken, because neither should
+   * be able to stop work running.
+   */
+  basedOn?: string;
   /** Where this persona belongs. Absent means anywhere — see PersonaScope. */
   scope?: PersonaScope;
   /** One line, shown in the picker — why you would choose this one. */

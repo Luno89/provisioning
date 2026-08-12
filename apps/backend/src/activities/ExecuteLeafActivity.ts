@@ -27,7 +27,7 @@ import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { resolveConfig } from '../lib/personas.js';
-import { personaFits, resolvePersona } from '../lib/persona-scope.js';
+import { personaFits, resolvePersona, flattenPersona } from '../lib/persona-scope.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
@@ -181,12 +181,15 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * old fallback was "no persona", which meant a sandbox configured entirely by what this
        * activity happened to hardcode — the coupling the persona record exists to remove.
        */
-      const persona = resolvePersona(
-        (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId),
+      const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId);
+      const assigned = resolvePersona(
+        ownPersonas,
         { context: isResearch ? 'research' : 'code', language: leaf.language },
         leaf.personaId,
         profile?.personaId,
-      ) ?? null;
+      );
+      // Flattened, so a persona defined as "that one, but ..." runs with everything it inherits.
+      const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
 
       /**
        * A persona pointed at work it does not suit is run anyway, and said so.
@@ -456,6 +459,15 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           project?.id,
         );
 
+        /**
+         * A persona that lists a web tool is a persona that needs the web.
+         *
+         * Read from the toolset rather than a second flag: two fields that must agree are two
+         * fields that eventually will not, and the toolset is the one that is enforced.
+         */
+        const runShape = persona?.scope?.run ?? {};
+        const wantsWeb = (persona?.scope?.tools ?? []).some((t) => (WEB_TOOL_NAMES as readonly string[]).includes(t));
+
         const run = await runAgentLoop({
           baseUrl,
           apiKey,
@@ -464,38 +476,30 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           language: leaf.language,
           taskContext,
           /**
-           * The persona's saved toolset, enforced rather than requested.
+           * Everything about the environment comes off the persona record.
            *
-           * Undefined when it declares none, which leaves the environment's own set intact. This is
-           * what stops a persona that must not search from being handed a search tool by the leaf
-           * kind's default — the pairing that cost a whole run.
+           * The toolset is enforced as an intersection, so naming a tool does not conjure one; the
+           * step budget, the pacing and the withdrawal are whatever the persona saved. None of it is
+           * derived from the kind of work any more — that derivation is what handed the Framer a
+           * search tool it should never have had.
+           *
+           * The web tools are still BUILT here, because that needs a database and a cluster. The
+           * persona decides whether they are OFFERED, by listing them.
            */
-          ...(persona?.scope?.tools?.length ? { allowTools: persona.scope.tools } : {}),
-          // Only research gets the web, and it gets a bigger budget to use it in — finding the
-          // material is itself work, and the writing still has to happen afterwards. See
-          // RESEARCH_AGENT_STEPS. An adopted profile's own maxSteps still wins over this.
-          ...(isResearch
-            ? {
-                // Resolved to whatever this platform has deployed — the SearXNG and Crawl4AI the
-                // user provisioned, falling back only if neither is running. See web-tools-wiring.
-                web: await buildWebTools(db, leaf.ownerId),
-                maxSteps: RESEARCH_AGENT_STEPS,
-                // Its own pacing: the default warning is about committing, which this leaf cannot
-                // do, and it lands far too late for the failure research actually has.
-                pacing: researchPacing(RESEARCH_AGENT_STEPS, FINDINGS_PATH),
-                // The searching stops halfway whether the agent agrees or not. Telling it to stop
-                // failed four runs in a row; taking the tools away cannot.
-                withdrawTools: {
-                  afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2),
-                  names: WEB_TOOL_NAMES,
-                },
-              }
-            : {}),
           ...(memoryContext ? { memoryContext } : {}),
-          // The point of promoting a configuration: a setting that won on the bench takes effect on
-          // the work that matters, not only on the next experiment. Without this the Lab measures a
-          // harness that real leaves never run.
+          /**
+           * The precedence chain, unchanged: built-in sampling, then the adopted profile, then the
+           * persona, then anything this call asks for. `resolveConfig` decided this above; passing
+           * it is all that is left.
+           */
           overrides: adopted,
+          ...(persona?.scope?.tools?.length ? { allowTools: persona.scope.tools } : {}),
+          ...(wantsWeb ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
+          ...(runShape.maxSteps ? { maxSteps: runShape.maxSteps } : {}),
+          ...(runShape.pacing?.length ? { pacing: runShape.pacing } : {}),
+          ...(runShape.withdraw
+            ? { withdrawTools: { afterStep: runShape.withdraw.afterStep, names: runShape.withdraw.tools } }
+            : {}),
           sandbox: {
             exec: (command) => workspaces.exec(leaf.id, command),
             readFile: (path) => workspaces.readFile(leaf.id, path),

@@ -18,11 +18,10 @@ import type { ModelService } from './ModelService.js';
 import { WorkspaceService } from './WorkspaceService.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
-import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
-import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
+import { flattenPersona } from '../lib/persona-scope.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
 import { boardFile } from '../lib/planning-board.js';
 import type { LeafToolContext } from '../lib/leaf-tool-runner.js';
@@ -478,8 +477,15 @@ export class ExperimentService {
      * can borrow a persona and still change one knob, which is what makes "this persona but hotter"
      * expressible as a variant instead of a second persona.
      */
+    /**
+     * Flattened, so an arm can be "that persona, with one thing changed".
+     *
+     * Without this a variation means copying a persona, and a copy drifts from its original the
+     * first time either is edited — which is fatal for a comparison whose whole point is that the
+     * two differ in exactly one place.
+     */
     const variantPersona = variant.personaId
-      ? personas.find((p) => p.id === variant.personaId) ?? null
+      ? (() => { const found = personas.find((p) => p.id === variant.personaId); return found ? flattenPersona(found, personas) : null; })()
       : null;
     const resolvedForVariant = resolveConfig(profile, variantPersona, variant.overrides);
     if (resolvedForVariant.systemPrompt) {
@@ -583,29 +589,24 @@ export class ExperimentService {
              */
             web: await buildWebTools(this.db, experiment.ownerId),
             /**
-             * A research task runs the configuration a research LEAF runs.
+             * The arm's persona configures the run, exactly as it does for a leaf.
              *
-             * The Lab passed none of these, so every arm got 40 steps and the code pacing note —
-             * "commit and push what you have NOW" — inside a sandbox with no repository. A bench
-             * that configures the agent differently from production measures the bench.
+             * Not derived from the task. A task says what to do; the persona says what the agent
+             * has to do it with — and if the Lab derived the environment from a task kind, an arm
+             * could only ever test a configuration the harness already had a name for. Trying a
+             * variation is a persona with a parent and one changed field.
              */
-            ...(task.kind === 'research'
+            ...(variantPersona?.scope?.tools?.length ? { allowTools: variantPersona.scope.tools } : {}),
+            ...(variantPersona?.scope?.run?.maxSteps ? { maxSteps: variantPersona.scope.run.maxSteps } : {}),
+            ...(variantPersona?.scope?.run?.pacing?.length ? { pacing: variantPersona.scope.run.pacing } : {}),
+            ...(variantPersona?.scope?.run?.withdraw
               ? {
-                  maxSteps: RESEARCH_AGENT_STEPS,
-                  pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
                   withdrawTools: {
-                    afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2),
-                    names: WEB_TOOL_NAMES,
+                    afterStep: variantPersona.scope.run.withdraw.afterStep,
+                    names: variantPersona.scope.run.withdraw.tools,
                   },
                 }
               : {}),
-            /**
-             * The variant's persona decides its toolset, exactly as a leaf's does.
-             *
-             * Without this an arm could win on the bench because its persona had a prompt, then
-             * behave differently in Koala where the same persona also loses half its tools.
-             */
-            ...(variantPersona?.scope?.tools?.length ? { allowTools: variantPersona.scope.tools } : {}),
             captureTrace: true,
             onStep: (agentStep) => this.emit('experiment-step', {
               experimentId: experiment.id,

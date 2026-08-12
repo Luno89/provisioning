@@ -46,7 +46,52 @@ async function main() {
    */
   const personas = (await mongo.getPersonas()).filter((p) => p.ownerId === OWNER);
   const researcher = personas.find((p) => p.name === 'Researcher');
-  if (!researcher) throw new Error('No "Researcher" persona for this owner — create it before seeding.');
+  if (!researcher) throw new Error('No "Researcher" persona for this owner — run seed-personas first.');
+
+  /**
+   * The variations are PERSONAS, not knobs on the experiment.
+   *
+   * A persona carries the whole environment — tools, network, step budget, pacing, withdrawal — so
+   * an arm that changes any of those is a persona with a parent and one changed field. Expressing
+   * the variation any other way would mean the Lab could only test configurations the harness
+   * already had a name for, and would let an arm win on the bench in an environment no leaf ever
+   * runs in.
+   *
+   * Written idempotently for the same reason the personas are: re-seeding must not leave two
+   * "Researcher (short budget)" records competing.
+   */
+  const derive = async (name: string, description: string, scope: Record<string, unknown>) => {
+    const prior = personas.find((p) => p.name === name);
+    const persona = {
+      id: prior?.id ?? uuidv4(),
+      ownerId: OWNER,
+      name,
+      description,
+      basedOn: researcher.id,
+      overrides: {},
+      scope,
+      createdAt: prior?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as any;
+    await mongo.savePersona(persona);
+    return persona;
+  };
+
+  // Half the budget, everything else inherited. Answers "is a hundred steps actually buying
+  // anything, or is the first fifty where the work happens?"
+  const shortBudget = await derive(
+    'Researcher (short budget)',
+    'Researcher, with half the step budget.',
+    { run: { maxSteps: 50, withdraw: { afterStep: 25, tools: ['web_search', 'fetch_web_page'] } } },
+  );
+
+  // Search never withdrawn. The withdrawal exists because four measured runs searched until the
+  // budget was gone; this is the arm that says whether it is still needed now the rest changed.
+  const noWithdrawal = await derive(
+    'Researcher (search kept)',
+    'Researcher, with the search tools never withdrawn.',
+    { run: { maxSteps: 100, withdraw: undefined } },
+  );
 
   const now = new Date().toISOString();
   const experiment: Experiment = {
@@ -63,12 +108,11 @@ async function main() {
     createdAt: now,
     updatedAt: now,
     variants: [
-      // The control. Without it, a suite that all four arms pass says nothing about the prompts.
+      // The control. Without it, a suite every arm passes says nothing about any of them.
       { label: 'no-persona', overrides: { temperature: 0.4 } },
-      { label: 'researcher-persona', overrides: {}, personaId: researcher.id },
-      // Same persona, colder. Research is recall and transcription, not invention — this arm exists
-      // to find out whether the temperature in the persona is doing anything at all.
-      { label: 'researcher-cold', overrides: { temperature: 0.1 }, personaId: researcher.id },
+      { label: 'researcher', overrides: {}, personaId: researcher.id },
+      { label: 'short-budget', overrides: {}, personaId: shortBudget.id },
+      { label: 'search-kept', overrides: {}, personaId: noWithdrawal.id },
     ],
     tasks: [
       {
