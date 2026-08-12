@@ -51,6 +51,7 @@ import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
 import { assessFindings } from '../lib/research-verify.js';
 import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
+import { buildWebTools } from '../lib/web-tools-wiring.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -417,7 +418,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           // RESEARCH_AGENT_STEPS. An adopted profile's own maxSteps still wins over this.
           ...(isResearch
             ? {
-                webTools: true,
+                // Resolved to whatever this platform has deployed — the SearXNG and Crawl4AI the
+                // user provisioned, falling back only if neither is running. See web-tools-wiring.
+                web: await buildWebTools(db, leaf.ownerId),
                 maxSteps: RESEARCH_AGENT_STEPS,
                 // Its own pacing: the default warning is about committing, which this leaf cannot
                 // do, and it lands far too late for the failure research actually has.

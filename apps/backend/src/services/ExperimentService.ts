@@ -17,6 +17,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { ModelService } from './ModelService.js';
 import { WorkspaceService } from './WorkspaceService.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
+import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
@@ -567,6 +568,15 @@ export class ExperimentService {
             ...(provider.kind ? { kind: provider.kind } : {}),
             language,
             taskContext: task.prompt,
+            /**
+             * The Lab gets the web too.
+             *
+             * It had none, so any task needing a source made the agent try `curl` against a
+             * default-deny sandbox and report — correctly — that it had no internet access. A
+             * benchmark that cannot do the thing being benchmarked measures the harness's wiring,
+             * not the model.
+             */
+            web: await buildWebTools(this.db, experiment.ownerId),
             captureTrace: true,
             onStep: (agentStep) => this.emit('experiment-step', {
               experimentId: experiment.id,

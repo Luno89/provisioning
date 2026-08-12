@@ -34,6 +34,7 @@ import { parseToolArguments, ToolCallScanner, WEB_TOOLS } from './leaf-tools.js'
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
+import type { WebTools } from './web-tools.js';
 import {
   TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS,
 } from './sampling.js';
@@ -119,12 +120,14 @@ export interface AgentRunOptions {
   /** Keys supplied by a persona, recorded beside `fromProfile` rather than merged into it. */
   fromPersona?: string[] | undefined;
   /**
-   * Offer web_search and fetch_web_page.
+   * The web tools this run may use, already resolved to whatever is deployed.
    *
-   * For research leaves, whose answer is not in any repository. Off for coding work: a search tool
-   * in front of an agent with a repo to read is a way to spend steps not writing code.
+   * Passing them is what OFFERS them — there is no separate flag, because a flag that said "yes"
+   * while no implementation was wired is exactly how the Lab ended up curling a sandbox with no
+   * network. For research work, whose answer is not in any repository. Left out for coding work: a
+   * search tool in front of an agent with a repo to read is a way to spend steps not writing code.
    */
-  webTools?: boolean | undefined;
+  web?: WebTools | undefined;
   /**
    * What to tell the agent as its budget runs down, and when.
    *
@@ -253,7 +256,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
    * Both run in THIS process, not in the sandbox, so the workspace's default-deny egress is not
    * involved and does not need relaxing.
    */
-  if (opts.webTools) {
+  if (opts.web) {
     for (const t of WEB_TOOLS) toolMap.set(t.function.name, t);
   }
   const activeTools = Array.from(toolMap.values());
@@ -411,7 +414,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
       let result: string;
       try {
-        result = await runSandboxTool(opts.sandbox, name, args, transcript);
+        result = await runSandboxTool(opts.sandbox, name, args, transcript, opts.web);
       } catch (err: any) {
         // Returned to the model, not thrown: a tool that fails is information the agent can act
         // on, and killing the attempt would discard everything done so far.
@@ -517,6 +520,7 @@ async function runSandboxTool(
   name: string,
   args: Record<string, unknown>,
   transcript: string[],
+  web?: WebTools | undefined,
 ): Promise<string> {
   if (name === 'run_command') {
     const command = String(args.command ?? '');
@@ -626,58 +630,39 @@ async function runSandboxTool(
     });
   }
 
-  if (name === 'web_search') {
-    const query = String(args.query ?? '').trim();
-    if (!query) return JSON.stringify({ error: 'query parameter is required' });
-    transcript.push(`web_search: ${query}`);
-    try {
-      const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      const res = await fetch(searchUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-      });
-      if (!res.ok) return JSON.stringify({ query, results: [{ snippet: `Search failed HTTP ${res.status}` }] });
-      const html = await res.text();
-      const results: { title: string; snippet: string; url: string }[] = [];
-      const matches = html.matchAll(/<a class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g);
-      for (const match of matches) {
-        if (results.length >= 5) break;
-        const rawUrl = match[1].replace(/&amp;/g, '&');
-        const cleanTitle = match[2].replace(/<[^>]+>/g, '').trim();
-        const cleanSnippet = match[3].replace(/<[^>]+>/g, '').trim();
-        let finalUrl = rawUrl;
-        const uddgMatch = rawUrl.match(/uddg=([^&]+)/);
-        if (uddgMatch) finalUrl = decodeURIComponent(uddgMatch[1]);
-        if (cleanTitle && finalUrl) {
-          results.push({ title: cleanTitle, snippet: cleanSnippet, url: finalUrl });
-        }
-      }
-      return JSON.stringify({ query, results: results.length ? results : [{ snippet: 'No results found' }] });
-    } catch (err: any) {
-      return JSON.stringify({ query, results: [{ snippet: `Web search error: ${err?.message || err}` }] });
+  /**
+   * The web, through whatever this platform actually has deployed.
+   *
+   * Both of these used to be implemented inline here — a DuckDuckGo HTML scrape and a regex
+   * tag-stripper — while the chat path went through `resolveWebTools` to the SearXNG and Crawl4AI
+   * the user provisioned. Two implementations of the same tool, and the agent doing the research
+   * had the worse one.
+   *
+   * Absent when the caller supplied no tools, which is not the same as a search returning nothing:
+   * an agent told "no web tools" stops trying, whereas one told "no results" searches again. The
+   * Lab spent a whole run learning that distinction the hard way, reporting that it had no internet
+   * access while its arms curled a sandbox with default-deny egress.
+   */
+  if (name === 'web_search' || name === 'fetch_web_page') {
+    if (!web) {
+      return JSON.stringify({ error: 'No web tools are available to this run. Do not try curl or wget — this sandbox has no network access.' });
     }
-  }
-
-  if (name === 'fetch_web_page') {
+    if (name === 'web_search') {
+      const query = String(args.query ?? '').trim();
+      if (!query) return JSON.stringify({ error: 'query parameter is required' });
+      transcript.push(`web_search: ${query}`);
+      try {
+        const results = await web.search(query);
+        return JSON.stringify({ query, results: results.length ? results : [{ snippet: 'No results found' }] });
+      } catch (err: any) {
+        return JSON.stringify({ query, results: [{ snippet: `Web search error: ${err?.message || err}` }] });
+      }
+    }
     const url = String(args.url ?? '').trim();
     if (!url) return JSON.stringify({ error: 'url parameter is required' });
     transcript.push(`fetch_web_page: ${url}`);
     try {
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
-      });
-      if (!res.ok) return JSON.stringify({ url, content: `HTTP error ${res.status}` });
-      const html = await res.text();
-      const cleanText = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      return JSON.stringify({ url, content: cleanText.slice(0, 4000) });
+      return JSON.stringify({ url, content: await web.fetchPage(url) });
     } catch (err: any) {
       return JSON.stringify({ url, content: `Failed to fetch page: ${err?.message || err}` });
     }
