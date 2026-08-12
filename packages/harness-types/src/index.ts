@@ -229,6 +229,25 @@ export interface TaskFile {
  * `seed` is the world the agent wakes up in. `solution` is a reference correct answer, used ONLY
  * to prove the verify command can pass — it is never placed in a real run's sandbox.
  */
+/**
+ * What a piece of work IS — the one vocabulary for it.
+ *
+ * ── WHY THIS IS ONE TYPE ──
+ * The same distinction was written out five times, in two vocabularies that disagreed: a Lab task
+ * said `sandbox` where a leaf said `code`, a persona's scope listed all three again, and its
+ * `defaultFor` listed them a fourth time. Nothing checked that any of them meant the same thing,
+ * so a task and a leaf could use the same word for different work and different words for the same
+ * work.
+ *
+ *   · `planning`  — deciding what work exists. The conversation, with board tools and no sandbox.
+ *   · `code`      — producing files in a repository, proved by tests and artifacts.
+ *   · `research`  — producing an answer, proved by whether it exists and cites sources.
+ *
+ * `sandbox` was the old name for `code` on experiment tasks. It survives only as something
+ * `asWorkKind` accepts on the way in; nothing writes it.
+ */
+export type WorkKind = 'planning' | 'code' | 'research';
+
 export interface ExperimentTask {
   id: string;
   name: string;
@@ -247,18 +266,15 @@ export interface ExperimentTask {
    * sandbox. The first experiment written against planning used a sandbox task and checked for a
    * file the sandbox loop has no tool to produce — this is what makes that unrepresentable.
    */
-  kind?: 'sandbox' | 'planning' | 'research';
-
   /**
-   * `research` is `sandbox` configured the way a research LEAF is: web tools, the larger step
-   * budget, the pacing notes that talk about writing rather than committing, and the withdrawal of
-   * search halfway through.
+   * Which LOOP the task runs — `planning` drives the decomposition turn, anything else drives the
+   * execution loop.
    *
-   * It exists because the Lab was benchmarking a different harness from the one that ships. It
-   * passed none of maxSteps, pacing or the toolset, so every arm ran 40 steps and was told to
-   * "commit and push what you have NOW" inside a sandbox with no repository — advice that is not
-   * merely useless but misleading, in every run of every experiment.
+   * It no longer configures the environment. That is the arm's persona's job, so a task saying
+   * `research` and a task saying `code` differ only in how they are verified, exactly as two leaves
+   * would.
    */
+  kind?: WorkKind;
   seed?: TaskFile[];
   /**
    * A correct answer, for validation only.
@@ -662,7 +678,7 @@ export interface PersonaScope {
    * sandbox. `code` and `research` are both execution, and differ in what the sandbox contains:
    * one has a repository, the other has the web.
    */
-  contexts?: ('planning' | 'code' | 'research')[];
+  contexts?: WorkKind[];
   /** Workspace toolchains this makes sense in. Absent = any. */
   languages?: string[];
   /**
@@ -744,7 +760,7 @@ export interface PersonaScope {
    * At most one persona should claim each context. Two is an authoring mistake, resolved by name
    * order so the behaviour is at least deterministic while it is wrong.
    */
-  defaultFor?: ('planning' | 'code' | 'research')[];
+  defaultFor?: WorkKind[];
   /**
    * The model this persona's PROMPT was written and checked against.
    *

@@ -83,6 +83,7 @@ import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
 import { normaliseLeafInput } from './lib/leaf-input.js';
 import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
+import { asWorkKind } from './lib/work-kind.js';
 import { summariseDelivery } from './lib/branch-delivery.js';
 import { TREE_TYPES, normaliseTreeInput, type Tree } from './lib/trees.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
@@ -1836,17 +1837,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ...(Array.isArray(t?.solution) && t.solution.length ? { solution: taskFiles(t.solution) } : {}),
       ...(isWorkspaceLanguage(t?.language) ? { language: t.language } : {}),
       /**
-       * Which loop the task runs. Dropped here until now.
+       * Which loop the task runs. Dropped here until recently.
        *
-       * `kind` was added to ExperimentTask precisely because a planning experiment written as a
-       * sandbox task checked for a file the sandbox loop has no tool to produce — and this
-       * normaliser, the one path every authored task goes through, silently discarded it. So the
-       * field that exists to make that mistake unrepresentable was itself unreachable over the API.
+       * `kind` was added to ExperimentTask precisely because a planning experiment written as an
+       * execution task checked for a file that loop has no tool to produce — and this normaliser,
+       * the one path every authored task goes through, silently discarded it. So the field that
+       * exists to make that mistake unrepresentable was itself unreachable over the API.
        *
-       * Validated against the union rather than passed through: it arrives as untrusted JSON, and
-       * an unrecognised kind would select no loop at all.
+       * Through `asWorkKind` rather than compared against literals: it arrives as untrusted JSON, an
+       * unrecognised kind would select no loop at all, and the old `sandbox` spelling still has to
+       * be readable.
        */
-      ...(t?.kind === 'planning' || t?.kind === 'research' || t?.kind === 'sandbox' ? { kind: t.kind } : {}),
+      ...(((k) => (k ? { kind: k } : {}))(asWorkKind(t?.kind))),
     }));
 
   /** File lists from a client, bounded and stripped of anything that could escape /work. */

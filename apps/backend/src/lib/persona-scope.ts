@@ -14,11 +14,11 @@
  * assignment keeps the escape hatch. The reason travels with the run so a bad pairing is visible
  * afterwards rather than only suspected.
  */
-import type { Persona } from '@koala/harness-types';
+import type { Persona, WorkKind } from '@koala/harness-types';
 
 /** What a piece of work is, in the terms a persona's scope is written in. */
 export interface WorkContext {
-  context: 'planning' | 'code' | 'research';
+  context: WorkKind;
   language?: string | undefined;
   /** The tools this work can actually offer. Absent when filtering a picker, before any sandbox exists. */
   available?: string[];

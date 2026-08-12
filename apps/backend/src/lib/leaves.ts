@@ -21,6 +21,7 @@
  */
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { AcceptanceCheck } from './acceptance.js';
+import type { WorkKind } from '@koala/harness-types';
 
 export type LeafColumn = 'todo' | 'in-progress' | 'review';
 
@@ -145,7 +146,12 @@ export interface Leaf {
    *
    * Absent means `code` — every leaf written before this field was one.
    */
-  kind?: 'code' | 'research';
+  /**
+   * Never `planning` — deciding what work exists is the conversation's job, not a leaf's. Expressed
+   * as an exclusion rather than a second literal union so there stays exactly one declaration of
+   * the vocabulary.
+   */
+  kind?: Exclude<WorkKind, 'planning'>;
 
   /**
    * A research leaf's actual output, stored here rather than committed.

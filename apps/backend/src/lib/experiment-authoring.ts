@@ -27,7 +27,7 @@
  *
  * Pure, so the extraction can be tested without a model.
  */
-import type { TaskFile, WorkspaceLanguage } from '@koala/harness-types';
+import type { TaskFile, WorkspaceLanguage , WorkKind } from '@koala/harness-types';
 import { describeSandbox, WORKSPACE_IMAGES, isWorkspaceLanguage } from './workspace-spec.js';
 import { MAX_TASKS, MAX_TASK_CHARS } from './experiments.js';
 
@@ -65,7 +65,7 @@ export interface DraftTask {
    * Which cycle the task exercises. Carried through the gate because the two are seeded
    * differently: a planning task's baseline is an empty board, not an absent one.
    */
-  kind?: 'sandbox' | 'planning' | 'research';
+  kind?: WorkKind;
 }
 
 /**
