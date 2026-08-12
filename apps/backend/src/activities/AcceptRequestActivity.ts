@@ -144,6 +144,10 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
       await db.saveBranch({
         ...withNotice(latest, buildAcceptanceNotice(plan, failed)),
         acceptanceRunAt: new Date().toISOString(),
+        // Stored as data, not only as prose in the notice. The notice tells a reader what happened;
+        // this is what lets the branch itself say whether the request delivered.
+        acceptanceOutcome: result.outcome,
+        ...(failed ? { acceptanceFailedCheck: failed.name } : {}),
       });
     }
     console.log(`[AcceptRequest] ${plan.length} check(s) ${result.outcome}${failed ? ` at "${failed.name}"` : ''} for request ${self.branchId.slice(0, 8)}`);

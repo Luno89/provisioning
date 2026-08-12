@@ -6,6 +6,7 @@ import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2, PanelLeftClose, Pa
 import Chat, { type Message } from './Chat.js';
 import LeafDetail from './LeafDetail.js';
 import AcceptancePlan from './AcceptancePlan.js';
+import Delivery, { type DeliveryStage } from './Delivery.js';
 import { STATUS_DOT, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
 
@@ -36,6 +37,10 @@ interface BranchRecord {
    * that argument untrue. A bare string is the older single-command form.
    */
   acceptance?: { name: string; command: string }[] | string;
+  /** How far the request got, derived server-side — see lib/branch-delivery.ts. */
+  delivery?: DeliveryStage[];
+  /** The repo the request's leaves worked in, if one was ever created. */
+  projectName?: string;
 }
 
 interface BranchNode {
@@ -282,6 +287,13 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
             {/* Shown above the conversation, where the work is accepted. `echo ok` is only a
                 harmless check if somebody actually sees it. */}
             <AcceptancePlan acceptance={(branchRecords ?? []).find((b) => b.id === selectedBranch)?.acceptance} />
+
+            {/* Above the conversation and below the plan: the plan is what was promised, this is
+                what became of it. Renders nothing until the request has actually produced work. */}
+            <Delivery
+              stages={(branchRecords ?? []).find((b) => b.id === selectedBranch)?.delivery}
+              projectName={(branchRecords ?? []).find((b) => b.id === selectedBranch)?.projectName}
+            />
 
             <div className="flex-1 min-h-0">
               {/* Keyed on the branch so switching conversations resets the transcript rather than

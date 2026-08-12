@@ -83,6 +83,7 @@ import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
 import { normaliseLeafInput } from './lib/leaf-input.js';
 import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
+import { summariseDelivery } from './lib/branch-delivery.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
@@ -2637,8 +2638,31 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.get('/api/branches', async (req, res) => {
     const branches = await ownedBranches((req as any).user.id);
+    /**
+     * Each branch carries how far the request it represents actually got.
+     *
+     * Derived here from records the platform already writes — leaves, pipeline runs, deployments —
+     * so the branch view and the Projects list cannot disagree, and so nothing has to read git to
+     * answer it. The project rollup is looked up per branch through the leaves' projectId, since a
+     * request's repo is created lazily by its first leaf.
+     */
+    const [allLeaves, projects, runs, deployments] = await Promise.all([
+      db.getLeaves(), db.getProjects(), db.getPipelineRuns(), db.getDeployments(),
+    ]);
+    const withDelivery = branches.map((b) => {
+      const projectId = allLeaves.find((l: any) => l.branchId === b.id && l.projectId)?.projectId;
+      const project = projectId ? projects.find((p: any) => p.id === projectId) : undefined;
+      const rollup = project
+        ? rollupProjectStatus(project, runs, deploymentForProject(project, deployments))
+        : undefined;
+      return {
+        ...b,
+        delivery: summariseDelivery(b, allLeaves, rollup),
+        ...(project ? { projectName: project.name } : {}),
+      };
+    });
     // Newest first: a conversation you just had is the one you want.
-    res.json([...branches].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+    res.json(withDelivery.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   });
 
   app.post('/api/branches', async (req, res) => {

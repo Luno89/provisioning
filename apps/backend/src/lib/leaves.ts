@@ -471,6 +471,17 @@ export interface Branch {
   acceptance?: AcceptanceCheck[] | string;
   /** Set once the check has run, so one request produces one verdict rather than one per leaf. */
   acceptanceRunAt?: string;
+  /**
+   * The verdict itself.
+   *
+   * Previously the outcome existed only inside the notice written into the transcript — readable by
+   * a person, and unavailable to anything that wanted to show whether the request actually
+   * delivered. `unknown` is kept distinct from `failed` on purpose: "nobody knows" is worse than a
+   * known failure and must never render as a pass.
+   */
+  acceptanceOutcome?: 'passed' | 'failed' | 'unknown';
+  /** Which named check it stopped at, so the branch can say where rather than just that. */
+  acceptanceFailedCheck?: string;
   createdAt: string;
   updatedAt: string;
 }
