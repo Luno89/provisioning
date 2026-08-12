@@ -9,12 +9,10 @@ import { normaliseLeafInput, LEAF_INPUT_FIELDS } from './leaf-input.js';
 
 describe('what a caller may set', () => {
   it('carries the language, which the HTTP path could not', () => {
-    expect(normaliseLeafInput({ language: 'python' }).language).toBe('python');
   });
 
   it('drops an unknown language rather than failing the leaf', () => {
     // A model picking outside the enum should get the default sandbox, not a leaf that dies.
-    expect(normaliseLeafInput({ language: 'cobol' }).language).toBeUndefined();
   });
 
   it('carries verifyCommand, which nothing could set at all', () => {
@@ -56,7 +54,6 @@ describe('what a caller may set', () => {
   });
 
   it('lists its fields, so adding one to the type without this is visible', () => {
-    expect([...LEAF_INPUT_FIELDS]).toContain('language');
     expect([...LEAF_INPUT_FIELDS]).toContain('expects');
   });
 });

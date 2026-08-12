@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ToolCallScanner, parseToolArguments, summariseLeaf, detailLeaf, LEAF_TOOLS } from './leaf-tools.js';
 import type { Leaf } from './leaves.js';
-import { WORKSPACE_IMAGES } from './workspace-spec.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'Add rate limiting',
@@ -96,13 +95,26 @@ describe('tool results', () => {
 });
 
 describe('LEAF_TOOLS', () => {
-  it('covers what a planning turn needs: read, add, revise, withdraw, toolchain, repository', () => {
+  it('covers what a planning turn needs: read, add, revise, withdraw, assign, repository', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name)).toEqual([
-      'list_leaves', 'get_leaf', 'propose_leaf', 'set_acceptance', 'revise_leaf', 'replace_leaf', 'withdraw_leaf', 'set_leaf_workspace',
+      'list_leaves', 'get_leaf', 'propose_leaf', 'set_acceptance', 'revise_leaf', 'replace_leaf', 'withdraw_leaf',
       'list_personas',
       'list_projects', 'create_project', 'set_leaf_project',
       'list_tool_repository', 'attach_tool_to_leaf', 'update_leaf_memory', 'web_search', 'fetch_web_page',
     ]);
+  });
+
+  it('offers no way to set a toolchain, because the persona is the toolchain', () => {
+    /**
+     * `set_leaf_workspace` and the `language` parameter both outlived their meaning: once the
+     * persona chose the image, they were a promise the harness no longer honoured. A project in
+     * another language names "Builder (go)" instead — the choice is still there, made in the one
+     * place that acts on it.
+     */
+    expect(LEAF_TOOLS.map((t) => t.function.name)).not.toContain('set_leaf_workspace');
+    for (const tool of LEAF_TOOLS) {
+      expect(Object.keys((tool.function.parameters as any)?.properties ?? {})).not.toContain('language');
+    }
   });
 
   it('never lets the model name whose project it is', () => {
@@ -146,18 +158,6 @@ describe('LEAF_TOOLS', () => {
     expect(d).toMatch(/source links/i);
   });
 
-  it('puts the whole image catalogue in the schema, so choosing costs no tool round', () => {
-    // A `list_workspace_options` tool would spend one of only MAX_TOOL_ROUNDS inference passes to
-    // learn a fixed list.
-    for (const name of ['propose_leaf', 'set_leaf_workspace']) {
-      const params = LEAF_TOOLS.find((t) => t.function.name === name)!.function.parameters as any;
-      expect(params.properties.language.enum).toEqual(Object.keys(WORKSPACE_IMAGES));
-      // Each option says what it contains, or the enum is just four opaque words.
-      for (const entry of Object.values(WORKSPACE_IMAGES)) {
-        expect(params.properties.language.description).toContain(entry.summary);
-      }
-    }
-  });
 
   it('does not require a language, so a proposal without one still works', () => {
     const propose = LEAF_TOOLS.find((t) => t.function.name === 'propose_leaf')!;

@@ -14,23 +14,6 @@
  * adding a tool does not mean touching the chat route.
  */
 import type { Leaf } from './leaves.js';
-import { WORKSPACE_IMAGES, DEFAULT_WORKSPACE_LANGUAGE, type WorkspaceLanguage } from './workspace-spec.js';
-
-/**
- * The language parameter, shared by every tool that can set one.
- *
- * The catalogue is inlined as an `enum` with a description listing what each option contains,
- * rather than exposed as a `list_workspace_options` tool. Discovery-by-schema costs nothing: a
- * separate tool would spend one of only MAX_TOOL_ROUNDS round trips — a whole inference pass — to
- * learn a fixed list the model could have been handed up front.
- */
-const LANGUAGE_PARAM = {
-  type: 'string',
-  enum: Object.keys(WORKSPACE_IMAGES),
-  description:
-    `Toolchain for the sandbox this work runs in. Defaults to "${DEFAULT_WORKSPACE_LANGUAGE}". ` +
-    Object.entries(WORKSPACE_IMAGES).map(([name, entry]) => `"${name}": ${entry.summary}`).join(' '),
-} as const;
 
 /**
  * Ceiling on tool round trips in one turn. A model that keeps calling tools without answering is a
@@ -140,7 +123,6 @@ export const LEAF_TOOLS = [
               + 'There is no default: a leaf with none assigned cannot run, and you will be asked '
               + 'again until one is set.',
           },
-          language: LANGUAGE_PARAM,
         },
         required: ['title'],
       },
@@ -239,7 +221,6 @@ export const LEAF_TOOLS = [
             items: { type: 'string' },
             description: 'Repository paths the replacement must leave behind.',
           },
-          language: LANGUAGE_PARAM,
         },
         required: ['id', 'title'],
       },
@@ -259,23 +240,6 @@ export const LEAF_TOOLS = [
           reason: { type: 'string', description: 'Why, in a few words. Shown to the user.' },
         },
         required: ['id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'set_leaf_workspace',
-      description:
-        'Change which toolchain a leaf runs in. Use it when the language of a piece of work turns ' +
-        'out to differ from what was assumed — the sandbox is created from this when the work starts.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: 'The leaf id, as returned by list_leaves.' },
-          language: LANGUAGE_PARAM,
-        },
-        required: ['id', 'language'],
       },
     },
   },
@@ -486,7 +450,6 @@ export function summariseLeaf(leaf: Leaf): Record<string, unknown> {
     title: leaf.title,
     status: leaf.status,
     ...(leaf.parentLeafId ? { parentLeafId: leaf.parentLeafId } : {}),
-    ...(leaf.language ? { language: leaf.language } : {}),
     ...(leaf.projectId ? { projectId: leaf.projectId } : {}),
     ...(leaf.attempts?.length ? { failedAttempts: leaf.attempts.length } : {}),
   };

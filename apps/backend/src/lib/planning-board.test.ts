@@ -50,7 +50,7 @@ describe('serialiseBoard', () => {
     const [entry] = serialiseBoard([rich], [persona('p1', 'Coder')]);
 
     expect(Object.keys(entry!).sort()).toEqual(
-      ['body', 'dependsOn', 'language', 'parent', 'persona', 'title'],
+      ['body', 'dependsOn', 'parent', 'persona', 'title'],
     );
   });
 });

@@ -19,7 +19,6 @@
  *
  * Everything here is untrusted input: model output on one path, a request body on the other.
  */
-import { isWorkspaceLanguage } from './workspace-spec.js';
 import { usablePaths } from './leaf-artifacts.js';
 import { usableAcceptance } from './acceptance.js';
 import { isLeafColumn, type Leaf } from './leaves.js';
@@ -32,7 +31,7 @@ import { isLeafColumn, type Leaf } from './leaves.js';
  * silent hole discovered on a live run.
  */
 export const LEAF_INPUT_FIELDS = [
-  'title', 'body', 'column', 'blocking', 'language', 'expects', 'verifyCommand',
+  'title', 'body', 'column', 'blocking', 'expects', 'verifyCommand',
 ] as const;
 
 export function normaliseLeafInput(raw: Record<string, unknown>): Partial<Leaf> {
@@ -51,13 +50,6 @@ export function normaliseLeafInput(raw: Record<string, unknown>): Partial<Leaf> 
   // Only an explicit `false` turns it off — an absent value must not silently un-block a leaf.
   if (raw.blocking === false) out.blocking = false;
 
-  /**
-   * Dropped when it is not a known language, rather than rejected.
-   *
-   * A model picking something outside the enum should get the default sandbox, not a leaf that
-   * fails when it runs.
-   */
-  if (isWorkspaceLanguage(raw.language)) out.language = raw.language;
 
   const expects = usablePaths(Array.isArray(raw.expects) ? raw.expects.map(String) : []);
   if (expects.length) out.expects = expects;

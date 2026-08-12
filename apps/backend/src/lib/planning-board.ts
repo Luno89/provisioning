@@ -26,10 +26,14 @@ export interface BoardLeaf {
   body: string;
   /** Titles of the leaves this one waits for, in the order the model gave them. */
   dependsOn: string[];
-  /** The persona's name, or null when the model assigned none. */
+  /**
+   * The persona's name, or null when the model assigned none.
+   *
+   * There used to be a `language` beside this. The persona names its own toolchain, so a second
+   * column for it would be a fact stated twice — and the copy that goes stale is the one nobody is
+   * reading when it does.
+   */
   persona: string | null;
-  /** The sandbox toolchain, or null for the default. */
-  language: string | null;
   /** Title of the parent, for a decomposition that nests rather than chains. */
   parent: string | null;
 }
@@ -53,7 +57,6 @@ export function serialiseBoard(leaves: Leaf[], personas: Persona[] = []): BoardL
         .map((id) => titleById.get(id))
         .filter((t): t is string => t !== undefined),
       persona: (leaf.personaId && personaById.get(leaf.personaId)) || null,
-      language: leaf.language ?? null,
       parent: (leaf.parentLeafId && titleById.get(leaf.parentLeafId)) || null,
     }));
 }

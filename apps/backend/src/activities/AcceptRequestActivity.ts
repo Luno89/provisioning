@@ -79,7 +79,7 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
     await workspaces.create({
       leafId: workspaceId,
       ownerId,
-      image: imageForLanguage(leaves.find((l) => l.language)?.language),
+      image: imageForLanguage(undefined),
       /**
        * Gitea to clone with, and the open internet to run in.
        *

@@ -28,9 +28,9 @@ import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { agentRunOptions } from '../lib/agent-run.js';
 import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
+import type { WorkspaceLanguage } from '../lib/workspace-spec.js';
 import { MERGER_PERSONA } from '../lib/well-known-personas.js';
 import { resolveConfig } from '../lib/personas.js';
-import { imageForLanguage } from '../lib/workspace-spec.js';
 import {
   buildLandingSetupScript, buildMergeOneScript, buildMergeCompleteScript, parseLandingMerge, buildMergeTask,
 } from '../lib/merge-agent.js';
@@ -83,7 +83,6 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     repos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
     checkout = await repos.checkoutCredential(ownerId, project);
 
-    const language = outstanding[0]!.language;
     /**
      * The Merger, by name — NOT the adopted profile's persona.
      *
@@ -107,11 +106,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
      * something other than a persona — and it is the persona that knows it needs git and somewhere
      * to push. The outstanding leaf's toolchain is the fallback, for a Merger that names none.
      */
-    await workspaces.create(personaWorkspace(
-      persona,
-      { leafId: workspaceId, ownerId },
-      { image: imageForLanguage(language) },
-    ));
+    await workspaces.create(personaWorkspace(persona, { leafId: workspaceId, ownerId }));
 
     const cleanUrl = `${gitea.internalBaseUrl}/${project.giteaOwner}/${project.giteaRepo}.git`;
     const cloned = await workspaces.exec(workspaceId, [
@@ -138,6 +133,14 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const profile = await db.getHarnessProfile(ownerId);
+    /**
+     * The Merger's toolchain, used for its prompt AND for the post-merge test run.
+     *
+     * Landing does not only resolve conflicts: it runs the merged tree's suite afterwards, which
+     * needs the project's toolchain. A project in another language wants a "Merger (go)" variant
+     * for the same reason a build does — the toolchain is environment and environment is the record.
+     */
+    const language = persona?.scope?.language as WorkspaceLanguage | undefined;
     const resolved = resolveConfig(profile, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen);

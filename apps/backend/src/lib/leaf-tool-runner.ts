@@ -236,23 +236,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       return JSON.stringify({ updated: { id: leaf.id, projectId: project.id, repo: `${project.giteaOwner}/${project.giteaRepo}` } });
     }
 
-    if (call.name === 'set_leaf_workspace') {
-      const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-      if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-      if (!isWorkspaceLanguage(args.language)) {
-        return JSON.stringify({ error: `Unknown language. Choose one of: ${Object.keys(WORKSPACE_IMAGES).join(', ')}.` });
-      }
-      // Allowed while proposed OR pending — unlike the text, the toolchain can still be corrected
-      // after a human accepts, right up until the sandbox is built from it. After that the work
-      // is already running somewhere and changing the image would mean nothing.
-      if (leaf.status !== 'proposed' && leaf.status !== 'pending') {
-        return JSON.stringify({ error: `That leaf is already ${leaf.status}; its sandbox exists and cannot be changed.` });
-      }
-      await db.saveLeaf({ ...leaf, language: args.language, updatedAt: new Date().toISOString() });
-      return JSON.stringify({ updated: { id: leaf.id, language: args.language, image: imageForLanguage(args.language) } });
-    }
-
-    // Both editing verbs stop at 'proposed'. Once a human has accepted a leaf there may be a
+// Both editing verbs stop at 'proposed'. Once a human has accepted a leaf there may be a
     // workflow running against its text, and the model rewriting or deleting it underneath would
     // change what the work means after the person agreed to it.
     if (call.name === 'replace_leaf') {

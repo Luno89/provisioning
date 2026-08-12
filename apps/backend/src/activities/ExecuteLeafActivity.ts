@@ -28,7 +28,7 @@ import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { resolveConfig } from '../lib/personas.js';
 import { flattenPersona, usesRepo, personaWorkspace } from '../lib/persona-scope.js';
-import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
+import type { WorkspaceLanguage } from '../lib/workspace-spec.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -452,13 +452,13 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           model: provider.model,
           ...(provider.kind ? { kind: provider.kind } : {}),
           /**
-           * What the container ACTUALLY is, not what the leaf asked for.
+           * What the container ACTUALLY is.
            *
-           * This drives the prompt's description of the available toolchain. The persona decides
-           * the image, so taking the language from the leaf could tell an agent it has Go while it
-           * is sitting in the base image — a claim it would only discover by a command failing.
+           * Drives the prompt's description of the available toolchain, and comes from the same
+           * field that chose the image — so the agent cannot be told it has Go while sitting in the
+           * base image, which it would otherwise discover only when a command failed.
            */
-          language: (persona?.scope?.language as typeof leaf.language) ?? leaf.language,
+          ...(persona?.scope?.language ? { language: persona.scope.language as WorkspaceLanguage } : {}),
           // Everything the persona decides — toolset, budget, pacing, withdrawal — plus the parts
           // only this caller knows. One assembly, shared with the Lab and the landing resolver,
           // because three hand-maintained copies of it drifted in three different directions.
@@ -539,13 +539,13 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * picking now.
          */
         let verify: VerifyResult = { outcome: 'unverified', output: '' };
-        const verifyCommand = wantsRepo ? (leaf.verifyCommand?.trim() || defaultVerifyCommand(leaf.language)) : '';
+        const verifyCommand = wantsRepo ? (leaf.verifyCommand?.trim() || defaultVerifyCommand(persona?.scope?.language as WorkspaceLanguage)) : '';
         if (outputPath) {
           const verdict = assessFindings(findings, outputPath, persona?.scope?.requireSources !== false);
           verify = { outcome: verdict.outcome, output: verdict.reason };
         } else if (verifyCommand) {
           verify = await workspaces
-            .exec(leaf.id, buildVerifyScript(verifyCommand, leaf.language), 300_000)
+            .exec(leaf.id, buildVerifyScript(verifyCommand, persona?.scope?.language as WorkspaceLanguage), 300_000)
             .then((r) => parseVerifyResult(r.stdout))
             .catch(() => ({ outcome: 'unverified' as const, output: '' }));
         }

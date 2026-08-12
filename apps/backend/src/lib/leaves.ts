@@ -170,16 +170,14 @@ export interface Leaf {
 
   personaId?: string;
   /**
-   * Which sandbox image this leaf's work runs in.
+   * The persona that will do this work, and therefore the whole environment it runs in.
    *
-   * Per-leaf rather than per-branch: one plan routinely mixes a Go service with a Python script,
-   * and forcing a whole branch onto one toolchain would make the model propose around the
-   * limitation instead of describing the work.
-   *
-   * Absent means the default. Stored as a language, never an image reference, so the catalogue can
-   * be repinned without rewriting historical leaves.
+   * There used to be a `language` here as well, chosen per leaf. It stopped meaning anything when
+   * the persona took over the image, leaving a stored field the planner could set and nothing
+   * honoured. A plan that mixes a Go service with a Python script names a different persona for
+   * each — "Builder (go)" and "Builder (python)" — which says the same thing in the one place that
+   * decides it.
    */
-  language?: WorkspaceLanguage;
   /** The Temporal workflow backing this leaf, once started. */
   workflowId?: string;
   projectId?: string;
