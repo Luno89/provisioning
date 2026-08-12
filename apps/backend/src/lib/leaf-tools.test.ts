@@ -104,17 +104,21 @@ describe('LEAF_TOOLS', () => {
     ]);
   });
 
-  it('offers no way to set a toolchain, because the persona is the toolchain', () => {
+  it('lets only a PROJECT declare a toolchain, never a leaf or a persona', () => {
     /**
-     * `set_leaf_workspace` and the `language` parameter both outlived their meaning: once the
-     * persona chose the image, they were a promise the harness no longer honoured. A project in
-     * another language names "Builder (go)" instead — the choice is still there, made in the one
-     * place that acts on it.
+     * A toolchain is a dependency of the code, so it belongs to the thing that holds the code. Every
+     * persona working in a Go repository needs Go — the framer reading it, the builder writing it,
+     * the merger running its tests — which is one fact about the project rather than one about each
+     * of them.
+     *
+     * `set_leaf_workspace` and `propose_leaf`'s `language` were the other arrangement, and both
+     * stopped meaning anything the moment something else chose the image.
      */
     expect(LEAF_TOOLS.map((t) => t.function.name)).not.toContain('set_leaf_workspace');
-    for (const tool of LEAF_TOOLS) {
-      expect(Object.keys((tool.function.parameters as any)?.properties ?? {})).not.toContain('language');
-    }
+    const takesLanguage = LEAF_TOOLS
+      .filter((t) => 'language' in ((t.function.parameters as any)?.properties ?? {}))
+      .map((t) => t.function.name);
+    expect(takesLanguage).toEqual(['create_project']);
   });
 
   it('never lets the model name whose project it is', () => {

@@ -287,7 +287,13 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * A persona that needs a different toolchain is a different persona — `basedOn` makes that a
        * record with one changed field rather than a copy.
        */
-      await workspaces.create(personaWorkspace(persona, { leafId: leaf.id, ownerId: leaf.ownerId }));
+      await workspaces.create(personaWorkspace(
+        persona,
+        { leafId: leaf.id, ownerId: leaf.ownerId },
+        // What the CODE needs. A persona brings its tools, its network and its budget; the project
+        // brings the toolchain, because every persona working in a Go repository needs Go.
+        { language: project?.language },
+      ));
 
       try {
         let taskContext = context;

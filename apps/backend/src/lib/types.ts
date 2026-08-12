@@ -282,6 +282,22 @@ export interface ProjectMetadata {
   ownerId?: string;
   targetClusterId?: string;
   targetNamespace?: string;
+  /**
+   * The toolchain this project's code needs to build and run.
+   *
+   * ── WHY HERE AND NOT ON THE PERSONA ──
+   * A persona is an agent's environment: its tools, its network, its budget, its prompt. A
+   * toolchain is a dependency of the CODE. Conflating them produced "Builder (go)" and
+   * "Builder (python)" — the same worker duplicated per workpiece, which multiplies with every
+   * project and says nothing about how the agent behaves.
+   *
+   * A tree uses many personas: one frames the questions, one researches, one builds, one lands the
+   * result. All of them working in a Go repository need Go. That is one fact about the project, not
+   * four facts about four agents.
+   *
+   * Absent takes the platform default.
+   */
+  language?: string;
   appType: string; // deploy target app type once a build is promoted (see gitapp construct)
   autoDeployOnBuild?: boolean; // default false — see RunPipelineActivity's promote step
   webhookSecretEnc?: string; // AES-256-GCM encrypted (crypto.ts) — HMAC key for verifying Gitea's push webhook signature

@@ -116,10 +116,19 @@ export function flattenPersona<T extends Pick<Persona, 'id' | 'basedOn' | 'syste
 export function personaWorkspace(
   persona: Pick<Persona, 'scope'> | null | undefined,
   ids: { leafId: string; ownerId: string },
-  fallback: { image?: string | undefined } = {},
+  /**
+   * What the WORK needs, as opposed to what the agent needs.
+   *
+   * A project's toolchain wins over the persona's own, because a Go repository needs Go whichever
+   * persona is standing in it. The persona's `language` is what it runs in when there is no project
+   * at all — a Researcher writing prose does not need a compiler, and should not inherit one from
+   * whatever it happens to be working alongside.
+   */
+  work: { language?: string | undefined } = {},
 ): WorkspaceSpec {
   const scope = persona?.scope;
-  const image = scope?.language ? imageForLanguage(scope.language as WorkspaceLanguage) : fallback.image;
+  const language = work.language ?? scope?.language;
+  const image = language ? imageForLanguage(language as WorkspaceLanguage) : undefined;
   return {
     leafId: ids.leafId,
     ownerId: ids.ownerId,

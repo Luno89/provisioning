@@ -560,7 +560,7 @@ export class ExperimentService {
       await this.workspaces.create(personaWorkspace(
         variantPersona,
         { leafId: runId, ownerId: experiment.ownerId },
-        { image: imageForLanguage(language) },
+        { language },
       ));
 
       /**

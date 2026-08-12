@@ -106,7 +106,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
      * something other than a persona — and it is the persona that knows it needs git and somewhere
      * to push. The outstanding leaf's toolchain is the fallback, for a Merger that names none.
      */
-    await workspaces.create(personaWorkspace(persona, { leafId: workspaceId, ownerId }));
+    await workspaces.create(personaWorkspace(persona, { leafId: workspaceId, ownerId }, { language: project.language }));
 
     const cleanUrl = `${gitea.internalBaseUrl}/${project.giteaOwner}/${project.giteaRepo}.git`;
     const cloned = await workspaces.exec(workspaceId, [
@@ -140,7 +140,14 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
      * needs the project's toolchain. A project in another language wants a "Merger (go)" variant
      * for the same reason a build does — the toolchain is environment and environment is the record.
      */
-    const language = persona?.scope?.language as WorkspaceLanguage | undefined;
+    /**
+     * The PROJECT's toolchain, for the prompt and for the post-merge test run.
+     *
+     * Landing does not only resolve conflicts: it runs the merged tree's suite, and that needs
+     * whatever the code is written in. The Merger's own language is only a fallback for a project
+     * that never stated one.
+     */
+    const language = (project.language ?? persona?.scope?.language) as WorkspaceLanguage | undefined;
     const resolved = resolveConfig(profile, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen);

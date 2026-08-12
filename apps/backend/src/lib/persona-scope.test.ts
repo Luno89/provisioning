@@ -117,13 +117,23 @@ describe('the container a persona runs in', () => {
     expect(spec.image).toContain('go-toolset');
   });
 
-  it('falls back only for what the persona did not state', () => {
-    // A persona that names no image gets the caller's, rather than the platform default — the leaf
-    // still knows what toolchain its work needs.
-    const spec = personaWorkspace(p('Plain'), ids, { image: 'node:22' });
-    expect(spec.image).toBe('node:22');
-    expect(spec.cpu).toBeUndefined();
-    expect(spec.memory).toBeUndefined();
+  it("lets the project's toolchain win over the persona's own", () => {
+    /**
+     * A Go repository needs Go whichever persona is standing in it. The persona's language is what
+     * it runs in when there is no project — a Researcher writing prose should not inherit a
+     * compiler from whatever it happens to be working alongside.
+     */
+    const spec = personaWorkspace(p('Builder', { language: 'node' }), ids, { language: 'go' });
+    expect(spec.image).toContain('go-toolset');
+  });
+
+  it("uses the persona's own toolchain when there is no project", () => {
+    expect(personaWorkspace(p('Researcher', { language: 'base' }), ids).image).toContain('ubi');
+  });
+
+  it('carries no image at all when neither says', () => {
+    // The platform default applies downstream; inventing one here would hide that nobody chose.
+    expect(personaWorkspace(p('Plain'), ids).image).toBeUndefined();
   });
 
   it('distinguishes an unstated network from a deliberately closed one', () => {

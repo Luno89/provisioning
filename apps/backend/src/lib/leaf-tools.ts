@@ -1,3 +1,4 @@
+import { WORKSPACE_IMAGES, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 /**
  * Tools the model can call to inspect and grow a branch.
  *
@@ -276,6 +277,21 @@ export const LEAF_TOOLS = [
         properties: {
           name: { type: 'string', description: 'Short name, e.g. "invoice-parser". Lowercased and hyphenated automatically.' },
           description: { type: 'string', description: 'One line on what it is for.' },
+          /**
+           * The toolchain belongs to the PROJECT, not to whoever works in it.
+           *
+           * Every persona standing in a Go repository needs Go — the framer reading it, the builder
+           * writing it, the merger running its tests. That is one fact about the project rather
+           * than one about each of them.
+           */
+          language: {
+            type: 'string',
+            enum: Object.keys(WORKSPACE_IMAGES),
+            description:
+              'What this project is written in, so every persona working in it gets the right '
+              + `toolchain. Defaults to "${DEFAULT_WORKSPACE_LANGUAGE}". `
+              + Object.entries(WORKSPACE_IMAGES).map(([name, entry]) => `"${name}": ${entry.summary}`).join(' '),
+          },
         },
         required: ['name'],
       },

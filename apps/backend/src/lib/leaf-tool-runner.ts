@@ -21,7 +21,7 @@ import { usableAcceptancePlan } from './acceptance.js';
 import { rewireDependents } from './plan-review.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
-import { imageForLanguage, isWorkspaceLanguage, WORKSPACE_IMAGES } from './workspace-spec.js';
+import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 
 export interface LeafToolCall {
   name: string;
@@ -215,9 +215,16 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         ...(typeof args.description === 'string' && args.description.trim()
           ? { description: args.description.trim().slice(0, 300) }
           : {}),
+        // Validated rather than trusted: it arrives as untrusted JSON, and an unrecognised
+        // toolchain would resolve to no image at all.
+        ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
       });
       return JSON.stringify({
-        created: { id: project.id, name: project.name, repo: `${project.giteaOwner}/${project.giteaRepo}` },
+        created: {
+          id: project.id, name: project.name, repo: `${project.giteaOwner}/${project.giteaRepo}`,
+          // Echoed, so a dropped language is visible rather than silently becoming the default.
+          language: project.language ?? DEFAULT_WORKSPACE_LANGUAGE,
+        },
       });
     }
 

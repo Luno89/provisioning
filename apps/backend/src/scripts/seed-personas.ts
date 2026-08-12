@@ -171,14 +171,6 @@ const SEEDS: Seed[] = [
       tools: ['run_command', 'read_file', 'write_file', 'finish'],
       repo: true,
       egress: [{ namespace: 'gitea', ports: [3000] }],
-      /**
-       * Not `base`, though resolving a conflict compiles nothing.
-       *
-       * Landing runs the merged tree's test suite afterwards, and that needs the project's
-       * toolchain. A project in another language wants a "Merger (go)" variant for exactly the
-       * reason a build does.
-       */
-      language: 'node',
       tunedFor: TUNED_FOR,
       // Conflicts are read and edited, not investigated. A long budget here buys rewriting.
       run: { maxSteps: 30 },
@@ -205,9 +197,6 @@ const SEEDS: Seed[] = [
        * writing code.
        */
       tools: ['run_command', 'read_file', 'write_file', 'finish'],
-      // The default toolchain. A project needing another is a variant below, not a parameter —
-      // the toolchain is environment, and environment is the record.
-      language: 'node',
       // It works in the repository, so it says so — and opens the one hole its clone and push need.
       // Gitea by NAMESPACE, never by address: kube-proxy rewrites the destination before the policy
       // is evaluated, so a NodePort CIDR rule silently fails closed.
@@ -231,27 +220,14 @@ const SEEDS: Seed[] = [
  * relying on it, which loses the work: a sandbox is destroyed when its leaf ends, so a builder that
  * cannot push has nothing left. They are named here and given explicitly what they had implicitly.
  */
-const LEGACY_CODE_PERSONAS = ['Coder', 'Orchestrator', 'Debugger', 'Designer'];
-
-/**
- * Builders for the toolchains a project can be written in.
- *
- * ── WHY THESE ARE PERSONAS AND NOT A PARAMETER ──
- * The toolchain decides the image, which is environment, and environment lives on the record. A
- * `language` parameter on propose_leaf meant the same persona ran in different containers depending
- * on what a caller passed — and it silently stopped working when the persona took over the image,
- * leaving a tool that promised a choice it no longer honoured.
- *
- * Derived rather than copied. Each is a name and one field; everything else — the prompt, the
- * toolset, the repository, the Gitea rule — stays with the parent, so fixing the Builder fixes all
- * of them. A copy would drift from its original the first time either was edited.
- *
- * Only for personas the toolchain actually changes. A Researcher never compiles anything, and
- * "Researcher (Go)" would be sprawl with no environment behind it.
- */
-const BUILDER_TOOLCHAINS: { language: string; summary: string }[] = [
-  { language: 'python', summary: 'Python 3 toolchain.' },
-  { language: 'go', summary: 'Go toolchain.' },
+const RETIRED_PERSONAS = [
+  // Superseded by role personas that state their own environment. These carried a prompt and
+  // nothing else, so any leaf assigned one ran in whatever the caller happened to build.
+  'Coder', 'Orchestrator', 'Debugger', 'Designer',
+  // The conflation: a worker duplicated per workpiece. A toolchain is a dependency of the code, so
+  // it belongs to the project — every persona working in a Go repository needs Go, which is one
+  // fact about the project rather than one persona each.
+  'Builder (python)', 'Builder (go)',
 ];
 
 async function main() {
@@ -261,23 +237,15 @@ async function main() {
   const now = new Date().toISOString();
 
   /**
-   * Recorded before the default changed under them, not overwritten wholesale.
+   * Retired, not left to rot.
    *
-   * Only the fields they were relying on are set; anything else on those records is somebody's
-   * deliberate configuration and is not this script's to touch.
+   * A persona nobody deletes is one the planner can still pick, and these describe an environment
+   * that no longer exists. Leaves already assigned one keep their record — the id stays valid on
+   * finished work — but nothing new can be handed to them.
    */
-  for (const legacy of existing.filter((p) => LEGACY_CODE_PERSONAS.includes(p.name))) {
-    if (legacy.scope?.repo !== undefined) continue;
-    await mongo.savePersona({
-      ...legacy,
-      scope: {
-        ...legacy.scope,
-        repo: true,
-        egress: legacy.scope?.egress ?? [{ namespace: 'gitea', ports: [3000] }],
-      },
-      updatedAt: now,
-    });
-    console.log(`migrated  ${legacy.name.padEnd(12)} repo=true (was relying on the old default)`);
+  for (const stale of existing.filter((p) => RETIRED_PERSONAS.includes(p.name))) {
+    await mongo.deletePersona(stale.id);
+    console.log(`retired   ${stale.name}`);
   }
 
   for (const seed of SEEDS) {
@@ -292,33 +260,6 @@ async function main() {
     await mongo.savePersona(persona);
     console.log(`${prior ? 'updated' : 'created'}  ${persona.name.padEnd(12)} tools=${persona.scope?.tools?.join(',') ?? '(all)'}`);
   }
-  /**
-   * The toolchain variants, after their parent exists so `basedOn` can point at it.
-   *
-   * Idempotent like everything else here: matched by name, so re-running does not leave two
-   * "Builder (go)" records competing to be chosen.
-   */
-  const parent = (await mongo.getPersonas()).find((p) => p.ownerId === OWNER && p.name === 'Builder');
-  if (parent) {
-    for (const variant of BUILDER_TOOLCHAINS) {
-      const name = `Builder (${variant.language})`;
-      const prior = (await mongo.getPersonas()).find((p) => p.ownerId === OWNER && p.name === name);
-      await mongo.savePersona({
-        id: prior?.id ?? uuidv4(),
-        ownerId: OWNER,
-        name,
-        description: `Builder, in the ${variant.summary}`,
-        basedOn: parent.id,
-        overrides: {},
-        // The ONE thing that differs. Everything else is inherited at run time.
-        scope: { language: variant.language },
-        createdAt: prior?.createdAt ?? now,
-        updatedAt: now,
-      } as Persona);
-      console.log(`${prior ? 'updated' : 'created'}  ${name.padEnd(20)} basedOn=Builder language=${variant.language}`);
-    }
-  }
-
   process.exit(0);
 }
 

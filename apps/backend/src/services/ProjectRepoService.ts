@@ -68,7 +68,7 @@ export class ProjectRepoService {
   async register(
     ownerId: string,
     name: string,
-    opts: { description?: string } = {},
+    opts: { description?: string; language?: string } = {},
   ): Promise<ProjectMetadata> {
     const repoName = sanitiseRepoName(name);
 
@@ -95,6 +95,8 @@ export class ProjectRepoService {
       ownerId,
       giteaOwner: username,
       giteaRepo: repoName,
+      // What the CODE needs, recorded once here rather than on every persona that works in it.
+      ...(opts.language ? { language: opts.language } : {}),
       appType: 'generic',
       createdAt: new Date().toISOString(),
     };

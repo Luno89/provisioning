@@ -1662,7 +1662,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.post('/api/projects', async (req, res) => {
     try {
-      const { name, giteaOwner, giteaRepo, createRepo, targetClusterId, targetNamespace, autoDeployOnBuild } = req.body;
+      const { name, giteaOwner, giteaRepo, createRepo, targetClusterId, targetNamespace, autoDeployOnBuild, language } = req.body;
       if (!name || !giteaRepo) return res.status(400).json({ error: 'name and giteaRepo are required' });
 
       // A NEW repository is created under the requesting user's own Gitea account, not the shared
@@ -1704,6 +1704,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         giteaOwner: owner,
         giteaRepo,
         ownerId: (req as any).user.id,
+        // What the CODE needs. Every persona working in this repository gets it, which is why it
+        // is recorded here rather than on any of them.
+        ...(isWorkspaceLanguage(language) ? { language } : {}),
         appType: 'gitapp',
         ...(targetClusterId ? { targetClusterId } : {}),
         ...(targetNamespace ? { targetNamespace } : {}),
