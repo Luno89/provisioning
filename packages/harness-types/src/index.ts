@@ -658,6 +658,25 @@ export interface PersonaScope {
    * the persona is permitted to be asked. Absent leaves the caller's own default.
    */
   language?: string;
+  /** CPU limit for the sandbox, e.g. "2". Absent takes the platform default. */
+  cpu?: string;
+  /** Memory limit for the sandbox, e.g. "2Gi". Absent takes the platform default. */
+  memory?: string;
+  /**
+   * Variables injected into the container.
+   *
+   * ── WHY THESE LIVE ON THE PERSONA ──
+   * If a persona needs something present in its container — a token, an endpoint, a flag that turns
+   * a tool on — that requirement belongs to the persona, not to whatever code happened to create
+   * the sandbox. The alternative is what this codebase already had: a caller deciding, from the
+   * shape of the work, what the environment should contain, so the same persona got a different
+   * container depending on where it was run from.
+   *
+   * Applied AFTER the fixed toolchain variables (HOME, the cache paths), so a persona can override
+   * one deliberately. Those exist because a read-only root filesystem breaks every toolchain that
+   * wants somewhere to cache; overriding them is a choice, not an accident.
+   */
+  env?: { name: string; value: string }[];
   /**
    * Whether the project's repository is checked out into the sandbox.
    *

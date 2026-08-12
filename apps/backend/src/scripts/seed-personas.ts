@@ -61,6 +61,7 @@ const SEEDS: Seed[] = [
       egress: [],
       // No repository: it produces a list of questions, not files in a project.
       repo: false,
+      language: 'base',
       output: '/work/questions.md',
       // The questions are its own reasoning, not something it looked up.
       requireSources: false,
@@ -87,6 +88,9 @@ const SEEDS: Seed[] = [
     ].join('\n'),
     scope: {
       repo: false,
+      // Nothing is compiled here, so the smallest image is the right one — a persona that writes
+      // prose does not need a Go toolchain to do it.
+      language: 'base',
       output: '/work/findings.md',
       tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
       /**
@@ -135,6 +139,7 @@ const SEEDS: Seed[] = [
     ].join('\n'),
     scope: {
       repo: false,
+      language: 'base',
       output: '/work/findings.md',
       // It is handed the sources; it does not go and find more. Requiring URLs it never fetched
       // would fail honest work, so the sources rule is off and the prompt carries them through.

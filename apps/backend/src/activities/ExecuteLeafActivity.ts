@@ -27,7 +27,7 @@ import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { resolveConfig } from '../lib/personas.js';
-import { flattenPersona, usesRepo } from '../lib/persona-scope.js';
+import { flattenPersona, usesRepo, personaWorkspace } from '../lib/persona-scope.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
@@ -265,24 +265,26 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       // Deterministic from the leaf id, so a retry after a worker crash reuses the namespace
       // rather than leaking the last attempt's.
       await workspaces.destroy(leaf.id).catch(() => undefined);
+      /**
+       * The container comes off the persona record, and from nothing else.
+       *
+       * This used to derive the image from the leaf's language and the network from whether a
+       * checkout had happened — so the same persona got a different sandbox depending on the work
+       * it was attached to. The leaf's own language is a fallback for a persona that does not name
+       * one, and the Gitea rule is added only when a repository is actually being cloned into it.
+       */
+      const workspace = personaWorkspace(
+        persona,
+        { leafId: leaf.id, ownerId: leaf.ownerId },
+        { image: imageForLanguage(leaf.language) },
+      );
       await workspaces.create({
-        leafId: leaf.id,
-        ownerId: leaf.ownerId,
-        image: imageForLanguage(leaf.language),
-        // The pod port, and a namespace selector rather than an address — a NodePort CIDR rule
-        // silently fails closed because kube-proxy DNATs before policy evaluation.
-        /**
-         * The persona decides what its sandbox may reach; the checkout default applies only when it
-         * does not say.
-         *
-         * Egress used to be a property of the JOB — a leaf with a checkout got Gitea, everything
-         * else got nothing — so what a persona could reach depended on what it happened to be
-         * attached to. An empty list is a real answer meaning "open nothing", which is why this
-         * tests for the key rather than for length.
-         */
-        ...(persona?.scope?.egress
-          ? { egress: persona.scope.egress as EgressRule[] }
-          : checkout ? { egress: [{ namespace: 'gitea', ports: [3000] }] } : {}),
+        ...workspace,
+        ...(workspace.egress || !checkout
+          ? {}
+          // The clone needs Gitea reachable. Only when the persona left the network unstated —
+          // a persona that declared its own egress has already answered this.
+          : { egress: [{ namespace: 'gitea', ports: [3000] }] }),
       });
 
       try {

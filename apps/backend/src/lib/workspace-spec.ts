@@ -108,6 +108,14 @@ export interface WorkspaceSpec {
   memory?: string;
   /** Hosts the sandbox may reach, as CIDRs and ports. Empty means DNS only. */
   egress?: EgressRule[];
+  /**
+   * Variables to inject, on top of the fixed toolchain ones.
+   *
+   * Last, so a caller that deliberately overrides HOME or a cache path wins. Those defaults exist
+   * because a read-only root filesystem breaks any toolchain that wants somewhere to write, so
+   * replacing one is a decision rather than an oversight.
+   */
+  env?: { name: string; value: string }[];
 }
 
 /**
@@ -223,6 +231,9 @@ export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unk
               { name: 'GOMODCACHE', value: `${WORKSPACE_MOUNT}/.cache/go-mod` },
               { name: 'npm_config_cache', value: `${WORKSPACE_MOUNT}/.npm` },
               { name: 'PIP_CACHE_DIR', value: `${WORKSPACE_MOUNT}/.cache/pip` },
+              // A later entry with the same name wins in Kubernetes, so a caller's own value
+              // overrides the default above rather than being silently ignored.
+              ...(spec.env ?? []),
             ],
             securityContext: {
               allowPrivilegeEscalation: false,

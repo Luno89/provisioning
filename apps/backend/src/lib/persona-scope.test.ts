@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allowedTools, usesRepo, flattenPersona } from './persona-scope.js';
+import { allowedTools, usesRepo, flattenPersona, personaWorkspace } from './persona-scope.js';
 import type { Persona } from '@koala/harness-types';
 
 const p = (name: string, scope?: Persona['scope']) => ({ name, ...(scope ? { scope } : {}) });
@@ -91,5 +91,45 @@ describe('a persona defined as "that one, but ..."', () => {
     const a: Flat = { id: 'a', name: 'A', overrides: {}, basedOn: 'b' };
     const b: Flat = { id: 'b', name: 'B', overrides: {}, basedOn: 'a' };
     expect(flattenPersona(a, [a, b]).name).toBe('A');
+  });
+});
+
+describe('the container a persona runs in', () => {
+  const ids = { leafId: 'leaf-1', ownerId: 'u1' };
+
+  it('takes everything it can from the record', () => {
+    const spec = personaWorkspace(
+      p('Heavy', { language: 'go', cpu: '4', memory: '8Gi', egress: [{ namespace: 'gitea', ports: [3000] }], env: [{ name: 'TOKEN', value: 'x' }] }),
+      ids,
+    );
+    expect(spec).toMatchObject({
+      leafId: 'leaf-1', ownerId: 'u1', cpu: '4', memory: '8Gi',
+      egress: [{ namespace: 'gitea', ports: [3000] }],
+      env: [{ name: 'TOKEN', value: 'x' }],
+    });
+    expect(spec.image).toContain('go-toolset');
+  });
+
+  it('falls back only for what the persona did not state', () => {
+    // A persona that names no image gets the caller's, rather than the platform default — the leaf
+    // still knows what toolchain its work needs.
+    const spec = personaWorkspace(p('Plain'), ids, { image: 'node:22' });
+    expect(spec.image).toBe('node:22');
+    expect(spec.cpu).toBeUndefined();
+    expect(spec.memory).toBeUndefined();
+  });
+
+  it('distinguishes an unstated network from a deliberately closed one', () => {
+    /**
+     * Absent leaves the caller free to open what a clone needs; empty is a persona saying "open
+     * nothing". Collapsing the two would either strand a builder that cannot reach Gitea or quietly
+     * give the network back to a persona that refused it.
+     */
+    expect(personaWorkspace(p('Unstated'), ids).egress).toBeUndefined();
+    expect(personaWorkspace(p('Closed', { egress: [] }), ids).egress).toEqual([]);
+  });
+
+  it('carries nothing extra for a persona that declares nothing', () => {
+    expect(personaWorkspace(null, ids)).toEqual({ leafId: 'leaf-1', ownerId: 'u1' });
   });
 });

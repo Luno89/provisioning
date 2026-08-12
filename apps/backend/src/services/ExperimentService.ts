@@ -22,7 +22,7 @@ import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
-import { flattenPersona } from '../lib/persona-scope.js';
+import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
 import { boardFile } from '../lib/planning-board.js';
 import type { LeafToolContext } from '../lib/leaf-tool-runner.js';
@@ -550,14 +550,18 @@ export class ExperimentService {
         );
       }
 
-      await this.workspaces.create({
-        // The persona's own network policy, exactly as a leaf gets it. An empty list is a real
-        // answer meaning "open nothing", so this tests for the key rather than for length.
-        ...(variantPersona?.scope?.egress ? { egress: variantPersona.scope.egress as EgressRule[] } : {}),
-        leafId: runId,
-        ownerId: experiment.ownerId,
-        image: imageForLanguage(language),
-      });
+      /**
+       * The same container a leaf would get, built by the same function.
+       *
+       * The Lab used to assemble its own and pass no network at all, so an arm could win here in an
+       * environment no leaf ever runs in — which makes the result a fact about the bench rather
+       * than about the persona.
+       */
+      await this.workspaces.create(personaWorkspace(
+        variantPersona,
+        { leafId: runId, ownerId: experiment.ownerId },
+        { image: imageForLanguage(language) },
+      ));
 
       /**
        * The world the agent wakes up in.

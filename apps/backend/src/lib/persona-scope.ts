@@ -12,6 +12,7 @@
  * to do, because nothing here knows better than the planner what a persona is good for.
  */
 import type { Persona } from '@koala/harness-types';
+import { imageForLanguage, type EgressRule, type WorkspaceSpec, type WorkspaceLanguage } from './workspace-spec.js';
 
 /**
  * The tools a run should actually offer.
@@ -89,4 +90,40 @@ export function flattenPersona<T extends Pick<Persona, 'id' | 'basedOn' | 'syste
         }
       : {}),
   }), chain[chain.length - 1]!);
+}
+
+/**
+ * The sandbox a persona runs in — the ONE place a container's shape is decided.
+ *
+ * ── WHY THIS FUNCTION EXISTS ──
+ * Every caller used to assemble this itself. The leaf activity derived the image from the leaf's
+ * language and the network from whether a checkout had happened; the Lab derived the image from the
+ * experiment and passed no network at all. So the same persona got a different container depending
+ * on which code path reached it, and nothing in the system could say what environment a persona
+ * actually ran in.
+ *
+ * Everything the container is now comes off the record: its image, its limits, what it may reach on
+ * the network, and anything that has to be present inside it. A caller supplies only identity —
+ * which leaf, which owner — because that is the one thing a persona cannot know about itself.
+ *
+ * `egress` is passed through only when the persona declares it, because absent and empty mean
+ * different things: absent leaves the caller's default in place, while an empty list is a deliberate
+ * "open nothing".
+ */
+export function personaWorkspace(
+  persona: Pick<Persona, 'scope'> | null | undefined,
+  ids: { leafId: string; ownerId: string },
+  fallback: { image?: string | undefined } = {},
+): WorkspaceSpec {
+  const scope = persona?.scope;
+  const image = scope?.language ? imageForLanguage(scope.language as WorkspaceLanguage) : fallback.image;
+  return {
+    leafId: ids.leafId,
+    ownerId: ids.ownerId,
+    ...(image ? { image } : {}),
+    ...(scope?.cpu ? { cpu: scope.cpu } : {}),
+    ...(scope?.memory ? { memory: scope.memory } : {}),
+    ...(scope?.egress ? { egress: scope.egress as EgressRule[] } : {}),
+    ...(scope?.env?.length ? { env: scope.env } : {}),
+  };
 }
