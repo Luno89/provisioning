@@ -129,6 +129,15 @@ export interface AgentRunOptions {
    */
   web?: WebTools | undefined;
   /**
+   * The only tools this run may use, by name — normally a persona's saved list.
+   *
+   * Applied as an intersection with what the environment offers, so naming a tool that is not
+   * available does not conjure it. This is what makes a persona's toolset a fact about the run
+   * rather than a request: a persona that must not search is not asked politely to refrain, it is
+   * never handed a search tool.
+   */
+  allowTools?: string[] | undefined;
+  /**
    * What to tell the agent as its budget runs down, and when.
    *
    * Supplied by the caller because it depends on how the work is SAVED. The default says "commit
@@ -259,7 +268,17 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   if (opts.web) {
     for (const t of WEB_TOOLS) toolMap.set(t.function.name, t);
   }
-  const activeTools = Array.from(toolMap.values());
+  /**
+   * Intersected with the persona's declared list, when it has one.
+   *
+   * After the web tools are added, deliberately: a persona that declares web_search still only gets
+   * it when `web` was supplied, and a persona that declares nothing still gets everything. Filtering
+   * before this point would let the web tools slip back in underneath.
+   */
+  const offered = Array.from(toolMap.values());
+  const activeTools = opts.allowTools?.length
+    ? offered.filter((t) => opts.allowTools!.includes(t.function.name))
+    : offered;
 
   /**
    * Built through the shared builder, like every other model call.

@@ -18,7 +18,9 @@ import type { ModelService } from './ModelService.js';
 import { WorkspaceService } from './WorkspaceService.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
-import { imageForLanguage } from '../lib/workspace-spec.js';
+import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
+import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
+import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
@@ -540,6 +542,9 @@ export class ExperimentService {
       }
 
       await this.workspaces.create({
+        // The persona's own network policy, exactly as a leaf gets it. An empty list is a real
+        // answer meaning "open nothing", so this tests for the key rather than for length.
+        ...(variantPersona?.scope?.egress ? { egress: variantPersona.scope.egress as EgressRule[] } : {}),
         leafId: runId,
         ownerId: experiment.ownerId,
         image: imageForLanguage(language),
@@ -577,6 +582,30 @@ export class ExperimentService {
              * not the model.
              */
             web: await buildWebTools(this.db, experiment.ownerId),
+            /**
+             * A research task runs the configuration a research LEAF runs.
+             *
+             * The Lab passed none of these, so every arm got 40 steps and the code pacing note —
+             * "commit and push what you have NOW" — inside a sandbox with no repository. A bench
+             * that configures the agent differently from production measures the bench.
+             */
+            ...(task.kind === 'research'
+              ? {
+                  maxSteps: RESEARCH_AGENT_STEPS,
+                  pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
+                  withdrawTools: {
+                    afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2),
+                    names: WEB_TOOL_NAMES,
+                  },
+                }
+              : {}),
+            /**
+             * The variant's persona decides its toolset, exactly as a leaf's does.
+             *
+             * Without this an arm could win on the bench because its persona had a prompt, then
+             * behave differently in Koala where the same persona also loses half its tools.
+             */
+            ...(variantPersona?.scope?.tools?.length ? { allowTools: variantPersona.scope.tools } : {}),
             captureTrace: true,
             onStep: (agentStep) => this.emit('experiment-step', {
               experimentId: experiment.id,

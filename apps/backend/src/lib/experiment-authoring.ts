@@ -65,7 +65,7 @@ export interface DraftTask {
    * Which cycle the task exercises. Carried through the gate because the two are seeded
    * differently: a planning task's baseline is an empty board, not an absent one.
    */
-  kind?: 'sandbox' | 'planning';
+  kind?: 'sandbox' | 'planning' | 'research';
 }
 
 /**

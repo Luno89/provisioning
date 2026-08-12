@@ -27,7 +27,8 @@ import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { resolveConfig } from '../lib/personas.js';
-import { imageForLanguage } from '../lib/workspace-spec.js';
+import { personaFits, resolvePersona } from '../lib/persona-scope.js';
+import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -161,10 +162,49 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * A dangling id resolves to null and the leaf runs with no persona rather than failing —
        * deleting a persona must not break the leaves that already ran under it.
        */
-      const persona = leaf.personaId
-        ? (await db.getPersonas()).find((p) => p.id === leaf.personaId && p.ownerId === leaf.ownerId) ?? null
-        : null;
-      const resolved = resolveConfig(await db.getHarnessProfile(leaf.ownerId), persona);
+      const profile = await db.getHarnessProfile(leaf.ownerId);
+      /**
+       * The leaf's own persona, or the one promoted from the Lab.
+       *
+       * The fallback is what makes a promotion mean anything. Without it, a persona that won on the
+       * bench was written to the profile and read by nothing — the Lab could discover a better
+       * prompt and no leaf would ever run it unless someone assigned it by hand, every time.
+       *
+       * Leaf first, deliberately: an adopted default is a default, and work that named a persona
+       * has already made a more specific choice.
+       */
+      const isResearch = leaf.kind === 'research';
+      /**
+       * Work is handed to someone, so there is always a persona.
+       *
+       * Leaf first, then whatever won in the Lab, then the saved default for this kind of work. The
+       * old fallback was "no persona", which meant a sandbox configured entirely by what this
+       * activity happened to hardcode — the coupling the persona record exists to remove.
+       */
+      const persona = resolvePersona(
+        (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId),
+        { context: isResearch ? 'research' : 'code', language: leaf.language },
+        leaf.personaId,
+        profile?.personaId,
+      ) ?? null;
+
+      /**
+       * A persona pointed at work it does not suit is run anyway, and said so.
+       *
+       * Refusing would strand a leaf over a filing decision. Silence is what let the Framer — which
+       * must never search — spend a whole budget on a research leaf that hands out web tools.
+       */
+      if (persona) {
+        const verdict = personaFits(persona, {
+          context: isResearch ? 'research' : 'code',
+          language: leaf.language,
+          // Model deliberately omitted: `provider` is resolved below, and reordering that to satisfy
+          // an advisory warning would move a network call ahead of the checks that gate it.
+        });
+        if (verdict.reason) console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: ${verdict.reason}`);
+      }
+
+      const resolved = resolveConfig(profile, persona);
       /**
        * The prompt goes back into the bag here, unlike in chat.
        *
@@ -211,7 +251,6 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * test suite it will never have, so it came back unverified and the agent's own claim was
        * believed. Its answer is stored on the leaf record instead — see `findings`.
        */
-      const isResearch = leaf.kind === 'research';
       let project: ProjectMetadata | undefined;
       if (isResearch) {
         console.log(`[ExecuteLeafActivity] leaf ${leaf.id} is research — no repository`);
@@ -246,7 +285,18 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         image: imageForLanguage(leaf.language),
         // The pod port, and a namespace selector rather than an address — a NodePort CIDR rule
         // silently fails closed because kube-proxy DNATs before policy evaluation.
-        ...(checkout ? { egress: [{ namespace: 'gitea', ports: [3000] }] } : {}),
+        /**
+         * The persona decides what its sandbox may reach; the checkout default applies only when it
+         * does not say.
+         *
+         * Egress used to be a property of the JOB — a leaf with a checkout got Gitea, everything
+         * else got nothing — so what a persona could reach depended on what it happened to be
+         * attached to. An empty list is a real answer meaning "open nothing", which is why this
+         * tests for the key rather than for length.
+         */
+        ...(persona?.scope?.egress
+          ? { egress: persona.scope.egress as EgressRule[] }
+          : checkout ? { egress: [{ namespace: 'gitea', ports: [3000] }] } : {}),
       });
 
       try {
@@ -413,6 +463,14 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ...(provider.kind ? { kind: provider.kind } : {}),
           language: leaf.language,
           taskContext,
+          /**
+           * The persona's saved toolset, enforced rather than requested.
+           *
+           * Undefined when it declares none, which leaves the environment's own set intact. This is
+           * what stops a persona that must not search from being handed a search tool by the leaf
+           * kind's default — the pairing that cost a whole run.
+           */
+          ...(persona?.scope?.tools?.length ? { allowTools: persona.scope.tools } : {}),
           // Only research gets the web, and it gets a bigger budget to use it in — finding the
           // material is itself work, and the writing still has to happen afterwards. See
           // RESEARCH_AGENT_STEPS. An adopted profile's own maxSteps still wins over this.

@@ -193,6 +193,14 @@ export function buildPromotion(
     profile: {
       ownerId,
       overrides,
+      /**
+       * Carried, because it is often the thing that won.
+       *
+       * A variant is a named override bag AND optionally a persona, and promotion used to take only
+       * the bag. Cleared rather than inherited when the winning arm had no persona: keeping the
+       * previous one would attribute a win to a prompt that had nothing to do with it.
+       */
+      ...(variant.personaId ? { personaId: variant.personaId } : {}),
       from: {
         experimentId: experiment.id,
         experimentName: experiment.name,

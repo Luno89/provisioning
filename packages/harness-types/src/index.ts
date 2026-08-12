@@ -247,7 +247,18 @@ export interface ExperimentTask {
    * sandbox. The first experiment written against planning used a sandbox task and checked for a
    * file the sandbox loop has no tool to produce — this is what makes that unrepresentable.
    */
-  kind?: 'sandbox' | 'planning';
+  kind?: 'sandbox' | 'planning' | 'research';
+
+  /**
+   * `research` is `sandbox` configured the way a research LEAF is: web tools, the larger step
+   * budget, the pacing notes that talk about writing rather than committing, and the withdrawal of
+   * search halfway through.
+   *
+   * It exists because the Lab was benchmarking a different harness from the one that ships. It
+   * passed none of maxSteps, pacing or the toolset, so every arm ran 40 steps and was told to
+   * "commit and push what you have NOW" inside a sandbox with no repository — advice that is not
+   * merely useless but misleading, in every run of every experiment.
+   */
   seed?: TaskFile[];
   /**
    * A correct answer, for validation only.
@@ -509,6 +520,19 @@ export interface HarnessProfile {
   ownerId: string;
   /** Applied beneath a variant's own overrides, so a promoted value stays testable. */
   overrides: Overrides;
+  /**
+   * The persona the winning arm ran as, if it ran as one.
+   *
+   * ── WHY THIS IS HERE ──
+   * Promotion copied `overrides` and nothing else. An arm that won BECAUSE of its persona therefore
+   * handed Koala its sampling knobs and silently dropped the prompt that actually won — reporting a
+   * successful promotion the whole time. The Lab could discover something the product could never
+   * receive.
+   *
+   * Applied beneath a leaf's own persona, exactly as `overrides` sits beneath a variant's: adopting
+   * a default must not stop a specific piece of work choosing differently.
+   */
+  personaId?: string;
   from?: PromotionProvenance;
   /** Everything this profile used to be, oldest first. Bounded — see MAX_PROFILE_HISTORY. */
   history?: ProfileVersion[];
@@ -612,10 +636,102 @@ export interface HarnessConfig {
  * What it is NOT, yet: a router, a tool policy, or an actor that delegates. Those are real
  * features and each needs its own design; none of them are implied by giving a prompt a name.
  */
+/**
+ * Where a persona belongs.
+ *
+ * ── WHY THIS EXISTS ──
+ * A persona was a name, a prompt and some sampling, with nothing saying what it was FOR. So the
+ * "Framer" persona — whose whole job is turning one big question into several small ones, and which
+ * must never search — was attached to a research leaf, which grants web tools automatically. It
+ * spent its entire budget searching and produced nothing. Five hundred seconds, measured, for a
+ * pairing that never made sense.
+ *
+ * Every field is optional and absent means "anywhere". A persona written before this existed keeps
+ * working exactly as it did, and a genuinely general-purpose one never has to pretend otherwise.
+ */
+/** One hole in the sandbox's default-deny egress policy. Mirrors the backend's EgressRule. */
+export type PersonaEgressRule =
+  | { cidr: string; namespace?: undefined; ports?: number[] }
+  | { namespace: string; cidr?: undefined; ports?: number[] };
+
+export interface PersonaScope {
+  /**
+   * The job this persona is for.
+   *
+   * `planning` is the conversation that decides what work exists — it has the board tools and no
+   * sandbox. `code` and `research` are both execution, and differ in what the sandbox contains:
+   * one has a repository, the other has the web.
+   */
+  contexts?: ('planning' | 'code' | 'research')[];
+  /** Workspace toolchains this makes sense in. Absent = any. */
+  languages?: string[];
+  /**
+   * The tools this persona may use, by name.
+   *
+   * ── SAVED, NOT DERIVED ──
+   * The alternative was inferring a toolset from the kind of work: research gets the web, code gets
+   * the repository. That inference is what cost a run. The "Framer" persona turns one big question
+   * into several and must never search, but it was assigned to a research leaf, research grants web
+   * tools, and it spent its whole budget searching. Nothing was wrong with the persona or the leaf
+   * — the toolset was decided by neither of them.
+   *
+   * Stored on the record, so a persona that must not search cannot be handed a search tool by
+   * something else's default. Absent means "whatever the work provides", which is what every
+   * persona written before this did.
+   *
+   * An allowlist, not a request: the harness offers the INTERSECTION of this and what the
+   * environment actually has. Naming a tool that is not available does not conjure it.
+   */
+  tools?: string[];
+  /**
+   * The sandbox this persona expects: what it may reach on the network.
+   *
+   * ── WHY THIS IS ON THE PERSONA ──
+   * Egress was decided by the caller from the shape of the work — a leaf with a checkout got Gitea,
+   * everything else got nothing. So what a persona could reach was a property of the job it happened
+   * to be attached to, and the persona itself had no say in the environment it needs. That is the
+   * same mistake as deriving its toolset: the two are one decision, and both belong on the record.
+   *
+   * Absent means the caller's own default, which is what every persona written before this got.
+   * Empty means DEFAULT-DENY with nothing opened, which is a real and different choice — a persona
+   * that must not reach the network says so with `[]`.
+   *
+   * The base policy is deny-all with DNS excepted; these are holes in it. The namespace form is the
+   * one to reach for: a NodePort address does not work as a `cidr` because kube-proxy rewrites the
+   * destination before the policy is evaluated, and the rule silently fails closed.
+   */
+  egress?: PersonaEgressRule[];
+  /**
+   * The contexts this persona is the fallback for.
+   *
+   * There is no such thing as an unassigned leaf: work is handed TO someone. The planner picks a
+   * persona when it proposes a leaf, and when it does not, the answer has to be a real persona with
+   * a real environment rather than "none" — because "none" meant a bare sandbox with whatever
+   * defaults the caller happened to hardcode, which is the thing this whole record exists to stop.
+   *
+   * At most one persona should claim each context. Two is an authoring mistake, resolved by name
+   * order so the behaviour is at least deterministic while it is wrong.
+   */
+  defaultFor?: ('planning' | 'code' | 'research')[];
+  /**
+   * The model this persona's PROMPT was written and checked against.
+   *
+   * Recorded, shown, and never enforced. Prompts do transfer between models — imperfectly — so
+   * refusing to run one elsewhere would throw away working configurations to prevent a problem that
+   * may not exist. What it stops is the silent case: a prompt tuned on one engine quietly carried
+   * to another with nothing saying so.
+   *
+   * Distinct from `overrides.model`, which PINS the model. This only says where it was validated.
+   */
+  tunedFor?: string;
+}
+
 export interface Persona {
   id: string;
   ownerId: string;
   name: string;
+  /** Where this persona belongs. Absent means anywhere — see PersonaScope. */
+  scope?: PersonaScope;
   /** One line, shown in the picker — why you would choose this one. */
   description?: string;
   /**
