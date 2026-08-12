@@ -273,19 +273,19 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * it was attached to. The leaf's own language is a fallback for a persona that does not name
        * one, and the Gitea rule is added only when a repository is actually being cloned into it.
        */
-      const workspace = personaWorkspace(
-        persona,
-        { leafId: leaf.id, ownerId: leaf.ownerId },
-        { image: imageForLanguage(leaf.language) },
-      );
-      await workspaces.create({
-        ...workspace,
-        ...(workspace.egress || !checkout
-          ? {}
-          // The clone needs Gitea reachable. Only when the persona left the network unstated —
-          // a persona that declared its own egress has already answered this.
-          : { egress: [{ namespace: 'gitea', ports: [3000] }] }),
-      });
+      /**
+       * The container, entirely off the record.
+       *
+       * Nothing is contributed here — not the image, not the network. A persona that works in a
+       * repository declares the egress its clone needs, because "can reach Gitea" is a fact about
+       * that persona's environment, not about the code that happened to start it. The last version
+       * of this injected that rule when a checkout existed, which meant the same persona had a
+       * different network depending on which caller reached it.
+       *
+       * A persona that needs a different toolchain is a different persona — `basedOn` makes that a
+       * record with one changed field rather than a copy.
+       */
+      await workspaces.create(personaWorkspace(persona, { leafId: leaf.id, ownerId: leaf.ownerId }));
 
       try {
         let taskContext = context;

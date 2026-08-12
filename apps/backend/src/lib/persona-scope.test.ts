@@ -33,18 +33,25 @@ describe('the tools a persona actually gets', () => {
   });
 });
 
-describe('whether a persona gets the repository', () => {
-  it('defaults to yes, because losing a checkout loses the work', () => {
-    // Every leaf had one before personas owned their environment. A persona written then must not
-    // silently lose its repository — the sandbox is destroyed when the leaf ends.
-    expect(usesRepo(p('Coder'))).toBe(true);
-    expect(usesRepo(p('Coder', {}))).toBe(true);
-    expect(usesRepo(null)).toBe(true);
+describe('whether a persona works in the repository', () => {
+  it('defaults to NO, because most work is not a codebase', () => {
+    /**
+     * Asking a question, comparing two options, writing up what was found — none of it needs a
+     * checkout, and giving it one leaves an empty repository nobody opens. Defaulting the other way
+     * is what produced 27 projects of which 26 never built, one per request.
+     */
+    expect(usesRepo(p('Researcher'))).toBe(false);
+    expect(usesRepo(p('Researcher', {}))).toBe(false);
+    expect(usesRepo(null)).toBe(false);
   });
 
-  it('is off only when the persona says so', () => {
-    expect(usesRepo(p('Researcher', { repo: false }))).toBe(false);
+  it('gives one to a persona that asks', () => {
     expect(usesRepo(p('Builder', { repo: true }))).toBe(true);
+  });
+
+  it('treats an explicit false the same as saying nothing', () => {
+    // Both mean "I do not write files". Only `true` provisions anything.
+    expect(usesRepo(p('Researcher', { repo: false }))).toBe(false);
   });
 });
 

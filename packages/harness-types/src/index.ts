@@ -678,11 +678,19 @@ export interface PersonaScope {
    */
   env?: { name: string; value: string }[];
   /**
-   * Whether the project's repository is checked out into the sandbox.
+   * Whether this persona works in the project's repository.
    *
-   * Absent means YES, which is what every leaf did before personas owned their environment — a
-   * persona written before this field must not silently lose its repository. A persona whose output
-   * is an answer rather than files sets it false and gets no checkout, no branch and no push.
+   * ── ABSENT MEANS NO ──
+   * A repository is something a persona ASKS for, like the web or a larger budget. Most work is not
+   * a codebase: asking a question, comparing two options, writing up what was found — none of it
+   * needs a checkout, and giving it one creates an empty repository nobody will ever open.
+   *
+   * The default used to be yes, on the grounds that no persona should silently lose its checkout.
+   * That is the same assumption that produced the sprawl this platform already cleaned up: 27
+   * projects existed and 26 had never produced a build, one per request, created because something
+   * decided every piece of work must have somewhere to commit.
+   *
+   * A persona that writes files says so, and gets a checkout, a branch and a push.
    */
   repo?: boolean;
   /**

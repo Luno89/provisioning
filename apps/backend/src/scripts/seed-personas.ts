@@ -171,21 +171,59 @@ const SEEDS: Seed[] = [
        * No web, deliberately.
        *
        * A search tool in front of an agent with a repository to read is a way to spend steps not
-       * writing code. Egress is left UNDECLARED rather than empty, so the checkout's own Gitea rule
-       * still applies — a builder that cannot reach Gitea cannot push, and its work is lost.
+       * writing code.
        */
       tools: ['run_command', 'read_file', 'write_file', 'finish'],
+      // It works in the repository, so it says so — and opens the one hole its clone and push need.
+      // Gitea by NAMESPACE, never by address: kube-proxy rewrites the destination before the policy
+      // is evaluated, so a NodePort CIDR rule silently fails closed.
+      repo: true,
+      egress: [{ namespace: 'gitea', ports: [3000] }],
       tunedFor: TUNED_FOR,
     },
     overrides: {},
   },
 ];
 
+/**
+ * Personas that predate the environment fields, and what they were doing before them.
+ *
+ * ── WHY THIS MIGRATION EXISTS ──
+ * `repo` used to default to yes, so these four got a checkout without ever asking for one. The
+ * default is now no — a repository is something a persona requests, because most work is not a
+ * codebase and defaulting the other way is what produced 27 projects of which 26 never built.
+ *
+ * Flipping that default silently would have taken the repository away from four personas that were
+ * relying on it, which loses the work: a sandbox is destroyed when its leaf ends, so a builder that
+ * cannot push has nothing left. They are named here and given explicitly what they had implicitly.
+ */
+const LEGACY_CODE_PERSONAS = ['Coder', 'Orchestrator', 'Debugger', 'Designer'];
+
 async function main() {
   const mongo = new MongoDB();
   await mongo.init();
   const existing = (await mongo.getPersonas()).filter((p) => p.ownerId === OWNER);
   const now = new Date().toISOString();
+
+  /**
+   * Recorded before the default changed under them, not overwritten wholesale.
+   *
+   * Only the fields they were relying on are set; anything else on those records is somebody's
+   * deliberate configuration and is not this script's to touch.
+   */
+  for (const legacy of existing.filter((p) => LEGACY_CODE_PERSONAS.includes(p.name))) {
+    if (legacy.scope?.repo !== undefined) continue;
+    await mongo.savePersona({
+      ...legacy,
+      scope: {
+        ...legacy.scope,
+        repo: true,
+        egress: legacy.scope?.egress ?? [{ namespace: 'gitea', ports: [3000] }],
+      },
+      updatedAt: now,
+    });
+    console.log(`migrated  ${legacy.name.padEnd(12)} repo=true (was relying on the old default)`);
+  }
 
   for (const seed of SEEDS) {
     const prior = existing.find((p) => p.name === seed.name);

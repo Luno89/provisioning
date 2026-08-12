@@ -32,14 +32,17 @@ export function allowedTools(persona: Pick<Persona, 'scope'> | null | undefined,
 }
 
 /**
- * Whether this persona's sandbox gets the project's repository.
+ * Whether this persona works in the project's repository.
  *
- * Absent means yes. Every leaf had a checkout before personas owned their environment, and a
- * persona written then must not silently lose one — losing a repository means losing the work,
- * since the sandbox is destroyed when the leaf ends.
+ * Absent means NO. A repository is something a persona asks for, and most work is not a codebase —
+ * a question answered, two options compared, a summary written. Defaulting to yes is what produced
+ * 27 projects of which 26 never built: one per request, created because something assumed all work
+ * must have somewhere to commit.
+ *
+ * A persona that writes files declares it, and gets a checkout, a branch and a push.
  */
 export function usesRepo(persona: Pick<Persona, 'scope'> | null | undefined): boolean {
-  return persona?.scope?.repo !== false;
+  return persona?.scope?.repo === true;
 }
 
 /**
