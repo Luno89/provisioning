@@ -476,6 +476,15 @@ export interface BranchMessage {
 export interface Branch {
   id: string;
   ownerId: string;
+  /**
+   * The tree this conversation belongs to.
+   *
+   * Optional while trees are being introduced: a branch created before them, or started from the
+   * chat without picking one, has none and behaves exactly as it did. What it must never do is
+   * point at a tree that does not exist, which is why the delete route clears it rather than
+   * leaving a dangling id.
+   */
+  treeId?: string;
   /** Derived from the first message unless renamed. */
   title: string;
   messages: BranchMessage[];

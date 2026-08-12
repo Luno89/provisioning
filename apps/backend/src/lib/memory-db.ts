@@ -4,6 +4,7 @@ import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
+import type { Tree } from './trees.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -19,6 +20,7 @@ export class MemoryDB implements Database {
   private invites: InviteMetadata[] = [];
   private modelEndpoints: ModelEndpointMetadata[] = [];
   private leaves: Leaf[] = [];
+  private trees: Tree[] = [];
   private branches: Branch[] = [];
   private giteaAccounts: GiteaAccount[] = [];
   private experiments: Experiment[] = [];
@@ -337,6 +339,20 @@ export class MemoryDB implements Database {
 
   async deleteBranch(id: string): Promise<void> {
     this.branches = this.branches.filter((b) => b.id !== id);
+  }
+
+  async getTrees(): Promise<Tree[]> {
+    return [...this.trees];
+  }
+
+  async saveTree(tree: Tree): Promise<void> {
+    const i = this.trees.findIndex((t) => t.id === tree.id);
+    if (i >= 0) this.trees[i] = tree;
+    else this.trees.push(tree);
+  }
+
+  async deleteTree(id: string): Promise<void> {
+    this.trees = this.trees.filter((t) => t.id !== id);
   }
 
   async getMemories(ownerId?: string): Promise<MemoryItem[]> {

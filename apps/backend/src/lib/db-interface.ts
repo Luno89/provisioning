@@ -2,6 +2,7 @@ import type { Persona } from '@koala/harness-types';
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
 import type { Branch, Leaf } from './leaves.js';
+import type { Tree } from './trees.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -71,6 +72,10 @@ export interface Database {
   /** Keyed by ownerId — one Gitea account per platform user. */
   getGiteaAccount(ownerId: string): Promise<GiteaAccount | null>;
   saveGiteaAccount(account: GiteaAccount): Promise<void>;
+
+  getTrees(): Promise<Tree[]>;
+  saveTree(tree: Tree): Promise<void>;
+  deleteTree(id: string): Promise<void>;
 
   getBranches(): Promise<Branch[]>;
   saveBranch(branch: Branch): Promise<void>;

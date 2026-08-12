@@ -15,6 +15,7 @@ import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
 import MeshDevices from './components/MeshDevices.js';
 import Workspace from './components/Workspace.js';
+import TreesView from './components/Trees.js';
 import { Koala } from './components/Koala.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
@@ -209,7 +210,7 @@ function App() {
   // Open by default: collapsed, a first-time user sees two items and no way to tell that ten
   // more exist. Folding the infrastructure away is about hierarchy, not about hiding it.
   const [forestOpen, setForestOpen] = useState(true);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
@@ -1039,6 +1040,15 @@ function App() {
             <Koala size={20} mood={view === 'chat' ? 'happy' : 'idle'} /> Koala
           </button>
 
+          {/* Indented under Koala rather than listed beside it: a tree is the scope conversations
+              live in, so it belongs to the harness, not to the infrastructure below. */}
+          <button
+            onClick={() => setView('trees')}
+            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'trees' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+          >
+            <Trees size={15} className="text-[var(--leaf)]" /> Trees
+          </button>
+
           <button
             onClick={() => setForestOpen((o) => !o)}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-[var(--bark-700)] transition-colors"
@@ -1479,6 +1489,8 @@ function App() {
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
         {(view === 'chat' || view === 'board') && <Workspace apiBase={API_BASE} />}
+
+        {view === 'trees' && <TreesView apiBase={API_BASE} />}
         {view === 'vps-catalog' && (
           <VpsCatalog
             apiBase={API_BASE}

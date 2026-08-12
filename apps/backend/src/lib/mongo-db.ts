@@ -5,6 +5,7 @@ import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 import type { Database, PartialInfo } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
+import type { Tree } from './trees.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -79,6 +80,10 @@ export class MongoDB implements Database {
 
   private get giteaAccounts(): Collection {
     return this.db!.collection('giteaAccounts');
+  }
+
+  private get trees(): Collection {
+    return this.db!.collection('trees');
   }
 
   private get branches(): Collection {
@@ -341,6 +346,21 @@ export class MongoDB implements Database {
     const id = doc._id;
     const { _id, ...filter } = doc;
     await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async getTrees(): Promise<Tree[]> {
+    return (await this.trees.find({}).toArray()).map(doc => fromDoc<Tree>(doc));
+  }
+
+  async saveTree(tree: Tree): Promise<void> {
+    const doc = toDoc(tree);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.trees.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteTree(id: string): Promise<void> {
+    await this.trees.deleteOne({ _id: id as any });
   }
 
   async getBranches(): Promise<Branch[]> {
