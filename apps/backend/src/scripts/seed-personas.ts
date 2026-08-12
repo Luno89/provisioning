@@ -21,6 +21,8 @@
 import { MongoDB } from '../lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Persona } from '@koala/harness-types';
+import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
+import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 
 const OWNER = '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991';
 
@@ -105,20 +107,11 @@ const SEEDS: Seed[] = [
        * that does not exist.
        */
       run: {
-        maxSteps: 100,
-        withdraw: { afterStep: 50, tools: ['web_search', 'fetch_web_page'] },
-        pacing: [
-          {
-            atRemaining: 50,
-            message: 'Half your budget is gone. STOP SEARCHING NOW and write what you have to /work/findings.md. '
-              + 'You can search again afterwards if something is missing, but the file must exist first.',
-          },
-          {
-            atRemaining: 4,
-            message: 'Write /work/findings.md NOW and call `finish`. It is the only thing kept — an answer that '
-              + 'exists only in your replies is lost, and an empty file fails the leaf.',
-          },
-        ],
+        maxSteps: RESEARCH_AGENT_STEPS,
+        withdraw: { afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2), tools: [...WEB_TOOL_NAMES] },
+        // Imported, not retyped. The same messages existed as a function in sandbox-tools AND as
+        // literal strings here, which is two copies of one decision that can disagree silently.
+        pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
       },
     },
     overrides: { temperature: 0.4 },

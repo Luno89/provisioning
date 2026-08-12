@@ -53,6 +53,7 @@ import { assessFindings } from '../lib/research-verify.js';
 import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
+import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -459,52 +460,26 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           project?.id,
         );
 
-        /**
-         * A persona that lists a web tool is a persona that needs the web.
-         *
-         * Read from the toolset rather than a second flag: two fields that must agree are two
-         * fields that eventually will not, and the toolset is the one that is enforced.
-         */
-        const runShape = persona?.scope?.run ?? {};
-        const wantsWeb = (persona?.scope?.tools ?? []).some((t) => (WEB_TOOL_NAMES as readonly string[]).includes(t));
-
         const run = await runAgentLoop({
           baseUrl,
           apiKey,
           model: provider.model,
           ...(provider.kind ? { kind: provider.kind } : {}),
           language: leaf.language,
-          taskContext,
-          /**
-           * Everything about the environment comes off the persona record.
-           *
-           * The toolset is enforced as an intersection, so naming a tool does not conjure one; the
-           * step budget, the pacing and the withdrawal are whatever the persona saved. None of it is
-           * derived from the kind of work any more — that derivation is what handed the Framer a
-           * search tool it should never have had.
-           *
-           * The web tools are still BUILT here, because that needs a database and a cluster. The
-           * persona decides whether they are OFFERED, by listing them.
-           */
-          ...(memoryContext ? { memoryContext } : {}),
-          /**
-           * The precedence chain, unchanged: built-in sampling, then the adopted profile, then the
-           * persona, then anything this call asks for. `resolveConfig` decided this above; passing
-           * it is all that is left.
-           */
-          overrides: adopted,
-          ...(persona?.scope?.tools?.length ? { allowTools: persona.scope.tools } : {}),
-          ...(wantsWeb ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
-          ...(runShape.maxSteps ? { maxSteps: runShape.maxSteps } : {}),
-          ...(runShape.pacing?.length ? { pacing: runShape.pacing } : {}),
-          ...(runShape.withdraw
-            ? { withdrawTools: { afterStep: runShape.withdraw.afterStep, names: runShape.withdraw.tools } }
-            : {}),
-          sandbox: {
-            exec: (command) => workspaces.exec(leaf.id, command),
-            readFile: (path) => workspaces.readFile(leaf.id, path),
-            writeFile: (path, content) => workspaces.writeFile(leaf.id, path, content),
-          },
+          // Everything the persona decides — toolset, budget, pacing, withdrawal — plus the parts
+          // only this caller knows. One assembly, shared with the Lab and the landing resolver,
+          // because three hand-maintained copies of it drifted in three different directions.
+          ...agentRunOptions(persona, {
+            taskContext,
+            overrides: adopted,
+            ...(memoryContext ? { memoryContext } : {}),
+            ...(wantsWeb(persona) ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
+            sandbox: {
+              exec: (command) => workspaces.exec(leaf.id, command),
+              readFile: (path) => workspaces.readFile(leaf.id, path),
+              writeFile: (path, content) => workspaces.writeFile(leaf.id, path, content),
+            },
+          }),
         });
 
         // Tokens are recorded on the leaf whether or not the work succeeded — a failed attempt

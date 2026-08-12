@@ -26,6 +26,8 @@ import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
+import { agentRunOptions } from '../lib/agent-run.js';
+import { resolvePersona, flattenPersona } from '../lib/persona-scope.js';
 import { resolveConfig } from '../lib/personas.js';
 import { imageForLanguage } from '../lib/workspace-spec.js';
 import {
@@ -115,7 +117,18 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     }
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
-    const resolved = resolveConfig(await db.getHarnessProfile(ownerId), null);
+    const profile = await db.getHarnessProfile(ownerId);
+    /**
+     * Resolving conflicts is code work, so it runs as whoever does code work here.
+     *
+     * It used to pass `null` and take the loop's raw defaults — no persona prompt, no toolset, no
+     * memory. Nobody had noticed, because nothing compared this call to the other two. Same
+     * resolution a leaf uses: the adopted persona, or the saved default for code.
+     */
+    const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === ownerId);
+    const assigned = resolvePersona(ownPersonas, { context: 'code' }, undefined, profile?.personaId);
+    const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
+    const resolved = resolveConfig(profile, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen);
 
@@ -145,13 +158,18 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
           model: provider.model,
           ...(provider.kind ? { kind: provider.kind } : {}),
           ...(language ? { language } : {}),
-          taskContext: buildMergeTask(branch, state.files),
-          overrides: resolved.overrides,
-          sandbox: {
-            exec: (command) => workspaces.exec(workspaceId, command),
-            readFile: (path) => workspaces.readFile(workspaceId, path),
-            writeFile: (path, content) => workspaces.writeFile(workspaceId, path, content),
-          },
+          // Shared with the leaf activity and the Lab. Assembled by hand, this call had no persona
+          // toolset and no memory at all, which nobody had noticed because nothing compared it to
+          // the others.
+          ...agentRunOptions(persona, {
+            taskContext: buildMergeTask(branch, state.files),
+            overrides: resolved.overrides,
+            sandbox: {
+              exec: (command) => workspaces.exec(workspaceId, command),
+              readFile: (path) => workspaces.readFile(workspaceId, path),
+              writeFile: (path, content) => workspaces.writeFile(workspaceId, path, content),
+            },
+          }),
         });
 
         // Asked of git, not of the agent. A run that reports success having left markers in place,

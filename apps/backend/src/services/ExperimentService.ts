@@ -18,6 +18,7 @@ import type { ModelService } from './ModelService.js';
 import { WorkspaceService } from './WorkspaceService.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
+import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
@@ -578,35 +579,22 @@ export class ExperimentService {
             model: provider.model,
             ...(provider.kind ? { kind: provider.kind } : {}),
             language,
-            taskContext: task.prompt,
-            /**
-             * The Lab gets the web too.
-             *
-             * It had none, so any task needing a source made the agent try `curl` against a
-             * default-deny sandbox and report — correctly — that it had no internet access. A
-             * benchmark that cannot do the thing being benchmarked measures the harness's wiring,
-             * not the model.
-             */
-            web: await buildWebTools(this.db, experiment.ownerId),
-            /**
-             * The arm's persona configures the run, exactly as it does for a leaf.
-             *
-             * Not derived from the task. A task says what to do; the persona says what the agent
-             * has to do it with — and if the Lab derived the environment from a task kind, an arm
-             * could only ever test a configuration the harness already had a name for. Trying a
-             * variation is a persona with a parent and one changed field.
-             */
-            ...(variantPersona?.scope?.tools?.length ? { allowTools: variantPersona.scope.tools } : {}),
-            ...(variantPersona?.scope?.run?.maxSteps ? { maxSteps: variantPersona.scope.run.maxSteps } : {}),
-            ...(variantPersona?.scope?.run?.pacing?.length ? { pacing: variantPersona.scope.run.pacing } : {}),
-            ...(variantPersona?.scope?.run?.withdraw
-              ? {
-                  withdrawTools: {
-                    afterStep: variantPersona.scope.run.withdraw.afterStep,
-                    names: variantPersona.scope.run.withdraw.tools,
-                  },
-                }
-              : {}),
+            // The same assembly a leaf gets. The Lab used to build its own, which is how it ended up
+            // running forty steps with the code pacing note inside a sandbox with no repository —
+            // benchmarking a harness that never ships.
+            ...agentRunOptions(variantPersona, {
+              taskContext: task.prompt,
+              overrides: resolvedForVariant.overrides,
+              memoryContext,
+              fromProfile: resolvedForVariant.from.profile,
+              fromPersona: resolvedForVariant.from.persona,
+              ...(wantsWeb(variantPersona) ? { web: await buildWebTools(this.db, experiment.ownerId) } : {}),
+              sandbox: {
+                exec: (command) => this.workspaces.exec(runId, command),
+                readFile: (path) => this.workspaces.readFile(runId, path),
+                writeFile: (path, content) => this.workspaces.writeFile(runId, path, content),
+              },
+            }),
             captureTrace: true,
             onStep: (agentStep) => this.emit('experiment-step', {
               experimentId: experiment.id,
@@ -614,17 +602,6 @@ export class ExperimentService {
               label: variant.label,
               step: agentStep,
             }),
-            overrides: resolvedForVariant.overrides,
-            fromProfile: resolvedForVariant.from.profile,
-            ...(resolvedForVariant.from.persona.length
-              ? { fromPersona: resolvedForVariant.from.persona }
-              : {}),
-            memoryContext,
-            sandbox: {
-              exec: (command) => this.workspaces.exec(runId, command),
-              readFile: (path) => this.workspaces.readFile(runId, path),
-              writeFile: (path, content) => this.workspaces.writeFile(runId, path, content),
-            },
             signal,
           }),
           VARIANT_TIMEOUT_MS,
