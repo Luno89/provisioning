@@ -14,11 +14,13 @@ import type { LeafGateArgs, LeafGateResult, ReleaseDependentsResult } from '../a
 import type { LandRequestArgs, LandRequestResult } from '../activities/LandRequestActivity.js';
 import type { ResolveLandingArgs, ResolveLandingResult } from '../activities/ResolveLandingActivity.js';
 import type { AcceptRequestArgs, AcceptRequestResult } from '../activities/AcceptRequestActivity.js';
+import type { ReplanArgs, ReplanResult } from '../activities/ReplanActivity.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta } from '../lib/activity-timeouts.js';
+import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta, replanActivityMeta,
+} from '../lib/activity-timeouts.js';
 
 const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
   startToCloseTimeout: updateLeafActivityMeta.startToCloseTimeout,
@@ -81,6 +83,9 @@ const { ResolveLandingActivity } = proxyActivities<{ ResolveLandingActivity: (ar
  * Runs the delivered thing once the whole request has landed. Not retried: a deliverable that does
  * not work will not work on a second identical run, and each attempt boots a workspace.
  */
+const { ReplanActivity } = proxyActivities<{ ReplanActivity: (args: ReplanArgs) => Promise<ReplanResult> }>({
+  startToCloseTimeout: replanActivityMeta.startToCloseTimeout,
+});
 const { AcceptRequestActivity } = proxyActivities<{ AcceptRequestActivity: (args: AcceptRequestArgs) => Promise<AcceptRequestResult> }>({
   startToCloseTimeout: acceptRequestActivityMeta.startToCloseTimeout,
   retry: { maximumAttempts: 1 },
@@ -408,5 +413,16 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
   // Last, and only after everything is on the default branch: the point is to run what the user
   // would actually get, not this leaf's branch.
   await AcceptRequestActivity({ leafId: args.leafId });
+  /**
+   * A planning turn, once nothing is waiting on this leaf.
+   *
+   * After acceptance, so the planner sees a verdict on the assembled result rather than deciding
+   * against work that has not been checked yet. `ReplanActivity` decides for itself whether this
+   * leaf is on the frontier and whether the budget allows it — a leaf in the middle of a chain
+   * needs no turn, because releasing its dependents already IS the next step.
+   *
+   * It may only propose work. Completion is decided by the acceptance checks above.
+   */
+  await ReplanActivity({ leafId: args.leafId });
   return { column, status, blockingChildren: blockingChildren.length };
 }

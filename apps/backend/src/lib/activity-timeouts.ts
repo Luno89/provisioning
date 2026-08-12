@@ -38,3 +38,9 @@ export const landRequestActivityMeta = { name: 'LandRequestActivity', startToClo
 export const resolveLandingActivityMeta = { name: 'ResolveLandingActivity', startToCloseTimeout: '30 minutes' } as const;
 // Boots a workspace and runs the delivered program, which may make real network calls.
 export const acceptRequestActivityMeta = { name: 'AcceptRequestActivity', startToCloseTimeout: '15 minutes' } as const;
+
+/**
+ * One planning turn against a model, no sandbox. Bounded by the same thing a chat turn is — an
+ * inference pass and its tool round trips.
+ */
+export const replanActivityMeta = { startToCloseTimeout: '10 minutes' } as const;

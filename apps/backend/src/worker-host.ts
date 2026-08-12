@@ -13,6 +13,7 @@ import { CheckLeafGateActivity, ReleaseDependentsActivity } from './activities/L
 import { LandRequestActivity } from './activities/LandRequestActivity.js';
 import { ResolveLandingActivity } from './activities/ResolveLandingActivity.js';
 import { AcceptRequestActivity } from './activities/AcceptRequestActivity.js';
+import { ReplanActivity } from './activities/ReplanActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 
@@ -76,6 +77,7 @@ async function main() {
           LandRequestActivity,
           ResolveLandingActivity,
           AcceptRequestActivity,
+          ReplanActivity,
         },
       });
       break;
