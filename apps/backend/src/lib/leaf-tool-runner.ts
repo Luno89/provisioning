@@ -333,16 +333,39 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
 
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       const body = typeof args.body === 'string' ? args.body.trim() : '';
-      if (!title && !body) return JSON.stringify({ error: 'Nothing to change — pass title, body, or both.' });
+      /**
+       * Assigning somebody is a revision like any other.
+       *
+       * Without this the re-ask loop asked the model to do something no tool could do: the prompt
+       * said "call revise_leaf setting persona" and the parameter did not exist, so every attempt
+       * to repair an unassigned leaf would have failed silently and gone to the user as unassignable.
+       */
+      const wantedPersona = typeof args.persona === 'string' ? args.persona.trim().toLowerCase() : '';
+      const mine = (await db.getPersonas()).filter((p) => p.ownerId === userId);
+      const persona = wantedPersona
+        ? mine.find((p) => p.name.trim().toLowerCase() === wantedPersona)
+        : undefined;
+      if (wantedPersona && !persona) {
+        return JSON.stringify({
+          error: `No persona is named "${args.persona}".`,
+          availablePersonas: mine.map((p) => ({ name: p.name, description: p.description ?? '' })),
+        });
+      }
+      if (!title && !body && !persona) {
+        return JSON.stringify({ error: 'Nothing to change — pass title, body, persona, or a combination.' });
+      }
 
       const updated: Leaf = {
         ...leaf,
         ...(title ? { title: title.slice(0, 200) } : {}),
         ...(body ? { body: body.slice(0, 4000) } : {}),
+        ...(persona ? { personaId: persona.id } : {}),
         updatedAt: new Date().toISOString(),
       };
       await db.saveLeaf(updated);
-      return JSON.stringify({ revised: { id: updated.id, title: updated.title } });
+      return JSON.stringify({
+        revised: { id: updated.id, title: updated.title, ...(persona ? { persona: persona.name } : {}) },
+      });
     }
 
     if (call.name === 'list_tool_repository') {

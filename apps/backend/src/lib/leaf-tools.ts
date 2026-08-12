@@ -100,17 +100,6 @@ export const LEAF_TOOLS = [
           title: { type: 'string', description: 'Short imperative title, e.g. "Add a rate limit to /api/chat".' },
           body: { type: 'string', description: 'What doing this involves, in one or two sentences.' },
           parentLeafId: { type: 'string', description: 'Optional — the leaf this is a sub-item of.' },
-          kind: {
-            type: 'string',
-            enum: ['code', 'research'],
-            description:
-              'What this leaf produces. "code" (the default) writes files into the request\'s '
-              + 'repository and is proved by tests and by the files listed in `expects`. "research" '
-              + 'produces a written answer — a comparison, a recommendation, a summary of sources — '
-              + 'and gets no repository at all; its answer is stored on the leaf and handed to any '
-              + 'leaf that depends on it. Choose "research" when the deliverable is an ANSWER rather '
-              + 'than a file, and do not give `expects` for it.',
-          },
           expects: {
             type: 'array',
             items: { type: 'string' },
@@ -145,9 +134,11 @@ export const LEAF_TOOLS = [
           persona: {
             type: 'string',
             description:
-              'Optional — the name of the persona best suited to this work, exactly as listed. '
-              + 'Assign the one whose strengths match what the leaf actually requires; leave it out '
-              + 'if no listed persona is a better fit than the default.',
+              'REQUIRED — the name of the persona that will do this work, exactly as listed by '
+              + 'list_personas. A persona decides the toolchain, what the work may reach on the '
+              + 'network, which tools it can call, how long it gets and where its output goes. '
+              + 'There is no default: a leaf with none assigned cannot run, and you will be asked '
+              + 'again until one is set.',
           },
           language: LANGUAGE_PARAM,
         },
@@ -204,15 +195,26 @@ export const LEAF_TOOLS = [
     function: {
       name: 'revise_leaf',
       description:
-        'Change the title or description of a leaf that is still a PROPOSAL. Use this when asked ' +
-        'to reword or expand something already proposed, instead of proposing a near-duplicate. ' +
-        'Accepted or running work cannot be edited.',
+        'Change the title, description, or assigned persona of a leaf that is still a PROPOSAL. ' +
+        'Use this when asked to reword something already proposed, or to say who should do it, ' +
+        'instead of proposing a near-duplicate. Accepted or running work cannot be edited.',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'The leaf id, as returned by list_leaves.' },
           title: { type: 'string', description: 'Replacement title. Omit to leave it alone.' },
           body: { type: 'string', description: 'Replacement description. Omit to leave it alone.' },
+          /**
+           * A NAME, like propose_leaf takes — the model knows the names it was shown and has never
+           * seen an id. Resolved server-side against this user's personas.
+           */
+          persona: {
+            type: 'string',
+            description:
+              'The name of the persona that should do this work, exactly as listed. A persona '
+              + 'decides the toolchain, what the work may reach on the network, which tools it can '
+              + 'call and how long it gets — work with none assigned cannot run.',
+          },
         },
         required: ['id'],
       },
