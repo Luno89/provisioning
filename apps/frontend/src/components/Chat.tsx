@@ -39,6 +39,13 @@ export interface ProposedLeaf {
   id: string;
   title: string;
   body?: string;
+  /**
+   * Who will do it.
+   *
+   * A persona carries the whole environment — image, network, tools, budget, where the output goes
+   * — so a proposal without one cannot run, and accepting it would only fail later.
+   */
+  personaId?: string;
 }
 
 export interface Message {
@@ -477,7 +484,9 @@ export default function Chat({
           {proposed.length > 1 && onAcceptAll && (
             <button
               onClick={onAcceptAll}
-              className="text-[11px] px-2 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white"
+              disabled={proposed.some((p) => !p.personaId)}
+              title={proposed.some((p) => !p.personaId) ? 'Some of these have nobody assigned' : undefined}
+              className="text-[11px] px-2 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] disabled:opacity-40 text-white"
             >
               Accept all
             </button>
@@ -489,10 +498,20 @@ export default function Chat({
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] text-slate-200">{p.title}</p>
                 {p.body && <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed line-clamp-2">{p.body}</p>}
+                {/*
+                  * A persona carries the whole environment — image, network, tools, budget. Work
+                  * with nobody assigned cannot run, so it says so here rather than failing later.
+                  */}
+                {!p.personaId && (
+                  <p className="text-[11px] text-amber-400/90 mt-1 flex items-center gap-1">
+                    <AlertTriangle size={11} /> needs a persona before it can run
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => onAccept?.(p.id)} title="Accept — starts the work"
-                  className="p-1 rounded-md text-[var(--leaf-light)] hover:bg-[var(--bark-700)]"><Check size={14} /></button>
+                <button onClick={() => onAccept?.(p.id)} disabled={!p.personaId}
+                  title={p.personaId ? 'Accept — starts the work' : 'Assign a persona first'}
+                  className="p-1 rounded-md text-[var(--leaf-light)] hover:bg-[var(--bark-700)] disabled:opacity-30"><Check size={14} /></button>
                 <button onClick={() => onReject?.(p.id)} title="Reject"
                   className="p-1 rounded-md text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><X size={14} /></button>
               </div>

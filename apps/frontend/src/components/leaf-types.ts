@@ -56,6 +56,13 @@ export interface Leaf {
   expects?: string[];
   /** Ids of the leaves it waits on — the ordering you are agreeing to when you accept. */
   dependsOn?: string[];
+  /**
+   * Who will do the work.
+   *
+   * A persona carries the whole environment it runs in, so a leaf without one cannot run at all —
+   * which is why the board shows it rather than letting acceptance fail later.
+   */
+  personaId?: string;
   /** What the agent reported doing. Its claim, not a result. */
   summary?: string;
   /** A research leaf's answer, stored on the record because it has no repository. */

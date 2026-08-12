@@ -318,7 +318,9 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
               {(() => {
                 const proposed = all
                   .filter((l) => l.branchId === selectedBranch && l.status === 'proposed')
-                  .map((l) => ({ id: l.id, title: l.title, ...(l.body ? { body: l.body } : {}) }));
+                  // `personaId` travels with the proposal: a persona carries the whole environment,
+                  // so one without it cannot run and must not look acceptable.
+                  .map((l) => ({ id: l.id, title: l.title, ...(l.body ? { body: l.body } : {}), ...(l.personaId ? { personaId: l.personaId } : {}) }));
                 return (
                   <Chat
                     // No key on the branch any more: remounting is what discarded the transcript.

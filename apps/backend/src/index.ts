@@ -84,6 +84,7 @@ import { usablePaths } from './lib/leaf-artifacts.js';
 import { normaliseLeafInput } from './lib/leaf-input.js';
 import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
 import { summariseDelivery } from './lib/branch-delivery.js';
+import { unassignedLeaves, buildAssignmentPrompt, buildUnassignedNotice, MAX_ASSIGNMENT_ROUNDS } from './lib/persona-assignment.js';
 import { TREE_TYPES, normaliseTreeInput, type Tree } from './lib/trees.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
@@ -3264,6 +3265,66 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         });
         if (!followUp.ok || !followUp.body) break;
         calls = await pump(followUp.body);
+      }
+
+      /**
+       * Every proposed leaf must have somebody to do it.
+       *
+       * A persona carries the whole environment now — image, network, tools, budget, where the
+       * output goes — so a leaf without one does not run with defaults, it runs as nobody. The
+       * planner is the thing that decides who does what, and this is what holds it to that: it is
+       * asked again, with the leaves named and the personas listed, because the usual cause is a
+       * model that did not have the names to hand.
+       *
+       * Bounded, and then handed over. Refusing the leaves would throw away a decomposition that is
+       * probably correct over a field the model forgot; choosing for it would be exactly the guess
+       * this design removed.
+       */
+      if (branchId && proposedViaTools) {
+        for (let round = 0; round < MAX_ASSIGNMENT_ROUNDS; round++) {
+          const missing = unassignedLeaves(await db.getLeaves(), String(branchId));
+          if (!missing.length) break;
+
+          const mine = (await db.getPersonas()).filter((p) => p.ownerId === (req as any).user.id);
+          if (!mine.length) break; // Nothing to choose from; the notice below says so instead.
+
+          conversation.push({ role: 'user', content: buildAssignmentPrompt(missing, mine) });
+          const retry = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+            body: JSON.stringify(turnRequest(conversation, {
+              tools: LEAF_TOOLS,
+              stream: false,
+              maxTokens: strategy.maxTokens,
+            })),
+            signal: upstreamAbort.signal,
+          }).catch(() => undefined);
+          if (!retry?.ok) break;
+
+          const body: any = await retry.json().catch(() => undefined);
+          const retryCalls = body?.choices?.[0]?.message?.tool_calls ?? [];
+          if (!retryCalls.length) break;
+
+          conversation.push({ role: 'assistant', content: null, tool_calls: retryCalls });
+          for (const c of retryCalls) {
+            const out = await runLeafTool((req as any).user.id, String(branchId), { name: c.function.name, arguments: c.function.arguments });
+            conversation.push({ role: 'tool', tool_call_id: c.id, name: c.function.name, content: out });
+          }
+        }
+
+        /**
+         * Whatever the planner still would not assign goes to the user.
+         *
+         * Written to the branch as a notice rather than logged, because the person who has to
+         * decide is the one reading the conversation — a warning in a server log is a warning
+         * nobody receives.
+         */
+        const stillMissing = unassignedLeaves(await db.getLeaves(), String(branchId));
+        if (stillMissing.length) {
+          const latest = (await db.getBranches()).find((b: Branch) => b.id === branchId);
+          if (latest) await db.saveBranch(withNotice(latest, buildUnassignedNotice(stillMissing)));
+          console.warn(`[chat] ${stillMissing.length} leaf(s) on branch ${String(branchId).slice(0, 8)} have no persona`);
+        }
       }
 
       /**

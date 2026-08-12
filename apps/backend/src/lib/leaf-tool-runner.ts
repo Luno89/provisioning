@@ -135,8 +135,33 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         .map((depId) => leaves.find((l) => l.id === depId)?.title)
         .filter((t): t is string => Boolean(t));
 
+      /**
+       * Whether anyone is actually going to do this.
+       *
+       * Reported in the same breath as the proposal, because a persona now carries the entire
+       * environment — image, network, tools, budget, where the output goes — so a leaf without one
+       * cannot run at all. The old behaviour was to drop an unmatched name silently and let the
+       * work fall back to a default configuration; there is no such default now, and saying nothing
+       * would hand back a proposal that looks accepted and is not runnable.
+       *
+       * The available names travel with the warning, since the usual cause is a model that never
+       * had them.
+       */
+      const personaWarning = persona
+        ? undefined
+        : wantedPersona
+          ? `No persona is named "${args.persona}", so this leaf has nobody assigned and cannot run. Call revise_leaf with a name from availablePersonas.`
+          : 'This leaf has no persona, so nobody is assigned to it and it cannot run. A persona decides the toolchain, the network access, the tools and the time budget. Call revise_leaf with a name from availablePersonas.';
+
       return JSON.stringify({
         proposed: { id: leaf.id, title: leaf.title },
+        ...(personaWarning
+          ? {
+              personaWarning,
+              availablePersonas: ((await db.getPersonas()).filter((p) => p.ownerId === userId))
+                .map((p) => ({ name: p.name, description: p.description ?? '' })),
+            }
+          : { persona: persona!.name }),
         // Echoed so a path that was dropped for looking unsafe does not silently become a promise
         // nothing will check.
         ...(expects.length ? { expects } : {}),

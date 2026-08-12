@@ -137,17 +137,32 @@ describe('selecting a leaf', () => {
 
 describe('proposals', () => {
   it('offers accept and reject even with no model configured, so proposals are never stranded', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
     renderWorkspace();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
     expect(detail().getByTitle('Reject')).toBeInTheDocument();
   });
 
+  it('will not let you accept work with nobody assigned to it', async () => {
+    /**
+     * A persona carries the whole environment — image, network, tools, budget, where the output
+     * goes — so a leaf without one cannot run. Accepting it would start work that fails later for a
+     * reason nothing on this screen explained.
+     */
+    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed' })] });
+    renderWorkspace();
+    await openBranch('Rate limiting work');
+    await waitFor(() => expect(detail().getByText(/needs a persona/i)).toBeInTheDocument());
+    expect(detail().getByTitle('Assign a persona first')).toBeDisabled();
+    // Rejecting stays available: a proposal you do not want should not need an assignee first.
+    expect(detail().getByTitle('Reject')).not.toBeDisabled();
+  });
+
   it('accepting posts to the accept endpoint with the real leaf id', async () => {
     // The panel used to be built from parsed model text; it must act on the actual record, since
     // the server's extractor is what created it and the two can differ.
-    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
     renderWorkspace();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
@@ -159,7 +174,7 @@ describe('proposals', () => {
   });
 
   it('offers accept-all only when more than one is proposed', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
     renderWorkspace();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
@@ -170,7 +185,7 @@ describe('proposals', () => {
   it('shows accept-all for several, and accepts each one', async () => {
     mockApi({
       branches: [branch()],
-      leaves: [leaf({ status: 'proposed' }), leaf({ id: 'leaf-2', title: 'Add metrics', status: 'proposed' })],
+      leaves: [leaf({ status: 'proposed', personaId: 'p1' }), leaf({ id: 'leaf-2', title: 'Add metrics', status: 'proposed', personaId: 'p1' })],
     });
     renderWorkspace();
     await openBranch('Rate limiting work');
@@ -184,7 +199,7 @@ describe('proposals', () => {
 
   it('does not show proposed leaves as ordinary work in the tree', async () => {
     // A proposal is not work yet; it must be visually distinct from an accepted leaf.
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
     renderWorkspace();
     await waitFor(() => expect(screen.getAllByTitle('proposed').length).toBeGreaterThan(0));
   });
