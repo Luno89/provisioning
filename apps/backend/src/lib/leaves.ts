@@ -130,6 +130,32 @@ export interface Leaf {
   verifyCommand?: string;
 
   /**
+   * What this leaf produces, which decides where its output goes.
+   *
+   * ── WHY THIS EXISTS ──
+   * Every leaf used to get a Gitea repository, a branch, a checkout and a push — including one
+   * whose entire output is a written answer. That repo was pure overhead for research work, and
+   * worse, it made the verification meaningless: `defaultVerifyCommand` looks for a test suite a
+   * research leaf will never have, so it came back unverified and the agent's own claim was
+   * believed. Confirmed on a live branch: a research leaf failed with nothing to verify, not
+   * because the research was bad.
+   *
+   * `code` writes files and is verified by tests and artifacts in git. `research` writes an answer,
+   * stored in `findings` on this record, and is verified by whether that answer exists.
+   *
+   * Absent means `code` — every leaf written before this field was one.
+   */
+  kind?: 'code' | 'research';
+
+  /**
+   * A research leaf's actual output, stored here rather than committed.
+   *
+   * The thing a research request was FOR. Kept on the record so it survives the workspace being
+   * destroyed, is readable without cloning anything, and can be handed to dependent leaves as text.
+   */
+  findings?: string;
+
+  /**
    * Whether anything actually checked the work, as opposed to the agent saying it was done.
    *
    * A `succeeded` leaf with this false is still a success — most leaves are not test-shaped — it

@@ -56,6 +56,10 @@ export interface Leaf {
   dependsOn?: string[];
   /** What the agent reported doing. Its claim, not a result. */
   summary?: string;
+  /** What this leaf produces. Absent means code — every leaf written before the field was one. */
+  kind?: 'code' | 'research';
+  /** A research leaf's answer, stored on the record because it has no repository. */
+  findings?: string;
   budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number };
   usageTotal?: { tokens: number; wallClockMs: number; workspaces: number; replans: number };
 }

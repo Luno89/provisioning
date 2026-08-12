@@ -32,7 +32,7 @@ import { isLeafColumn, type Leaf } from './leaves.js';
  * silent hole discovered on a live run.
  */
 export const LEAF_INPUT_FIELDS = [
-  'title', 'body', 'column', 'blocking', 'language', 'expects', 'verifyCommand',
+  'title', 'body', 'column', 'blocking', 'language', 'expects', 'verifyCommand', 'kind',
 ] as const;
 
 export function normaliseLeafInput(raw: Record<string, unknown>): Partial<Leaf> {
@@ -71,6 +71,13 @@ export function normaliseLeafInput(raw: Record<string, unknown>): Partial<Leaf> 
    */
   const verify = usableAcceptance(raw.verifyCommand);
   if (verify) out.verifyCommand = verify;
+
+  /**
+   * Only an explicit `research` switches this. Anything unrecognised falls through to the default,
+   * because guessing wrong towards `research` would silently skip the repository for a leaf that
+   * writes code — losing the work rather than misfiling it.
+   */
+  if (raw.kind === 'research') out.kind = 'research';
 
   return out;
 }

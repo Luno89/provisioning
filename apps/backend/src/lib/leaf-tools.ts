@@ -44,6 +44,15 @@ const LANGUAGE_PARAM = {
 export const MAX_TOOL_ROUNDS = 8;
 
 /** Definitions sent to the model, in OpenAI's function-calling shape. */
+/**
+ * The two tools that reach the open web.
+ *
+ * Named separately from LEAF_TOOLS so the execution agent can be given exactly these without
+ * inheriting the planner's board-editing tools. Both are dispatched in-process by the caller, so
+ * a sandbox's egress policy does not apply to them.
+ */
+export const WEB_TOOL_NAMES = ['web_search', 'fetch_web_page'] as const;
+
 export const LEAF_TOOLS = [
   {
     type: 'function',
@@ -91,11 +100,17 @@ export const LEAF_TOOLS = [
           title: { type: 'string', description: 'Short imperative title, e.g. "Add a rate limit to /api/chat".' },
           body: { type: 'string', description: 'What doing this involves, in one or two sentences.' },
           parentLeafId: { type: 'string', description: 'Optional — the leaf this is a sub-item of.' },
-          /**
-           * Titles rather than ids, because the model is proposing several leaves in one turn and
-           * does not yet know the ids of the ones it created moments ago. Resolved server-side
-           * against this branch.
-           */
+          kind: {
+            type: 'string',
+            enum: ['code', 'research'],
+            description:
+              'What this leaf produces. "code" (the default) writes files into the request\'s '
+              + 'repository and is proved by tests and by the files listed in `expects`. "research" '
+              + 'produces a written answer — a comparison, a recommendation, a summary of sources — '
+              + 'and gets no repository at all; its answer is stored on the leaf and handed to any '
+              + 'leaf that depends on it. Choose "research" when the deliverable is an ANSWER rather '
+              + 'than a file, and do not give `expects` for it.',
+          },
           expects: {
             type: 'array',
             items: { type: 'string' },
@@ -106,6 +121,11 @@ export const LEAF_TOOLS = [
               + 'no tests to run (research, documentation, configuration) — without them nothing can '
               + 'check that the work was actually produced.',
           },
+          /**
+           * Titles rather than ids, because the model is proposing several leaves in one turn and
+           * does not yet know the ids of the ones it created moments ago. Resolved server-side
+           * against this branch.
+           */
           dependsOn: {
             type: 'array',
             items: { type: 'string' },
@@ -496,3 +516,8 @@ export function parseToolArguments(raw: string): Record<string, unknown> {
     return {};
   }
 }
+
+/** The declarations for WEB_TOOL_NAMES, picked out of LEAF_TOOLS so there is only one copy. */
+export const WEB_TOOLS = LEAF_TOOLS.filter((t) =>
+  (WEB_TOOL_NAMES as readonly string[]).includes(t.function.name),
+);

@@ -93,6 +93,22 @@ describe('where a request got to', () => {
     expect(stage(s, 'accepted')).toMatchObject({ state: 'warn', detail: 'verdict not recorded' });
   });
 
+  it('does not mark a research request unmerged, unbuilt and undeployed', () => {
+    /**
+     * Research produces an answer, not a commit. Counting it in those stages left a request that
+     * behaved correctly showing three stalled stages — a red mark for doing the right thing.
+     */
+    const s = summariseDelivery(branch(), [leaf({ kind: 'research', verified: true })], undefined);
+    expect(stage(s, 'work')).toMatchObject({ state: 'done', detail: '1 of 1 verified' });
+    for (const key of ['landed', 'built', 'deployed']) expect(stage(s, key).state).toBe('skipped');
+  });
+
+  it('still tracks merges when a request mixes research with code', () => {
+    const s = summariseDelivery(branch(), [leaf({ id: 'r', kind: 'research' }), leaf({ id: 'c' })], undefined);
+    // One code leaf, unmerged — the research leaf must not inflate the denominator.
+    expect(stage(s, 'landed')).toMatchObject({ state: 'pending', detail: '0 of 1 merged' });
+  });
+
   it('ignores leaves belonging to another branch', () => {
     const s = summariseDelivery(branch(), [leaf({ branchId: 'other', status: 'failed' })], undefined);
     expect(stage(s, 'work').state).toBe('pending');

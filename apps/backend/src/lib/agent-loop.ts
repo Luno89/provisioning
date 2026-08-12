@@ -25,7 +25,7 @@ import {
   clampToolResult,
   WRAPUP_STEPS,
 } from './sandbox-tools.js';
-import { parseToolArguments, ToolCallScanner } from './leaf-tools.js';
+import { parseToolArguments, ToolCallScanner, WEB_TOOLS } from './leaf-tools.js';
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
@@ -113,6 +113,13 @@ export interface AgentRunOptions {
   fromProfile?: string[] | undefined;
   /** Keys supplied by a persona, recorded beside `fromProfile` rather than merged into it. */
   fromPersona?: string[] | undefined;
+  /**
+   * Offer web_search and fetch_web_page.
+   *
+   * For research leaves, whose answer is not in any repository. Off for coding work: a search tool
+   * in front of an agent with a repo to read is a way to spend steps not writing code.
+   */
+  webTools?: boolean | undefined;
   /**
    * Leave the reasoning pass on. Off by default: every turn here exists to produce a tool call,
    * and a turn spent deliberating is a turn that produces nothing while consuming the budget.
@@ -211,6 +218,23 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     if (!toolMap.has(t.function.name)) {
       toolMap.set(t.function.name, t);
     }
+  }
+  /**
+   * The web, for work whose answer is not in the repository.
+   *
+   * `web_search` and `fetch_web_page` have been DISPATCHED here all along (see the handlers below)
+   * while being declared only in LEAF_TOOLS, which the planner uses — so an execution agent could
+   * never call them. A research leaf without them can only answer from what the model already
+   * knows, which is exactly the thing research is supposed to check.
+   *
+   * Off by default: a coding leaf has a repository to read and a budget to spend, and a search tool
+   * in front of it is a way to spend steps not writing code.
+   *
+   * Both run in THIS process, not in the sandbox, so the workspace's default-deny egress is not
+   * involved and does not need relaxing.
+   */
+  if (opts.webTools) {
+    for (const t of WEB_TOOLS) toolMap.set(t.function.name, t);
   }
   const activeTools = Array.from(toolMap.values());
 

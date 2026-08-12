@@ -48,10 +48,22 @@ import { buildMemoryContext } from '../lib/memory-store.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
+import { assessFindings } from '../lib/research-verify.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
 }
+
+/**
+ * Where a research leaf writes its answer.
+ *
+ * Outside /work/repo on purpose — a research leaf has no repository, and a path under one would
+ * imply a checkout that never happened.
+ */
+export const FINDINGS_PATH = '/work/findings.md';
+
+/** Bounded like `summary` is: this goes into a Mongo document that also holds every attempt. */
+export const MAX_FINDINGS_CHARS = 20000;
 
 export interface ExecuteLeafResult {
   leafId: string;
@@ -174,8 +186,19 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         process.env.JWT_SECRET ?? '',
         process.env.MANAGEMENT_KUBECONFIG ?? '/tmp/kubeconfig-provisioning-lunorica',
       );
+      /**
+       * A research leaf gets no repository at all.
+       *
+       * Its deliverable is an answer, not a file. Provisioning a repo, cutting a branch and pushing
+       * for it was overhead that also broke its verification: `defaultVerifyCommand` looks for a
+       * test suite it will never have, so it came back unverified and the agent's own claim was
+       * believed. Its answer is stored on the leaf record instead — see `findings`.
+       */
+      const isResearch = leaf.kind === 'research';
       let project: ProjectMetadata | undefined;
-      try {
+      if (isResearch) {
+        console.log(`[ExecuteLeafActivity] leaf ${leaf.id} is research — no repository`);
+      } else try {
         const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
         project = await resolveLeafProject({
           db,
@@ -274,6 +297,72 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ].join('\n');
         }
 
+        if (isResearch) {
+          /**
+           * The hand-off for work with no branch to check out.
+           *
+           * A dependent coding leaf inherits its dependencies through git; a research leaf has no
+           * repository, so its dependencies' answers are passed as text. Same guarantee, different
+           * carrier — without it `dependsOn` would order research and move none of it, which is the
+           * exact failure the branch-based hand-off was built to fix.
+           */
+          const priorFindings = allLeaves
+            .filter((l) => (leaf.dependsOn ?? []).includes(l.id) && l.findings?.trim())
+            .map((l) => `### ${l.title}\n${l.findings!.trim()}`);
+
+          /**
+           * Write first, then improve — and said in that order, emphatically.
+           *
+           * The gentler version of this ("write your answer to findings.md") lost a whole run:
+           * measured live, the agent spent all forty steps searching and fetching, produced a
+           * genuinely researched answer in its reasoning, and finished with an empty file. The work
+           * happened and none of it survived, because nothing made writing the FIRST thing it did.
+           *
+           * The budget is stated in steps rather than as "be brief" — an instruction the agent can
+           * actually check itself against, since it knows how many it has used.
+           */
+          taskContext = [
+            context,
+            '',
+            'This is RESEARCH. There is no repository and nothing to commit.',
+            `Your answer goes in ${FINDINGS_PATH}. That file IS the deliverable — it is the only thing`,
+            'kept when this sandbox is destroyed, and an answer that exists only in your replies is lost.',
+            '',
+            `WRITE ${FINDINGS_PATH} EARLY, even if it is only an outline, and then keep rewriting it as`,
+            'you learn more. A run that spends its whole budget researching and never writes the file has',
+            'produced nothing.',
+            '',
+            'AN OUTLINE IS NOT AN ANSWER. Do not call finish while any section is a heading with nothing',
+            'under it, or says "TBD", "TODO" or "to be filled" — that is checked, and it fails the leaf.',
+            'Every section must contain what you actually found, in prose.',
+            '',
+            'Use web_search and fetch_web_page to check what you write rather than answering from memory,',
+            'and include the URLs you used — an answer citing no sources fails. Spend no more than about',
+            'half your steps searching; the rest belongs to writing.',
+            /**
+             * What this leaf's own previous attempt wrote.
+             *
+             * The exact parallel of the "A PREVIOUS ATTEMPT already committed here" line a code
+             * leaf gets from its branch. Without it a retry starts from an empty file while its
+             * findings sit preserved on the record — so an attempt that failed only for missing
+             * citations would rewrite the whole answer from scratch to add them, and probably run
+             * out of steps again doing it.
+             */
+            ...(leaf.findings?.trim()
+              ? [
+                  '',
+                  `A PREVIOUS ATTEMPT wrote this. Start by writing it back to ${FINDINGS_PATH}, then fix`,
+                  'what the failure above says was wrong with it. Do not start over.',
+                  '',
+                  leaf.findings.trim(),
+                ]
+              : []),
+            ...(priorFindings.length
+              ? ['', 'What the work this depends on already found:', ...priorFindings]
+              : []),
+          ].join('\n');
+        }
+
         /**
          * What earlier leaves on this project already established.
          *
@@ -295,6 +384,8 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ...(provider.kind ? { kind: provider.kind } : {}),
           language: leaf.language,
           taskContext,
+          // Only research gets the web. See AgentRunOptions.webTools.
+          ...(isResearch ? { webTools: true } : {}),
           ...(memoryContext ? { memoryContext } : {}),
           // The point of promoting a configuration: a setting that won on the bench takes effect on
           // the work that matters, not only on the next experiment. Without this the Lab measures a
@@ -343,9 +434,27 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * Run for BOTH outcomes, deliberately. Verifying only the successes would leave exactly the
          * second case unrescued.
          */
+        /**
+         * A research leaf is proved by having produced an answer.
+         *
+         * Read from the sandbox before it is destroyed, and read rather than asked for: the agent's
+         * summary is a claim about the work, while the file either exists with something in it or
+         * does not. It is a weak check by design — the same strength as the artifact check it
+         * replaces, and it says nothing about whether the answer is any good. What it does catch is
+         * the failure that actually happens, which is a leaf reporting a thorough investigation and
+         * leaving nothing behind.
+         */
+        let findings = '';
+        if (isResearch) {
+          findings = await workspaces.readFile(leaf.id, FINDINGS_PATH).catch(() => '');
+        }
+
         let verify: VerifyResult = { outcome: 'unverified', output: '' };
-        const verifyCommand = leaf.verifyCommand?.trim() || defaultVerifyCommand(leaf.language);
-        if (verifyCommand) {
+        const verifyCommand = isResearch ? '' : (leaf.verifyCommand?.trim() || defaultVerifyCommand(leaf.language));
+        if (isResearch) {
+          const verdict = assessFindings(findings, FINDINGS_PATH);
+          verify = { outcome: verdict.outcome, output: verdict.reason };
+        } else if (verifyCommand) {
           verify = await workspaces
             .exec(leaf.id, buildVerifyScript(verifyCommand, leaf.language), 300_000)
             .then((r) => parseVerifyResult(r.stdout))
@@ -365,7 +474,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * rescue was about to commit a moment later.
          */
         const pushedBranch = await pushBack();
-        const artifacts = leaf.expects?.length
+        // `expects` names repository paths, and research has no repository. A planner that gives
+        // both is asking for a file check that could only ever fail.
+        const artifacts = !isResearch && leaf.expects?.length
           ? await workspaces
               .exec(leaf.id, buildArtifactCheckScript(leaf.expects, project?.defaultBranch || 'main'), 60_000)
               .then((r) => parseArtifactResult(r.stdout))
@@ -452,6 +563,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             usage: spent,
             ...(partial ? { outputBranch: partial } : {}),
             ...(project ? { projectId: project.id } : {}),
+            // Kept even on a failure, for the same reason a partial branch is: a half-written
+            // answer is what the next attempt should continue from rather than rediscover.
+            ...(findings.trim() ? { findings: findings.slice(0, MAX_FINDINGS_CHARS) } : {}),
             updatedAt: new Date().toISOString(),
           });
           // Thrown so the failure lands in the catch below, which is the ONE place that records an
@@ -514,6 +628,8 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           // Recorded so a later leaf can find the work, and so the board can link to it.
           ...(project ? { projectId: project.id } : {}),
           ...(outputBranch ? { outputBranch } : {}),
+          // A research leaf's actual output. Stored here because there is no repository holding it.
+          ...(findings.trim() ? { findings: findings.slice(0, MAX_FINDINGS_CHARS) } : {}),
           updatedAt: now,
         });
         return { leafId: leaf.id, tokensUsed: run.tokensUsed, summary: run.summary };

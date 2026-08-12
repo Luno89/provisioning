@@ -113,6 +113,22 @@ export default function LeafDetail({ apiBase, leaf, subLeaves }: { apiBase: stri
         </div>
       )}
 
+      {/*
+        * A research leaf's actual answer, above its self-report.
+        *
+        * The deliverable, not a description of one — so it is presented as content rather than as
+        * a claim, which is the opposite of how the summary below is framed. It lives on the leaf
+        * record because research produces no repository to hold it.
+        */}
+      {leaf.findings && (
+        <div className="mt-5">
+          <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Findings</h3>
+          <div className="text-[13px] text-slate-300 leading-relaxed rounded-xl border border-[var(--bark-600)] bg-[var(--bark-900)]/50 p-4 max-h-[32rem] overflow-y-auto">
+            <Markdown>{leaf.findings}</Markdown>
+          </div>
+        </div>
+      )}
+
       {/* The agent's own account of what it did. Labelled as a report rather than presented as
           fact, because that is exactly what it is. */}
       {leaf.summary && (

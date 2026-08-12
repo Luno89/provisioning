@@ -64,17 +64,29 @@ export function summariseDelivery(
         // anything having checked it, and that distinction is the whole point of the evidence row.
         : { key: 'work', label: 'Work', state: 'done', detail: `${verified} of ${mine.length} verified` };
 
-  const landed: DeliveryStage = !succeeded.length
-    ? { key: 'landed', label: 'Landed', state: 'pending', detail: 'nothing to merge yet' }
-    : merged >= succeeded.length
-      ? { key: 'landed', label: 'Landed', state: 'done', detail: `${merged} merged to main` }
-      : { key: 'landed', label: 'Landed', state: merged ? 'active' : 'pending', detail: `${merged} of ${succeeded.length} merged` };
+  /**
+   * Research produces an answer, not a commit, so it is excluded from everything downstream of the
+   * work itself. Counting it would leave a research request permanently showing "0 of 1 merged"
+   * against work that was never going to merge — a red mark for behaving correctly.
+   */
+  const buildable = succeeded.filter((l) => l.kind !== 'research');
+  const allResearch = mine.length > 0 && mine.every((l) => l.kind === 'research');
+
+  const landed: DeliveryStage = allResearch
+    ? { key: 'landed', label: 'Landed', state: 'skipped', detail: 'research — nothing to merge' }
+    : !buildable.length
+      ? { key: 'landed', label: 'Landed', state: 'pending', detail: 'nothing to merge yet' }
+      : merged >= buildable.length
+        ? { key: 'landed', label: 'Landed', state: 'done', detail: `${merged} merged to main` }
+        : { key: 'landed', label: 'Landed', state: merged ? 'active' : 'pending', detail: `${merged} of ${buildable.length} merged` };
 
   /**
    * Build and deploy come from the project rollup, so a branch and the Projects list can never
    * disagree. Absent when the request never produced a project — a chat that proposed nothing.
    */
-  const built: DeliveryStage = !project
+  const built: DeliveryStage = allResearch
+    ? { key: 'built', label: 'Built', state: 'skipped', detail: 'research — nothing to build' }
+    : !project
     ? { key: 'built', label: 'Built', state: 'pending', detail: 'no project yet' }
     : project.status === 'no-build'
       ? { key: 'built', label: 'Built', state: 'pending', detail: 'no build has run' }
@@ -84,7 +96,9 @@ export function summariseDelivery(
           ? { key: 'built', label: 'Built', state: 'failed', detail: project.reason || 'the build failed' }
           : { key: 'built', label: 'Built', state: 'done', detail: 'image ready' };
 
-  const deployed: DeliveryStage = !project || project.status === 'no-build' || project.status === 'building' || project.status === 'build-failed'
+  const deployed: DeliveryStage = allResearch
+    ? { key: 'deployed', label: 'Deployed', state: 'skipped', detail: 'research — nothing to deploy' }
+    : !project || project.status === 'no-build' || project.status === 'building' || project.status === 'build-failed'
     ? { key: 'deployed', label: 'Deployed', state: 'pending', detail: 'nothing to deploy yet' }
     : project.status === 'built'
       // Not a failure. Plenty of requests produce something that is never meant to be a service.
