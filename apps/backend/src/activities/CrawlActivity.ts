@@ -22,7 +22,8 @@
  */
 import { createDatabase } from '../lib/db-interface.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
-import { crawlEndpoint, liveDeployment } from '../lib/web-tools-resolver.js';
+import { crawlEndpoint, liveDeployment, corpusEndpoints, type CorpusEndpoints } from '../lib/web-tools-resolver.js';
+import { ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus } from '../lib/corpus-client.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildBatchPayload, readCrawlResults, canonical, hostOf, usableLinks } from '../lib/crawl-client.js';
 import { toPage, type CorpusPage } from '../lib/corpus.js';
@@ -57,6 +58,21 @@ async function endpoint(ownerId: string) {
   } finally {
     await db.close();
   }
+}
+
+/** A stored page as the index wants it. Flat, snake_case, and every id a term to scope by. */
+function toDoc(p: CorpusPage) {
+  return {
+    url: p.url,
+    host: p.host,
+    owner_id: p.ownerId,
+    ingest_id: p.ingestId,
+    // Empty rather than absent: Quickwit's mapping is fixed, and a missing field is a rejected
+    // document rather than a null one.
+    project_id: p.projectId ?? '',
+    body: p.text,
+    fetched_at: p.fetchedAt,
+  };
 }
 
 export interface SeedFrontierArgs {
@@ -153,6 +169,35 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
       ingestId: args.ingestId,
       projectId: args.projectId,
     }));
+
+    /**
+     * The corpus, when the services for one are deployed.
+     *
+     * Pages go to Quickwit — which is what puts them in object storage AND makes them findable —
+     * and their chunks to Qdrant. Neither is required: a platform with none of this deployed still
+     * gets the Mongo copy below, which is what every existing test and every small crawl uses.
+     *
+     * Deliberately not fatal. A crawl that fetched forty pages and cannot reach the index has still
+     * fetched forty pages, and throwing here would retry the FETCH — spending the budget again on
+     * something that was never the crawler's problem.
+     */
+    let indexed = 0;
+    let embedded = 0;
+    try {
+      const ends = await corpusEndpoints(db, args.ownerId);
+      if (ends.index) {
+        await ensureIndex(ends.index.base);
+        const docs = stored.map((p) => toDoc(p));
+        indexed = await indexPages(ends.index.base, docs);
+        if (ends.vectors && ends.embeddings) {
+          await ensureCollection(ends.vectors.base, ends.vectors.apiKey);
+          embedded = await embedPages(ends, docs);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Crawl] corpus services unavailable, stored to the database only: ${err?.message}`);
+    }
+
     await db.saveCorpusPages(stored);
 
     /**
@@ -179,7 +224,8 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
 
     const bytes = stored.reduce((n, p) => n + p.bytes, 0);
     const failed = args.batch.length - stored.length;
-    console.log(`[Crawl] stored ${stored.length} page(s), ${bytes} bytes, ${failed} failed, queued ${queued}`);
+    console.log(`[Crawl] stored ${stored.length} page(s), ${bytes} bytes, ${failed} failed, `
+      + `queued ${queued}, indexed ${indexed}, embedded ${embedded} chunk(s)`);
     return {
       stored: stored.length,
       bytes,
@@ -199,6 +245,23 @@ export async function SearchCorpusActivity(
   const db = createDatabase();
   await db.init();
   try {
+    /**
+     * Hybrid when the services are there: exact terms from Quickwit, meaning from Qdrant.
+     *
+     * The fallback is the original in-process scan over the Mongo copy. It is correct and it does
+     * not scale — loading every page an owner has is the whole corpus through one heap — so it is
+     * what a platform with nothing deployed gets, not what a large one relies on.
+     */
+    const ends: CorpusEndpoints = await corpusEndpoints(db, args.ownerId).catch(() => ({}));
+    if (ends.index || ends.vectors) {
+      const hits = await searchCorpus(ends, args.query, {
+        ownerId: args.ownerId,
+        ingestId: args.ingestId,
+        projectId: args.projectId,
+      });
+      if (hits.length) return { hits: hits.map((h) => ({ url: h.url, snippet: h.snippet })) };
+    }
+
     const { search } = await import('../lib/corpus.js');
     const pages = await db.getCorpusPages({
       ownerId: args.ownerId,

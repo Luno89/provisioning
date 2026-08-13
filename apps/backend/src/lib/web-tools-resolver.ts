@@ -159,3 +159,74 @@ export async function crawlEndpoint(
   // Trailing slash stripped: every path below is joined with one, and `//crawl/job` 404s.
   return url ? { base: url.replace(/\/+$/, ''), token: dep.crawl4aiApiToken } : undefined;
 }
+
+/**
+ * Where this owner's corpus lives — all four services, resolved together.
+ *
+ * Together rather than one function each, because they are useless apart and a caller that got
+ * three of them would have to decide what a corpus with no index means. `search` in
+ * corpus-backend.ts wants storage AND an index in the same breath; an ingest wants all four.
+ *
+ * Every field is optional and the caller decides what it can do without: exact-term search needs
+ * Quickwit, semantic needs Qdrant and TEI, and storing pages needs only MinIO. A partial corpus
+ * degrades to fewer ways of asking rather than to an error.
+ */
+export interface CorpusEndpoints {
+  storage?: { base: string; accessKey: string; secretKey: string; bucket: string };
+  index?: { base: string };
+  vectors?: { base: string; apiKey: string };
+  embeddings?: { base: string };
+}
+
+export async function corpusEndpoints(
+  db: Pick<Database, 'getDeployments'>,
+  ownerId?: string,
+): Promise<CorpusEndpoints> {
+  const infra = new InfrastructureService();
+  const clusters = new ClusterService(db as never, infra);
+  const proxy = new ClusterProxyService();
+  const deployments = await db.getDeployments().catch(() => [] as DeploymentMetadata[]);
+
+  const deps: WebToolsDeps = {
+    db,
+    ensurePortForward: (clusterId, serviceKey, kubeconfigPath, target) =>
+      proxy.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target),
+    kubeconfigFor: async (clusterId: string) => {
+      const cluster = await clusters.getByIdUnscoped(clusterId);
+      return cluster ? clusters.getKubeconfigPath(cluster) : undefined;
+    },
+  };
+
+  const forward = async (appType: string, service: string, port: number) => {
+    const dep = liveDeployment(deployments, appType, ownerId);
+    if (!dep) return undefined;
+    const url = await baseUrlFor(deps, dep, service, port);
+    return url ? { dep, base: url.replace(/\/+$/, '') } : undefined;
+  };
+
+  // Resolved in parallel: each is a port-forward that may have to be established, and four in
+  // series is four times the wait on the first call after a restart.
+  const [minio, quickwit, qdrant, tei] = await Promise.all([
+    forward('minio', 'minio', 9000),
+    forward('quickwit', 'quickwit', 7280),
+    forward('qdrant', 'qdrant', 6333),
+    forward('tei', 'tei', 80),
+  ]);
+
+  return {
+    ...(minio?.dep.minioRootPassword
+      ? {
+        storage: {
+          base: minio.base,
+          accessKey: minio.dep.minioRootUser || 'koala',
+          secretKey: minio.dep.minioRootPassword,
+          // The bucket Quickwit was configured with, so pages and indexes share one store.
+          bucket: quickwit?.dep.quickwitBucket || 'koala-corpus',
+        },
+      }
+      : {}),
+    ...(quickwit ? { index: { base: quickwit.base } } : {}),
+    ...(qdrant?.dep.qdrantApiKey ? { vectors: { base: qdrant.base, apiKey: qdrant.dep.qdrantApiKey } } : {}),
+    ...(tei ? { embeddings: { base: tei.base } } : {}),
+  };
+}
