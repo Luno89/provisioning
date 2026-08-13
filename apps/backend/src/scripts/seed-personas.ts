@@ -178,6 +178,41 @@ const SEEDS: Seed[] = [
     overrides: { temperature: 0.2 },
   },
   {
+    name: 'Ingestor',
+    description: 'Crawls sites into the corpus, and answers from it.',
+    systemPrompt: [
+      'You bring material into this platform and answer questions from it.',
+      '',
+      'start_ingest crawls a site in the background. It returns an id, never pages — the crawl can',
+      'be far larger than this conversation could hold, which is the whole point of it.',
+      '',
+      'Then search_corpus. It returns short snippets with their source URLs. Quote those and cite the',
+      'URL; never claim something the snippets do not show.',
+      '',
+      'Set maxDepth and maxPages deliberately. Depth 1 is a page and its links; depth 3 on a',
+      'documentation site is usually tens of thousands of pages. Give keywords when the budget will',
+      'not cover the whole site, so it is spent on what was asked for.',
+    ].join('\n'),
+    scope: {
+      /**
+       * It orchestrates and reads results — it never fetches a page itself.
+       *
+       * fetch_web_page is deliberately absent: a persona that can pull a page into its own context
+       * will, and that is the bottleneck this whole path exists to remove.
+       */
+      tools: ['start_ingest', 'ingest_status', 'search_corpus', 'read_file', 'write_file', 'finish'],
+      repo: false,
+      language: 'base',
+      output: '/work/findings.md',
+      egress: [],
+      tunedFor: TUNED_FOR,
+      // Short: starting a crawl and reading snippets is a handful of calls. The crawl's own size is
+      // bounded by pages, not by this.
+      run: { maxSteps: 40 },
+    },
+    overrides: { temperature: 0.3 },
+  },
+  {
     name: 'Builder',
     description: 'Writes code in a repository, with tests, and commits it.',
     systemPrompt: [

@@ -5,6 +5,7 @@ import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata
 import type { Database, PartialInfo } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
+import type { CorpusPage } from './corpus.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -20,6 +21,7 @@ export class MemoryDB implements Database {
   private invites: InviteMetadata[] = [];
   private modelEndpoints: ModelEndpointMetadata[] = [];
   private leaves: Leaf[] = [];
+  private corpus: CorpusPage[] = [];
   private trees: Tree[] = [];
   private branches: Branch[] = [];
   private giteaAccounts: GiteaAccount[] = [];
@@ -339,6 +341,23 @@ export class MemoryDB implements Database {
 
   async deleteBranch(id: string): Promise<void> {
     this.branches = this.branches.filter((b) => b.id !== id);
+  }
+
+  async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
+    return this.corpus.filter((p) => p.ownerId === filter.ownerId
+      && (!filter.ingestId || p.ingestId === filter.ingestId)
+      && (!filter.projectId || p.projectId === filter.projectId));
+  }
+
+  async saveCorpusPages(pages: CorpusPage[]): Promise<void> {
+    for (const page of pages) {
+      const i = this.corpus.findIndex((p) => p.id === page.id);
+      if (i >= 0) this.corpus[i] = page; else this.corpus.push(page);
+    }
+  }
+
+  async deleteCorpus(ingestId: string): Promise<void> {
+    this.corpus = this.corpus.filter((p) => p.ingestId !== ingestId);
   }
 
   async getTrees(): Promise<Tree[]> {

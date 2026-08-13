@@ -247,6 +247,75 @@ export const LEAF_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'start_ingest',
+      description:
+        'Crawl a site into this platform\'s corpus, so it can be searched later. Returns immediately '
+        + 'with an id — the crawl runs as a background job and the pages are NEVER returned to you. '
+        + 'Use this instead of fetch_web_page whenever you want more than a couple of pages, or a '
+        + 'document too large to read: there is no size limit here because nothing passes through '
+        + 'this conversation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Where to start crawling.' },
+          maxDepth: {
+            type: 'number',
+            description:
+              'How many links deep to follow from the starting page. 0 fetches only that page, 1 '
+              + 'follows its links. Defaults to 1. Depth 3 on a documentation site is usually tens '
+              + 'of thousands of pages.',
+          },
+          maxPages: { type: 'number', description: 'Hard ceiling on pages fetched. Defaults to 50.' },
+          domains: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Hosts the crawl may follow links to. Defaults to the starting page\'s own host.',
+          },
+          keywords: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'What makes a page worth reaching first. A capped crawl spends its budget on pages '
+              + 'matching these rather than on whatever happened to be linked earliest.',
+          },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ingest_status',
+      description: 'Whether a crawl has finished, and what it fetched. Use the id from start_ingest.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'The id returned by start_ingest.' } },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_corpus',
+      description:
+        'Find a phrase in everything that has been ingested. Returns short snippets with their '
+        + 'source URLs — never whole pages, which is what lets the corpus be far larger than this '
+        + 'conversation could hold. Matching is plain text, not a pattern.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The phrase to look for.' },
+          ingestId: { type: 'string', description: 'Optional — search only one crawl\'s pages.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_personas',
       description:
         'List the personas available to assign work to, with what each is for. Call this before '

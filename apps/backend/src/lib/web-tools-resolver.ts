@@ -17,6 +17,9 @@ import type { Database } from './db-interface.js';
 import type { DeploymentMetadata } from './types.js';
 import type { ServiceTarget } from '../services/ClusterProxyService.js';
 import { createWebTools, type WebTools } from './web-tools.js';
+import { InfrastructureService } from '../services/InfrastructureService.js';
+import { ClusterService } from '../services/ClusterService.js';
+import { ClusterProxyService } from '../services/ClusterProxyService.js';
 
 /** Namespace naming has to match what the constructs deploy into — `namespace: deploymentName`. */
 const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
@@ -118,4 +121,41 @@ export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Pro
     + ` (deployments: searxng=${searxDep ? searxDep.name : 'none'}, crawl4ai=${crawlDep ? crawlDep.name : 'none'})`);
 
   return tools;
+}
+
+/**
+ * Where the crawler is, and the token for it — for callers that drive the JOB API rather than the
+ * one-page fetch that `resolveWebTools` wraps.
+ *
+ * Deliberately returns both together. Pairing a deployment's URL with an environment variable's
+ * token, or the reverse, authenticates against the wrong service and 401s on every call — a failure
+ * this codebase has already had once.
+ */
+export async function crawlEndpoint(
+  db: Pick<Database, 'getDeployments'>,
+  ownerId?: string,
+): Promise<{ base: string; token: string } | undefined> {
+  const infra = new InfrastructureService();
+  const clusters = new ClusterService(db as never, infra);
+  const proxy = new ClusterProxyService();
+  const deployments = await db.getDeployments().catch(() => [] as DeploymentMetadata[]);
+  const dep = liveDeployment(deployments, 'crawl4ai', ownerId);
+  if (!dep?.crawl4aiApiToken) return undefined;
+
+  const url = await baseUrlFor(
+    {
+      db,
+      ensurePortForward: (clusterId, serviceKey, kubeconfigPath, target) =>
+        proxy.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target),
+      kubeconfigFor: async (clusterId: string) => {
+        const cluster = await clusters.getByIdUnscoped(clusterId);
+        return cluster ? clusters.getKubeconfigPath(cluster) : undefined;
+      },
+    },
+    dep,
+    'crawl4ai',
+    11235,
+  );
+  // Trailing slash stripped: every path below is joined with one, and `//crawl/job` 404s.
+  return url ? { base: url.replace(/\/+$/, ''), token: dep.crawl4aiApiToken } : undefined;
 }

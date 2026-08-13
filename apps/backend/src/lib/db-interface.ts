@@ -3,6 +3,7 @@ import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
+import type { CorpusPage } from './corpus.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -72,6 +73,17 @@ export interface Database {
   /** Keyed by ownerId — one Gitea account per platform user. */
   getGiteaAccount(ownerId: string): Promise<GiteaAccount | null>;
   saveGiteaAccount(account: GiteaAccount): Promise<void>;
+
+  /**
+   * Crawled pages. Read by search, never handed to a model whole — see lib/corpus.ts.
+   *
+   * `getCorpusPages` is scoped by ingest or project rather than fetching everything: a corpus is
+   * megabytes by design, and "load it all then filter" is the shape that works until the day it
+   * does not.
+   */
+  getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]>;
+  saveCorpusPages(pages: CorpusPage[]): Promise<void>;
+  deleteCorpus(ingestId: string): Promise<void>;
 
   getTrees(): Promise<Tree[]>;
   saveTree(tree: Tree): Promise<void>;

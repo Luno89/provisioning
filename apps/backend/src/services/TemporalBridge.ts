@@ -1653,6 +1653,47 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
    * lookup (by name + clusterId) rather than distinguishing first-deploy vs redeploy itself —
    * calling this twice for the same project just redeploys the same DeploymentMetadata row.
    */
+  /**
+   * Starts a crawl and returns immediately.
+   *
+   * The agent gets a workflow id, not pages. Every byte goes from the crawler to the database
+   * without passing through a context window — which is the whole reason this is a workflow rather
+   * than a tool that fetches.
+   */
+  async startIngest(args: {
+    ownerId: string;
+    url: string;
+    projectId?: string | undefined;
+    maxDepth?: number | undefined;
+    maxPages?: number | undefined;
+    domains?: string[] | undefined;
+    keywords?: string[] | undefined;
+  }): Promise<{ workflowId: string }> {
+    const workflowId = `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    await this.client.workflow.start('executeIngestWorkflow', {
+      taskQueue: 'host-ops-queue',
+      workflowId,
+      args: [args],
+    })
+    return { workflowId }
+  }
+
+  /** What an ingest has produced so far, or why it stopped. */
+  async ingestStatus(workflowId: string): Promise<{ state: string; receipt?: unknown; error?: string }> {
+    try {
+      const status = await pollWorkflowRun(workflowId)
+      const name = status?.status?.name
+      if (name === 'RUNNING') return { state: 'running' }
+      if (name === 'COMPLETED') {
+        const receipt = await this.client.workflow.getHandle(workflowId).result()
+        return { state: 'completed', receipt }
+      }
+      return { state: (name ?? 'unknown').toLowerCase() }
+    } catch (err: any) {
+      return { state: 'unknown', error: err?.message ?? String(err) }
+    }
+  }
+
   async promoteProjectBuild(project: ProjectMetadata, run: PipelineRunMetadata, userId?: string): Promise<WorkflowDeal> {
     if (!run.imageTag) throw new Error('Pipeline run has no built image to promote');
     if (!project.targetClusterId) throw new Error('Project has no target cluster configured');

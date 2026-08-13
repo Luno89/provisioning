@@ -30,6 +30,17 @@ export interface LeafToolCall {
 
 export interface LeafToolContext {
   db: Database;
+  /**
+   * Starting and inspecting a crawl.
+   *
+   * Optional because the chat path has a Temporal client and a worker-side caller may not. Absent
+   * means the ingest tools report that ingestion is unavailable rather than appearing to work.
+   */
+  ingest?: {
+    start: (args: { ownerId: string; url: string; maxDepth?: number; maxPages?: number; domains?: string[]; keywords?: string[] }) => Promise<{ workflowId: string }>;
+    status: (workflowId: string) => Promise<{ state: string; receipt?: unknown; error?: string }>;
+    search: (args: { ownerId: string; query: string; ingestId?: string }) => Promise<{ hits: { url: string; snippet: string }[] }>;
+  };
   /** The session's user. Never a tool argument. */
   userId: string;
   branchId: string;
@@ -39,7 +50,7 @@ export interface LeafToolContext {
 }
 
 export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Promise<string> {
-  const { db, userId, branchId, webSearch, fetchWebPage, projects } = ctx;
+  const { db, userId, branchId, webSearch, fetchWebPage, projects, ingest } = ctx;
   const args = parseToolArguments(call.arguments);
   const leaves = ((await db.getLeaves()).filter((l) => l.ownerId === userId)).filter((l) => l.branchId === branchId);
 
@@ -54,6 +65,53 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
       if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
       return JSON.stringify(detailLeaf(leaf, childrenOf(leaves, leaf.id)));
+    }
+
+    if (call.name === 'start_ingest' || call.name === 'ingest_status' || call.name === 'search_corpus') {
+      if (!ingest) {
+        return JSON.stringify({ error: 'Ingestion is not available here.' });
+      }
+
+      if (call.name === 'start_ingest') {
+        const url = typeof args.url === 'string' ? args.url.trim() : '';
+        if (!/^https?:\/\//i.test(url)) return JSON.stringify({ error: 'url must be an http or https address.' });
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+        const list = (v: unknown) => (Array.isArray(v) ? v.map(String).filter(Boolean) : undefined);
+        const started = await ingest.start({
+          ownerId: userId,
+          url,
+          // Bounded here as well as in the crawl config: these arrive as untrusted JSON, and a
+          // depth of 12 is not a crawl, it is an outage.
+          ...(num(args.maxDepth) !== undefined ? { maxDepth: Math.min(Math.max(0, num(args.maxDepth)!), 4) } : {}),
+          ...(num(args.maxPages) !== undefined ? { maxPages: Math.min(Math.max(1, num(args.maxPages)!), 2000) } : {}),
+          ...(list(args.domains)?.length ? { domains: list(args.domains)! } : {}),
+          ...(list(args.keywords)?.length ? { keywords: list(args.keywords)! } : {}),
+        });
+        return JSON.stringify({
+          started: { id: started.workflowId, url },
+          // Said explicitly: the model will otherwise wait for pages that are never coming.
+          note: 'The crawl is running in the background. No pages will be returned to you — check ingest_status, then use search_corpus.',
+        });
+      }
+
+      if (call.name === 'ingest_status') {
+        const id = typeof args.id === 'string' ? args.id.trim() : '';
+        if (!id) return JSON.stringify({ error: 'id is required.' });
+        return JSON.stringify(await ingest.status(id));
+      }
+
+      const query = typeof args.query === 'string' ? args.query.trim() : '';
+      if (!query) return JSON.stringify({ error: 'query is required.' });
+      const found = await ingest.search({
+        ownerId: userId,
+        query,
+        ...(typeof args.ingestId === 'string' && args.ingestId ? { ingestId: args.ingestId } : {}),
+      });
+      return JSON.stringify({
+        query,
+        hits: found.hits,
+        ...(found.hits.length ? {} : { note: 'Nothing in the corpus matches. Has the crawl finished?' }),
+      });
     }
 
     if (call.name === 'list_personas') {

@@ -79,6 +79,7 @@ import { buildPromotion, supersede, revertTo } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
+import { SearchCorpusActivity } from './activities/CrawlActivity.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
 import { normaliseLeafInput } from './lib/leaf-input.js';
@@ -1814,6 +1815,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         webSearch: executeWebSearch,
         fetchWebPage: executeFetchWebPage,
         projects: projectRepoService,
+        /**
+         * Ingestion, driven as a Temporal workflow rather than inline.
+         *
+         * Present only when Temporal is reachable — the platform runs without it, and a tool that
+         * appeared to start a crawl and silently did nothing would be worse than one that says it
+         * is unavailable.
+         */
+        ...(temporalBridge
+          ? {
+              ingest: {
+                start: (a: Parameters<typeof temporalBridge.startIngest>[0]) => temporalBridge.startIngest(a),
+                status: (id: string) => temporalBridge.ingestStatus(id),
+                search: (a: { ownerId: string; query: string; ingestId?: string }) => SearchCorpusActivity(a),
+              },
+            }
+          : {}),
       },
       call,
     );

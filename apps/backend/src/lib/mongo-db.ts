@@ -6,6 +6,7 @@ import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata
 import type { Database, PartialInfo } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
+import type { CorpusPage } from './corpus.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -80,6 +81,10 @@ export class MongoDB implements Database {
 
   private get giteaAccounts(): Collection {
     return this.db!.collection('giteaAccounts');
+  }
+
+  private get corpus(): Collection {
+    return this.db!.collection('corpus');
   }
 
   private get trees(): Collection {
@@ -346,6 +351,28 @@ export class MongoDB implements Database {
     const id = doc._id;
     const { _id, ...filter } = doc;
     await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
+    const query: Record<string, unknown> = { ownerId: filter.ownerId };
+    if (filter.ingestId) query.ingestId = filter.ingestId;
+    if (filter.projectId) query.projectId = filter.projectId;
+    return (await this.corpus.find(query).toArray()).map(doc => fromDoc<CorpusPage>(doc));
+  }
+
+  async saveCorpusPages(pages: CorpusPage[]): Promise<void> {
+    if (!pages.length) return;
+    // One round trip for a whole crawl batch. Written one-by-one this is the slowest part of an
+    // ingest by an order of magnitude.
+    await this.corpus.bulkWrite(pages.map((page) => {
+      const doc = toDoc(page);
+      const { _id, ...rest } = doc;
+      return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
+    }));
+  }
+
+  async deleteCorpus(ingestId: string): Promise<void> {
+    await this.corpus.deleteMany({ ingestId });
   }
 
   async getTrees(): Promise<Tree[]> {

@@ -44,3 +44,12 @@ export const acceptRequestActivityMeta = { name: 'AcceptRequestActivity', startT
  * inference pass and its tool round trips.
  */
 export const replanActivityMeta = { startToCloseTimeout: '10 minutes' } as const;
+
+/**
+ * Submitting and polling a crawl are single HTTP calls; storing is a bulk write of a whole batch.
+ * The WAITING is durable timers in the workflow, so none of these needs to be long.
+ */
+export const crawlActivityMeta = {
+  startToCloseTimeout: '2 minutes',
+  storeTimeout: '5 minutes',
+} as const;
