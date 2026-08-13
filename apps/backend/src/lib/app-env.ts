@@ -61,6 +61,19 @@ export interface AppEnvArgs {
   crawl4aiApiToken?: string | undefined;
   crawl4aiMemoryLimit?: string | undefined;
   crawl4aiShmSize?: string | undefined;
+  minioRootUser?: string | undefined;
+  minioRootPassword?: string | undefined;
+  minioStorage?: string | undefined;
+  qdrantApiKey?: string | undefined;
+  qdrantStorage?: string | undefined;
+  qdrantMemoryLimit?: string | undefined;
+  quickwitS3Endpoint?: string | undefined;
+  quickwitS3AccessKey?: string | undefined;
+  quickwitS3SecretKey?: string | undefined;
+  quickwitBucket?: string | undefined;
+  teiModelId?: string | undefined;
+  teiUseGpu?: boolean | undefined;
+  teiMemoryLimit?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
@@ -134,6 +147,60 @@ export function resolveSearxngDefaults(dep: DeploymentMetadata): DeploymentMetad
   if (dep.appType !== 'searxng') return dep;
   return Object.assign({}, dep, {
     searxngSecretKey: dep.searxngSecretKey || randomBytes(32).toString('hex'),
+  });
+}
+
+/** Credentials for the two search services that hold data of their own. */
+export function resolveMinioDefaults(dep: DeploymentMetadata): DeploymentMetadata {
+  if (dep.appType !== 'minio') return dep;
+  return Object.assign({}, dep, {
+    minioRootUser: dep.minioRootUser || 'koala',
+    minioRootPassword: dep.minioRootPassword || randomBytes(24).toString('hex'),
+  });
+}
+
+export function resolveQdrantDefaults(dep: DeploymentMetadata): DeploymentMetadata {
+  if (dep.appType !== 'qdrant') return dep;
+  return Object.assign({}, dep, {
+    qdrantApiKey: dep.qdrantApiKey || randomBytes(32).toString('hex'),
+  });
+}
+
+/**
+ * Quickwit's credentials, which are not its own.
+ *
+ * Its metastore and every index split live in the MinIO bucket, so it has to be handed the keys
+ * that MinIO was actually deployed with. Generating a fresh pair here — the shape every other
+ * resolver above has — would produce a pod that starts, passes its liveness probe, and cannot read
+ * a single split.
+ *
+ * Hence the deployment list: this is the one resolver that reads another deployment's record, and
+ * it fails loudly when there is nothing to read rather than deploying something inert.
+ */
+export function resolveQuickwitDefaults(
+  dep: DeploymentMetadata,
+  deployments: DeploymentMetadata[],
+): DeploymentMetadata {
+  if (dep.appType !== 'quickwit') return dep;
+
+  const minio = deployments.find((d) =>
+    d.appType === 'minio' && d.status === 'running' && (!dep.ownerId || !d.ownerId || d.ownerId === dep.ownerId));
+
+  if (!minio?.minioRootPassword && !dep.quickwitS3SecretKey) {
+    throw new Error(
+      'Quickwit keeps its indexes in MinIO, so a running MinIO deployment is required before it can '
+      + 'be deployed. Deploy minio first.',
+    );
+  }
+
+  return Object.assign({}, dep, {
+    quickwitBucket: dep.quickwitBucket || 'koala-corpus',
+    quickwitS3AccessKey: dep.quickwitS3AccessKey || minio?.minioRootUser || 'koala',
+    quickwitS3SecretKey: dep.quickwitS3SecretKey || minio?.minioRootPassword || '',
+    quickwitS3Endpoint: dep.quickwitS3Endpoint
+      // The in-cluster Service address, not an ingress: this is pod-to-pod and must not depend on
+      // an ingress controller or a port-forward being up.
+      || `http://minio.${minio?.name ?? 'minio'}.svc.cluster.local:9000`,
   });
 }
 
@@ -231,6 +298,19 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     CRAWL4AI_API_TOKEN: a.crawl4aiApiToken || '',
     CRAWL4AI_MEMORY_LIMIT: a.crawl4aiMemoryLimit || '',
     CRAWL4AI_SHM_SIZE: a.crawl4aiShmSize || '',
+    MINIO_ROOT_USER: a.minioRootUser || '',
+    MINIO_ROOT_PASSWORD: a.minioRootPassword || '',
+    MINIO_STORAGE: a.minioStorage || '',
+    QDRANT_API_KEY: a.qdrantApiKey || '',
+    QDRANT_STORAGE: a.qdrantStorage || '',
+    QDRANT_MEMORY_LIMIT: a.qdrantMemoryLimit || '',
+    QUICKWIT_S3_ENDPOINT: a.quickwitS3Endpoint || '',
+    QUICKWIT_S3_ACCESS_KEY: a.quickwitS3AccessKey || '',
+    QUICKWIT_S3_SECRET_KEY: a.quickwitS3SecretKey || '',
+    QUICKWIT_BUCKET: a.quickwitBucket || '',
+    TEI_MODEL_ID: a.teiModelId || '',
+    TEI_USE_GPU: a.teiUseGpu === true ? 'true' : '',
+    TEI_MEMORY_LIMIT: a.teiMemoryLimit || '',
     OPENAI_API_BASE_URL: a.openaiApiBaseUrl || '',
     // Empty string (not 'true'/'false') when unset, not a default value baked in here — lets
     // main.ts's own `=== 'false'` check (and the construct's `!== false` default-true beneath

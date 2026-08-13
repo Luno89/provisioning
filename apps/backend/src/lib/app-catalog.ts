@@ -31,15 +31,22 @@ export function isAppType(value: unknown): value is AppType {
 /**
  * The app type a Helm release or pod name belongs to.
  *
- * Substring matching, because the caller has a release name like `odoo-1` or a pod name prefix.
- * Longest name first: `openwebui` contains no shorter type today, but `tei` is three characters and
- * would otherwise claim anything containing them.
+ * ── WHY SEGMENTS AND NOT `includes` ──
+ * The code this replaces did a raw substring test, which worked only because every app type was
+ * long enough to be unambiguous by luck. `tei` is three characters, and `protein-service` contains
+ * them — so discovery would have labelled an unrelated namespace as an embedding server. A test
+ * caught it, but the rule was already fragile: `plex` is inside `duplex`, `immich` inside
+ * `immichelin`.
+ *
+ * Release and pod names are hyphen-separated (`crawl4ai-59c75f5947-8dstq`, `odoo-1`,
+ * `my-odoo-prod`), so a type has to be a whole segment. Longest first, so a name that somehow
+ * contains two answers with the more specific one.
  */
 const BY_LENGTH = [...APP_TYPES].sort((a, b) => b.length - a.length);
 
 export function appTypeFromName(name: string): AppType | undefined {
-  const lower = name.toLowerCase();
-  return BY_LENGTH.find((a) => lower.includes(a));
+  const segments = new Set(name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  return BY_LENGTH.find((a) => segments.has(a));
 }
 
 /**

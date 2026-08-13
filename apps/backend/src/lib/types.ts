@@ -224,6 +224,25 @@ export interface DeploymentMetadata {
   crawl4aiApiToken?: string;
   crawl4aiMemoryLimit?: string;
   crawl4aiShmSize?: string;
+  /**
+   * The four search services. Credentials are stored rather than left to the constructs to
+   * generate: Quickwit has to be given the same keys MinIO was deployed with, and a value
+   * generated inside a construct is unknowable to every other deployment — the same reason
+   * searxngSecretKey and crawl4aiApiToken are here.
+   */
+  minioRootUser?: string;
+  minioRootPassword?: string;
+  minioStorage?: string;
+  qdrantApiKey?: string;
+  qdrantStorage?: string;
+  qdrantMemoryLimit?: string;
+  quickwitS3Endpoint?: string;
+  quickwitS3AccessKey?: string;
+  quickwitS3SecretKey?: string;
+  quickwitBucket?: string;
+  teiModelId?: string;
+  teiUseGpu?: boolean;
+  teiMemoryLimit?: string;
   // Schema-driven settings for app types with too many options to give each a first-class field
   // (game servers: ~120 apiece). One map threaded through the pipeline once, validated at runtime
   // against lib/app-settings-schema.ts instead of at compile time. See that file for why.

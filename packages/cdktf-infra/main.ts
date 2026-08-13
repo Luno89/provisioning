@@ -27,6 +27,10 @@ import { PapraNativeApp } from "./constructs/papra-native.js";
 import { HomeassistantNativeApp } from "./constructs/homeassistant-native.js";
 import { SearxngNativeApp } from "./constructs/searxng-native.js";
 import { Crawl4aiNativeApp } from "./constructs/crawl4ai-native.js";
+import { MinioNativeApp } from "./constructs/minio-native.js";
+import { QdrantNativeApp } from "./constructs/qdrant-native.js";
+import { QuickwitNativeApp } from "./constructs/quickwit-native.js";
+import { TeiNativeApp } from "./constructs/tei-native.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
 import { DashboardsStack } from "./constructs/dashboards.js";
@@ -352,6 +356,47 @@ class AppStack extends TerraformStack {
           ...(process.env.CRAWL4AI_API_TOKEN ? { apiToken: process.env.CRAWL4AI_API_TOKEN } : {}),
           ...(process.env.CRAWL4AI_MEMORY_LIMIT ? { memoryLimit: process.env.CRAWL4AI_MEMORY_LIMIT } : {}),
           ...(process.env.CRAWL4AI_SHM_SIZE ? { shmSize: process.env.CRAWL4AI_SHM_SIZE } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'minio') {
+        new MinioNativeApp(this, "minio-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.MINIO_ROOT_USER ? { rootUser: process.env.MINIO_ROOT_USER } : {}),
+          ...(process.env.MINIO_ROOT_PASSWORD ? { rootPassword: process.env.MINIO_ROOT_PASSWORD } : {}),
+          ...(process.env.MINIO_STORAGE ? { storage: process.env.MINIO_STORAGE } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'qdrant') {
+        new QdrantNativeApp(this, "qdrant-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.QDRANT_API_KEY ? { apiKey: process.env.QDRANT_API_KEY } : {}),
+          ...(process.env.QDRANT_STORAGE ? { storage: process.env.QDRANT_STORAGE } : {}),
+          ...(process.env.QDRANT_MEMORY_LIMIT ? { memoryLimit: process.env.QDRANT_MEMORY_LIMIT } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'quickwit') {
+        new QuickwitNativeApp(this, "quickwit-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.QUICKWIT_S3_ENDPOINT ? { s3Endpoint: process.env.QUICKWIT_S3_ENDPOINT } : {}),
+          ...(process.env.QUICKWIT_S3_ACCESS_KEY ? { s3AccessKey: process.env.QUICKWIT_S3_ACCESS_KEY } : {}),
+          ...(process.env.QUICKWIT_S3_SECRET_KEY ? { s3SecretKey: process.env.QUICKWIT_S3_SECRET_KEY } : {}),
+          ...(process.env.QUICKWIT_BUCKET ? { bucket: process.env.QUICKWIT_BUCKET } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'tei') {
+        new TeiNativeApp(this, "tei-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.TEI_MODEL_ID ? { modelId: process.env.TEI_MODEL_ID } : {}),
+          ...(process.env.TEI_USE_GPU === 'true' ? { useGpu: true } : {}),
+          ...(process.env.TEI_MEMORY_LIMIT ? { memoryLimit: process.env.TEI_MEMORY_LIMIT } : {}),
           ...vpnProps,
         });
       } else if (appType === 'homeassistant') {

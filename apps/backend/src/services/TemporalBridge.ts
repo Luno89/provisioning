@@ -38,7 +38,8 @@ import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../workflows/SyncConfigWorkflow.js'
 import { executePipelineRunWorkflow } from '../workflows/PipelineRunWorkflow.js'
-import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults } from '../lib/app-env.js'
+import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
+  resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import { resolveTabbyCacheHostPath } from '../lib/tabby-cache-path.js'
 import type { Server as SocketServer } from 'socket.io'
@@ -1158,6 +1159,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       // be left to the constructs.
       dep = resolveCrawl4aiDefaults(dep as DeploymentMetadata)
       dep = resolveSearxngDefaults(dep as DeploymentMetadata)
+      dep = resolveMinioDefaults(dep as DeploymentMetadata)
+      dep = resolveQdrantDefaults(dep as DeploymentMetadata)
+      // Reads the MinIO deployment beside it — see app-env.ts, Quickwit's storage keys are not
+      // its own to generate.
+      dep = resolveQuickwitDefaults(dep as DeploymentMetadata, await this.db.getDeployments())
       // Fills in the ~120 schema defaults the wizard didn't ask about, so the stored record and
       // the Config tab reflect what's actually running rather than 120 blanks.
       dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
@@ -1404,6 +1410,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     dep = resolveTabbyDefaults(dep)
     dep = resolveCrawl4aiDefaults(dep)
     dep = resolveSearxngDefaults(dep)
+    dep = resolveMinioDefaults(dep)
+    dep = resolveQdrantDefaults(dep)
+    dep = resolveQuickwitDefaults(dep, deployments)
     dep = resolveAppSettingsDefaults(dep)
 
     const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, deployments);
