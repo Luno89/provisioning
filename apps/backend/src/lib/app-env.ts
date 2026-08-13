@@ -183,13 +183,33 @@ export function resolveQuickwitDefaults(
 ): DeploymentMetadata {
   if (dep.appType !== 'quickwit') return dep;
 
+  /**
+   * What is actually required here is the CREDENTIALS, not a MinIO that is already serving.
+   *
+   * Checking for `status === 'running'` is the obvious version and it is wrong: the record reaches
+   * that state when the deploy workflow finishes reconciling, which lags the pod being ready.
+   * Deploying MinIO, watching it go 1/1, and then deploying Quickwit was refused with "deploy
+   * minio first" — advice the user had just followed.
+   *
+   * A Quickwit that starts before MinIO answers simply fails its readiness probe until it does,
+   * which is ordinary Kubernetes. A Quickwit started with the wrong keys never recovers. So the
+   * gate is on the keys, and only a MinIO on its way out is skipped.
+   */
+  const GONE = new Set(['destroying', 'destroyed', 'failed']);
   const minio = deployments.find((d) =>
-    d.appType === 'minio' && d.status === 'running' && (!dep.ownerId || !d.ownerId || d.ownerId === dep.ownerId));
+    d.appType === 'minio'
+    && !GONE.has(d.status)
+    && Boolean(d.minioRootPassword)
+    && (!dep.ownerId || !d.ownerId || d.ownerId === dep.ownerId));
 
-  if (!minio?.minioRootPassword && !dep.quickwitS3SecretKey) {
+  if (!minio && !dep.quickwitS3SecretKey) {
+    const anyMinio = deployments.some((d) => d.appType === 'minio' && !GONE.has(d.status));
     throw new Error(
-      'Quickwit keeps its indexes in MinIO, so a running MinIO deployment is required before it can '
-      + 'be deployed. Deploy minio first.',
+      anyMinio
+        ? 'A MinIO deployment exists but its root credentials are not stored, so Quickwit cannot be '
+          + 'given keys for it. Redeploy minio so the credentials are minted and persisted.'
+        : 'Quickwit keeps its indexes in MinIO, so a MinIO deployment is required before it can be '
+          + 'deployed. Deploy minio first.',
     );
   }
 

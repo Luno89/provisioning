@@ -103,6 +103,19 @@ export interface DeployAppArgs {
   crawl4aiApiToken?: string | undefined;
   crawl4aiMemoryLimit?: string | undefined;
   crawl4aiShmSize?: string | undefined;
+  minioRootUser?: string | undefined;
+  minioRootPassword?: string | undefined;
+  minioStorage?: string | undefined;
+  qdrantApiKey?: string | undefined;
+  qdrantStorage?: string | undefined;
+  qdrantMemoryLimit?: string | undefined;
+  quickwitS3Endpoint?: string | undefined;
+  quickwitS3AccessKey?: string | undefined;
+  quickwitS3SecretKey?: string | undefined;
+  quickwitBucket?: string | undefined;
+  teiModelId?: string | undefined;
+  teiUseGpu?: boolean | undefined;
+  teiMemoryLimit?: string | undefined;
   // Set only by TemporalBridge.deploy() for clusters where the worker shares a filesystem with
   // the K8s node (see DownloadModelActivity.ts) — AppDeployWorkflow.ts uses this to decide
   // whether to pre-download the model before this activity ever runs. Not read here; DeployAppActivity
@@ -157,6 +170,13 @@ export async function DeployAppActivity(
     openwebui: { repo: 'ghcr.io/open-webui/open-webui', tag: 'main' },
     hermes: { repo: 'nousresearch/hermes-agent', tag: 'latest' },
     palworld: { repo: 'thijsvanloef/palworld-server-docker', tag: 'latest' },
+    minio: { repo: 'minio/minio', tag: 'latest' },
+    qdrant: { repo: 'qdrant/qdrant', tag: 'latest' },
+    quickwit: { repo: 'quickwit/quickwit', tag: 'latest' },
+    // Pinned, and specifically to the CPU build. This image's `latest` is the GPU one, which
+    // exits with "'nvidia-smi' command not found" on a node without a card — measured, not
+    // guessed. Falling through to the table's generic 'latest' produced exactly that.
+    tei: { repo: 'ghcr.io/huggingface/text-embeddings-inference', tag: 'cpu-1.8.1' },
   };
 
   const appDefault = DEFAULT_APP_REPOS[args.appType] || { repo: '', tag: 'latest' };
@@ -434,6 +454,19 @@ export async function DeployAppActivity(
     crawl4aiApiToken: args.crawl4aiApiToken,
     crawl4aiMemoryLimit: args.crawl4aiMemoryLimit,
     crawl4aiShmSize: args.crawl4aiShmSize,
+    minioRootUser: args.minioRootUser,
+    minioRootPassword: args.minioRootPassword,
+    minioStorage: args.minioStorage,
+    qdrantApiKey: args.qdrantApiKey,
+    qdrantStorage: args.qdrantStorage,
+    qdrantMemoryLimit: args.qdrantMemoryLimit,
+    quickwitS3Endpoint: args.quickwitS3Endpoint,
+    quickwitS3AccessKey: args.quickwitS3AccessKey,
+    quickwitS3SecretKey: args.quickwitS3SecretKey,
+    quickwitBucket: args.quickwitBucket,
+    teiModelId: args.teiModelId,
+    teiUseGpu: args.teiUseGpu,
+    teiMemoryLimit: args.teiMemoryLimit,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
     webuiEnableWebSearch: args.webuiEnableWebSearch,
     webuiWebSearchEngine: args.webuiWebSearchEngine,

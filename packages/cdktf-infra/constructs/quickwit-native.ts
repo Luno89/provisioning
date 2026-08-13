@@ -71,6 +71,32 @@ export class QuickwitNativeApp extends Construct {
     });
 
     const podSpec: any = {
+      /**
+       * The bucket has to exist before Quickwit looks for its metastore in it.
+       *
+       * Nothing else creates it: MinIO does not auto-create on first write, and Quickwit reports a
+       * missing bucket the same way it reports bad credentials — "failed to list manifest file",
+       * which sends you looking at the keys. Creating it here keeps the two coupled things in one
+       * object instead of relying on a setup step having been run.
+       *
+       * `--ignore-existing` because this runs on every pod start, and the second one is normal.
+       */
+      initContainer: [
+        {
+          name: "create-bucket",
+          image: "minio/mc:latest",
+          command: ["/bin/sh", "-c"],
+          args: [
+            `until mc alias set store "${s3Endpoint}" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY"; do `
+            + `echo "waiting for object storage"; sleep 3; done; `
+            + `mc mb --ignore-existing "store/${bucket}"`,
+          ],
+          env: [
+            { name: "AWS_ACCESS_KEY_ID", valueFrom: { secretKeyRef: { name: secret.metadata.name, key: "access_key" } } },
+            { name: "AWS_SECRET_ACCESS_KEY", valueFrom: { secretKeyRef: { name: secret.metadata.name, key: "secret_key" } } },
+          ],
+        },
+      ],
       container: [
         {
           name: "quickwit",

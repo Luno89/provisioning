@@ -56,10 +56,31 @@ describe('Quickwit, whose credentials are not its own', () => {
       .toThrow(/requires|required|Deploy minio first/i);
   });
 
-  it('ignores a MinIO that is not running', () => {
-    // A failed MinIO has credentials in its record but no server behind them.
-    const stopped = { ...minio, status: 'failed' } as DeploymentMetadata;
-    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [stopped])).toThrow();
+  it('accepts a MinIO that is still deploying, because what it needs is the keys', () => {
+    /**
+     * The obvious gate is `status === 'running'`, and it is wrong: the record reaches that state
+     * when the deploy workflow finishes reconciling, which lags the pod being ready. Deploying
+     * MinIO, watching it go 1/1 and then deploying Quickwit was refused with "deploy minio first"
+     * — advice that had just been followed.
+     */
+    const deploying = { ...minio, status: 'deploying' } as DeploymentMetadata;
+    expect(resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [deploying]).quickwitS3SecretKey)
+      .toBe('the-real-password');
+  });
+
+  it('skips a MinIO that is on its way out', () => {
+    const going = { ...minio, status: 'destroying' } as DeploymentMetadata;
+    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [going])).toThrow();
+  });
+
+  it('says so when a MinIO exists but its credentials were never stored', () => {
+    // A different failure needing a different fix, and "deploy minio first" would be wrong advice
+    // for it.
+    // The key is removed rather than set to undefined: under exactOptionalPropertyTypes those are
+    // different things, and only one of them is what an unset field actually looks like.
+    const { minioRootPassword, ...noCreds } = minio;
+    expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [noCreds]))
+      .toThrow(/credentials are not stored/i);
   });
 
   it('does not take another tenant\'s storage', () => {
