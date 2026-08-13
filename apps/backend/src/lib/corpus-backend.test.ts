@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   chunkText, chunksFor, pointId, buildIndexQuery, mergeHits, indexConfig, collectionConfig,
   CHUNK_CHARS, CHUNK_OVERLAP, VECTOR_SIZE, type CorpusHit,
 } from './corpus-backend.js';
-import { snippetAround } from './corpus-client.js';
+import { snippetAround, embed, EMBED_BATCH } from './corpus-client.js';
 
 describe('splitting a page for embedding', () => {
   it('leaves a short page as one chunk', () => {
@@ -151,5 +151,27 @@ describe('the service configuration', () => {
   it('records positions, so a quoted phrase is a phrase', () => {
     const fields = (indexConfig('koala-corpus') as any).doc_mapping.field_mappings;
     expect(fields.find((f: any) => f.name === 'body').record).toBe('position');
+  });
+});
+
+describe('batching the embedding requests', () => {
+  it('never sends more than the service accepts', async () => {
+    /**
+     * TEI refuses outright rather than truncating: a crawl batch of eight pages is around 666
+     * chunks, and sending them together answered `413 batch size 666 > maximum allowed 32`.
+     */
+    const seen: number[] = [];
+    const fake = vi.fn(async (_url: string, init: any) => {
+      const inputs = JSON.parse(init.body).inputs as string[];
+      seen.push(inputs.length);
+      return new Response(JSON.stringify(inputs.map(() => [0.1, 0.2])), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fake);
+
+    const vectors = await embed('http://tei', Array.from({ length: 100 }, (_, i) => `chunk ${i}`));
+    expect(Math.max(...seen)).toBeLessThanOrEqual(EMBED_BATCH);
+    // Every input still gets a vector, and they stay in order — zipping by index attaches them.
+    expect(vectors).toHaveLength(100);
+    vi.unstubAllGlobals();
   });
 });

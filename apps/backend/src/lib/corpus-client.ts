@@ -36,16 +36,30 @@ async function ok(res: Response, what: string): Promise<any> {
  * files instead of a few large ones. The tenancy cost is that scoping has to be right in one place,
  * which is `buildIndexQuery`.
  */
+const created = new Set<string>();
+const collections = new Set<string>();
+
 export async function ensureIndex(base: string): Promise<void> {
+  // Once per process. The index outlives any one crawl, and a round trip per batch to be told it
+  // exists is a round trip per batch.
+  if (created.has(base)) return;
   const res = await fetch(`${base}/api/v1/indexes`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(indexConfig(INDEX_ID)),
   });
-  // 400 with "already exists" is success on a retry. Anything else is real.
-  if (res.ok) return;
+  if (res.ok) { created.add(base); return; }
   const body = await res.text();
-  if (/already exists/i.test(body)) return;
+  /**
+   * A 400 saying it is already there is success on a retry, which is the common case — every batch
+   * of every crawl calls this.
+   *
+   * Matched on "already exist" rather than "already exists": Quickwit's wording is
+   * `index `koala-corpus` already exist(s)`, with the plural in parentheses, so the obvious regex
+   * misses it. That turned every batch after the first into "corpus services unavailable" and sent
+   * a hundred pages to the database only.
+   */
+  if (/already exist/i.test(body)) { created.add(base); return; }
   throw new Error(`Could not create the corpus index: HTTP ${res.status} ${body.slice(0, 300)}`);
 }
 
@@ -99,26 +113,45 @@ export function snippetAround(text: string, phrase: string): string {
   return `${from > 0 ? '…' : ''}${piece}${from + SNIPPET_CHARS < text.length ? '…' : ''}`;
 }
 
+/**
+ * How many texts go to the embedding service in one request.
+ *
+ * TEI's own ceiling, and it is a hard refusal rather than a truncation: a crawl batch of eight
+ * pages is around 666 chunks, and sending them together answered
+ * `413 batch size 666 > maximum allowed batch size 32`. Raising `--max-client-batch-size` on the
+ * deployment would also work and would make the client depend on how the server was launched.
+ */
+export const EMBED_BATCH = 32;
+
 export async function embed(base: string, inputs: string[]): Promise<number[][]> {
   if (!inputs.length) return [];
-  const res = await fetch(`${base}/embed`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ inputs, truncate: true }),
-  });
-  const body = await ok(res, 'The embedding service refused the batch');
-  return Array.isArray(body) ? body : [];
+
+  const out: number[][] = [];
+  // Sequential rather than parallel: this is one CPU-bound pod, and forty concurrent requests to it
+  // is the same work plus contention.
+  for (let at = 0; at < inputs.length; at += EMBED_BATCH) {
+    const res = await fetch(`${base}/embed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // `truncate` so a chunk longer than the model's window is shortened rather than refused.
+      body: JSON.stringify({ inputs: inputs.slice(at, at + EMBED_BATCH), truncate: true }),
+    });
+    const body = await ok(res, 'The embedding service refused the batch');
+    if (Array.isArray(body)) out.push(...body);
+  }
+  return out;
 }
 
 export async function ensureCollection(base: string, apiKey: string): Promise<void> {
+  if (collections.has(base)) return;
   const res = await fetch(`${base}/collections/${COLLECTION_ID}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json', 'api-key': apiKey },
     body: JSON.stringify(collectionConfig()),
   });
-  if (res.ok) return;
+  if (res.ok) { collections.add(base); return; }
   const body = await res.text();
-  if (/already exists/i.test(body)) return;
+  if (/already exist/i.test(body)) { collections.add(base); return; }
   throw new Error(`Could not create the vector collection: HTTP ${res.status} ${body.slice(0, 300)}`);
 }
 
