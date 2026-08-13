@@ -34,7 +34,7 @@ export interface WebToolsDeps {
 }
 
 /** A deployment is only usable if it finished and is still meant to be up. */
-function liveDeployment(deployments: DeploymentMetadata[], appType: string, ownerId?: string): DeploymentMetadata | undefined {
+export function liveDeployment(deployments: DeploymentMetadata[], appType: string, ownerId?: string): DeploymentMetadata | undefined {
   return deployments.find((d) =>
     d.appType === appType
     && d.status === 'running'

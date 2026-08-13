@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toPage, search, receiptFor, MAX_PAGE_CHARS, SNIPPET_CHARS, MAX_HITS } from './corpus.js';
-import { buildBatchPayload, readCrawlResults, canonical, usableLinks, rank } from './crawl-client.js';
+import { buildBatchPayload, readCrawlResults, canonical, usableLinks } from './crawl-client.js';
 
 const page = (url: string, text: string) =>
   toPage({ url, markdown: text }, { id: url, ownerId: 'u1', ingestId: 'i1', now: '2026-01-01T00:00:00Z' });
@@ -122,15 +122,6 @@ describe('walking a site', () => {
     expect(usableLinks(links, ['a.example'], seen)).toEqual(['https://a.example/guide']);
   });
 
-  it('puts keyword matches first, so a capped crawl spends its budget on them', () => {
-    const urls = ['https://a.example/blog', 'https://a.example/pricing', 'https://a.example/licence-and-pricing'];
-    expect(rank(urls, ['pricing', 'licence'])[0]).toBe('https://a.example/licence-and-pricing');
-  });
-
-  it('keeps discovery order when given no keywords', () => {
-    const urls = ['https://a.example/b', 'https://a.example/a'];
-    expect(rank(urls, [])).toEqual(urls);
-  });
 });
 
 describe('reading a crawl response', () => {

@@ -7,6 +7,7 @@ import type { Database, PartialInfo } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
+import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -87,6 +88,10 @@ export class MongoDB implements Database {
     return this.db!.collection('corpus');
   }
 
+  private get frontier(): Collection {
+    return this.db!.collection('crawl_frontier');
+  }
+
   private get trees(): Collection {
     return this.db!.collection('trees');
   }
@@ -139,6 +144,12 @@ export class MongoDB implements Database {
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, { unique: true });
     await this.pipelineRuns.createIndex({ projectId: 1 });
+    // The read order in claimFrontier, so the frontier is a range scan rather than a sort of every
+    // URL an ingest has ever queued — the difference between a crawl of 500 pages and one of 95
+    // million.
+    await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
+    await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
+    await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
   }
 
   async close(): Promise<void> {
@@ -373,6 +384,51 @@ export class MongoDB implements Database {
 
   async deleteCorpus(ingestId: string): Promise<void> {
     await this.corpus.deleteMany({ ingestId });
+  }
+
+  async enqueueFrontier(urls: FrontierUrl[]): Promise<number> {
+    if (!urls.length) return 0;
+    try {
+      /**
+       * `ordered: false` so one already-queued URL does not abandon the rest of the batch, and the
+       * duplicate-key error it raises is the deduplication working rather than a failure. Every
+       * page in a crawl is linked from somewhere, so this is the common path, not the edge.
+       */
+      const res = await this.frontier.insertMany(
+        urls.map((u) => { const { _id, ...rest } = toDoc(u); return { _id, ...rest }; }),
+        { ordered: false },
+      );
+      return res.insertedCount;
+    } catch (err: any) {
+      // A bulk write that hit duplicates reports how many of the others landed.
+      if (err?.code === 11000 || err?.writeErrors) return err.result?.insertedCount ?? err.insertedCount ?? 0;
+      throw err;
+    }
+  }
+
+  async claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]> {
+    if (limit <= 0) return [];
+    // Sorted the way frontierOrder describes, by the index below — shallow first, then keyword
+    // score, then URL so a retry sees the same batch.
+    const docs = await this.frontier
+      .find({ ingestId, state: 'pending' })
+      .sort({ depth: 1, rank: -1, url: 1 })
+      .limit(limit)
+      .toArray();
+    return docs.map((d) => ({ url: String(d.url), depth: Number(d.depth) }));
+  }
+
+  async completeFrontier(ingestId: string, urls: string[]): Promise<void> {
+    if (!urls.length) return;
+    await this.frontier.updateMany({ ingestId, url: { $in: urls } }, { $set: { state: 'done' } });
+  }
+
+  async countFrontier(ingestId: string): Promise<number> {
+    return this.frontier.countDocuments({ ingestId, state: 'pending' });
+  }
+
+  async deleteFrontier(ingestId: string): Promise<void> {
+    await this.frontier.deleteMany({ ingestId });
   }
 
   async getTrees(): Promise<Tree[]> {

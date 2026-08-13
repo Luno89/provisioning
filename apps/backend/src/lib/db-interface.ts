@@ -4,6 +4,7 @@ import { MongoDB } from './mongo-db.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
+import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -84,6 +85,24 @@ export interface Database {
   getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]>;
   saveCorpusPages(pages: CorpusPage[]): Promise<void>;
   deleteCorpus(ingestId: string): Promise<void>;
+
+  /**
+   * The queue of URLs an ingest still owes — see lib/frontier.ts for why it is here and not in the
+   * workflow that drives it.
+   *
+   * `enqueueFrontier` is the deduplication point: ids are derived from the URL, so re-offering a
+   * page already queued is a no-op the index performs, and the count that comes back is how many
+   * were genuinely new.
+   *
+   * `claimFrontier` does NOT mutate. It returns the next pages in a total order, so an activity
+   * that Temporal retries is handed exactly what it was handed the first time; the batch is closed
+   * by `completeFrontier` once its pages are actually stored.
+   */
+  enqueueFrontier(urls: FrontierUrl[]): Promise<number>;
+  claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]>;
+  completeFrontier(ingestId: string, urls: string[]): Promise<void>;
+  countFrontier(ingestId: string): Promise<number>;
+  deleteFrontier(ingestId: string): Promise<void>;
 
   getTrees(): Promise<Tree[]>;
   saveTree(tree: Tree): Promise<void>;

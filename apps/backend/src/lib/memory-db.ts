@@ -6,6 +6,7 @@ import type { Database, PartialInfo } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
+import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -22,6 +23,7 @@ export class MemoryDB implements Database {
   private modelEndpoints: ModelEndpointMetadata[] = [];
   private leaves: Leaf[] = [];
   private corpus: CorpusPage[] = [];
+  private frontier: FrontierUrl[] = [];
   private trees: Tree[] = [];
   private branches: Branch[] = [];
   private giteaAccounts: GiteaAccount[] = [];
@@ -358,6 +360,41 @@ export class MemoryDB implements Database {
 
   async deleteCorpus(ingestId: string): Promise<void> {
     this.corpus = this.corpus.filter((p) => p.ingestId !== ingestId);
+  }
+
+  async enqueueFrontier(urls: FrontierUrl[]): Promise<number> {
+    let added = 0;
+    for (const u of urls) {
+      // The id is what Mongo's unique index enforces; here the same check is explicit.
+      if (this.frontier.some((f) => f.id === u.id)) continue;
+      this.frontier.push(u);
+      added += 1;
+    }
+    return added;
+  }
+
+  async claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]> {
+    if (limit <= 0) return [];
+    return this.frontier
+      .filter((f) => f.ingestId === ingestId && f.state === 'pending')
+      .sort(frontierOrder)
+      .slice(0, limit)
+      .map((f) => ({ url: f.url, depth: f.depth }));
+  }
+
+  async completeFrontier(ingestId: string, urls: string[]): Promise<void> {
+    const done = new Set(urls);
+    for (const f of this.frontier) {
+      if (f.ingestId === ingestId && done.has(f.url)) f.state = 'done';
+    }
+  }
+
+  async countFrontier(ingestId: string): Promise<number> {
+    return this.frontier.filter((f) => f.ingestId === ingestId && f.state === 'pending').length;
+  }
+
+  async deleteFrontier(ingestId: string): Promise<void> {
+    this.frontier = this.frontier.filter((f) => f.ingestId !== ingestId);
   }
 
   async getTrees(): Promise<Tree[]> {

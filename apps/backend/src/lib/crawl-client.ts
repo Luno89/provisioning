@@ -123,20 +123,3 @@ export function usableLinks(links: string[], allowed: string[], seen: Set<string
   return out;
 }
 
-/**
- * Orders the frontier so a capped crawl spends its budget on what was asked for.
- *
- * The score is how many of the keywords appear in the URL. Crude on purpose: the alternative is
- * fetching a page to find out whether it was worth fetching, which is the cost being avoided. With
- * no keywords the order is discovery order, which is breadth-first and a reasonable default.
- */
-export function rank(urls: string[], keywords: string[]): string[] {
-  if (!keywords.length) return urls;
-  const lower = keywords.map((k) => k.toLowerCase());
-  return [...urls].sort((a, b) => score(b, lower) - score(a, lower));
-}
-
-function score(url: string, keywords: string[]): number {
-  const u = url.toLowerCase();
-  return keywords.reduce((n, k) => n + (u.includes(k) ? 1 : 0), 0);
-}
