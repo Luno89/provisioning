@@ -302,7 +302,14 @@ export const LEAF_TOOLS = [
       description:
         'Find a phrase in everything that has been ingested. Returns short snippets with their '
         + 'source URLs — never whole pages, which is what lets the corpus be far larger than this '
-        + 'conversation could hold. Matching is plain text, not a pattern.',
+        + 'conversation could hold. Matching is plain text, not a pattern. '
+        // Added after a live turn quoted a page as saying child workflows "will be closed" where
+        // it actually said they "will not be retained" — sound retrieval, then a paraphrase
+        // presented inside quotation marks, which is the one failure mode a cited answer must not
+        // have.
+        + 'Anything you put in quotation marks must be copied from a snippet character for '
+        + 'character. If you want to restate a snippet in your own words, do it without quotation '
+        + 'marks so it reads as your summary rather than as the source.',
       parameters: {
         type: 'object',
         properties: {
