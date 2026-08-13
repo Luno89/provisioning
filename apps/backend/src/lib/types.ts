@@ -1,3 +1,4 @@
+import type { AppType } from './app-catalog.js';
 /**
  * Every provider a *cluster* can live on. Distinct from CloudProvider below, which is the set of
  * services credentials can be stored for (that one includes non-provisioning entries like
@@ -118,7 +119,7 @@ export interface DeploymentMetadata {
   // existed; migrateLegacyOwnership backfills those to the admin user once, at startup.
   ownerId?: string;
   strategy: 'helm' | 'native';
-  appType?: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'gitapp' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai';
+  appType?: AppType;
   // gitapp-specific fields — image comes from a Project's pipeline run, not a typed repo/tag
   gitappProjectId?: string;
   gitappImageTag?: string;

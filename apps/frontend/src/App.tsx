@@ -45,6 +45,16 @@ const FOREST_TABS = [
   { id: 'lab' as const, label: 'Lab', icon: FlaskConical },
 ];
 
+/**
+ * Mirrors APP_TYPES in apps/backend/src/lib/app-catalog.ts — the frontend does not import backend
+ * modules, so this is the one copy on this side rather than the two inline unions it replaced.
+ */
+type AppType =
+  | 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm'
+  | 'tabbyapi' | 'openwebui' | 'hermes' | 'gitapp' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome'
+  | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai' | 'qdrant' | 'minio'
+  | 'quickwit' | 'tei';
+
 const APP_DEFAULTS: Record<string, {
   helm: { webRepo: string; webTag: string; dbRepo: string; dbTag: string };
   native: { webRepo: string; webTag: string; dbRepo: string; dbTag: string };
@@ -317,7 +327,7 @@ function App() {
   const [wizardData, setWizardData] = useState({
     name: 'Odoo-Production',
     clusterId: '',
-    appType: 'odoo' as 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai',
+    appType: 'odoo' as AppType,
     strategy: 'native' as 'helm' | 'native',
     odooRepo: 'library/odoo',
     odooTag: '18.0',
@@ -949,7 +959,7 @@ function App() {
     }
   };
 
-  const handleAppTypeChange = (newAppType: 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm' | 'tabbyapi' | 'openwebui' | 'hermes' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome' | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai') => {
+  const handleAppTypeChange = (newAppType: AppType) => {
     const config = APP_DEFAULTS[newAppType];
     const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : config.strategies[0];
     const defaults = config[newStrategy];
