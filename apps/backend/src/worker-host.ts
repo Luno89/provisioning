@@ -14,7 +14,7 @@ import { LandRequestActivity } from './activities/LandRequestActivity.js';
 import { ResolveLandingActivity } from './activities/ResolveLandingActivity.js';
 import { AcceptRequestActivity } from './activities/AcceptRequestActivity.js';
 import { ReplanActivity } from './activities/ReplanActivity.js';
-import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
+import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 
@@ -83,6 +83,7 @@ async function main() {
           NextBatchActivity,
           SeedFrontierActivity,
           DiscardFrontierActivity,
+          PurgeCorpusActivity,
           SearchCorpusActivity,
           NewIngestIdActivity,
         },

@@ -81,14 +81,42 @@ export function chunkText(text: string, size = CHUNK_CHARS, overlap = CHUNK_OVER
   return out;
 }
 
+/**
+ * Whether a chunk is worth a vector.
+ *
+ * Crawled documentation is mostly not prose. Measured on GitHub's rate-limit page: 18 of its 52
+ * chunks are link lists, and the first is entirely `Skip to main content / GitHub Docs / Search or
+ * ask Copilot` — a header that is byte-identical across every page on the site.
+ *
+ * Embedding those is worse than wasteful. Hundreds of near-identical nav chunks sit at roughly the
+ * same distance from any query, so they crowd out the one chunk that answers it. The first semantic
+ * search run here asked how to avoid being throttled and got webhooks and issue-dependencies back,
+ * with the rate-limit page nowhere in the top three, while the exact-term half found it first try.
+ *
+ * Link density rather than a boilerplate list: it needs no per-site knowledge and it is the actual
+ * property that makes a chunk meaningless to embed.
+ */
+export function worthEmbedding(text: string): boolean {
+  const links = (text.match(/\]\(/g) ?? []).length;
+  // Text outside the link syntax. A chunk that is nothing but a menu has almost none.
+  const prose = text.replace(/\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  if (prose.length < 120) return false;
+  // More than one link per forty characters of remaining prose is a list, not a paragraph.
+  return links === 0 || prose.length / links > 40;
+}
+
 export function chunksFor(url: string, text: string): Chunk[] {
-  return chunkText(text).map((piece, i) => ({
-    // Deterministic, so re-ingesting a page replaces its chunks instead of duplicating them.
-    id: `${url}#${i}`,
-    url,
-    text: piece,
-    ordinal: i,
-  }));
+  return chunkText(text)
+    .map((piece, i) => ({
+      // Deterministic AND positional: the id is the chunk's index in the whole page, so filtering
+      // some out does not renumber the rest. Re-ingesting a page must replace its chunks rather
+      // than write a second set under shifted ids.
+      id: `${url}#${i}`,
+      url,
+      text: piece,
+      ordinal: i,
+    }))
+    .filter((c) => worthEmbedding(c.text));
 }
 
 /**

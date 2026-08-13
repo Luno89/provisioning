@@ -23,7 +23,7 @@
 import { createDatabase } from '../lib/db-interface.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { crawlEndpoint, liveDeployment, corpusEndpoints, type CorpusEndpoints } from '../lib/web-tools-resolver.js';
-import { ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus } from '../lib/corpus-client.js';
+import { ensureIndex, indexPages, ensureCollection, embedPages, searchCorpus, purgeCorpus } from '../lib/corpus-client.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildBatchPayload, readCrawlResults, canonical, hostOf, usableLinks } from '../lib/crawl-client.js';
 import { toPage, type CorpusPage } from '../lib/corpus.js';
@@ -280,6 +280,26 @@ export async function DiscardFrontierActivity(args: { ingestId: string }): Promi
   await db.init();
   try {
     await db.deleteFrontier(args.ingestId);
+  } finally {
+    await db.close();
+  }
+}
+
+/**
+ * Removes a crawl from everywhere it was written.
+ *
+ * The Mongo copy, the index and the vectors. Deleting only the first leaves both services holding a
+ * corpus the platform believes is gone — and because neither replaces on write, the leftovers are
+ * not inert: duplicate documents change which page ranks first, and orphaned vectors are returned
+ * by semantic searches for text no longer in the corpus.
+ */
+export async function PurgeCorpusActivity(args: { ownerId: string; ingestId: string }): Promise<void> {
+  const db = createDatabase();
+  await db.init();
+  try {
+    const ends: CorpusEndpoints = await corpusEndpoints(db, args.ownerId).catch(() => ({}));
+    await purgeCorpus(ends, args.ingestId);
+    await db.deleteCorpus(args.ingestId);
   } finally {
     await db.close();
   }

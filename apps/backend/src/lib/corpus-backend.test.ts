@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  chunkText, chunksFor, pointId, buildIndexQuery, mergeHits, indexConfig, collectionConfig,
+  chunkText, chunksFor, pointId, buildIndexQuery, mergeHits, indexConfig, collectionConfig, worthEmbedding,
   CHUNK_CHARS, CHUNK_OVERLAP, VECTOR_SIZE, type CorpusHit,
 } from './corpus-backend.js';
 import { snippetAround, embed, EMBED_BATCH } from './corpus-client.js';
@@ -32,6 +32,15 @@ describe('splitting a page for embedding', () => {
     const b = chunksFor('https://x/p', 'z'.repeat(CHUNK_CHARS * 2));
     expect(a.map((c) => c.id)).toEqual(b.map((c) => c.id));
     expect(a[0]!.id).toBe('https://x/p#0');
+  });
+
+  it('numbers by position in the page, so filtering does not renumber what is left', () => {
+    // Otherwise dropping a nav chunk shifts every id after it, and a re-ingest writes a second set
+    // of vectors instead of replacing the first.
+    const nav = '[a](https://x) '.repeat(60);
+    const prose = 'This is a real paragraph of documentation prose. '.repeat(20);
+    const ids = chunksFor('https://x/p', nav + prose).map((c) => c.id);
+    expect(ids[0]).not.toBe('https://x/p#0');
   });
 });
 
@@ -173,5 +182,30 @@ describe('batching the embedding requests', () => {
     // Every input still gets a vector, and they stay in order — zipping by index attaches them.
     expect(vectors).toHaveLength(100);
     vi.unstubAllGlobals();
+  });
+});
+
+
+describe('deciding what is worth a vector', () => {
+  it('drops a navigation menu', () => {
+    /**
+     * Measured on GitHub's rate-limit page: 18 of 52 chunks are link lists, and the first is the
+     * site header, byte-identical across every page. Hundreds of near-identical nav chunks sit at
+     * the same distance from any query and crowd out the one that answers it.
+     */
+    const nav = '[Skip to main content](https://docs.github.com/x) [GitHub Docs](https://docs.github.com) '.repeat(6);
+    expect(worthEmbedding(nav)).toBe(false);
+  });
+
+  it('keeps prose that happens to contain a link', () => {
+    const prose = 'The primary rate limit for unauthenticated requests is 60 requests per hour, as '
+      + 'described in [the documentation](https://docs.github.com/x). Exceeding it returns a 403 '
+      + 'with a Retry-After header that the client is expected to honour before retrying.';
+    expect(worthEmbedding(prose)).toBe(true);
+  });
+
+  it('drops a chunk with almost no text at all', () => {
+    expect(worthEmbedding('   ')).toBe(false);
+    expect(worthEmbedding('Search or ask Copilot')).toBe(false);
   });
 });

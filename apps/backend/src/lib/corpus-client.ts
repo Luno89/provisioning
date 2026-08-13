@@ -200,6 +200,47 @@ export async function embedPages(
   return points.length;
 }
 
+/**
+ * Removes a crawl from the index and the vectors.
+ *
+ * ── WHY THIS IS NOT OPTIONAL ──
+ * Neither service replaces on write. Quickwit's splits are immutable, so ingesting the same page
+ * twice stores it twice; Qdrant replaces a point only when the id is identical, and filtering
+ * boilerplate means some chunk ids stop being produced entirely rather than being overwritten.
+ *
+ * Measured while testing: three runs of the same two crawls left 300 documents where there should
+ * have been 100 — enough duplication to change which page ranked first for an exact phrase — and
+ * 7,104 vectors for 4,349 live chunks, the remainder being nav chunks from before the filter
+ * existed that nothing would ever write again.
+ *
+ * Deleting the Mongo copy without this leaves both services holding a corpus the platform believes
+ * is gone.
+ */
+export async function purgeCorpus(ends: CorpusEndpoints, ingestId: string): Promise<void> {
+  await Promise.all([
+    (async () => {
+      if (!ends.index) return;
+      // Asynchronous by design: Quickwit schedules a delete task and applies it at the next merge.
+      // Accepted-and-pending is the success case, not a failure to wait for.
+      const res = await fetch(`${ends.index.base}/api/v1/${INDEX_ID}/delete-tasks`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: `ingest_id:"${ingestId}"` }),
+      });
+      if (!res.ok) console.warn(`[Corpus] could not schedule index deletion: HTTP ${res.status}`);
+    })(),
+    (async () => {
+      if (!ends.vectors) return;
+      const res = await fetch(`${ends.vectors.base}/collections/${COLLECTION_ID}/points/delete?wait=true`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'api-key': ends.vectors.apiKey },
+        body: JSON.stringify({ filter: { must: [{ key: 'ingest_id', match: { value: ingestId } }] } }),
+      });
+      if (!res.ok) console.warn(`[Corpus] could not delete vectors: HTTP ${res.status}`);
+    })(),
+  ]);
+}
+
 export async function searchVectors(
   ends: Pick<CorpusEndpoints, 'vectors' | 'embeddings'>,
   phrase: string,
