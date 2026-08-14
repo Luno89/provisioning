@@ -5,6 +5,7 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
+import type { LeafTrace } from './leaf-trace.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -103,6 +104,15 @@ export interface Database {
   completeFrontier(ingestId: string, urls: string[]): Promise<void>;
   countFrontier(ingestId: string): Promise<number>;
   deleteFrontier(ingestId: string): Promise<void>;
+
+  /**
+   * A leaf's turn-by-turn record. Its own collection rather than a field on the leaf, because
+   * getLeaves() returns every leaf and a trace is the largest thing one produces — see
+   * lib/leaf-trace.ts.
+   */
+  getLeafTrace(leafId: string): Promise<LeafTrace | null>;
+  saveLeafTrace(trace: LeafTrace): Promise<void>;
+  deleteLeafTrace(leafId: string): Promise<void>;
 
   getTrees(): Promise<Tree[]>;
   saveTree(tree: Tree): Promise<void>;

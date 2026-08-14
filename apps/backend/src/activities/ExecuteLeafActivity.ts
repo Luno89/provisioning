@@ -36,6 +36,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ProjectMetadata } from '../lib/types.js';
 import { resolveLeafProject } from '../lib/leaf-project.js';
 import { primaryProjectId, withProject } from '../lib/trees.js';
+import { trimTrace } from '../lib/leaf-trace.js';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
   buildRepoStateScript, summariseRepoState, buildMergeScript, parseMergeResult,
@@ -486,6 +487,16 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * base image, which it would otherwise discover only when a command failed.
            */
           ...(persona?.scope?.language ? { language: persona.scope.language as WorkspaceLanguage } : {}),
+          /**
+           * Kept, so a finished run can be replayed.
+           *
+           * The loop has always been able to produce this and only the Lab ever asked. A leaf kept
+           * a one-line summary, so every diagnosis of a failing leaf so far has meant re-running it
+           * by hand with a probe — which only works while the cause is still reproducible.
+           *
+           * It does NOT go on the leaf; see lib/leaf-trace.ts.
+           */
+          captureTrace: true,
           // Everything the persona decides — toolset, budget, pacing, withdrawal — plus the parts
           // only this caller knows. One assembly, shared with the Lab and the landing resolver,
           // because three hand-maintained copies of it drifted in three different directions.
@@ -506,6 +517,32 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         // costs exactly as much as a successful one and must count against the root's budget, or
         // a leaf that fails repeatedly becomes the cheapest thing on the board.
         const spent = { ...(leaf.usage ?? {}), tokens: (leaf.usage?.tokens ?? 0) + run.tokensUsed };
+
+        /**
+         * The trace, written here rather than on either exit path.
+         *
+         * Before the verification, the push and the merge — all of which can fail — because the run
+         * a failure needs explaining is exactly the run whose record must survive. Writing it at
+         * the end would lose it precisely when it matters.
+         *
+         * Never fatal: a leaf that did the work and could not store its diary has still done the
+         * work, and throwing here would retry the whole agent run.
+         */
+        if (run.trace?.length) {
+          const fitted = trimTrace(run.trace);
+          await db.saveLeafTrace({
+            id: leaf.id,
+            ownerId: leaf.ownerId,
+            branchId: leaf.branchId,
+            steps: fitted.steps,
+            ...(fitted.trimmed ? { trimmed: true } : {}),
+            totalSteps: run.trace.length,
+            tokensUsed: run.tokensUsed,
+            createdAt: new Date().toISOString(),
+          }).catch((err) => {
+            console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not store trace: ${err?.message}`);
+          });
+        }
 
         /**
          * What actually reached the remote — asked of Gitea, not of the agent.

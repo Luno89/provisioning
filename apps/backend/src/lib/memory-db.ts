@@ -7,6 +7,7 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
+import type { LeafTrace } from './leaf-trace.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -24,6 +25,7 @@ export class MemoryDB implements Database {
   private leaves: Leaf[] = [];
   private corpus: CorpusPage[] = [];
   private frontier: FrontierUrl[] = [];
+  private leafTraces: LeafTrace[] = [];
   private trees: Tree[] = [];
   private branches: Branch[] = [];
   private giteaAccounts: GiteaAccount[] = [];
@@ -395,6 +397,19 @@ export class MemoryDB implements Database {
 
   async deleteFrontier(ingestId: string): Promise<void> {
     this.frontier = this.frontier.filter((f) => f.ingestId !== ingestId);
+  }
+
+  async getLeafTrace(leafId: string): Promise<LeafTrace | null> {
+    return this.leafTraces.find((t) => t.id === leafId) ?? null;
+  }
+
+  async saveLeafTrace(trace: LeafTrace): Promise<void> {
+    const i = this.leafTraces.findIndex((t) => t.id === trace.id);
+    if (i >= 0) this.leafTraces[i] = trace; else this.leafTraces.push(trace);
+  }
+
+  async deleteLeafTrace(leafId: string): Promise<void> {
+    this.leafTraces = this.leafTraces.filter((t) => t.id !== leafId);
   }
 
   async getTrees(): Promise<Tree[]> {

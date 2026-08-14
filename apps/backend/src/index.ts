@@ -80,6 +80,8 @@ import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
+import { droppedCount } from './lib/leaf-trace.js';
+import { rollup, changedSince, columnFor } from './lib/tree-board.js';
 import { reviewBatch, DEFAULT_POLICY, type AutoAcceptPolicy } from './lib/auto-accept.js';
 import { SearchCorpusActivity } from './activities/CrawlActivity.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
@@ -2704,6 +2706,63 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     );
   });
 
+  /**
+   * One tree's board: its leaves across every conversation, plus the rollup.
+   *
+   * Served assembled rather than letting the client join leaves to branches to trees itself — the
+   * blocked/queued split and the verified/claimed split are judgements (lib/tree-board.ts), and a
+   * component that recomputes them is a component that will eventually disagree with the server.
+   */
+  app.get('/api/trees/:id/board', async (req, res) => {
+    const user = (req as any).user;
+    const tree = (await ownedTrees(user.id)).find((t) => t.id === req.params.id);
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+
+    const branches = (await ownedBranches(user.id)).filter((b) => b.treeId === tree.id);
+    const branchIds = new Set(branches.map((b) => b.id));
+    const all = await ownedLeaves(user.id);
+    const mine = all.filter((l) => branchIds.has(l.branchId));
+
+    // blockedBy needs the WHOLE list: a dependency may sit on another branch of the same tree.
+    const isBlocked = (leaf: Leaf) => blockedBy(leaf, all).length > 0;
+
+    const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+    const projects = await db.getProjects();
+
+    res.json({
+      tree,
+      rollup: rollup(mine, isBlocked),
+      changed: changedSince(mine, since),
+      repos: (tree.projectIds ?? [])
+        .map((id) => projects.find((p) => p.id === id))
+        .filter(Boolean)
+        .map((p) => ({ id: p!.id, name: p!.name, owner: p!.giteaOwner, repo: p!.giteaRepo })),
+      branches: branches.map((b) => ({
+        id: b.id,
+        title: b.title,
+        acceptanceOutcome: b.acceptanceOutcome,
+        updatedAt: b.updatedAt,
+      })),
+      leaves: mine.map((l) => ({
+        id: l.id,
+        branchId: l.branchId,
+        title: l.title,
+        status: l.status,
+        column: columnFor(l, isBlocked(l)),
+        personaId: l.personaId,
+        verified: l.verified,
+        merged: l.merged,
+        tokens: l.usage?.tokens ?? 0,
+        attempts: l.attempts?.length ?? 0,
+        // Named, not just counted: "waiting on something" is far less useful than "waiting on the
+        // transport leaf", and the board has room for the name.
+        waitingOn: blockedBy(l, all).map((w) => ({ id: w.id, title: w.title })),
+        outputBranch: l.outputBranch,
+        updatedAt: l.updatedAt,
+      })),
+    });
+  });
+
   app.post('/api/trees', async (req, res) => {
     const input = normaliseTreeInput(req.body ?? {});
     if (!input) return res.status(400).json({ error: 'name and a known type are required' });
@@ -3945,6 +4004,27 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.json({ success: true, workflowSignalled: signalled === true });
   });
 
+  /**
+   * One leaf's turn-by-turn record.
+   *
+   * Its own route, not a field on the leaf list: a trace is the largest thing a leaf produces and
+   * the board never needs it — only a drill-in does. See lib/leaf-trace.ts.
+   */
+  app.get('/api/leaves/:id/trace', async (req, res) => {
+    const user = (req as any).user;
+    const leaf = (await ownedLeaves(user.id)).find((l) => l.id === req.params.id);
+    // Ownership is checked against the LEAF, not the trace: a trace with a matching id but no
+    // readable leaf is still someone else's.
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+    const trace = await db.getLeafTrace(leaf.id);
+    if (!trace) {
+      // 200 with an empty record rather than 404: "this leaf has not run yet" and "this leaf does
+      // not exist" are different answers, and the UI shows different things for them.
+      return res.json({ steps: [], totalSteps: 0, tokensUsed: 0, missing: true });
+    }
+    res.json({ ...trace, dropped: droppedCount(trace) });
+  });
+
   app.delete('/api/leaves/:id', async (req, res) => {
     const user = (req as any).user;
     const leaves = await ownedLeaves(user.id);
@@ -3957,9 +4037,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // UpdateLeafActivity would silently no-op forever against a leaf that no longer exists.
       await temporalBridge?.signalLeaf(descendant.id, 'cancelLeaf');
       await db.deleteLeaf(descendant.id);
+      // The trace is a separate collection, so deleting the leaf does not take it with it. An
+      // orphaned trace is unreachable — nothing can read it without a leaf to check ownership
+      // against — so it would be pure growth.
+      await db.deleteLeafTrace(descendant.id);
     }
     await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
     await db.deleteLeaf(leaf.id);
+    await db.deleteLeafTrace(leaf.id);
     res.json({ success: true, deleted: subtreeOf(leaves, leaf.id).length + 1 });
   });
 

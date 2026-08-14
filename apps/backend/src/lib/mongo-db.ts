@@ -8,6 +8,7 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
+import type { LeafTrace } from './leaf-trace.js';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -90,6 +91,10 @@ export class MongoDB implements Database {
 
   private get frontier(): Collection {
     return this.db!.collection('crawl_frontier');
+  }
+
+  private get leafTraces(): Collection {
+    return this.db!.collection('leaf_traces');
   }
 
   private get trees(): Collection {
@@ -429,6 +434,21 @@ export class MongoDB implements Database {
 
   async deleteFrontier(ingestId: string): Promise<void> {
     await this.frontier.deleteMany({ ingestId });
+  }
+
+  async getLeafTrace(leafId: string): Promise<LeafTrace | null> {
+    const doc = await this.leafTraces.findOne({ _id: leafId as any });
+    return doc ? fromDoc<LeafTrace>(doc) : null;
+  }
+
+  async saveLeafTrace(trace: LeafTrace): Promise<void> {
+    const { _id, ...rest } = toDoc(trace);
+    // Replace: a retry describes the run that stands, not an additional one.
+    await this.leafTraces.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async deleteLeafTrace(leafId: string): Promise<void> {
+    await this.leafTraces.deleteOne({ _id: leafId as any });
   }
 
   async getTrees(): Promise<Tree[]> {
