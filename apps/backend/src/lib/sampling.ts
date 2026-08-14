@@ -129,6 +129,41 @@ export const TOOL_TURN_MAX_TOKENS = 800;
 export const THINKING_TURN_MAX_TOKENS = 2000;
 
 /**
+ * Ceiling on a turn that may have to emit a whole FILE.
+ *
+ * ── WHY THE 800 ABOVE IS NOT ENOUGH ──
+ * That number is right for a dispatch turn whose tool call is a shell line. It is wrong whenever
+ * `write_file` is on the table, because there the argument IS the file: the model must emit the
+ * entire contents, JSON-escaped, inside one tool call.
+ *
+ * Measured. Asked for a GitHub client with auth headers, Link-header pagination and error mapping —
+ * comfortably 1,500+ tokens of JavaScript — the model said "Let me create both files now." and
+ * emitted nothing, three turns running, until the loop gave up. It had begun the tool call, hit the
+ * ceiling mid-argument, and the truncated call was discarded. From outside it looked like a model
+ * that had stopped trying; it was a model that could not physically finish a sentence.
+ *
+ * So the cap has to fit the largest thing the agent is ALLOWED to produce, which is a source file.
+ *
+ * 8,000 rather than 4,000 because 4,000 was still not enough and failed IDENTICALLY: a turn came
+ * back with `finish_reason: "tool_calls"` and `completion_tokens: 3997`, dead on the ceiling, the
+ * call cut off mid-argument and discarded. A 9 KB source file is roughly 3,000 tokens before the
+ * JSON escaping and the prose the model writes first. With a 32K context this still leaves ample
+ * room for the conversation.
+ */
+export const FILE_TURN_MAX_TOKENS = 8000;
+
+/**
+ * The ceiling for one turn, given what the agent may do in it.
+ *
+ * One function rather than three constants read at the call site: the rule is "large enough for the
+ * biggest legitimate output", and that is a property of the toolset, not of the caller.
+ */
+export function turnMaxTokens(opts: { think?: boolean; canWriteFiles?: boolean }): number {
+  if (opts.canWriteFiles) return Math.max(FILE_TURN_MAX_TOKENS, opts.think ? THINKING_TURN_MAX_TOKENS : 0);
+  return opts.think ? THINKING_TURN_MAX_TOKENS : TOOL_TURN_MAX_TOKENS;
+}
+
+/**
  * Told to any model that has tools.
  *
  * Addresses a specific observed failure: the model wrote a plausible `list_projects` RESULT into

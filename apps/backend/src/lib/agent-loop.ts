@@ -36,7 +36,7 @@ import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
 import type { WebTools } from './web-tools.js';
 import {
-  TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS,
+  TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS, turnMaxTokens,
 } from './sampling.js';
 import { type Overrides } from './tunables.js';
 import { buildModelRequest } from './model-request.js';
@@ -288,13 +288,23 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
    * planning turn each had their own version of this assembly and every one of them got the order
    * or the placement wrong, silently.
    */
+  const turnCap = turnMaxTokens({
+    think,
+    canWriteFiles: activeTools.some((t) => (t.function?.name || t.name) === 'write_file'),
+  });
+  /** How close to the ceiling still counts as having run out of room mid-call. */
+  const TRUNCATION_MARGIN = 40;
+
   const { body: requestBody, unsupported } = buildModelRequest({
     turn: 'tool-turn',
     ...(opts.kind ? { kind: opts.kind } : {}),
     messages,
     tools: activeTools,
     stream: true,
-    maxTokens: think ? THINKING_TURN_MAX_TOKENS : TOOL_TURN_MAX_TOKENS,
+    // Large enough for the biggest thing this toolset may emit. With write_file active that is a
+    // whole source file, not a shell line — see turnMaxTokens. Held in a variable because the loop
+    // has to compare a reply's length against it to recognise a call that was cut off.
+    maxTokens: turnCap,
     ...(model ? { model } : {}),
     // Reasoning is a registry knob, so it travels as one — `NO_THINKING` wrote `template_vars`
     // by hand, which is the mistake that lost `think` entirely on the chat path.
@@ -319,6 +329,20 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
       toolResultCap: toolResultCap ?? MAX_TOOL_RESULT_CHARS,
     },
   };
+
+  /**
+   * How the loop ended, kept because the two endings are different failures.
+   *
+   * Running out of steps means the work was too big for the budget: raise it, or split the leaf.
+   * The model going silent means it stopped acting and started narrating — usually because
+   * something it believed about the environment turned out to be false, and no larger budget
+   * helps. Reporting the second as the first sent a real diagnosis down the wrong path: a leaf
+   * that gave up after ten steps was reported as having exhausted forty, so the obvious response
+   * was to raise a limit that was never reached.
+   */
+  let stoppedTalking = false;
+  let stoppedAtStep = maxSteps;
+
 
   for (let step = 0; step < maxSteps; step++) {
     /**
@@ -349,7 +373,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
       throw new Error(`Model call failed (${response.status}): ${(await response.text()).slice(0, 300)}`);
     }
 
-    const { content, reasoning, toolCalls, tokens } = await readStreamedReply(response);
+    const { content, reasoning, toolCalls, tokens, completionTokens } = await readStreamedReply(response);
     tokensUsed += tokens;
 
     // Built whenever anyone wants it — the trace keeps it, the live view watches it, and both may
@@ -395,13 +419,43 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     });
 
     if (!toolCalls.length) {
+      /**
+       * A tool call cut off mid-argument, which is NOT a model that stopped trying.
+       *
+       * `write_file` carries a whole file in its argument, so a long file can exhaust the turn's
+       * token ceiling before the call is closed — and a half-emitted call cannot be parsed, so it
+       * arrives here indistinguishable from silence. Measured: `finish_reason: tool_calls` with
+       * `completion_tokens: 3997` against a ceiling of 4000, while the model dutifully
+       * re-announced "Now let me create the test file:" each turn until the loop gave up.
+       *
+       * Told plainly, it splits the file and succeeds. Told "use a tool", it resends the same
+       * oversized call.
+       */
+      if (completionTokens > 0 && completionTokens >= turnCap - TRUNCATION_MARGIN) {
+        messages.push({
+          role: 'user',
+          content: 'Your last tool call was cut off because it exceeded the length limit for a '
+            + 'single reply, so nothing ran. If you were writing a file, write it in SEVERAL '
+            + 'smaller steps — one section per call, appending — or split it into smaller modules. '
+            + 'Do not resend the same oversized call.',
+        });
+        publish();
+        // Not counted as a silent turn: the model was acting, and the retry it needs is different.
+        continue;
+      }
       consecutiveNoToolTurns++;
       // Published before the nudge: a turn that produced no tool call is the failure most worth
       // watching live, and it is invisible in a progress counter.
       publish();
       // Answered in prose instead of acting. Give up after 3 consecutive turns without tools —
       // a model that has stopped using tools will usually keep narrating, and each round costs a full inference pass.
-      if (consecutiveNoToolTurns >= 3 || step >= maxSteps - 1) break;
+      if (consecutiveNoToolTurns >= 3 || step >= maxSteps - 1) {
+        // Recorded, because these two endings need completely different fixes and the summary
+        // below used to report both as "ran out of steps" — see there.
+        stoppedTalking = consecutiveNoToolTurns >= 3;
+        stoppedAtStep = step + 1;
+        break;
+      }
       messages.push({
         role: 'user',
         content: 'Use a tool, or call `finish` if the task is complete or you are stuck.',
@@ -479,9 +533,13 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
   return {
     succeeded: false,
-    summary: `Ran out of steps (${maxSteps}) without calling finish. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`,
+    summary: stoppedTalking
+      ? `Stopped calling tools after ${stoppedAtStep} step(s) of ${maxSteps} — it answered in prose `
+        + `three turns running instead of acting, which usually means something it believed about the `
+        + `environment was wrong. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
+      : `Ran out of steps (${maxSteps}) without calling finish. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`,
     tokensUsed,
-    steps: maxSteps,
+    steps: stoppedAtStep,
     request,
     transcript,
     ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
@@ -705,14 +763,23 @@ async function readStreamedReply(
   reasoning: string;
   toolCalls: { id: string; name: string; arguments: string }[];
   tokens: number;
+  /** As the server reported it. `length` means the reply was cut off, not that it finished. */
+  finishReason: string;
+  completionTokens: number;
 }> {
   const scanner = new ToolCallScanner();
+  // Debug hatch: dumps the raw SSE of a turn so a reply that produced no tool call can be read as
+  // the server actually sent it, finish_reason included. Off unless KOALA_DEBUG_RAW is set.
+  const rawSink: string[] = [];
   let content = '';
   let reasoning = '';
   let tokens = 0;
+  let finishReason = '';
+  let completionTokens = 0;
   let buffer = '';
 
   const consume = (chunk: string) => {
+    if (process.env.KOALA_DEBUG_RAW) rawSink.push(chunk);
     scanner.push(chunk);
     buffer += chunk;
     const lines = buffer.split('\n');
@@ -730,6 +797,9 @@ async function readStreamedReply(
         reasoning += delta?.reasoning_content ?? '';
         // Usage arrives on its own final frame, after the last content frame.
         if (frame?.usage?.total_tokens) tokens = Number(frame.usage.total_tokens);
+        if (frame?.usage?.completion_tokens) completionTokens = Number(frame.usage.completion_tokens);
+        // Last one wins: it arrives on the final frame of the choice.
+        if (frame?.choices?.[0]?.finish_reason) finishReason = String(frame.choices[0].finish_reason);
       } catch {
         // Partial frames are normal mid-stream.
       }
@@ -753,5 +823,10 @@ async function readStreamedReply(
     consume(await response.text());
   }
 
-  return { content, reasoning, toolCalls: scanner.result(), tokens };
+  const calls = scanner.result();
+  if (process.env.KOALA_DEBUG_RAW && !calls.length) {
+    const { appendFileSync } = await import('node:fs');
+    appendFileSync(process.env.KOALA_DEBUG_RAW, `\n===== TURN WITH NO TOOL CALL =====\n${rawSink.join('')}\n`);
+  }
+  return { content, reasoning, toolCalls: calls, tokens, finishReason, completionTokens };
 }

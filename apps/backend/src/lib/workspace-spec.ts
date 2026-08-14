@@ -272,8 +272,27 @@ export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'mem
   const image = spec.image ?? DEFAULT_WORKSPACE_IMAGE;
   const tools = IMAGE_DETAILS[image];
 
-  const network = spec.egress?.length
-    ? `Outbound network is blocked except DNS and these hosts: ${spec.egress.map((e) => e.cidr).join(', ')}.`
+  /**
+   * What the sandbox can actually reach, said accurately.
+   *
+   * This mapped every rule to `e.cidr`, and the rule this codebase actually uses is the NAMESPACE
+   * form — whose `cidr` is undefined. So a Builder with access to Gitea was told "blocked except
+   * DNS and these hosts: ." and, because the list was non-empty, LOST the sentence saying package
+   * installs fail.
+   *
+   * Measured consequence: the agent confidently ran `npm install --save-dev jest` against a
+   * registry it cannot reach, got nothing back, spent two more steps checking whether node existed,
+   * then stopped calling tools altogether and the leaf failed. It had never been told.
+   */
+  const reachable = (spec.egress ?? []).map((rule) => {
+    const ports = rule.ports?.length ? ` on port ${rule.ports.join(', ')}` : '';
+    return rule.namespace ? `the ${rule.namespace} service${ports}` : `${rule.cidr}${ports}`;
+  });
+
+  const network = reachable.length
+    ? `Outbound network is blocked except DNS and ${reachable.join(', ')}. NOTHING else is reachable: `
+      + '`npm install`, `pip install` and any download from the public internet WILL fail, so build '
+      + 'with what the image already provides.'
     : 'There is NO outbound network beyond DNS. `npm install`, `git clone` and any download WILL fail.';
 
   return [
