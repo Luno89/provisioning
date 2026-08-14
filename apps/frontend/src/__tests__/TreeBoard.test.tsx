@@ -41,7 +41,10 @@ const board = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const onReview = vi.fn();
+
 const draw = (over: Record<string, unknown> = {}) => {
+  mockedAxios.post = vi.fn().mockResolvedValue({ data: { branchId: 'b1', prompt: 'One of the leaves failed…' } }) as any;
   mockedAxios.get.mockImplementation((url: string) => {
     if (url.includes('/board')) return Promise.resolve({ data: board(over) });
     if (url.includes('/trace')) return Promise.resolve({ data: { steps: [], totalSteps: 0, tokensUsed: 0, missing: true } });
@@ -49,7 +52,7 @@ const draw = (over: Record<string, unknown> = {}) => {
   });
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <TreeBoard apiBase="/api" treeId="t1" personaNames={{ 'p-builder': 'Builder' }} onBack={() => {}} />
+      <TreeBoard apiBase="/api" treeId="t1" personaNames={{ 'p-builder': 'Builder' }} onBack={() => {}} onReview={onReview} />
     </QueryClientProvider>,
   );
 };
@@ -136,6 +139,23 @@ describe('the project board', () => {
     expect(screen.getByText('Retry')).toBeInTheDocument();
     // And it says which of the two is the better bet by now.
     expect(screen.getByText(/Already tried 3 times/)).toBeInTheDocument();
+  });
+
+  it('hands the failure to Koala rather than answering in the panel', async () => {
+    /**
+     * The review is a chat turn, not a side-channel completion. That is what puts the EVIDENCE in
+     * the transcript instead of only the conclusion — otherwise the first follow-up reaches a Koala
+     * that has never seen the trace.
+     */
+    await draw({
+      leaves: [{ id: 'lf', branchId: 'b1', title: 'Broken leaf', status: 'failed', column: 'failed',
+        tokens: 900, attempts: 3, waitingOn: [], updatedAt: '' }],
+    });
+    fireEvent.click(await screen.findByText('Broken leaf'));
+    fireEvent.click(await screen.findByText(/Review the failure/));
+    await waitFor(() => {
+      expect(onReview).toHaveBeenCalledWith('b1', expect.stringContaining('One of the leaves failed'));
+    });
   });
 
   it('does not offer a retry for work that did not fail', async () => {

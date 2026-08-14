@@ -84,6 +84,7 @@ const MODE_HINT: Record<Mode, string> = {
 export default function Chat({
   apiBase, branchId, mode = 'auto', onModeChange, onProposals,
   messages, onMessagesChange, proposed = [], onAccept, onReject, onAcceptAll,
+  autoSend, onAutoSent,
 }: {
   apiBase: string;
   /** The branch any proposals land on. */
@@ -94,6 +95,15 @@ export default function Chat({
   onModeChange?: (mode: Mode) => void;
   /** Called once a reply finishes, so the tree picks up anything that was proposed. */
   onProposals?: () => void;
+  /**
+   * A message to send without the user typing it.
+   *
+   * How a failure review arrives: the board hands over the evidence and the question, and the
+   * answer is an ordinary turn. Sent ONCE — `onAutoSent` clears it, because a prop that survives a
+   * re-render would send the same message again every time the component updates.
+   */
+  autoSend?: string | undefined;
+  onAutoSent?: () => void;
   /**
    * The transcript, owned by the parent. Chat unmounts every time a leaf is selected, so keeping
    * this in component state lost the conversation on a single click.
@@ -464,6 +474,23 @@ export default function Chat({
       if (activeMode !== 'chat') onProposals?.();
     }
   };
+
+  /**
+   * Sends a handed-off message once, when one arrives.
+   *
+   * Guarded by a ref rather than by the prop alone: `sendMessage` closes over `messages`, so the
+   * effect re-runs as the reply streams in, and without the guard the review would be sent again
+   * on every chunk.
+   */
+  const autoSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoSend || autoSentRef.current === autoSend || streaming) return;
+    autoSentRef.current = autoSend;
+    // Cleared through the parent so a remount does not resend it.
+    onAutoSent?.();
+    void sendMessage(autoSend, mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSend]);
 
   /**
    * Accept/reject for this branch's proposals.

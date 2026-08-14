@@ -54,13 +54,14 @@ function callLabel(call: { name: string; arguments: string }): string {
 }
 
 export default function LeafTrace({
-  apiBase, leaf, personaName, onClose, onOpenBranch,
+  apiBase, leaf, personaName, onClose, onReview,
 }: {
   apiBase: string;
   leaf: { id: string; title: string; branchId: string; tokens: number; attempts: number; column?: string; outputBranch?: string };
   personaName?: string | undefined;
   onClose: () => void;
-  onOpenBranch?: (branchId: string) => void;
+  /** Hands the failure to Koala. This panel never talks to a model itself. */
+  onReview?: (branchId: string, prompt: string) => void;
 }) {
   const [open, setOpen] = useState<number | null>(null);
   const qc = useQueryClient();
@@ -77,11 +78,19 @@ export default function LeafTrace({
     mutationFn: () => axios.post(`${apiBase}/leaves/${leaf.id}/retry`, {}, { withCredentials: true }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['tree-board'] }); onClose(); },
   });
+  /**
+   * Fetches the evidence and hands it to the conversation.
+   *
+   * The route builds the prompt and stops — no model call here. Koala answers it as an ordinary
+   * turn, which is what puts the EVIDENCE in the transcript rather than only the conclusion: the
+   * first follow-up ("why do you think that?") then reaches a Koala that has actually seen the
+   * trace.
+   */
   const review = useMutation({
-    mutationFn: () => axios.post(`${apiBase}/leaves/${leaf.id}/review`, {}, { withCredentials: true }),
-    // The analysis is posted into the conversation, so the useful thing to do next is go and read
-    // it there — where it can be replied to.
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['branches'] }); onOpenBranch?.(leaf.branchId); },
+    mutationFn: () => axios
+      .post(`${apiBase}/leaves/${leaf.id}/review`, {}, { withCredentials: true })
+      .then((r) => r.data as { branchId: string; prompt: string }),
+    onSuccess: (data) => { onClose(); onReview?.(data.branchId, data.prompt); },
   });
 
   const { data, isLoading } = useQuery<Trace>({
@@ -105,11 +114,7 @@ export default function LeafTrace({
               )}
               {leaf.outputBranch && <span>on {leaf.outputBranch}</span>}
               {leaf.attempts > 1 && <span className="text-amber-400/80">{leaf.attempts} attempts</span>}
-              {onOpenBranch && (
-                <button onClick={() => onOpenBranch(leaf.branchId)} className="flex items-center gap-1 hover:text-slate-300">
-                  <MessageSquare size={11} /> open the conversation
-                </button>
-              )}
+              <span className="flex items-center gap-1"><MessageSquare size={11} /> {leaf.branchId.slice(0, 8)}</span>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-[var(--bark-700)]">
@@ -122,11 +127,11 @@ export default function LeafTrace({
             <button
               onClick={() => review.mutate()}
               disabled={review.isPending}
-              title="Ask the Reviewer why this failed. The analysis is posted into the conversation so you can reply to it."
+              title="Open Koala with this failure and ask it why. You can reply and argue with the answer."
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white disabled:opacity-50"
             >
               {review.isPending ? <Loader2 size={13} className="animate-spin" /> : <Stethoscope size={13} />}
-              {review.isPending ? 'Reading the record…' : 'Review the failure'}
+              {review.isPending ? 'Opening Koala…' : 'Review the failure'}
             </button>
             <button
               onClick={() => retry.mutate()}

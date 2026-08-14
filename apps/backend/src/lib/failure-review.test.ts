@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReviewPrompt, formatReview, REVIEW_TRACE_STEPS, clipDegenerate, MAX_REVIEW_CHARS } from './failure-review.js';
+import { buildReviewPrompt, REVIEW_TRACE_STEPS } from './failure-review.js';
 import type { Leaf } from './leaves.js';
 import type { LeafTrace } from './leaf-trace.js';
 import type { AgentStep } from '@koala/harness-types';
@@ -102,42 +102,17 @@ describe('how much of the trace it sees', () => {
   });
 });
 
-describe('how the review reads in the transcript', () => {
-  it('is labelled as a review of the leaf it is about', () => {
-    // It lands in a conversation among the user's own messages; unlabelled it reads as Koala
-    // volunteering an opinion.
-    expect(formatReview('Add tests', 'It ran out of room.')).toContain('Review of “Add tests”');
-  });
-});
-
-describe('clipping a review that stops being one', () => {
-  it('keeps a well-formed answer whole', () => {
-    const good = 'The agent looped on reconnaissance. Retrying will not help. Raise the step budget.';
-    expect(clipDegenerate(good)).toEqual({ text: good, clipped: false });
+describe('the review as a chat message', () => {
+  it('opens as something a person is asking, not a system instruction', () => {
+    // It is sent as the user's own message now, so it has to read like one.
+    expect(buildReviewPrompt(leaf(), null)).toMatch(/^One of the leaves on this branch failed/);
   });
 
-  it('cuts at the run-on sentence where the drift starts', () => {
+  it('asks for a length', () => {
     /**
-     * The measured signature. The opening is accurate and then the sentences stop ending — one
-     * real run trailed off into "menace menace menace... wait stop digression".
+     * The one-shot path clipped the degenerate tail; a streamed conversation cannot, so the
+     * instruction has to carry it. The deployed model is accurate for a paragraph and then drifts.
      */
-    const drift = `${'The agent looped on reconnaissance. '}${'clause '.repeat(120)}`;
-    const out = clipDegenerate(drift);
-    expect(out.clipped).toBe(true);
-    expect(out.text).toBe('The agent looped on reconnaissance.');
-  });
-
-  it('still returns something when the very first sentence runs away', () => {
-    // Dropping everything would turn a bad answer into no answer, and the opening is the part
-    // that has consistently been right.
-    const out = clipDegenerate('word '.repeat(500));
-    expect(out.text.length).toBeGreaterThan(0);
-    expect(out.text.length).toBeLessThanOrEqual(MAX_REVIEW_CHARS);
-    expect(out.clipped).toBe(true);
-  });
-
-  it('bounds what reaches the conversation', () => {
-    const many = Array.from({ length: 80 }, (_, i) => `Sentence number ${i} about the failure.`).join(' ');
-    expect(clipDegenerate(many).text.length).toBeLessThanOrEqual(MAX_REVIEW_CHARS);
+    expect(buildReviewPrompt(leaf(), null)).toMatch(/under 200 words/i);
   });
 });

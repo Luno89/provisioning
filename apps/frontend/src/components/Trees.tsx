@@ -38,7 +38,11 @@ interface Tree {
   updatedAt: string;
 }
 
-export default function Trees({ apiBase, onOpenBranch }: { apiBase: string; onOpenBranch?: (branchId: string) => void }) {
+export default function Trees({ apiBase, onReview }: {
+  apiBase: string;
+  /** Hands a failed leaf's evidence to Koala. The board never opens a conversation itself. */
+  onReview?: (branchId: string, prompt: string) => void;
+}) {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [pickedType, setPickedType] = useState('');
@@ -99,7 +103,7 @@ export default function Trees({ apiBase, onOpenBranch }: { apiBase: string; onOp
         treeId={openTree}
         personaNames={Object.fromEntries(personas.map((p) => [p.id, p.name]))}
         onBack={() => setOpenTree(null)}
-        {...(onOpenBranch ? { onOpenBranch } : {})}
+        {...(onReview ? { onReview } : {})}
       />
     );
   }

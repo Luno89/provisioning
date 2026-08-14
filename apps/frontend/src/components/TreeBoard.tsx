@@ -68,13 +68,14 @@ const COLUMNS: { id: string; label: string; hint: string }[] = [
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 export default function TreeBoard({
-  apiBase, treeId, personaNames, onBack, onOpenBranch,
+  apiBase, treeId, personaNames, onBack, onReview,
 }: {
   apiBase: string;
   treeId: string;
   personaNames: Record<string, string>;
   onBack: () => void;
-  onOpenBranch?: (branchId: string) => void;
+  /** Hands a failed leaf's evidence to Koala, which is where a review is actually discussed. */
+  onReview?: (branchId: string, prompt: string) => void;
 }) {
   const [openLeaf, setOpenLeaf] = useState<BoardLeaf | null>(null);
 
@@ -219,7 +220,7 @@ export default function TreeBoard({
           leaf={openLeaf}
           personaName={openLeaf.personaId ? personaNames[openLeaf.personaId] : undefined}
           onClose={() => setOpenLeaf(null)}
-          {...(onOpenBranch ? { onOpenBranch } : {})}
+          {...(onReview ? { onReview } : {})}
         />
       )}
     </div>

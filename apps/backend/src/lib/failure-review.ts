@@ -34,7 +34,7 @@ export const REVIEW_STEP_CHARS = 600;
  * that summarises the agent's narration reproduces the mistake rather than diagnosing it.
  */
 export const REVIEW_PROMPT = [
-  'A piece of work failed. Read the record and say why.',
+  'One of the leaves on this branch failed. Read the record below and tell me why.',
   '',
   'What is wanted is a diagnosis, not a summary. The agent\'s own account of what it was doing is',
   'the least reliable thing here — it is usually confident and usually wrong about the cause. Look',
@@ -48,6 +48,11 @@ export const REVIEW_PROMPT = [
   '',
   'If the evidence does not support a conclusion, say that instead of inventing one. "The trace',
   'stops without explanation" is a useful answer; a confident guess is not.',
+  '',
+  // A length, because this is a chat turn now and the deployed model degenerates when it runs long
+  // — measured: accurate for a paragraph, then run-on clauses, then free association. The one-shot
+  // path clipped the tail; a streamed conversation cannot, so the instruction has to do the work.
+  'Keep it under 200 words. Stop when you have answered the three questions.',
 ].join('\n');
 
 function describeAttempts(attempts: LeafAttempt[]): string {
@@ -112,55 +117,4 @@ export function buildReviewPrompt(
     '=== WHAT IT ACTUALLY DID ===',
     describeTrace(trace),
   ].filter((part) => part !== '').join('\n');
-}
-
-/** How the analysis reads in the transcript, so it is obviously a review and not a user message. */
-export function formatReview(leafTitle: string, analysis: string): string {
-  return `**Review of “${leafTitle}”**\n\n${analysis.trim()}`;
-}
-
-/**
- * Cuts a review off where it stops being one.
- *
- * ── THIS IS A WORKAROUND, AND FOR WHAT ──
- * The deployed model (Qwen3.6-27B) diagnoses these failures correctly and then degenerates. Its
- * opening is consistently right — "entered an infinite loop of reconnaissance commands (`git log`,
- * `npm ls`, `node --version`) instead of writing code" is exactly what the trace shows — and then
- * the sentences stop ending, the clauses pile up, and it drifts into free association. One measured
- * run finished with "menace menace menace... wait stop digression focus back task hand please thank
- * you"; another ended in emoji.
- *
- * Tried and did not fix it: reasoning on and off, ceilings of 700/900/1500/4000, temperature 0.2
- * with top_p 0.9, streamed and non-streamed. `max_tokens` is sent and the endpoint exceeds it
- * either way. So this is a property of the model on this prompt, not a setting.
- *
- * Posting six thousand characters of that into someone's conversation is worse than posting the
- * paragraph that was right, so the tail is dropped. The signature is unmistakable and local: real
- * prose has sentence endings, and degeneration is one clause welded to the next.
- *
- * Delete this the day a model that does not do it is in front of it.
- */
-export const MAX_SENTENCE_CHARS = 400;
-export const MAX_REVIEW_CHARS = 1600;
-
-export function clipDegenerate(text: string): { text: string; clipped: boolean } {
-  const trimmed = text.trim();
-  // Sentence-ish boundaries, keeping the punctuation.
-  const parts = trimmed.split(/(?<=[.!?])\s+/);
-  const kept: string[] = [];
-  let total = 0;
-  let clipped = false;
-
-  for (const part of parts) {
-    // A "sentence" this long has not ended — it is the run-on that marks the drift starting.
-    if (part.length > MAX_SENTENCE_CHARS) { clipped = true; break; }
-    if (total + part.length > MAX_REVIEW_CHARS) { clipped = true; break; }
-    kept.push(part);
-    total += part.length + 1;
-  }
-
-  // Never return nothing: if the very first sentence is already a run-on, the opening is still the
-  // useful part, so it is cut to length rather than dropped.
-  if (!kept.length) return { text: trimmed.slice(0, MAX_REVIEW_CHARS), clipped: true };
-  return { text: kept.join(' '), clipped };
 }

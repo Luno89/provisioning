@@ -1,5 +1,5 @@
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axios from 'axios';
 import Workspace from '../components/Workspace';
@@ -47,11 +47,11 @@ const openBranch = async (title: string) => {
   fireEvent.click(tree().getAllByText(title)[0]!);
 };
 
-const renderWorkspace = () => {
+const renderWorkspace = (handoff?: { branchId: string; prompt: string }, onHandoffTaken?: () => void) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <Workspace apiBase="/api" />
+      <Workspace apiBase="/api" {...(handoff ? { handoff } : {})} {...(onHandoffTaken ? { onHandoffTaken } : {})} />
     </QueryClientProvider>,
   );
 };
@@ -202,5 +202,65 @@ describe('proposals', () => {
     mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
     renderWorkspace();
     await waitFor(() => expect(screen.getAllByTitle('proposed').length).toBeGreaterThan(0));
+  });
+});
+
+
+describe('a failure handed over from the board', () => {
+  /**
+   * The chat turn goes out over `fetch`, not axios — it is streamed. Stubbed to a complete,
+   * immediately-closed SSE body so the send path runs end to end without a server.
+   */
+  const stubChat = () => {
+    const calls: { url: string; body: string }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
+      calls.push({ url: String(url), body: String(init?.body ?? '') });
+      return {
+        ok: true,
+        body: {
+          getReader: () => {
+            let done = false;
+            return {
+              read: async () => {
+                if (done) return { done: true, value: undefined };
+                done = true;
+                return { done: false, value: new TextEncoder().encode('data: [DONE]\n\n') };
+              },
+            };
+          },
+        },
+      };
+    }));
+    return calls;
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("opens the leaf's conversation and asks for the review without the user typing", async () => {
+    /**
+     * The whole point of the hand-off. Landing on an empty box would mean describing the failure by
+     * hand — and the evidence would never reach the transcript, so a follow-up could not be answered.
+     */
+    const calls = stubChat();
+    const taken = vi.fn();
+    renderWorkspace({ branchId: 'branch-1', prompt: 'One of the leaves on this branch failed. Read the record.' }, taken);
+
+    await waitFor(() => {
+      const sent = calls.find((c) => c.url.includes('/chat'));
+      expect(sent).toBeTruthy();
+      expect(sent!.body).toContain('One of the leaves on this branch failed');
+    });
+    // Cleared, so a re-render does not send it again.
+    expect(taken).toHaveBeenCalled();
+  });
+
+  it('sends it once, not once per render', async () => {
+    // sendMessage closes over `messages`, so the effect re-runs as the reply streams in. Without
+    // the guard the review is re-sent on every chunk.
+    const calls = stubChat();
+    renderWorkspace({ branchId: 'branch-1', prompt: 'Review this failure please.' }, () => {});
+    await waitFor(() => expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1);
   });
 });

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useMutation } from '@tanstack/react-query';
@@ -49,7 +49,18 @@ interface BranchNode {
   leaves: Leaf[];
 }
 
-export default function Workspace({ apiBase }: { apiBase: string }) {
+export default function Workspace({ apiBase, handoff, onHandoffTaken }: {
+  apiBase: string;
+  /**
+   * A conversation to open, with a message to send on arrival.
+   *
+   * How the board's "review this failure" lands here: it carries the branch AND the evidence, so
+   * the user arrives at an answer being written rather than at an empty box they have to describe
+   * the failure into.
+   */
+  handoff?: { branchId: string; prompt: string } | undefined;
+  onHandoffTaken?: () => void;
+}) {
   const qc = useQueryClient();
   // The conversation currently open. Kept client-side: a branch with leaves is recoverable from
   // them, and a brand-new one has nothing worth persisting until it does.
@@ -182,6 +193,20 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
   });
   const selectedLeaf = selected.kind === 'leaf' ? all.find((l) => l.id === selected.id) : undefined;
   // An empty branch selection means "the open conversation", so a fresh session lands somewhere.
+  /**
+   * A hand-off selects its branch, once.
+   *
+   * Keyed on the branch id so arriving from the board a second time re-opens it, but a re-render
+   * does not fight whatever the user has selected since.
+   */
+  const openedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!handoff || openedRef.current === handoff.branchId) return;
+    openedRef.current = handoff.branchId;
+    setActiveBranch(handoff.branchId);
+    setSelected({ kind: 'branch', id: handoff.branchId });
+  }, [handoff]);
+
   const selectedBranch = selected.kind === 'branch' ? (selected.id || activeBranch) : undefined;
 
   const renderLeaf = (leaf: Leaf, depth: number) => {
@@ -330,6 +355,9 @@ export default function Workspace({ apiBase }: { apiBase: string }) {
                     mode={mode}
                     onModeChange={setMode}
                     onProposals={refreshLeaves}
+                    {...(handoff && handoff.branchId === selectedBranch
+                      ? { autoSend: handoff.prompt, onAutoSent: onHandoffTaken }
+                      : {})}
                     messages={
                       transcripts[selectedBranch] ??
                       (branchRecords ?? []).find((b) => b.id === selectedBranch)?.messages ??

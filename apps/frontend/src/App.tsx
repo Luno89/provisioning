@@ -220,6 +220,8 @@ function App() {
   // Open by default: collapsed, a first-time user sees two items and no way to tell that ten
   // more exist. Folding the infrastructure away is about hierarchy, not about hiding it.
   const [forestOpen, setForestOpen] = useState(true);
+  /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
+  const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
   const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
@@ -1498,9 +1500,21 @@ function App() {
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
-        {(view === 'chat' || view === 'board') && <Workspace apiBase={API_BASE} />}
+        {(view === 'chat' || view === 'board') && (
+          <Workspace apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
+        )}
 
-        {view === 'trees' && <TreesView apiBase={API_BASE} />}
+        {view === 'trees' && (
+          <TreesView
+            apiBase={API_BASE}
+            /**
+             * The board hands a failure to Koala: switch to the conversation and carry the
+             * evidence with it. Reviewing is a normal chat turn, so what arrives is an answer
+             * being written rather than an empty box.
+             */
+            onReview={(branchId, prompt) => { setHandoff({ branchId, prompt }); setView('board'); }}
+          />
+        )}
         {view === 'vps-catalog' && (
           <VpsCatalog
             apiBase={API_BASE}
