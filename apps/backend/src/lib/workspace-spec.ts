@@ -278,7 +278,7 @@ const IMAGE_DETAILS: Record<string, WorkspaceImage> = Object.fromEntries(
   Object.values(WORKSPACE_IMAGES).map((entry) => [entry.image, entry]),
 );
 
-export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'memory' | 'egress'> = {}): string {
+export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'memory' | 'egress' | 'env'> = {}): string {
   const image = spec.image ?? DEFAULT_WORKSPACE_IMAGE;
   const tools = IMAGE_DETAILS[image];
 
@@ -299,10 +299,26 @@ export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'mem
     return rule.namespace ? `the ${rule.namespace} service${ports}` : `${rule.cidr}${ports}`;
   });
 
+  /**
+   * Whether a package manager has somewhere to go.
+   *
+   * Read off the injected environment rather than guessed from the egress rules: a mirror is just
+   * another namespace, and there is no way to tell one from a database by its name. If the variable
+   * is set, something deliberately pointed the tool at a registry.
+   *
+   * This matters because the sentence below is an INSTRUCTION. It told agents that installs would
+   * fail, which was true and is no longer, and an agent that believes it will hand-roll what it
+   * could have installed.
+   */
+  const registry = (spec.env ?? []).find((e) => e.name === 'NPM_CONFIG_REGISTRY' || e.name === 'PIP_INDEX_URL');
+
   const network = reachable.length
-    ? `Outbound network is blocked except DNS and ${reachable.join(', ')}. NOTHING else is reachable: `
-      + '`npm install`, `pip install` and any download from the public internet WILL fail, so build '
-      + 'with what the image already provides.'
+    ? `Outbound network is blocked except DNS and ${reachable.join(', ')}. `
+      + (registry
+        ? `A package registry IS reachable at ${registry.value}, and your package manager is already `
+          + 'pointed at it — `npm install` works. Nothing else on the public internet does.'
+        : 'NOTHING else is reachable: `npm install`, `pip install` and any download from the public '
+          + 'internet WILL fail, so build with what the image already provides.')
     : 'There is NO outbound network beyond DNS. `npm install`, `git clone` and any download WILL fail.';
 
   return [

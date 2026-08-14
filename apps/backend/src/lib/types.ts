@@ -243,6 +243,9 @@ export interface DeploymentMetadata {
   teiModelId?: string;
   teiUseGpu?: boolean;
   teiMemoryLimit?: string;
+  /** The package mirror sandboxes install through — see constructs/verdaccio-native.ts. */
+  verdaccioUpstream?: string;
+  verdaccioStorage?: string;
   // Schema-driven settings for app types with too many options to give each a first-class field
   // (game servers: ~120 apiece). One map threaded through the pipeline once, validated at runtime
   // against lib/app-settings-schema.ts instead of at compile time. See that file for why.

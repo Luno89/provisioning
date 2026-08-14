@@ -54,7 +54,7 @@ type AppType =
   | 'odoo' | 'wordpress' | 'nextcloud' | 'audiobookshelf' | 'prometheus' | 'traefik' | 'vllm'
   | 'tabbyapi' | 'openwebui' | 'hermes' | 'gitapp' | 'palworld' | 'jellyfin' | 'plex' | 'navidrome'
   | 'kavita' | 'immich' | 'papra' | 'homeassistant' | 'searxng' | 'crawl4ai' | 'qdrant' | 'minio'
-  | 'quickwit' | 'tei';
+  | 'quickwit' | 'tei' | 'verdaccio';
 
 const APP_DEFAULTS: Record<string, {
   helm: { webRepo: string; webTag: string; dbRepo: string; dbTag: string };

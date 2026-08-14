@@ -116,6 +116,8 @@ export interface DeployAppArgs {
   teiModelId?: string | undefined;
   teiUseGpu?: boolean | undefined;
   teiMemoryLimit?: string | undefined;
+  verdaccioUpstream?: string | undefined;
+  verdaccioStorage?: string | undefined;
   // Set only by TemporalBridge.deploy() for clusters where the worker shares a filesystem with
   // the K8s node (see DownloadModelActivity.ts) — AppDeployWorkflow.ts uses this to decide
   // whether to pre-download the model before this activity ever runs. Not read here; DeployAppActivity
@@ -177,6 +179,7 @@ export async function DeployAppActivity(
     // exits with "'nvidia-smi' command not found" on a node without a card — measured, not
     // guessed. Falling through to the table's generic 'latest' produced exactly that.
     tei: { repo: 'ghcr.io/huggingface/text-embeddings-inference', tag: 'cpu-1.8.1' },
+    verdaccio: { repo: 'verdaccio/verdaccio', tag: '6' },
   };
 
   const appDefault = DEFAULT_APP_REPOS[args.appType] || { repo: '', tag: 'latest' };
@@ -467,6 +470,8 @@ export async function DeployAppActivity(
     teiModelId: args.teiModelId,
     teiUseGpu: args.teiUseGpu,
     teiMemoryLimit: args.teiMemoryLimit,
+    verdaccioUpstream: args.verdaccioUpstream,
+    verdaccioStorage: args.verdaccioStorage,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
     webuiEnableWebSearch: args.webuiEnableWebSearch,
     webuiWebSearchEngine: args.webuiWebSearchEngine,

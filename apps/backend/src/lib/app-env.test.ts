@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from './app-env.js';
 import { appTypeFromName, isAppType, APP_TYPES } from './app-catalog.js';
+import { describeSandbox } from './workspace-spec.js';
 import type { DeploymentMetadata } from './types.js';
 
 const dep = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({
@@ -121,5 +122,32 @@ describe('the app catalog', () => {
 
   it('has no duplicates, which a hand-maintained list acquires', () => {
     expect(new Set(APP_TYPES).size).toBe(APP_TYPES.length);
+  });
+});
+
+describe('what the sandbox tells the agent about installing', () => {
+  it('says installs fail when nothing is reachable', () => {
+    expect(describeSandbox({})).toMatch(/npm install.*WILL fail/i);
+  });
+
+  it('still says so when the only egress is a service, not a registry', () => {
+    // Gitea is reachable and a registry is not — the agent must not infer one from the other.
+    const out = describeSandbox({ egress: [{ namespace: 'gitea', ports: [3000] }] });
+    expect(out).toMatch(/the gitea service/);
+    expect(out).toMatch(/WILL fail/i);
+  });
+
+  it('says npm install works once a registry is injected', () => {
+    /**
+     * The sentence is an INSTRUCTION, and it was true until a mirror was deployed in-cluster. An
+     * agent that still believes it hand-rolls what it could have installed.
+     */
+    const out = describeSandbox({
+      egress: [{ namespace: 'koala-registry', ports: [4873] }],
+      env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://verdaccio.koala-registry.svc.cluster.local:4873' }],
+    });
+    expect(out).toMatch(/`npm install` works/);
+    expect(out).toContain('http://verdaccio.koala-registry.svc.cluster.local:4873');
+    expect(out).not.toMatch(/WILL fail/i);
   });
 });

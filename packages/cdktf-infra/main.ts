@@ -31,6 +31,7 @@ import { MinioNativeApp } from "./constructs/minio-native.js";
 import { QdrantNativeApp } from "./constructs/qdrant-native.js";
 import { QuickwitNativeApp } from "./constructs/quickwit-native.js";
 import { TeiNativeApp } from "./constructs/tei-native.js";
+import { VerdaccioNativeApp } from "./constructs/verdaccio-native.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
 import { DashboardsStack } from "./constructs/dashboards.js";
@@ -397,6 +398,15 @@ class AppStack extends TerraformStack {
           ...(process.env.TEI_MODEL_ID ? { modelId: process.env.TEI_MODEL_ID } : {}),
           ...(process.env.TEI_USE_GPU === 'true' ? { useGpu: true } : {}),
           ...(process.env.TEI_MEMORY_LIMIT ? { memoryLimit: process.env.TEI_MEMORY_LIMIT } : {}),
+          ...vpnProps,
+        });
+      } else if (appType === 'verdaccio') {
+        new VerdaccioNativeApp(this, "verdaccio-native", {
+          namespace: deploymentName,
+          ...(webRepo ? { webRepo } : {}),
+          ...(webTag ? { webTag } : {}),
+          ...(process.env.VERDACCIO_UPSTREAM ? { upstream: process.env.VERDACCIO_UPSTREAM } : {}),
+          ...(process.env.VERDACCIO_STORAGE ? { storage: process.env.VERDACCIO_STORAGE } : {}),
           ...vpnProps,
         });
       } else if (appType === 'homeassistant') {

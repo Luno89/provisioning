@@ -258,12 +258,12 @@ const SEEDS: Seed[] = [
       'Write a test for what you build and run it. A leaf whose tests pass is evidence; one that only',
       'reports success is a claim.',
       '',
-      // Measured: the agent reached for `npm install --save-dev jest` against a registry the
-      // sandbox cannot reach, got nothing, and stopped calling tools three turns later. Naming the
-      // runner that is already there removes the only step it could not complete.
-      'There is no package registry. Use what the runtime already ships — for Node that is the',
-      'built-in test runner (`node --test`, with `node:test` and `node:assert`), and the standard',
-      'library for everything else. Do NOT run `npm install`; it will fail.',
+      // This said "there is no package registry" and told the agent not to try, which was true
+      // until a Verdaccio mirror was deployed in-cluster. Saying it now would have the agent
+      // hand-roll what it could install — see constructs/verdaccio-native.ts for why a mirror and
+      // not open egress.
+      'Install what you need. A package registry is mirrored inside the cluster and your package',
+      'manager already points at it, so `npm install` works — the public internet does not.',
     ].join('\n'),
     scope: {
       /**

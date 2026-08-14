@@ -19,7 +19,7 @@
 export const APP_TYPES = [
   'odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik', 'vllm', 'tabbyapi',
   'openwebui', 'hermes', 'gitapp', 'palworld', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich',
-  'papra', 'homeassistant', 'searxng', 'crawl4ai', 'qdrant', 'minio', 'quickwit', 'tei',
+  'papra', 'homeassistant', 'searxng', 'crawl4ai', 'qdrant', 'minio', 'quickwit', 'tei', 'verdaccio',
 ] as const;
 
 export type AppType = typeof APP_TYPES[number];

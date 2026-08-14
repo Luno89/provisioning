@@ -74,6 +74,8 @@ export interface AppEnvArgs {
   teiModelId?: string | undefined;
   teiUseGpu?: boolean | undefined;
   teiMemoryLimit?: string | undefined;
+  verdaccioUpstream?: string | undefined;
+  verdaccioStorage?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
@@ -331,6 +333,8 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     TEI_MODEL_ID: a.teiModelId || '',
     TEI_USE_GPU: a.teiUseGpu === true ? 'true' : '',
     TEI_MEMORY_LIMIT: a.teiMemoryLimit || '',
+    VERDACCIO_UPSTREAM: a.verdaccioUpstream || '',
+    VERDACCIO_STORAGE: a.verdaccioStorage || '',
     OPENAI_API_BASE_URL: a.openaiApiBaseUrl || '',
     // Empty string (not 'true'/'false') when unset, not a default value baked in here — lets
     // main.ts's own `=== 'false'` check (and the construct's `!== false` default-true beneath
