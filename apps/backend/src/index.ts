@@ -2743,7 +2743,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         acceptanceOutcome: b.acceptanceOutcome,
         updatedAt: b.updatedAt,
       })),
-      leaves: mine.map((l) => ({
+      /**
+       * Only what the board can show.
+       *
+       * `columnFor` returns nothing for a cancelled leaf — it is neither done nor outstanding, so
+       * counting it either way would misstate the total. Sending it anyway would mean a payload
+       * that disagrees with the board it feeds, and the next person to add a count would take the
+       * array length.
+       */
+      leaves: mine.filter((l) => columnFor(l, isBlocked(l))).map((l) => ({
         id: l.id,
         branchId: l.branchId,
         title: l.title,

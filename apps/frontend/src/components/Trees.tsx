@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Plus, Loader2, Trash2, MessageSquare, Target, X } from 'lucide-react';
+import { Plus, Loader2, Trash2, MessageSquare, Target, X, LayoutGrid } from 'lucide-react';
+import TreeBoard from './TreeBoard.js';
 
 /**
  * Trees — the projects that conversations belong to.
@@ -37,10 +38,19 @@ interface Tree {
   updatedAt: string;
 }
 
-export default function Trees({ apiBase }: { apiBase: string }) {
+export default function Trees({ apiBase, onOpenBranch }: { apiBase: string; onOpenBranch?: (branchId: string) => void }) {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [pickedType, setPickedType] = useState('');
+  /** Which tree's board is open. The list is the index; the board is the project. */
+  const [openTree, setOpenTree] = useState<string | null>(null);
+
+  // Names only — the board labels cards with who did the work, and an id tells nobody anything.
+  const { data: personas = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['personas'],
+    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
+    staleTime: 60_000,
+  });
 
   const { data: types = [] } = useQuery<TreeType[]>({
     queryKey: ['tree-types'],
@@ -76,6 +86,24 @@ export default function Trees({ apiBase }: { apiBase: string }) {
   const typeOf = (id: string) => types.find((t) => t.id === id);
   const chosen = typeOf(pickedType);
 
+  /**
+   * The board replaces the list rather than sitting beside it.
+   *
+   * A project board wants the width — six columns of cards — and a list of other projects beside it
+   * earns nothing while you are reading one.
+   */
+  if (openTree) {
+    return (
+      <TreeBoard
+        apiBase={apiBase}
+        treeId={openTree}
+        personaNames={Object.fromEntries(personas.map((p) => [p.id, p.name]))}
+        onBack={() => setOpenTree(null)}
+        {...(onOpenBranch ? { onOpenBranch } : {})}
+      />
+    );
+  }
+
   return (
     <section>
       <header className="flex justify-between items-center mb-8">
@@ -110,8 +138,8 @@ export default function Trees({ apiBase }: { apiBase: string }) {
             return (
               <div key={tree.id} className="bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-2xl p-5 flex flex-col gap-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h4 className="font-bold text-lg truncate">{tree.name}</h4>
+                  <div className="min-w-0 cursor-pointer" onClick={() => setOpenTree(tree.id)}>
+                    <h4 className="font-bold text-lg truncate hover:text-[var(--leaf)]">{tree.name}</h4>
                     <span className="text-[10px] font-black uppercase tracking-widest text-[var(--leaf)]">
                       {spec?.label ?? tree.type}
                     </span>
@@ -140,6 +168,12 @@ export default function Trees({ apiBase }: { apiBase: string }) {
                     <MessageSquare size={12} /> {tree.branchCount} {tree.branchCount === 1 ? 'conversation' : 'conversations'}
                   </span>
                   {spec && !spec.usesRepo && <span>no repository</span>}
+                  <button
+                    onClick={() => setOpenTree(tree.id)}
+                    className="ml-auto flex items-center gap-1.5 text-[var(--leaf)] hover:underline"
+                  >
+                    <LayoutGrid size={12} /> board
+                  </button>
                 </div>
               </div>
             );
