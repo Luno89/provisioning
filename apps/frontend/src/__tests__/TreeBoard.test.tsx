@@ -121,6 +121,30 @@ describe('the project board', () => {
     });
   });
 
+  it('offers review and retry on a failed leaf, and neither on a healthy one', async () => {
+    /**
+     * Both, not just retry. Retrying cannot fix an environmental cause, and every real cause found
+     * in this system so far has been environmental — offering only retry would make the useless
+     * action the obvious one.
+     */
+    await draw({
+      leaves: [{ id: 'lf', branchId: 'b1', title: 'Broken leaf', status: 'failed', column: 'failed',
+        tokens: 900, attempts: 3, waitingOn: [], updatedAt: '' }],
+    });
+    fireEvent.click(await screen.findByText('Broken leaf'));
+    expect(await screen.findByText(/Review the failure/)).toBeInTheDocument();
+    expect(screen.getByText('Retry')).toBeInTheDocument();
+    // And it says which of the two is the better bet by now.
+    expect(screen.getByText(/Already tried 3 times/)).toBeInTheDocument();
+  });
+
+  it('does not offer a retry for work that did not fail', async () => {
+    await draw();
+    fireEvent.click(await screen.findByText('MCP stdio transport'));
+    await screen.findByText(/has not run yet|turns/);
+    expect(screen.queryByText('Retry')).not.toBeInTheDocument();
+  });
+
   it('distinguishes a leaf that never ran from one whose record was lost', async () => {
     await draw();
     fireEvent.click(await screen.findByText('Write the README'));

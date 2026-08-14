@@ -213,6 +213,40 @@ const SEEDS: Seed[] = [
     overrides: { temperature: 0.3 },
   },
   {
+    name: 'Reviewer',
+    description: 'Reads a failed leaf and says why it failed.',
+    systemPrompt: [
+      'You diagnose failures. You are shown a task, how it ended, and what the agent actually did.',
+      '',
+      'The agent\'s own account is the least reliable thing in front of you — it is usually confident',
+      'and usually wrong about the cause. Read what happened instead: a command that produced no',
+      'output, a tool call announced and never made, the same step repeated, an error reported and',
+      'then ignored.',
+      '',
+      'Rules:',
+      '- Name the mechanism, not the symptom. "It ran out of steps" is a symptom.',
+      '- Say plainly whether retrying would help, and why it would not if it would not.',
+      '- Distinguish a mistake in the work from a limit of the environment. Both happen here.',
+      '- If the evidence does not support a conclusion, say so. "The trace stops without',
+      '  explanation" is a useful answer; a confident guess is worse than none.',
+      '- Be brief. This is read by someone deciding what to do next.',
+    ].join('\n'),
+    scope: {
+      repo: false,
+      language: 'base',
+      /**
+       * No tools at all, deliberately.
+       *
+       * A reviewer that could run commands would go looking instead of reading, and spend a budget
+       * rediscovering what the record already contains. Everything it needs is in the prompt.
+       */
+      tools: [],
+    },
+    // Nothing to tune: it reads a record and answers. The defaults are the point of comparison if
+    // reviews ever need bench-testing.
+    overrides: {},
+  },
+  {
     name: 'Builder',
     description: 'Writes code in a repository, with tests, and commits it.',
     systemPrompt: [

@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { X, Loader2, ChevronRight, ChevronDown, Terminal, FileText, Brain, MessageSquare } from 'lucide-react';
+import { X, Loader2, ChevronRight, ChevronDown, Terminal, FileText, Brain, MessageSquare, RotateCw, Stethoscope } from 'lucide-react';
 
 /**
  * What a leaf actually did, turn by turn.
@@ -62,6 +63,26 @@ export default function LeafTrace({
   onOpenBranch?: (branchId: string) => void;
 }) {
   const [open, setOpen] = useState<number | null>(null);
+  const qc = useQueryClient();
+
+  /**
+   * Two different things to do with a failure, offered together on purpose.
+   *
+   * Retrying is not a no-op — the loop feeds the last failure into the next prompt, so attempt two
+   * is not attempt one. But it cannot fix an environmental cause, and every real cause found in
+   * this system so far has been environmental. Offering only retry would make the useless action
+   * the obvious one.
+   */
+  const retry = useMutation({
+    mutationFn: () => axios.post(`${apiBase}/leaves/${leaf.id}/retry`, {}, { withCredentials: true }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tree-board'] }); onClose(); },
+  });
+  const review = useMutation({
+    mutationFn: () => axios.post(`${apiBase}/leaves/${leaf.id}/review`, {}, { withCredentials: true }),
+    // The analysis is posted into the conversation, so the useful thing to do next is go and read
+    // it there — where it can be replied to.
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['branches'] }); onOpenBranch?.(leaf.branchId); },
+  });
 
   const { data, isLoading } = useQuery<Trace>({
     queryKey: ['leaf-trace', leaf.id],
@@ -95,6 +116,39 @@ export default function LeafTrace({
             <X size={17} />
           </button>
         </div>
+
+        {leaf.column === 'failed' && (
+          <div className="px-5 py-3 border-b border-[var(--bark-700)] flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => review.mutate()}
+              disabled={review.isPending}
+              title="Ask the Reviewer why this failed. The analysis is posted into the conversation so you can reply to it."
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white disabled:opacity-50"
+            >
+              {review.isPending ? <Loader2 size={13} className="animate-spin" /> : <Stethoscope size={13} />}
+              {review.isPending ? 'Reading the record…' : 'Review the failure'}
+            </button>
+            <button
+              onClick={() => retry.mutate()}
+              disabled={retry.isPending}
+              title="Run it again. The next attempt is given this failure, but a cause in the environment will repeat."
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] bg-[var(--bark-700)] hover:bg-[var(--bark-600)] text-slate-200 disabled:opacity-50"
+            >
+              {retry.isPending ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />} Retry
+            </button>
+            {(review.error || retry.error) && (
+              <span className="text-[11px] text-red-400">
+                {String((review.error as any)?.response?.data?.error ?? (retry.error as any)?.response?.data?.error ?? 'That did not work.')}
+              </span>
+            )}
+            {leaf.attempts > 1 && (
+              // Said out loud, because at this point retrying is usually the wrong instinct.
+              <span className="text-[11px] text-slate-500">
+                Already tried {leaf.attempts} times — a review is more likely to help than another run.
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="overflow-y-auto p-5 space-y-2">
           {isLoading && <div className="text-slate-500 flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> Loading…</div>}

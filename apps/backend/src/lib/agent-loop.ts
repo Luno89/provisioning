@@ -756,7 +756,13 @@ async function runSandboxTool(
  * already tested against the fragment shapes this endpoint emits — while content and usage are
  * pulled from the same frames in one pass.
  */
-async function readStreamedReply(
+/**
+ * Exported because the review route needs it for the same reason this loop does: TabbyAPI's
+ * non-streamed replies are unreliable — it reports `usage: null` (documented at the top of this
+ * file) and, measured on the review route, ignores `max_tokens` entirely, returning ~1,600 tokens
+ * against a cap of 900. Streamed, the cap is honoured.
+ */
+export async function readStreamedReply(
   response: { body?: any; text?: () => Promise<string> },
 ): Promise<{
   content: string;

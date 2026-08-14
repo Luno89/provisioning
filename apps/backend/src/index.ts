@@ -66,6 +66,7 @@ import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token
 import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
 import { buildHarnessConfig } from './lib/harness-config.js';
 import { buildModelRequest } from './lib/model-request.js';
+import { readStreamedReply } from './lib/agent-loop.js';
 import { planHostMemory, parseQuantity } from './lib/host-memory-plan.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
 import type { HarnessConfig } from '@koala/harness-types';
@@ -82,6 +83,10 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
+import { buildReviewPrompt, formatReview, clipDegenerate } from './lib/failure-review.js';
+import { REVIEWER_PERSONA } from './lib/well-known-personas.js';
+import { describeSandbox } from './lib/workspace-spec.js';
+import { personaWorkspace } from './lib/persona-scope.js';
 import { reviewBatch, DEFAULT_POLICY, type AutoAcceptPolicy } from './lib/auto-accept.js';
 import { SearchCorpusActivity } from './activities/CrawlActivity.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
@@ -3999,6 +4004,163 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     // Temporal is unreachable.
     if (column) await temporalBridge?.signalLeaf(leaf.id, 'moveLeaf', column);
     res.json(updated);
+  });
+
+  /**
+   * Ask the orchestrator why this leaf failed, and post the answer into its conversation.
+   *
+   * The analysis lands in the branch transcript rather than being returned to a panel, because a
+   * diagnosis you cannot reply to is a dead end — see lib/failure-review.ts. Once it is a message,
+   * arguing with it is just the next chat turn.
+   */
+  app.post('/api/leaves/:id/review', async (req, res) => {
+    const user = (req as any).user;
+    const leaf = (await ownedLeaves(user.id)).find((l) => l.id === req.params.id);
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+
+    const reviewer = (await db.getPersonas())
+      .find((p) => p.ownerId === user.id && p.name === REVIEWER_PERSONA);
+    if (!reviewer) {
+      // Named rather than silently falling back to whatever persona is handy: the environment a
+      // review runs in is a record somebody can read, which is the whole reason personas exist.
+      return res.status(409).json({
+        error: `No "${REVIEWER_PERSONA}" persona exists. Run the persona seed to create it.`,
+      });
+    }
+
+    try {
+      const trace = await db.getLeafTrace(leaf.id);
+      const { provider, baseUrl, apiKey } = await modelService.resolveBaseUrl(user.id, undefined);
+      /**
+       * The environment the FAILED LEAF ran in — not the reviewer's own.
+       *
+       * This described the reviewer's sandbox at first, which is a bare `base` image with no tools
+       * and no network because a reviewer only reads. Handed that as "the environment", the model
+       * concluded Node was not installed and wrote a confident, entirely wrong diagnosis about the
+       * agent trying to bootstrap a runtime that did not exist. It was reading a true description
+       * of the wrong machine.
+       */
+      const ranAs = leaf.personaId
+        ? (await db.getPersonas()).find((p) => p.id === leaf.personaId && p.ownerId === user.id)
+        : undefined;
+      const sandbox = ranAs
+        ? describeSandbox(personaWorkspace(ranAs, { leafId: leaf.id, ownerId: user.id }, {}))
+        // Said rather than omitted: "unknown" is a fact a diagnosis should have, and silence
+        // invites exactly the invention above.
+        : 'The persona this leaf ran as is no longer available, so its environment is unknown.';
+      const prompt = buildReviewPrompt(leaf, trace, sandbox);
+
+      const upstream = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+        body: JSON.stringify(buildModelRequest({
+          turn: 'conversation',
+          ...(provider.kind ? { kind: provider.kind } : {}),
+          messages: [
+            ...(reviewer.systemPrompt ? [{ role: 'system' as const, content: reviewer.systemPrompt }] : []),
+            { role: 'user' as const, content: prompt },
+          ],
+          /**
+           * Streamed, like every other model call here.
+           *
+           * Not for display — nobody watches this one. TabbyAPI's non-streamed replies are
+           * unreliable: `usage: null` (see agent-loop.ts) and, measured on this route, `max_tokens`
+           * ignored outright — ~1,600 tokens returned against a cap of 900, which is how a bounded
+           * answer became five thousand characters of free association.
+           */
+          stream: true,
+          /**
+           * Deliberately tight.
+           *
+           * Measured on this route against the deployed model: at 1,500 the answer was accurate for
+           * a paragraph and then degenerated into unpunctuated rambling and, eventually, an
+           * emotional outburst. At ~700 it produced a correct, complete diagnosis. With reasoning
+           * ON and 4,000 it emitted 3,645 characters of deliberation and then `finish: stop` with
+           * ZERO characters of answer, twice.
+           *
+           * So the useful output lives in the first few hundred tokens and the tail is noise. This
+           * is a property of the model, not of the prompt — bounding it is the honest response, and
+           * the prompt already asks for brevity.
+           */
+          maxTokens: 900,
+          ...(provider.model ? { model: provider.model } : {}),
+          /**
+           * Reasoning OFF unless the persona asks for it.
+           *
+           * Measured on this exact route: with it on, the turn came back `finish_reason: length`
+           * with 7,676 characters of deliberation and ZERO characters of answer — the budget spent
+           * before the reply began. It is the same failure already documented for plan mode.
+           *
+           * The reviewer's prompt already imposes the structure the thinking pass would have
+           * produced, so this loses nothing. Persona overrides come after, so turning it back on is
+           * a decision someone can record on the record rather than a default nobody chose.
+           */
+          /**
+           * Low temperature, and reasoning off.
+           *
+           * `conversationSampling` sets no temperature at all — only repetition penalties — so this
+           * ran at the server's default with dry/frequency/presence pushing it off the likely path
+           * and nothing pulling it back. Measured output at that setting: an accurate first
+           * sentence followed by 5,000 characters of multilingual free association ending in emoji.
+           * The same prompt at a low temperature is stable.
+           *
+           * Reasoning off because with it on the model emitted 3,645 characters of deliberation and
+           * then `finish: stop` with zero characters of answer, twice — the plan-mode failure this
+           * codebase already documents.
+           *
+           * Persona overrides come last, so any of this can be deliberately changed on the record.
+           */
+          overrides: { think: false, temperature: 0.2, top_p: 0.9, ...(reviewer.overrides ?? {}) },
+        }).body),
+      });
+      if (!upstream.ok) throw new Error(`model refused the review: HTTP ${upstream.status}`);
+      const { content } = await readStreamedReply(upstream);
+      // Cut where it stops being a review — see clipDegenerate for what this is working around.
+      const { text: analysis, clipped } = clipDegenerate(content);
+      if (!analysis) throw new Error('the model returned an empty review');
+
+      // Into the transcript, where it can be replied to.
+      const branch = (await ownedBranches(user.id)).find((b) => b.id === leaf.branchId);
+      if (branch) await db.saveBranch(withNotice(branch, { text: formatReview(leaf.title, analysis) }));
+
+      res.json({ analysis, clipped, branchId: leaf.branchId, posted: Boolean(branch) });
+    } catch (err: any) {
+      res.status(503).json({ error: `Could not review this leaf: ${err.message}` });
+    }
+  });
+
+  /**
+   * Run a failed leaf again.
+   *
+   * Not a no-op even when nothing has changed: the loop feeds the previous attempt's failure back
+   * into the next prompt, so attempt two reads a database attempt one modified. What it cannot fix
+   * is an environmental cause, which is what the review above is for — and why the UI offers both
+   * rather than making retry the only thing a failed card can do.
+   */
+  app.post('/api/leaves/:id/retry', async (req, res) => {
+    const user = (req as any).user;
+    const leaves = await ownedLeaves(user.id);
+    const leaf = leaves.find((l) => l.id === req.params.id);
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+    if (leaf.status !== 'failed') {
+      return res.status(409).json({ error: `Only a failed leaf can be retried; this one is ${leaf.status}.` });
+    }
+
+    // Back to `pending` and through the SAME path an acceptance takes, so a retry cannot start work
+    // that a dependency has not finished — the one rule a hand-rolled restart would forget.
+    const reset = { ...leaf, status: 'proposed' as const, updatedAt: new Date().toISOString() };
+    await db.saveLeaf(reset);
+    const result = await acceptLeaf(
+      {
+        db,
+        startLeaf: (l) => temporalBridge!.startLeaf(l),
+        signalLeaf: (id, sig, payload) => temporalBridge!.signalLeaf(id, sig, payload),
+      },
+      reset,
+      leaves.map((l) => (l.id === reset.id ? reset : l)),
+    );
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.json(result.waitingFor.length ? { ...result.leaf, waitingFor: result.waitingFor } : result.leaf);
   });
 
   app.post('/api/leaves/:id/cancel', async (req, res) => {
