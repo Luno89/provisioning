@@ -26,6 +26,18 @@ export function autoRepoNameFor(branchId: string): string {
 }
 
 export interface LeafProjectDeps {
+  /**
+   * The repository this leaf's TREE already owns, when it owns one.
+   *
+   * Checked before falling back to a repository per branch. A tree is an effort that spans many
+   * conversations, so its second branch must land in the first branch's repository — otherwise
+   * "carry on with that project tomorrow" silently starts a new one, and the hand-off between two
+   * branches of one effort is a hand-off between two unrelated repos.
+   *
+   * Passed in rather than looked up here so this module still knows nothing about trees or
+   * branches, which is what keeps it testable without a database.
+   */
+  treeProjectId?: string | undefined;
   db: Pick<Database, 'getProjects' | 'saveProject'>;
   /** Creates the user's Gitea account if needed and returns its name. */
   ensureAccount: (ownerId: string) => Promise<{ username: string }>;
@@ -50,6 +62,13 @@ export async function resolveLeafProject(deps: LeafProjectDeps, leaf: Leaf): Pro
     // Ownership-scoped, then falls through rather than throwing: a projectId that does not resolve
     // is a stale reference, and losing the work over it is a worse outcome than working somewhere.
     if (chosen) return chosen;
+  }
+
+  if (deps.treeProjectId) {
+    const owned = projects.find((p) => p.id === deps.treeProjectId && p.ownerId === leaf.ownerId);
+    // Ownership-scoped and falling through if it does not resolve, for the same reason as above: a
+    // stale id should cost a new repository, not the work.
+    if (owned) return owned;
   }
 
   const repo = autoRepoNameFor(leaf.branchId);

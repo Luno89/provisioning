@@ -79,6 +79,8 @@ import { buildPromotion, supersede, revertTo } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
+import { acceptLeaf } from './lib/accept-leaf.js';
+import { reviewBatch, DEFAULT_POLICY, type AutoAcceptPolicy } from './lib/auto-accept.js';
 import { SearchCorpusActivity } from './activities/CrawlActivity.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
@@ -3348,6 +3350,62 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       }
 
       /**
+       * Start the proposals that are routine, once the personas are settled.
+       *
+       * Deliberately AFTER the assignment retry above: the policy refuses a leaf with no persona,
+       * so running this first would hold every leaf the retry was about to fix.
+       *
+       * What is held is written into the transcript with its reason. A proposal that silently did
+       * not start is indistinguishable from one the planner never made — which is the failure this
+       * whole feature exists to fix, and it would be perverse to reintroduce it here.
+       */
+      if (branchId && proposedViaTools) {
+        const all = (await ownedLeaves((req as any).user.id)).filter((l) => l.branchId === branchId);
+        const branch = (await db.getBranches()).find((b: Branch) => b.id === branchId);
+        const policy: AutoAcceptPolicy = {
+          ...DEFAULT_POLICY,
+          // The branch's setting, unless this request said otherwise. Off unless switched on:
+          // accepting work spends a budget and runs commands in a sandbox.
+          enabled: typeof rest.autoAccept === 'boolean' ? rest.autoAccept : branch?.autoAccept === true,
+        };
+        const reviewed = reviewBatch(all.filter((l) => l.status === 'proposed'), all, policy);
+
+        const started: string[] = [];
+        const held: string[] = [];
+        for (const { leaf, verdict } of reviewed) {
+          if (!verdict.accept) {
+            if (policy.enabled) held.push(`${leaf.title} — ${verdict.reason}`);
+            continue;
+          }
+          const outcome = await acceptLeaf(
+            {
+              db,
+              startLeaf: (l) => temporalBridge!.startLeaf(l),
+              signalLeaf: (id, sig, payload) => temporalBridge!.signalLeaf(id, sig, payload),
+            },
+            leaf,
+            // Re-read, because accepting one leaf changes what blocks the next.
+            (await ownedLeaves((req as any).user.id)).filter((l) => l.branchId === branchId),
+          );
+          if (outcome.ok) started.push(leaf.title);
+          else held.push(`${leaf.title} — ${outcome.error}`);
+        }
+
+        if (started.length || held.length) {
+          const latest = (await db.getBranches()).find((b: Branch) => b.id === branchId);
+          if (latest) {
+            await db.saveBranch(withNotice(latest, {
+              text: [
+                started.length ? `Started automatically: ${started.join(', ')}.` : '',
+                held.length ? `Waiting for you: ${held.join('; ')}.` : '',
+              ].filter(Boolean).join(' '),
+            }));
+          }
+          console.log(`[chat] auto-accept started ${started.length}, held ${held.length}`);
+        }
+      }
+
+      /**
        * Out of tool rounds and still asking for more — so make it answer.
        *
        * Measured on a real conversation: four rounds, every one `finish_reason: tool_calls`, every
@@ -3827,44 +3885,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const leaves = await ownedLeaves(user.id);
     const leaf = leaves.find((c) => c.id === req.params.id);
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
-    if (leaf.status !== 'proposed') return res.status(409).json({ error: 'This leaf has already been accepted' });
 
-    const root = rootLeaf(leaves, leaf);
-    if (root?.budget) {
-      const spent = budgetExceeded(root.budget, aggregateUsage(leaves, root, Date.now()));
-      if (spent) return res.status(409).json({ error: `${spent} — accepting more work would exceed this branch's budget` });
-    }
-
-    const accepted = { ...leaf, status: 'pending' as const, updatedAt: new Date().toISOString() };
-    await db.saveLeaf(accepted);
-
-    /**
-     * Started only when its turn has come.
-     *
-     * A leaf waiting on another stays `pending` with no workflow — which is what `pending` already
-     * means. The reconcile loop starts it when the last thing it waits on succeeds. Accepting five
-     * leaves at once used to start five workflows at once, so a plan whose steps built on each
-     * other ran every step against an empty sandbox.
-     */
-    const waiting = blockedBy(accepted, leaves);
-    const workflowId = waiting.length === 0 ? await temporalBridge?.startLeaf(accepted) : undefined;
-    if (workflowId) {
-      accepted.workflowId = workflowId;
-      await db.saveLeaf(accepted);
-    }
-    if (waiting.length > 0) {
-      // Said back, because a leaf that is accepted and not running otherwise looks broken.
-      return res.json({ ...accepted, waitingFor: waiting.map((w) => ({ id: w.id, title: w.title })) });
-    }
-    if (accepted.parentLeafId) {
-      await temporalBridge?.signalLeaf(accepted.parentLeafId, 'addChild', {
-        leafId: accepted.id,
-        title: accepted.title,
-        blocking: accepted.blocking,
-        index: childrenOf(leaves, accepted.parentLeafId).filter((c) => c.status !== 'proposed').length,
-      });
-    }
-    res.json(accepted);
+    // The steps of accepting live in lib/accept-leaf.ts, shared with the automatic path — what
+    // differs between them is the decision to accept, never what accepting does.
+    const result = await acceptLeaf(
+      {
+        db,
+        startLeaf: (l) => temporalBridge!.startLeaf(l),
+        signalLeaf: (id, sig, payload) => temporalBridge!.signalLeaf(id, sig, payload),
+      },
+      leaf,
+      leaves,
+    );
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    return res.json(
+      result.waitingFor.length ? { ...result.leaf, waitingFor: result.waitingFor } : result.leaf,
+    );
   });
 
   app.patch('/api/leaves/:id', async (req, res) => {

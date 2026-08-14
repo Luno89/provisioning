@@ -189,3 +189,21 @@ export function normaliseTreeInput(raw: Record<string, unknown>): { name: string
   const goal = typeof raw.goal === 'string' ? raw.goal.trim().slice(0, MAX_GOAL) : '';
   return { name, type: raw.type, ...(goal ? { goal } : {}) };
 }
+
+
+/**
+ * Records that a tree's work produced a repository.
+ *
+ * `projectIds` was declared when trees were introduced and never written to, so a tree could
+ * accumulate branches whose repositories it did not know about — which made `primaryProjectId`
+ * always undefined and every branch of one effort create its own repo.
+ *
+ * Appends rather than replaces, primary-first ordering preserved: the first repository a tree
+ * produces is the one later branches join.
+ */
+export function withProject(tree: Tree, projectId: string, now = new Date().toISOString()): Tree {
+  if (tree.projectIds?.includes(projectId)) return tree;
+  // Spread, because saveTree is a full replace — naming the fields here is how a rename silently
+  // dropped projectIds before.
+  return { ...tree, projectIds: [...(tree.projectIds ?? []), projectId], updatedAt: now };
+}

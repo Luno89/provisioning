@@ -35,6 +35,7 @@ import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { ProjectMetadata } from '../lib/types.js';
 import { resolveLeafProject } from '../lib/leaf-project.js';
+import { primaryProjectId, withProject } from '../lib/trees.js';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
   buildRepoStateScript, summariseRepoState, buildMergeScript, parseMergeResult,
@@ -244,8 +245,21 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         console.log(`[ExecuteLeafActivity] leaf ${leaf.id}: persona works without a repository`);
       } else try {
         const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
+        /**
+         * The tree's repository, when this leaf's conversation belongs to one.
+         *
+         * Looked up here rather than inside resolveLeafProject so that module still knows nothing
+         * about trees or branches. Without it every branch of one effort gets its own repository,
+         * and continuing an effort in a new conversation starts again from an empty repo.
+         */
+        const branchOf = (await db.getBranches()).find((b) => b.id === leaf.branchId);
+        const treeOf = branchOf?.treeId
+          ? (await db.getTrees()).find((t) => t.id === branchOf.treeId)
+          : undefined;
+
         project = await resolveLeafProject({
           db,
+          ...(treeOf ? { treeProjectId: primaryProjectId(treeOf) } : {}),
           ensureAccount: (ownerId) => projectRepos.ensureAccountFor(ownerId),
           repoExists: (username, name) => gitea.getRepo(username, name).then(() => true, () => false),
           createRepo: (username, name) => gitea.createRepoForUser(username, name, {
@@ -256,6 +270,13 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         repos = projectRepos;
         gitea0 = gitea.internalBaseUrl;
         checkout = await repos.checkoutCredential(leaf.ownerId, project);
+
+        // The tree learns what its work produced. Re-read before writing: saveTree is a full
+        // replace and sibling leaves resolve their project concurrently.
+        if (treeOf) {
+          const fresh = (await db.getTrees()).find((t) => t.id === treeOf.id);
+          if (fresh) await db.saveTree(withProject(fresh, project.id));
+        }
       } catch (err) {
         console.warn(`[ExecuteLeafActivity] no repository for leaf ${leaf.id}, work will not persist: ${(err as Error).message}`);
         project = undefined;

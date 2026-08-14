@@ -466,6 +466,14 @@ export interface Branch {
    * leaving a dangling id.
    */
   treeId?: string;
+  /**
+   * Whether well-formed proposals on this branch start without being asked.
+   *
+   * Off by default and per-branch rather than global: accepting work spends a model budget and runs
+   * commands in a sandbox, so it is a decision about THIS effort. What counts as routine enough is
+   * lib/auto-accept.ts, not this flag — this only says whether that policy runs at all.
+   */
+  autoAccept?: boolean;
   /** Derived from the first message unless renamed. */
   title: string;
   messages: BranchMessage[];
