@@ -31,6 +31,7 @@ import {
   type ToolWithdrawal,
 } from './sandbox-tools.js';
 import { parseToolArguments, ToolCallScanner, WEB_TOOLS } from './leaf-tools.js';
+import { isProductive, thrashAction, nudgeMessage, thrashSummary } from './thrash.js';
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
@@ -342,6 +343,9 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
    */
   let stoppedTalking = false;
   let stoppedAtStep = maxSteps;
+  /** Consecutive turns that inspected the workspace without changing it — see lib/thrash.ts. */
+  let unproductiveTurns = 0;
+  let thrashed = false;
 
 
   for (let step = 0; step < maxSteps; step++) {
@@ -465,6 +469,29 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
     consecutiveNoToolTurns = 0;
 
+    /**
+     * Turns that produced nothing, tracked separately from turns that called no tool.
+     *
+     * The step cap cannot tell a productive run from a thrashing one — it fires at the same number
+     * for both, and raising it is recorded twice in sandbox-tools.ts as having made things worse.
+     * This is the signal that actually separates them; see lib/thrash.ts.
+     */
+    if (isProductive(toolCalls)) {
+      unproductiveTurns = 0;
+    } else {
+      unproductiveTurns++;
+      const action = thrashAction(unproductiveTurns);
+      if (action === 'stop') {
+        thrashed = true;
+        stoppedAtStep = step + 1;
+        publish();
+        break;
+      }
+      if (action === 'nudge') {
+        messages.push({ role: 'user', content: nudgeMessage(unproductiveTurns, transcript) });
+      }
+    }
+
     for (const call of toolCalls) {
       const name = call.name;
       const args = parseToolArguments(call.arguments);
@@ -533,7 +560,9 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
   return {
     succeeded: false,
-    summary: stoppedTalking
+    summary: thrashed
+      ? thrashSummary(unproductiveTurns, transcript)
+      : stoppedTalking
       ? `Stopped calling tools after ${stoppedAtStep} step(s) of ${maxSteps} — it answered in prose `
         + `three turns running instead of acting, which usually means something it believed about the `
         + `environment was wrong. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
