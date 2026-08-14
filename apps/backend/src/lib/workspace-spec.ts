@@ -99,6 +99,16 @@ export const WORKSPACE_MOUNT = '/work';
  *  shorter; this is the backstop for a pod nothing is watching any more. */
 export const MAX_WORKSPACE_SECONDS = 3600;
 
+/**
+ * Sandbox size when a persona does not name one.
+ *
+ * Named because they were inline literals in two places — the pod spec and the prompt that TELLS
+ * the agent its limits — and those two disagreeing is the sort of thing that has an agent building
+ * as if it had the host's cores.
+ */
+export const DEFAULT_WORKSPACE_CPU = '2';
+export const DEFAULT_WORKSPACE_MEMORY = '2Gi';
+
 export interface WorkspaceSpec {
   /** The leaf this sandbox belongs to. One sandbox per leaf. */
   leafId: string;
@@ -244,7 +254,7 @@ export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unk
             },
             resources: {
               requests: { cpu: '100m', memory: '256Mi' },
-              limits: { cpu: spec.cpu ?? '2', memory: spec.memory ?? '2Gi' },
+              limits: { cpu: spec.cpu ?? DEFAULT_WORKSPACE_CPU, memory: spec.memory ?? DEFAULT_WORKSPACE_MEMORY },
             },
             volumeMounts: [
               { name: 'work', mountPath: WORKSPACE_MOUNT },
@@ -306,7 +316,7 @@ export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'mem
     '  The root filesystem is read-only, so you cannot install system packages.',
     `- You are a non-root user. There is no sudo.`,
     `- ${network}`,
-    `- You have ${spec.cpu ?? '2'} CPUs and ${spec.memory ?? '2Gi'} of memory. IGNORE \`nproc\` and \`free\` —`,
+    `- You have ${spec.cpu ?? DEFAULT_WORKSPACE_CPU} CPUs and ${spec.memory ?? DEFAULT_WORKSPACE_MEMORY} of memory. IGNORE \`nproc\` and \`free\` —`,
     '  they report the host machine, not your limits, and building as if they were true gets you killed.',
     `- The sandbox is destroyed after ${MAX_WORKSPACE_SECONDS / 60} minutes, and everything in it goes with it.`,
     ...(tools

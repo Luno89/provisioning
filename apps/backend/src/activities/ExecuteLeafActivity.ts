@@ -497,6 +497,30 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
            * It does NOT go on the leaf; see lib/leaf-trace.ts.
            */
           captureTrace: true,
+          /**
+           * Each turn written as it happens, so a running leaf can be watched.
+           *
+           * Two things this buys beyond the live view. A leaf whose activity is killed mid-run
+           * keeps what it had already done — the end-of-run write alone lost the trace for exactly
+           * the crashes worth reading. And the board can show progress without the worker needing
+           * a socket: it runs in a different process from the one holding the connections, so the
+           * database is the only channel both ends already share.
+           *
+           * Never fatal. A step that cannot be recorded must not end the work it is recording.
+           */
+          onStep: (step) => {
+            void db.appendLeafStep({
+              id: leaf.id,
+              ownerId: leaf.ownerId,
+              branchId: leaf.branchId,
+              step,
+              totalSteps: step.step,
+              tokensUsed: step.tokens,
+              createdAt: new Date().toISOString(),
+            }).catch((err) => {
+              console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not record step ${step.step}: ${err?.message}`);
+            });
+          },
           // Everything the persona decides — toolset, budget, pacing, withdrawal — plus the parts
           // only this caller knows. One assembly, shared with the Lab and the landing resolver,
           // because three hand-maintained copies of it drifted in three different directions.
@@ -529,6 +553,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * work, and throwing here would retry the whole agent run.
          */
         if (run.trace?.length) {
+          // Replaces what the live appends accumulated: same turns, trimmed to the storage budget.
           const fitted = trimTrace(run.trace);
           await db.saveLeafTrace({
             id: leaf.id,

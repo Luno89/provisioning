@@ -93,9 +93,18 @@ export default function LeafTrace({
     onSuccess: (data) => { onClose(); onReview?.(data.branchId, data.prompt); },
   });
 
+  /**
+   * Refetched while the leaf is running, so the turns appear as they happen.
+   *
+   * The worker writes each turn to the trace as it takes it — it runs in a different process from
+   * the one holding the sockets, so the database is the channel both ends already share. Polling a
+   * record that grows is the whole mechanism; there is no second transport to keep working.
+   */
+  const live = leaf.column === 'running';
   const { data, isLoading } = useQuery<Trace>({
     queryKey: ['leaf-trace', leaf.id],
     queryFn: () => axios.get(`${apiBase}/leaves/${leaf.id}/trace`, { withCredentials: true }).then((r) => r.data),
+    ...(live ? { refetchInterval: 2000 } : {}),
   });
 
   return (
@@ -162,13 +171,22 @@ export default function LeafTrace({
             /* A leaf that has not run is not a leaf whose record was lost — different things,
                and saying "no trace" for both would look like data loss. */
             <p className="text-slate-500 text-sm">
-              This leaf has not run yet, so there is nothing to replay.
+              {live
+                // A running leaf with no turns yet is starting its sandbox, which takes seconds —
+                // saying "has not run" there would read as broken.
+                ? 'Starting the sandbox — the first turn will appear here shortly.'
+                : 'This leaf has not run yet, so there is nothing to replay.'}
             </p>
           )}
 
           {data && !data.missing && (
             <>
-              <p className="text-[11px] text-slate-500 pb-1">
+              <p className="text-[11px] text-slate-500 pb-1 flex items-center gap-2">
+                {live && (
+                  <span className="flex items-center gap-1.5 text-[var(--leaf)]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--leaf)] animate-pulse" /> running
+                  </span>
+                )}
                 {data.totalSteps} {data.totalSteps === 1 ? 'turn' : 'turns'} · {data.tokensUsed.toLocaleString()} tokens
                 {data.trimmed && data.dropped ? ` · ${data.dropped} middle turns dropped to fit` : ''}
               </p>

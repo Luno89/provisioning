@@ -16,6 +16,7 @@ import Lab from './components/Lab';
 import MeshDevices from './components/MeshDevices.js';
 import Workspace from './components/Workspace.js';
 import TreesView from './components/Trees.js';
+import Personas from './components/Personas.js';
 import { Koala } from './components/Koala.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
@@ -222,7 +223,7 @@ function App() {
   const [forestOpen, setForestOpen] = useState(true);
   /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
   const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees' | 'personas'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
@@ -1060,6 +1061,12 @@ function App() {
           >
             <Trees size={15} className="text-[var(--leaf)]" /> Trees
           </button>
+          <button
+            onClick={() => setView('personas')}
+            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'personas' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+          >
+            <Shield size={15} className="text-[var(--leaf)]" /> Personas
+          </button>
 
           <button
             onClick={() => setForestOpen((o) => !o)}
@@ -1503,6 +1510,8 @@ function App() {
         {(view === 'chat' || view === 'board') && (
           <Workspace apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}
+
+        {view === 'personas' && <Personas apiBase={API_BASE} />}
 
         {view === 'trees' && (
           <TreesView

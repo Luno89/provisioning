@@ -118,3 +118,60 @@ export function validatePersona(
   if (clash) return `You already have a persona called "${name}".`;
   return undefined;
 }
+
+/**
+ * Checks a persona's scope — the part that decides what it can reach and do.
+ *
+ * ── WHY THIS IS VALIDATED AND THE PROMPT IS NOT ──
+ * A bad prompt produces bad work. A bad scope produces a sandbox that is not one: `egress` becomes
+ * a NetworkPolicy, and a rule naming the wrong namespace or a malformed CIDR fails OPEN in the
+ * sense that matters — the pod comes up, the policy does not do what was meant, and nothing says
+ * so. See WorkspaceService.create, which applies the Pod and the policy as one document for the
+ * same reason.
+ *
+ * So the shape is checked here, at the edit, rather than discovered when a leaf reaches something
+ * it should not have.
+ */
+const CIDR = /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/;
+const K8S_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+
+export function validateScope(scope: unknown): string | undefined {
+  if (scope === undefined) return undefined;
+  if (typeof scope !== 'object' || scope === null || Array.isArray(scope)) {
+    return 'Scope must be an object.';
+  }
+  const s = scope as Record<string, unknown>;
+
+  if (s.tools !== undefined && (!Array.isArray(s.tools) || s.tools.some((t) => typeof t !== 'string'))) {
+    return 'Tools must be a list of tool names.';
+  }
+  if (s.repo !== undefined && typeof s.repo !== 'boolean') return 'Repo must be true or false.';
+
+  if (s.egress !== undefined) {
+    if (!Array.isArray(s.egress)) return 'Egress must be a list of rules.';
+    for (const rule of s.egress) {
+      if (typeof rule !== 'object' || rule === null) return 'Each egress rule must be an object.';
+      const r = rule as Record<string, unknown>;
+      const hasNamespace = typeof r.namespace === 'string' && r.namespace !== '';
+      const hasCidr = typeof r.cidr === 'string' && r.cidr !== '';
+      // Both forms exist because a NodePort address does NOT work as a cidr — kube-proxy rewrites
+      // the destination before the policy is evaluated. See EgressRule in workspace-spec.ts.
+      if (hasNamespace === hasCidr) return 'Each egress rule needs exactly one of namespace or cidr.';
+      if (hasNamespace && !K8S_NAME.test(String(r.namespace))) {
+        return `"${String(r.namespace)}" is not a valid namespace name.`;
+      }
+      if (hasCidr && !CIDR.test(String(r.cidr))) {
+        return `"${String(r.cidr)}" is not a valid CIDR — it needs the form 10.0.0.0/8.`;
+      }
+      if (r.ports !== undefined) {
+        if (!Array.isArray(r.ports)) return 'Ports must be a list of numbers.';
+        for (const port of r.ports) {
+          if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+            return `"${String(port)}" is not a valid port.`;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}

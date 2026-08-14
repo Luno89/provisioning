@@ -9,6 +9,7 @@ import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
 import type { LeafTrace } from './leaf-trace.js';
+import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -445,6 +446,20 @@ export class MongoDB implements Database {
     const { _id, ...rest } = toDoc(trace);
     // Replace: a retry describes the run that stands, not an additional one.
     await this.leafTraces.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async appendLeafStep(trace: Omit<LeafTrace, 'steps'> & { step: AgentStep }): Promise<void> {
+    const { id, step, ...rest } = trace;
+    await this.leafTraces.updateOne(
+      { _id: id as any },
+      {
+        // $push so the document is extended rather than rewritten; $set keeps the counters current.
+        $push: { steps: step as any },
+        $set: { ...rest, totalSteps: trace.totalSteps, tokensUsed: trace.tokensUsed },
+        $setOnInsert: { _id: id as any },
+      },
+      { upsert: true },
+    );
   }
 
   async deleteLeafTrace(leafId: string): Promise<void> {

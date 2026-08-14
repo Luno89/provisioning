@@ -6,6 +6,7 @@ import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
 import type { LeafTrace } from './leaf-trace.js';
+import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
@@ -112,6 +113,15 @@ export interface Database {
    */
   getLeafTrace(leafId: string): Promise<LeafTrace | null>;
   saveLeafTrace(trace: LeafTrace): Promise<void>;
+  /**
+   * Appends one turn as it happens, so a run can be watched rather than only replayed.
+   *
+   * An append rather than a rewrite of the whole record: the document grows with every turn, and
+   * replacing it each time would write the trace forty times over. It also means a leaf whose
+   * activity is killed mid-run keeps what it had done — the end-of-run write alone lost everything
+   * for exactly the crashes worth reading.
+   */
+  appendLeafStep(trace: Omit<LeafTrace, 'steps'> & { step: AgentStep }): Promise<void>;
   deleteLeafTrace(leafId: string): Promise<void>;
 
   getTrees(): Promise<Tree[]>;

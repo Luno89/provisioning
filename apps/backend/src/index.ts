@@ -60,7 +60,7 @@ import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
 import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
 import { buildOutboundMessages } from './lib/leaf-context.js';
-import { isWorkspaceLanguage, imageForLanguage, WORKSPACE_IMAGES } from './lib/workspace-spec.js';
+import { isWorkspaceLanguage, imageForLanguage, WORKSPACE_IMAGES, DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
 import { TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js';
 import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token-controller.js';
 import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
@@ -97,7 +97,7 @@ import { TREE_TYPES, normaliseTreeInput, type Tree } from './lib/trees.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
-import { resolveConfig, validatePersona, type Persona } from './lib/personas.js';
+import { resolveConfig, validatePersona, validateScope, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
   expandAxes, validateExperiment, plannedRuns, experimentTasks, taskIdOf, summariseExperiment, normaliseExperiment, latestResults,
@@ -105,6 +105,7 @@ import {
   type Experiment, type ExperimentTask,
 } from './lib/experiments.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
+import { SANDBOX_TOOLS, MAX_AGENT_STEPS } from './lib/sandbox-tools.js';
 import { LEAF_TOOLS, MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
 import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, blockedBy, wouldCycle, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
@@ -2157,9 +2158,36 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.json(await ownedPersonas((req as any).user.id));
   });
 
+  /**
+   * What a persona may be set to, served rather than duplicated in the editor.
+   *
+   * The same reasoning as /api/tree-types: the toolchain images, the tool names and the sandbox
+   * defaults all live in code that changes, and a second copy in a form is a second thing to keep
+   * in step. This codebase has already paid for that twice — the app-type list and the leaf
+   * columns.
+   */
+  app.get('/api/persona-options', (_req, res) => {
+    res.json({
+      languages: Object.entries(WORKSPACE_IMAGES).map(([id, spec]) => ({
+        id,
+        image: spec.image,
+        summary: spec.summary,
+        available: spec.available,
+        absent: spec.absent,
+      })),
+      // Every tool a persona could be allowed. The intersection with what the environment actually
+      // offers happens at run time — naming one here does not conjure it.
+      tools: [
+        ...SANDBOX_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description })),
+        ...LEAF_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description })),
+      ].filter((t, i, all) => t.name && all.findIndex((x) => x.name === t.name) === i),
+      defaults: { cpu: DEFAULT_WORKSPACE_CPU, memory: DEFAULT_WORKSPACE_MEMORY, maxSteps: MAX_AGENT_STEPS },
+    });
+  });
+
   app.post('/api/personas', async (req, res) => {
     const userId = (req as any).user.id;
-    const { name, description, systemPrompt, overrides } = req.body ?? {};
+    const { name, description, systemPrompt, overrides, scope, basedOn } = req.body ?? {};
 
     const existing = await ownedPersonas(userId);
     const refusal = validatePersona({ name: String(name ?? ''), systemPrompt }, existing);
@@ -2168,6 +2196,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     // The same registry check every other override bag gets. A persona is not a way around it.
     const invalid = validateOverrides(overrides ?? {});
     if (invalid) return res.status(400).json({ error: invalid });
+    // Same check the edit route applies: a scope decides what the sandbox can reach, and a
+    // malformed rule fails in the direction that matters — the pod comes up and the policy does
+    // not do what was meant.
+    const badScope = validateScope(scope);
+    if (badScope) return res.status(400).json({ error: badScope });
 
     const now = new Date().toISOString();
     const persona: Persona = {
@@ -2176,6 +2209,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       name: String(name).trim(),
       ...(description ? { description: String(description).slice(0, 200) } : {}),
       ...(systemPrompt ? { systemPrompt: String(systemPrompt) } : {}),
+      ...(scope !== undefined ? { scope } : {}),
+      // A persona built on another inherits its prompt, sampling and scope — see Persona.basedOn.
+      ...(basedOn ? { basedOn: String(basedOn) } : {}),
       overrides: overrides ?? {},
       createdAt: now,
       updatedAt: now,
@@ -2190,7 +2226,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const persona = existing.find((p) => p.id === req.params.id);
     if (!persona) return res.status(404).json({ error: 'No such persona' });
 
-    const { name, description, systemPrompt, overrides } = req.body ?? {};
+    const { name, description, systemPrompt, overrides, scope, basedOn } = req.body ?? {};
     const nextName = name === undefined ? persona.name : String(name);
     const refusal = validatePersona({ name: nextName, systemPrompt }, existing, persona.id);
     if (refusal) return res.status(400).json({ error: refusal });
@@ -2198,6 +2234,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       const invalid = validateOverrides(overrides);
       if (invalid) return res.status(400).json({ error: invalid });
     }
+    /**
+     * Scope is editable now, which it was not.
+     *
+     * It carries the isolation — which tools exist, whether there is a repository, and the egress
+     * rules that become the sandbox's NetworkPolicy — and all of it was fixed at seed time.
+     * Widening one rule meant editing the seed script and re-running it.
+     */
+    const badScope = validateScope(scope);
+    if (badScope) return res.status(400).json({ error: badScope });
 
     const updated: Persona = {
       ...persona,
@@ -2205,8 +2250,21 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ...(description !== undefined ? { description: String(description).slice(0, 200) } : {}),
       ...(systemPrompt !== undefined ? { systemPrompt: String(systemPrompt) } : {}),
       ...(overrides !== undefined ? { overrides } : {}),
+      // Merged onto the existing scope, not replacing it: an edit that sends only `egress` must
+      // not silently drop the tool list.
+      ...(scope !== undefined ? { scope: { ...(persona.scope ?? {}), ...scope } } : {}),
+      ...(basedOn ? { basedOn: String(basedOn) } : {}),
       updatedAt: new Date().toISOString(),
     };
+    /**
+     * An empty string CLEARS the parent; omitting the field leaves it alone.
+     *
+     * Deleted rather than set to undefined — under exactOptionalPropertyTypes those are different,
+     * and only one of them is what "no parent" looks like. A persona that could not be un-based
+     * would be stuck inheriting a prompt somebody has since rewritten.
+     */
+    if (basedOn === '') delete (updated as { basedOn?: string }).basedOn;
+
     await db.savePersona(updated);
     res.json(updated);
   });
