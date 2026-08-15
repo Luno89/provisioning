@@ -246,6 +246,13 @@ export interface DeploymentMetadata {
   /** The package mirror sandboxes install through — see constructs/verdaccio-native.ts. */
   verdaccioUpstream?: string;
   verdaccioStorage?: string;
+  /**
+   * Environment for a deployed project, one "KEY=VALUE" per line.
+   *
+   * Without it a built project has nowhere to be told anything, so anything needing a token or an
+   * upstream URL deploys and immediately exits.
+   */
+  gitappEnv?: string;
   // Schema-driven settings for app types with too many options to give each a first-class field
   // (game servers: ~120 apiece). One map threaded through the pipeline once, validated at runtime
   // against lib/app-settings-schema.ts instead of at compile time. See that file for why.
@@ -323,6 +330,13 @@ export interface ProjectMetadata {
   language?: string;
   appType: string; // deploy target app type once a build is promoted (see gitapp construct)
   autoDeployOnBuild?: boolean; // default false — see RunPipelineActivity's promote step
+  /**
+   * Environment the built image needs to run, one "KEY=VALUE" per line.
+   *
+   * On the PROJECT rather than the deployment because it outlives any single build — every image
+   * this repository produces needs the same token.
+   */
+  deployEnv?: string;
   webhookSecretEnc?: string; // AES-256-GCM encrypted (crypto.ts) — HMAC key for verifying Gitea's push webhook signature
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
   createdAt: string;

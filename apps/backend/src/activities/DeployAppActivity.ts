@@ -118,6 +118,7 @@ export interface DeployAppArgs {
   teiMemoryLimit?: string | undefined;
   verdaccioUpstream?: string | undefined;
   verdaccioStorage?: string | undefined;
+  gitappEnv?: string | undefined;
   // Set only by TemporalBridge.deploy() for clusters where the worker shares a filesystem with
   // the K8s node (see DownloadModelActivity.ts) — AppDeployWorkflow.ts uses this to decide
   // whether to pre-download the model before this activity ever runs. Not read here; DeployAppActivity
@@ -472,6 +473,7 @@ export async function DeployAppActivity(
     teiMemoryLimit: args.teiMemoryLimit,
     verdaccioUpstream: args.verdaccioUpstream,
     verdaccioStorage: args.verdaccioStorage,
+    gitappEnv: args.gitappEnv,
     openaiApiBaseUrl: args.openaiApiBaseUrl,
     webuiEnableWebSearch: args.webuiEnableWebSearch,
     webuiWebSearchEngine: args.webuiWebSearchEngine,

@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import type { Database } from '../lib/db-interface.js';
 import type { GiteaService } from './GiteaService.js';
 import type { ProjectMetadata } from '../lib/types.js';
+import { webhookUrlFor, DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 import { encryptValue, decryptValue } from '../lib/crypto.js';
 import {
   giteaUsernameFor,
@@ -105,6 +106,64 @@ export class ProjectRepoService {
   }
 
   /** Every project this user owns. Never returns another user's, even to an admin caller. */
+  /**
+   * Wires a project so a push can become a running deployment: a Gitea webhook and a target
+   * cluster. Idempotent — an already-wired project is left alone.
+   *
+   * Here rather than in leaf-project.ts because that module deliberately knows nothing about Gitea
+   * or clusters, and here rather than only in the HTTP route because the route is not the path the
+   * agent's own projects take. See lib/project-shipping.ts.
+   *
+   * Best-effort by contract: it returns what it could not do rather than throwing. A leaf that
+   * produced working code must not be failed because a webhook could not be registered.
+   */
+  async ensureShippable(
+    project: ProjectMetadata,
+    nodeIp: string,
+    port: string | number,
+    secretKey: string,
+  ): Promise<{ project: ProjectMetadata; problems: string[] }> {
+    const problems: string[] = [];
+    let next = project;
+
+    if (!next.webhookSecretEnc) {
+      const secret = crypto.randomBytes(24).toString('hex');
+      try {
+        await this.gitea.createWebhook(
+          next.giteaOwner,
+          next.giteaRepo,
+          webhookUrlFor(nodeIp, port, next.id),
+          secret,
+        );
+        next = await this.db.saveProjectInfo({ ...next, webhookSecretEnc: encryptValue(secret, secretKey) });
+      } catch (err) {
+        problems.push(`webhook: ${(err as Error).message}`);
+      }
+    }
+
+    if (!next.targetClusterId) {
+      /**
+       * A target cluster and auto-deploy, so a push completes the whole chain: build, image,
+       * running deployment.
+       *
+       * This IS an escalation and is worth naming. Agent-authored code becomes a running container
+       * without anyone pressing a button — the deployed app is not in a leaf's sandbox and does not
+       * inherit its NetworkPolicy. It goes to the management cluster because that is the one that
+       * always exists, and the alternative was a project that builds an image nothing ever runs,
+       * which is what every agent project did until now.
+       *
+       * Both fields stay editable per project, so turning this off is one field.
+       */
+      next = await this.db.saveProjectInfo({
+        ...next,
+        targetClusterId: DEFAULT_TARGET_CLUSTER,
+        autoDeployOnBuild: true,
+      });
+    }
+
+    return { project: next, problems };
+  }
+
   async listForOwner(ownerId: string): Promise<ProjectMetadata[]> {
     return (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
   }

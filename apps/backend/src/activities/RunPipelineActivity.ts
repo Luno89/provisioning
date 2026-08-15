@@ -20,6 +20,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { GiteaService } from '../services/GiteaService.js';
+import { ApplicationFailure } from '@temporalio/common';
 
 // Same __dirname-relative resolution InfrastructureService itself uses for BIN_DIR (private
 // there) — this file lives at the same directory depth (apps/backend/src/activities/ vs
@@ -83,6 +84,26 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
   await log(args.logFile, pipelineFile
     ? 'Found .provisioning/pipeline.yml (informational only — build is a fixed Dockerfile+Kaniko build for now)'
     : 'No .provisioning/pipeline.yml — building the repo root Dockerfile');
+
+  /**
+   * Refuse before building, and refuse PERMANENTLY.
+   *
+   * The build is a Dockerfile build, so a repository without one cannot produce an image no matter
+   * how many times it is attempted. Temporal's default policy is unlimited, and this had run 622
+   * times against one commit — each attempt scheduling a Kubernetes Job, cloning the repo, and
+   * watching Kaniko print its usage text because `--dockerfile` resolved to nothing.
+   *
+   * Checked here rather than inside the Job because the answer is already one API call away, and a
+   * failure that says what to do is worth more than a build log that says `error resolving
+   * dockerfile path`.
+   */
+  const dockerfile = await gitea.getRawFile(args.giteaOwner, args.giteaRepo, 'Dockerfile', args.ref).catch(() => null);
+  if (!dockerfile) {
+    const message = `${args.giteaRepo} has no Dockerfile at its root on ${args.ref}, so there is `
+      + 'nothing to build into an image. Add one and push again.';
+    await log(args.logFile, message);
+    throw ApplicationFailure.nonRetryable(message, 'NoDockerfile');
+  }
 
   const deployToken = await gitea.createDeployToken();
   const authBasic = Buffer.from(`${gitea.adminUsername}:${deployToken.token}`).toString('base64');

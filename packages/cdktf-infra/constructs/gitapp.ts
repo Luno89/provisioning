@@ -16,6 +16,8 @@ export interface GitappConfig {
   readonly containerPort?: number;
   readonly storage?: string; // omit entirely for a stateless app — most sibling projects
   readonly serviceType?: string;
+  /** Configuration for the deployed project, one "KEY=VALUE" per line. See below for why. */
+  readonly env?: string;
 }
 
 export class GitappApp extends Construct {
@@ -25,6 +27,24 @@ export class GitappApp extends Construct {
     const namespaceName = config.namespace || "gitapp";
     const containerPort = config.containerPort || 8080;
     const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
+
+    /**
+     * Configuration for the deployed project, one "KEY=VALUE" per line.
+     *
+     * Same escape hatch as tabbyapi.ts's extraEnv, and here it is not optional in practice: a built
+     * project had NO way to be given an environment at all, so anything needing a token or a URL
+     * deployed and then exited. Measured end to end — the MCP server this platform built pushed,
+     * built, deployed, and crash-looped on "GITHUB_TOKEN environment variable is required", which
+     * is the app behaving correctly and the platform having nowhere to put the answer.
+     */
+    const envVars: { name: string; value: string }[] = [];
+    for (const line of (config.env ?? '').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      envVars.push({ name: trimmed.slice(0, eq).trim(), value: trimmed.slice(eq + 1).trim() });
+    }
 
     const ns = new Namespace(this, "ns", {
       metadata: {
@@ -85,6 +105,7 @@ export class GitappApp extends Construct {
                 name: "gitapp",
                 image: `${config.webRepo}:${config.webTag}`,
                 port: [{ containerPort }],
+                ...(envVars.length ? { env: envVars } : {}),
                 resources: {
                   limits: { cpu: "1", memory: "1G" },
                   requests: { cpu: "100m", memory: "128M" },

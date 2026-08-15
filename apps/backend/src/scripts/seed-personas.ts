@@ -264,6 +264,10 @@ const SEEDS: Seed[] = [
       // not open egress.
       'Install what you need. A package registry is mirrored inside the cluster and your package',
       'manager already points at it, so `npm install` works — the public internet does not.',
+      '',
+      'If the work is something that runs — a server, a service, an app — leave a Dockerfile at the',
+      'repository root. Pushing builds it into an image and deploys it; without one there is nothing to',
+      'build and the pipeline refuses.',
     ].join('\n'),
     scope: {
       /**

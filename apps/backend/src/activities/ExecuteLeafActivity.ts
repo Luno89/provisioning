@@ -228,8 +228,11 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * Failing to provision is not fatal — the leaf runs without a repository, exactly as before,
        * which is worse than persisting but better than not running.
        */
+      // Held rather than constructed inline: wiring the project for builds needs the node's
+      // address, which is the same kubectl this already owns.
+      const infra = new InfrastructureService();
       const gitea = new GiteaService(
-        new InfrastructureService(),
+        infra,
         process.env.JWT_SECRET ?? '',
         process.env.MANAGEMENT_KUBECONFIG ?? '/tmp/kubeconfig-provisioning-lunorica',
       );
@@ -271,6 +274,30 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         repos = projectRepos;
         gitea0 = gitea.internalBaseUrl;
         checkout = await repos.checkoutCredential(leaf.ownerId, project);
+
+        /**
+         * Wire the repository so a push can actually become a deployment.
+         *
+         * Every project Koala creates went through resolveLeafProject, which registered no webhook
+         * and set no target cluster — so the repositories the agent fills with code were exactly
+         * the ones that could never ship. Measured: four agent-created projects on this instance,
+         * none of them buildable.
+         *
+         * Problems are logged, never thrown: a leaf that produced working code must not fail
+         * because a webhook could not be registered.
+         */
+        try {
+          const nodeIp = await infra.runKubectl(
+            ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
+            '/tmp/kubeconfig-provisioning-lunorica',
+          );
+          const wired = await projectRepos.ensureShippable(project, nodeIp, process.env.PORT || 3001, process.env.JWT_SECRET ?? '');
+          if (wired.problems.length) {
+            console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: project not fully shippable — ${wired.problems.join('; ')}`);
+          }
+        } catch (err) {
+          console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not wire ${project.name} for builds: ${(err as Error).message}`);
+        }
 
         // The tree learns what its work produced. Re-read before writing: saveTree is a full
         // replace and sibling leaves resolve their project concurrently.

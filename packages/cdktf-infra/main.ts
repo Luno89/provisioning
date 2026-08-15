@@ -280,6 +280,7 @@ class AppStack extends TerraformStack {
           throw new Error('gitapp requires WEB_IMAGE_REPO and WEB_IMAGE_TAG (set from the promoted pipeline run\'s image tag)');
         }
         new GitappApp(this, "gitapp-app", {
+          ...(process.env.GITAPP_ENV ? { env: process.env.GITAPP_ENV } : {}),
           namespace: deploymentName,
           webRepo,
           webTag,

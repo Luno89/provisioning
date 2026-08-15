@@ -76,6 +76,7 @@ export interface AppEnvArgs {
   teiMemoryLimit?: string | undefined;
   verdaccioUpstream?: string | undefined;
   verdaccioStorage?: string | undefined;
+  gitappEnv?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
@@ -335,6 +336,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     TEI_MEMORY_LIMIT: a.teiMemoryLimit || '',
     VERDACCIO_UPSTREAM: a.verdaccioUpstream || '',
     VERDACCIO_STORAGE: a.verdaccioStorage || '',
+    GITAPP_ENV: a.gitappEnv || '',
     OPENAI_API_BASE_URL: a.openaiApiBaseUrl || '',
     // Empty string (not 'true'/'false') when unset, not a default value baked in here — lets
     // main.ts's own `=== 'false'` check (and the construct's `!== false` default-true beneath

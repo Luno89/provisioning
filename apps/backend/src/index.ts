@@ -82,6 +82,7 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
+import { webhookUrlFor } from './lib/project-shipping.js';
 import { buildReviewPrompt } from './lib/failure-review.js';
 import { describeSandbox } from './lib/workspace-spec.js';
 import { personaWorkspace } from './lib/persona-scope.js';
@@ -1703,9 +1704,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
         '/tmp/kubeconfig-provisioning-lunorica',
       )).trim();
-      const nodeIp = nodeIpRaw.split(/\s+/)[0];
-      const backendPort = process.env.PORT || 3001;
-      await giteaService.createWebhook(owner, giteaRepo, `http://${nodeIp}:${backendPort}/webhooks/gitea/${id}`, webhookSecret);
+      // Shared with the agent's own path, which had none of this — see lib/project-shipping.ts.
+      await giteaService.createWebhook(owner, giteaRepo, webhookUrlFor(nodeIpRaw, process.env.PORT || 3001, id), webhookSecret);
 
       const project = await db.saveProjectInfo({
         id,

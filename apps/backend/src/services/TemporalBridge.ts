@@ -1183,6 +1183,10 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
      */
     if (config.gitappProjectId) dep.gitappProjectId = config.gitappProjectId
     if (config.gitappImageTag) dep.gitappImageTag = config.gitappImageTag
+    // Carried onto the RECORD, not only into the workflow arguments. Missing this is why the first
+    // attempt deployed a container with no environment at all: the field travelled as far as the
+    // deploy call and stopped, because everything downstream reads `dep`.
+    if (config.gitappEnv) dep.gitappEnv = config.gitappEnv
 
     const openaiApiBaseUrl = this.resolveOpenaiApiBaseUrl(dep, unresolved);
 
@@ -1290,6 +1294,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       teiMemoryLimit: dep.teiMemoryLimit,
       verdaccioUpstream: dep.verdaccioUpstream,
       verdaccioStorage: dep.verdaccioStorage,
+      gitappEnv: dep.gitappEnv,
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
       webuiEnableWebSearch: dep.webuiEnableWebSearch,
       webuiWebSearchEngine: dep.webuiWebSearchEngine,
@@ -1502,6 +1507,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       teiMemoryLimit: dep.teiMemoryLimit,
       verdaccioUpstream: dep.verdaccioUpstream,
       verdaccioStorage: dep.verdaccioStorage,
+      gitappEnv: dep.gitappEnv,
       ...(openaiApiBaseUrl ? { openaiApiBaseUrl } : {}),
       webuiEnableWebSearch: dep.webuiEnableWebSearch,
       webuiWebSearchEngine: dep.webuiWebSearchEngine,
@@ -1752,6 +1758,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       // What makes "show me this project's deployment" answerable without matching on name.
       gitappProjectId: project.id,
       gitappImageTag: run.imageTag,
+      // The project's own configuration. Without it a built image deploys and exits — measured on
+      // the MCP server this platform built, which crash-looped on a missing GITHUB_TOKEN.
+      ...(project.deployEnv ? { gitappEnv: project.deployEnv } : {}),
     }, userId);
   }
 }
