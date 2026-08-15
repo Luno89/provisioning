@@ -62,7 +62,7 @@ describe('a setting reaching the container', () => {
 
     const args = { ...base } as Record<string, unknown>;
     for (const f of fields) args[f] = SENTINEL(f);
-    const env = buildAppEnv(args as AppEnvArgs);
+    const env = buildAppEnv(args as unknown as AppEnvArgs);
     const values = new Set(Object.values(env));
 
     const missing = fields.filter((f) => !values.has(SENTINEL(f)));
