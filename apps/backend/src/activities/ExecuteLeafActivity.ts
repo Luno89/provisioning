@@ -36,6 +36,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ProjectMetadata } from '../lib/types.js';
 import { resolveLeafProject } from '../lib/leaf-project.js';
 import { primaryProjectId, withProject } from '../lib/trees.js';
+import { templateFor } from '../lib/project-templates.js';
 import { trimTrace } from '../lib/leaf-trace.js';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
@@ -274,6 +275,30 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         repos = projectRepos;
         gitea0 = gitea.internalBaseUrl;
         checkout = await repos.checkoutCredential(leaf.ownerId, project);
+
+        /**
+         * Seed the repository with the shape its tree implies, before the agent touches it.
+         *
+         * Every project started empty, so the first leaf spent its budget rediscovering the same
+         * things and getting them wrong the same ways — no Dockerfile so nothing could build,
+         * nothing reading PORT so the container exited, a hunt for a test runner. All identical
+         * every time, which is what makes it a template rather than work.
+         *
+         * Skips anything already there, so this is a no-op on the second leaf and on any repository
+         * that already has content. Failures are logged, never thrown: an unseeded repository is
+         * one the agent has to fill in itself, which is exactly where it was before.
+         */
+        try {
+          const files = templateFor(treeOf?.type, project.giteaRepo);
+          if (files.length) {
+            const written = await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, files);
+            if (written.length) {
+              console.log(`[ExecuteLeafActivity] seeded ${project.giteaRepo} from the ${treeOf?.type} template: ${written.join(', ')}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[ExecuteLeafActivity] could not seed ${project.giteaRepo}: ${(err as Error).message}`);
+        }
 
         /**
          * Wire the repository so a push can actually become a deployment.

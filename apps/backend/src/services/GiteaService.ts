@@ -281,12 +281,6 @@ export class GiteaService {
     const adminPassword = await this.readAdminPassword();
     const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
 
-    const existing = await fetch(
-      `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/.gitignore`,
-      { headers: { Authorization: auth } },
-    );
-    // Already there — never overwrite, the project may have curated it.
-    if (existing.ok) return;
 
     const content = [
       '# Dependencies — an install must never become a commit.',
@@ -308,15 +302,59 @@ export class GiteaService {
       '',
     ].join('\n');
 
-    const res = await fetch(
-      `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/.gitignore`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: auth },
-        body: JSON.stringify({ content: Buffer.from(content).toString('base64'), message: 'Add .gitignore' }),
-      },
-    );
+    await this.ensureFile(username, name, '.gitignore', content, 'Add .gitignore');
+  }
+
+  /**
+   * Commits a file, unless it is already there.
+   *
+   * Never overwrites. Everything using this is SEEDING — a .gitignore, a template skeleton — and
+   * clobbering something a project already has would destroy work to install a default.
+   *
+   * Returns whether it wrote, so a caller can report what it actually did rather than guessing.
+   */
+  async ensureFile(
+    username: string,
+    name: string,
+    path: string,
+    content: string,
+    message: string,
+  ): Promise<boolean> {
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
+    const url = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/${path}`;
+
+    const existing = await fetch(url, { headers: { Authorization: auth } });
+    if (existing.ok) return false;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({ content: Buffer.from(content).toString('base64'), message }),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+    return true;
+  }
+
+  /**
+   * Seeds a repository with a template, skipping anything already present.
+   *
+   * Best-effort per file: a template that half-lands is still better than a repository with
+   * nothing in it, and the leaf that follows can see what is missing.
+   */
+  async seedTemplate(
+    username: string,
+    name: string,
+    files: { path: string; content: string }[],
+  ): Promise<string[]> {
+    const written: string[] = [];
+    for (const f of files) {
+      const did = await this.ensureFile(username, name, f.path, f.content, `Scaffold ${f.path}`)
+        .catch(() => false);
+      if (did) written.push(f.path);
+    }
+    return written;
   }
 
   async createRepoForUser(username: string, name: string, opts: { private?: boolean; description?: string } = {}) {
