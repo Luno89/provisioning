@@ -53,7 +53,9 @@ describe('the check itself', () => {
     const s = buildArtifactCheckScript(['src/cli.js'], 'main');
 
     expect(s).toContain('git diff --quiet "$BASE" -- "src/cli.js"');
-    expect(s).toContain('(unchanged)');
+    // Recorded as STALE rather than missing now — see combineVerification for why an untouched but
+    // present file is not the same failure as one that does not exist.
+    expect(s).toContain('STALE="$STALE src/cli.js"');
   });
 
   it('diffs against the default branch, not the previous attempt', () => {
@@ -122,5 +124,64 @@ describe('combining the two checks', () => {
     // Falls back to the agent's claim, and records that nothing checked it.
     expect(combineVerification('unverified', 'none')).toBe('unverified');
     expect(combineVerification('unverified', 'unknown')).toBe('unverified');
+  });
+});
+
+describe('the two ways this check failed correct work', () => {
+  it('finds a declared file that was written somewhere else', () => {
+    /**
+     * Measured. The planner asked for `src/util/version.test.js` while decomposing, before anyone
+     * had seen the repository. The agent read the repo, saw that tests live in `test/`, wrote
+     * `test/version.test.js`, ran it, committed and pushed — and the leaf was failed for the
+     * directory.
+     *
+     * The planner names these paths from a guess; the agent names them from the repository.
+     */
+    const s = buildArtifactCheckScript(['src/util/version.test.js'], 'main');
+    expect(s).toContain('git ls-files -- "*/version.test.js"');
+    expect(s).toContain('MOVED=');
+  });
+
+  it('only accepts a moved file this leaf actually changed', () => {
+    // Otherwise "some file with this name exists somewhere in the repo" would satisfy a promise,
+    // which is the opposite of what this check is for.
+    const s = buildArtifactCheckScript(['src/util/version.test.js'], 'main');
+    expect(s).toContain('! git diff --quiet "$BASE" -- "$CAND"');
+    expect(s).toContain('[ -s "$CAND" ]');
+  });
+
+  it('reports a moved file rather than passing silently', () => {
+    const r = parseArtifactResult('KOALA_ARTIFACTS_MOVED= src/util/version.test.js->test/version.test.js\nKOALA_ARTIFACTS=present');
+    expect(r.outcome).toBe('present');
+    expect(r.moved).toEqual(['src/util/version.test.js->test/version.test.js']);
+  });
+
+  it('does not fail a leaf whose deliverable a sibling already produced', () => {
+    /**
+     * The other measured failure. A leaf asked to add tests found them already written and
+     * committed by the leaf that built the module, confirmed 30 of them passed, and had nothing
+     * to commit — so it was failed, and the retry it triggered could never succeed because there
+     * was nothing left to create.
+     */
+    expect(combineVerification('unverified', 'stale')).toBe('unverified');
+    expect(combineVerification('passed', 'stale')).toBe('passed');
+  });
+
+  it('still fails a leaf that promised a file and produced none', () => {
+    // The guarantee that must survive both fixes.
+    expect(combineVerification('unverified', 'missing')).toBe('failed');
+    expect(combineVerification('passed', 'missing')).toBe('failed');
+  });
+
+  it('reads a stale verdict back with what was untouched', () => {
+    const r = parseArtifactResult('KOALA_ARTIFACTS=stale src/cli.js');
+    expect(r).toMatchObject({ outcome: 'stale', missing: ['src/cli.js'] });
+  });
+
+  it('lets missing beat stale when both happen', () => {
+    // Something that does not exist anywhere is the real failure; a present-but-untouched file
+    // must not hide it.
+    const s = buildArtifactCheckScript(['a.js', 'b.js'], 'main');
+    expect(s.indexOf('=missing')).toBeLessThan(s.indexOf('=stale'));
   });
 });

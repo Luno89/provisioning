@@ -69,40 +69,77 @@ export function buildArtifactCheckScript(paths: string[], defaultBranch = 'main'
 
   return [
     'cd /work/repo 2>/dev/null || cd /work || exit 0',
-    'MISSING=""',
+    'MISSING=""; STALE=""; MOVED=""',
     // Absent on a repository with no default branch yet — then every file is new by definition and
     // the change check is skipped rather than failing everything.
     `BASE=""; git rev-parse --verify --quiet "origin/${base}" >/dev/null 2>&1 && BASE="origin/${base}"`,
-    ...safe.flatMap((p) => [
-      `if [ -z "$(git ls-files -- "${p}" 2>/dev/null)" ]; then MISSING="$MISSING ${p}(uncommitted)"`,
-      // -s is "exists and has size greater than zero". A file created and never written to is not
-      // the artifact anybody asked for.
-      `elif [ ! -s "${p}" ]; then MISSING="$MISSING ${p}(empty)"`,
-      // Identical to the default branch means this leaf left it exactly as it found it.
-      `elif [ -n "$BASE" ] && git diff --quiet "$BASE" -- "${p}" 2>/dev/null; then MISSING="$MISSING ${p}(unchanged)"`,
-      'fi',
-    ]),
-    `if [ -n "$MISSING" ]; then echo "${SENTINEL}=missing$MISSING"; else echo "${SENTINEL}=present"; fi`,
+    ...safe.flatMap((p) => {
+      const bn = p.split('/').pop() ?? p;
+      return [
+        `if [ -n "$(git ls-files -- "${p}" 2>/dev/null)" ]; then`,
+        // -s is "exists and has size greater than zero". A file created and never written to is
+        // not the artifact anybody asked for.
+        `  if [ ! -s "${p}" ]; then MISSING="$MISSING ${p}(empty)"`,
+        `  elif [ -n "$BASE" ] && git diff --quiet "$BASE" -- "${p}" 2>/dev/null; then STALE="$STALE ${p}"`,
+        '  fi',
+        'else',
+        /**
+         * Not at the path that was named — so look for it by NAME before calling it missing.
+         *
+         * The planner names these paths while decomposing, before anyone has seen the repository,
+         * so it guesses the layout. Measured: it asked for `src/util/version.test.js`; the agent
+         * read the repo, saw tests live in `test/`, and wrote `test/version.test.js`. The work was
+         * correct, committed and passing, and the leaf was failed for the directory.
+         *
+         * Only a candidate this leaf actually CHANGED counts, which is what keeps this from
+         * turning into "some file with this name exists somewhere".
+         */
+        `  BN_FOUND=""`,
+        `  for CAND in $(git ls-files -- "*/${bn}" "${bn}" 2>/dev/null | head -20); do`,
+        '    if [ -s "$CAND" ] && { [ -z "$BASE" ] || ! git diff --quiet "$BASE" -- "$CAND" 2>/dev/null; }; then',
+        '      BN_FOUND="$CAND"; break',
+        '    fi',
+        '  done',
+        `  if [ -n "$BN_FOUND" ]; then MOVED="$MOVED ${p}->$BN_FOUND"; else MISSING="$MISSING ${p}(uncommitted)"; fi`,
+        'fi',
+      ];
+    }),
+    'if [ -n "$MOVED" ]; then echo "' + SENTINEL + '_MOVED=$MOVED"; fi',
+    // Missing beats stale: something that does not exist anywhere is the failure this check is for,
+    // and something present-but-untouched is a weaker statement that must not hide it.
+    `if [ -n "$MISSING" ]; then echo "${SENTINEL}=missing$MISSING"`,
+    `elif [ -n "$STALE" ]; then echo "${SENTINEL}=stale$STALE"`,
+    `else echo "${SENTINEL}=present"; fi`,
   ].join('\n');
 }
 
-export type ArtifactOutcome = 'present' | 'missing' | 'none' | 'unknown';
+export type ArtifactOutcome = 'present' | 'missing' | 'stale' | 'none' | 'unknown';
 
 export interface ArtifactResult {
   outcome: ArtifactOutcome;
   /** What was not there, with why — for the board and for the retry's context. */
   missing: string[];
+  /** Declared at one path, found at another. Reported so a wrong guess is visible, not silent. */
+  moved: string[];
 }
 
 export function parseArtifactResult(stdout: string): ArtifactResult {
-  if (new RegExp(`${SENTINEL}=present`).test(stdout)) return { outcome: 'present', missing: [] };
-  if (new RegExp(`${SENTINEL}=none`).test(stdout)) return { outcome: 'none', missing: [] };
+  const movedMatch = new RegExp(`${SENTINEL}_MOVED(.*)`).exec(stdout);
+  const moved = (movedMatch?.[1] ?? '').replace(/^=/, '').trim().split(/\s+/).filter(Boolean);
+
+  if (new RegExp(`${SENTINEL}=present`).test(stdout)) return { outcome: 'present', missing: [], moved };
+  if (new RegExp(`${SENTINEL}=none`).test(stdout)) return { outcome: 'none', missing: [], moved };
+
+  const stale = new RegExp(`${SENTINEL}=stale(.*)`).exec(stdout);
+  if (stale) {
+    return { outcome: 'stale', missing: (stale[1] ?? '').trim().split(/\s+/).filter(Boolean), moved };
+  }
 
   const match = new RegExp(`${SENTINEL}=missing(.*)`).exec(stdout);
   // No verdict at all means the script did not run — a workspace that died. Not a judgement.
-  if (!match) return { outcome: 'unknown', missing: [] };
+  if (!match) return { outcome: 'unknown', missing: [], moved };
 
-  return { outcome: 'missing', missing: (match[1] ?? '').trim().split(/\s+/).filter(Boolean) };
+  return { outcome: 'missing', missing: (match[1] ?? '').trim().split(/\s+/).filter(Boolean), moved };
 }
 
 /**
@@ -120,5 +157,18 @@ export function combineVerification(
 ): 'passed' | 'failed' | 'unverified' {
   if (tests === 'failed' || artifacts === 'missing') return 'failed';
   if (tests === 'passed' || artifacts === 'present') return 'passed';
+  /**
+   * `stale` is deliberately NOT a failure.
+   *
+   * It means the declared file is there, committed and non-empty, but this leaf did not change it
+   * — usually because a sibling leaf produced it first. That is not the failure this check exists
+   * for: nobody claimed something and delivered nothing. Measured, twice, that it fails work which
+   * is complete and correct, and the retry it triggers can never succeed because there is nothing
+   * left to create.
+   *
+   * It is not a pass either — nothing here proves this leaf improved anything — so it lands on
+   * `unverified`, which succeeds the leaf on its claim and leaves the board saying "claimed"
+   * rather than "verified". That distinction already exists precisely for this.
+   */
   return 'unverified';
 }

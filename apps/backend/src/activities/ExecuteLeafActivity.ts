@@ -658,8 +658,17 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           ? await workspaces
               .exec(leaf.id, buildArtifactCheckScript(leaf.expects, project?.defaultBranch || 'main'), 60_000)
               .then((r) => parseArtifactResult(r.stdout))
-              .catch(() => ({ outcome: 'unknown' as const, missing: [] }))
-          : { outcome: 'none' as const, missing: [] };
+              .catch(() => ({ outcome: 'unknown' as const, missing: [], moved: [] }))
+          : { outcome: 'none' as const, missing: [], moved: [] };
+
+        // Logged rather than swallowed: a planner that guesses the layout wrong is worth noticing,
+        // and the leaf passing quietly would hide it forever.
+        if (artifacts.moved.length) {
+          console.log(`[ExecuteLeafActivity] leaf ${leaf.id}: declared artifacts found elsewhere — ${artifacts.moved.join(', ')}`);
+        }
+        if (artifacts.outcome === 'stale') {
+          console.log(`[ExecuteLeafActivity] leaf ${leaf.id}: declared artifacts already present and unchanged — ${artifacts.missing.join(', ')}`);
+        }
 
         const combined = combineVerification(verify.outcome, artifacts.outcome);
         const settled = decideStatus(run.succeeded, combined);
