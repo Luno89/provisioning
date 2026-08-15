@@ -259,6 +259,66 @@ export class GiteaService {
    * granting that to the token the sandbox holds would let a model create and delete repositories
    * across that account. The backend holds the power to create; the sandbox only gets to push.
    */
+  /**
+   * Commits a .gitignore so an install does not end up in the repository.
+   *
+   * ── WHY THIS IS WRITTEN AND NOT A TEMPLATE ──
+   * Gitea can seed one at creation from a named template, and this instance has ZERO templates
+   * installed — asked and answered: `/api/v1/gitignore/templates` returns an empty list. So the
+   * file has to be written.
+   *
+   * ── AND WHY IT MATTERS BEYOND TIDINESS ──
+   * Measured. An agent ran `npm install semver` and committed `node_modules` with it, and the
+   * "repository layout" memory — built from `git ls-files` — then filled with
+   * `node_modules/@hono/node-server/dist/...`. That memory is injected into EVERY prompt for that
+   * project, so roughly 1,400 characters of every request became a listing of vendored files.
+   *
+   * Every toolchain the workspace images offer, not just the project's own: a Node project can
+   * still grow a .venv, and one file at creation is cheaper than deciding later.
+   */
+  async ensureGitignore(username: string, name: string): Promise<void> {
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
+
+    const existing = await fetch(
+      `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/.gitignore`,
+      { headers: { Authorization: auth } },
+    );
+    // Already there — never overwrite, the project may have curated it.
+    if (existing.ok) return;
+
+    const content = [
+      '# Dependencies — an install must never become a commit.',
+      'node_modules/',
+      'vendor/',
+      '.venv/',
+      'venv/',
+      '__pycache__/',
+      '*.pyc',
+      '',
+      '# Build output',
+      'dist/',
+      'build/',
+      '',
+      '# Local noise',
+      '.env',
+      '.DS_Store',
+      '*.log',
+      '',
+    ].join('\n');
+
+    const res = await fetch(
+      `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/.gitignore`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        body: JSON.stringify({ content: Buffer.from(content).toString('base64'), message: 'Add .gitignore' }),
+      },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+  }
+
   async createRepoForUser(username: string, name: string, opts: { private?: boolean; description?: string } = {}) {
     const baseUrl = await this.resolveBaseUrl();
     const adminPassword = await this.readAdminPassword();
@@ -272,6 +332,9 @@ export class GiteaService {
     });
     if (!res.ok) throw new Error(`Failed to create repo ${username}/${name}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
     const body = await res.json() as { clone_url: string; full_name: string };
+    // Best-effort: a repository without one is usable, just messy. See ensureGitignore.
+    await this.ensureGitignore(username, name).catch((err) =>
+      console.warn(`[GiteaService] no .gitignore on ${username}/${name}: ${err.message}`));
     return { fullName: body.full_name, cloneUrl: body.clone_url };
   }
 

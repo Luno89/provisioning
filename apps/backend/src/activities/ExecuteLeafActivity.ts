@@ -711,7 +711,25 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          */
         try {
           const tracked = await workspaces
-            .exec(leaf.id, 'cd /work/repo 2>/dev/null && git ls-files | head -60', 60_000)
+            /**
+             * Vendored directories excluded before the head, not after.
+             *
+             * `git ls-files | head -60` returns the FIRST sixty paths alphabetically, and
+             * `node_modules/` sorts near the front — so one `npm install` that got committed turned
+             * this listing into sixty entries of `node_modules/@hono/node-server/dist/...`. That
+             * listing becomes the "repository layout" memory, which is injected into every prompt
+             * for the project: measured at ~1,400 characters of vendored file names per request,
+             * describing nothing anyone wrote.
+             *
+             * New repositories get a .gitignore now (GiteaService.ensureGitignore), but the ones
+             * already polluted are still out there, and a repo can always vendor deliberately.
+             */
+            .exec(
+              leaf.id,
+              "cd /work/repo 2>/dev/null && git ls-files "
+              + "| grep -vE '^(node_modules|vendor|\\.venv|venv|dist|build|__pycache__)/' | head -60",
+              60_000,
+            )
             .then((r) => r.stdout.split('\n').map((l) => l.trim()).filter(Boolean))
             .catch(() => [] as string[]);
 
