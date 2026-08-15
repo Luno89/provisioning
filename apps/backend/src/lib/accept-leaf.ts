@@ -31,6 +31,27 @@ export async function acceptLeaf(deps: AcceptDeps, leaf: Leaf, leaves: Leaf[]): 
     return { ok: false, status: 409, error: 'This leaf has already been accepted' };
   }
 
+  /**
+   * A leaf with no persona is refused here, not only by the automatic path.
+   *
+   * `usesRepo` treats an absent persona as NO, so an unassigned leaf gets no checkout — and an
+   * agent that finds /work empty does not stop, it creates the directories it wants and works
+   * there. Measured: two leaves wrote 11 KB and 5 KB of correct, tested code into a sandbox with no
+   * repository, pushed nothing, and were marked succeeded because their tests passed. The work was
+   * destroyed with the pod.
+   *
+   * auto-accept already refused this. The button did not, so accepting by hand bypassed the one
+   * check that would have caught it — which is exactly how it happened.
+   */
+  if (!leaf.personaId) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'This leaf has no persona, so it would run with no repository and its work would be '
+        + 'discarded when the sandbox is destroyed. Assign one first.',
+    };
+  }
+
   const root = rootLeaf(leaves, leaf);
   if (root?.budget) {
     const spent = budgetExceeded(root.budget, aggregateUsage(leaves, root, (deps.now ?? Date.now)()));

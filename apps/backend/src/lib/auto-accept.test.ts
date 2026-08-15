@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { review, reviewBatch, DEFAULT_POLICY, MAX_AUTO_ACCEPT } from './auto-accept.js';
 import type { Leaf } from './leaves.js';
+import { acceptLeaf } from './accept-leaf.js';
 
 const leaf = (over: Record<string, unknown> = {}): Leaf => ({
   id: 'l1',
@@ -101,5 +102,27 @@ describe('reviewing a batch', () => {
     // Every held leaf carries a reason — a proposal that silently did not start is
     // indistinguishable from one that was never made.
     expect(out.every((r) => r.verdict.reason.length > 0)).toBe(true);
+  });
+});
+
+describe('accepting by hand', () => {
+  it('refuses a leaf with no persona, the same as the automatic path', async () => {
+    /**
+     * Measured, and self-inflicted: two leaves were accepted by hand, ran with no repository
+     * because usesRepo treats an absent persona as NO, wrote 11 KB and 5 KB of correct tested code
+     * into a sandbox, pushed nothing, and went green on their tests. auto-accept refused exactly
+     * this; the button did not.
+     */
+    const { personaId, ...unassignedLeaf } = leaf();
+    const result = await acceptLeaf({ db: { saveLeaf: async () => {} } }, unassignedLeaf as Leaf, []);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/no persona/i);
+  });
+
+  it('accepts an assigned one', async () => {
+    const saved: Leaf[] = [];
+    const result = await acceptLeaf({ db: { saveLeaf: async (l: Leaf) => { saved.push(l); } } }, leaf(), []);
+    expect(result.ok).toBe(true);
+    expect(saved[0]!.status).toBe('pending');
   });
 });
