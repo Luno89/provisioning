@@ -1183,6 +1183,39 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
      */
     if (config.gitappProjectId) dep.gitappProjectId = config.gitappProjectId
     if (config.gitappImageTag) dep.gitappImageTag = config.gitappImageTag
+
+    /**
+     * The IMAGE, on an existing deployment.
+     *
+     * webRepo/webTag were set only in the `if (!dep)` branch above, so a deployment the database had
+     * already seen kept its original image no matter what was deployed onto it. Promoting a new
+     * build updated `gitappImageTag` — the record said the new tag — while the pod went on running
+     * the old one.
+     *
+     * Measured: a build of the Streamable HTTP transport succeeded, promote ran, the record showed
+     * `...:cb63805a`, and the deployment kept serving `...:cd7838d0`, which is the stdio-only image
+     * that exits immediately. It looked like the transport had not been built.
+     *
+     * Taken from gitappImageTag when there is one, because that is the promote path and is
+     * unambiguous. Otherwise from the config, ignoring the wizard's Odoo placeholders for non-Odoo
+     * app types — the same rule DeployAppActivity applies, and without it a redeploy of any app
+     * would clobber its image with `library/odoo`.
+     */
+    if (config.gitappImageTag) {
+      const at = String(config.gitappImageTag).lastIndexOf(':')
+      if (at > 0) {
+        dep.webRepo = String(config.gitappImageTag).slice(0, at)
+        dep.webTag = String(config.gitappImageTag).slice(at + 1)
+      }
+    } else {
+      const repo = config.webRepo || config.odooRepo
+      const tag = config.webTag || config.odooTag
+      const placeholder = dep.appType !== 'odoo' && repo === 'library/odoo'
+      if (repo && tag && !placeholder) {
+        dep.webRepo = repo
+        dep.webTag = tag
+      }
+    }
     // Carried onto the RECORD, not only into the workflow arguments. Missing this is why the first
     // attempt deployed a container with no environment at all: the field travelled as far as the
     // deploy call and stopped, because everything downstream reads `dep`.

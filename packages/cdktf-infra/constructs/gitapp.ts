@@ -37,7 +37,20 @@ export class GitappApp extends Construct {
      * built, deployed, and crash-looped on "GITHUB_TOKEN environment variable is required", which
      * is the app behaving correctly and the platform having nowhere to put the answer.
      */
-    const envVars: { name: string; value: string }[] = [];
+    /**
+     * PORT, first, so the app knows where to listen.
+     *
+     * The Service and the readiness probe both target `containerPort`, and nothing told the
+     * application what that was — so a server written to read `process.env.PORT` bound to its own
+     * default or, in the case measured here, decided it was not being run as a service at all and
+     * fell back to stdio, read EOF and exited 0 forever. The convention every platform uses, and
+     * its absence looks exactly like a broken app.
+     *
+     * Before the project's own env, so an explicit PORT in that wins.
+     */
+    const envVars: { name: string; value: string }[] = [
+      { name: "PORT", value: String(containerPort) },
+    ];
     for (const line of (config.env ?? '').split('\n')) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
