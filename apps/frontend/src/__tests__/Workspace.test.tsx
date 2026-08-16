@@ -198,10 +198,16 @@ describe('proposals', () => {
   });
 
   it('does not show proposed leaves as ordinary work in the tree', async () => {
-    // A proposal is not work yet; it must be visually distinct from an accepted leaf.
+    /**
+     * A proposal is not work yet; it must be visually distinct from an accepted leaf.
+     *
+     * Asserted on the state the UI shows rather than the raw API status. The dot used to be titled
+     * `proposed` — the wire value — which meant the tree spoke a different language from the board
+     * beside it. Both say "To do" now, and that agreement is the thing worth pinning.
+     */
     mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
     renderWorkspace();
-    await waitFor(() => expect(screen.getAllByTitle('proposed').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByTitle('To do').length).toBeGreaterThan(0));
   });
 });
 

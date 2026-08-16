@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { ArrowLeft, Loader2, GitBranch, Coins, RotateCcw, ShieldCheck, ShieldQuestion, Clock } from 'lucide-react';
-import LeafTrace from './LeafTrace.js';
+import LeafModal from './LeafModal.js';
+import { BOARD_COLUMNS, type LeafState } from './leaf-types.js';
 
 /**
  * One tree's board — what has been done and what is left.
@@ -30,7 +31,7 @@ interface BoardLeaf {
   branchId: string;
   title: string;
   status: string;
-  column?: 'proposed' | 'blocked' | 'running' | 'claimed' | 'verified' | 'failed';
+  column?: LeafState;
   personaId?: string;
   verified?: boolean;
   merged?: boolean;
@@ -56,15 +57,6 @@ interface Board {
   leaves: BoardLeaf[];
 }
 
-const COLUMNS: { id: string; label: string; hint: string }[] = [
-  { id: 'proposed', label: 'To do', hint: 'Waiting to start' },
-  { id: 'blocked', label: 'Blocked', hint: 'Waiting on other work' },
-  { id: 'running', label: 'Running', hint: 'In a sandbox now' },
-  { id: 'claimed', label: 'Claimed', hint: 'The agent says it worked. Nothing checked it.' },
-  { id: 'verified', label: 'Verified', hint: 'A check ran and passed' },
-  { id: 'failed', label: 'Failed', hint: 'Still owed' },
-];
-
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 export default function TreeBoard({
@@ -77,7 +69,7 @@ export default function TreeBoard({
   /** Hands a failed leaf's evidence to Koala, which is where a review is actually discussed. */
   onReview?: (branchId: string, prompt: string) => void;
 }) {
-  const [openLeaf, setOpenLeaf] = useState<BoardLeaf | null>(null);
+  const [openLeaf, setOpenLeaf] = useState<string | null>(null);
 
   /**
    * When this board was last looked at.
@@ -168,11 +160,34 @@ export default function TreeBoard({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {COLUMNS.map((col) => {
+      {/**
+        * Empty columns collapse to a rail.
+        *
+        * Six fixed columns meant a finished tree rendered as five empty ones and a stack of cards in
+        * the sixth — measured at 83% of the width reserved for nothing. Empty is the NORMAL state of
+        * most columns: work is in one or two at a time. They stay visible, because "nothing is
+        * blocked" is worth reading, but they stop charging full width to say it.
+        */}
+      <div className="flex gap-3 items-start">
+        {BOARD_COLUMNS.map((col) => {
           const cards = leaves.filter((l) => l.column === col.id);
+          if (cards.length === 0) {
+            return (
+              <div
+                key={col.id}
+                title={`${col.label} — ${col.hint} (empty)`}
+                className="w-9 shrink-0 rounded-xl border border-dashed border-[var(--bark-700)] py-3 flex justify-center"
+              >
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 [writing-mode:vertical-rl] rotate-180 whitespace-nowrap">
+                  {col.label}
+                </span>
+              </div>
+            );
+          }
           return (
-            <div key={col.id} className="min-w-0">
+            /* Capped: with one column occupied, `flex-1` alone stretched three-word cards to 900px
+               and the board stopped reading as columns at all. */
+            <div key={col.id} className="flex-1 min-w-0 max-w-[380px]">
               <div className="flex items-baseline gap-2 mb-2 px-1" title={col.hint}>
                 <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">{col.label}</span>
                 <span className="text-[11px] text-slate-600">{cards.length}</span>
@@ -181,7 +196,7 @@ export default function TreeBoard({
                 {cards.map((leaf) => (
                   <button
                     key={leaf.id}
-                    onClick={() => setOpenLeaf(leaf)}
+                    onClick={() => setOpenLeaf(leaf.id)}
                     className={`w-full text-left bg-[var(--bark-800)] border rounded-xl p-3 space-y-2 hover:border-[var(--bark-500)] ${
                       leaf.column === 'failed' ? 'border-red-500/40' : 'border-[var(--bark-600)]'
                     }`}
@@ -207,7 +222,6 @@ export default function TreeBoard({
                     <p className="text-[10px] text-slate-600 truncate">{branchTitle(leaf.branchId)}</p>
                   </button>
                 ))}
-                {cards.length === 0 && <div className="text-[11px] text-slate-700 px-1">—</div>}
               </div>
             </div>
           );
@@ -215,10 +229,9 @@ export default function TreeBoard({
       </div>
 
       {openLeaf && (
-        <LeafTrace
+        <LeafModal
           apiBase={apiBase}
-          leaf={openLeaf}
-          personaName={openLeaf.personaId ? personaNames[openLeaf.personaId] : undefined}
+          leafId={openLeaf}
           onClose={() => setOpenLeaf(null)}
           {...(onReview ? { onReview } : {})}
         />

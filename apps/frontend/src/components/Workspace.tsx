@@ -7,7 +7,7 @@ import Chat, { type Message } from './Chat.js';
 import LeafDetail from './LeafDetail.js';
 import AcceptancePlan from './AcceptancePlan.js';
 import Delivery, { type DeliveryStage } from './Delivery.js';
-import { STATUS_DOT, type Leaf } from './leaf-types.js';
+import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
 
 
@@ -49,7 +49,7 @@ interface BranchNode {
   leaves: Leaf[];
 }
 
-export default function Workspace({ apiBase, handoff, onHandoffTaken }: {
+export default function Workspace({ apiBase, handoff, onHandoffTaken, onReview }: {
   apiBase: string;
   /**
    * A conversation to open, with a message to send on arrival.
@@ -60,6 +60,14 @@ export default function Workspace({ apiBase, handoff, onHandoffTaken }: {
    */
   handoff?: { branchId: string; prompt: string } | undefined;
   onHandoffTaken?: () => void;
+  /**
+   * Opens a review of a failed leaf in the conversation.
+   *
+   * Lifted to the caller because a review is a hand-off to a BRANCH, and the same one serves the
+   * board — a failed leaf reached from the sidebar and one reached from a card must not start two
+   * different kinds of conversation.
+   */
+  onReview?: (branchId: string, prompt: string) => void;
 }) {
   const qc = useQueryClient();
   // The conversation currently open. Kept client-side: a branch with leaves is recoverable from
@@ -213,6 +221,7 @@ export default function Workspace({ apiBase, handoff, onHandoffTaken }: {
     const kids = childrenOf(leaf.id);
     const isCollapsed = collapsed[leaf.id] ?? false;
     const isSelected = selected.kind === 'leaf' && selected.id === leaf.id;
+    const state = stateFor(leaf, all);
 
     return (
       <div key={leaf.id}>
@@ -231,7 +240,12 @@ export default function Workspace({ apiBase, handoff, onHandoffTaken }: {
           ) : (
             <span className="w-3 shrink-0" />
           )}
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[leaf.status]}`} title={leaf.status} />
+          {/* Derived, never read off `leaf.column` — that field means one thing from /api/leaves
+              and another from the board endpoint. See leaf-types.ts. */}
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${state ? STATE_DOT[state] : CANCELLED_DOT}`}
+            title={state ? STATE_LABEL[state] : 'Cancelled'}
+          />
           <span className="truncate">{leaf.title}</span>
           {kids.length > 0 && <span className="text-[10px] text-slate-600 shrink-0">{kids.length}</span>}
         </div>
@@ -320,7 +334,15 @@ export default function Workspace({ apiBase, handoff, onHandoffTaken }: {
           </button>
         )}
         {selectedLeaf ? (
-          <div className="overflow-y-auto"><LeafDetail apiBase={apiBase} leaf={selectedLeaf} subLeaves={childrenOf(selectedLeaf.id)} /></div>
+          <div className="overflow-y-auto pr-2">
+            <LeafDetail
+              apiBase={apiBase}
+              leaf={selectedLeaf}
+              subLeaves={childrenOf(selectedLeaf.id)}
+              all={all}
+              {...(onReview ? { onReview } : {})}
+            />
+          </div>
         ) : selectedBranch ? (
           <div className="flex flex-col h-full min-h-0">
 

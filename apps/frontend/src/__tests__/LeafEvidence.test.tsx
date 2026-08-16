@@ -21,7 +21,7 @@ vi.mocked(axios).get = vi.fn().mockResolvedValue({
 }) as never;
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
-  id: 'l1', branchId: 'b1', title: 'Build the parser', column: 'review',
+  id: 'l1', branchId: 'b1', title: 'Build the parser',
   status: 'succeeded', depth: 0, blocking: true, childCount: 0, ...over,
 } as Leaf);
 
@@ -38,19 +38,24 @@ describe('what checked a leaf', () => {
      * so" are very different claims and the interface made them identical.
      */
     show(leaf({ verified: true }));
-    expect(screen.getByText(/verified/i)).toBeTruthy();
+    // The state word, and the reason under it — one says WHICH, the other says WHY.
+    expect(screen.getByText('Verified')).toBeTruthy();
+    expect(screen.getByText(/a check ran and passed/i)).toBeTruthy();
   });
 
   it('calls an unchecked success a claim, without calling it a failure', () => {
     // An unverified success is still a success — most work is not test-shaped. It is just not
     // evidence.
     show(leaf({ verified: false }));
-    expect(screen.getByText(/unverified claim/i)).toBeTruthy();
+    expect(screen.getByText('Claimed')).toBeTruthy();
+    expect(screen.getByText(/nothing checked this/i)).toBeTruthy();
+    // The half that matters: it must not be dressed as a failure. Most work is not test-shaped.
+    expect(screen.queryByText(/Failed/)).toBeNull();
   });
 
   it('says nothing about verification for work that has not finished', () => {
     show(leaf({ status: 'running' }));
-    expect(screen.queryByText(/unverified claim/i)).toBeNull();
+    expect(screen.queryByText(/nothing checked this/i)).toBeNull();
   });
 });
 
@@ -75,8 +80,32 @@ describe('what a leaf promised and waits on', () => {
 
   it('shows that it waits on other work', () => {
     // The ordering you agreed to when you accepted, which appeared nowhere.
-    show(leaf({ dependsOn: ['a', 'b'] }));
+    show(leaf({ status: 'pending', dependsOn: ['a', 'b'] }));
     expect(screen.getByText(/waits on 2 other leaves/i)).toBeTruthy();
+  });
+
+  it('names what it waits on when those leaves are to hand', () => {
+    // "waits on the transport leaf" is actionable where a count is not.
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <LeafDetail
+          apiBase="/api"
+          leaf={leaf({ status: 'pending', dependsOn: ['a'] })}
+          subLeaves={[]}
+          all={[leaf({ id: 'a', title: 'Add the transport', status: 'running' })]}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText(/waits on Add the transport/i)).toBeTruthy();
+  });
+
+  it('does not claim finished work is still waiting', () => {
+    /**
+     * A succeeded leaf keeps its dependsOn — it is history, not a queue. Rendering the raw length
+     * had a leaf that was merged and verified reporting that it waited on two other leaves.
+     */
+    show(leaf({ status: 'succeeded', verified: true, dependsOn: ['a', 'b'] }));
+    expect(screen.queryByText(/waits on/i)).toBeNull();
   });
 
   it('labels the summary as a report rather than a result', () => {

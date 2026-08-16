@@ -1508,7 +1508,12 @@ function App() {
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
         {(view === 'chat' || view === 'board') && (
-          <Workspace apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
+          <Workspace
+            apiBase={API_BASE}
+            handoff={handoff}
+            onHandoffTaken={() => setHandoff(undefined)}
+            onReview={(branchId, prompt) => setHandoff({ branchId, prompt })}
+          />
         )}
 
         {view === 'personas' && <Personas apiBase={API_BASE} />}

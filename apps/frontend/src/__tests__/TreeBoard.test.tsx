@@ -48,6 +48,10 @@ const draw = (over: Record<string, unknown> = {}) => {
   mockedAxios.get.mockImplementation((url: string) => {
     if (url.includes('/board')) return Promise.resolve({ data: board(over) });
     if (url.includes('/trace')) return Promise.resolve({ data: { steps: [], totalSteps: 0, tokensUsed: 0, missing: true } });
+    // Opening a card now shows the WHOLE leaf, not just its turns — the board's own payload is
+    // trimmed for cards, so the panel fetches the records. Derived from the same fixture so a test
+    // that overrides the leaves gets the override in both places.
+    if (url.endsWith('/leaves')) return Promise.resolve({ data: board(over).leaves });
     return Promise.resolve({ data: {} });
   });
   return render(
