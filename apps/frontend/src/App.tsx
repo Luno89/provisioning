@@ -42,9 +42,6 @@ const FOREST_TABS = [
   { id: 'nginx' as const, label: 'Nginx Router', icon: Puzzle },
   { id: 'temporal' as const, label: 'Temporal', icon: Timer },
   { id: 'settings' as const, label: 'Security', icon: Shield },
-  // Last, and deliberately inside the Forest rather than beside Koala: it is where you inspect and
-  // tune the harness, not part of using it.
-  { id: 'lab' as const, label: 'Lab', icon: FlaskConical },
 ];
 
 /**
@@ -1076,6 +1073,16 @@ function App() {
             className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'personas' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
           >
             <Shield size={15} className="text-[var(--leaf)]" /> Personas
+          </button>
+          {/* Moved out of the Forest, where it sat two levels down inside a collapsible section
+              whose open state was not persisted — collapsing Forest made it vanish entirely. It is
+              where the harness is inspected and tuned, which is Koala's business, not the
+              infrastructure's. */}
+          <button
+            onClick={() => setView('lab')}
+            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'lab' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+          >
+            <FlaskConical size={15} className="text-[var(--leaf)]" /> Lab
           </button>
 
           <button

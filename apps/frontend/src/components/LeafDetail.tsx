@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
-  Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, Clock, ShieldCheck,
+  Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, ShieldCheck,
   ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Stethoscope, Loader2,
 } from 'lucide-react';
 import Markdown from './Markdown.js';
@@ -282,14 +282,13 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
         </div>
       )}
 
-      {(leaf.usageTotal || leaf.budget) && (
+      {(leaf.usage?.tokens || leaf.budget) && (
         <div className="mt-6 flex gap-6 text-[12px] text-slate-500">
-          {leaf.usageTotal && (
-            <>
-              <span className="flex items-center gap-1.5"><Coins size={12} /> {leaf.usageTotal.tokens.toLocaleString()} tokens</span>
-              <span className="flex items-center gap-1.5"><Clock size={12} /> {Math.round(leaf.usageTotal.wallClockMs / 1000)}s</span>
-            </>
-          )}
+          {/* `usage`, not `usageTotal`: this block read a field the server never writes, so it had
+              never once rendered. No wall-clock here — the record deliberately omits it. */}
+          {leaf.usage?.tokens ? (
+            <span className="flex items-center gap-1.5"><Coins size={12} /> {leaf.usage.tokens.toLocaleString()} tokens</span>
+          ) : null}
           {leaf.budget?.maxTokens && <span>budget {leaf.budget.maxTokens.toLocaleString()}</span>}
         </div>
       )}

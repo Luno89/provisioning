@@ -135,7 +135,15 @@ export interface Leaf {
   /** A research leaf's answer, stored on the record because it has no repository. */
   findings?: string;
   budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number };
-  usageTotal?: { tokens: number; wallClockMs: number; workspaces: number; replans: number };
+  /**
+   * What the run actually cost.
+   *
+   * `usage`, not `usageTotal` — the latter was declared here and on nothing the server writes, so
+   * every consumer of it silently rendered nothing. Measured: 26 of 30 leaves carry usage.tokens
+   * and zero carry usageTotal, while the leaf pane's token line had never appeared for any leaf.
+   * The board reads `usage` too; see tree-board.ts.
+   */
+  usage?: { tokens?: number; workspaces?: number; replans?: number };
 }
 
 export const STATE_LABEL: Record<LeafState, string> =

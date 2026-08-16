@@ -103,6 +103,26 @@ describe('the board rule, on both sides of the wire', () => {
     expect(frontendSource).toMatch(/verified \? 'verified' : 'claimed'/);
   });
 
+  it('reads the usage field the server actually writes', () => {
+    /**
+     * The frontend declared `usageTotal` on its Leaf type. Nothing on the server has ever written
+     * that field — the record carries `usage` — so every consumer of it rendered nothing, silently.
+     * Measured on this instance: 26 of 30 leaves had usage.tokens and none had usageTotal, while
+     * the leaf pane's token line had never once appeared.
+     *
+     * Checked against the SERVER's own declaration rather than a name written here, so renaming it
+     * there fails this instead of blanking a panel.
+     */
+    const record = readFileSync(join(here, 'leaves.ts'), 'utf8');
+    const declares = (src: string, field: string) => new RegExp(`^\\s*${field}\\?:`, 'm').test(src);
+
+    expect(declares(record, 'usage'), 'the server stopped declaring `usage`').toBe(true);
+    expect(declares(record, 'usageTotal')).toBe(false);
+    // So the browser must declare the same one, and must not resurrect the phantom.
+    expect(declares(frontendSource, 'usage')).toBe(true);
+    expect(frontendSource.includes('usageTotal?:')).toBe(false);
+  });
+
   it('has retired the themed vocabulary rather than moving it', () => {
     /**
      * Named explicitly so bringing them back is a decision. These are the words that had one leaf
