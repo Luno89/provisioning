@@ -33,6 +33,7 @@ import {
 } from './sandbox-tools.js';
 import { parseToolArguments, ToolCallScanner, WEB_TOOLS } from './leaf-tools.js';
 import { isProductive, thrashAction, nudgeMessage, thrashSummary } from './thrash.js';
+import { detectThoughtLoop, type Turn as ThoughtTurn } from './thought-loop.js';
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
@@ -365,6 +366,11 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   /** Consecutive turns that inspected the workspace without changing it — see lib/thrash.ts. */
   let unproductiveTurns = 0;
   let thrashed = false;
+  /** What each turn thought and did, for the circling check below. */
+  const thoughts: ThoughtTurn[] = [];
+  let circling = '';
+  /** What it said when asked to wrap up, if it answered in prose instead of calling finish. */
+  let wrapUpProse = '';
 
 
   /** Which budget ran out, for a summary that says what actually happened. */
@@ -517,6 +523,28 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
      * for both, and raising it is recorded twice in sandbox-tools.ts as having made things worse.
      * This is the signal that actually separates them; see lib/thrash.ts.
      */
+    /**
+     * ── IS IT GOING IN CIRCLES? ──
+     *
+     * Checked BEFORE the production counter, because this is the case that counter cannot see: an
+     * agent rewriting the same file every turn is productive by every measure thrash.ts has, and is
+     * getting nowhere. Reading what it is thinking is the only thing that separates the two.
+     *
+     * Requires that nothing was produced this turn as well, so honest iteration — test, read the
+     * failure, fix, test — is never interrupted for being repetitive, which it is by nature.
+     */
+    thoughts.push({
+      ...(reasoning || content ? { thought: `${reasoning ?? ''} ${content ?? ''}`.trim() } : {}),
+      ...(toolCalls.length ? { action: toolCalls.map((c) => `${c.name} ${c.arguments}`).join(' ') } : {}),
+    });
+    const loop = detectThoughtLoop(thoughts);
+    if (loop.looping) {
+      circling = loop.reason;
+      stoppedAtStep = step + 1;
+      publish();
+      break;
+    }
+
     if (isProductive(toolCalls)) {
       unproductiveTurns = 0;
     } else {
@@ -623,7 +651,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
    * changing it") is far more useful than asking the agent, which is the thing that was confused.
    * Budget exhaustion is the only stop where the agent may genuinely have more to report.
    */
-  if (!thrashed && !stoppedTalking) {
+  if (!thrashed && !stoppedTalking && !circling) {
     const spent = `You have used your whole budget for this task (${stoppedAtStep} steps, `
       + `${tokensUsed.toLocaleString()} tokens).`;
     messages.push({
@@ -671,9 +699,11 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
            * of where things stand — it is exactly what was thrown away before — so it is kept as
            * the summary, but the run is NOT claimed as succeeded on the strength of it.
            */
-          return reply.content?.trim()
-            ? { succeeded: false, summary: reply.content.trim().slice(0, 4000) }
-            : undefined;
+          // Returned as PROSE, not as a verdict: it is kept alongside the budget diagnosis below
+          // rather than replacing it, so the run is still classified correctly and the account is
+          // not lost. Replacing it made a run that simply ran out report its last idle thought.
+          if (reply.content?.trim()) wrapUpProse = reply.content.trim().slice(0, 2000);
+          return undefined;
         }
         const args = parseToolArguments(call.arguments);
         return {
@@ -706,13 +736,26 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
   return {
     succeeded: false,
-    outOfBudget: true,
-    summary: thrashed
+    // Only when a BUDGET ran out. Circling, thrashing and answering-in-prose are diagnoses, and
+    // marking them as budget stops would have the project's outstanding list report a confused run
+    // as one that merely needed more room.
+    ...(!circling && !thrashed && !stoppedTalking ? { outOfBudget: true } : {}),
+    summary: circling
+      // Its own message, quoting what repeated, so the verdict can be checked rather than trusted.
+      ? `${circling} Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
+      : thrashed
       ? thrashSummary(unproductiveTurns, transcript)
       : stoppedTalking
       ? `Stopped calling tools after ${stoppedAtStep} step(s) of ${maxSteps} — it answered in prose `
         + `three turns running instead of acting, which usually means something it believed about the `
         + `environment was wrong. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
+      : wrapUpProse
+        // Its own account of where things stand, kept because that is exactly what was thrown away
+        // when a leaf explained in prose that it had already committed and pushed the work.
+        ? `${exhausted === 'tokens'
+            ? `Ran out of tokens (${tokensUsed.toLocaleString()} of ${maxTokens.toLocaleString()})`
+            : `Ran out of steps (${maxSteps})`} without calling finish. Asked to account for itself, `
+          + `it said: "${wrapUpProse}"`
       : exhausted === 'tokens'
         ? `Ran out of tokens (${tokensUsed.toLocaleString()} of ${maxTokens.toLocaleString()}) without calling finish. `
           + `Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`

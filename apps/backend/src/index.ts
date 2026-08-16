@@ -82,6 +82,7 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
+import { canRecheck, recheckVerdict, statusAfterRecheck } from './lib/leaf-recheck.js';
 import { webhookUrlFor } from './lib/project-shipping.js';
 import { buildReviewPrompt } from './lib/failure-review.js';
 import { describeSandbox } from './lib/workspace-spec.js';
@@ -4181,6 +4182,55 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     );
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     res.json(result.waitingFor.length ? { ...result.leaf, waitingFor: result.waitingFor } : result.leaf);
+  });
+
+  /**
+   * Look again at a failure whose work may be sitting on a branch.
+   *
+   * A leaf that ran out of budget after committing and pushing was recorded as failed, because
+   * nothing could check it and a run that never called `finish` makes no claim to fall back on.
+   * The wrap-up turn stops that happening again; this is for the ones already on record.
+   *
+   * It promotes a leaf ONLY when the files it promised are actually on the branch. "There are
+   * commits" is not evidence the task was done, and treating it as such would launder the very
+   * claim the verified/claimed split exists to keep apart — so when nothing checkable was declared
+   * this reports what is there and changes nothing.
+   */
+  app.post('/api/leaves/:id/recheck', async (req, res) => {
+    const user = (req as any).user;
+    const leaf = (await ownedLeaves(user.id)).find((l) => l.id === req.params.id);
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+    if (!canRecheck(leaf)) {
+      return res.json({ outcome: 'not-applicable', reason: 'Only a failed leaf that pushed a branch can be rechecked.' });
+    }
+
+    const project = leaf.projectId ? (await db.getProjects()).find((p: any) => p.id === leaf.projectId) : undefined;
+    if (!project) {
+      return res.json({ outcome: 'not-applicable', reason: 'This leaf is not attached to a repository.' });
+    }
+
+    let facts = { exists: false, found: [] as string[], missing: leaf.expects ?? [] };
+    try {
+      // `giteaOwner`/`giteaRepo`, not `owner`/`repo` — the record has never had the latter, and
+      // reading them gave `undefined/undefined`, a 404, and a confident "the branch no longer
+      // exists" for two leaves whose branches were fine.
+      facts = await giteaService.inspectBranch(
+        (project as any).giteaOwner, (project as any).giteaRepo, leaf.outputBranch!, leaf.expects ?? [],
+      );
+      if (!(project as any).giteaOwner || !(project as any).giteaRepo) {
+        return res.status(502).json({ error: 'This project has no Gitea repository recorded, so there is nothing to look at.' });
+      }
+    } catch (err: any) {
+      // Reported, not thrown: a recheck that fails must not look like a verdict of "still failed".
+      return res.status(502).json({ error: `Could not read the repository: ${String(err?.message ?? err).slice(0, 200)}` });
+    }
+
+    const verdict = recheckVerdict(leaf, facts);
+    const update = statusAfterRecheck(verdict);
+    if (update) {
+      await db.saveLeaf({ ...leaf, ...update, updatedAt: new Date().toISOString() });
+    }
+    res.json({ ...verdict, changed: Boolean(update), branch: leaf.outputBranch, found: facts.found, missing: facts.missing });
   });
 
   app.post('/api/leaves/:id/cancel', async (req, res) => {

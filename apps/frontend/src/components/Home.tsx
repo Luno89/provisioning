@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
-  GitBranch, Coins, MessageSquare, RotateCcw, X,
+  GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck,
 } from 'lucide-react';
 import {
   needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago,
@@ -64,6 +64,26 @@ export default function Home({
   const drop = useMutation({
     mutationFn: (id: string) => axios.post(`${apiBase}/leaves/${id}/cancel`, {}, { withCredentials: true }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['leaves'] }),
+  });
+
+  /**
+   * Looking again at a failure whose work may be on a branch.
+   *
+   * Its answer is shown rather than acted on silently: a recheck that promotes a leaf and one that
+   * says "someone has to look" are very different outcomes, and the second is the common one.
+   */
+  const [recheck, setRecheck] = useState<Record<string, string>>({});
+  const lookAgain = useMutation({
+    mutationFn: (id: string) => axios
+      .post(`${apiBase}/leaves/${id}/recheck`, {}, { withCredentials: true })
+      .then((r) => ({ id, ...(r.data as { outcome: string; reason: string; changed?: boolean }) })),
+    onSuccess: (out) => {
+      setRecheck((r) => ({ ...r, [out.id]: out.reason }));
+      if (out.changed) qc.invalidateQueries({ queryKey: ['leaves'] });
+    },
+    onError: (err: any, id) => setRecheck((r) => ({
+      ...r, [id]: String(err?.response?.data?.error ?? 'Could not read the repository.'),
+    })),
   });
 
   const [prompt, setPrompt] = useState('');
@@ -281,7 +301,23 @@ export default function Home({
                       unanswerable without knowing how the second one ended. */}
                   <div className="text-[11px] text-slate-600 truncate" title={evidence}>{evidence}</div>
                   <div className="text-[10px] text-slate-700 truncate">from “{from}”</div>
+                  {/* Shown, not acted on silently: "the promised files are there" and "someone has
+                      to look" are very different answers, and the second is the common one. */}
+                  {recheck[leaf.id] && (
+                    <div className="text-[11px] text-[var(--leaf)] mt-1 whitespace-normal">{recheck[leaf.id]}</div>
+                  )}
                 </div>
+                {leaf.outputBranch && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    title={`Look again — check whether the work is on ${leaf.outputBranch}`}
+                    onClick={(e) => { e.stopPropagation(); lookAgain.mutate(leaf.id); }}
+                    className="p-1.5 rounded-lg text-slate-600 hover:text-[var(--leaf)] hover:bg-[var(--bark-700)] shrink-0"
+                  >
+                    <SearchCheck size={13} />
+                  </span>
+                )}
                 <span
                   role="button"
                   tabIndex={0}

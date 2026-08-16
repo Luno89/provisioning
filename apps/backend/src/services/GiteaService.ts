@@ -338,6 +338,47 @@ export class GiteaService {
   }
 
   /**
+   * What a branch actually holds, for rechecking a failure whose work may be stranded on it.
+   *
+   * Read-only and best-effort: a recheck that throws is worse than one that reports uncertainty,
+   * because the whole point is to look at leaves nobody can currently resolve.
+   *
+   * "Present" means present AND non-empty. A committed empty file is the shape a half-finished run
+   * leaves behind, and counting it as delivered would promote exactly the work that is not done.
+   */
+  async inspectBranch(
+    username: string,
+    name: string,
+    ref: string,
+    paths: string[],
+  ): Promise<{ exists: boolean; found: string[]; missing: string[]; commitsAhead?: number }> {
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
+    const repo = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}`;
+
+    const branch = await fetch(`${repo}/branches/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } })
+      .catch(() => undefined);
+    if (!branch?.ok) return { exists: false, found: [], missing: paths };
+
+    const found: string[] = [];
+    const missing: string[] = [];
+    for (const path of paths) {
+      const res = await fetch(
+        `${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
+        { headers: { Authorization: auth } },
+      ).catch(() => undefined);
+      if (!res?.ok) { missing.push(path); continue; }
+      const body = await res.json().catch(() => ({})) as { size?: number };
+      // Non-empty, not merely present.
+      if (typeof body.size === 'number' && body.size > 0) found.push(path);
+      else missing.push(path);
+    }
+
+    return { exists: true, found, missing };
+  }
+
+  /**
    * Seeds a repository with a template, skipping anything already present.
    *
    * Best-effort per file: a template that half-lands is still better than a repository with

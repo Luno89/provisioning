@@ -81,7 +81,19 @@ describe('runAgentLoop', () => {
      * It now gets one wrap-up turn first — hence 5 calls for 4 steps — but a model that ignores it
      * and asks for another command still fails. The wrap-up is a chance to report, not a pass.
      */
-    const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
+    /**
+     * Varied commands, deliberately: repeating ONE command is now caught earlier by the circling
+     * check, which is the point of it. This is the case where the agent is genuinely working and
+     * simply does not stop.
+     */
+    let n = 0;
+    const model = vi.fn(async () => {
+      n += 1;
+      return reply({
+        content: `Checking the ${['manifest', 'router', 'parser', 'suite', 'lockfile'][n % 5]} now`,
+        tool_calls: [toolCall('run_command', { command: `cat file${n}.js` })],
+      }) as any;
+    });
     const result = await run(model, sandbox(), 4);
     expect(result.succeeded).toBe(false);
     expect(result.summary).toMatch(/Ran out of steps \(4\)/);
@@ -435,6 +447,18 @@ describe('running out of budget is a stop, not a verdict', () => {
     expect(out.summary).toContain('registry');
   });
 
+  it('keeps BOTH the diagnosis and the prose account', async () => {
+    /**
+     * Replacing the diagnosis with the prose lost the classification: a run that simply ran out
+     * reported its last idle thought instead of saying it ran out. Both matter — one says what
+     * happened to the run, the other is the agent's account of where the work stands.
+     */
+    const model = neverFinishes({ content: 'I already committed the tests and pushed them.' });
+    const out = await run(model, sandbox(), 3);
+    expect(out.summary).toMatch(/Ran out of steps \(3\)/);
+    expect(out.summary).toContain('already committed the tests');
+  });
+
   it('keeps prose when the agent answers without calling the tool', async () => {
     /**
      * Exactly what happened to the leaf that was lost: it explained what it had done in prose. That
@@ -444,6 +468,7 @@ describe('running out of budget is a stop, not a verdict', () => {
     const model = neverFinishes({ content: 'I already committed the tests and pushed them.' });
     const out = await run(model, sandbox(), 3);
     expect(out.summary).toContain('already committed the tests');
+    // Prose is not a claim: no `finish` was called, so nothing is claimed.
     expect(out.succeeded).toBe(false);
   });
 
@@ -510,5 +535,68 @@ describe('bounding by what actually costs', () => {
     });
     expect(out.succeeded).toBe(true);
     expect(out.outOfBudget).toBeUndefined();
+  });
+});
+
+
+describe('stopping a run that is going in circles', () => {
+  /**
+   * The failure a step cap and a production counter both miss: an agent that IS acting — writing a
+   * file every single turn — and getting nowhere. Only what it is thinking separates that from
+   * honest iteration.
+   */
+  it('stops a busy loop and says what repeated', async () => {
+    const model = scriptedModel([{
+      content: 'Rewrite the server to fix the port binding',
+      tool_calls: [toolCall('write_file', { path: 'src/server.js', content: 'x' })],
+    }]);
+    const out = await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
+      maxSteps: 40,
+    });
+
+    expect(out.succeeded).toBe(false);
+    expect(out.summary).toMatch(/loop, not progress/i);
+    // Quotes the repeated thought, so a person can check the verdict rather than trust it.
+    expect(out.summary).toMatch(/port binding/);
+    // And it stops EARLY — the point is not to spend the rest of the budget on more of the same.
+    expect(out.steps).toBeLessThan(10);
+  });
+
+  it('does not offer a wrap-up turn for circling', async () => {
+    /**
+     * Circling is a diagnosis, not an interruption. The loop already knows what went wrong and its
+     * own account is better than asking the agent, which is the thing that was confused.
+     */
+    const model = scriptedModel([{
+      content: 'Rewrite the server to fix the port binding',
+      tool_calls: [toolCall('write_file', { path: 'src/server.js', content: 'x' })],
+    }]);
+    const out = await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model, maxSteps: 40,
+    });
+    // Typed loosely for the same reason as bodyOf: vi.fn's inferred arg tuple is empty.
+    const last = JSON.parse((model.mock.calls as any[])[model.mock.calls.length - 1][1].body);
+    // The final call still offered the full toolset; no finish-only wrap-up was made.
+    expect(last.tools.length).toBeGreaterThan(1);
+    expect(out.outOfBudget).toBeUndefined();
+  });
+
+  it('lets a run that varies its work reach the end', async () => {
+    // The false positive that would matter: distinct turns must never be called a loop.
+    let n = 0;
+    const model = vi.fn(async () => {
+      n += 1;
+      if (n > 4) return reply({ tool_calls: [toolCall('finish', { succeeded: true, summary: 'Done.' })] }) as any;
+      return reply({
+        content: `Step ${n}: ${['read the manifest', 'add the parser module', 'wire up the router', 'write the integration test'][n - 1]}`,
+        tool_calls: [toolCall('write_file', { path: `src/file${n}.js`, content: `${n}` })],
+      }) as any;
+    });
+    const out = await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model, maxSteps: 40,
+    });
+    expect(out.succeeded).toBe(true);
+    expect(out.summary).toBe('Done.');
   });
 });

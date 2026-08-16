@@ -184,3 +184,40 @@ describe('dropping outstanding work', () => {
     expect(screen.getByText(/context_length_exceeded/)).toBeInTheDocument();
   });
 });
+
+describe('looking again at a stranded failure', () => {
+  it('offers a recheck only when there is a branch to check', async () => {
+    // Without a pushed branch there is nowhere to look, and the button would be a dead end.
+    show([
+      leaf({ id: 'withBranch', title: 'Has a branch', branchId: 'b1', status: 'failed', outputBranch: 'koala/abc' }),
+      leaf({ id: 'without', title: 'No branch', branchId: 'b1', status: 'failed' }),
+    ]);
+    await waitFor(() => expect(screen.getByText('Has a branch')).toBeInTheDocument());
+    expect(screen.getAllByTitle(/Look again/i)).toHaveLength(1);
+  });
+
+  it('shows the answer rather than acting on it silently', async () => {
+    /**
+     * The common outcome is "someone has to look", not a promotion — a leaf that promised no files
+     * cannot be confirmed by a machine however much work is on its branch. Reporting that plainly
+     * is the feature; quietly doing nothing would look broken.
+     */
+    vi.mocked(axios).post = vi.fn().mockResolvedValue({
+      data: { outcome: 'needs-a-look', reason: 'There is work on koala/abc, but this leaf promised no files.' },
+    }) as never;
+    show([leaf({ id: 'l', title: 'Stranded', branchId: 'b1', status: 'failed', outputBranch: 'koala/abc' })]);
+    await waitFor(() => expect(screen.getByTitle(/Look again/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTitle(/Look again/i));
+    await waitFor(() => expect(screen.getByText(/promised no files/)).toBeInTheDocument());
+  });
+
+  it('says so when the repository could not be read', async () => {
+    // A recheck that failed must not read as a verdict of "still failed".
+    vi.mocked(axios).post = vi.fn().mockRejectedValue({ response: { data: { error: 'Could not read the repository: 502' } } }) as never;
+    show([leaf({ id: 'l', title: 'Stranded', branchId: 'b1', status: 'failed', outputBranch: 'koala/abc' })]);
+    await waitFor(() => expect(screen.getByTitle(/Look again/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByTitle(/Look again/i));
+    await waitFor(() => expect(screen.getByText(/Could not read the repository/)).toBeInTheDocument());
+  });
+});
