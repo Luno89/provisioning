@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, LayoutGrid, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -13,6 +13,7 @@ import ClusterWizard from './components/ClusterWizard.js';
 import GameServerSettings from './components/GameServerSettings.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
+import Grove from './components/Grove.js';
 import MeshDevices from './components/MeshDevices.js';
 import Workspace from './components/Workspace.js';
 import TreesView from './components/Trees.js';
@@ -223,7 +224,7 @@ function App() {
   const [forestOpen, setForestOpen] = useState(true);
   /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
   const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees' | 'personas'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees' | 'personas' | 'grove'>('clusters');
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
@@ -1055,6 +1056,15 @@ function App() {
 
           {/* Indented under Koala rather than listed beside it: a tree is the scope conversations
               live in, so it belongs to the harness, not to the infrastructure below. */}
+          {/* Grove is the one navigator: tree → branch → leaf, the shape the data already has.
+              It sits above Trees and Koala because it subsumes both — those two stay only until it
+              is at parity, and then they go. */}
+          <button
+            onClick={() => setView('grove')}
+            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'grove' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+          >
+            <LayoutGrid size={15} className="text-[var(--leaf)]" /> Grove
+          </button>
           <button
             onClick={() => setView('trees')}
             className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'trees' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
@@ -1507,6 +1517,9 @@ function App() {
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
+        {view === 'grove' && (
+          <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
+        )}
         {(view === 'chat' || view === 'board') && (
           <Workspace
             apiBase={API_BASE}

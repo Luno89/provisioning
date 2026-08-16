@@ -3,10 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, ChevronDown, GitBranch, Plus, Loader2, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react';
-import Chat, { type Message } from './Chat.js';
+import { type Message } from './Chat.js';
+import BranchChat, { type BranchRecord } from './BranchChat.js';
 import LeafDetail from './LeafDetail.js';
-import AcceptancePlan from './AcceptancePlan.js';
-import Delivery, { type DeliveryStage } from './Delivery.js';
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
 
@@ -24,24 +23,6 @@ import { KoalaSpot } from './Koala.js';
  * being the subject of the chat.
  */
 
-interface BranchRecord {
-  id: string;
-  title: string;
-  messages: Message[];
-  updatedAt: string;
-  /**
-   * How this request will be judged once every leaf is done.
-   *
-   * Surfaced because the entire safety argument for letting the planner author these is that you
-   * read them BEFORE accepting the work — and until now they appeared nowhere in the UI, which made
-   * that argument untrue. A bare string is the older single-command form.
-   */
-  acceptance?: { name: string; command: string }[] | string;
-  /** How far the request got, derived server-side — see lib/branch-delivery.ts. */
-  delivery?: DeliveryStage[];
-  /** The repo the request's leaves worked in, if one was ever created. */
-  projectName?: string;
-}
 
 interface BranchNode {
   id: string;
@@ -78,7 +59,6 @@ export default function Workspace({ apiBase, handoff, onHandoffTaken, onReview }
   const [selected, setSelected] = useState<{ kind: 'branch' | 'leaf'; id: string }>(() => ({ kind: 'branch', id: '' }));
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mode, setMode] = useState<'chat' | 'auto' | 'plan'>('auto');
   /**
    * Transcripts, per branch, held here rather than inside Chat.
    *
@@ -344,62 +324,32 @@ export default function Workspace({ apiBase, handoff, onHandoffTaken, onReview }
             />
           </div>
         ) : selectedBranch ? (
-          <div className="flex flex-col h-full min-h-0">
-
-            {/* Shown above the conversation, where the work is accepted. `echo ok` is only a
-                harmless check if somebody actually sees it. */}
-            <AcceptancePlan acceptance={(branchRecords ?? []).find((b) => b.id === selectedBranch)?.acceptance} />
-
-            {/* Above the conversation and below the plan: the plan is what was promised, this is
-                what became of it. Renders nothing until the request has actually produced work. */}
-            <Delivery
-              stages={(branchRecords ?? []).find((b) => b.id === selectedBranch)?.delivery}
-              projectName={(branchRecords ?? []).find((b) => b.id === selectedBranch)?.projectName}
-            />
-
-            <div className="flex-1 min-h-0">
-              {/* Keyed on the branch so switching conversations resets the transcript rather than
-                  carrying one branch's messages into another. */}
-              {/* Keyed on the branch only — changing mode mid-conversation must not wipe the
-                  transcript, since the whole point is switching as the conversation changes shape. */}
-              {(() => {
-                const proposed = all
-                  .filter((l) => l.branchId === selectedBranch && l.status === 'proposed')
-                  // `personaId` travels with the proposal: a persona carries the whole environment,
-                  // so one without it cannot run and must not look acceptable.
-                  .map((l) => ({ id: l.id, title: l.title, ...(l.body ? { body: l.body } : {}), ...(l.personaId ? { personaId: l.personaId } : {}) }));
-                return (
-                  <Chat
-                    // No key on the branch any more: remounting is what discarded the transcript.
-                    // The parent holds it per branch instead.
-                    apiBase={apiBase}
-                    branchId={selectedBranch}
-                    mode={mode}
-                    onModeChange={setMode}
-                    onProposals={refreshLeaves}
-                    {...(handoff && handoff.branchId === selectedBranch
-                      ? { autoSend: handoff.prompt, onAutoSent: onHandoffTaken }
-                      : {})}
-                    messages={
-                      transcripts[selectedBranch] ??
-                      (branchRecords ?? []).find((b) => b.id === selectedBranch)?.messages ??
-                      []
-                    }
-                    onMessagesChange={(next) =>
-                      setTranscripts((t) => ({
-                        ...t,
-                        [selectedBranch]: typeof next === 'function' ? next(t[selectedBranch] ?? []) : next,
-                      }))
-                    }
-                    proposed={proposed}
-                    onAccept={(id) => accept.mutate(id)}
-                    onReject={(id) => reject.mutate(id)}
-                    onAcceptAll={() => acceptAll.mutate(proposed.map((p) => p.id))}
-                  />
-                );
-              })()}
-            </div>
-          </div>
+          /* Assembled by BranchChat, the one place a conversation is put together — Grove opens the
+             same conversations, and building them twice is how the two would start to differ. */
+          <BranchChat
+            apiBase={apiBase}
+            branchId={selectedBranch}
+            record={(branchRecords ?? []).find((b) => b.id === selectedBranch)}
+            leaves={all}
+            messages={
+              transcripts[selectedBranch] ??
+              (branchRecords ?? []).find((b) => b.id === selectedBranch)?.messages ??
+              []
+            }
+            onMessagesChange={(next) =>
+              setTranscripts((t) => ({
+                ...t,
+                [selectedBranch]: typeof next === 'function' ? next(t[selectedBranch] ?? []) : next,
+              }))
+            }
+            onProposals={refreshLeaves}
+            onAccept={(id) => accept.mutate(id)}
+            onReject={(id) => reject.mutate(id)}
+            onAcceptAll={(ids) => acceptAll.mutate(ids)}
+            {...(handoff && handoff.branchId === selectedBranch
+              ? { autoSend: handoff.prompt, ...(onHandoffTaken ? { onAutoSent: onHandoffTaken } : {}) }
+              : {})}
+          />
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <KoalaSpot size={72} mood="idle" className="sway opacity-60" />

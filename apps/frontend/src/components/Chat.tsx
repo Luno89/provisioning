@@ -575,51 +575,71 @@ export default function Chat({
 
   return (
     <div className="flex flex-col h-full min-h-0 max-w-4xl">
-      <header className="flex justify-end items-center gap-2 mb-3 shrink-0 relative">
+      {/*
+        * One line, not a toolbar row.
+        *
+        * The persona and model pickers were two full-height selects sitting permanently above the
+        * transcript, and between them and the acceptance/delivery blocks the conversation was left
+        * about 55% of the pane and clipped mid-sentence at the top. They are settings — read rarely,
+        * changed rarely — so they state themselves in a line and open on demand.
+        */}
+      <header className="flex justify-end items-center gap-2 mb-2 shrink-0 relative">
         <button
           onClick={() => setShowSettings(!showSettings)}
-          title="Thought Monitor Tunables"
-          className={`p-2 rounded-xl border border-[var(--bark-600)] transition-colors flex items-center gap-1.5 text-xs font-medium ${
-            showSettings ? 'bg-[var(--leaf)] text-slate-900 border-[var(--leaf)]' : 'bg-[var(--bark-900)] text-slate-300 hover:bg-[var(--bark-800)]'
+          title="Who answers, which model, and how it samples"
+          className={`px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1.5 text-[11px] max-w-full ${
+            showSettings
+              ? 'bg-[var(--leaf)] text-slate-900 border-[var(--leaf)]'
+              : 'bg-[var(--bark-900)] text-slate-400 border-[var(--bark-700)] hover:text-slate-200'
           }`}
         >
-          <Sliders size={14} />
-          <span>Tunables</span>
+          <Sliders size={12} className="shrink-0" />
+          <span className="truncate">
+            {personas?.find((p) => p.id === personaId)?.name ?? 'No persona'}
+            {' · '}
+            {models.find((m) => m.id === modelId)?.name ?? 'model'}
+          </span>
         </button>
 
-        {personas && personas.length > 0 && (
-          <select
-            value={personaId}
-            onChange={(e) => setPersonaId(e.target.value)}
-            title="Who answers — a named prompt and sampling configuration"
-            className="bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
-          >
-            <option value="">No persona</option>
-            {personas.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        )}
-
-        <select
-          value={modelId}
-          onChange={(e) => setModelId(e.target.value)}
-          className="bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
-        >
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name} — {m.model || m.kind || (m.isMesh ? 'mesh' : 'endpoint')}
-            </option>
-          ))}
-        </select>
-
         {showSettings && (
-          <div className="absolute top-12 right-0 z-20 w-88 bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl p-4 shadow-xl text-xs space-y-3.5 max-h-[85vh] overflow-y-auto">
+          <div className="absolute top-9 right-0 z-20 w-88 bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl p-4 shadow-xl text-xs space-y-3.5 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-[var(--bark-700)]">
-              <span className="font-semibold text-slate-200">System-Wide Model Tunables</span>
+              <span className="font-semibold text-slate-200">Who answers, and how</span>
               <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-slate-200">
                 <X size={14} />
               </button>
+            </div>
+
+            {personas && personas.length > 0 && (
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-[var(--leaf-light)] mb-1.5">Persona</div>
+                <select
+                  value={personaId}
+                  onChange={(e) => setPersonaId(e.target.value)}
+                  title="Who answers — a named prompt and sampling configuration"
+                  className="w-full bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-lg px-3 py-1.5 text-[12px] text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
+                >
+                  <option value="">No persona</option>
+                  {personas.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--leaf-light)] mb-1.5">Model</div>
+              <select
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+                className="w-full bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-lg px-3 py-1.5 text-[12px] text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} — {m.model || m.kind || (m.isMesh ? 'mesh' : 'endpoint')}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-2.5">
