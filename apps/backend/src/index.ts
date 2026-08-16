@@ -3183,9 +3183,29 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
      * ever created. Skipped in chat mode, where no leaves are in play and the tokens would be
      * spent describing work the user explicitly did not want discussed.
      */
-    const branchLeaves = branchId
-      ? (await ownedLeaves((req as any).user.id)).filter((l) => l.branchId === branchId)
-      : [];
+    /**
+     * This conversation's work, and the rest of the project's.
+     *
+     * The context used to stop at the branch, so a second conversation about the same project
+     * started blind to everything the first one built — it could not see a single finished leaf and
+     * had no way to avoid proposing the same work over again. Sibling branches are found through
+     * the tree, so an unfiled conversation correctly has none.
+     */
+    const ownAll = await ownedLeaves((req as any).user.id);
+    const branchLeaves = branchId ? ownAll.filter((l) => l.branchId === branchId) : [];
+
+    let siblingLeaves: typeof ownAll = [];
+    if (branchId) {
+      const branch = (await ownedBranches((req as any).user.id)).find((b) => b.id === branchId);
+      if (branch?.treeId) {
+        const siblingIds = new Set(
+          (await ownedBranches((req as any).user.id))
+            .filter((b) => b.treeId === branch.treeId && b.id !== branchId)
+            .map((b) => b.id),
+        );
+        siblingLeaves = ownAll.filter((l) => siblingIds.has(l.branchId));
+      }
+    }
 
     /**
      * What this turn actually runs under: built-in constants, then the adopted profile, then the
@@ -3221,6 +3241,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       lastIndex,
       prompt: explicitPlan ? PLAN_SYSTEM_PROMPT : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
       leaves: branchLeaves,
+      siblingLeaves,
       // Only when tools are actually offered — otherwise it is instructions about a capability the
       // model does not have this turn.
       ...(offerTools ? { toolPrompt: TOOL_DISCIPLINE_PROMPT } : {}),

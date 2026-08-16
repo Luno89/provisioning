@@ -1,5 +1,5 @@
 /**
- * Tells the model what work already exists on a branch.
+ * Tells the model what work already exists — on this conversation, and in the project around it.
  *
  * Without this the model is blind to its own output: it cannot reference a leaf, cannot answer
  * "what is left?", and — most visibly — proposes the same work again every turn, because from its
@@ -16,6 +16,15 @@ import type { Leaf, LeafStatus } from './leaves.js';
 
 /** Cap on how much of a branch is described. Beyond this the list stops earning its tokens. */
 export const MAX_CONTEXT_LEAVES = 40;
+
+/**
+ * Cap on how much of the REST of the project is described.
+ *
+ * Smaller than the branch's own cap on purpose: this is there to stop the model rebuilding
+ * something, which needs only titles and outcomes, whereas its own branch is the thing it is
+ * actually working on.
+ */
+export const MAX_SIBLING_LEAVES = 30;
 
 /** How each status reads to the model. Plain words, not the UI's koala vocabulary — "Munching"
  *  means nothing to a model and would burn tokens on a joke it cannot get. */
@@ -38,6 +47,47 @@ const STATUS_WORD: Record<LeafStatus, string> = {
  * model needs to know what exists and what state it is in, not to re-read every description on
  * every turn.
  */
+/**
+ * What the rest of the project has already built.
+ *
+ * ── WHY THIS EXISTS ──
+ * The context was scoped to the BRANCH, so a second conversation about the same project started
+ * completely blind: it could not see a single thing the first one had built, and the only reason it
+ * did not routinely rebuild all of it is that nobody had yet asked it to. Measured on this
+ * instance, one tree carried 26 leaves across three conversations and 6.6M tokens of finished work
+ * that a new conversation in the same tree knew nothing about.
+ *
+ * ── WHAT IS AND IS NOT LISTED ──
+ * `proposed` is excluded: an unaccepted proposal on another conversation is not work that exists,
+ * and treating it as done would block the very work it was proposing. `cancelled` is excluded for
+ * the same reason — somebody deliberately stopped it, so it is available again.
+ *
+ * `failed` IS listed, and marked. Failed work may well be worth another attempt, and the model
+ * needs to know it was already tried once — that is the difference between a fresh idea and a
+ * second run at something that did not work.
+ *
+ * Done first, because that is the list that must not be repeated.
+ */
+export function buildSiblingContext(leaves: Leaf[]): string {
+  const relevant = leaves.filter((l) => l.status === 'succeeded' || l.status === 'failed'
+    || l.status === 'running' || l.status === 'pending');
+  if (!relevant.length) return '';
+
+  const rank = (l: Leaf) => (l.status === 'succeeded' ? 0 : l.status === 'running' ? 1 : l.status === 'pending' ? 2 : 3);
+  const ordered = [...relevant].sort((a, b) => rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt));
+  const shown = ordered.slice(0, MAX_SIBLING_LEAVES);
+  const omitted = ordered.length - shown.length;
+
+  return [
+    'Work in this project, from OTHER conversations:',
+    ...shown.map((l) => `- ${l.title} [${STATUS_WORD[l.status] ?? l.status}]`),
+    ...(omitted > 0 ? [`  …and ${omitted} more`] : []),
+    '',
+    'This work already exists. Do not propose building it again. If something above failed and is'
+      + ' worth another attempt, say so explicitly rather than proposing it as new.',
+  ].join('\n');
+}
+
 export function buildLeafContext(leaves: Leaf[]): string {
   if (!leaves.length) return '';
 
@@ -98,6 +148,13 @@ export function buildOutboundMessages(opts: {
   personaPrompt?: string | undefined;
   /** Leaves already on the branch, summarised into the same system message. */
   leaves: Leaf[];
+  /**
+   * Leaves on the project's OTHER conversations.
+   *
+   * Separate from `leaves` because the two say different things: one is what this conversation has
+   * going on, the other is what it must not rebuild.
+   */
+  siblingLeaves?: Leaf[];
   /** For an explicit /plan: the message with the command stripped off. */
   planText?: string | undefined;
   /**
@@ -109,13 +166,14 @@ export function buildOutboundMessages(opts: {
    */
   toolPrompt?: string | undefined;
 }): OutboundMessage[] {
-  const { messages, lastIndex, prompt, personaPrompt, leaves, planText, toolPrompt } = opts;
+  const { messages, lastIndex, prompt, personaPrompt, leaves, siblingLeaves, planText, toolPrompt } = opts;
   if (!prompt && !toolPrompt && !personaPrompt) return messages;
 
   const context = buildLeafContext(leaves);
+  const siblings = buildSiblingContext(siblingLeaves ?? []);
   const system: OutboundMessage = {
     role: 'system',
-    content: [personaPrompt, prompt, context, toolPrompt].filter(Boolean).join('\n\n'),
+    content: [personaPrompt, prompt, context, siblings, toolPrompt].filter(Boolean).join('\n\n'),
   };
 
   if (planText === undefined) return [system, ...messages];
