@@ -3,7 +3,10 @@ import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
   GitBranch, Coins, MessageSquare, RotateCcw,
 } from 'lucide-react';
-import { needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago } from './home-summary.js';
+import {
+  needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago,
+  settledBranches, outstandingWork,
+} from './home-summary.js';
 import { STATE_DOT, STATE_LABEL, STATE_STYLE, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
 
@@ -59,7 +62,18 @@ export default function Home({
    * The cap exists at the top level, where six is a digest of everything you own. Inside one
    * project, hiding the seventh failure behind nothing would make the page quietly incomplete.
    */
-  const attention = tree ? needsYou(scoped.leaves) : needsYou(scoped.leaves).slice(0, 6);
+  /**
+   * Urgent, and merely owed, are different lists.
+   *
+   * A failure from a run that finished last night is a decision to make; one from a conversation
+   * still in flight has just broken. They looked identical, so three overnight failures sat at the
+   * top of the page all day with no way to clear them except deleting the leaf.
+   */
+  const settled = settledBranches(scoped.branches, scoped.leaves);
+  const attention = tree
+    ? needsYou(scoped.leaves, settled)
+    : needsYou(scoped.leaves, settled).slice(0, 6);
+  const owed = outstandingWork(scoped.branches, scoped.leaves);
   const live = running(scoped.leaves);
   const recent = changedSince(scoped.leaves, lastSeen).slice(0, 6);
   const rollups = treeRollups(trees, branches, leaves);
@@ -70,7 +84,7 @@ export default function Home({
    * something that exists. Each item gets one home: the actionable list wins, because it carries
    * the button.
    */
-  const shownAbove = new Set(attention.map((a) => a.leaf.id));
+  const shownAbove = new Set([...attention.map((a) => a.leaf.id), ...owed.map((o) => o.leaf.id)]);
   const work = tree
     ? groupWork(scoped.leaves.filter((l) => !shownAbove.has(l.id))).filter((g) => g.leaves.length > 0)
     : [];
@@ -222,6 +236,37 @@ export default function Home({
                 </button>
               );
             })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Owed by finished runs ── */}
+      {owed.length > 0 && (
+        <section>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+            Attempted, not delivered · {owed.length}
+          </h3>
+          <p className="text-[11px] text-slate-600 mb-2">
+            From runs that have finished. Ask Koala above to pick any of these up again — it knows what
+            was tried.
+          </p>
+          <div className="space-y-1.5">
+            {owed.map(({ leaf, from, attempts }) => (
+              <button
+                key={leaf.id}
+                onClick={() => onOpenLeaf(leaf)}
+                className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl border border-[var(--bark-600)] bg-[var(--bark-800)]/60 hover:border-[var(--bark-500)]"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500/50 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] text-slate-300 truncate">{leaf.title}</div>
+                  <div className="text-[11px] text-slate-600 truncate">
+                    {attempts > 0 ? `${attempts} attempt${attempts === 1 ? '' : 's'} · ` : ''}from “{from}”
+                  </div>
+                </div>
+                <ArrowRight size={13} className="text-slate-700 shrink-0" />
+              </button>
+            ))}
           </div>
         </section>
       )}

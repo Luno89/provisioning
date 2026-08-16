@@ -12,6 +12,51 @@ import { stateFor, type Leaf, type LeafState } from './leaf-types.js';
  * Everything here is derived from records the platform already writes. Nothing new is stored.
  */
 
+/**
+ * Branches with nothing left that can move on its own.
+ *
+ * Mirrors `settlementOf` in apps/backend/src/lib/branch-settlement.ts — the frontend cannot import
+ * backend modules, and the pair is asserted in that side's mirror test.
+ */
+const LIVE_STATUS = new Set(['proposed', 'pending', 'running']);
+
+export function settledBranches(
+  branches: { id: string }[],
+  leaves: Leaf[],
+): Set<string> {
+  const settled = new Set<string>();
+  for (const b of branches) {
+    const mine = leaves.filter((l) => l.branchId === b.id);
+    // An empty conversation has not finished, it has not started.
+    if (mine.length > 0 && !mine.some((l) => LIVE_STATUS.has(l.status))) settled.add(b.id);
+  }
+  return settled;
+}
+
+/**
+ * Work attempted and not delivered, once its run is over.
+ *
+ * ── WHY IT IS NOT "NEEDS YOU" ──
+ * A failure from a run that finished last night is a decision to make, not an emergency to react
+ * to. Leaving it in the urgent list meant the page looked equally alarmed about something that
+ * broke a minute ago and something nobody had cleared in a day — measured here, three of them sat
+ * at the top of the page overnight with no way to resolve them except deleting the leaf.
+ */
+export function outstandingWork(
+  branches: { id: string; title: string }[],
+  leaves: Leaf[],
+): { leaf: Leaf; from: string; attempts: number }[] {
+  const settled = settledBranches(branches, leaves);
+  return leaves
+    .filter((l) => l.status === 'failed' && settled.has(l.branchId))
+    .map((leaf) => ({
+      leaf,
+      from: branches.find((b) => b.id === leaf.branchId)?.title ?? '',
+      attempts: Array.isArray(leaf.attempts) ? leaf.attempts.length : 0,
+    }))
+    .sort((a, b) => b.attempts - a.attempts);
+}
+
 export interface Attention {
   leaf: Leaf;
   /** Why it is on the list, which decides what the button does. */
@@ -25,9 +70,10 @@ export interface Attention {
  * that is owed. Within failures, the most-attempted first — a leaf on its third attempt is the one
  * least likely to fix itself.
  */
-export function needsYou(leaves: Leaf[]): Attention[] {
+export function needsYou(leaves: Leaf[], settled: Set<string> = new Set()): Attention[] {
   const count = (l: Leaf) => (Array.isArray(l.attempts) ? l.attempts.length : 0);
-  const failed = leaves.filter((l) => l.status === 'failed')
+  // A failure whose run is over belongs to the project, not to this list — see outstandingWork.
+  const failed = leaves.filter((l) => l.status === 'failed' && !settled.has(l.branchId))
     .sort((a, b) => count(b) - count(a))
     .map((leaf): Attention => ({ leaf, reason: 'failed' }));
   const proposed = leaves.filter((l) => l.status === 'proposed')

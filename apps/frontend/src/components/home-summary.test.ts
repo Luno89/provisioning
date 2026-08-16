@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { needsYou, running, changedSince, treeRollups, ago, scopeToTree, groupWork } from './home-summary.js';
+import { needsYou, running, changedSince, treeRollups, ago, scopeToTree, groupWork, settledBranches, outstandingWork } from './home-summary.js';
 import type { Leaf } from './leaf-types.js';
 
 /**
@@ -216,5 +216,69 @@ describe('grouping a project\'s work', () => {
 
   it('leaves cancelled work out entirely', () => {
     expect(groupWork([leaf({ status: 'cancelled' })])).toEqual([]);
+  });
+});
+
+
+describe('a run that is over', () => {
+  const branches = [{ id: 'b1', title: 'Last night\'s run' }, { id: 'b2', title: 'Live run' }];
+
+  it('is settled when nothing on it can move by itself', () => {
+    const settled = settledBranches(branches, [
+      leaf({ branchId: 'b1', status: 'succeeded' }),
+      leaf({ branchId: 'b1', status: 'failed' }),
+      leaf({ branchId: 'b2', status: 'running' }),
+    ]);
+    expect([...settled]).toEqual(['b1']);
+  });
+
+  it('is not settled while a proposal awaits a decision', () => {
+    // It cannot move without a person, but it is waiting ON you — not finished.
+    expect([...settledBranches(branches, [leaf({ branchId: 'b1', status: 'proposed' })])]).toEqual([]);
+  });
+
+  it('does not call an empty conversation finished', () => {
+    // Otherwise every brand-new chat is filed as a completed run that achieved nothing.
+    expect([...settledBranches(branches, [])]).toEqual([]);
+  });
+
+  it('moves its failures out of the urgent list', () => {
+    /**
+     * The behaviour this whole split exists for. Three failures from the previous night sat at the
+     * top of the page all day, looking exactly as urgent as something that had broken a minute ago,
+     * with no way to clear them except deleting the leaf.
+     */
+    const leaves = [
+      leaf({ id: 'old', branchId: 'b1', status: 'failed' }),
+      leaf({ id: 'new', branchId: 'b2', status: 'failed' }),
+      leaf({ id: 'live', branchId: 'b2', status: 'running' }),
+    ];
+    const settled = settledBranches(branches, leaves);
+    expect(needsYou(leaves, settled).map((a) => a.leaf.id)).toEqual(['new']);
+    expect(outstandingWork(branches, leaves).map((o) => o.leaf.id)).toEqual(['old']);
+  });
+
+  it('says which run the outstanding work came from', () => {
+    // Without provenance you cannot judge whether a retry is worth it, or what it was part of.
+    const leaves = [leaf({ id: 'old', branchId: 'b1', status: 'failed',
+      attempts: [{ attempt: 0, error: 'e', failedAt: '' }, { attempt: 1, error: 'e', failedAt: '' }] })];
+    const [out] = outstandingWork(branches, leaves);
+    expect(out!.from).toBe("Last night's run");
+    expect(out!.attempts).toBe(2);
+  });
+
+  it('leaves cancelled work alone', () => {
+    // Stopped on purpose. Listing it as owed re-opens a decision somebody already made.
+    const leaves = [leaf({ branchId: 'b1', status: 'cancelled' })];
+    expect(outstandingWork(branches, leaves)).toEqual([]);
+  });
+
+  it('does not treat a failure from a still-running conversation as settled', () => {
+    // Its run may yet retry it. Lifting it to the project would be premature.
+    const leaves = [
+      leaf({ id: 'f', branchId: 'b2', status: 'failed' }),
+      leaf({ id: 'r', branchId: 'b2', status: 'running' }),
+    ];
+    expect(outstandingWork(branches, leaves)).toEqual([]);
   });
 });

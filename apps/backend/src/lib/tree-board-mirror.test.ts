@@ -123,6 +123,25 @@ describe('the board rule, on both sides of the wire', () => {
     expect(frontendSource.includes('usageTotal?:')).toBe(false);
   });
 
+  it('agrees on when a run is over', () => {
+    /**
+     * `settledBranches` in the frontend's home-summary.ts is a hand-copy of the LIVE set in
+     * branch-settlement.ts. If they drift, the two sides disagree about whether a failure is an
+     * emergency or a decision — the browser would keep showing a settled run's failures as urgent
+     * while the planner had already moved on from them, and nothing would fail.
+     */
+    const ours = readFileSync(join(here, 'branch-settlement.ts'), 'utf8');
+    const theirs = readFileSync(join(here, '../../../frontend/src/components/home-summary.ts'), 'utf8');
+
+    const statuses = (src: string, decl: string) => {
+      const at = src.indexOf(decl);
+      expect(at, `could not find ${decl} — the mirror check is not running`).toBeGreaterThan(-1);
+      return [...src.slice(at, src.indexOf(']', at)).matchAll(/'(\w+)'/g)].map((m) => m[1]!).sort();
+    };
+
+    expect(statuses(theirs, 'const LIVE_STATUS = new Set([')).toEqual(statuses(ours, 'const LIVE = new Set(['));
+  });
+
   it('has retired the themed vocabulary rather than moving it', () => {
     /**
      * Named explicitly so bringing them back is a decision. These are the words that had one leaf

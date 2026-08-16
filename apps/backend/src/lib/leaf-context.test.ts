@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildSiblingContext, MAX_SIBLING_LEAVES, buildLeafContext, MAX_CONTEXT_LEAVES , buildOutboundMessages } from './leaf-context.js';
-import type { Leaf } from './leaves.js';
+import type { Branch, Leaf } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'Do a thing',
@@ -157,66 +157,103 @@ describe('a persona in the system message', () => {
 });
 
 
-describe('what the rest of the project has already built', () => {
+const branch = (over: Partial<Branch> = {}): Branch => ({
+  id: 'b2', ownerId: 'u1', title: 'Earlier run', messages: [],
+  createdAt: '2026-08-03T00:00:00Z', updatedAt: '2026-08-03T00:00:00Z',
+  ...over,
+} as Branch);
+
+describe('where the project stands', () => {
   /**
    * ── THE FAILURE THIS PREVENTS ──
    * The context stopped at the branch, so a second conversation about the same project began blind
-   * to every leaf the first one had finished. Measured on this instance: one tree held 26 leaves
-   * across three conversations and 6.6M tokens of completed work that a new conversation could not
-   * see and had no reason not to build again.
+   * to every leaf the first one had finished — 26 of them and 6.6M tokens, on this instance.
+   *
+   * The first fix dumped those titles in. This one distinguishes a run that FINISHED from one still
+   * going, because a failure from last night is a decision to make, not an emergency to react to.
    */
   const sibling = (over: Partial<Leaf>) => leaf({ branchId: 'b2', ...over });
 
   it('is empty when the project has no other conversations', () => {
-    // A first conversation, or an unfiled one, must carry no dead weight.
-    expect(buildSiblingContext([])).toBe('');
+    expect(buildSiblingContext([], [])).toBe('');
   });
 
-  it('lists finished work so it is not built twice', () => {
-    const ctx = buildSiblingContext([sibling({ title: 'Add the HTTP client', status: 'succeeded' })]);
+  it('collapses a finished run to a line and lists what it built', () => {
+    const ctx = buildSiblingContext(
+      [branch()],
+      [sibling({ title: 'Add the HTTP client', status: 'succeeded', verified: true })],
+    );
+    expect(ctx).toContain('Finished runs in this project:');
+    expect(ctx).toContain('Earlier run');
+    expect(ctx).toContain('Already built (do not build these again):');
     expect(ctx).toContain('Add the HTTP client');
-    expect(ctx).toContain('done');
-    expect(ctx).toMatch(/do not propose building it again/i);
   });
 
-  it('does NOT list an unaccepted proposal from another conversation', () => {
+  it('lifts work that was not delivered into a decision, with its attempt count', () => {
     /**
-     * The one that would cause harm in the opposite direction. A proposal is not work that exists;
-     * listing it as though it were would tell the model the job is handled and stop the very work
-     * the proposal was asking for — a deadlock nobody would think to look for.
+     * The whole point. A failure stops being a permanent row in somebody else's branch and becomes
+     * something the next planning turn has to weigh — and it can only weigh it if it knows the
+     * thing has already been tried twice.
      */
-    expect(buildSiblingContext([sibling({ title: 'Not agreed yet', status: 'proposed' })])).toBe('');
-  });
-
-  it('does not list cancelled work, which is available again', () => {
-    // Somebody deliberately stopped it. Treating that as done makes the decision irreversible.
-    expect(buildSiblingContext([sibling({ title: 'Abandoned', status: 'cancelled' })])).toBe('');
-  });
-
-  it('lists failed work AND marks it as failed', () => {
-    /**
-     * Failed work may well deserve another attempt, so it must not read as done — but proposing it
-     * as though it were a fresh idea hides that it has already been tried once.
-     */
-    const ctx = buildSiblingContext([sibling({ title: 'Flaky thing', status: 'failed' })]);
+    const ctx = buildSiblingContext([branch()], [sibling({
+      title: 'Flaky thing', status: 'failed',
+      attempts: [{ attempt: 0, error: 'e', failedAt: '' }, { attempt: 1, error: 'e', failedAt: '' }],
+    })]);
+    expect(ctx).toContain('Attempted in this project and NOT delivered:');
     expect(ctx).toContain('Flaky thing');
-    expect(ctx).toContain('failed');
-    expect(ctx).toMatch(/say so explicitly rather than proposing it as new/i);
+    expect(ctx).toContain('2 attempts');
+    expect(ctx).toContain('Earlier run');
+    expect(ctx).toMatch(/say that it is a retry/i);
+    // It is NOT presented as already built, or the retry could never happen.
+    expect(ctx).not.toMatch(/Already built[\s\S]*Flaky thing/);
   });
 
-  it('puts finished work first, because that is the list that must not be repeated', () => {
-    const ctx = buildSiblingContext([
-      sibling({ id: 'a', title: 'Tried and failed', status: 'failed' }),
-      sibling({ id: 'b', title: 'Actually done', status: 'succeeded' }),
+  it('describes a conversation still in flight leaf by leaf', () => {
+    /**
+     * The one case where detail earns its tokens: a sibling has to know what is being worked on
+     * right now to stay out of its way, and a finished-run summary does not exist yet.
+     */
+    const ctx = buildSiblingContext([branch({ title: 'Live run' })], [
+      sibling({ id: 'a', title: 'Being built now', status: 'running' }),
     ]);
-    expect(ctx.indexOf('Actually done')).toBeLessThan(ctx.indexOf('Tried and failed'));
+    expect(ctx).toContain('Being worked on right now, in another conversation:');
+    expect(ctx).toContain('Being built now');
+    expect(ctx).toContain('Live run');
+    expect(ctx).toMatch(/Do not start any of these/i);
+    // A live run has no outcome, so it must not be reported as finished.
+    expect(ctx).not.toContain('Finished runs in this project:');
   });
 
-  it('caps the list and says how much it left out', () => {
+  it('does NOT present an unaccepted proposal as existing work', () => {
+    /**
+     * Harm in the opposite direction. A proposal is not work that exists; listing it as built would
+     * tell the model the job is handled and stop the very work it was proposing — a deadlock nobody
+     * would think to look for. It also keeps the run unsettled, which is correct: it is waiting on
+     * a person.
+     */
+    const ctx = buildSiblingContext([branch()], [sibling({ title: 'Not agreed yet', status: 'proposed' })]);
+    expect(ctx).not.toContain('Already built');
+    expect(ctx).not.toContain('Finished runs');
+  });
+
+  it('does not owe anything for work that was cancelled', () => {
+    // Stopped deliberately. Re-proposing it would undo that decision on somebody's behalf.
+    const ctx = buildSiblingContext([branch()], [sibling({ title: 'Abandoned', status: 'cancelled' })]);
+    expect(ctx).not.toContain('NOT delivered');
+    expect(ctx).not.toContain('Abandoned');
+  });
+
+  it('treats an unchecked claim as built rather than owed', () => {
+    const ctx = buildSiblingContext([branch()], [sibling({ title: 'Probably fine', status: 'succeeded', verified: false })]);
+    expect(ctx).toMatch(/Already built[\s\S]*Probably fine/);
+    expect(ctx).not.toContain('NOT delivered');
+  });
+
+  it('caps the built list and counts what it left out', () => {
     // Silently truncating would have the model believe the project is smaller than it is.
     const many = Array.from({ length: MAX_SIBLING_LEAVES + 5 }, (_, i) =>
-      sibling({ id: `s${i}`, title: `Thing ${i}`, status: 'succeeded' }));
-    expect(buildSiblingContext(many)).toContain('…and 5 more');
+      sibling({ id: `s${i}`, title: `Thing ${i}`, status: 'succeeded', verified: true }));
+    expect(buildSiblingContext([branch()], many)).toContain('…and 5 more');
   });
 });
 
@@ -233,11 +270,12 @@ describe('the two lists reaching the model', () => {
       prompt: 'PLAN',
       leaves: [leaf({ title: 'Mine', status: 'running' })],
       siblingLeaves: [leaf({ id: 'x', branchId: 'b2', title: 'Theirs', status: 'succeeded' })],
+      siblingBranches: [branch()],
     });
     const system = String(out[0]!.content);
     expect(system).toContain('Work already tracked on this branch:');
     expect(system).toContain('Mine');
-    expect(system).toContain('Work in this project, from OTHER conversations:');
+    expect(system).toContain('Already built (do not build these again):');
     expect(system).toContain('Theirs');
     // Still exactly one system message, and first — chat templates reject anything else outright.
     expect(out.filter((m) => m.role === 'system')).toHaveLength(1);
@@ -251,6 +289,7 @@ describe('the two lists reaching the model', () => {
       prompt: 'PLAN',
       leaves: [leaf({ title: 'Mine' })],
     });
-    expect(String(out[0]!.content)).not.toContain('OTHER conversations');
+    expect(String(out[0]!.content)).not.toContain('Already built');
+    expect(String(out[0]!.content)).not.toContain('Finished runs');
   });
 });

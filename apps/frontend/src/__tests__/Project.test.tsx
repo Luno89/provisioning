@@ -68,14 +68,33 @@ describe("a project's screen", () => {
     await waitFor(() => expect(screen.getByText('1 left')).toBeInTheDocument());
   });
 
-  it('puts what is owed above what is done, and says it once', async () => {
+  it('separates a failure that just broke from one a finished run left behind', async () => {
     /**
-     * A failure buried under twenty green rows is a failure nobody acts on — so it goes to the top,
-     * with its button. And exactly once: it used to appear again in the inventory below, so one
-     * screen listed the same leaf twice.
+     * The distinction the page turns on. A failure from a conversation still in flight has just
+     * broken; one from a run that finished last night is a decision to make. They rendered
+     * identically, so three overnight failures sat at the top of the page all day with no way to
+     * clear them except deleting the leaf.
      */
-    show([leaf({ id: 'f', title: 'Broken thing', status: 'failed' })]);
+    show([
+      // b1 has nothing live, so its failure is owed rather than urgent.
+      leaf({ id: 'old', title: 'Left behind', branchId: 'b1', status: 'failed' }),
+      // b2 is still going, so its failure is live.
+      leaf({ id: 'new', title: 'Just broke', branchId: 'b2', status: 'failed' }),
+      leaf({ id: 'live', title: 'Still going', branchId: 'b2', status: 'running' }),
+    ]);
     await waitFor(() => expect(screen.getByText(/Needs you/i)).toBeInTheDocument());
+    expect(screen.getByText(/Attempted, not delivered/i)).toBeInTheDocument();
+
+    // Each appears exactly once, in the right list.
+    expect(screen.getAllByText('Just broke')).toHaveLength(1);
+    expect(screen.getAllByText('Left behind')).toHaveLength(1);
+    expect(screen.getByText(/from .Build the server./)).toBeInTheDocument();
+  });
+
+  it('says a thing once, not in two lists at the same time', async () => {
+    // It used to appear again in the inventory below, so one screen listed the same leaf twice.
+    show([leaf({ id: 'f', title: 'Broken thing', branchId: 'b1', status: 'failed' })]);
+    await waitFor(() => expect(screen.getByText(/Attempted, not delivered/i)).toBeInTheDocument());
     expect(screen.getAllByText('Broken thing')).toHaveLength(1);
   });
 
@@ -125,5 +144,7 @@ describe("a project's screen", () => {
     expect(screen.getByText(/Verified · 1/)).toBeInTheDocument();
     expect(screen.queryByText(/Blocked ·/)).not.toBeInTheDocument();
     expect(screen.getAllByText('Broken')).toHaveLength(1);
+    // And it is not in the inventory: a settled failure lives in the owed list.
+    expect(screen.queryByText(/Failed ·/)).not.toBeInTheDocument();
   });
 });

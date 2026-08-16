@@ -3195,14 +3195,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const branchLeaves = branchId ? ownAll.filter((l) => l.branchId === branchId) : [];
 
     let siblingLeaves: typeof ownAll = [];
+    let siblingBranches: Awaited<ReturnType<typeof ownedBranches>> = [];
     if (branchId) {
-      const branch = (await ownedBranches((req as any).user.id)).find((b) => b.id === branchId);
+      const all = await ownedBranches((req as any).user.id);
+      const branch = all.find((b) => b.id === branchId);
       if (branch?.treeId) {
-        const siblingIds = new Set(
-          (await ownedBranches((req as any).user.id))
-            .filter((b) => b.treeId === branch.treeId && b.id !== branchId)
-            .map((b) => b.id),
-        );
+        siblingBranches = all.filter((b) => b.treeId === branch.treeId && b.id !== branchId);
+        const siblingIds = new Set(siblingBranches.map((b) => b.id));
         siblingLeaves = ownAll.filter((l) => siblingIds.has(l.branchId));
       }
     }
@@ -3242,6 +3241,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       prompt: explicitPlan ? PLAN_SYSTEM_PROMPT : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
       leaves: branchLeaves,
       siblingLeaves,
+      siblingBranches,
       // Only when tools are actually offered — otherwise it is instructions about a capability the
       // model does not have this turn.
       ...(offerTools ? { toolPrompt: TOOL_DISCIPLINE_PROMPT } : {}),
