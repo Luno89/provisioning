@@ -11,6 +11,7 @@ import LeafDetail from './LeafDetail.js';
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './leaf-types.js';
 import { type Message } from './Chat.js';
 import { KoalaSpot } from './Koala.js';
+import { parseHash, formatHash, shouldReplace } from '../lib/route.js';
 
 /**
  * The harness, arranged the way its data actually is.
@@ -62,10 +63,16 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
    * project you were in is the default anyone expects, and losing it was one of the costs of having
    * no routing at all.
    */
-  const [openTree, setOpenTree] = useState<string>(() => localStorage.getItem('grove-tree') ?? '');
-  const [selected, setSelected] = useState<{ kind: 'tree' | 'branch' | 'leaf'; id: string }>(
-    () => ({ kind: 'tree', id: localStorage.getItem('grove-tree') ?? '' }),
-  );
+  const fromUrl = parseHash(window.location.hash);
+  const urlPath = fromUrl?.view === 'grove' ? fromUrl.path : [];
+  const [openTree, setOpenTree] = useState<string>(() => urlPath[0] ?? localStorage.getItem('grove-tree') ?? '');
+  const [selected, setSelected] = useState<{ kind: 'tree' | 'branch' | 'leaf'; id: string }>(() => {
+    // Deepest wins: a link to a leaf opens that leaf, not the tree containing it.
+    if (urlPath[2]) return { kind: 'leaf', id: urlPath[2] };
+    if (urlPath[1]) return { kind: 'branch', id: urlPath[1] };
+    return { kind: 'tree', id: urlPath[0] ?? localStorage.getItem('grove-tree') ?? '' };
+  });
+
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [railClosed, setRailClosed] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
@@ -171,6 +178,27 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
     ? branchRecords.find((b) => b.id === selected.id)
     : undefined;
   const scopeTree = trees.find((t) => t.id === openTree);
+
+  /**
+   * The address of what is open: #/grove/<tree>/<branch>/<leaf>.
+   *
+   * A leaf carries its BRANCH in the middle segment even though nothing selected it — the segments
+   * are positional, so omitting it would shift the leaf id into the branch slot and a shared link
+   * would open the wrong thing entirely.
+   *
+   * Moving within a tree replaces the history entry rather than pushing one: clicking six cards and
+   * then wanting out should be one Back press, not six.
+   */
+  useEffect(() => {
+    const branchId = selected.kind === 'branch' ? selected.id : selectedLeaf?.branchId ?? '';
+    const path = [openTree, branchId, selected.kind === 'leaf' ? selected.id : ''];
+    const hash = formatHash('grove', path);
+    if (window.location.hash === hash) return;
+    const current = parseHash(window.location.hash);
+    const next = { view: 'grove', path: path.filter(Boolean) };
+    if (shouldReplace(current, next)) window.history.replaceState(null, '', hash);
+    else window.history.pushState(null, '', hash);
+  }, [openTree, selected, selectedLeaf]);
 
   const renderLeaf = (leaf: Leaf, depth: number) => {
     const kids = childrenOf(leaf.id);

@@ -14,6 +14,7 @@ import GameServerSettings from './components/GameServerSettings.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
 import Grove from './components/Grove.js';
+import { parseHash, formatHash, shouldReplace, type Route } from './lib/route.js';
 import MeshDevices from './components/MeshDevices.js';
 import Workspace from './components/Workspace.js';
 import TreesView from './components/Trees.js';
@@ -221,7 +222,43 @@ function App() {
   const [forestOpen, setForestOpen] = useState(true);
   /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
   const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees' | 'personas' | 'grove'>('clusters');
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees' | 'personas' | 'grove'>(
+    // The URL wins on load, so a refresh keeps your place and a link opens where it points.
+    () => (parseHash(window.location.hash)?.view as any) ?? 'clusters',
+  );
+
+  /**
+   * The URL, kept in step with the view.
+   *
+   * Grove owns the ids under its own view — it writes them itself as the selection moves — so this
+   * only carries the view name and leaves whatever path is already there alone when it matches.
+   */
+  const routeRef = useRef<Route | undefined>(parseHash(window.location.hash));
+  useEffect(() => {
+    const current = parseHash(window.location.hash);
+    if (current?.view === view) { routeRef.current = current; return; }
+    const next: Route = { view, path: [] };
+    const hash = formatHash(view);
+    if (shouldReplace(routeRef.current, next)) window.history.replaceState(null, '', hash);
+    else window.history.pushState(null, '', hash);
+    routeRef.current = next;
+  }, [view]);
+
+  // Back and Forward. Without this the buttons left the application entirely, because nothing had
+  // ever pushed an entry.
+  useEffect(() => {
+    const onPop = () => {
+      const r = parseHash(window.location.hash);
+      routeRef.current = r;
+      if (r?.view) setView(r.view as any);
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('hashchange', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('hashchange', onPop);
+    };
+  }, []);
   const [user, setUser] = useState<any>(
     import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
       ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
