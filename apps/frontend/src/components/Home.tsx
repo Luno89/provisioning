@@ -1,48 +1,85 @@
-import { useState } from 'react';
-import { AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles } from 'lucide-react';
-import { needsYou, running, changedSince, treeRollups, ago } from './home-summary.js';
-import { STATE_DOT, STATE_LABEL, stateFor, type Leaf } from './leaf-types.js';
+import { useState, Fragment } from 'react';
+import {
+  AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
+  GitBranch, Coins, MessageSquare, RotateCcw,
+} from 'lucide-react';
+import { needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago } from './home-summary.js';
+import { STATE_DOT, STATE_LABEL, STATE_STYLE, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
 
 /**
- * Koala's landing page.
+ * Koala's screen — everything you own, or one project.
  *
- * ── WHY IT REPLACED A BRANCH LIST ──
+ * ── WHY IT REPLACED A BRANCH LIST, AND THEN A BOARD ──
  * The harness opened on a list of conversations beside an empty pane reading "Select a branch or
- * leaf" — a navigator with no destination, and about a thousand pixels of nothing. That is the
- * wrong shape for a product that works unattended: the question you arrive with, having been away,
- * is "what happened and what needs me", and a file tree answers neither.
+ * leaf" — a navigator with no destination. That is the wrong shape for a product that works
+ * unattended: the question you arrive with, having been away, is "what happened and what needs me".
+ *
+ * Choosing a tree then opened a six-column board, and that was the wrong answer for the same
+ * reason. Columns show exactly ONE attribute — state — which every row already carries, and they
+ * spend the whole width doing it; on a finished tree five of the six stood empty. What was actually
+ * worth keeping was the rollup, the per-leaf detail, and somewhere to talk about the project. So a
+ * project is this same screen, scoped, with the work as a grouped list.
  *
  * ── THE ORDER IS THE ARGUMENT ──
- * Start a thing, because that is the primary verb and it used to be three clicks deep — a tree, a
- * new conversation, then a box. Then what is owed, because unattended work fails unattended. Then
- * what is running, because it is the only thing that moves while you watch. Then what changed since
- * you last looked, because you were not here. Trees are last: they are where you go when nothing
- * above needed you.
+ * Say something, because that is the primary verb and it used to be three clicks deep. Then what is
+ * owed, because unattended work fails unattended. Then what is running, because it is the only
+ * thing that moves while you watch. Then what changed while you were away. Then the work itself.
  *
  * Nothing here is stored. Every figure is derived from records the platform already writes.
  */
 export default function Home({
-  leaves, branches, trees, lastSeen, onStart, onOpenLeaf, onOpenTree, starting,
+  leaves, branches, trees, tree, lastSeen, personaNames = {},
+  onStart, onOpenLeaf, onOpenTree, onOpenBranch, starting,
 }: {
   leaves: Leaf[];
   branches: { id: string; title: string; treeId?: string }[];
   trees: { id: string; name: string }[];
-  /** When this page was last looked at, for "since you were away". */
+  /** The project in view. Absent means everything you own. */
+  tree?: { id: string; name: string; goal?: string } | undefined;
   lastSeen?: string | undefined;
+  /** Who did the work. An id tells nobody anything, so the rows carry the name. */
+  personaNames?: Record<string, string>;
   onStart: (treeId: string, prompt: string) => void;
   onOpenLeaf: (leaf: Leaf) => void;
   onOpenTree: (treeId: string) => void;
+  onOpenBranch?: (branchId: string) => void;
   starting?: boolean;
 }) {
   const [prompt, setPrompt] = useState('');
-  const [treeId, setTreeId] = useState(() => localStorage.getItem('grove-tree') ?? trees[0]?.id ?? '');
+  const [pickedTree, setPickedTree] = useState(() => localStorage.getItem('grove-tree') ?? trees[0]?.id ?? '');
 
-  const attention = needsYou(leaves);
-  const live = running(leaves);
-  const recent = changedSince(leaves, lastSeen).slice(0, 6);
+  // Scoped or not, every section below reads from the same pair.
+  const scoped = tree ? scopeToTree(tree.id, branches, leaves) : { branches, leaves };
+  const treeId = tree?.id ?? pickedTree;
+
+  /**
+   * Scoped, every failure is shown with its action rather than capped.
+   *
+   * The cap exists at the top level, where six is a digest of everything you own. Inside one
+   * project, hiding the seventh failure behind nothing would make the page quietly incomplete.
+   */
+  const attention = tree ? needsYou(scoped.leaves) : needsYou(scoped.leaves).slice(0, 6);
+  const live = running(scoped.leaves);
+  const recent = changedSince(scoped.leaves, lastSeen).slice(0, 6);
   const rollups = treeRollups(trees, branches, leaves);
+  /**
+   * The inventory, minus whatever is already above it.
+   *
+   * A failed leaf otherwise appeared twice on one screen — once as something to do, once as
+   * something that exists. Each item gets one home: the actionable list wins, because it carries
+   * the button.
+   */
+  const shownAbove = new Set(attention.map((a) => a.leaf.id));
+  const work = tree
+    ? groupWork(scoped.leaves.filter((l) => !shownAbove.has(l.id))).filter((g) => g.leaves.length > 0)
+    : [];
   const branchOf = (id: string) => branches.find((b) => b.id === id)?.title ?? '';
+
+  // The project's own totals, counted the same way everywhere else counts them.
+  const mine = tree ? rollups.find((r) => r.id === tree.id) : undefined;
+  const spent = scoped.leaves.reduce((sum, l) => sum + (l.usage?.tokens ?? 0), 0);
+  const retried = scoped.leaves.filter((l) => (Array.isArray(l.attempts) ? l.attempts.length : 0) > 1).length;
 
   const submit = () => {
     const text = prompt.trim();
@@ -51,34 +88,63 @@ export default function Home({
     onStart(treeId, text);
   };
 
+  const leafRow = (leaf: Leaf, key?: string) => {
+    const state = stateFor(leaf, leaves);
+    return (
+      <button
+        key={key ?? leaf.id}
+        onClick={() => onOpenLeaf(leaf)}
+        className="w-full text-left flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-[var(--bark-800)] text-[12px] group"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${state ? STATE_DOT[state] : 'bg-slate-700'}`} />
+        <span className="text-slate-300 truncate flex-1">{leaf.title}</span>
+        {(Array.isArray(leaf.attempts) ? leaf.attempts.length : 0) > 1 && (
+          <span className="text-amber-400/70 shrink-0">{(leaf.attempts as unknown[]).length} attempts</span>
+        )}
+        {leaf.personaId && <span className="text-slate-500 shrink-0">{personaNames[leaf.personaId] ?? 'persona'}</span>}
+        {leaf.merged && <span className="text-[var(--leaf)]/70 shrink-0">merged</span>}
+        {leaf.usage?.tokens ? <span className="text-slate-600 shrink-0">{Math.round(leaf.usage.tokens / 1000)}k</span> : null}
+        <span className="text-slate-700 shrink-0 w-16 text-right">{ago(leaf.updatedAt)}</span>
+      </button>
+    );
+  };
+
   return (
     <div className="max-w-4xl mx-auto py-6 space-y-8 overflow-y-auto h-full pr-2">
-      {/* ── Start something ── */}
+      {/* ── Say something ── */}
       <section>
-        <div className="flex items-center gap-2.5 mb-3">
+        <div className="flex items-center gap-2.5 mb-1">
           <KoalaSpot size={30} mood="happy" />
-          <h2 className="text-xl font-bold">What should Koala build?</h2>
+          <h2 className="text-xl font-bold truncate">{tree ? tree.name : 'What should Koala build?'}</h2>
         </div>
+        {tree?.goal && <p className="text-[13px] text-slate-400 mb-3 ml-10">{tree.goal}</p>}
+        {!tree && <div className="mb-3" />}
+
         <div className="rounded-2xl border border-[var(--bark-600)] bg-[var(--bark-800)] p-3">
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
             rows={3}
-            placeholder="Describe what you want made. Koala will break it into leaves and ask before it runs anything."
+            placeholder={tree
+              ? `Ask for more work on ${tree.name}, or ask about what is already there.`
+              : 'Describe what you want made. Koala will break it into leaves and ask before it runs anything.'}
             className="w-full bg-transparent text-[13px] text-slate-200 placeholder:text-slate-600 focus:outline-none resize-none leading-relaxed"
           />
           <div className="flex items-center gap-2 pt-2 border-t border-[var(--bark-700)]">
-            <span className="text-[11px] text-slate-500">in</span>
-            {/* The tree is chosen HERE rather than after the fact: a conversation filed under nothing
-                is how twenty-seven repositories came to exist with one build between them. */}
-            <select
-              value={treeId}
-              onChange={(e) => setTreeId(e.target.value)}
-              className="bg-[var(--bark-900)] border border-[var(--bark-700)] rounded-lg px-2 py-1 text-[12px] text-slate-300 focus:border-[var(--leaf)] focus:outline-none"
-            >
-              {trees.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            {/* Scoped, the project IS the answer — a picker would only offer a way to get it wrong. */}
+            {!tree && (
+              <>
+                <span className="text-[11px] text-slate-500">in</span>
+                <select
+                  value={pickedTree}
+                  onChange={(e) => setPickedTree(e.target.value)}
+                  className="bg-[var(--bark-900)] border border-[var(--bark-700)] rounded-lg px-2 py-1 text-[12px] text-slate-300 focus:border-[var(--leaf)] focus:outline-none"
+                >
+                  {trees.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </>
+            )}
             <button
               onClick={submit}
               disabled={!prompt.trim() || !treeId || starting}
@@ -93,6 +159,34 @@ export default function Home({
         )}
       </section>
 
+      {/* ── Where the project stands ── */}
+      {tree && mine && mine.total > 0 && (
+        <section className="rounded-2xl border border-[var(--bark-600)] bg-[var(--bark-800)] p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-slate-400">
+            <span className="flex items-center gap-1.5"><Coins size={13} /> {spent >= 1000 ? `${Math.round(spent / 1000)}k` : spent} tokens</span>
+            <span className="flex items-center gap-1.5">
+              <MessageSquare size={13} /> {scoped.branches.length} {scoped.branches.length === 1 ? 'conversation' : 'conversations'}
+            </span>
+            {retried > 0 && (
+              <span className="flex items-center gap-1.5 text-amber-400/80" title="Leaves that needed more than one attempt">
+                <RotateCcw size={13} /> {retried} retried
+              </span>
+            )}
+          </div>
+          {/* Two bars, never one. Adding a claim to a verification is the flattening every surface
+              here is arranged to avoid, and a summary is where it would do most damage. */}
+          <div className="flex h-2 rounded-full overflow-hidden bg-[var(--bark-700)]">
+            <div className="bg-[var(--leaf)]" style={{ width: `${(mine.verified / mine.total) * 100}%` }} title={`${mine.verified} verified`} />
+            <div className="bg-amber-500/70" style={{ width: `${(mine.claimed / mine.total) * 100}%` }} title={`${mine.claimed} claimed but unchecked`} />
+          </div>
+          <div className="flex gap-4 text-[11px] text-slate-500">
+            <span className="text-[var(--leaf)]">{mine.verified} verified</span>
+            <span className="text-amber-500">{mine.claimed} claimed</span>
+            <span>{mine.outstanding} left</span>
+          </div>
+        </section>
+      )}
+
       {/* ── Owed ── */}
       {attention.length > 0 && (
         <section>
@@ -100,7 +194,7 @@ export default function Home({
             <AlertTriangle size={11} className="text-amber-400" /> Needs you · {attention.length}
           </h3>
           <div className="space-y-1.5">
-            {attention.slice(0, 6).map(({ leaf, reason }) => {
+            {attention.map(({ leaf, reason }) => {
               const attempts = Array.isArray(leaf.attempts) ? leaf.attempts.length : 0;
               return (
                 <button
@@ -123,9 +217,7 @@ export default function Home({
                         : `waiting for you to accept · ${branchOf(leaf.branchId)}`}
                     </div>
                   </div>
-                  <span className="text-[11px] text-slate-500 shrink-0">
-                    {reason === 'failed' ? 'review' : 'decide'}
-                  </span>
+                  <span className="text-[11px] text-slate-500 shrink-0">{reason === 'failed' ? 'review' : 'decide'}</span>
                   <ArrowRight size={13} className="text-slate-600 shrink-0" />
                 </button>
               );
@@ -168,59 +260,86 @@ export default function Home({
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
             <Clock size={11} /> Since you last looked
           </h3>
+          <div className="space-y-0.5">{recent.map((l) => leafRow(l, `recent-${l.id}`))}</div>
+        </section>
+      )}
+
+      {/* ── The project's conversations ── */}
+      {tree && scoped.branches.length > 0 && onOpenBranch && (
+        <section>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
+            <MessageSquare size={11} /> Conversations
+          </h3>
           <div className="space-y-0.5">
-            {recent.map((leaf) => {
-              const state = stateFor(leaf, leaves);
-              return (
-                <button
-                  key={leaf.id}
-                  onClick={() => onOpenLeaf(leaf)}
-                  className="w-full text-left flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-[var(--bark-800)] text-[12px]"
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${state ? STATE_DOT[state] : 'bg-slate-700'}`} />
-                  <span className="text-slate-300 truncate flex-1">{leaf.title}</span>
-                  <span className="text-slate-600 shrink-0">{state ? STATE_LABEL[state] : 'Cancelled'}</span>
-                  <span className="text-slate-700 shrink-0 w-16 text-right">{ago(leaf.updatedAt)}</span>
-                </button>
-              );
-            })}
+            {scoped.branches.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => onOpenBranch(b.id)}
+                className="w-full text-left flex items-center gap-2.5 px-3 py-1.5 rounded-lg hover:bg-[var(--bark-800)] text-[12px]"
+              >
+                <GitBranch size={12} className="text-slate-600 shrink-0" />
+                <span className="text-slate-300 truncate flex-1">{b.title}</span>
+                <span className="text-slate-600 shrink-0">
+                  {scoped.leaves.filter((l) => l.branchId === b.id).length} leaves
+                </span>
+              </button>
+            ))}
           </div>
         </section>
       )}
 
-      {/* ── Trees ── */}
-      <section>
-        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
-          <TreesIcon size={11} className="text-[var(--leaf)]" /> Trees
-        </h3>
-        <div className="space-y-1.5">
-          {rollups.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => onOpenTree(r.id)}
-              className="w-full text-left px-3 py-2.5 rounded-xl border border-[var(--bark-600)] bg-[var(--bark-800)] hover:border-[var(--bark-500)]"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-[13px] text-slate-200 font-medium truncate flex-1">{r.name}</span>
-                <span className="text-[11px] text-slate-500 shrink-0">
-                  {r.total === 0 ? 'nothing yet' : `${r.verified} verified`}
-                  {r.claimed > 0 && <span className="text-amber-400/80"> · {r.claimed} claimed</span>}
-                  {r.failed > 0 && <span className="text-red-400/80"> · {r.failed} failed</span>}
-                </span>
-              </div>
-              {r.total > 0 && (
-                /* Two bars, never one — the same refusal to add a claim to a verification that the
-                   board makes, and it matters more here because a summary is scanned. */
-                <div className="flex h-1.5 rounded-full overflow-hidden bg-[var(--bark-700)] mt-2">
-                  <div className="bg-[var(--leaf)]" style={{ width: `${(r.verified / r.total) * 100}%` }} />
-                  <div className="bg-amber-500/70" style={{ width: `${(r.claimed / r.total) * 100}%` }} />
+      {/* ── All the work, grouped rather than columned ── */}
+      {tree && work.length > 0 && (
+        <section>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">The work</h3>
+          <div className="space-y-4">
+            {work.map((group) => (
+              <Fragment key={group.state}>
+                <div>
+                  <div className={`text-[11px] font-black uppercase tracking-widest mb-1 px-3 ${STATE_STYLE[group.state]}`}>
+                    {STATE_LABEL[group.state]} · {group.leaves.length}
+                  </div>
+                  <div className="space-y-0.5">{group.leaves.map((l) => leafRow(l, `work-${l.id}`))}</div>
                 </div>
-              )}
-            </button>
-          ))}
-          {rollups.length === 0 && <p className="text-[12px] text-slate-600">No trees yet.</p>}
-        </div>
-      </section>
+              </Fragment>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Trees, only at the top level ── */}
+      {!tree && (
+        <section>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
+            <TreesIcon size={11} className="text-[var(--leaf)]" /> Trees
+          </h3>
+          <div className="space-y-1.5">
+            {rollups.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => onOpenTree(r.id)}
+                className="w-full text-left px-3 py-2.5 rounded-xl border border-[var(--bark-600)] bg-[var(--bark-800)] hover:border-[var(--bark-500)]"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-[13px] text-slate-200 font-medium truncate flex-1">{r.name}</span>
+                  <span className="text-[11px] text-slate-500 shrink-0">
+                    {r.total === 0 ? 'nothing yet' : `${r.verified} verified`}
+                    {r.claimed > 0 && <span className="text-amber-400/80"> · {r.claimed} claimed</span>}
+                    {r.failed > 0 && <span className="text-red-400/80"> · {r.failed} failed</span>}
+                  </span>
+                </div>
+                {r.total > 0 && (
+                  <div className="flex h-1.5 rounded-full overflow-hidden bg-[var(--bark-700)] mt-2">
+                    <div className="bg-[var(--leaf)]" style={{ width: `${(r.verified / r.total) * 100}%` }} />
+                    <div className="bg-amber-500/70" style={{ width: `${(r.claimed / r.total) * 100}%` }} />
+                  </div>
+                )}
+              </button>
+            ))}
+            {rollups.length === 0 && <p className="text-[12px] text-slate-600">No trees yet.</p>}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

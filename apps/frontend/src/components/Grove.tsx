@@ -8,7 +8,6 @@ import {
 import BranchChat, { type BranchRecord } from './BranchChat.js';
 import Home from './Home.js';
 import NewTreeDialog from './NewTreeDialog.js';
-import TreeBoard from './TreeBoard.js';
 import LeafDetail from './LeafDetail.js';
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './leaf-types.js';
 import { type Message } from './Chat.js';
@@ -248,6 +247,15 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
       ?? ({ id: selected.id, title: 'Conversation', messages: [], updatedAt: '' } as BranchRecord)
     : undefined;
   const scopeTree = trees.find((t) => t.id === openTree);
+  /**
+   * The project the pane is showing, which follows what is SELECTED rather than what is expanded.
+   *
+   * Expanding a tree must not swap the pane — that was the whole point of separating the disclosure
+   * from the row — so this cannot be derived from `openTree`.
+   */
+  const projectTree = selected.kind === 'tree' && selected.id && selected.id !== UNFILED
+    ? trees.find((t) => t.id === selected.id)
+    : undefined;
 
   /**
    * The address of what is open: #/grove/<tree>/<branch>/<leaf>.
@@ -482,31 +490,22 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
                 ? { autoSend: opening.prompt, onAutoSent: () => setOpening(undefined) }
                 : {})}
           />
-        ) : selected.kind === 'tree' && selected.id && selected.id !== UNFILED ? (
-          /**
-           * The board follows what is SELECTED, not what is expanded.
-           *
-           * Keying it off `openTree` meant the disclosure triangle swapped the pane: reaching over
-           * to see a tree's conversations threw away whatever you were reading. Expanding and
-           * choosing are different acts and now have different consequences.
-           */
-          <div className="overflow-y-auto -ml-6">
-            <TreeBoard
-              apiBase={apiBase}
-              treeId={selected.id}
-              personaNames={Object.fromEntries(personas.map((p) => [p.id, p.name]))}
-              onBack={() => setSelected({ kind: 'tree', id: '' })}
-              onReview={(branchId) => setSelected({ kind: 'branch', id: branchId })}
-            />
-          </div>
         ) : (
-          /* The landing. It used to be a koala and the words "Pick a tree, a conversation, or a
-             leaf" over about a thousand pixels of nothing. */
+          /*
+           * The landing, or one project — the same screen, scoped.
+           *
+           * This used to be a koala and the words "Pick a tree, a conversation, or a leaf" over
+           * about a thousand pixels of nothing; choosing a tree then opened a six-column board.
+           * Both are gone: see the header comment in Home.tsx for why the columns went.
+           */
           <Home
             leaves={all}
             branches={branchRecords}
             trees={trees}
+            {...(projectTree ? { tree: projectTree } : {})}
             lastSeen={seenAt.current}
+            onOpenBranch={(id) => setSelected({ kind: 'branch', id })}
+            personaNames={Object.fromEntries(personas.map((p) => [p.id, p.name]))}
             starting={startWork.isPending}
             onStart={(treeId, prompt) => startWork.mutate({ treeId, prompt })}
             onOpenLeaf={(leaf) => {

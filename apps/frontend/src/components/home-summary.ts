@@ -112,3 +112,37 @@ export function ago(iso: string, now = Date.now()): string {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
+
+/**
+ * Everything belonging to one tree.
+ *
+ * The same summary serves two altitudes — everything you own, and one project — so scoping happens
+ * once here rather than being re-derived by each section. A branch with no tree matches nothing,
+ * which is correct: unfiled conversations belong to no project.
+ */
+export function scopeToTree<B extends { id: string; treeId?: string }>(
+  treeId: string,
+  branches: B[],
+  leaves: Leaf[],
+): { branches: B[]; leaves: Leaf[] } {
+  const mine = branches.filter((b) => b.treeId === treeId);
+  const ids = new Set(mine.map((b) => b.id));
+  return { branches: mine, leaves: leaves.filter((l) => ids.has(l.branchId)) };
+}
+
+/**
+ * The work of a tree, grouped the way you would ask about it.
+ *
+ * A list rather than columns. Columns showed exactly one attribute — state — which every row
+ * already carries, and spent the width of the pane doing it; on a finished tree five of the six
+ * stood empty. Grouping keeps the one thing the columns were for and costs nothing.
+ *
+ * Owed first, then in flight, then the claims that nothing checked, then what is actually done.
+ * That is descending order of "should you do something about this".
+ */
+export function groupWork(leaves: Leaf[]): { state: LeafState; leaves: Leaf[] }[] {
+  const order: LeafState[] = ['failed', 'blocked', 'running', 'proposed', 'claimed', 'verified'];
+  return order
+    .map((state) => ({ state, leaves: leaves.filter((l) => stateFor(l, leaves) === state) }))
+    .filter((g) => g.leaves.length > 0);
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { needsYou, running, changedSince, treeRollups, ago } from './home-summary.js';
+import { needsYou, running, changedSince, treeRollups, ago, scopeToTree, groupWork } from './home-summary.js';
 import type { Leaf } from './leaf-types.js';
 
 /**
@@ -169,5 +169,52 @@ describe('relative time', () => {
 
   it('says nothing for a timestamp it cannot read', () => {
     expect(ago('', now)).toBe('');
+  });
+});
+
+describe('scoping to one project', () => {
+  const branches = [{ id: 'b1', treeId: 't1' }, { id: 'b2', treeId: 't2' }, { id: 'b3' }];
+
+  it('keeps only that tree\'s conversations and their work', () => {
+    const out = scopeToTree('t1', branches, [
+      leaf({ id: 'mine', branchId: 'b1' }),
+      leaf({ id: 'theirs', branchId: 'b2' }),
+      leaf({ id: 'unfiled', branchId: 'b3' }),
+    ]);
+    expect(out.branches.map((b) => b.id)).toEqual(['b1']);
+    expect(out.leaves.map((l) => l.id)).toEqual(['mine']);
+  });
+
+  it('excludes unfiled conversations rather than adopting them', () => {
+    // A conversation filed under nothing belongs to no project; sweeping it into whichever tree is
+    // open would attribute work to a project that never asked for it.
+    expect(scopeToTree('t1', branches, [leaf({ branchId: 'b3' })]).leaves).toEqual([]);
+  });
+});
+
+describe('grouping a project\'s work', () => {
+  it('puts what is owed above what is done', () => {
+    /**
+     * The order is the argument: descending "should you do something about this". A board sorted by
+     * state alphabetically, or by creation, buries the failures under twenty green rows.
+     */
+    const out = groupWork([
+      leaf({ id: 'v', status: 'succeeded', verified: true }),
+      leaf({ id: 'f', status: 'failed' }),
+      leaf({ id: 'c', status: 'succeeded', verified: false }),
+      leaf({ id: 'r', status: 'running' }),
+    ]);
+    expect(out.map((g) => g.state)).toEqual(['failed', 'running', 'claimed', 'verified']);
+  });
+
+  it('omits groups with nothing in them', () => {
+    // Five empty columns was the board's normal state and 83% of its width.
+    const out = groupWork([leaf({ status: 'succeeded', verified: true })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.state).toBe('verified');
+  });
+
+  it('leaves cancelled work out entirely', () => {
+    expect(groupWork([leaf({ status: 'cancelled' })])).toEqual([]);
   });
 });
