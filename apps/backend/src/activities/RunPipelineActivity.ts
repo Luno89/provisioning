@@ -36,6 +36,12 @@ export interface RunPipelineArgs {
   commitSha: string;
   ref: string; // e.g. "main"
   logFile: string;
+  /**
+   * The pipeline run this belongs to, so its Kubernetes Job has a name nothing else shares.
+   *
+   * Optional only so an older workflow already in flight still deserialises; every caller sets it.
+   */
+  runId?: string;
 }
 
 export interface RunPipelineResult {
@@ -72,7 +78,21 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
   const kubeconfig = await resolveKubeconfig(infra);
   const gitea = new GiteaService(infra, JWT_SECRET, kubeconfig);
 
-  const jobName = `build-${args.giteaRepo}-${args.commitSha.slice(0, 8)}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63);
+  /**
+   * Unique per RUN, not per commit.
+   *
+   * It was `build-<repo>-<commit8>`, and one commit legitimately produces two runs: Gitea posts a
+   * webhook for the branch push and another when it lands on main. Both derived the same name, so
+   * the second `kubectl apply` hit `spec.template: field is immutable` — a Job's pod template
+   * cannot be changed — and then whichever finished first deleted the Job in its cleanup, leaving
+   * the other polling a Job that no longer existed: `jobs.batch ... not found`.
+   *
+   * Measured on koala-request-42784df9: two runs of 62517e2e, both failed, neither for a reason
+   * that had anything to do with the code being built.
+   */
+  const runSlug = (args.runId ?? Math.random().toString(36).slice(2)).replace(/[^a-z0-9]/gi, '').slice(-8).toLowerCase();
+  const jobName = `build-${args.giteaRepo}-${args.commitSha.slice(0, 8)}-${runSlug}`
+    .toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63);
   const registryHost = await gitea.getRegistryHost();
   const imageTag = `${registryHost}/${args.giteaOwner}/${args.giteaRepo}:${args.commitSha}`;
   const gitSecretName = `${jobName}-git-auth`;

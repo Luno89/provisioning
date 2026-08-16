@@ -3430,7 +3430,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        * probably correct over a field the model forgot; choosing for it would be exactly the guess
        * this design removed.
        */
-      if (branchId && proposedViaTools) {
+      /**
+       * Settle whatever this turn proposed: assign personas, then start what is routine.
+       *
+       * Called from BOTH paths that create leaves. It used to be inline and gated on
+       * `proposedViaTools`, so a plan the model wrote as PROSE — turned into leaves by the
+       * ambient extractor further down — got neither. Measured on a real end-to-end run: zero
+       * propose_leaf calls, two leaves created by extraction, one of them with no persona, and
+       * nothing started. The leaf with no persona could not even be accepted afterwards,
+       * because a leaf with no persona has no repository and its work would be discarded.
+       */
+      const settleProposals = async () => {
+        if (!branchId) return;
         for (let round = 0; round < MAX_ASSIGNMENT_ROUNDS; round++) {
           const missing = unassignedLeaves(await db.getLeaves(), String(branchId));
           if (!missing.length) break;
@@ -3475,19 +3486,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           if (latest) await db.saveBranch(withNotice(latest, buildUnassignedNotice(stillMissing)));
           console.warn(`[chat] ${stillMissing.length} leaf(s) on branch ${String(branchId).slice(0, 8)} have no persona`);
         }
-      }
 
-      /**
-       * Start the proposals that are routine, once the personas are settled.
-       *
-       * Deliberately AFTER the assignment retry above: the policy refuses a leaf with no persona,
-       * so running this first would hold every leaf the retry was about to fix.
-       *
-       * What is held is written into the transcript with its reason. A proposal that silently did
-       * not start is indistinguishable from one the planner never made — which is the failure this
-       * whole feature exists to fix, and it would be perverse to reintroduce it here.
-       */
-      if (branchId && proposedViaTools) {
         const all = (await ownedLeaves((req as any).user.id)).filter((l) => l.branchId === branchId);
         const branch = (await db.getBranches()).find((b: Branch) => b.id === branchId);
         const policy: AutoAcceptPolicy = {
@@ -3531,7 +3530,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           }
           console.log(`[chat] auto-accept started ${started.length}, held ${held.length}`);
         }
-      }
+      };
+
+      await settleProposals();
+
+      /**
+       * Start the proposals that are routine, once the personas are settled.
+       *
+       * Deliberately AFTER the assignment retry above: the policy refuses a leaf with no persona,
+       * so running this first would hold every leaf the retry was about to fix.
+       *
+       * What is held is written into the transcript with its reason. A proposal that silently did
+       * not start is indistinguishable from one the planner never made — which is the failure this
+       * whole feature exists to fix, and it would be perverse to reintroduce it here.
+       */
 
       /**
        * Out of tool rounds and still asking for more — so make it answer.
@@ -3802,6 +3814,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               if (fresh) await db.saveBranch(withNotice(fresh, { text: warnings }));
             }
           }
+
+          /**
+           * Extracted proposals get the same treatment as proposed ones.
+           *
+           * They are leaves either way. Only the tool path settled them before, so a plan the model
+           * wrote as prose produced leaves that nothing assigned a persona to and nothing started —
+           * and which then could not be accepted at all, since a leaf with no persona has no
+           * repository. Measured on a real run: two extracted leaves, one unassigned, both stuck.
+           */
+          if (proposals.length) await settleProposals();
         } catch (err: any) {
           // A parsing failure must never fail a reply the user already received.
           console.warn(`[chat] could not record proposals for branch ${branchId}: ${err.message}`);

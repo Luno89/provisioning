@@ -1699,6 +1699,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       commitSha,
       ref,
       logFile: absoluteLogPath,
+      // So the build Job is named per RUN — two runs of one commit used to collide.
+      runId,
     }
 
     await this.db.savePipelineRunInfo({

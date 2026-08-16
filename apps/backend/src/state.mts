@@ -1,0 +1,13 @@
+import 'dotenv/config';
+import { createDatabase } from './lib/db-interface.js';
+import { shippingGaps, deploysItself } from './lib/project-shipping.js';
+const db = createDatabase(); await db.init();
+const tree: any = (await db.getTrees()).find((t: any) => t.name === 'Weather API MCP');
+console.log('tree:', tree?.name, '| type:', tree?.type, '| projects:', JSON.stringify(tree?.projectIds));
+const branches = (await db.getBranches()).filter((b: any) => b.treeId === tree?.id);
+console.log('branches:', branches.map((b: any) => `${b.id.slice(0,8)}:${b.title}`).join(' | '));
+const leaves = (await db.getLeaves()).filter((l: any) => branches.some((b: any) => b.id === l.branchId));
+for (const l of leaves) console.log(`  leaf ${l.status} | ${l.title}`);
+const p: any = (await db.getProjects()).find((x: any) => tree?.projectIds?.includes(x.id));
+if (p) console.log('project:', p.giteaRepo, '| gaps:', shippingGaps(p).join(';') || 'none', '| selfDeploys:', deploysItself(p));
+await db.close(); process.exit(0);
