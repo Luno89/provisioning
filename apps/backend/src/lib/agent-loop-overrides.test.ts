@@ -90,7 +90,9 @@ describe('loop-level overrides reach the agent loop execution', () => {
     });
 
     expect(result.succeeded).toBe(false);
-    expect(model).toHaveBeenCalledTimes(3);
+    // 3 working turns from the override, plus the wrap-up turn a budget stop now earns. The point
+    // of the test is that the override beat the option's 10, and it did.
+    expect(model).toHaveBeenCalledTimes(4);
   });
 
   it('honours maxToolResultChars override to cap tool output', async () => {

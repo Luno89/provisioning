@@ -31,8 +31,16 @@ function neverRan(result: VariantResult): boolean {
   return result.steps === 0 && result.tokensUsed === 0;
 }
 
-/** Whether the loop stopped because it ran out of budget rather than because it was done. */
+/**
+ * Whether the loop stopped because it ran out of budget rather than because it was done.
+ *
+ * `outOfBudget` is set by the loop itself and is the authoritative answer — steps stopped being the
+ * binding limit once tokens became the real budget, so comparing a step count to a cap now misses
+ * every run that stopped on spend. The step comparison is kept as a fallback for records written
+ * before the flag existed.
+ */
 function exhausted(result: VariantResult): boolean {
+  if ((result as { outOfBudget?: boolean }).outOfBudget) return !result.succeeded;
   const cap = result.request?.loop?.maxSteps;
   // Only when the cap is known: inferring exhaustion from a step count with nothing to compare it
   // against would classify every long run as incomplete.

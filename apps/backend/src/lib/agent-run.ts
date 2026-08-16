@@ -72,6 +72,9 @@ export function agentRunOptions(
     ...(inputs.web && wantsWeb(persona) ? { web: inputs.web } : {}),
     ...(tools.length ? { allowTools: tools } : {}),
     ...(run.maxSteps ? { maxSteps: run.maxSteps } : {}),
+    // The bound that corresponds to a cost. A persona sets it where the work genuinely warrants a
+    // different ceiling; otherwise the loop's own applies.
+    ...(run.maxTokens ? { maxTokens: run.maxTokens } : {}),
     ...(run.pacing?.length ? { pacing: run.pacing } : {}),
     ...(run.withdraw
       ? { withdrawTools: { afterStep: run.withdraw.afterStep, names: run.withdraw.tools } }

@@ -759,7 +759,16 @@ export interface PersonaScope {
    * measurable.
    */
   run?: {
+    /**
+     * A safety ceiling on turns, not a working budget.
+     *
+     * A step can be 200 tokens or 20,000, so counting them bounds neither spend nor time. It is
+     * `maxTokens` that should normally stop a run — see MAX_AGENT_STEPS for what raising this cost
+     * before the two were separated.
+     */
     maxSteps?: number;
+    /** What the run may spend. The bound that corresponds to an actual cost. */
+    maxTokens?: number;
     /**
      * Tools removed once the run passes a step, and which.
      *

@@ -16,12 +16,12 @@ describe('the cap the agent is told', () => {
      */
     // A value the constant will never be, so this keeps testing the override rather than
     // accidentally agreeing with the default — it did once, when the default was raised to 40.
-    expect(buildAgentPrompt('node', 'do a thing', 99)).toContain('at most 99 steps');
-    expect(buildAgentPrompt('node', 'do a thing', 99)).not.toContain(`at most ${MAX_AGENT_STEPS} steps`);
+    expect(buildAgentPrompt('node', 'do a thing', 99)).toContain('up to 99 steps');
+    expect(buildAgentPrompt('node', 'do a thing', 99)).not.toContain(`up to ${MAX_AGENT_STEPS} steps`);
   });
 
   it('falls back to the shipped constant when no cap is given', () => {
-    expect(buildAgentPrompt('node', 'x')).toContain(`at most ${MAX_AGENT_STEPS} steps`);
+    expect(buildAgentPrompt('node', 'x')).toContain(`up to ${MAX_AGENT_STEPS} steps`);
   });
 
   it('tells the agent uncommitted work is lost', () => {

@@ -20,6 +20,7 @@
 import {
   SANDBOX_TOOLS,
   MAX_AGENT_STEPS,
+  MAX_AGENT_TOKENS,
   MAX_TOOL_RESULT_CHARS,
   buildAgentPrompt,
   clampToolResult,
@@ -79,6 +80,14 @@ export interface AgentRunResult {
   succeeded: boolean;
   summary: string;
   tokensUsed: number;
+  /**
+   * Whether the run was stopped by its budget rather than ending on its own terms.
+   *
+   * Carried so the caller can tell a considered "I could not do this" from a wrap-up written under
+   * duress — the summary reads the same either way, and the difference matters when deciding
+   * whether another attempt is worth making.
+   */
+  outOfBudget?: boolean;
   steps: number;
   /** What the model was actually asked. Always populated — it is small and it is the context. */
   request: AgentRequest;
@@ -106,6 +115,13 @@ export interface AgentRunOptions {
   taskContext: string;
   sandbox: SandboxDriver;
   maxSteps?: number;
+  /**
+   * The budget that corresponds to a cost.
+   *
+   * Steps bound patience; tokens bound spend. This is the one that should normally stop a run, and
+   * hitting it goes through the same wrap-up as any other stop.
+   */
+  maxTokens?: number;
   /** Engine, when known — decides whether engine-specific samplers are safe to send. */
   kind?: ModelKind | undefined;
   /**
@@ -193,6 +209,9 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   const maxSteps = typeof overrides.maxSteps === 'number'
     ? overrides.maxSteps
     : (opts.maxSteps ?? MAX_AGENT_STEPS);
+  const maxTokens = typeof overrides.maxTokens === 'number'
+    ? overrides.maxTokens
+    : (opts.maxTokens ?? MAX_AGENT_TOKENS);
   const toolResultCap = typeof overrides.maxToolResultChars === 'number'
     ? overrides.maxToolResultChars
     : undefined;
@@ -348,7 +367,20 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   let thrashed = false;
 
 
+  /** Which budget ran out, for a summary that says what actually happened. */
+  let exhausted: 'steps' | 'tokens' | undefined;
+
   for (let step = 0; step < maxSteps; step++) {
+    /**
+     * Checked before the turn, never during: stopping mid-turn would abandon a tool call whose
+     * result the agent is waiting for, and the overshoot of finishing one turn is bounded by a
+     * single reply.
+     */
+    if (tokensUsed >= maxTokens) {
+      exhausted = 'tokens';
+      stoppedAtStep = step;
+      break;
+    }
     /**
      * `messages` is mutated across steps and the body was built once, so the array reference is
      * shared and the conversation grows in place rather than being rebuilt per turn.
@@ -567,15 +599,124 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     publish();
   }
 
+  /**
+   * ── ONE LAST TURN, BEFORE ANY OF THIS COUNTS AS FAILURE ──
+   *
+   * Running out of budget is a STOP. It was being recorded as a VERDICT, and the difference cost
+   * real work: a leaf wrote 30 passing tests, committed them, pushed them to koala/7565dc49, said
+   * so in prose — and then hit the step ceiling before calling `finish`. The harness recorded a
+   * failure, never merged the branch, and the work sat in the outstanding list for days while the
+   * code was on a branch the whole time.
+   *
+   * The agent knew what it had done. It was never asked. So it is asked now, with `finish` as the
+   * only tool it can call, and its answer flows through verification exactly like any other — a
+   * claim, checked where checkable, never trusted on its own.
+   *
+   * A dishonest wrap-up gains nothing: `decideStatus` lets a verification overrule the claim in
+   * both directions, so claiming success here still fails against a red suite.
+   */
+  /**
+   * Only for a BUDGET stop.
+   *
+   * Thrashing and answering-in-prose are diagnoses, not interruptions: the loop already knows
+   * something is wrong and its own account of that ("it inspected the workspace six times without
+   * changing it") is far more useful than asking the agent, which is the thing that was confused.
+   * Budget exhaustion is the only stop where the agent may genuinely have more to report.
+   */
+  if (!thrashed && !stoppedTalking) {
+    const spent = `You have used your whole budget for this task (${stoppedAtStep} steps, `
+      + `${tokensUsed.toLocaleString()} tokens).`;
+    messages.push({
+      role: 'user',
+      content: `${spent} Stop working and call \`finish\` now.\n\n`
+        + 'Report honestly. If you completed the task — including if you already committed and '
+        + 'pushed the work — call finish with succeeded true and say what you did and where it is. '
+        + 'If you did not finish, call finish with succeeded false and say exactly what is done, '
+        + 'what is not, and what the next attempt should do differently. Do not call any other tool.',
+    });
+
+    /**
+     * One call, `finish` the only tool on offer.
+     *
+     * Withholding every other tool is what makes this a wrap-up rather than another working turn —
+     * the agent cannot decide to keep going, which is the whole reason the budget was reached.
+     */
+    const wrapUp = await (async () => {
+      const finishTool = activeTools.find((t: any) => (t.function?.name ?? t.name) === 'finish');
+      if (!finishTool) return undefined;
+      try {
+        const body = {
+          ...requestBody,
+          messages,
+          tools: [finishTool],
+          // Enough for an honest account of a long run, and no more.
+          max_tokens: fittedMaxTokens(1200, JSON.stringify(messages).length),
+        };
+        const res = await doFetch(`${opts.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
+          },
+          body: JSON.stringify(body),
+          ...(opts.signal ? { signal: opts.signal } : {}),
+        });
+        if (!res.ok) return undefined;
+        const reply = await readStreamedReply(res);
+        tokensUsed += reply.tokens;
+        const call = reply.toolCalls.find((c) => c.name === 'finish');
+        if (!call) {
+          /**
+           * It answered in prose instead of calling the tool. That prose is still the best account
+           * of where things stand — it is exactly what was thrown away before — so it is kept as
+           * the summary, but the run is NOT claimed as succeeded on the strength of it.
+           */
+          return reply.content?.trim()
+            ? { succeeded: false, summary: reply.content.trim().slice(0, 4000) }
+            : undefined;
+        }
+        const args = parseToolArguments(call.arguments);
+        return {
+          succeeded: Boolean(args.succeeded),
+          summary: String(args.summary ?? '').slice(0, 4000) || 'No summary given.',
+        };
+      } catch {
+        // A wrap-up that fails must not take the run's own record down with it — the ordinary
+        // out-of-budget summary below is still true.
+        return undefined;
+      }
+    })();
+    if (wrapUp) {
+      transcript.push(`finish (forced): succeeded=${wrapUp.succeeded} summary=${wrapUp.summary}`);
+      return {
+        succeeded: wrapUp.succeeded,
+        summary: wrapUp.summary,
+        tokensUsed,
+        steps: stoppedAtStep,
+        request,
+        transcript,
+        // Said plainly so nothing downstream mistakes a forced wrap-up for a run that ended on its
+        // own terms.
+        outOfBudget: true,
+        ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
+        ...(unsupported.length ? { unsupported } : {}),
+      };
+    }
+  }
+
   return {
     succeeded: false,
+    outOfBudget: true,
     summary: thrashed
       ? thrashSummary(unproductiveTurns, transcript)
       : stoppedTalking
       ? `Stopped calling tools after ${stoppedAtStep} step(s) of ${maxSteps} — it answered in prose `
         + `three turns running instead of acting, which usually means something it believed about the `
         + `environment was wrong. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
-      : `Ran out of steps (${maxSteps}) without calling finish. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`,
+      : exhausted === 'tokens'
+        ? `Ran out of tokens (${tokensUsed.toLocaleString()} of ${maxTokens.toLocaleString()}) without calling finish. `
+          + `Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
+        : `Ran out of steps (${maxSteps}) without calling finish. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`,
     tokensUsed,
     steps: stoppedAtStep,
     request,

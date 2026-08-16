@@ -21,11 +21,27 @@ import { describeSandbox, type WorkspaceLanguage, imageForLanguage } from './wor
  * was asked for. A later leaf did the same hunting for a test runner. Both tasks were minutes of
  * work; neither was short of ability, only of room.
  *
- * The real fix is the agent not needing to rediscover the same repository every time — see the
- * memory context threaded through ExecuteLeafActivity. This is the blunt half, and deliberately
- * still bounded: a leaf that cannot finish in 40 steps is not usually one step short.
+ * ── AND THEN RAISED AGAIN, TO STOP BEING THE LIMIT AT ALL ──
+ * 40 lost work too, and worse: a leaf wrote 30 passing tests, committed them, pushed them to
+ * koala/7565dc49 and hit this ceiling before calling `finish`. The harness recorded a failure and
+ * never merged the branch. A step is not a unit of anything — it can be 200 tokens or 20,000 — so
+ * counting them bounds neither spend nor time, only patience.
+ *
+ * What costs money is tokens, and that is what MAX_AGENT_TOKENS bounds. This is now a safety
+ * ceiling for a loop that has gone genuinely haywire, not a working budget, and hitting either one
+ * earns a wrap-up turn rather than a verdict — see runAgentLoop.
  */
-export const MAX_AGENT_STEPS = 40;
+export const MAX_AGENT_STEPS = 200;
+
+/**
+ * The bound that actually corresponds to a cost.
+ *
+ * Measured on this instance, Builder's runs range 43k to 604k tokens with a median of 149k, so this
+ * sits above the largest real run rather than in the middle of the distribution — a budget that
+ * routinely stops honest work is the thing being replaced, not reproduced with a different unit.
+ * A persona or a leaf can set something lower deliberately.
+ */
+export const MAX_AGENT_TOKENS = 1_000_000;
 
 /**
  * The budget for a research leaf, which spends its steps differently.
@@ -372,7 +388,16 @@ export function buildAgentPrompt(
     '- Look before you edit: list the directory and read a file rather than assuming its contents.',
     '- Verify your work by running it. A task is not done because the code looks right.',
     '- Call `finish` when done, or when genuinely stuck. Do not stop responding without calling it.',
-    `- You have at most ${maxSteps} steps. Spend them on the task, not on exploring.`,
+    /**
+     * Framed as a budget to spend well, not a cliff to fall off.
+     *
+     * The number is a safety ceiling now rather than a working limit, and telling an agent it has
+     * "at most N steps" made it hurry — which is how one spent its run exploring and another wrote
+     * the work but never reported it. Running out earns a wrap-up turn, so the honest instruction
+     * is to keep the account current rather than to race.
+     */
+    `- Work at a steady pace, up to ${maxSteps} steps. Spend them on the task, not on exploring.`,
+    '- If you finish, call `finish` immediately — do not keep looking for more to do.',
     '- Commit and push as you go. Work that is only in the container is lost if you run out of steps.',
     '',
     'YOUR TASK',

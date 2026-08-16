@@ -21,7 +21,7 @@
  */
 import type { ModelKind } from './model-registry.js';
 import { toolTurnSampling, TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
-import { MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS } from './sandbox-tools.js';
+import { MAX_AGENT_TOKENS, MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS } from './sandbox-tools.js';
 import type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType } from '@koala/harness-types';
 
 /** Re-exported: the Lab builds its axis picker from these, so both sides read one declaration. */
@@ -292,17 +292,36 @@ export const TUNABLES: Tunable[] = [
     source: 'lib/memory-store.ts',
   },
   {
+    key: 'maxTokens',
+    label: 'Max tokens',
+    group: 'loop',
+    type: 'number',
+    placement: 'loop',
+    min: 1_000,
+    max: 5_000_000,
+    step: 1_000,
+    default: MAX_AGENT_TOKENS,
+    suggested: [200_000, 1_000_000],
+    note: 'What a run actually costs, and the bound that should normally stop one. Measured here, '
+      + 'a coding run ranges 43k to 604k tokens with a median of 149k.',
+    source: 'lib/agent-loop.ts',
+  },
+  {
     key: 'maxSteps',
     label: 'Max steps',
     group: 'loop',
     type: 'number',
     placement: 'loop',
     min: 1,
-    max: 64,
+    // Was 64, below the shipped default of 200 — which made the default itself unsettable and any
+    // attempt to raise it a validation error.
+    max: 500,
     step: 1,
     default: MAX_AGENT_STEPS,
-    suggested: [8, 16],
-    note: 'Each step is a full inference pass plus a command, so this bounds both spend and wall clock.',
+    suggested: [40, 100],
+    note: 'A safety ceiling, not a working budget — a step can be 200 tokens or 20,000, so counting '
+      + 'them bounds neither spend nor time. Use Max tokens for that. Running out of either earns a '
+      + 'wrap-up turn rather than being recorded as a failure.',
     source: 'lib/sandbox-tools.ts',
   },
   {
