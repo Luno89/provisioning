@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHash, formatHash, shouldReplace } from './route.js';
+import { parseHash, formatHash, shouldReplace, resolveView } from './route.js';
 
 /**
  * The URL meaning something.
@@ -74,5 +74,28 @@ describe('what belongs in browser history', () => {
     // There is nothing to go back TO on load, and pushing would make the first Back a no-op that
     // looks like the button is broken.
     expect(shouldReplace(undefined, { view: 'grove', path: [] })).toBe(true);
+  });
+});
+
+describe('links that outlived their view', () => {
+  const known = ['grove', 'personas', 'lab', 'clusters'];
+
+  it('sends a retired view to whatever replaced it', () => {
+    /**
+     * Grove subsumed the old workspace and tree list. A bookmark to either resolved to a view
+     * nothing renders — a blank page, which reads as a broken application rather than a moved one.
+     */
+    for (const gone of ['chat', 'board', 'trees']) {
+      expect(resolveView(gone, known, 'clusters')).toBe('grove');
+    }
+  });
+
+  it('leaves a view that still exists alone', () => {
+    expect(resolveView('personas', known, 'clusters')).toBe('personas');
+  });
+
+  it('falls back for a name nobody has ever heard of', () => {
+    expect(resolveView('nonsense', known, 'clusters')).toBe('clusters');
+    expect(resolveView(undefined, known, 'clusters')).toBe('clusters');
   });
 });

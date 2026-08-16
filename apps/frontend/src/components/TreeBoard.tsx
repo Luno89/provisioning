@@ -9,11 +9,11 @@ import { lastSeen, markSeenAfterDwell } from '../lib/seen.js';
 /**
  * One tree's board — what has been done and what is left.
  *
- * ── WHY THIS IS NOT THE WORKSPACE TREE ──
- * Workspace.tsx shows the SHAPE of one request: how the agent broke a conversation up. That is the
- * right view at that altitude and it deliberately refuses columns. This is a different question at
- * a different altitude — a tree spans many conversations, and "is this project delivering" cannot
- * be read off any single one of them. Drilling in hands back to the request view.
+ * ── WHY THIS IS NOT THE GROVE NAVIGATOR ──
+ * The navigator beside it shows the SHAPE of the work: how the agent broke a conversation up. That
+ * is the right view at that altitude and it deliberately refuses columns. This is a different
+ * question at a different altitude — a tree spans many conversations, and "is this project
+ * delivering" cannot be read off any single one of them.
  *
  * ── WHY CLAIMED AND VERIFIED ARE SEPARATE COLUMNS ──
  * The one design decision worth defending. A normal board's "Done" is the sum of everything that
@@ -106,11 +106,21 @@ export default function TreeBoard({
     return <div className="p-8 text-slate-500 flex items-center gap-2"><Loader2 className="animate-spin" size={18} /> Loading board…</div>;
   }
 
-  const { rollup, leaves } = data;
-  const done = rollup.counts.verified ?? 0;
-  const claimed = rollup.counts.claimed ?? 0;
+  /**
+   * Defensive: a payload that is not a board must not white-screen the application.
+   *
+   * Found when a test fixture returned the tree LIST for a board URL and the whole component tree
+   * unmounted — the same class of failure as reading `.find` off a non-array in LeafModal. A board
+   * that briefly 500s or returns something unexpected should render as empty, not as nothing.
+   */
+  const rollup = data.rollup ?? { counts: {}, outstanding: 0, tokens: 0, retried: 0, branches: 0 };
+  const leaves = Array.isArray(data.leaves) ? data.leaves : [];
+  const repos = Array.isArray(data.repos) ? data.repos : [];
+  const boardBranches = Array.isArray(data.branches) ? data.branches : [];
+  const done = rollup.counts?.verified ?? 0;
+  const claimed = rollup.counts?.claimed ?? 0;
   const total = done + claimed + rollup.outstanding;
-  const branchTitle = (id: string) => data.branches.find((b) => b.id === id)?.title ?? 'unfiled';
+  const branchTitle = (id: string) => boardBranches.find((b) => b.id === id)?.title ?? 'unfiled';
 
   return (
     <div className="p-6 space-y-5">
@@ -126,7 +136,7 @@ export default function TreeBoard({
 
       <div className="bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-2xl p-5 space-y-3">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-slate-400">
-          {data.repos.map((r) => (
+          {repos.map((r) => (
             <span key={r.id} className="flex items-center gap-1.5 text-slate-300">
               <GitBranch size={13} /> {r.repo}
             </span>

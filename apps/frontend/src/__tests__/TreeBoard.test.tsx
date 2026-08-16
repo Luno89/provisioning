@@ -7,7 +7,7 @@ import TreeBoard from '../components/TreeBoard';
 /**
  * Wiring tests for the project board.
  *
- * Same reasoning as Workspace.test.tsx: jsdom cannot see layout, and every bug in this UI so far
+ * Same reasoning as Grove.test.tsx: jsdom cannot see layout, and every bug in this UI so far
  * has been a wiring bug. The thing most worth pinning here is that a CLAIM never renders as
  * verified — that distinction is the board's whole argument, and it is one careless `succeeded`
  * check away from being lost.

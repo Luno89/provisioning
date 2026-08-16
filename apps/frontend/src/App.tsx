@@ -14,10 +14,8 @@ import GameServerSettings from './components/GameServerSettings.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
 import Grove from './components/Grove.js';
-import { parseHash, formatHash, shouldReplace, type Route } from './lib/route.js';
+import { parseHash, formatHash, shouldReplace, resolveView, type Route } from './lib/route.js';
 import MeshDevices from './components/MeshDevices.js';
-import Workspace from './components/Workspace.js';
-import TreesView from './components/Trees.js';
 import Personas from './components/Personas.js';
 import { Koala } from './components/Koala.js';
 
@@ -44,6 +42,17 @@ const FOREST_TABS = [
   { id: 'temporal' as const, label: 'Temporal', icon: Timer },
   { id: 'settings' as const, label: 'Security', icon: Shield },
 ];
+
+/**
+ * Every view the URL may name.
+ *
+ * Anything else — a stale bookmark to a retired view, a typo — is resolved rather than rendered as
+ * a blank page. See RETIRED_VIEWS in lib/route.ts.
+ */
+const KNOWN_VIEWS = [
+  ...FOREST_TABS.map((t) => t.id as string),
+  'grove', 'personas', 'lab',
+] as const;
 
 /**
  * Mirrors APP_TYPES in apps/backend/src/lib/app-catalog.ts — the frontend does not import backend
@@ -222,9 +231,9 @@ function App() {
   const [forestOpen, setForestOpen] = useState(true);
   /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
   const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'chat' | 'board' | 'lab' | 'trees' | 'personas' | 'grove'>(
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'lab' | 'personas' | 'grove'>(
     // The URL wins on load, so a refresh keeps your place and a link opens where it points.
-    () => (parseHash(window.location.hash)?.view as any) ?? 'clusters',
+    () => resolveView(parseHash(window.location.hash)?.view, KNOWN_VIEWS, 'clusters') as any,
   );
 
   /**
@@ -250,7 +259,7 @@ function App() {
     const onPop = () => {
       const r = parseHash(window.location.hash);
       routeRef.current = r;
-      if (r?.view) setView(r.view as any);
+      setView(resolveView(r?.view, KNOWN_VIEWS, 'clusters') as any);
     };
     window.addEventListener('popstate', onPop);
     window.addEventListener('hashchange', onPop);
@@ -1095,12 +1104,6 @@ function App() {
           {/* Indented under Koala rather than listed beside it: a tree is the scope conversations
               live in, so it belongs to the harness, not to the infrastructure below. */}
           <button
-            onClick={() => setView('trees')}
-            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'trees' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
-          >
-            <Trees size={15} className="text-[var(--leaf)]" /> Trees
-          </button>
-          <button
             onClick={() => setView('personas')}
             className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'personas' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
           >
@@ -1559,28 +1562,9 @@ function App() {
         {view === 'grove' && (
           <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}
-        {(view === 'chat' || view === 'board') && (
-          <Workspace
-            apiBase={API_BASE}
-            handoff={handoff}
-            onHandoffTaken={() => setHandoff(undefined)}
-            onReview={(branchId, prompt) => setHandoff({ branchId, prompt })}
-          />
-        )}
 
         {view === 'personas' && <Personas apiBase={API_BASE} />}
 
-        {view === 'trees' && (
-          <TreesView
-            apiBase={API_BASE}
-            /**
-             * The board hands a failure to Koala: switch to the conversation and carry the
-             * evidence with it. Reviewing is a normal chat turn, so what arrives is an answer
-             * being written rather than an empty box.
-             */
-            onReview={(branchId, prompt) => { setHandoff({ branchId, prompt }); setView('grove'); }}
-          />
-        )}
         {view === 'vps-catalog' && (
           <VpsCatalog
             apiBase={API_BASE}

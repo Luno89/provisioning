@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import BranchChat, { type BranchRecord } from './BranchChat.js';
 import Home from './Home.js';
+import NewTreeDialog from './NewTreeDialog.js';
 import TreeBoard from './TreeBoard.js';
 import LeafDetail from './LeafDetail.js';
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './leaf-types.js';
@@ -76,6 +77,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [railClosed, setRailClosed] = useState(false);
+  const [newTree, setNewTree] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
   /**
    * The opening message for a conversation started from the home page.
@@ -127,6 +129,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
 
   /** Branches grouped under their tree, with the unfiled ones kept rather than dropped. */
   const groups = useMemo(() => {
+    const leavesAll = leaves ?? [];
     const out = trees.map((t) => ({
       id: t.id,
       name: t.name,
@@ -134,13 +137,31 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
       branches: branchRecords.filter((b) => b.treeId === t.id),
     }));
     const orphans = branchRecords.filter((b) => !b.treeId || !trees.some((t) => t.id === b.treeId));
+
+    /**
+     * Leaves whose branch record is gone still need somewhere to live.
+     *
+     * Grouping strictly by branch RECORD dropped them from the navigator entirely — work that
+     * exists, cost tokens and may have shipped, invisible because a conversation was deleted out
+     * from under it. Workspace showed them; losing that in the move would have been a regression.
+     */
+    const known = new Set(branchRecords.map((b) => b.id));
+    const stranded = [...new Set(leavesAll.filter((l) => !known.has(l.branchId)).map((l) => l.branchId))]
+      .map((id) => ({
+        id,
+        title: leavesAll.find((l) => l.branchId === id && !l.parentLeafId)?.title ?? 'Untitled conversation',
+        messages: [],
+        updatedAt: leavesAll.reduce((newest, l) => (l.branchId === id && l.updatedAt > newest ? l.updatedAt : newest), ''),
+      } as BranchRecord));
+    orphans.push(...stranded);
+
     if (orphans.length > 0) {
       // A dangling treeId lands here too: a branch pointing at a deleted tree is unfiled in every
       // sense that matters, and hiding it would lose the conversation.
       out.push({ id: UNFILED, name: 'Unfiled', goal: 'Conversations not filed under a tree', branches: orphans });
     }
     return out;
-  }, [trees, branchRecords]);
+  }, [trees, branchRecords, leaves]);
 
   const leavesOf = (branchId: string) => all.filter((l) => l.branchId === branchId && !l.parentLeafId);
   const childrenOf = (leafId: string) => all.filter((l) => l.parentLeafId === leafId);
@@ -166,6 +187,16 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
       qc.invalidateQueries({ queryKey: ['branches'] });
     },
   });
+  const deleteTree = useMutation({
+    mutationFn: (id: string) => axios.delete(`${apiBase}/trees/${id}`, { withCredentials: true }),
+    onSuccess: (_, id) => {
+      if (openTree === id) { setOpenTree(''); setSelected({ kind: 'tree', id: '' }); }
+      qc.invalidateQueries({ queryKey: ['trees'] });
+      // The conversations survive un-filed, so they move to the Unfiled group.
+      qc.invalidateQueries({ queryKey: ['branches'] });
+    },
+  });
+
   const deleteBranch = useMutation({
     mutationFn: (id: string) => axios.delete(`${apiBase}/branches/${id}`, { withCredentials: true }),
     onSuccess: (_, id) => {
@@ -204,8 +235,17 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
   }, [handoff, branchRecords]);
 
   const selectedLeaf = selected.kind === 'leaf' ? all.find((l) => l.id === selected.id) : undefined;
+  /**
+   * The conversation that is open.
+   *
+   * Falls back to a minimal record when the id is selected but no record has arrived. A review
+   * handed over from the board names a branch by id, and requiring the record to be loaded first
+   * meant the hand-off could land on the home page instead of the conversation — silently dropping
+   * the review, which is the one thing that path exists to deliver.
+   */
   const selectedBranch = selected.kind === 'branch'
     ? branchRecords.find((b) => b.id === selected.id)
+      ?? ({ id: selected.id, title: 'Conversation', messages: [], updatedAt: '' } as BranchRecord)
     : undefined;
   const scopeTree = trees.find((t) => t.id === openTree);
 
@@ -268,9 +308,14 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
       <aside className={`${railClosed ? 'w-0 opacity-0 overflow-hidden hidden' : 'w-72 pr-3'} shrink-0 border-r border-[var(--bark-600)] overflow-y-auto transition-all duration-200`}>
         <div className="flex items-center justify-between mb-3 pl-2">
           <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Grove</h2>
-          <button onClick={() => setRailClosed(true)} title="Collapse" className="text-slate-600 hover:text-slate-300 p-0.5 rounded">
-            <PanelLeftClose size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setNewTree(true)} title="New tree" className="text-slate-600 hover:text-[var(--leaf)] p-0.5 rounded">
+              <Plus size={14} />
+            </button>
+            <button onClick={() => setRailClosed(true)} title="Hide the navigator" className="text-slate-600 hover:text-slate-300 p-0.5 rounded">
+              <PanelLeftClose size={14} />
+            </button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -280,17 +325,40 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
           return (
             <div key={group.id} className="mb-1">
               <div
-                onClick={() => { setOpenTree(isOpen ? '' : group.id); setSelected({ kind: 'tree', id: group.id }); }}
+                /**
+                 * Selecting a tree opens its board. Expanding it does NOT — those were one click,
+                 * so reaching for the disclosure triangle threw away whatever you were reading.
+                 * The branch rows below always had them separate; this row was the odd one out.
+                 */
+                onClick={() => { setOpenTree(group.id); setSelected({ kind: 'tree', id: group.id }); }}
                 className={`group flex items-center gap-1.5 py-1.5 px-2 rounded-md cursor-pointer text-[13px] font-semibold ${
                   selected.kind === 'tree' && selected.id === group.id ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-300 hover:bg-[var(--bark-800)]'
                 }`}
               >
-                {isOpen ? <ChevronDown size={13} className="shrink-0 text-slate-500" /> : <ChevronRight size={13} className="shrink-0 text-slate-500" />}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setOpenTree(isOpen ? '' : group.id); }}
+                  title={isOpen ? 'Collapse tree' : 'Expand tree'}
+                  className="text-slate-500 hover:text-slate-300 shrink-0"
+                >
+                  {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </button>
                 {group.id === UNFILED
                   ? <Inbox size={13} className="shrink-0 text-slate-500" />
                   : <TreesIcon size={13} className="shrink-0 text-[var(--leaf)]" />}
                 <span className="truncate flex-1 min-w-0">{group.name}</span>
-                <span className="text-[10px] text-slate-600 shrink-0">{group.branches.length}</span>
+                <span className="text-[10px] text-slate-600 shrink-0 group-hover:hidden">{group.branches.length}</span>
+                {group.id !== UNFILED && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Delete tree "${group.name}"? Its conversations survive, un-filed.`)) deleteTree.mutate(group.id);
+                    }}
+                    title="Delete this tree. Its conversations survive, un-filed."
+                    className="text-slate-500 hover:text-red-400 p-0.5 rounded hidden group-hover:block shrink-0"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
               </div>
 
               {isOpen && group.branches.map((branch) => {
@@ -345,7 +413,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
         {railClosed && (
           <button
             onClick={() => setRailClosed(false)}
-            title="Expand"
+            title="Show the navigator"
             className="absolute top-0 left-0 z-10 p-1.5 rounded-lg border border-[var(--bark-600)] bg-[var(--bark-900)] text-slate-400 hover:text-slate-200 shadow-md"
           >
             <PanelLeftOpen size={14} />
@@ -414,11 +482,18 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
                 ? { autoSend: opening.prompt, onAutoSent: () => setOpening(undefined) }
                 : {})}
           />
-        ) : openTree && openTree !== UNFILED ? (
+        ) : selected.kind === 'tree' && selected.id && selected.id !== UNFILED ? (
+          /**
+           * The board follows what is SELECTED, not what is expanded.
+           *
+           * Keying it off `openTree` meant the disclosure triangle swapped the pane: reaching over
+           * to see a tree's conversations threw away whatever you were reading. Expanding and
+           * choosing are different acts and now have different consequences.
+           */
           <div className="overflow-y-auto -ml-6">
             <TreeBoard
               apiBase={apiBase}
-              treeId={openTree}
+              treeId={selected.id}
               personaNames={Object.fromEntries(personas.map((p) => [p.id, p.name]))}
               onBack={() => setSelected({ kind: 'tree', id: '' })}
               onReview={(branchId) => setSelected({ kind: 'branch', id: branchId })}
@@ -443,6 +518,14 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
           />
         )}
       </section>
+
+      {newTree && (
+        <NewTreeDialog
+          apiBase={apiBase}
+          onClose={() => setNewTree(false)}
+          onCreated={(id) => { if (id) { setOpenTree(id); setSelected({ kind: 'tree', id }); } }}
+        />
+      )}
     </div>
   );
 }

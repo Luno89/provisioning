@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axios from 'axios';
-import Workspace from '../components/Workspace';
+import Grove from '../components/Grove';
 
 /**
  * Wiring tests for the Koala surface.
@@ -12,6 +12,10 @@ import Workspace from '../components/Workspace';
  * proposal panel acting on parsed text instead of real records. jsdom cannot see layout, so it
  * will never catch a stray scrollbar; it catches exactly the class of thing that has actually
  * been breaking.
+ *
+ * Ported from Workspace, which Grove replaced. The behaviours are unchanged and worth keeping
+ * pinned; only the component holding them moved. What is new here is the tree level: a branch now
+ * lives under a tree and is not visible until that tree is open, so every test opens one first.
  */
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios);
@@ -47,37 +51,68 @@ const openBranch = async (title: string) => {
   fireEvent.click(tree().getAllByText(title)[0]!);
 };
 
-const renderWorkspace = (handoff?: { branchId: string; prompt: string }, onHandoffTaken?: () => void) => {
+const renderGrove = (handoff?: { branchId: string; prompt: string }, onHandoffTaken?: () => void) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <Workspace apiBase="/api" {...(handoff ? { handoff } : {})} {...(onHandoffTaken ? { onHandoffTaken } : {})} />
+      <Grove apiBase="/api" {...(handoff ? { handoff } : {})} {...(onHandoffTaken ? { onHandoffTaken } : {})} />
     </QueryClientProvider>,
   );
+};
+
+/**
+ * Opens the tree the fixtures are filed under.
+ *
+ * Grove scopes branches to a tree, so nothing below one is reachable until it is expanded. Clicking
+ * the NAME both selects and expands; the chevron beside it only expands, which is the distinction
+ * this navigator got wrong at first.
+ */
+const openTree = async (name = 'Gateway') => {
+  await waitFor(() => expect(tree().getByText(name)).toBeInTheDocument());
+  fireEvent.click(tree().getByText(name));
 };
 
 const branch = (over: Record<string, unknown> = {}) => ({
   id: 'branch-1',
   title: 'Rate limiting work',
   messages: [],
+  treeId: 'tree-1',
   updatedAt: '2026-08-03T00:00:00Z',
   ...over,
 });
+
+const TREES = [{ id: 'tree-1', name: 'Gateway', type: 'api-service', branchCount: 1, updatedAt: '2026-08-03T00:00:00Z' }];
 
 /**
  * Routes by URL. There are two collections now — branches carry the titles and transcripts,
  * leaves carry the work — and returning one payload for both made every branch title undefined.
  */
-const mockApi = ({ branches = [] as unknown[], leaves = [] as unknown[] }) => {
+const mockApi = ({ branches = [] as unknown[], leaves = [] as unknown[], trees = TREES as unknown[] }) => {
   mockedAxios.get.mockImplementation((url: string) => {
     if (url.includes('/branches')) return Promise.resolve({ data: branches });
     if (url.includes('/leaves')) return Promise.resolve({ data: leaves });
+    // Before /trees: selecting a tree renders its board, and handing that the tree LIST back
+    // crashed the component. Checked first because the board URL contains /trees too.
+    if (url.includes('/board')) return Promise.resolve({ data: {
+      tree: { id: 'tree-1', name: 'Gateway', type: 'api-service' },
+      rollup: { counts: {}, outstanding: 0, tokens: 0, retried: 0, branches: 1 },
+      changed: 0, repos: [], branches: [], leaves: [],
+    } });
+    if (url.includes('/trees')) return Promise.resolve({ data: trees });
+    if (url.includes('/personas')) return Promise.resolve({ data: [] });
     return Promise.resolve({ data: [] });
   });
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  /**
+   * Grove remembers which tree was open — in localStorage AND in the URL, both deliberate. Both
+   * also leak between tests in one jsdom document, so a test that expanded a tree left the next
+   * one starting expanded with its chevron already reading "Collapse".
+   */
+  localStorage.clear();
+  window.history.replaceState(null, '', '/');
   mockApi({});
   mockedAxios.post.mockResolvedValue({ data: {} });
   mockedAxios.delete.mockResolvedValue({ data: {} });
@@ -89,7 +124,8 @@ describe('the tree', () => {
       branches: [branch()],
       leaves: [leaf(), leaf({ id: 'leaf-2', title: 'Add metrics', parentLeafId: 'leaf-1', depth: 1 })],
     });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     // The branch has its OWN title now, so it no longer collides with its first leaf's.
     await waitFor(() => expect(tree().getByText('Rate limiting work')).toBeInTheDocument());
     expect(tree().getByText('Add rate limiting')).toBeInTheDocument();
@@ -100,22 +136,71 @@ describe('the tree', () => {
     // Branches are server records now, so one exists before it has grown anything — which is what
     // makes a title and transcript survive a reload.
     mockApi({ branches: [branch({ title: 'Empty conversation' })] });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await waitFor(() => expect(tree().getByText('Empty conversation')).toBeInTheDocument());
   });
 
   it('still shows leaves whose branch record is missing, rather than hiding the work', async () => {
     // A branch record deleted out from under its leaves must not make them vanish from the tree.
     mockApi({ branches: [], leaves: [leaf()] });
-    renderWorkspace();
-    await waitFor(() => expect(tree().getAllByText('Add rate limiting').length).toBe(2));
+    renderGrove();
+    // With no branch record it lands in Unfiled, which must still be reachable.
+    await openTree('Unfiled');
+    await waitFor(() => expect(tree().getAllByText('Add rate limiting').length).toBeGreaterThan(0));
+  });
+});
+
+describe('expanding a tree versus choosing one', () => {
+  /**
+   * Reported as "the view should not change when the dropdown is open", and it was two bugs: the
+   * row's click did both jobs, AND the pane keyed off which tree was EXPANDED rather than which was
+   * selected. Reaching for a disclosure triangle threw away whatever you were reading.
+   */
+  it('expands without disturbing the pane', async () => {
+    mockApi({ branches: [branch()], leaves: [leaf()] });
+    renderGrove();
+    await waitFor(() => expect(tree().getByText('Gateway')).toBeInTheDocument());
+    // The landing is showing.
+    expect(screen.getByText(/What should Koala build/i)).toBeInTheDocument();
+
+    fireEvent.click(tree().getByTitle('Expand tree'));
+
+    // The tree opened...
+    await waitFor(() => expect(tree().getByText('Rate limiting work')).toBeInTheDocument());
+    // ...and the pane did not move.
+    expect(screen.getByText(/What should Koala build/i)).toBeInTheDocument();
+  });
+
+  it('collapses again without disturbing the pane', async () => {
+    mockApi({ branches: [branch()], leaves: [leaf()] });
+    renderGrove();
+    await waitFor(() => expect(tree().getByText('Gateway')).toBeInTheDocument());
+
+    fireEvent.click(tree().getByTitle('Expand tree'));
+    await waitFor(() => expect(tree().getByText('Rate limiting work')).toBeInTheDocument());
+    fireEvent.click(tree().getByTitle('Collapse tree'));
+
+    await waitFor(() => expect(tree().queryByText('Rate limiting work')).not.toBeInTheDocument());
+    expect(screen.getByText(/What should Koala build/i)).toBeInTheDocument();
+  });
+
+  it('opens the board when the tree itself is chosen', async () => {
+    // The other half: choosing a tree must still do something, or the row would be inert.
+    mockApi({ branches: [branch()], leaves: [leaf()] });
+    renderGrove();
+    await waitFor(() => expect(tree().getByText('Gateway')).toBeInTheDocument());
+
+    fireEvent.click(tree().getByText('Gateway'));
+    await waitFor(() => expect(screen.queryByText(/What should Koala build/i)).not.toBeInTheDocument());
   });
 });
 
 describe('selecting a leaf', () => {
   it('opens the detail view for it', async () => {
     mockApi({ branches: [branch()], leaves: [leaf({ body: 'Token bucket per API key.' })] });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await waitFor(() => expect(tree().getByText('Add rate limiting')).toBeInTheDocument());
 
     fireEvent.click(tree().getByText('Add rate limiting'));
@@ -128,7 +213,8 @@ describe('selecting a leaf', () => {
       branches: [branch()],
       leaves: [leaf({ status: 'failed', attempts: [{ attempt: 0, error: 'tests did not compile', failedAt: 'x' }] })],
     });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await waitFor(() => expect(tree().getByText('Add rate limiting')).toBeInTheDocument());
     fireEvent.click(tree().getByText('Add rate limiting'));
     await waitFor(() => expect(detail().getByText('tests did not compile')).toBeInTheDocument());
@@ -138,7 +224,8 @@ describe('selecting a leaf', () => {
 describe('proposals', () => {
   it('offers accept and reject even with no model configured, so proposals are never stranded', async () => {
     mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
     expect(detail().getByTitle('Reject')).toBeInTheDocument();
@@ -151,7 +238,8 @@ describe('proposals', () => {
      * reason nothing on this screen explained.
      */
     mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed' })] });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByText(/needs a persona/i)).toBeInTheDocument());
     expect(detail().getByTitle('Assign a persona first')).toBeDisabled();
@@ -163,7 +251,8 @@ describe('proposals', () => {
     // The panel used to be built from parsed model text; it must act on the actual record, since
     // the server's extractor is what created it and the two can differ.
     mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
 
@@ -175,7 +264,8 @@ describe('proposals', () => {
 
   it('offers accept-all only when more than one is proposed', async () => {
     mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
     // One proposal: accept-all would be a second button doing the same thing.
@@ -187,7 +277,8 @@ describe('proposals', () => {
       branches: [branch()],
       leaves: [leaf({ status: 'proposed', personaId: 'p1' }), leaf({ id: 'leaf-2', title: 'Add metrics', status: 'proposed', personaId: 'p1' })],
     });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await openBranch('Rate limiting work');
     await waitFor(() => expect(detail().getByText('Accept all')).toBeInTheDocument());
 
@@ -206,7 +297,8 @@ describe('proposals', () => {
      * beside it. Both say "To do" now, and that agreement is the thing worth pinning.
      */
     mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
-    renderWorkspace();
+    renderGrove();
+    await openTree();
     await waitFor(() => expect(screen.getAllByTitle('To do').length).toBeGreaterThan(0));
   });
 });
@@ -249,7 +341,7 @@ describe('a failure handed over from the board', () => {
      */
     const calls = stubChat();
     const taken = vi.fn();
-    renderWorkspace({ branchId: 'branch-1', prompt: 'One of the leaves on this branch failed. Read the record.' }, taken);
+    renderGrove({ branchId: 'branch-1', prompt: 'One of the leaves on this branch failed. Read the record.' }, taken);
 
     await waitFor(() => {
       const sent = calls.find((c) => c.url.includes('/chat'));
@@ -264,7 +356,7 @@ describe('a failure handed over from the board', () => {
     // sendMessage closes over `messages`, so the effect re-runs as the reply streams in. Without
     // the guard the review is re-sent on every chunk.
     const calls = stubChat();
-    renderWorkspace({ branchId: 'branch-1', prompt: 'Review this failure please.' }, () => {});
+    renderGrove({ branchId: 'branch-1', prompt: 'Review this failure please.' }, () => {});
     await waitFor(() => expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1));
     await new Promise((r) => setTimeout(r, 60));
     expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1);

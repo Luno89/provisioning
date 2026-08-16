@@ -63,3 +63,28 @@ export function shouldReplace(from: Route | undefined, to: Route): boolean {
   // Same view, and the first id (the scope — a tree, for Grove) is unchanged.
   return (from.path[0] ?? '') === (to.path[0] ?? '');
 }
+
+/**
+ * Views that no longer exist, and what replaced them.
+ *
+ * `chat` and `board` were the old Koala workspace and `trees` its tree list; Grove subsumed all
+ * three. Without this an old link or bookmark resolves to a view nothing renders, and the page is
+ * simply blank — which looks like the application is broken rather than like it moved.
+ */
+export const RETIRED_VIEWS: Record<string, string> = {
+  chat: 'grove',
+  board: 'grove',
+  trees: 'grove',
+};
+
+/**
+ * The view a hash actually resolves to.
+ *
+ * An unknown name falls back rather than rendering nothing, because every way of arriving at one is
+ * somebody else's fault: a stale bookmark, a shared link, a typo.
+ */
+export function resolveView(view: string | undefined, known: readonly string[], fallback: string): string {
+  if (!view) return fallback;
+  if (known.includes(view)) return view;
+  return RETIRED_VIEWS[view] ?? fallback;
+}

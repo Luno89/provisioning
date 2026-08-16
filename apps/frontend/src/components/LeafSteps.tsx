@@ -79,7 +79,17 @@ export default function LeafSteps({ apiBase, leafId, live }: {
     return <div className="text-slate-500 flex items-center gap-2 text-[12px]"><Loader2 className="animate-spin" size={14} /> Loading the trace…</div>;
   }
 
-  if (data?.missing || !data) {
+  /**
+   * Anything that is not a trace is treated as no trace.
+   *
+   * `data.tokensUsed.toLocaleString()` threw on a payload without those fields and took the whole
+   * leaf pane down with it — a trace endpoint that errors, or returns something unexpected, must
+   * degrade to "nothing to replay" rather than to a blank screen. Third instance of this shape in
+   * this UI, after LeafModal and TreeBoard.
+   */
+  const usable = data && !data.missing && Array.isArray(data.steps);
+
+  if (!usable) {
     return (
       /* A leaf that has not run is not a leaf whose record was lost — different things, and saying
          "no trace" for both would look like data loss. */
@@ -93,6 +103,9 @@ export default function LeafSteps({ apiBase, leafId, live }: {
     );
   }
 
+  const totalSteps = data.totalSteps ?? data.steps.length;
+  const tokensUsed = data.tokensUsed ?? 0;
+
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-slate-500 pb-1 flex items-center gap-2">
@@ -101,7 +114,7 @@ export default function LeafSteps({ apiBase, leafId, live }: {
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--leaf)] animate-pulse" /> running
           </span>
         )}
-        {data.totalSteps} {data.totalSteps === 1 ? 'turn' : 'turns'} · {data.tokensUsed.toLocaleString()} tokens
+        {totalSteps} {totalSteps === 1 ? 'turn' : 'turns'} · {tokensUsed.toLocaleString()} tokens
         {data.trimmed && data.dropped ? ` · ${data.dropped} middle turns dropped to fit` : ''}
       </p>
 
