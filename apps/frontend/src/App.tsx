@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, LayoutGrid, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -1081,24 +1081,19 @@ function App() {
           {/* Koala is the product; everything else is the infrastructure it runs on. Giving the
               harness top billing and folding ten operational tabs into one keeps that hierarchy
               legible instead of presenting eleven equal choices. */}
+          {/* Koala opens Grove. It used to open a flat list of every conversation beside an empty
+              pane — a navigator with no destination, which is what made the front door of the
+              product feel like a file browser. Grove's landing answers what happened and what is
+              owed instead. */}
           <button
-            onClick={() => setView('chat')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${view === 'chat' ? 'bg-[var(--leaf-stem)] text-white' : 'text-slate-300 hover:bg-[var(--bark-700)]'}`}
+            onClick={() => setView('grove')}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${view === 'grove' ? 'bg-[var(--leaf-stem)] text-white' : 'text-slate-300 hover:bg-[var(--bark-700)]'}`}
           >
-            <Koala size={20} mood={view === 'chat' ? 'happy' : 'idle'} /> Koala
+            <Koala size={20} mood={view === 'grove' ? 'happy' : 'idle'} /> Koala
           </button>
 
           {/* Indented under Koala rather than listed beside it: a tree is the scope conversations
               live in, so it belongs to the harness, not to the infrastructure below. */}
-          {/* Grove is the one navigator: tree → branch → leaf, the shape the data already has.
-              It sits above Trees and Koala because it subsumes both — those two stay only until it
-              is at parity, and then they go. */}
-          <button
-            onClick={() => setView('grove')}
-            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'grove' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
-          >
-            <LayoutGrid size={15} className="text-[var(--leaf)]" /> Grove
-          </button>
           <button
             onClick={() => setView('trees')}
             className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'trees' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
@@ -1583,7 +1578,7 @@ function App() {
              * evidence with it. Reviewing is a normal chat turn, so what arrives is an answer
              * being written rather than an empty box.
              */
-            onReview={(branchId, prompt) => { setHandoff({ branchId, prompt }); setView('board'); }}
+            onReview={(branchId, prompt) => { setHandoff({ branchId, prompt }); setView('grove'); }}
           />
         )}
         {view === 'vps-catalog' && (

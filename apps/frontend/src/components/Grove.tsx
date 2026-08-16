@@ -2,16 +2,17 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
-  ChevronRight, ChevronDown, GitBranch, Plus, Loader2, LayoutGrid, MessageSquare,
+  ChevronRight, ChevronDown, GitBranch, Plus, Loader2,
   PanelLeftClose, PanelLeftOpen, Trash2, Trees as TreesIcon, Inbox,
 } from 'lucide-react';
 import BranchChat, { type BranchRecord } from './BranchChat.js';
+import Home from './Home.js';
 import TreeBoard from './TreeBoard.js';
 import LeafDetail from './LeafDetail.js';
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './leaf-types.js';
 import { type Message } from './Chat.js';
-import { KoalaSpot } from './Koala.js';
 import { parseHash, formatHash, shouldReplace } from '../lib/route.js';
+import { lastSeen, markSeenAfterDwell } from '../lib/seen.js';
 
 /**
  * The harness, arranged the way its data actually is.
@@ -76,6 +77,23 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [railClosed, setRailClosed] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
+  /**
+   * The opening message for a conversation started from the home page.
+   *
+   * Held here rather than passed straight through because the branch does not exist yet when the
+   * text is typed — it is created first, and this is what gets sent the moment it does.
+   */
+  const [opening, setOpening] = useState<{ branchId: string; prompt: string } | undefined>();
+
+  /**
+   * When this page was last looked at.
+   *
+   * Read through `lastSeen` rather than straight from localStorage, and stamped after a dwell
+   * rather than on unmount — under StrictMode an unmount cleanup fires immediately, which marked
+   * the page seen before anything had been read. See lib/seen.ts.
+   */
+  const seenAt = useRef<string | undefined>(lastSeen('grove-seen'));
+  useEffect(() => markSeenAfterDwell('grove-seen'), []);
 
   useEffect(() => {
     if (openTree) localStorage.setItem('grove-tree', openTree);
@@ -133,6 +151,18 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
       .then((r) => r.data),
     onSuccess: (branch: BranchRecord) => {
       setSelected({ kind: 'branch', id: branch.id });
+      qc.invalidateQueries({ queryKey: ['branches'] });
+    },
+  });
+
+  const startWork = useMutation({
+    mutationFn: ({ treeId }: { treeId: string; prompt: string }) => axios
+      .post(`${apiBase}/branches`, treeId && treeId !== UNFILED ? { treeId } : {}, { withCredentials: true })
+      .then((r) => r.data as BranchRecord),
+    onSuccess: (branch, { treeId, prompt }) => {
+      setOpenTree(treeId);
+      setSelected({ kind: 'branch', id: branch.id });
+      setOpening({ branchId: branch.id, prompt });
       qc.invalidateQueries({ queryKey: ['branches'] });
     },
   });
@@ -378,7 +408,11 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
             onAcceptAll={(ids) => acceptAll.mutate(ids)}
             {...(handoff && handoff.branchId === selectedBranch.id
               ? { autoSend: handoff.prompt, ...(onHandoffTaken ? { onAutoSent: onHandoffTaken } : {}) }
-              : {})}
+              : opening && opening.branchId === selectedBranch.id
+                // Started from the home page: the first message goes out on arrival, so the box you
+                // typed into is the box the work started from.
+                ? { autoSend: opening.prompt, onAutoSent: () => setOpening(undefined) }
+                : {})}
           />
         ) : openTree && openTree !== UNFILED ? (
           <div className="overflow-y-auto -ml-6">
@@ -391,16 +425,22 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
             />
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <KoalaSpot size={72} mood="idle" className="sway opacity-60" />
-            <p className="text-slate-600 text-sm">
-              {groups.length === 0 ? 'No trees yet.' : 'Pick a tree, a conversation, or a leaf.'}
-            </p>
-            <p className="text-slate-700 text-[11px] flex items-center gap-4">
-              <span className="flex items-center gap-1.5"><LayoutGrid size={11} /> a tree shows its board</span>
-              <span className="flex items-center gap-1.5"><MessageSquare size={11} /> a conversation opens the chat</span>
-            </p>
-          </div>
+          /* The landing. It used to be a koala and the words "Pick a tree, a conversation, or a
+             leaf" over about a thousand pixels of nothing. */
+          <Home
+            leaves={all}
+            branches={branchRecords}
+            trees={trees}
+            lastSeen={seenAt.current}
+            starting={startWork.isPending}
+            onStart={(treeId, prompt) => startWork.mutate({ treeId, prompt })}
+            onOpenLeaf={(leaf) => {
+              const record = branchRecords.find((b) => b.id === leaf.branchId);
+              if (record?.treeId) setOpenTree(record.treeId);
+              setSelected({ kind: 'leaf', id: leaf.id });
+            }}
+            onOpenTree={(id) => { setOpenTree(id); setSelected({ kind: 'tree', id }); }}
+          />
         )}
       </section>
     </div>

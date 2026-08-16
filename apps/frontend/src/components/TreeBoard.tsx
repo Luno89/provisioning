@@ -4,6 +4,7 @@ import axios from 'axios';
 import { ArrowLeft, Loader2, GitBranch, Coins, RotateCcw, ShieldCheck, ShieldQuestion, Clock } from 'lucide-react';
 import LeafModal from './LeafModal.js';
 import { BOARD_COLUMNS, type LeafState } from './leaf-types.js';
+import { lastSeen, markSeenAfterDwell } from '../lib/seen.js';
 
 /**
  * One tree's board — what has been done and what is left.
@@ -78,7 +79,7 @@ export default function TreeBoard({
    * the baseline forward and "what changed" would permanently read zero — which is exactly the
    * failure that makes a live board indistinguishable from a dead one.
    */
-  const since = useRef<string | undefined>(localStorage.getItem(`tree-seen-${treeId}`) ?? undefined);
+  const since = useRef<string | undefined>(lastSeen(`tree-seen-${treeId}`));
 
   const { data, isLoading } = useQuery<Board>({
     queryKey: ['tree-board', treeId],
@@ -92,9 +93,14 @@ export default function TreeBoard({
     refetchInterval: 5000,
   });
 
-  // Written on unmount, not on render: marking it seen while you are still reading it would
-  // discard the very thing the marker is for.
-  useEffect(() => () => { localStorage.setItem(`tree-seen-${treeId}`, new Date().toISOString()); }, [treeId]);
+  /**
+   * Stamped after a dwell, not on unmount.
+   *
+   * The unmount version was worse than useless under StrictMode: the cleanup ran immediately on
+   * mount, so this board's "N changes since you last looked" was permanently zero — a live board
+   * and a dead one rendered identically. See lib/seen.ts.
+   */
+  useEffect(() => markSeenAfterDwell(`tree-seen-${treeId}`), [treeId]);
 
   if (isLoading || !data) {
     return <div className="p-8 text-slate-500 flex items-center gap-2"><Loader2 className="animate-spin" size={18} /> Loading board…</div>;
