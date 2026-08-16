@@ -37,7 +37,7 @@ import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
 import type { WebTools } from './web-tools.js';
 import {
-  TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS, turnMaxTokens,
+  TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS, turnMaxTokens, fittedMaxTokens,
 } from './sampling.js';
 import { type Overrides } from './tunables.js';
 import { buildModelRequest } from './model-request.js';
@@ -359,6 +359,15 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
      * turn's own trimming.
      */
     requestBody.messages = trimConversation(messages);
+    /**
+     * The reply budget is re-fitted every turn, because the prompt grows.
+     *
+     * The engine allocates prompt + max_tokens up front and refuses the pair if it does not fit, so
+     * a fixed ceiling that was fine on turn one is a hard 400 on turn twenty — before a token is
+     * generated. Measured: 26,816 prompt tokens plus an 8,000 ceiling is exactly the 34,816 the
+     * engine reported against a 32,768 window.
+     */
+    requestBody.max_tokens = fittedMaxTokens(turnCap, JSON.stringify(requestBody.messages).length);
     // Per turn, for the same reason as the messages above: the body is assembled once, and a tool
     // list fixed at that moment could never change partway through a run.
     requestBody.tools = toolsForStep(step, activeTools, opts.withdrawTools);

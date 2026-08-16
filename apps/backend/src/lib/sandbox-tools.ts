@@ -166,6 +166,10 @@ export const CONVERSATION_CHAR_BUDGET = 60_000;
 /** What replaces an old tool result once it no longer fits. */
 const DROPPED = '[earlier tool output dropped to fit the context window — re-run the tool if you still need it]';
 
+/** What replaces the CONTENTS of a file already written, in an older turn. */
+const WRITTEN = (path: string, bytes: number) =>
+  `{"path":${JSON.stringify(path)},"content":"[${bytes} bytes already written to ${path} — read the file if you need it]"}`;
+
 /**
  * The conversation as it should be SENT: recent turns intact, older bulk elided.
  *
@@ -177,11 +181,57 @@ const DROPPED = '[earlier tool output dropped to fit the context window — re-r
  * The first two messages are never touched — they are the system prompt and the task itself, and an
  * agent that loses the task will confidently do the wrong thing for the rest of its budget.
  */
+/**
+ * Replaces the `content` argument of any write_file call with a note, keeping everything else.
+ *
+ * Returns undefined when there is nothing worth eliding, so the caller can tell "trimmed" from
+ * "unchanged" without comparing sizes.
+ */
+function elideWrites(m: { tool_calls?: unknown }): unknown | undefined {
+  const calls = m.tool_calls as { function?: { name?: string; arguments?: string } }[] | undefined;
+  if (!Array.isArray(calls) || !calls.length) return undefined;
+
+  let changed = false;
+  const next = calls.map((c) => {
+    if (c?.function?.name !== 'write_file' || typeof c.function.arguments !== 'string') return c;
+    let path = 'the file';
+    let bytes = c.function.arguments.length;
+    try {
+      const args = JSON.parse(c.function.arguments);
+      if (typeof args?.path === 'string') path = args.path;
+      if (typeof args?.content === 'string') bytes = args.content.length;
+      // Nothing to reclaim on a small write.
+      if (bytes < 400) return c;
+    } catch {
+      // A truncated argument is still bulk worth reclaiming.
+    }
+    changed = true;
+    return { ...c, function: { ...c.function, arguments: WRITTEN(path, bytes) } };
+  });
+  return changed ? { ...m, tool_calls: next } : undefined;
+}
+
 export function trimConversation<T extends { role?: string; content?: unknown }>(
   messages: T[],
   budget: number = CONVERSATION_CHAR_BUDGET,
 ): T[] {
-  const size = (m: T) => (typeof m.content === 'string' ? m.content.length : 0);
+  /**
+   * How much room a message actually takes.
+   *
+   * `content` alone was measured, and a `write_file` call's arguments are not content — they live
+   * on the assistant message's `tool_calls`, and they hold the whole file. So a conversation made
+   * of file writes looked nearly empty to this budget while being the largest thing the model was
+   * asked to read.
+   *
+   * Measured: a leaf rewrote a 9 KB test file three times and died on
+   * `requires 34816 cache tokens, which exceeds the available context size of 32768`, with a
+   * trimmer that believed the conversation was well inside its limit.
+   */
+  const size = (m: T) => {
+    const content = typeof m.content === 'string' ? m.content.length : 0;
+    const calls = (m as { tool_calls?: unknown }).tool_calls;
+    return content + (calls ? JSON.stringify(calls).length : 0);
+  };
   const total = messages.reduce((n, m) => n + size(m), 0);
   if (total <= budget) return messages;
 
@@ -194,14 +244,29 @@ export function trimConversation<T extends { role?: string; content?: unknown }>
     const m = out[i]!;
     const len = size(m);
     if (used + len <= budget) { used += len; continue; }
-    // Only tool output is elided. An assistant turn is the model's own reasoning and its tool
-    // calls; blanking those loses the thread of what it was doing and why.
     if (m.role === 'tool' && len > DROPPED.length) {
+      // Tool output: dropped outright. It is recoverable by running the tool again.
       out[i] = { ...m, content: DROPPED };
       used += DROPPED.length;
-    } else {
-      used += len;
+      continue;
     }
+
+    /**
+     * An old `write_file` keeps its call and loses its payload.
+     *
+     * The reasoning that protected assistant turns is right about the THREAD — which tool was
+     * called, with what path, in what order — and wrong about the file contents, which are the bulk
+     * and which are already on disk. Keeping the call and eliding the content preserves what the
+     * model needs to know it wrote the file, at a fraction of the room.
+     */
+    const trimmed = elideWrites(m as { tool_calls?: unknown });
+    if (trimmed) {
+      out[i] = trimmed as T;
+      used += size(trimmed as T);
+      continue;
+    }
+
+    used += len;
   }
   return out;
 }

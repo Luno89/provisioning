@@ -164,6 +164,42 @@ export function turnMaxTokens(opts: { think?: boolean; canWriteFiles?: boolean }
 }
 
 /**
+ * The context the deployed model actually has.
+ *
+ * Conservative rather than negotiated: the endpoint reports `max_seq_len` and asking it per turn is
+ * a round trip to learn a number that changes only when a model is redeployed.
+ */
+export const ASSUMED_CONTEXT_TOKENS = 32_768;
+
+/** Room left for the engine's own framing after the prompt and the reply. */
+const CONTEXT_MARGIN_TOKENS = 512;
+
+/** Below this a turn cannot say anything useful, so failing loudly beats a truncated reply. */
+export const MIN_TURN_TOKENS = 600;
+
+/**
+ * A reply budget that fits in what is left of the window.
+ *
+ * ── WHY A CEILING IS NOT ENOUGH ──
+ * The engine allocates PROMPT + max_tokens up front and refuses the request if the pair does not
+ * fit. So a generous ceiling is not merely wasteful when the prompt is large — it is fatal, and it
+ * fails before a single token is generated.
+ *
+ * Measured, and self-inflicted: raising the file-writing ceiling to 8,000 made large writes
+ * possible and then killed a leaf whose prompt had grown to roughly 26,800 tokens —
+ * `requires 34816 cache tokens, which exceeds the available context size of 32768`. 26,816 + 8,000
+ * is exactly 34,816. The ceiling was right; asking for it unconditionally was not.
+ *
+ * Characters over four is the usual rough conversion. It does not need to be exact — it needs to
+ * be conservative, and the margin covers the error.
+ */
+export function fittedMaxTokens(ceiling: number, promptChars: number, contextTokens = ASSUMED_CONTEXT_TOKENS): number {
+  const promptTokens = Math.ceil(promptChars / 4);
+  const available = contextTokens - promptTokens - CONTEXT_MARGIN_TOKENS;
+  return Math.max(MIN_TURN_TOKENS, Math.min(ceiling, available));
+}
+
+/**
  * Told to any model that has tools.
  *
  * Addresses a specific observed failure: the model wrote a plausible `list_projects` RESULT into
