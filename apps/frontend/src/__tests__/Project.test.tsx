@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import axios from 'axios';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Home from '../components/Home';
 import type { Leaf } from '../components/leaf-types';
@@ -14,6 +15,9 @@ import type { Leaf } from '../components/leaf-types';
  * for having dropped the columns: they showed exactly one attribute, state, that every row already
  * carried, and spent the whole width doing it.
  */
+
+vi.mock('axios');
+vi.mocked(axios).post = vi.fn().mockResolvedValue({ data: {} }) as never;
 
 const leaf = (over: Partial<Leaf>): Leaf => ({
   id: 'l', branchId: 'b1', title: 't', status: 'succeeded',
@@ -30,6 +34,7 @@ const BRANCHES = [
 const show = (leaves: Leaf[], personaNames: Record<string, string> = {}) => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <Home
+      apiBase="/api"
       leaves={leaves}
       branches={BRANCHES}
       trees={[TREE, { id: 'other', name: 'Other' }]}
@@ -146,5 +151,36 @@ describe("a project's screen", () => {
     expect(screen.getAllByText('Broken')).toHaveLength(1);
     // And it is not in the inventory: a settled failure lives in the owed list.
     expect(screen.queryByText(/Failed ·/)).not.toBeInTheDocument();
+  });
+});
+
+describe('dropping outstanding work', () => {
+  it('lets you drop a thing the project is not going to do', async () => {
+    /**
+     * Without this the only way to clear an outstanding item was to delete the leaf, which throws
+     * away the trace too. Dropping reuses `cancel` because `cancelled` already means "stopped
+     * deliberately" everywhere — the board, the project context and the re-proposal list all
+     * already refuse to resurrect it.
+     */
+    const { getByTitle } = show([leaf({ id: 'gone', title: 'Not worth it', branchId: 'b1', status: 'failed' })]);
+    await waitFor(() => expect(screen.getByText(/Attempted, not delivered/i)).toBeInTheDocument());
+
+    fireEvent.click(getByTitle(/Drop this/i));
+    await waitFor(() => expect(vi.mocked(axios).post).toHaveBeenCalledWith(
+      '/api/leaves/gone/cancel', {}, expect.anything(),
+    ));
+  });
+
+  it('shows why it was not delivered, not just that it was not', async () => {
+    // Whether a third attempt is worth making is unanswerable without knowing how the second ended.
+    show([leaf({
+      id: 'f', title: 'Flaky', branchId: 'b1', status: 'failed',
+      attempts: [
+        { attempt: 0, error: 'first thing', failedAt: '' },
+        { attempt: 1, error: 'context_length_exceeded', failedAt: '' },
+      ],
+    })]);
+    await waitFor(() => expect(screen.getByText(/2 attempts/)).toBeInTheDocument());
+    expect(screen.getByText(/context_length_exceeded/)).toBeInTheDocument();
   });
 });

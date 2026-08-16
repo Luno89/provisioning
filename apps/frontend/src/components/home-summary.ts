@@ -42,10 +42,29 @@ export function settledBranches(
  * broke a minute ago and something nobody had cleared in a day — measured here, three of them sat
  * at the top of the page overnight with no way to resolve them except deleting the leaf.
  */
+/**
+ * Why a piece of outstanding work is outstanding.
+ *
+ * Deliberately narrower than the backend's `evidenceFor`, which describes every state: the only
+ * case this list ever shows is a failure, so mirroring the whole function would be copying six
+ * branches to use one. What it must agree on is the shape of the sentence a person reads —
+ * attempts, then the LAST error, because that is the one that says where things actually stand.
+ */
+export function failureEvidence(leaf: Leaf): string {
+  const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
+  const last = attempts[attempts.length - 1]?.error;
+  const count = attempts.length
+    ? `failed after ${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`
+    : 'failed';
+  if (!last) return count;
+  const flat = last.replace(/\s+/g, ' ').trim();
+  return `${count} — last error: ${flat.length > 160 ? `${flat.slice(0, 159)}…` : flat}`;
+}
+
 export function outstandingWork(
   branches: { id: string; title: string }[],
   leaves: Leaf[],
-): { leaf: Leaf; from: string; attempts: number }[] {
+): { leaf: Leaf; from: string; attempts: number; evidence: string }[] {
   const settled = settledBranches(branches, leaves);
   return leaves
     .filter((l) => l.status === 'failed' && settled.has(l.branchId))
@@ -53,6 +72,7 @@ export function outstandingWork(
       leaf,
       from: branches.find((b) => b.id === leaf.branchId)?.title ?? '',
       attempts: Array.isArray(leaf.attempts) ? leaf.attempts.length : 0,
+      evidence: failureEvidence(leaf),
     }))
     .sort((a, b) => b.attempts - a.attempts);
 }

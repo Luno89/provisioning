@@ -1,7 +1,9 @@
 import { useState, Fragment } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
-  GitBranch, Coins, MessageSquare, RotateCcw,
+  GitBranch, Coins, MessageSquare, RotateCcw, X,
 } from 'lucide-react';
 import {
   needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago,
@@ -32,9 +34,10 @@ import { KoalaSpot } from './Koala.js';
  * Nothing here is stored. Every figure is derived from records the platform already writes.
  */
 export default function Home({
-  leaves, branches, trees, tree, lastSeen, personaNames = {},
+  apiBase, leaves, branches, trees, tree, lastSeen, personaNames = {},
   onStart, onOpenLeaf, onOpenTree, onOpenBranch, starting,
 }: {
+  apiBase: string;
   leaves: Leaf[];
   branches: { id: string; title: string; treeId?: string }[];
   trees: { id: string; name: string }[];
@@ -49,6 +52,20 @@ export default function Home({
   onOpenBranch?: (branchId: string) => void;
   starting?: boolean;
 }) {
+  const qc = useQueryClient();
+  /**
+   * Dropping outstanding work.
+   *
+   * Reuses `cancel` rather than inventing a `dropped` flag: `cancelled` already means "somebody
+   * stopped this deliberately", and every surface here — the board, the project context, the
+   * re-proposal list — already refuses to resurrect it. A second field meaning the same thing is a
+   * second field to keep in step.
+   */
+  const drop = useMutation({
+    mutationFn: (id: string) => axios.post(`${apiBase}/leaves/${id}/cancel`, {}, { withCredentials: true }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['leaves'] }),
+  });
+
   const [prompt, setPrompt] = useState('');
   const [pickedTree, setPickedTree] = useState(() => localStorage.getItem('grove-tree') ?? trees[0]?.id ?? '');
 
@@ -251,7 +268,7 @@ export default function Home({
             was tried.
           </p>
           <div className="space-y-1.5">
-            {owed.map(({ leaf, from, attempts }) => (
+            {owed.map(({ leaf, from, evidence }) => (
               <button
                 key={leaf.id}
                 onClick={() => onOpenLeaf(leaf)}
@@ -260,10 +277,21 @@ export default function Home({
                 <span className="w-1.5 h-1.5 rounded-full bg-red-500/50 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] text-slate-300 truncate">{leaf.title}</div>
-                  <div className="text-[11px] text-slate-600 truncate">
-                    {attempts > 0 ? `${attempts} attempt${attempts === 1 ? '' : 's'} · ` : ''}from “{from}”
-                  </div>
+                  {/* The evidence, not just a count. Whether a third attempt is worth making is
+                      unanswerable without knowing how the second one ended. */}
+                  <div className="text-[11px] text-slate-600 truncate" title={evidence}>{evidence}</div>
+                  <div className="text-[10px] text-slate-700 truncate">from “{from}”</div>
                 </div>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title="Drop this — it stops being owed, and will not be proposed again"
+                  onClick={(e) => { e.stopPropagation(); drop.mutate(leaf.id); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); drop.mutate(leaf.id); } }}
+                  className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-[var(--bark-700)] shrink-0"
+                >
+                  <X size={13} />
+                </span>
                 <ArrowRight size={13} className="text-slate-700 shrink-0" />
               </button>
             ))}

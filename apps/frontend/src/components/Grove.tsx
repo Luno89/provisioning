@@ -499,6 +499,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
            * Both are gone: see the header comment in Home.tsx for why the columns went.
            */
           <Home
+            apiBase={apiBase}
             leaves={all}
             branches={branchRecords}
             trees={trees}

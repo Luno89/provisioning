@@ -70,10 +70,11 @@ export function buildSiblingContext(branches: Branch[], leaves: Leaf[]): string 
   const standing = projectStanding(branches, leaves);
   const sections: string[] = [];
 
-  if (standing.summaries.length) {
+  if (standing.finishedLines.length) {
     sections.push([
       'Finished runs in this project:',
-      ...standing.summaries.map((line) => `- ${line}`),
+      // Already indented where a line is a citation under its run.
+      ...standing.finishedLines.map((line) => (line.startsWith('    ') ? line : `- ${line}`)),
     ].join('\n'));
   }
 
@@ -96,11 +97,15 @@ export function buildSiblingContext(branches: Branch[], leaves: Leaf[]): string 
   if (standing.outstanding.length) {
     sections.push([
       'Attempted in this project and NOT delivered:',
-      ...standing.outstanding.map((o) =>
-        `- ${o.title} (${o.attempts > 0 ? `${o.attempts} attempt${o.attempts === 1 ? '' : 's'}` : 'no attempts recorded'}, from "${o.from}")`),
+      ...standing.outstanding.flatMap((o) => [
+        `- ${o.title} (from "${o.from}")`,
+        // The reason, not just the count. Deciding whether a third attempt would go differently is
+        // impossible without knowing how the second one ended.
+        `    ${o.evidence}`,
+      ]),
       '',
       'If any of these is still wanted, propose it again and say that it is a retry and why it might'
-        + ' go differently. If it is not wanted, say so and leave it alone.',
+        + ' go differently given the error above. If it is not wanted, say so and leave it alone.',
     ].join('\n'));
   }
 

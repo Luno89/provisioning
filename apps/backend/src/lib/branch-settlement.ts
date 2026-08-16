@@ -62,6 +62,66 @@ export function settlementOf(leaves: Leaf[]): Settlement {
   };
 }
 
+/** Longest error kept in a citation. Enough to recognise the failure, not enough to be a wall. */
+export const MAX_EVIDENCE_CHARS = 160;
+
+/**
+ * What actually happened to one leaf, from the records rather than from anyone's report.
+ *
+ * ── WHY A SUMMARY NEEDS CITING ──
+ * "12 delivered, 2 not delivered" is a count, and a count is only as trustworthy as the thing that
+ * produced it. Half of what finishes here is a model's report on its own work, so a summary that
+ * does not say WHAT was checked is a summary you cannot act on: you cannot tell the twelve that
+ * passed a test from the twelve that merely said they were done.
+ *
+ * So each line carries its evidence — what checked it, where the code went, or why it failed. The
+ * distinction that matters most is the one this system exists to preserve: `checked` never renders
+ * the same as `reported`.
+ */
+export function evidenceFor(leaf: Leaf): string {
+  const clip = (t: string) => {
+    const flat = t.replace(/\s+/g, ' ').trim();
+    return flat.length > MAX_EVIDENCE_CHARS ? `${flat.slice(0, MAX_EVIDENCE_CHARS - 1)}…` : flat;
+  };
+
+  if (leaf.status === 'failed') {
+    const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
+    const last = attempts[attempts.length - 1]?.error;
+    const count = attempts.length
+      ? `failed after ${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`
+      : 'failed';
+    // The error is the whole point: it is what decides whether another attempt would go
+    // differently, and without it a retry is a guess.
+    return last ? `${count} — last error: ${clip(last)}` : count;
+  }
+
+  if (leaf.status === 'cancelled') return 'stopped deliberately';
+  if (leaf.status === 'running') return 'running now';
+  if (leaf.status === 'pending') return 'accepted, waiting its turn';
+  if (leaf.status === 'proposed') return 'proposed, awaiting a decision';
+
+  // Succeeded. What, if anything, actually checked it.
+  const check = leaf.expects?.length
+    ? `produced ${leaf.expects.join(', ')}`
+    : leaf.verifyCommand
+      ? `passed \`${clip(leaf.verifyCommand)}\``
+      : 'a check passed';
+
+  if (!leaf.verified) {
+    /**
+     * The sentence that must never be softened. An unverified success is still a success — most
+     * work is not test-shaped — but it is a report, and saying so is the entire safeguard.
+     */
+    return leaf.merged
+      ? 'the agent reported success and it merged; nothing checked it'
+      : 'the agent reported success; nothing checked it';
+  }
+
+  if (leaf.merged) return `${check}, merged to the default branch`;
+  if (leaf.outputBranch) return `${check}, pushed to ${leaf.outputBranch} but NOT merged`;
+  return check;
+}
+
 /**
  * One line describing what a finished conversation came to.
  *
@@ -85,9 +145,41 @@ export function summariseBranch(branch: Pick<Branch, 'title' | 'acceptanceOutcom
   return `"${branch.title}" — ${counts}${verdict}`;
 }
 
+/**
+ * A finished run, with each unfinished piece carrying the reason it is unfinished.
+ *
+ * The counts alone were not enough to act on: "2 not delivered" tells you there is a decision to
+ * make and nothing about how to make it.
+ */
+export function citedSummary(branch: Pick<Branch, 'title' | 'acceptanceOutcome' | 'acceptanceFailedCheck'>, s: Settlement): string[] {
+  if (!s.settled) return [];
+  const lines = [summariseBranch(branch, s)];
+
+  if (branch.acceptanceOutcome === 'failed' && branch.acceptanceFailedCheck) {
+    // Which check, not just that one failed — "the acceptance check failed" tells nobody which part
+    // broke.
+    lines.push(`    acceptance stopped at: ${branch.acceptanceFailedCheck}`);
+  }
+  for (const leaf of s.outstanding) {
+    lines.push(`    not delivered — ${leaf.title}: ${evidenceFor(leaf)}`);
+  }
+  if (s.claimed.length) {
+    // Named rather than counted, because these are the ones most likely to be wrong and least
+    // likely to be looked at.
+    for (const leaf of s.claimed) lines.push(`    unchecked — ${leaf.title}: ${evidenceFor(leaf)}`);
+  }
+  return lines;
+}
+
 export interface ProjectStanding {
-  /** One line per finished conversation. */
-  summaries: string[];
+  /**
+   * The finished runs, as lines.
+   *
+   * Lines rather than one entry per run: a cited summary is a heading plus a line for each thing it
+   * did not deliver or did not check, so the count of entries is not the count of runs. Naming it
+   * `summaries` implied otherwise and a test believed it.
+   */
+  finishedLines: string[];
   /** Everything the project delivered, by title, so it is not built twice. */
   delivered: string[];
   /**
@@ -96,7 +188,7 @@ export interface ProjectStanding {
    * This is the list the next planning turn should be deciding about — and the reason a failure
    * does not have to live in a branch forever.
    */
-  outstanding: { title: string; attempts: number; from: string }[];
+  outstanding: { title: string; attempts: number; from: string; evidence: string }[];
   /** Conversations still in flight, which are described by their leaves rather than a summary. */
   liveBranches: { branch: Branch; leaves: Leaf[] }[];
 }
@@ -109,7 +201,7 @@ export interface ProjectStanding {
  * conversation would need in order to stay out of its way.
  */
 export function projectStanding(branches: Branch[], leaves: Leaf[]): ProjectStanding {
-  const summaries: string[] = [];
+  const finishedLines: string[] = [];
   const delivered: string[] = [];
   const outstanding: ProjectStanding['outstanding'] = [];
   const liveBranches: ProjectStanding['liveBranches'] = [];
@@ -124,7 +216,7 @@ export function projectStanding(branches: Branch[], leaves: Leaf[]): ProjectStan
       continue;
     }
 
-    summaries.push(summariseBranch(branch, s));
+    finishedLines.push(...citedSummary(branch, s));
     // Claimed counts as built: unchecked is not the same as absent, and rebuilding it would be
     // worse than the missing check.
     delivered.push(...[...s.delivered, ...s.claimed].map((l) => l.title));
@@ -132,8 +224,9 @@ export function projectStanding(branches: Branch[], leaves: Leaf[]): ProjectStan
       title: l.title,
       attempts: Array.isArray(l.attempts) ? l.attempts.length : 0,
       from: branch.title,
+      evidence: evidenceFor(l),
     })));
   }
 
-  return { summaries, delivered, outstanding, liveBranches };
+  return { finishedLines, delivered, outstanding, liveBranches };
 }
