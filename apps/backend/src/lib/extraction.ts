@@ -21,6 +21,7 @@
  * Kept pure. The prompt and the parsing are the parts that break quietly, and both are testable
  * without a GPU.
  */
+import { usableServiceName } from './service-name.js';
 import type { LeafProposal } from './plan-mode.js';
 
 /**
@@ -136,4 +137,29 @@ export function parseExtractionResult(reply: string, maxProposals: number): Leaf
     if (out.length >= maxProposals) break;
   }
   return out;
+}
+
+/**
+ * The service name the planner declared, if it declared one.
+ *
+ * Read separately from the leaves rather than folded into their return type: every caller of
+ * `extractProposals` wants leaves, and widening that shape to carry an occasional string would
+ * make each of them handle a field they do not use. Same JSON block, read twice — it is a few
+ * hundred bytes.
+ *
+ * Validated rather than trusted: asked for a short name, a model will sometimes answer with a
+ * sentence, and prefixing every tool the service exposes with that is worse than falling back to
+ * the tree's own name.
+ */
+export function extractServiceName(text: string): string | undefined {
+  if (!text?.trim()) return undefined;
+  // Same shape as parseExtractionResult: bare JSON, or fenced if the engine ignored the schema.
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  const candidate = (fenced?.[1] ?? text).trim();
+  try {
+    const parsed = JSON.parse(candidate) as { serviceName?: unknown };
+    return usableServiceName(parsed?.serviceName);
+  } catch {
+    return undefined;
+  }
 }

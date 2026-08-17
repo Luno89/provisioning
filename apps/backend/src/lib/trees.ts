@@ -164,6 +164,18 @@ export interface Tree {
    * migration of behaviour rather than of shape.
    */
   projectIds?: string[];
+  /**
+   * What a service this tree produces is CALLED, when other agents call it.
+   *
+   * Distinct from `name`, and shorter. The name is a heading — "Weather API MCP" — and it becomes
+   * the prefix on every tool the service exposes, where a long one makes the tools hard to tell
+   * apart at a glance. Optional: the tree name is a perfectly good fallback and is used when this
+   * is absent or when the planner answered with a sentence instead of a name.
+   *
+   * It exists at all because the alternative was worse: with nothing here every tool was prefixed
+   * with the request id the deployment happens to carry.
+   */
+  serviceName?: string;
   createdAt: string;
   updatedAt: string;
 }

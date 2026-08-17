@@ -36,10 +36,22 @@ export const PLAN_SYSTEM_PROMPT = [
   'ending your reply with a fenced json block:',
   '',
   '```json',
-  '{"leaves":[{"title":"Short imperative title","body":"What doing this involves"}]}',
+  '{"leaves":[{"title":"Short imperative title","body":"What doing this involves"}],',
+  ' "serviceName":"short-name"}',
   '```',
   '',
   'Rules:',
+  /**
+   * The planner names the service because it is the only thing that knows what is being built.
+   *
+   * Without it the name fell back to the request id the deployment carries, so every tool the
+   * service exposed was prefixed `koala-request-42784df9__` — the one part of the name that should
+   * say what the thing IS said nothing at all. Optional: the tree's name is a good fallback, and a
+   * sentence offered here is rejected in favour of it.
+   */
+  '- `serviceName` is optional and only for work that produces a service other agents will call.',
+  '  Short, lowercase, one or two words, no version — `weather`, `github-api`. It becomes the prefix',
+  '  on every tool the service exposes, so a long or generic one makes them hard to tell apart.',
   '- Propose nothing if the work is still unclear. Ask a question instead.',
   '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
   '- Titles are imperative and specific: "Add a rate limit to /api/chat", not "Rate limiting".',

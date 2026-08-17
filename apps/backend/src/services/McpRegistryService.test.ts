@@ -13,8 +13,12 @@ import type { Database } from '../lib/db-interface.js';
 const deployment = (over: Record<string, unknown> = {}) =>
   ({ id: 'd1', name: 'weather', clusterId: 'c1', status: 'running', appType: 'gitapp', ...over });
 
-const dbWith = (deployments: unknown[]): Database =>
-  ({ getDeployments: async () => deployments } as unknown as Database);
+const dbWith = (deployments: unknown[], projects: unknown[] = [], trees: unknown[] = []): Database =>
+  ({
+    getDeployments: async () => deployments,
+    getProjects: async () => projects,
+    getTrees: async () => trees,
+  } as unknown as Database);
 
 /** A server that answers initialize then tools/list. */
 const okServer = (tools: { name: string }[]) => vi.fn(async (_url: any, init: any) => {
@@ -53,7 +57,11 @@ describe('what the registry offers', () => {
      * offered functions backed by nothing.
      */
     const deployments = [deployment()];
-    const db = { getDeployments: async () => deployments } as unknown as Database;
+    const db = {
+      getDeployments: async () => deployments,
+      getProjects: async () => [],
+      getTrees: async () => [],
+    } as unknown as Database;
     const svc = new McpRegistryService(db, probe, okServer([{ name: 'get-forecast' }]) as never);
 
     expect((await svc.listWithTools())[0]!.tools).toHaveLength(1);
@@ -167,5 +175,49 @@ describe('the two addresses', () => {
     const svc = new McpRegistryService(dbWith([deployment()]), async () => undefined, okServer([{ name: 't' }]) as never);
     const [server] = await svc.listWithTools();
     expect(server!.unreachable).toMatch(/no route to it/i);
+  });
+});
+
+describe('what a service is called', () => {
+  /**
+   * The deployment, its project and its repo are all named after the REQUEST — so every tool the
+   * service exposed was prefixed with a hex id, while the tree had been called "Weather API MCP"
+   * the whole time and nothing used it.
+   */
+  const dep = deployment({ name: 'koala-request-42784df9', gitappProjectId: 'p1' });
+  const project = { id: 'p1', name: 'koala-request-42784df9' };
+
+  it('uses the tree name instead of the request id', async () => {
+    const svc = new McpRegistryService(
+      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'] }]), probe,
+    );
+    const [server] = await svc.list();
+    expect(server!.name).toBe('weather-api-mcp');
+    // The Kubernetes identity is kept — addresses, namespaces and logs still need it.
+    expect(server!.deploymentName).toBe('koala-request-42784df9');
+    expect(server!.url).toContain('koala-request-42784df9');
+  });
+
+  it('prefers a name the planner declared', async () => {
+    const svc = new McpRegistryService(
+      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'], serviceName: 'weather' }]), probe,
+    );
+    expect((await svc.list())[0]!.name).toBe('weather');
+  });
+
+  it('ignores a declared name that is really a sentence', async () => {
+    // Asked for a short name, a model sometimes answers with a description; prefixing every tool
+    // with that is worse than the tree name.
+    const svc = new McpRegistryService(
+      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'],
+        serviceName: 'the service that wraps the weather API' }]), probe,
+    );
+    expect((await svc.list())[0]!.name).toBe('weather-api-mcp');
+  });
+
+  it('falls back to the id when nothing better exists', async () => {
+    // Honest rather than invented: two services both called `service` would be worse.
+    const svc = new McpRegistryService(dbWith([dep], [project], []), probe);
+    expect((await svc.list())[0]!.name).toBe('koala-request-42784df9');
   });
 });

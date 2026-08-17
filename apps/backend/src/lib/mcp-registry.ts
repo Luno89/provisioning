@@ -63,7 +63,10 @@ export function mcpProbeUrlFor(nodeIp: string, nodePort: number): string {
 export interface McpServer {
   /** The deployment's id — the registry has no identity of its own. */
   id: string;
+  /** What the model sees and what its tools are prefixed with — resolved, not the deployment's. */
   name: string;
+  /** The Kubernetes identity. What addresses, namespaces and logs use. */
+  deploymentName?: string;
   /** What a SANDBOX uses. In-cluster, and unusable from the backend. */
   url: string;
   /** What the BACKEND uses to introspect. Absent when the NodePort could not be resolved. */

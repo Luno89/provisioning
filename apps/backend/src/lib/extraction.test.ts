@@ -5,6 +5,7 @@ import {
   EXTRACTION_SCHEMA,
   EXTRACTION_TURN_WINDOW,
   EXTRACTION_CHAR_CAP,
+  extractServiceName,
 } from './extraction.js';
 
 const turn = (role: string, content: string) => ({ role, content });
@@ -99,5 +100,34 @@ describe('EXTRACTION_SCHEMA', () => {
 
   it('requires only a title, so a bodyless entry is still valid', () => {
     expect((EXTRACTION_SCHEMA.properties.leaves.items as any).required).toEqual(['title']);
+  });
+});
+
+describe('the service name the planner declares', () => {
+  /**
+   * Without it the name fell back to the request id the deployment carries, so every tool a service
+   * exposed was prefixed `koala-request-42784df9__` — the one part of the name that should say what
+   * the thing IS said nothing.
+   */
+  it('reads a short name out of the plan block', () => {
+    const reply = 'Here is the plan.\n```json\n{"leaves":[{"title":"Do it"}],"serviceName":"weather"}\n```';
+    expect(extractServiceName(reply)).toBe('weather');
+  });
+
+  it('reads it from bare JSON too', () => {
+    expect(extractServiceName('{"leaves":[],"serviceName":"github-api"}')).toBe('github-api');
+  });
+
+  it('rejects a sentence, so the tree name is used instead', () => {
+    // Prefixing every tool with a description is worse than falling back to a name somebody chose.
+    const reply = '```json\n{"leaves":[],"serviceName":"the service that wraps the weather API"}\n```';
+    expect(extractServiceName(reply)).toBeUndefined();
+  });
+
+  it('is undefined when the planner said nothing', () => {
+    // The common case: most work does not produce a callable service.
+    expect(extractServiceName('```json\n{"leaves":[{"title":"Do it"}]}\n```')).toBeUndefined();
+    expect(extractServiceName('just talking')).toBeUndefined();
+    expect(extractServiceName('')).toBeUndefined();
   });
 });

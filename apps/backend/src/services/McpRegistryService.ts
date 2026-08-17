@@ -1,6 +1,7 @@
 import { McpClient, type McpTool } from '../lib/mcp-client.js';
 import { looksLikeMcp, mcpUrlFor, namespaceOfDeployment, type McpServer } from '../lib/mcp-registry.js';
 import type { Database } from '../lib/db-interface.js';
+import { serviceNameFor, usableServiceName } from '../lib/service-name.js';
 
 /**
  * Finding the MCP servers Koala has deployed, and asking them what they can do.
@@ -39,6 +40,27 @@ export class McpRegistryService {
   /** Running deployments that could be MCP servers, with whatever is known about their tools. */
   async list(): Promise<McpServer[]> {
     const deployments = (await this.db.getDeployments()).filter(looksLikeMcp);
+    /**
+     * The NAME a service is offered under, which is not its deployment's name.
+     *
+     * A deployment is called `koala-request-42784df9`, and so is its project — so every tool it
+     * exposed was prefixed with a hex id while the tree had been called "Weather API MCP" the whole
+     * time. Resolved rather than renamed: renaming the deployment would mean renaming its
+     * namespace, Service and DNS, orphaning everything running.
+     */
+    const [projects, trees] = await Promise.all([this.db.getProjects(), this.db.getTrees()]);
+    const nameOf = (dep: { name: string; gitappProjectId?: string }) => {
+      const project = projects.find((p) => p.id === dep.gitappProjectId);
+      const tree = project ? trees.find((t) => (t.projectIds ?? []).includes(project.id)) : undefined;
+      return serviceNameFor({
+        ...(usableServiceName((tree as { serviceName?: unknown } | undefined)?.serviceName)
+          ? { declared: usableServiceName((tree as { serviceName?: unknown }).serviceName) }
+          : {}),
+        ...(tree?.name ? { treeName: tree.name } : {}),
+        ...(project?.name ? { projectName: project.name } : {}),
+        deploymentName: dep.name,
+      });
+    };
     const live = new Set(deployments.map((d) => d.id));
     // Anything that stopped running loses its cached tools rather than lingering as an offer.
     for (const id of this.cache.keys()) if (!live.has(id)) this.cache.delete(id);
@@ -47,7 +69,10 @@ export class McpRegistryService {
       const known = this.cache.get(dep.id);
       return {
         id: dep.id,
-        name: dep.name,
+        // What the model sees, and what its tools are prefixed with.
+        name: nameOf(dep as never),
+        /** The Kubernetes identity, kept because that is what addresses and logs use. */
+        deploymentName: dep.name,
         url: mcpUrlFor(dep, namespaceOfDeployment(dep)),
         probeUrl: await this.probeUrlFor(dep.name),
         tools: known?.tools ?? [],
