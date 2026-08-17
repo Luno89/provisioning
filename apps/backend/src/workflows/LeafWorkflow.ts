@@ -21,8 +21,10 @@ import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // cannot handle Node built-ins. See that file's docstring for the incident.
 import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta, replanActivityMeta,
 } from '../lib/activity-timeouts.js';
+import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
+  retry: ACTIVITY_RETRY,
   startToCloseTimeout: updateLeafActivityMeta.startToCloseTimeout,
 });
 
@@ -53,10 +55,12 @@ const { ExecuteLeafActivity } = proxyActivities<{ ExecuteLeafActivity: (args: Ex
  * event can. See activities/LeafGateActivity.ts.
  */
 const { CheckLeafGateActivity } = proxyActivities<{ CheckLeafGateActivity: (args: LeafGateArgs) => Promise<LeafGateResult> }>({
+  retry: ACTIVITY_RETRY,
   startToCloseTimeout: checkLeafGateActivityMeta.startToCloseTimeout,
 });
 
 const { ReleaseDependentsActivity } = proxyActivities<{ ReleaseDependentsActivity: (args: LeafGateArgs) => Promise<ReleaseDependentsResult> }>({
+  retry: ACTIVITY_RETRY,
   startToCloseTimeout: releaseDependentsActivityMeta.startToCloseTimeout,
 });
 
@@ -66,6 +70,7 @@ const { ReleaseDependentsActivity } = proxyActivities<{ ReleaseDependentsActivit
  * stable answer while dependents are still being released.
  */
 const { LandRequestActivity } = proxyActivities<{ LandRequestActivity: (args: LandRequestArgs) => Promise<LandRequestResult> }>({
+  retry: ACTIVITY_RETRY,
   startToCloseTimeout: landRequestActivityMeta.startToCloseTimeout,
 });
 
@@ -84,6 +89,7 @@ const { ResolveLandingActivity } = proxyActivities<{ ResolveLandingActivity: (ar
  * not work will not work on a second identical run, and each attempt boots a workspace.
  */
 const { ReplanActivity } = proxyActivities<{ ReplanActivity: (args: ReplanArgs) => Promise<ReplanResult> }>({
+  retry: ACTIVITY_RETRY,
   startToCloseTimeout: replanActivityMeta.startToCloseTimeout,
 });
 const { AcceptRequestActivity } = proxyActivities<{ AcceptRequestActivity: (args: AcceptRequestArgs) => Promise<AcceptRequestResult> }>({

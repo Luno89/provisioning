@@ -7,14 +7,15 @@ import { awaitWorkload } from './await-workload.js';
 // BuilderService, pino/pino-pretty, ...) into this workflow's webpack bundle, which Temporal's
 // sandboxing can't handle (confirmed live: "UnhandledSchemeError" on node:stream/worker_threads).
 import { deployAppActivityMeta, downloadModelActivityMeta } from '../lib/activity-timeouts.js';
+import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 // deployAppActivityMeta.startToCloseTimeout, not a hardcoded value here — this used to say '30
 // minutes' regardless of what the activity itself declared (80 min), silently capping every
 // deploy at 30 min no matter how generous the K8s-level timeouts (startupProbe,
 // progressDeadlineSeconds, CDKTF's own timeouts) were set. Confirmed live: a TabbyAPI deploy
 // with a slow model download needed more than 30 min and got killed here first.
-const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: DeployAppArgs) => Promise<DeployAppResult> }>({ startToCloseTimeout: deployAppActivityMeta.startToCloseTimeout });
-const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ startToCloseTimeout: downloadModelActivityMeta.startToCloseTimeout });
+const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: DeployAppArgs) => Promise<DeployAppResult> }>({ retry: ACTIVITY_RETRY, startToCloseTimeout: deployAppActivityMeta.startToCloseTimeout });
+const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ retry: ACTIVITY_RETRY, startToCloseTimeout: downloadModelActivityMeta.startToCloseTimeout });
 
 /**
  * Deploys an app, then waits to see whether the thing it deployed actually runs.

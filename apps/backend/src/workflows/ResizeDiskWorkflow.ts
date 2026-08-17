@@ -7,10 +7,11 @@ import { awaitWorkload } from './await-workload.js';
 // From lib/activity-timeouts.ts, not the activity file directly — see AppDeployWorkflow.ts for
 // why (a value import from an activity file breaks Temporal's webpack workflow bundling).
 import { resizeDiskActivityMeta } from '../lib/activity-timeouts.js';
+import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 // resizeDiskActivityMeta.startToCloseTimeout, not a hardcoded '30 minutes' — see
 // AppDeployWorkflow.ts for why (this activity declares 80 min).
-const { ResizeDiskActivity } = proxyActivities<{ ResizeDiskActivity: (args: ResizeDiskArgs) => Promise<ResizeDiskResult> }>({ startToCloseTimeout: resizeDiskActivityMeta.startToCloseTimeout });
+const { ResizeDiskActivity } = proxyActivities<{ ResizeDiskActivity: (args: ResizeDiskArgs) => Promise<ResizeDiskResult> }>({ retry: ACTIVITY_RETRY, startToCloseTimeout: resizeDiskActivityMeta.startToCloseTimeout });
 
 /**
  * A resize rewrites the PVC and brings the pod back, so the same rollout check applies: a volume

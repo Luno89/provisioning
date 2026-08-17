@@ -38,10 +38,11 @@ import type { CheckWorkloadArgs, CheckWorkloadResult } from '../activities/Check
 // activity file pulls its whole dependency tree into the workflow bundle, which Temporal's
 // sandboxing can't handle. See AppDeployWorkflow.ts.
 import { checkWorkloadActivityMeta } from '../lib/activity-timeouts.js';
+import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 const { CheckWorkloadActivity } = proxyActivities<{
   CheckWorkloadActivity: (args: CheckWorkloadArgs) => Promise<CheckWorkloadResult>;
-}>({ startToCloseTimeout: checkWorkloadActivityMeta.startToCloseTimeout });
+}>({ retry: ACTIVITY_RETRY, startToCloseTimeout: checkWorkloadActivityMeta.startToCloseTimeout });
 
 /**
  * Generous on purpose. The point is to catch a workload that has SETTLED into failing, not to put a

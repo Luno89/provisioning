@@ -26,6 +26,7 @@ import { failureContext, type Branch, type Leaf, type LeafAttempt } from '../lib
 import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
+import { checkDockerfile, describeDockerfileProblems } from '../lib/dockerfile-check.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
 import { resolveForPersona, mcpGaps } from '../lib/mcp-registry.js';
 import { toLoopTools, routeCall } from '../lib/mcp-tools.js';
@@ -781,8 +782,44 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           console.log(`[ExecuteLeafActivity] leaf ${leaf.id}: declared artifacts already present and unchanged — ${artifacts.missing.join(', ')}`);
         }
 
+        /**
+         * ── THE DOCKERFILE, WHICH NOTHING ELSE READS ──
+         *
+         * A leaf rewrote a working Dockerfile to `COPY package.json` then `RUN npm ci`, which
+         * cannot succeed without the lockfile. It was marked succeeded AND verified, because
+         * verification runs the test suite and no test reads the Dockerfile. Every build then
+         * failed, and the deploy retried 54 times over ninety minutes before anybody noticed.
+         *
+         * So the one artifact the deploy depends on is checked too. Static, not a build: the
+         * sandbox has no image builder, and this catches the specific ways a Dockerfile is
+         * definitely broken rather than proving one works.
+         */
+        let dockerProblems = '';
+        if (wantsRepo) {
+          const dockerfile = await workspaces.readFile(leaf.id, '/work/repo/Dockerfile').catch(() => '');
+          if (dockerfile.trim()) {
+            const listing = await workspaces
+              .exec(leaf.id, 'cd /work/repo && git ls-files')
+              .then((r) => String(r.stdout ?? '').split('\n').map((f) => f.trim()).filter(Boolean))
+              .catch(() => [] as string[]);
+            const ignore = await workspaces.readFile(leaf.id, '/work/repo/.dockerignore').catch(() => '');
+            dockerProblems = describeDockerfileProblems(
+              checkDockerfile(dockerfile, listing, ignore || undefined),
+            );
+            if (dockerProblems) {
+              console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: ${dockerProblems.replace(/\n/g, ' ')}`);
+            }
+          }
+        }
+
         const combined = combineVerification(verify.outcome, artifacts.outcome);
-        const settled = decideStatus(run.succeeded, combined);
+        /**
+         * A Dockerfile that cannot build fails the leaf, whatever the tests said.
+         *
+         * The same principle as the repository getting the last word over the agent's claim: a
+         * green suite is not evidence about an artifact the suite never reads.
+         */
+        const settled = dockerProblems ? 'failed' : decideStatus(run.succeeded, combined);
 
         /**
          * What this attempt learned, for the leaves that come after it.
@@ -896,6 +933,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             ...(artifacts.outcome === 'missing'
               ? [`These files were required and are not committed: ${artifacts.missing.join(', ')}. Create them and commit before finishing.`]
               : []),
+            // With the fix, not just the fault — the next attempt should not have to rediscover
+            // that `npm ci` needs a lockfile in the build context.
+            ...(dockerProblems ? [dockerProblems] : []),
             ...(partial ? [`Work so far is committed on ${partial} and will be waiting at /work/repo next attempt.`] : []),
             ...(state ? [`State of the repository when this attempt ended:\n${state}`] : []),
           ].join('\n\n'));

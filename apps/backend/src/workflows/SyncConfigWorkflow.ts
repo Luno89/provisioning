@@ -7,10 +7,11 @@ import { awaitWorkload } from './await-workload.js';
 // From lib/activity-timeouts.ts, not the activity file directly — see AppDeployWorkflow.ts for
 // why (a value import from an activity file breaks Temporal's webpack workflow bundling).
 import { syncConfigActivityMeta } from '../lib/activity-timeouts.js';
+import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 // syncConfigActivityMeta.startToCloseTimeout, not a hardcoded '30 minutes' — see
 // AppDeployWorkflow.ts for why (this activity declares 80 min).
-const { SyncConfigActivity } = proxyActivities<{ SyncConfigActivity: (args: SyncConfigArgs) => Promise<SyncConfigResult> }>({ startToCloseTimeout: syncConfigActivityMeta.startToCloseTimeout });
+const { SyncConfigActivity } = proxyActivities<{ SyncConfigActivity: (args: SyncConfigArgs) => Promise<SyncConfigResult> }>({ retry: ACTIVITY_RETRY, startToCloseTimeout: syncConfigActivityMeta.startToCloseTimeout });
 
 /**
  * The rollout is watched here for the same reason it is watched on deploy.

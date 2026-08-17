@@ -7,21 +7,22 @@ import type { IngestReceipt } from '../lib/corpus.js';
 // its dependency tree into this workflow's bundle, which Temporal's sandboxing cannot handle.
 import { crawlActivityMeta } from '../lib/activity-timeouts.js';
 import { canonical, hostOf } from '../lib/crawl-client.js';
+import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
 const { CrawlBatchActivity } = proxyActivities<{ CrawlBatchActivity: (a: CrawlBatchArgs) => Promise<CrawlBatchResult> }>({
-  startToCloseTimeout: crawlActivityMeta.startToCloseTimeout,
+  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.startToCloseTimeout,
 });
 const { NextBatchActivity } = proxyActivities<{ NextBatchActivity: (a: NextBatchArgs) => Promise<NextBatchResult> }>({
-  startToCloseTimeout: crawlActivityMeta.storeTimeout,
+  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.storeTimeout,
 });
 const { SeedFrontierActivity } = proxyActivities<{ SeedFrontierActivity: (a: SeedFrontierArgs) => Promise<{ queued: number }> }>({
-  startToCloseTimeout: crawlActivityMeta.storeTimeout,
+  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.storeTimeout,
 });
 const { DiscardFrontierActivity } = proxyActivities<{ DiscardFrontierActivity: (a: { ingestId: string }) => Promise<void> }>({
-  startToCloseTimeout: crawlActivityMeta.storeTimeout,
+  retry: ACTIVITY_RETRY, startToCloseTimeout: crawlActivityMeta.storeTimeout,
 });
 const { NewIngestIdActivity } = proxyActivities<{ NewIngestIdActivity: () => Promise<{ ingestId: string }> }>({
-  startToCloseTimeout: '1 minute',
+  retry: ACTIVITY_RETRY, startToCloseTimeout: '1 minute',
 });
 
 /**
