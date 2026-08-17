@@ -20,6 +20,7 @@ import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles
 import { usablePaths } from './leaf-artifacts.js';
 import { normaliseLeafInput } from './leaf-input.js';
 import { usableAcceptancePlan } from './acceptance.js';
+import { hollowChecks, explainHollow } from './acceptance-validation.js';
 import { rewireDependents } from './plan-review.js';
 import { withProject } from './trees.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
@@ -260,6 +261,21 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
             + 'substitution, backgrounding, or chaining beyond `&&`.',
         });
       }
+      /**
+       * A check that cannot fail is refused here, in the turn that wrote it.
+       *
+       * Blocking acceptance on "is there a plan?" bought one turn of honesty: the next planning
+       * turn called set_acceptance with `echo 'Verification done via MCP tool calls in leaf'`,
+       * which exits 0 always. It satisfied the gate and proved nothing.
+       *
+       * Refusing rather than storing-and-warning, for the reason the malformed-check refusal above
+       * gives: what a human reads before accepting has to be all of what runs.
+       */
+      const hollow = hollowChecks(plan);
+      if (hollow.length) {
+        return JSON.stringify({ error: explainHollow(hollow) });
+      }
+
       const branches = await db.getBranches();
       const branch = branches.find((b) => b.id === branchId && b.ownerId === userId);
       if (!branch) return JSON.stringify({ error: 'No such branch.' });

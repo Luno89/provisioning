@@ -12,6 +12,7 @@
  */
 import { aggregateUsage, budgetExceeded, blockedBy, childrenOf, rootLeaf, type Leaf } from './leaves.js';
 import { usableAcceptancePlan } from './acceptance.js';
+import { hollowChecks, explainHollow } from './acceptance-validation.js';
 import type { Database } from './db-interface.js';
 
 export interface AcceptDeps {
@@ -70,7 +71,8 @@ export async function acceptLeaf(deps: AcceptDeps, leaf: Leaf, leaves: Leaf[]): 
    * Checked on the BRANCH, so declaring it once covers every leaf on it.
    */
   const branch = (await deps.db.getBranches()).find((b) => b.id === leaf.branchId);
-  if (usableAcceptancePlan(branch?.acceptance).length === 0) {
+  const plan = usableAcceptancePlan(branch?.acceptance);
+  if (plan.length === 0) {
     return {
       ok: false,
       status: 409,
@@ -78,6 +80,19 @@ export async function acceptLeaf(deps: AcceptDeps, leaf: Leaf, leaves: Leaf[]): 
         + 'only an acceptance plan proves the assembled whole does. Ask the planner to call '
         + 'set_acceptance for this request, then accept again.',
     };
+  }
+
+  /**
+   * And the plan has to be able to fail.
+   *
+   * `set_acceptance` refuses these at the point they are written, which is where a model can still
+   * fix one. This is the same rule at the gate, for the plans that predate that refusal and for
+   * any path that writes a branch without going through the tool — a check that cannot fail is
+   * indistinguishable from no check at all, and it was passing this gate a moment ago.
+   */
+  const hollow = hollowChecks(plan);
+  if (hollow.length === plan.length) {
+    return { ok: false, status: 409, error: explainHollow(hollow) };
   }
 
   const root = rootLeaf(leaves, leaf);
