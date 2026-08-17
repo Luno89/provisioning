@@ -394,35 +394,33 @@ export const LEAF_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'list_tool_repository',
+      /**
+       * ── WHAT THIS REPLACED ──
+       * `list_tool_repository`, which returned six hardcoded strings — `pytest_runner`,
+       * `git_inspector`, `linter_audit` — that no sandbox has ever had, alongside
+       * `attach_tool_to_leaf`, which wrote the chosen id to `leaf.attachedTools`, a field NOTHING
+       * reads. Asked what tools it could use, the model called it, got a confident list of fiction,
+       * and never had any way to learn about the servers it had actually built and deployed.
+       *
+       * That is why "what MCP servers can you use?" got a wrong answer rather than a missing one:
+       * the wrong answer was sitting where the right one should be.
+       */
+      name: 'list_mcp_servers',
       description:
-        'List available execution tools in the Tool Repository (e.g. test runners, git inspectors, linter audit, http request testers). ' +
-        'Use this to discover tools to attach to a leaf.',
+        'List the MCP servers deployed under your account and the tools each one exposes. These are '
+        + 'real, running services — including ones built here — and a leaf that names a server in its '
+        + 'body can call its tools while it runs. Call this before planning work that needs a '
+        + 'capability, to find out whether it already exists.',
       parameters: {
         type: 'object',
         properties: {
-          category: {
-            type: 'string',
-            enum: ['testing', 'database', 'git', 'http', 'linter'],
-            description: 'Optional category filter.',
+          refresh: {
+            type: 'boolean',
+            description:
+              'Re-introspect every server instead of using the cached tool list. Use after deploying '
+              + 'or redeploying a server, when its tools may have changed.',
           },
         },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'attach_tool_to_leaf',
-      description:
-        'Attach a tool from the Tool Repository to a leaf so its execution sandbox receives that tool capability.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: 'The leaf id.' },
-          toolId: { type: 'string', description: 'The tool id or function name from the Tool Repository.' },
-        },
-        required: ['id', 'toolId'],
       },
     },
   },

@@ -81,6 +81,8 @@ import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
+import { McpRegistryService } from './services/McpRegistryService.js';
+import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
@@ -1863,6 +1865,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               },
             }
           : {}),
+        /**
+         * The same registry the executor builds, constructed per call and scoped to this user.
+         *
+         * Per call because the ownerId is part of the construction — a registry made once at
+         * bootstrap would have to be told whose deployments to show on every use, which is exactly
+         * the shape that leaked across tenants the last time.
+         */
+        mcpRegistry: new McpRegistryService(db, userId, (name: string) => resolveMcpProbeUrl(name)),
       },
       call,
     );

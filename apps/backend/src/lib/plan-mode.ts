@@ -77,6 +77,15 @@ export const PLAN_SYSTEM_PROMPT = [
   '- `persona` is REQUIRED on every leaf. Use a name from the personas listed for you, exactly as',
   '  written. A persona decides the toolchain, what the work may reach, and how long it may run —',
   '  a leaf with no persona, or with a name that is not real, cannot be started by anyone.',
+  /**
+   * Having the tool is not the same as using it. Without this the planner proposes building a
+   * capability without ever asking whether it is already deployed — which is how the same server
+   * gets built twice, and why a server built last week never gets used by anything.
+   */
+  '- Before proposing work that needs a capability, call list_mcp_servers to see what is already',
+  '  running. Servers deployed here are real and their tools are callable from a leaf, so prefer',
+  '  using one over rebuilding it. When the work BUILDS a server, propose a final leaf that calls',
+  '  its tools for real — a server nothing has ever called is not known to work.',
   '- Propose nothing if the work is still unclear. Ask a question instead.',
   '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
   /**

@@ -14,6 +14,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { resolvePersonaNamed } from './proposal-merge.js';
+import type { McpRegistryService } from '../services/McpRegistryService.js';
 import type { Database } from './db-interface.js';
 import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
 import { usablePaths } from './leaf-artifacts.js';
@@ -48,10 +49,18 @@ export interface LeafToolContext {
   webSearch: (query: string) => Promise<{ title: string; snippet: string; url: string }[]>;
   fetchWebPage: (url: string) => Promise<string>;
   projects: ProjectRepoService;
+  /**
+   * What MCP servers this user has running, for planning against.
+   *
+   * Optional for the same reason `ingest` is: a worker-side caller may have no way to reach the
+   * cluster for a NodePort. Absent makes `list_mcp_servers` say so — never report an empty list,
+   * which a planner reads as "none exist" and plans to rebuild something already running.
+   */
+  mcpRegistry?: Pick<McpRegistryService, 'listWithTools'>;
 }
 
 export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Promise<string> {
-  const { db, userId, branchId, webSearch, fetchWebPage, projects, ingest } = ctx;
+  const { db, userId, branchId, webSearch, fetchWebPage, projects, ingest, mcpRegistry } = ctx;
   const args = parseToolArguments(call.arguments);
   const leaves = ((await db.getLeaves()).filter((l) => l.ownerId === userId)).filter((l) => l.branchId === branchId);
 
@@ -417,26 +426,35 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'list_tool_repository') {
-      const repo = [
-        { id: 'web_search', name: 'Web Search', category: 'http', description: 'Live DuckDuckGo web search engine.' },
-        { id: 'fetch_web_page', name: 'Fetch Web Page', category: 'http', description: 'Fetches clean text content from web URLs.' },
-        { id: 'pytest_runner', name: 'PyTest Runner', category: 'testing', description: 'Executes Python unit test suites in sandbox.' },
-        { id: 'git_inspector', name: 'Git Inspector', category: 'git', description: 'Inspects commit history, diffs, and branch refs.' },
-        { id: 'linter_audit', name: 'Linter Audit', category: 'linter', description: 'Runs ESLint/Ruff/Static analysis check.' },
-        { id: 'http_tester', name: 'HTTP Tester', category: 'http', description: 'Tests API endpoints and HTTP payloads.' },
-      ];
-      const category = typeof args.category === 'string' ? args.category : undefined;
-      const filtered = category ? repo.filter((t) => t.category === category) : repo;
-      return JSON.stringify({ tools: filtered });
-    }
-
-    if (call.name === 'attach_tool_to_leaf') {
-      const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-      if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-      const toolId = String(args.toolId ?? '');
-      await db.saveLeaf({ ...leaf, attachedTools: [...(leaf as any).attachedTools ?? [], toolId], updatedAt: new Date().toISOString() } as any);
-      return JSON.stringify({ attached: { leafId: leaf.id, toolId } });
+    if (call.name === 'list_mcp_servers') {
+      /**
+       * The same registry the executor uses, so what a plan is told exists is what a leaf will
+       * actually find. Absent when the caller could not supply one — reported as unavailable rather
+       * than as an empty list, because "no servers" and "cannot see servers" lead a planner to
+       * opposite decisions.
+       */
+      if (!mcpRegistry) {
+        return JSON.stringify({
+          error: 'The MCP registry is not available here, so it is not known which servers exist. Do not conclude there are none.',
+        });
+      }
+      const servers = await mcpRegistry.listWithTools(args.refresh === true);
+      if (!servers.length) {
+        return JSON.stringify({
+          servers: [],
+          note: 'No MCP servers are deployed under this account yet. Building and deploying one makes its tools callable from a leaf.',
+        });
+      }
+      return JSON.stringify({
+        servers: servers.map((s) => ({
+          name: s.name,
+          status: s.unreachable ? 'unreachable' : 'running',
+          // Kept: a server that is deployed but not answering is a fixable problem, and hiding the
+          // reason turns it into a server that silently has no tools.
+          ...(s.unreachable ? { unreachable: s.unreachable } : {}),
+          tools: (s.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? '' })),
+        })),
+      });
     }
 
     if (call.name === 'update_leaf_memory') {

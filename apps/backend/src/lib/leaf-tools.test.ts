@@ -95,13 +95,13 @@ describe('tool results', () => {
 });
 
 describe('LEAF_TOOLS', () => {
-  it('covers what a planning turn needs: read, add, revise, withdraw, assign, ingest, repository', () => {
+  it('covers what a planning turn needs: read, add, revise, withdraw, assign, ingest, and what already exists', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name)).toEqual([
       'list_leaves', 'get_leaf', 'propose_leaf', 'set_acceptance', 'revise_leaf', 'replace_leaf', 'withdraw_leaf',
       'start_ingest', 'ingest_status', 'search_corpus',
       'list_personas',
       'list_projects', 'create_project', 'set_leaf_project',
-      'list_tool_repository', 'attach_tool_to_leaf', 'update_leaf_memory', 'web_search', 'fetch_web_page',
+      'list_mcp_servers', 'update_leaf_memory', 'web_search', 'fetch_web_page',
     ]);
   });
 
