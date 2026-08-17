@@ -3,6 +3,11 @@ import { review, reviewBatch, DEFAULT_POLICY, MAX_AUTO_ACCEPT } from './auto-acc
 import type { Leaf } from './leaves.js';
 import { acceptLeaf } from './accept-leaf.js';
 
+/** A branch that HAS an acceptance plan, so tests about other rules are not blocked by that one. */
+const withPlan = async () => [
+  { id: 'b1', acceptance: [{ name: 'runs', command: 'node src/cli.js' }] } as any,
+];
+
 const leaf = (over: Record<string, unknown> = {}): Leaf => ({
   id: 'l1',
   ownerId: 'u1',
@@ -114,15 +119,56 @@ describe('accepting by hand', () => {
      * this; the button did not.
      */
     const { personaId, ...unassignedLeaf } = leaf();
-    const result = await acceptLeaf({ db: { saveLeaf: async () => {} } }, unassignedLeaf as Leaf, []);
+    const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: withPlan } }, unassignedLeaf as Leaf, []);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/no persona/i);
   });
 
   it('accepts an assigned one', async () => {
     const saved: Leaf[] = [];
-    const result = await acceptLeaf({ db: { saveLeaf: async (l: Leaf) => { saved.push(l); } } }, leaf(), []);
+    const result = await acceptLeaf(
+      { db: { saveLeaf: async (l: Leaf) => { saved.push(l); }, getBranches: withPlan } }, leaf(), []);
     expect(result.ok).toBe(true);
     expect(saved[0]!.status).toBe('pending');
+  });
+
+  /**
+   * ── WHY THIS BLOCKS RATHER THAN WARNS ──
+   * `reviewPlan` has warned `no-acceptance` all along and it was ignored, because a warning that
+   * costs nothing to skip is a warning that gets skipped. Measured on a real end-to-end run:
+   * `acceptance` was null, `acceptanceRunAt` said NEVER RAN, and four leaves went green while
+   * nothing ever exercised the thing they add up to.
+   */
+  it('refuses when nothing would check the finished result', async () => {
+    const result = await acceptLeaf(
+      { db: { saveLeaf: async () => {}, getBranches: async () => [{ id: 'b1' } as any] } }, leaf(), []);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(409);
+      // Says what to do, not only what is wrong — this is the message a person hits on a button.
+      expect(result.error).toMatch(/set_acceptance/);
+    }
+  });
+
+  it('refuses when the branch declares a plan of no usable checks', async () => {
+    // An empty array, or entries with no command, are the same as never declaring one.
+    const empty = async () => [{ id: 'b1', acceptance: [{ name: 'blank', command: '  ' }] } as any];
+    const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: empty } }, leaf(), []);
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses when the leaf\'s branch cannot be found at all', async () => {
+    // A leaf whose branch is missing has nothing declaring how it will be checked, and guessing
+    // in the permissive direction is how the unchecked run happened.
+    const result = await acceptLeaf(
+      { db: { saveLeaf: async () => {}, getBranches: async () => [] }, }, leaf(), []);
+    expect(result.ok).toBe(false);
+  });
+
+  it('checks the plan on the leaf\'s OWN branch', async () => {
+    // Another branch's acceptance plan must not let this one through.
+    const other = async () => [{ id: 'somewhere-else', acceptance: [{ name: 'c', command: 'true' }] } as any];
+    const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: other } }, leaf(), []);
+    expect(result.ok).toBe(false);
   });
 });

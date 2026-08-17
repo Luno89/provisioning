@@ -11,10 +11,11 @@
  * DECISION to accept — see auto-accept.ts — never what accepting does.
  */
 import { aggregateUsage, budgetExceeded, blockedBy, childrenOf, rootLeaf, type Leaf } from './leaves.js';
+import { usableAcceptancePlan } from './acceptance.js';
 import type { Database } from './db-interface.js';
 
 export interface AcceptDeps {
-  db: Pick<Database, 'saveLeaf'>;
+  db: Pick<Database, 'saveLeaf' | 'getBranches'>;
   /** Absent when Temporal is unreachable; the leaf is still accepted and the loop starts it later. */
   startLeaf?: ((leaf: Leaf) => Promise<string | undefined>) | undefined;
   /** Returns whether the signal landed; the bridge reports false when the workflow is gone. */
@@ -49,6 +50,33 @@ export async function acceptLeaf(deps: AcceptDeps, leaf: Leaf, leaves: Leaf[]): 
       status: 409,
       error: 'This leaf has no persona, so it would run with no repository and its work would be '
         + 'discarded when the sandbox is destroyed. Assign one first.',
+    };
+  }
+
+  /**
+   * Nothing runs until somebody has said how we will know it worked.
+   *
+   * ── WHY THIS BLOCKS RATHER THAN WARNS ──
+   * `reviewPlan` has warned `no-acceptance` all along and it was ignored, because a warning that
+   * costs nothing to skip is a warning that gets skipped. Measured on a real end-to-end run:
+   * `acceptance` was null, `acceptanceRunAt` said NEVER RAN, and four leaves went green while
+   * nothing exercised the thing they add up to. The run reported success on four individually
+   * passing pieces that had never been assembled and tried.
+   *
+   * Per-leaf checks cannot cover this by construction — each one proves its own piece, and the
+   * failure being guarded against is the pieces not adding up. `AcceptRequestActivity` is already
+   * wired and already skips honestly when there is no plan; the missing part was ever having one.
+   *
+   * Checked on the BRANCH, so declaring it once covers every leaf on it.
+   */
+  const branch = (await deps.db.getBranches()).find((b) => b.id === leaf.branchId);
+  if (usableAcceptancePlan(branch?.acceptance).length === 0) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'Nothing would check the finished result. Per-leaf checks prove each piece works; '
+        + 'only an acceptance plan proves the assembled whole does. Ask the planner to call '
+        + 'set_acceptance for this request, then accept again.',
     };
   }
 
