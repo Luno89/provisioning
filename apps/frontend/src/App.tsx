@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+import KoalaChat from './components/KoalaChat';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap, MessageSquare } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -51,7 +52,7 @@ const FOREST_TABS = [
  */
 const KNOWN_VIEWS = [
   ...FOREST_TABS.map((t) => t.id as string),
-  'grove', 'personas', 'lab',
+  'grove', 'chat', 'personas', 'lab',
 ] as const;
 
 /**
@@ -231,7 +232,7 @@ function App() {
   const [forestOpen, setForestOpen] = useState(true);
   /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
   const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'lab' | 'personas' | 'grove'>(
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'lab' | 'personas' | 'grove' | 'chat'>(
     // The URL wins on load, so a refresh keeps your place and a link opens where it points.
     () => resolveView(parseHash(window.location.hash)?.view, KNOWN_VIEWS, 'clusters') as any,
   );
@@ -1101,6 +1102,15 @@ function App() {
             <Koala size={20} mood={view === 'grove' ? 'happy' : 'idle'} /> Koala
           </button>
 
+          {/* General chat, beside the Grove rather than inside it: the Grove is for building, and
+              you should not have to pick a tree before asking a question. */}
+          <button
+            onClick={() => setView('chat')}
+            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'chat' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+          >
+            <MessageSquare size={15} /> Chat
+          </button>
+
           {/* Indented under Koala rather than listed beside it: a tree is the scope conversations
               live in, so it belongs to the harness, not to the infrastructure below. */}
           <button
@@ -1561,6 +1571,13 @@ function App() {
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
         {view === 'grove' && (
           <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
+        )}
+
+        {view === 'chat' && (
+          <KoalaChat
+            apiBase={API_BASE}
+            onOpenTree={() => setView('grove')}
+          />
         )}
 
         {view === 'personas' && <Personas apiBase={API_BASE} />}

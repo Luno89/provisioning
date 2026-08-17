@@ -1,4 +1,5 @@
 import type { Persona } from '@koala/harness-types';
+import type { Conversation } from './conversations.js';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
@@ -104,6 +105,10 @@ export class MongoDB implements Database {
 
   private get branches(): Collection {
     return this.db!.collection('branches');
+  }
+
+  private get conversations(): Collection {
+    return this.db!.collection('conversations');
   }
 
   private get leaves(): Collection {
@@ -494,6 +499,22 @@ export class MongoDB implements Database {
 
   async deleteBranch(id: string): Promise<void> {
     await this.branches.deleteOne({ _id: id as any });
+  }
+
+  async getConversations(): Promise<Conversation[]> {
+    return (await this.conversations.find({}).toArray()).map((doc) => fromDoc<Conversation>(doc));
+  }
+
+  async saveConversation(conversation: Conversation): Promise<void> {
+    const doc = toDoc(conversation);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.conversations.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteConversation(id: string): Promise<void> {
+    // Keyed on `_id`: these documents have no `id` field, and { id } would match every one of them.
+    await this.conversations.deleteOne({ _id: id as any });
   }
 
   /** Keyed by ownerId rather than a surrogate id — there is exactly one account per user, and a

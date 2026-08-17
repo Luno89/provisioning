@@ -82,6 +82,43 @@ import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
+import { titleFrom, enabledForSession, type Conversation, type ProposedTree } from './lib/conversations.js';
+import { koalaSeed, isChatOnly, buildKoalaPrompt } from './lib/koala-persona.js';
+import { KOALA_TOOLS } from './lib/koala-tools.js';
+import { runKoalaTool } from './lib/koala-tool-runner.js';
+import { toLoopTools, routeCall } from './lib/mcp-tools.js';
+/** Room for a turn that inspects, enables a service and then answers. */
+const KOALA_MAX_TOKENS = 8000;
+/**
+ * Ceiling on one remote tool's answer.
+ *
+ * A service returns whatever it likes, and an unbounded answer can leave `fittedMaxTokens` nothing
+ * for the reply — a turn ending on `finish_reason: length` having said nothing.
+ *
+ * But trimming too hard is worse than not trimming. At 4000 the GitHub repository payload was cut
+ * before `stargazers_count`, and the model — having noticed, and said so — answered from memory
+ * instead: "well over 160,000 stars". A truncated tool result does not read as missing data to a
+ * model, it reads as permission to fall back on what it already believes, and the user cannot tell
+ * the difference.
+ *
+ * 12000 fits that payload whole against a measured prompt of ~6500 characters with the budget
+ * untouched. The ceiling is for a runaway response, not for ordinary ones.
+ */
+const MAX_REMOTE_RESULT = 12000;
+/**
+ * Tool rounds per turn.
+ *
+ * Six was not enough, measured: a single question — "what services do you have, and look up
+ * microsoft/vscode" — spent rounds on listing, enabling, and re-reading, and hit the cap with the
+ * reply mid-sentence: "Now let me look up the microsoft/vscode repository for you:". The work was
+ * right and the budget ended first.
+ *
+ * The sequence this has to fit is list → enable → call → answer, and a reasoning model spends a
+ * round thinking between each. Twelve leaves room for that plus a mistake, and the loop still exits
+ * the moment a round returns no tool calls, so an ordinary chat costs one.
+ */
+const KOALA_TOOL_ROUNDS = 12;
+
 import { claimService, claimNotice } from './lib/service-claim.js';
 import { wantsMcp } from './lib/agent-run.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
@@ -3048,6 +3085,357 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.json({ success: true });
   });
 
+
+  /** ── GENERAL CHAT — Koala outside the tree structure (see lib/conversations.ts) ── */
+
+  /**
+   * Koala exists for this user, creating it if it does not.
+   *
+   * Create-if-absent rather than a migration or a seeding script: `scripts/seed-personas.ts` has a
+   * hardcoded owner and no npm script, so personas were only ever seeded by hand for one account and
+   * a new user has none. This runs on the path that needs it, works for old and new accounts alike,
+   * and puts Koala back if someone deletes it — only its EXISTENCE is guaranteed, never its contents,
+   * so an edited prompt survives.
+   */
+  async function ensureKoala(userId: string): Promise<Persona> {
+    const mine = await ownedPersonas(userId);
+    const found = mine.find((p) => isChatOnly(p));
+    if (found) return found;
+    const now = new Date().toISOString();
+    const persona: Persona = {
+      ...koalaSeed(), id: uuidv4(), ownerId: userId, createdAt: now, updatedAt: now,
+    } as Persona;
+    await db.savePersona(persona);
+    console.log(`[koala] created the Koala persona for ${userId.slice(0, 8)}`);
+    return persona;
+  }
+
+  /** Everything deployed for this user, healthiest copy per name. Never throws: chat works without it. */
+  async function koalaServers(userId: string) {
+    try {
+      const registry = new McpRegistryService(db, userId, (n: string) => resolveMcpProbeUrl(n));
+      return preferUsable(await registry.listWithTools());
+    } catch (err: any) {
+      console.warn(`[koala] could not list services: ${err.message}`);
+      return [];
+    }
+  }
+
+  const ownedConversations = async (userId: string) =>
+    (await db.getConversations()).filter((c) => c.ownerId === userId);
+
+  app.get('/api/koala/conversations', async (req, res) => {
+    const mine = await ownedConversations((req as any).user.id);
+    // Newest first, and without messages: the list renders titles, and a hundred threads of
+    // transcript is a payload nobody asked for.
+    res.json(mine
+      .map(({ messages, ...rest }) => ({ ...rest, messageCount: messages.length }))
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')));
+  });
+
+  app.get('/api/koala/conversations/:id', async (req, res) => {
+    const found = (await ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
+    if (!found) return res.status(404).json({ error: 'No such conversation' });
+    res.json(found);
+  });
+
+  app.post('/api/koala/conversations', async (req, res) => {
+    const now = new Date().toISOString();
+    const conversation: Conversation = {
+      id: uuidv4(),
+      ownerId: (req as any).user.id,
+      title: titleFrom(String(req.body?.title ?? '')),
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.saveConversation(conversation);
+    res.json(conversation);
+  });
+
+  app.delete('/api/koala/conversations/:id', async (req, res) => {
+    const found = (await ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
+    if (!found) return res.status(404).json({ error: 'No such conversation' });
+    await db.deleteConversation(found.id);
+    res.json({ success: true });
+  });
+
+  /**
+   * Accepting a proposed project.
+   *
+   * The tree is created HERE rather than when Koala proposed it — the whole point of a proposal is
+   * that nothing exists until a person says so, and a casual question must not litter the Grove.
+   * The proposal is kept and marked with what it became, so the card can link to it instead of
+   * offering to create a second one.
+   */
+  app.post('/api/koala/conversations/:id/proposals/:proposalId/accept', async (req, res) => {
+    const userId = (req as any).user.id;
+    const conversation = (await ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedTrees ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+    if (proposal.treeId) return res.status(409).json({ error: 'That project has already been created' });
+
+    const now = new Date().toISOString();
+    const tree: Tree = {
+      ...normaliseTreeInput({ name: proposal.name, type: proposal.type, goal: proposal.goal }),
+      id: uuidv4(),
+      ownerId: userId,
+      createdAt: now,
+      updatedAt: now,
+    } as Tree;
+    await db.saveTree(tree);
+    await db.saveConversation({
+      ...conversation,
+      proposedTrees: (conversation.proposedTrees ?? [])
+        .map((p) => (p.id === proposal.id ? { ...p, treeId: tree.id } : p)),
+      updatedAt: now,
+    });
+    res.json({ tree });
+  });
+
+  /**
+   * One general-chat turn.
+   *
+   * ── WHY THE TOOL ROUNDS ARE NOT STREAMED ──
+   * Only the final answer is. A tool round produces no prose worth watching arrive — it produces a
+   * function call — and streaming it means reassembling tool_calls from deltas, which is the fiddly
+   * part of the branch route. The visible result is the same and the failure modes are far fewer.
+   */
+  app.post('/api/koala/chat', async (req, res) => {
+    const userId = (req as any).user.id;
+    const { conversationId, message, sessionId, modelId } = req.body ?? {};
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'message is required' });
+    }
+
+    let conversation = (await ownedConversations(userId)).find((c) => c.id === String(conversationId));
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+
+    const persona = await ensureKoala(userId);
+    /**
+     * The same resolution chain the branch route uses: adopted profile, then persona, then request.
+     *
+     * Sending `overrides: {}` instead produced a turn that reasoned for 365 characters and returned
+     * NOTHING — no content and no tool calls, `finish_reason: stop`, with the budget untouched. The
+     * knobs that make a reasoning model split its thinking from its answer live in this chain, and
+     * without them it thinks and stops.
+     */
+    const resolved = resolveConfig(await db.getHarnessProfile(userId), persona, {});
+    const servers = await koalaServers(userId);
+    // Servers this session already hooked up keep their tools without being re-enabled.
+    let enabled = enabledForSession(conversation, sessionId);
+
+    let provider, baseUrl, apiKey;
+    try {
+      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl(userId, modelId));
+    } catch (err: any) {
+      return res.status(404).json({ error: err.message });
+    }
+
+    const now = new Date().toISOString();
+    conversation = {
+      ...conversation,
+      // Named from the first thing said, so the list never shows a row of "New conversation".
+      title: conversation.messages.length === 0 ? titleFrom(message) : conversation.title,
+      messages: [...conversation.messages, { role: 'user' as const, content: message, at: now }],
+      updatedAt: now,
+    };
+    await db.saveConversation(conversation);
+
+    const toolsFor = (names: string[]) => {
+      const remote = servers
+        .filter((s) => names.includes(s.name))
+        .flatMap((s) => toLoopTools(s.name, s.tools));
+      return [...KOALA_TOOLS, ...remote];
+    };
+
+    const conversationFor = (list: string[]) => [
+      { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, list) },
+      ...conversation!.messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+
+    const upstreamAbort = new AbortController();
+    res.on('close', () => upstreamAbort.abort());
+
+    const call = async (messages: unknown, stream: boolean, names: string[]) => fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+      body: JSON.stringify(buildModelRequest({
+        turn: 'conversation',
+        ...(provider!.kind ? { kind: provider!.kind } : {}),
+        messages,
+        tools: toolsFor(names),
+        stream,
+        maxTokens: fittedMaxTokens(KOALA_MAX_TOKENS, JSON.stringify(messages).length),
+        ...(provider!.model ? { model: provider!.model } : {}),
+        overrides: resolved.overrides,
+      }).body),
+      signal: upstreamAbort.signal,
+    });
+
+    try {
+      const turn: any[] = conversationFor(enabled);
+      const enabledNow: string[] = [];
+      const proposed: ProposedTree[] = [];
+      /** The answer, when a tool round already produced it. */
+      let settled = '';
+
+      for (let round = 0; round < KOALA_TOOL_ROUNDS; round++) {
+        const step = await call(turn, false, enabled);
+        if (!step.ok) return res.status(502).json({ error: `Model returned ${step.status}` });
+        const body: any = await step.json();
+        const choice = body?.choices?.[0]?.message;
+        const calls = choice?.tool_calls ?? [];
+        // Kept: a turn that ends mid-sentence is a round budget that ran out, and this is the only
+        // place that distinguishes that from a model with nothing to say.
+        // Kept: a turn ending mid-sentence is a round budget that ran out, and this is the only
+        // place that tells that apart from a model with nothing to say.
+        console.log(`[koala] round ${round}: finish=${body?.choices?.[0]?.finish_reason} calls=${calls.length} content=${(choice?.content ?? '').length}`);
+        if (!calls.length) {
+          /**
+           * The round that stops usually IS the answer — keep it.
+           *
+           * Discarding it and asking again cost an inference and produced nothing: measured, a
+           * round finished with 491 characters of content, was thrown away, and the fresh call on
+           * an identical conversation returned empty. The model had already said its piece and did
+           * not repeat it. The streamed call below is now only for the case where the loop ends
+           * with nothing said.
+           */
+          settled = String(choice?.content ?? '');
+          break;
+        }
+
+        turn.push({ role: 'assistant', content: choice.content ?? null, tool_calls: calls });
+        for (const c of calls) {
+          /**
+           * A tool belonging to an enabled service goes to that service.
+           *
+           * Missing this made the whole mechanism a loop: the model enabled `github-mcp`, was
+           * offered `github-mcp__github-get-repo`, called it, and `runKoalaTool` — which only knows
+           * Koala's own tools — answered "No tool named …". So it tried again, and again, until the
+           * completion budget died with `finish_reason: length` and nothing to show. 351 seconds,
+           * no answer.
+           *
+           * `routeCall` refuses any name that is not `server__tool` for an ENABLED service, so this
+           * cannot swallow Koala's own tools by running first.
+           */
+          const route = routeCall(c.function.name, enabled);
+          if (route) {
+            const server = servers.find((sv) => sv.name === route.server);
+            let text: string;
+            try {
+              const registry = new McpRegistryService(db, userId, (n: string) => resolveMcpProbeUrl(n));
+              const answer = server
+                ? await registry.call(server, route.tool, JSON.parse(c.function.arguments || '{}'))
+                : { text: `"${route.server}" is no longer running.`, isError: true };
+              text = answer.text;
+            } catch (err: any) {
+              text = `That call failed: ${String(err?.message ?? err).slice(0, 200)}`;
+            }
+            /**
+             * Bounded, because a service answers with whatever it likes.
+             *
+             * The GitHub repository payload is several kilobytes of JSON. Two of those pushed the
+             * prompt far enough that `fittedMaxTokens` had almost nothing left for the reply, and
+             * the turn ended on `length` having said nothing — the failure above, wearing a
+             * different hat.
+             */
+            const trimmed = text.length > MAX_REMOTE_RESULT
+              ? `${text.slice(0, MAX_REMOTE_RESULT)}\n…[trimmed, ${text.length} characters total]`
+              : text;
+            turn.push({ role: 'tool', tool_call_id: c.id, name: c.function.name, content: trimmed });
+            continue;
+          }
+
+          const out = await runKoalaTool(
+            {
+              db, userId, conversationId: conversation!.id, sessionId,
+              servers, webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage,
+            },
+            { name: c.function.name, arguments: c.function.arguments },
+          );
+          /**
+           * A service enabled mid-turn widens the NEXT round's tools.
+           *
+           * Without this the model enables something and cannot call it until the user sends
+           * another message, which makes the whole lazy mechanism a two-message ritual.
+           */
+          if (out.enabled && !enabled.includes(out.enabled)) {
+            enabled = [...enabled, out.enabled];
+            enabledNow.push(out.enabled);
+            // The system message carries the catalogue, so it is rewritten with the new state.
+            turn[0] = { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, enabled) };
+          }
+          if (out.proposed) proposed.push(out.proposed);
+          turn.push({ role: 'tool', tool_call_id: c.id, name: c.function.name, content: out.content });
+        }
+      }
+
+      // The answer, streamed. Everything above was the model deciding what to do.
+      const final = settled ? undefined : await call(turn, true, enabled);
+      if (final && (!final.ok || !final.body)) {
+        return res.status(502).json({ error: `Model returned ${final.status}` });
+      }
+
+      res.setHeader('content-type', 'text/event-stream');
+      res.setHeader('cache-control', 'no-cache');
+      res.setHeader('connection', 'keep-alive');
+      // Sent before the text so the UI can show "hooked up github-mcp" as it happened, rather than
+      // depending on the model to mention it.
+      if (enabledNow.length) res.write(`data: ${JSON.stringify({ enabled: enabledNow })}\n\n`);
+      for (const p of proposed) res.write(`data: ${JSON.stringify({ proposedTree: p })}\n\n`);
+
+      let answer = settled;
+      // Written in one frame: it is already generated, and pretending to stream it would only add
+      // latency to text the user could have had at once.
+      if (settled) res.write(`data: ${JSON.stringify({ delta: settled })}\n\n`);
+      const reader = final ? ((final.body as any).getReader?.() ?? null) : null;
+      const decoder = new TextDecoder();
+      let buffered = '';
+      if (reader) {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+          const lines = buffered.split('\n');
+          buffered = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') continue;
+            try {
+              const delta = JSON.parse(payload)?.choices?.[0]?.delta?.content;
+              if (delta) { answer += delta; res.write(`data: ${JSON.stringify({ delta })}\n\n`); }
+            } catch { /* a partial frame; the next chunk completes it */ }
+          }
+        }
+      }
+
+      // Persisted AFTER the stream closes, so a reader that disconnects mid-answer does not lose
+      // what the model already said.
+      const saved = (await db.getConversations()).find((c) => c.id === conversation!.id);
+      if (saved) {
+        await db.saveConversation({
+          ...saved,
+          messages: [...saved.messages, {
+            role: 'assistant' as const,
+            content: answer,
+            at: new Date().toISOString(),
+            ...(enabledNow.length ? { enabled: enabledNow } : {}),
+          }],
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } catch (err: any) {
+      console.error(`[koala] turn failed: ${err.message}`);
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+      else res.end();
+    }
+  });
+
   /** ── MODELS / CHAT — agent harness Phase A (~/.claude/plans/agent-harness.md) ── */
 
   /**
@@ -4296,6 +4684,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         db,
         startLeaf: (l) => temporalBridge!.startLeaf(l),
         signalLeaf: (id, sig, payload) => temporalBridge!.signalLeaf(id, sig, payload),
+        personaOf: async (id) => (id ? (await db.getPersonas()).find((p) => p.id === id) ?? null : null),
       },
       leaf,
       leaves,
@@ -4407,6 +4796,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         db,
         startLeaf: (l) => temporalBridge!.startLeaf(l),
         signalLeaf: (id, sig, payload) => temporalBridge!.signalLeaf(id, sig, payload),
+        personaOf: async (id) => (id ? (await db.getPersonas()).find((p) => p.id === id) ?? null : null),
       },
       reset,
       leaves.map((l) => (l.id === reset.id ? reset : l)),

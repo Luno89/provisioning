@@ -1,4 +1,5 @@
 import type { Persona } from '@koala/harness-types';
+import type { Conversation } from './conversations.js';
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
 import type { Branch, Leaf } from './leaves.js';
@@ -131,6 +132,11 @@ export interface Database {
   getBranches(): Promise<Branch[]>;
   saveBranch(branch: Branch): Promise<void>;
   deleteBranch(id: string): Promise<void>;
+
+  /** General chat with Koala — threads, not branches. See lib/conversations.ts for why. */
+  getConversations(): Promise<Conversation[]>;
+  saveConversation(conversation: Conversation): Promise<void>;
+  deleteConversation(id: string): Promise<void>;
 
   getLeaves(): Promise<Leaf[]>;
   saveLeaf(leaf: Leaf): Promise<void>;

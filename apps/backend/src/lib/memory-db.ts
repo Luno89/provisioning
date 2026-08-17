@@ -1,4 +1,5 @@
 import type { Persona } from '@koala/harness-types';
+import type { Conversation } from './conversations.js';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
@@ -29,6 +30,7 @@ export class MemoryDB implements Database {
   private leafTraces: LeafTrace[] = [];
   private trees: Tree[] = [];
   private branches: Branch[] = [];
+  private conversations: Conversation[] = [];
   private giteaAccounts: GiteaAccount[] = [];
   private experiments: Experiment[] = [];
   private harnessProfiles: HarnessProfile[] = [];
@@ -45,6 +47,7 @@ export class MemoryDB implements Database {
     this.modelEndpoints = [];
     this.leaves = [];
     this.branches = [];
+    this.conversations = [];
     this.giteaAccounts = [];
     this.experiments = [];
   }
@@ -58,6 +61,7 @@ export class MemoryDB implements Database {
     this.modelEndpoints = [];
     this.leaves = [];
     this.branches = [];
+    this.conversations = [];
     this.giteaAccounts = [];
     this.experiments = [];
   }
@@ -346,6 +350,20 @@ export class MemoryDB implements Database {
 
   async deleteBranch(id: string): Promise<void> {
     this.branches = this.branches.filter((b) => b.id !== id);
+  }
+
+  async getConversations(): Promise<Conversation[]> {
+    return this.conversations;
+  }
+
+  async saveConversation(conversation: Conversation): Promise<void> {
+    const i = this.conversations.findIndex((c) => c.id === conversation.id);
+    if (i >= 0) this.conversations[i] = conversation;
+    else this.conversations.push(conversation);
+  }
+
+  async deleteConversation(id: string): Promise<void> {
+    this.conversations = this.conversations.filter((c) => c.id !== id);
   }
 
   async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
