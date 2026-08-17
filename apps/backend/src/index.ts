@@ -85,6 +85,7 @@ import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
 import { wantsMcp } from './lib/agent-run.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
+import { preferUsable } from './lib/mcp-registry.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
@@ -2202,8 +2203,33 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * in step. This codebase has already paid for that twice — the app-type list and the leaf
    * columns.
    */
-  app.get('/api/persona-options', (_req, res) => {
+  app.get('/api/persona-options', async (req, res) => {
+    /**
+     * The MCP servers this user actually has running.
+     *
+     * `scope.mcp` was a free-text comma list, so granting a persona a service meant typing its name
+     * from memory and matching it exactly. A typo did not fail loudly — validation only checks the
+     * SHAPE — it produced a persona granted a server that does not exist, which reads at run time
+     * as "the tool never appeared" three layers from the cause.
+     *
+     * Best-effort: the editor must open when the cluster is unreachable, just without the picker.
+     */
+    let mcpServers: { name: string; tools: number; unreachable?: string }[] = [];
+    try {
+      const reg = new McpRegistryService(db, (req as any).user.id, (n: string) => resolveMcpProbeUrl(n));
+      // Collapsed by name, healthiest copy first: two deployments can answer to one service.
+      mcpServers = preferUsable(await reg.listWithTools()).map((s) => ({
+        name: s.name,
+        tools: s.tools.length,
+        // Offered anyway, labelled: a server that is down is still the one you meant to name, and
+        // hiding it would have the user retype a name that is already right.
+        ...(s.unreachable ? { unreachable: s.unreachable } : {}),
+      }));
+    } catch (err: any) {
+      console.warn(`[persona-options] could not list MCP servers: ${err.message}`);
+    }
     res.json({
+      mcpServers,
       languages: Object.entries(WORKSPACE_IMAGES).map(([id, spec]) => ({
         id,
         image: spec.image,

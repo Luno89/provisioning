@@ -205,10 +205,15 @@ export default function Chat({
 
   const { data: personas } = useQuery<{
     id: string; name: string; description?: string; overrides?: Record<string, unknown>;
+    /** Only `mcp` is read here — the composer says which services this persona can call. */
+    scope?: { mcp?: string[] };
   }[]>({
     queryKey: ['personas'],
     queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
   });
+
+  /** Resolved once so the composer and the request cannot disagree about who is answering. */
+  const activePersona = personas?.find((p) => p.id === personaId);
 
   const addEndpoint = useMutation({
     mutationFn: () =>
@@ -913,6 +918,40 @@ export default function Chat({
       )}
 
       {proposalPanel}
+
+      {/*
+        Who is answering, next to where you type.
+        ── WHY THIS IS HERE AND NOT ONLY IN THE SETTINGS PANEL ──
+        The selector lived in the drawer beside the model picker, and its default is "No persona" —
+        so the common case was a conversation with nobody in particular, shown nowhere. Asked which
+        persona they were talking to on a branch, the answer was usually "none", and nothing on
+        screen said so.
+        It matters more now than it used to: a persona decides which MCP servers the conversation
+        can call, so "no persona" is also "no services", and that is invisible at the moment you are
+        wondering why the model cannot reach one.
+      */}
+      <div className="mt-3 flex items-center gap-2 text-[11px] shrink-0">
+        <span className="text-slate-500">Answering:</span>
+        {activePersona ? (
+          <>
+            <span className="px-2 py-0.5 rounded-md bg-[var(--leaf)]/15 border border-[var(--leaf)]/40 text-slate-200">
+              {activePersona.name}
+            </span>
+            {(activePersona.scope?.mcp ?? []).length > 0 && (
+              <span className="text-slate-500">
+                can call {(activePersona.scope?.mcp ?? []).join(', ')}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <span className="px-2 py-0.5 rounded-md border border-[var(--bark-600)] text-slate-400">
+              No persona
+            </span>
+            <span className="text-slate-500">default prompt, no services</span>
+          </>
+        )}
+      </div>
 
       <div className="mt-3 flex gap-3 shrink-0">
         <textarea

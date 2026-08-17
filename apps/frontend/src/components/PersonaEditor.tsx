@@ -55,6 +55,8 @@ export interface Persona {
 interface Options {
   languages: { id: string; image: string; summary: string; available: string[]; absent: string[] }[];
   tools: { name: string; description?: string }[];
+  /** What is actually deployed, so a grant is a click rather than a remembered name. */
+  mcpServers?: { name: string; tools: number; unreachable?: string }[];
   defaults: { cpu: string; memory: string; maxSteps: number };
 }
 
@@ -183,9 +185,49 @@ export default function PersonaEditor({
                 MCP servers this harness deployed — their tools are prefixed with the service name
               </span>
             </div>
+            {/*
+              Picked, not typed. The free-text list meant granting a service was a remembered name
+              matched exactly, and a typo produced a persona granted a server that does not exist —
+              which reads at run time as "the tool never appeared", three layers from the cause.
+            */}
+            {(options?.mcpServers ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {(options?.mcpServers ?? []).map((s) => {
+                  const on = (scope.mcp ?? []).includes(s.name);
+                  return (
+                    <button
+                      key={s.name}
+                      type="button"
+                      title={s.unreachable
+                        ? `Not answering: ${s.unreachable}`
+                        : `${s.tools} tool${s.tools === 1 ? '' : 's'}`}
+                      onClick={() => setScope({
+                        mcp: on
+                          ? (scope.mcp ?? []).filter((x) => x !== s.name)
+                          : [...(scope.mcp ?? []), s.name],
+                      })}
+                      className={`px-2 py-1 rounded-lg border text-[11px] ${on
+                        ? 'border-[var(--leaf)] bg-[var(--leaf)]/15 text-slate-100'
+                        : 'border-[var(--bark-600)] text-slate-400 hover:text-slate-200'}`}
+                    >
+                      {s.name}
+                      <span className="ml-1.5 text-slate-500">
+                        {s.unreachable ? 'down' : `${s.tools}`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/*
+              Kept alongside the picker rather than replaced by it: a server can be named before it
+              is deployed, which is exactly what happens when a plan builds one.
+            */}
             <input
               className={`${field} w-full`}
-              placeholder="weather-api-mcp, github-api — comma separated, blank for none"
+              placeholder={(options?.mcpServers ?? []).length
+                ? 'or type a name — a service that is not deployed yet'
+                : 'weather-api-mcp, github-api — comma separated, blank for none'}
               value={(scope.mcp ?? []).join(', ')}
               onChange={(e) => setScope({
                 mcp: e.target.value.split(',').map((v) => v.trim()).filter(Boolean),

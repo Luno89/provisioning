@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { chatMcpFor, NO_CHAT_MCP } from './chat-mcp.js';
+import { preferUsable } from './mcp-registry.js';
 import { validateScope } from './personas.js';
 
 /**
@@ -96,6 +97,29 @@ describe('two deployments answering to one name', () => {
       invoke,
     );
     expect(got.missing).toEqual(['github-mcp']);
+  });
+});
+
+describe('collapsing two deployments with one name', () => {
+  const broken = server({ id: 'd2', tools: [], unreachable: 'HTTP 404 from initialize' });
+
+  it('keeps one entry per name, whichever order they arrive in', () => {
+    for (const list of [[server(), broken], [broken, server()]]) {
+      const out = preferUsable(list);
+      expect(out).toHaveLength(1);
+      expect(out[0]!.tools).toHaveLength(1);
+    }
+  });
+
+  it('still returns the broken one when it is the ONLY copy', () => {
+    // Dropping it would report a deployed-but-broken service as simply absent.
+    const out = preferUsable([broken]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.unreachable).toBeTruthy();
+  });
+
+  it('leaves distinct names alone', () => {
+    expect(preferUsable([server(), server({ id: 'd3', name: 'weather' })])).toHaveLength(2);
   });
 });
 

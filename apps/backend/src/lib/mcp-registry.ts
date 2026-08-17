@@ -150,3 +150,25 @@ export function describeServers(servers: McpServer[]): string {
       + ' what it already does.',
   ].join('\n');
 }
+
+
+/**
+ * One entry per NAME, preferring the copy that answers.
+ *
+ * Two deployments can carry one service name — observed the moment a second run redeployed
+ * `github-mcp`, leaving one copy with three tools and one returning `HTTP 404 from initialize`.
+ * Anything keyed by name downstream then picks whichever sorted last, which was the broken one.
+ *
+ * This is a presentation rule, not a repair: a stale deployment under a live name is a real problem
+ * and still shows up in the raw listing. It just should not be the copy a person is offered or an
+ * agent calls.
+ */
+export function preferUsable(servers: readonly McpServer[]): McpServer[] {
+  const out = new Map<string, McpServer>();
+  for (const s of servers) {
+    const held = out.get(s.name);
+    const better = !held || (!s.unreachable && s.tools.length && (held.unreachable || !held.tools.length));
+    if (better) out.set(s.name, s);
+  }
+  return [...out.values()];
+}
