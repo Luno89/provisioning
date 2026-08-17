@@ -11,6 +11,10 @@
  *   4. Returns a WorkflowDeal
  */
 import path from 'path';
+import { McpRegistryService } from '../services/McpRegistryService.js'
+import { looksLikeMcp } from '../lib/mcp-registry.js'
+import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js'
+import { healthFromProbe } from '../lib/service-health.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import type { Client } from '@temporalio/client'
@@ -684,10 +688,39 @@ export class TemporalBridge {
             const namespace = sanitizeNamespace(dep.name)
             const raw = await new InfrastructureService().runKubectl(['get', 'pods', '-n', namespace, '-o', 'json'], kubeconfig)
             const { health, reason } = assessWorkload(JSON.parse(raw))
-            const next = reconciledStatus(dep.status, health)
+
+            /**
+             * A pod that is up is not a service that answers.
+             *
+             * Both duplicate `github-mcp` deployments read `running`; one served three tools and the
+             * other returned `HTTP 404 from initialize` to everything. Kubernetes was right about
+             * both — the workload was placed — and the only signal on screen was true of both, which
+             * is why nobody could tell them apart.
+             *
+             * Only for deployments that claim to speak MCP, and only when the workload itself looks
+             * healthy: a crash-looping pod already has a better reason attached than "it did not
+             * answer", and overwriting that would send someone to the wrong problem.
+             *
+             * Uses the registry's CACHE (no force): introspection holds for ten minutes, so this
+             * costs one request per service per cache window, not one per thirty-second sweep.
+             */
+            let serviceReason = ''
+            if (health === 'healthy' && looksLikeMcp(dep) && dep.ownerId) {
+              try {
+                const registry = new McpRegistryService(this.db, dep.ownerId, (n: string) => resolveMcpProbeUrl(n))
+                const found = (await registry.listWithTools()).find((s) => s.id === dep.id)
+                const verdict = healthFromProbe(found ? { unreachable: found.unreachable, tools: found.tools.length } : undefined)
+                if (verdict) serviceReason = verdict.reason
+              } catch {
+                // A registry that cannot answer says nothing about the service. Leave it alone.
+              }
+            }
+
+            const effective = serviceReason ? 'unhealthy' as const : health
+            const next = reconciledStatus(dep.status, effective)
             if (next) {
-              console.warn(`[Reconcile] ${dep.name} is ${dep.status} but the workload is ${health}${reason ? ` (${reason})` : ''} — marking ${next}`)
-              await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: reason }, next, dep.storage)
+              console.warn(`[Reconcile] ${dep.name} is ${dep.status} but the workload is ${effective}${(serviceReason || reason) ? ` (${serviceReason || reason})` : ''} — marking ${next}`)
+              await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: serviceReason || reason }, next, dep.storage)
               if (this.io) this.io.emit('deployment-updated')
             }
           } catch {
