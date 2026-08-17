@@ -59,6 +59,7 @@ import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
 import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
+import { extractServiceName } from './lib/extraction.js';
 import { buildOutboundMessages } from './lib/leaf-context.js';
 import { isWorkspaceLanguage, imageForLanguage, WORKSPACE_IMAGES, DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
 import { TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js';
@@ -82,6 +83,7 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
+import { fittedMaxTokens } from './lib/sampling.js';
 import { canRecheck, recheckVerdict, statusAfterRecheck } from './lib/leaf-recheck.js';
 import { webhookUrlFor } from './lib/project-shipping.js';
 import { buildReviewPrompt } from './lib/failure-review.js';
@@ -3308,10 +3310,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           // prevents casual Q&A turns from degenerating into tool-schema deliberation loops.
           ...(offerTools ? { tools: LEAF_TOOLS } : {}),
           stream,
-          maxTokens: rest.max_tokens ?? strategy.maxTokens,
+          /**
+           * Fitted to what the window has left, not asked for flat.
+           *
+           * The engine allocates prompt + max_tokens up front and refuses the job if the pair does
+           * not fit — `Job requires 136 pages (only 128 available)`, which is 34,816 against a
+           * 32,768 window. The agent loop was fixed for exactly this and the chat route never was,
+           * so a plan turn with a long system prompt was refused before generating a single token.
+           */
+          maxTokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
           reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
           extra: {
-            max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
+            max_completion_tokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
             // Streaming responses omit usage unless asked, and then only in the final chunk.
             ...(stream ? { stream_options: { include_usage: true } } : {}),
           },
@@ -3426,10 +3436,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           body: JSON.stringify(turnRequest(conversation, {
             tools: LEAF_TOOLS,
             stream: true,
-            maxTokens: rest.max_tokens ?? strategy.maxTokens,
+            /**
+           * Fitted to what the window has left, not asked for flat.
+           *
+           * The engine allocates prompt + max_tokens up front and refuses the job if the pair does
+           * not fit — `Job requires 136 pages (only 128 available)`, which is 34,816 against a
+           * 32,768 window. The agent loop was fixed for exactly this and the chat route never was,
+           * so a plan turn with a long system prompt was refused before generating a single token.
+           */
+          maxTokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
             reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
             extra: {
-              max_completion_tokens: rest.max_tokens ?? strategy.maxTokens,
+              max_completion_tokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
               stream_options: { include_usage: true },
             },
           })),
@@ -3605,7 +3623,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
           body: JSON.stringify(turnRequest(conversation, {
             stream: true,
-            maxTokens: rest.max_tokens ?? strategy.maxTokens,
+            /**
+           * Fitted to what the window has left, not asked for flat.
+           *
+           * The engine allocates prompt + max_tokens up front and refuses the job if the pair does
+           * not fit — `Job requires 136 pages (only 128 available)`, which is 34,816 against a
+           * 32,768 window. The agent loop was fixed for exactly this and the chat route never was,
+           * so a plan turn with a long system prompt was refused before generating a single token.
+           */
+          maxTokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
             reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
             extra: { stream_options: { include_usage: true } },
           })),
@@ -3799,6 +3825,29 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            */
           const proposals = proposedViaTools ? [] : (extracted?.length ? extracted : extractProposals(reply));
           const now = new Date().toISOString();
+
+          /**
+           * The name the planner chose for the service this work produces.
+           *
+           * Saved on the TREE rather than a leaf: it outlives any one conversation and is what
+           * every tool the service exposes gets prefixed with. Without it the name falls back to
+           * the tree's own, which is a heading rather than a prefix — "GitHub API MCP" becomes
+           * `github-api-mcp__` where the planner asked for `gh__`.
+           *
+           * Only when the planner actually said something usable, and never overwriting a name
+           * already set: renaming a live service would change every tool name under it.
+           */
+          const declaredName = extractServiceName(reply);
+          if (declaredName && branchId) {
+            const branchRecord = (await ownedBranches((req as any).user.id)).find((b) => b.id === branchId);
+            const tree = branchRecord?.treeId
+              ? (await ownedTrees((req as any).user.id)).find((t) => t.id === branchRecord.treeId)
+              : undefined;
+            if (tree && !tree.serviceName) {
+              await db.saveTree({ ...tree, serviceName: declaredName, updatedAt: now });
+              console.log(`[chat] tree ${tree.id}: service named "${declaredName}" by the planner`);
+            }
+          }
           for (const proposal of proposals) {
             await db.saveLeaf({
               id: uuidv4(),
