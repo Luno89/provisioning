@@ -190,7 +190,27 @@ export function parseChatCommand(message: string): ChatCommand {
  * Reasoning models spend most of a turn thinking, and plan mode asks for exactly the kind of
  * deliberation that provokes it.
  */
-export const PLAN_MODE_MAX_TOKENS = 3000;
+export const PLAN_MODE_MAX_TOKENS = 8000;
+
+/**
+ * ── WHY IT WENT UP FROM 3000 ──
+ * 3000 was measured against a turn that answered directly. A planning turn now inspects FIRST — the
+ * rules tell it to call `list_mcp_servers` before proposing, and `list_personas` before assigning —
+ * so by the time it plans, its context holds the tool results and it has already reasoned once
+ * about them.
+ *
+ * Observed on the first run after those rules landed, verbatim from the log:
+ *
+ *     [chat] /plan produced no content for branch 36de9e59 — the reply was likely consumed by
+ *     reasoning before reaching an answer; raise max_tokens
+ *
+ * The turn called its tools, said "Let me start by checking what's already available", and stopped
+ * with the budget gone. Zero leaves, and the only sign was one warning line.
+ *
+ * This is the same failure the 3000 was chosen to fix, moved to a longer turn — and it is silent
+ * both times, which is what makes underestimating it expensive. `fittedMaxTokens` still trims this
+ * against the context window, so a large number costs nothing when there is no room for it.
+ */
 
 /** Hard ceiling on one reply, so a runaway model cannot flood a branch in a single turn. */
 export const MAX_PROPOSALS_PER_REPLY = 8;
