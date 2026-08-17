@@ -13,6 +13,7 @@
  * see the schema tests: no tool takes an owner, because a prompt could then reach across tenants.
  */
 import { v4 as uuidv4 } from 'uuid';
+import { resolvePersonaNamed } from './proposal-merge.js';
 import type { Database } from './db-interface.js';
 import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
 import { usablePaths } from './leaf-artifacts.js';
@@ -156,10 +157,11 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
        * and still gets done, just by the default configuration. Refusing would trade a real
        * proposal for a spelling mistake.
        */
-      const wantedPersona = typeof args.persona === 'string' ? args.persona.trim().toLowerCase() : '';
-      const persona = wantedPersona
-        ? ((await db.getPersonas()).filter((p) => p.ownerId === userId)).find((p) => p.name.trim().toLowerCase() === wantedPersona)
-        : undefined;
+      const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
+      const persona = resolvePersonaNamed(
+        wantedPersona,
+        (await db.getPersonas()).filter((p) => p.ownerId === userId),
+      );
 
       const now = new Date().toISOString();
       const leaf: Leaf = {
@@ -389,11 +391,9 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
        * said "call revise_leaf setting persona" and the parameter did not exist, so every attempt
        * to repair an unassigned leaf would have failed silently and gone to the user as unassignable.
        */
-      const wantedPersona = typeof args.persona === 'string' ? args.persona.trim().toLowerCase() : '';
+      const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
       const mine = (await db.getPersonas()).filter((p) => p.ownerId === userId);
-      const persona = wantedPersona
-        ? mine.find((p) => p.name.trim().toLowerCase() === wantedPersona)
-        : undefined;
+      const persona = resolvePersonaNamed(wantedPersona, mine);
       if (wantedPersona && !persona) {
         return JSON.stringify({
           error: `No persona is named "${args.persona}".`,

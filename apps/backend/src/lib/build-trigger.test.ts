@@ -88,20 +88,33 @@ describe('a plan that mixes tool calls and prose', () => {
    */
   it('keeps prose proposals the tool calls did not cover', () => {
     expect(route).toMatch(/const fromProse = extracted\?\.length \? extracted : extractProposals\(reply\)/);
-    expect(route).toMatch(/proposedViaTools\s*\n?\s*\? fromProse\.filter/);
+    expect(route).toMatch(/newProposals\(fromProse/);
   });
 
-  it('dedupes on title, so a prose entry describing a tool-made leaf is not created twice', () => {
-    // Prose that reports what the tools did is still a report; only NEW titles are new work.
-    const at = route.indexOf('const already = new Set(');
+  /**
+   * The dedup rule itself moved into lib/proposal-merge.ts and is tested directly there, including
+   * the reason it drops ONLY exact matches. What is left here is the wiring, which no unit test
+   * reaches: which leaves it compares against, and whose.
+   */
+  it('compares against this user\'s leaves on this branch, not every leaf on the instance', () => {
+    // getLeaves() is unscoped; another tenant's title suppressing a proposal here would be a leak.
+    const at = route.indexOf('const already = (await ownedLeaves(');
     expect(at).toBeGreaterThan(-1);
-    const block = route.slice(at, at + 400);
-    expect(block).toMatch(/toLowerCase\(\)\.replace/);
-    expect(block).toMatch(/l\.branchId === branchId/);
+    expect(route.slice(at, at + 300)).toMatch(/l\.branchId === String\(branchId\)/);
   });
 
-  it('still takes everything when no tool proposed anything', () => {
-    // The prose-only path must be unaffected — it is how most plans arrive.
-    expect(route).toMatch(/: fromProse;/);
+  it('reports look-alike leaves to the reviewer instead of dropping them', () => {
+    /**
+     * Load-bearing. Similarity scores the real observed duplicate BELOW two leaves that must both
+     * exist, so a dropping rule built on it deletes stages of real plans — the failure this whole
+     * merge exists to fix.
+     */
+    expect(route).toMatch(/duplicateNotice\(suspectedDuplicates\(/);
+  });
+
+  it('assigns the persona the plan named, so a prose leaf can actually be started', () => {
+    // A leaf with no persona has no environment and cannot be accepted at all.
+    expect(route).toMatch(/resolvePersonaNamed\(proposal\.persona, myPersonas\)/);
+    expect(route).toMatch(/\.\.\.\(assigned \? \{ personaId: assigned\.id \} : \{\}\)/);
   });
 });

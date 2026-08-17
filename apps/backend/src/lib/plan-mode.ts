@@ -19,6 +19,22 @@ import { describeSandbox } from './workspace-spec.js';
 export interface LeafProposal {
   title: string;
   body?: string;
+  /**
+   * The NAME of the persona that should do this work, as the model wrote it — resolved to an id by
+   * the caller, against that user's own personas.
+   *
+   * ── WHY THE PROSE PATH NEEDED THIS ──
+   * It did not carry one, and could not: the shape was `{title, body}` and the advertised schema
+   * asked for nothing else. `propose_leaf` has taken a persona name all along, so a plan made with
+   * tools came out assigned and a plan written as prose came out with nobody on it — and a leaf
+   * with no persona cannot be accepted at all, because a persona carries the whole environment.
+   *
+   * That was invisible while prose-only plans went through a follow-up turn that assigned them. The
+   * moment one reply MIXED both paths, that turn had already watched itself assign personas via
+   * tools, answered the follow-up in prose, and the four prose leaves stayed unassigned. Asking for
+   * the persona in the block removes the round-trip instead of making it more reliable.
+   */
+  persona?: string;
 }
 
 /**
@@ -36,7 +52,8 @@ export const PLAN_SYSTEM_PROMPT = [
   'ending your reply with a fenced json block:',
   '',
   '```json',
-  '{"leaves":[{"title":"Short imperative title","body":"What doing this involves"}],',
+  '{"leaves":[{"title":"Short imperative title","body":"What doing this involves",',
+  '            "persona":"Name of the persona that should do it"}],',
   ' "serviceName":"short-name"}',
   '```',
   '',
@@ -52,8 +69,23 @@ export const PLAN_SYSTEM_PROMPT = [
   '- `serviceName` is optional and only for work that produces a service other agents will call.',
   '  Short, lowercase, one or two words, no version — `weather`, `github-api`. It becomes the prefix',
   '  on every tool the service exposes, so a long or generic one makes them hard to tell apart.',
+  /**
+   * Stated as required, and as a consequence rather than a rule, because "cannot be started"
+   * is the part that makes a model fill the field. Listing available names matters as much: an
+   * invented persona resolves to nobody, which is the same stuck leaf by a different route.
+   */
+  '- `persona` is REQUIRED on every leaf. Use a name from the personas listed for you, exactly as',
+  '  written. A persona decides the toolchain, what the work may reach, and how long it may run —',
+  '  a leaf with no persona, or with a name that is not real, cannot be started by anyone.',
   '- Propose nothing if the work is still unclear. Ask a question instead.',
   '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
+  /**
+   * Aimed at the observed duplicate: the same stage proposed twice, once naming the artefact and
+   * once naming the act. Cheaper to prevent in the prompt than to detect afterwards — lexical
+   * similarity ranks that pair BELOW two leaves that must both exist (see lib/proposal-merge.ts).
+   */
+  '- Never propose the same work twice under different wording. Naming the file in one title and',
+  '  the action in another still describes one leaf.',
   '- Titles are imperative and specific: "Add a rate limit to /api/chat", not "Rate limiting".',
   '- Anything you propose is only a suggestion; a human accepts it before it runs.',
   '- Each leaf is carried out later by an agent in the sandbox described below. Do not propose work',
@@ -82,7 +114,7 @@ export const PLAN_SYSTEM_PROMPT = [
 export const AMBIENT_PROPOSAL_PROMPT = [
   'If you become confident about concrete work that should be done, you may end your reply with:',
   '```json',
-  '{"leaves":[{"title":"Imperative title","body":"What it involves"}]}',
+  '{"leaves":[{"title":"Imperative title","body":"What it involves","persona":"Persona name"}]}',
   '```',
   'Only when the work is clear. Otherwise just talk, or ask a question.',
 ].join('\n');
@@ -148,6 +180,8 @@ export const MAX_PROPOSALS_PER_REPLY = 8;
 /** Longest title/body kept. Anything past this is truncated rather than rejected. */
 const MAX_TITLE = 200;
 const MAX_BODY = 4000;
+/** Matches the persona-name limit personas are validated against, so a real name always fits. */
+const MAX_PERSONA_NAME = 60;
 
 /**
  * Extracts leaf proposals from a model reply.
@@ -185,9 +219,13 @@ export function extractProposals(reply: string): LeafProposal[] {
       if (!title) continue;
 
       const body = typeof (raw as any)?.body === 'string' ? (raw as any).body.trim() : '';
+      // Carried as the model wrote it. Resolving a name to an id needs the user's personas, which
+      // a pure parser has no business reaching for — the caller does it.
+      const persona = typeof (raw as any)?.persona === 'string' ? (raw as any).persona.trim() : '';
       proposals.push({
         title: title.slice(0, MAX_TITLE),
         ...(body ? { body: body.slice(0, MAX_BODY) } : {}),
+        ...(persona ? { persona: persona.slice(0, MAX_PERSONA_NAME) } : {}),
       });
 
       if (proposals.length >= MAX_PROPOSALS_PER_REPLY) return proposals;

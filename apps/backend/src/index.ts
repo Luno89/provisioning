@@ -80,6 +80,7 @@ import { buildPromotion, supersede, revertTo } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
+import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
@@ -3859,14 +3860,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            * no tool call covered is a stage that would otherwise be lost.
            */
           const fromProse = extracted?.length ? extracted : extractProposals(reply);
-          const already = new Set(
-            (await db.getLeaves())
-              .filter((l) => l.branchId === branchId)
-              .map((l) => l.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()),
-          );
-          const proposals = proposedViaTools
-            ? fromProse.filter((p) => !already.has(p.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
-            : fromProse;
+          // This user's leaves, not every leaf on the instance: another tenant's title has no
+          // business suppressing a proposal here, and getLeaves() is unscoped.
+          const already = (await ownedLeaves((req as any).user.id))
+            .filter((l) => l.branchId === String(branchId))
+            .map((l) => l.title);
+          const proposals = proposedViaTools ? newProposals(fromProse, already) : newProposals(fromProse, []);
           if (proposedViaTools && proposals.length) {
             console.log(`[chat] branch ${branchId}: ${proposals.length} prose proposal(s) the tool calls did not cover`);
           }
@@ -3894,13 +3893,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               console.log(`[chat] tree ${tree.id}: service named "${declaredName}" by the planner`);
             }
           }
+          /**
+           * Resolved once for the batch, against this user's own personas.
+           *
+           * A name the model invented resolves to nobody and the leaf is created unassigned — the
+           * same outcome as before this field existed, and still recoverable. Refusing the leaf
+           * over a spelling mistake would trade real work for a typo.
+           */
+          const myPersonas = await ownedPersonas((req as any).user.id);
           for (const proposal of proposals) {
+            const assigned = resolvePersonaNamed(proposal.persona, myPersonas);
+            if (proposal.persona && !assigned) {
+              console.warn(`[chat] branch ${branchId}: no persona named "${proposal.persona}" for "${proposal.title}"`);
+            }
             await db.saveLeaf({
               id: uuidv4(),
               ownerId: (req as any).user.id,
               branchId: String(branchId),
               title: proposal.title,
               ...(proposal.body ? { body: proposal.body } : {}),
+              ...(assigned ? { personaId: assigned.id } : {}),
               column: 'todo',
               // Proposed, always: the model suggests, a human accepts. Nothing runs or spends here.
               status: 'proposed',
@@ -3925,7 +3937,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             const onBranch = (await ownedLeaves((req as any).user.id))
               .filter((l) => l.branchId === String(branchId));
             const declared = (await db.getBranches()).find((b) => b.id === String(branchId))?.acceptance;
-            const warnings = planNotice(reviewPlan(onBranch, usableAcceptancePlan(declared).length));
+            /**
+             * Two leaves that look like one job get REPORTED, never dropped.
+             *
+             * Lexical similarity ranks the real observed duplicate below two leaves that must both
+             * exist (lib/proposal-merge.ts has the numbers), so acting on it would delete stages of
+             * real plans. The reviewer already accepts every leaf by hand and already caught this
+             * one unaided — the notice puts the pair in front of them instead of guessing.
+             */
+            const warnings = [
+              planNotice(reviewPlan(onBranch, usableAcceptancePlan(declared).length)),
+              duplicateNotice(suspectedDuplicates(onBranch.map((l) => l.title))),
+            ].filter(Boolean).join('\n\n');
             if (warnings) {
               const fresh = (await db.getBranches()).find((b) => b.id === String(branchId));
               if (fresh) await db.saveBranch(withNotice(fresh, { text: warnings }));
