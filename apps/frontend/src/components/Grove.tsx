@@ -400,7 +400,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
                           if (confirm(`Delete branch "${branch.title}" and all its leaves?`)) deleteBranch.mutate(branch.id);
                         }}
                         title="Delete branch"
-                        className="text-slate-500 hover:text-red-400 p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        className="text-slate-500 hover:text-red-400 p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0"
                       >
                         <Trash2 size={12} />
                       </button>
