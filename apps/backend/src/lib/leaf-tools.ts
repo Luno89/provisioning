@@ -111,6 +111,19 @@ export const LEAF_TOOLS = [
               + 'unmatched title means this leaf will not wait after all.',
           },
           /**
+           * Named per leaf because a persona is written before anything is deployed, so it cannot
+           * know the name of a server this very plan is about to build.
+           */
+          mcp: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Optional — names of MCP servers this leaf must CALL while it runs, from '
+              + 'list_mcp_servers. Give these whenever the work uses a deployed service: without '
+              + 'them the leaf has no tools for it and can only guess at HTTP. A server built '
+              + 'earlier in this same plan can be named here by the leaf that verifies it.',
+          },
+          /**
            * A persona NAME, not an id — same reasoning as `dependsOn` taking titles. The model is
            * proposing several leaves in one turn and has no way to know an id; it knows the names
            * it was shown.

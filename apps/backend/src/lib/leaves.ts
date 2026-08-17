@@ -127,6 +127,23 @@ export interface Leaf {
    */
   expects?: string[];
 
+  /**
+   * MCP servers this leaf needs to CALL while it runs, by name.
+   *
+   * ── WHY A LEAF AND NOT ONLY A PERSONA ──
+   * `wantsMcp` read the persona alone, and a persona is written before anything is deployed — the
+   * server's name is not knowable then. Measured: every persona on the instance had `scope.mcp: []`,
+   * so no leaf could reach any MCP server at all, and a plan whose last stage was "call the deployed
+   * server and verify real responses" had no way to do it.
+   *
+   * That is the loop this platform is for: Koala builds a service, and the next leaf uses it.
+   * Declared per leaf because the leaf is the first thing that exists after the server does.
+   *
+   * Merged with the persona's, never replacing it — a persona that grants a server keeps granting
+   * it, and a name that matches nothing running is reported rather than silently dropped.
+   */
+  mcp?: string[];
+
   verifyCommand?: string;
 
 

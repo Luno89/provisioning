@@ -114,7 +114,12 @@ export function buildLeafContext(leaf: Leaf, priorFailures: LeafAttempt[]): stri
  * never going to use it.
  */
 async function resolveMcpForLeaf(db: any, persona: any, leaf: any): Promise<Record<string, unknown>> {
-  const wanted = wantsMcp(persona);
+  /**
+   * The persona's grants AND the leaf's own. A persona is written before anything is deployed, so
+   * on its own it can never name a server this plan is about to build — measured on the live
+   * instance, every persona had an empty list, which made the whole build-then-use loop impossible.
+   */
+  const wanted = [...new Set([...wantsMcp(persona), ...(leaf?.mcp ?? [])])];
   if (!wanted.length) return {};
 
   try {

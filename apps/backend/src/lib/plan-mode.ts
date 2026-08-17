@@ -86,6 +86,15 @@ export const PLAN_SYSTEM_PROMPT = [
   '  running. Servers deployed here are real and their tools are callable from a leaf, so prefer',
   '  using one over rebuilding it. When the work BUILDS a server, propose a final leaf that calls',
   '  its tools for real — a server nothing has ever called is not known to work.',
+  /**
+   * The tool was described richly and never mentioned here, and the model did not call it: measured
+   * on a real end-to-end run, `acceptance` was null and `acceptanceRunAt` said NEVER RAN. Every leaf
+   * went green and nothing checked the assembled result — the run reported success on four
+   * individually-passing pieces without once exercising the thing they add up to.
+   */
+  '- Call set_acceptance once, for the request as a whole. Per-leaf checks prove each piece; only',
+  '  this proves the finished thing works. For a service, that means RUNNING it and calling it for',
+  '  real, not just running the test suite.',
   '- Propose nothing if the work is still unclear. Ask a question instead.',
   '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
   /**

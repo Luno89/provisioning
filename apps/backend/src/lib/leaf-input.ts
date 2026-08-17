@@ -31,7 +31,7 @@ import { isLeafColumn, type Leaf } from './leaves.js';
  * silent hole discovered on a live run.
  */
 export const LEAF_INPUT_FIELDS = [
-  'title', 'body', 'column', 'blocking', 'expects', 'verifyCommand',
+  'title', 'body', 'column', 'blocking', 'expects', 'mcp', 'verifyCommand',
 ] as const;
 
 export function normaliseLeafInput(raw: Record<string, unknown>): Partial<Leaf> {
@@ -53,6 +53,12 @@ export function normaliseLeafInput(raw: Record<string, unknown>): Partial<Leaf> 
 
   const expects = usablePaths(Array.isArray(raw.expects) ? raw.expects.map(String) : []);
   if (expects.length) out.expects = expects;
+
+  // Server NAMES, bounded and de-duplicated. Not paths — `usablePaths` would reject them.
+  const mcp = Array.isArray(raw.mcp)
+    ? [...new Set(raw.mcp.map((m: unknown) => String(m).trim()).filter(Boolean))].slice(0, 8)
+    : [];
+  if (mcp.length) out.mcp = mcp;
 
   /**
    * The per-leaf equivalent of the request's acceptance checks.
