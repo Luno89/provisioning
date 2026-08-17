@@ -159,7 +159,15 @@ export const LEAF_TOOLS = [
         + 'claims are traceable — for example that the write-up contains source links.\n'
         + '- Configuration or infrastructure: check the file parses or validates with whatever tool '
         + 'reads it.\n'
-        + 'Each check must exit non-zero when that aspect is broken, or it proves nothing.',
+        + 'Each check must exit non-zero when that aspect is broken, or it proves nothing.\n'
+        /**
+         * Measured: the model wrote `cd /work && node verify-github-mcp.js`, and the file is at
+         * /work/repo/verify-github-mcp.js. `buildAcceptanceScript` already cds into the repo, so
+         * the model's own cd walked OUT of it and the check failed on a path rather than on the
+         * product — a red verdict that says nothing about whether the work is good.
+         */
+        + 'Checks already run from the repository root, so use paths relative to it and do NOT '
+        + 'cd anywhere: write `node verify.js`, never `cd /work && node verify.js`.',
       parameters: {
         type: 'object',
         properties: {
