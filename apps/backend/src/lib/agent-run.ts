@@ -37,6 +37,33 @@ export interface RunInputs {
   web?: WebTools | undefined;
   fromProfile?: string[] | undefined;
   fromPersona?: string[] | undefined;
+  /**
+   * Tools from MCP servers this harness has deployed, already resolved for THIS persona.
+   *
+   * Resolved by the caller for the same reason `web` is: working out which servers exist and what
+   * they expose needs a database and a cluster, and neither belongs in here.
+   */
+  remoteTools?: { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }[] | undefined;
+  /** The qualified names of those tools, so an allowlisting persona can still reach them. */
+  remoteToolNames?: string[] | undefined;
+  callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
+}
+
+/** The MCP servers this persona asked for, by service name. Empty means it asked for none. */
+export function wantsMcp(persona: Pick<Persona, 'scope'> | null | undefined): string[] {
+  return (persona?.scope as { mcp?: string[] } | undefined)?.mcp ?? [];
+}
+
+/**
+ * A persona that names its tools must still get the remote ones it asked for.
+ *
+ * `allowTools` filters the offered list by name, and a remote tool's name is not knowable when a
+ * persona is written — it depends on what has been deployed. So the qualified names are appended to
+ * the allowlist, which is the only way a persona can both restrict its toolset and use a service.
+ */
+export function allowWithMcp(declared: string[], remoteNames: string[]): string[] {
+  if (!declared.length) return [];
+  return [...declared, ...remoteNames];
 }
 
 /** Whether this persona's declared toolset includes a way to reach the web. */
@@ -70,7 +97,9 @@ export function agentRunOptions(
     // either one alone has been wrong: a flag with nothing wired behind it is how the Lab spent a
     // run reporting it had no internet access.
     ...(inputs.web && wantsWeb(persona) ? { web: inputs.web } : {}),
-    ...(tools.length ? { allowTools: tools } : {}),
+    ...(tools.length ? { allowTools: allowWithMcp(tools, inputs.remoteToolNames ?? []) } : {}),
+    ...(inputs.remoteTools?.length ? { remoteTools: inputs.remoteTools } : {}),
+    ...(inputs.callRemote ? { callRemote: inputs.callRemote } : {}),
     ...(run.maxSteps ? { maxSteps: run.maxSteps } : {}),
     // The bound that corresponds to a cost. A persona sets it where the work genuinely warrants a
     // different ceiling; otherwise the loop's own applies.

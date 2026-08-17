@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentRunOptions, wantsWeb } from './agent-run.js';
+import { agentRunOptions, wantsWeb , wantsMcp, allowWithMcp } from './agent-run.js';
 import type { SandboxDriver } from './agent-loop.js';
 import type { WebTools } from './web-tools.js';
 
@@ -79,5 +79,63 @@ describe('whether a persona needs the web', () => {
     expect(wantsWeb({ scope: { tools: ['run_command', 'finish'] } })).toBe(false);
     expect(wantsWeb({ scope: {} })).toBe(false);
     expect(wantsWeb(null)).toBe(false);
+  });
+});
+
+describe('a persona reaching the services this harness built', () => {
+  const remote = (name: string) => ({
+    type: 'function' as const,
+    function: { name, description: `[weather] ${name}`, parameters: { type: 'object', properties: {} } },
+  });
+
+  it('asks for nothing unless the persona named something', () => {
+    /**
+     * Opt-in, never automatic. Every tool offered costs prompt tokens on EVERY turn, so a persona
+     * that gained eleven of them because somebody deployed something unrelated would get slower and
+     * more expensive with no change anybody made.
+     */
+    expect(wantsMcp(null)).toEqual([]);
+    expect(wantsMcp({ scope: {} } as never)).toEqual([]);
+    expect(wantsMcp({ scope: { mcp: ['weather'] } } as never)).toEqual(['weather']);
+  });
+
+  it('lets an allowlisting persona still reach a remote tool', () => {
+    /**
+     * The subtle one. `allowTools` filters by name, and a remote tool's name is not knowable when
+     * the persona is written — it depends on what has been deployed. Without appending them, a
+     * persona that restricts its toolset gets the remote tools offered and then filtered straight
+     * back out, which looks like the server is missing.
+     */
+    expect(allowWithMcp(['run_command', 'finish'], ['weather__get-forecast']))
+      .toEqual(['run_command', 'finish', 'weather__get-forecast']);
+  });
+
+  it('leaves an unrestricted persona unrestricted', () => {
+    // An empty allowlist means "everything"; appending to it would turn that into a restriction.
+    expect(allowWithMcp([], ['weather__get-forecast'])).toEqual([]);
+  });
+
+  it('passes the tools and the handler through to the loop', () => {
+    const callRemote = async () => undefined;
+    const opts = agentRunOptions({ scope: { mcp: ['weather'], tools: ['run_command'] } } as never, {
+      taskContext: 'x', overrides: {}, sandbox: {} as never,
+      remoteTools: [remote('weather__get-forecast')],
+      remoteToolNames: ['weather__get-forecast'],
+      callRemote,
+    });
+    expect(opts.remoteTools).toHaveLength(1);
+    expect(opts.callRemote).toBe(callRemote);
+    // And the allowlist grew to admit it.
+    expect(opts.allowTools).toContain('weather__get-forecast');
+  });
+
+  it('offers nothing when the caller resolved nothing', () => {
+    // A persona that named a server which is not running must not end up with an empty `remoteTools`
+    // key that later code has to special-case.
+    const opts = agentRunOptions({ scope: { mcp: ['weather'] } } as never, {
+      taskContext: 'x', overrides: {}, sandbox: {} as never,
+    });
+    expect(opts.remoteTools).toBeUndefined();
+    expect(opts.callRemote).toBeUndefined();
   });
 });

@@ -600,3 +600,105 @@ describe('stopping a run that is going in circles', () => {
     expect(out.summary).toBe('Done.');
   });
 });
+
+describe('tools from the servers this harness built', () => {
+  /**
+   * The last connection in the loop Koala exists to close: it builds an MCP server, deploys it, and
+   * until now no agent could call it. These are about the ways offering remote tools goes wrong
+   * quietly rather than loudly.
+   */
+  const remoteTool = (name: string) => ({
+    type: 'function' as const,
+    function: { name, description: `[weather] ${name}`, parameters: { type: 'object', properties: {} } },
+  });
+
+  it('offers them alongside the built-ins', async () => {
+    const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] }]);
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
+      remoteTools: [remoteTool('weather__get-forecast')],
+    });
+    const names = bodyOf(model, 0).tools.map((t: any) => t.function.name);
+    expect(names).toContain('weather__get-forecast');
+    expect(names).toContain('run_command');
+  });
+
+  it('routes a remote call to the remote handler, not the sandbox', async () => {
+    const box = sandbox();
+    const callRemote = vi.fn(async (name: string) =>
+      name === 'weather__get-forecast' ? { text: '{"tempC":18}', isError: false } : undefined);
+    const model = scriptedModel([{ tool_calls: [toolCall('weather__get-forecast', { city: 'London' })] }]);
+
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl: model,
+      maxSteps: 2, remoteTools: [remoteTool('weather__get-forecast')], callRemote,
+    });
+
+    expect(callRemote).toHaveBeenCalledWith('weather__get-forecast', { city: 'London' });
+    // The sandbox never saw it.
+    expect((box.exec as any).mock.calls).toHaveLength(0);
+    // And the model was shown the result.
+    expect(JSON.stringify(bodyOf(model, 1).messages)).toContain('tempC');
+  });
+
+  it('NEVER lets a remote handler shadow a built-in', async () => {
+    /**
+     * The dangerous collision. A handler answering for `run_command` would have the model call the
+     * real tool and reach something else — and it would look like the sandbox misbehaving rather
+     * than like two things sharing a name.
+     */
+    const box = sandbox();
+    const callRemote = vi.fn(async () => ({ text: 'HIJACKED', isError: false }));
+    const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
+
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl: model,
+      maxSteps: 2, callRemote,
+    });
+
+    // The sandbox ran it, whatever the handler would have said.
+    expect((box.exec as any).mock.calls.length).toBeGreaterThan(0);
+    expect(JSON.stringify(bodyOf(model, 1).messages)).not.toContain('HIJACKED');
+  });
+
+  it('does not let a remote tool replace a built-in in the offer either', async () => {
+    // Same collision, one step earlier: offering a remote `run_command` would remove the real one
+    // from the list entirely.
+    const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'x' })] }]);
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
+      remoteTools: [remoteTool('run_command')],
+    });
+    const commands = bodyOf(model, 0).tools.filter((t: any) => t.function.name === 'run_command');
+    expect(commands).toHaveLength(1);
+    expect(commands[0].function.description).not.toContain('[weather]');
+  });
+
+  it('reports a failing remote tool to the model instead of ending the run', async () => {
+    // A tool that fails is information the agent can act on; killing the run would discard
+    // everything done so far.
+    const callRemote = vi.fn(async () => ({ text: 'city not found', isError: true }));
+    const model = scriptedModel([{ tool_calls: [toolCall('weather__get-forecast', { city: 'zzz' })] }]);
+    const out = await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
+      maxSteps: 2, remoteTools: [remoteTool('weather__get-forecast')], callRemote,
+    });
+    expect(JSON.stringify(bodyOf(model, 1).messages)).toContain('city not found');
+    expect(out.succeeded).toBe(false);
+  });
+
+  it('respects a persona that named its tools', async () => {
+    /**
+     * A persona listing its tools must not silently gain remote ones. Every tool offered costs
+     * prompt tokens on every turn, and a toolset that grows when somebody deploys something
+     * unrelated is a toolset nobody chose.
+     */
+    const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'x' })] }]);
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
+      allowTools: ['run_command', 'finish'], remoteTools: [remoteTool('weather__get-forecast')],
+    });
+    const names = bodyOf(model, 0).tools.map((t: any) => t.function.name);
+    expect(names).not.toContain('weather__get-forecast');
+  });
+});

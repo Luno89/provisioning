@@ -26,6 +26,10 @@ import { failureContext, type Branch, type Leaf, type LeafAttempt } from '../lib
 import { WorkspaceService } from '../services/WorkspaceService.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
+import { McpRegistryService } from '../services/McpRegistryService.js';
+import { resolveForPersona, mcpGaps } from '../lib/mcp-registry.js';
+import { toLoopTools, routeCall } from '../lib/mcp-tools.js';
+import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { resolveConfig } from '../lib/personas.js';
 import { flattenPersona, usesRepo, personaWorkspace } from '../lib/persona-scope.js';
 import type { WorkspaceLanguage } from '../lib/workspace-spec.js';
@@ -55,7 +59,7 @@ import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
 import { assessFindings } from '../lib/research-verify.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
-import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
+import { agentRunOptions, wantsWeb, wantsMcp } from '../lib/agent-run.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -98,6 +102,53 @@ export function buildLeafContext(leaf: Leaf, priorFailures: LeafAttempt[]): stri
   if (failures) parts.push(failures);
 
   return parts.join('\n\n');
+}
+
+/**
+ * The MCP tools a leaf may use, and the handler that runs them.
+ *
+ * Returns nothing for a persona that asked for nothing, so the common case costs no work and no
+ * tokens. Every failure is soft: a registry that cannot be reached must not stop a leaf that was
+ * never going to use it.
+ */
+async function resolveMcpForLeaf(db: any, persona: any, leaf: any): Promise<Record<string, unknown>> {
+  const wanted = wantsMcp(persona);
+  if (!wanted.length) return {};
+
+  try {
+    const registry = new McpRegistryService(db, (name: string) => resolveMcpProbeUrl(name));
+    const { servers, missing } = resolveForPersona(wanted, await registry.listWithTools());
+
+    if (missing.length) {
+      // Said out loud rather than silently handing back a smaller toolset: a named server that is
+      // not running is a configuration mistake, and the run would otherwise fail later for a reason
+      // nothing on screen explains.
+      console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: persona named MCP servers that are not running — ${missing.join(', ')}`);
+    }
+    for (const gap of mcpGaps(servers, persona?.scope?.egress, (s: any) => s.deploymentName ?? s.name)) {
+      console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: ${gap}`);
+    }
+
+    const usable = servers.filter((s) => s.tools.length && !s.unreachable);
+    if (!usable.length) return {};
+
+    const remoteTools = usable.flatMap((s) => toLoopTools(s.name, s.tools));
+    return {
+      remoteTools,
+      remoteToolNames: remoteTools.map((t) => t.function.name),
+      callRemote: async (name: string, args: Record<string, unknown>) => {
+        const route = routeCall(name, usable.map((s) => s.name));
+        const server = route ? usable.find((s) => s.name === route.server) : undefined;
+        if (!route || !server) return undefined;
+        return registry.call(server, route.tool, args);
+      },
+    };
+  } catch (err: any) {
+    // A leaf that meant to use a service and now cannot is better off running without it than not
+    // running at all — that shows up in its own summary rather than as a crash here.
+    console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not resolve MCP servers — ${String(err?.message ?? err).slice(0, 200)}`);
+    return {};
+  }
 }
 
 export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<ExecuteLeafResult> {
@@ -581,6 +632,14 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             overrides: adopted,
             ...(memoryContext ? { memoryContext } : {}),
             ...(wantsWeb(persona) ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
+            /**
+             * The services this harness has already built and deployed.
+             *
+             * The loop Koala exists to close: it can build an MCP server, and until this line no
+             * agent could call it. Resolved here for the same reason `web` is — knowing which
+             * servers exist and what they expose needs a database and a cluster.
+             */
+            ...(await resolveMcpForLeaf(db, persona, leaf)),
             sandbox: {
               exec: (command) => workspaces.exec(leaf.id, command),
               readFile: (path) => workspaces.readFile(leaf.id, path),

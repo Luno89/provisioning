@@ -758,6 +758,18 @@ export interface PersonaScope {
    * against its parent on the same suite. Nothing needs a new branch in the code to become
    * measurable.
    */
+  /**
+   * MCP servers this persona may call, by service name.
+   *
+   * Opt-in, never automatic. Every tool offered costs prompt tokens on EVERY turn, so a persona
+   * that silently gained eleven of them because somebody deployed something unrelated would get
+   * slower and more expensive with no change anybody made.
+   *
+   * It is also a NETWORK decision: the sandbox's egress has to allow the server's namespace, and a
+   * capability the policy forbids is a tool that is visible and times out. `mcpGaps` reports that
+   * disagreement rather than leaving it to be discovered mid-run.
+   */
+  mcp?: string[];
   run?: {
     /**
      * A safety ceiling on turns, not a working budget.

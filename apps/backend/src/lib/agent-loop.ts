@@ -156,6 +156,20 @@ export interface AgentRunOptions {
    */
   allowTools?: string[] | undefined;
   /**
+   * Tools that are not the sandbox's — the MCP servers this harness has built and deployed.
+   *
+   * Offered alongside the built-ins and filtered by `allowTools` exactly like them, so a persona
+   * that names its tools does not silently gain remote ones it never asked for.
+   */
+  remoteTools?: { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }[] | undefined;
+  /**
+   * Runs a tool this loop does not own.
+   *
+   * Returns `undefined` for a name it does not recognise, so the sandbox still gets first refusal
+   * and a built-in can never be shadowed by a remote one.
+   */
+  callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
+  /**
    * What to tell the agent as its budget runs down, and when.
    *
    * Supplied by the caller because it depends on how the work is SAVED. The default says "commit
@@ -199,6 +213,15 @@ export interface AgentRunOptions {
   /** Injected memory bank context. */
   memoryContext?: string;
 }
+
+/**
+ * Names this loop owns.
+ *
+ * Read off SANDBOX_TOOLS rather than written out, so adding a built-in cannot leave a hole here
+ * that a remote tool could occupy.
+ */
+const BUILT_IN_TOOL_NAMES = new Set(SANDBOX_TOOLS.map((t) => t.function.name));
+const isBuiltInTool = (name: string) => BUILT_IN_TOOL_NAMES.has(name as never) || name === 'finish';
 
 export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResult> {
   const doFetch = opts.fetchImpl ?? fetch;
@@ -297,6 +320,16 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
    * before this point would let the web tools slip back in underneath.
    */
   const offered = Array.from(toolMap.values());
+  /**
+   * Remote tools last, and never overwriting a built-in.
+   *
+   * `toolMap` is keyed by name, so adding these through it would let a remote tool replace
+   * `run_command` or `finish` — a collision that does not error and instead has the model call one
+   * thing and reach another.
+   */
+  for (const remote of opts.remoteTools ?? []) {
+    if (!toolMap.has(remote.function.name)) offered.push(remote);
+  }
   const activeTools = opts.allowTools?.length
     ? offered.filter((t) => opts.allowTools!.includes(t.function.name))
     : offered;
@@ -583,7 +616,22 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
       let result: string;
       try {
-        result = await runSandboxTool(opts.sandbox, name, args, transcript, opts.web);
+        /**
+         * The sandbox first, always.
+         *
+         * A remote handler that answered for `run_command` would shadow the real one, and the
+         * failure would look like the sandbox misbehaving rather than like two things sharing a
+         * name. `callRemote` returns undefined for anything it does not own.
+         */
+        const remote = opts.callRemote && !isBuiltInTool(name)
+          ? await opts.callRemote(name, args)
+          : undefined;
+        if (remote) {
+          transcript.push(`${name} -> ${remote.isError ? 'error' : 'ok'}`);
+          result = remote.text;
+        } else {
+          result = await runSandboxTool(opts.sandbox, name, args, transcript, opts.web);
+        }
       } catch (err: any) {
         // Returned to the model, not thrown: a tool that fails is information the agent can act
         // on, and killing the attempt would discard everything done so far.

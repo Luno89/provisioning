@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { X, Loader2, Plus, Trash2, ShieldAlert } from 'lucide-react';
+import { X, Loader2, Plus, Trash2, ShieldAlert, Boxes } from 'lucide-react';
 
 /**
  * Everything a persona is, editable.
@@ -35,6 +35,8 @@ interface Scope {
   requireSources?: boolean;
   tools?: string[];
   egress?: EgressRule[];
+  /** MCP servers this persona may call, by service name. */
+  mcp?: string[];
   env?: { name: string; value: string }[];
   run?: { maxSteps?: number };
   tunedFor?: string;
@@ -167,7 +169,38 @@ export default function PersonaEditor({
 
           {/* ── ISOLATION ── the reason this editor exists. */}
           <div className="border border-[var(--bark-600)] rounded-xl p-4 space-y-3">
+            {/*
+              * Services this harness has already built.
+              *
+              * Above isolation deliberately: naming one here is a NETWORK decision as much as a
+              * capability, and the two settings have to agree. A server named without matching
+              * egress is a tool the agent can see and every call times out.
+              */}
             <div className="flex items-center gap-2">
+              <Boxes size={14} className="text-[var(--leaf)]" />
+              <span className="text-[12px] font-bold text-slate-200">Services it may call</span>
+              <span className="text-[11px] text-slate-500">
+                MCP servers this harness deployed — their tools are prefixed with the service name
+              </span>
+            </div>
+            <input
+              className={`${field} w-full`}
+              placeholder="weather-api-mcp, github-api — comma separated, blank for none"
+              value={(scope.mcp ?? []).join(', ')}
+              onChange={(e) => setScope({
+                mcp: e.target.value.split(',').map((v) => v.trim()).filter(Boolean),
+              })}
+            />
+            {(scope.mcp ?? []).length > 0 && (scope.egress ?? []).length === 0 && (
+              /* The disagreement worth catching here rather than mid-run: the tool would be
+                 visible and every call would time out, with the cause three layers away. */
+              <p className="text-[11px] text-amber-400/80">
+                This persona is sealed, so it cannot reach any of these. Add the service's namespace
+                to Isolation below or the tools will appear and every call will time out.
+              </p>
+            )}
+
+            <div className="flex items-center gap-2 pt-3 border-t border-[var(--bark-700)]">
               <ShieldAlert size={14} className="text-amber-400" />
               <span className="text-[12px] font-bold text-slate-200">Isolation</span>
               <span className="text-[11px] text-slate-500">
