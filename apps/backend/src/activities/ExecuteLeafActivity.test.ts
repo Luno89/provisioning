@@ -135,8 +135,16 @@ describe('what a leaf leaves behind', () => {
     await expect(ExecuteLeafActivity({ leafId: 'leaf-1' })).rejects.toThrow('model unreachable');
 
     const saved = (await db.getLeaves()).find((l) => l.id === 'leaf-1')!;
-    expect(saved.status).toBe('failed');
     expect(saved.attempts?.[0]).toMatchObject({ attempt: 0, error: 'model unreachable' });
+    /**
+     * Still RUNNING, because Temporal is about to try again.
+     *
+     * This asserted `failed` and was right about the old behaviour and wrong about the world: a
+     * leaf that failed twice and succeeded on the third showed a red failed icon for most of its
+     * life. The attempt is recorded either way — that is what LeafDetail lists — but the status a
+     * person's eye lands on now distinguishes "failed" from "failed, trying again".
+     */
+    expect(saved.status).toBe('running');
   });
 
   it('destroys the sandbox even when the run throws', async () => {

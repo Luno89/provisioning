@@ -56,7 +56,7 @@ import {
 } from '../lib/leaf-artifacts.js';
 import { buildMemoryContext } from '../lib/memory-store.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
-import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
+import { MAX_LEAF_ATTEMPTS, statusAfterFailure } from '../lib/leaves.js';
 import { extractLeafMemories, supersede } from '../lib/leaf-memory.js';
 import { assessFindings } from '../lib/research-verify.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
@@ -1058,9 +1058,35 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           failedAt: new Date().toISOString(),
         },
       ];
+      /**
+       * A leaf Temporal is about to retry is not FAILED — it is still running.
+       *
+       * ── WHAT THE BOARD SHOWED ──
+       * Every attempt wrote `status: 'failed'`, including the ones with retries left, so a leaf that
+       * failed twice and succeeded on the third showed a red failed icon for most of its life and
+       * flipped to verified at the end. The UI was rendering the record faithfully; the record
+       * conflated "failed" with "failed, trying again", which are not the same thing to anyone
+       * watching.
+       *
+       * The same distinction the rest of this codebase insists on — `failed` versus `unhealthy`,
+       * `verified` versus `claimed` — missing from the state a person actually stares at.
+       *
+       * `attempts` is written either way, so nothing is hidden: LeafDetail lists every failure with
+       * its error, and the count is what makes a struggling leaf visible while it struggles.
+       *
+       * Read from the activity context, so it reflects the real attempt rather than a number baked
+       * into workflow history. The retry policy sets no nonRetryableErrorTypes, so reaching the cap
+       * is the only thing that stops another attempt.
+       */
+      const nextStatus = statusAfterFailure(attemptNumber, MAX_LEAF_ATTEMPTS);
       const latest = (await db.getLeaves()).find((c: Leaf) => c.id === args.leafId);
       if (latest && await stillExists()) {
-        await db.saveLeaf({ ...latest, attempts, status: 'failed', updatedAt: new Date().toISOString() });
+        await db.saveLeaf({
+          ...latest,
+          attempts,
+          status: nextStatus,
+          updatedAt: new Date().toISOString(),
+        });
       }
 
       /**

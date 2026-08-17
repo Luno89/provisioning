@@ -263,6 +263,33 @@ export interface LeafAttempt {
 export const MAX_LEAF_ATTEMPTS = 3;
 
 /**
+ * What a leaf's status becomes when an attempt throws.
+ *
+ * ── WHAT THE BOARD SHOWED ──
+ * Every attempt wrote `failed`, including ones with retries left. A leaf that failed twice and
+ * succeeded on the third showed a red failed icon for most of its life, then flipped to verified at
+ * the end. The UI was rendering the record faithfully — the record conflated "failed" with
+ * "failed, trying again", which are not the same thing to anyone watching.
+ *
+ * The branch notice had the distinction all along ("and will retry" versus "will not be retried"),
+ * so the conversation told the truth while the field the icon reads did not.
+ *
+ * The same distinction the rest of this codebase insists on — `failed` versus `unhealthy`,
+ * `verified` versus `claimed` — missing from the state a person actually stares at.
+ *
+ * Nothing is hidden by this: `attempts` is written either way, and LeafDetail lists every failure
+ * with its error, which is what makes a struggling leaf visible while it struggles.
+ *
+ * `attemptNumber` is Temporal's, counting from 1.
+ */
+export function statusAfterFailure(
+  attemptNumber: number,
+  maxAttempts = MAX_LEAF_ATTEMPTS,
+): 'running' | 'failed' {
+  return attemptNumber < maxAttempts ? 'running' : 'failed';
+}
+
+/**
  * Formats prior failures for injection into the next attempt's context.
  *
  * This is the whole reason retries are not Temporal's built-in retry policy: that replays the
