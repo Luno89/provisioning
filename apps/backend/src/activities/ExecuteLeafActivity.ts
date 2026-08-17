@@ -972,7 +972,16 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * branch, and forcing a resolution here would mean guessing at someone else's changes.
          */
         let merged = false;
-        if (outputBranch && combined === 'passed') {
+        /**
+         * A Dockerfile that cannot build never reaches the default branch.
+         *
+         * This check originally only set the leaf's STATUS, and the merge is gated on `combined` —
+         * so a leaf with passing tests and an unbuildable Dockerfile was marked failed and merged
+         * anyway. The broken file landed on main, the push webhook fired, and the pipeline built
+         * it. Catching a fault and then letting it through is worse than not catching it, because
+         * it reads as covered.
+         */
+        if (outputBranch && combined === 'passed' && !dockerProblems) {
           const result = await workspaces
             .exec(leaf.id, buildMergeScript(outputBranch), 120_000, [outputBranch])
             .then((r) => parseMergeResult(r.stdout))

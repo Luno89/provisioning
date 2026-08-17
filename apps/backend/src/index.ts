@@ -283,6 +283,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       if (!payload.ref || !payload.after) return res.status(200).json({ status: 'ignored', reason: 'not a push event' });
 
       const ref = String(payload.ref).replace('refs/heads/', '');
+
+      /**
+       * Only the default branch builds.
+       *
+       * Every leaf pushes `koala/<leafId>` BEFORE its verification has run, and this filtered
+       * nothing — so each leaf triggered a full image build from unverified work on a side branch,
+       * and `autoDeployOnBuild` then promoted whatever came out of it. On the last run that was
+       * most of the pipeline traffic.
+       *
+       * A side branch is work in progress by definition. Building it is at best wasted, and at
+       * worst it deploys code that the verification about to run would have rejected.
+       *
+       * Taken from the payload's own repository rather than assumed to be `main`: a repository that
+       * uses `master` or `trunk` would otherwise build nothing at all, silently.
+       */
+      const defaultBranch = String(payload.repository?.default_branch ?? 'main');
+      if (ref !== defaultBranch) {
+        return res.status(200).json({ status: 'ignored', reason: `not the default branch (${ref} != ${defaultBranch})` });
+      }
+
       res.status(202).json({ status: 'accepted' });
       // Builds run in the background — Gitea has its own webhook-delivery timeout, don't block it.
       temporalBridge.runPipeline(project, payload.after, ref).catch((err: any) =>
