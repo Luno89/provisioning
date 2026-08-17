@@ -100,6 +100,42 @@ describe('link one: creating a project attaches it to the tree', () => {
   });
 });
 
+describe('pointing a leaf at an existing service', () => {
+  /**
+   * The path the planner should have taken: it found `github-mcp`, was given its projectId by
+   * list_mcp_servers, and could point the verify leaf at it. Without the tree learning, every OTHER
+   * leaf on the branch would still fall through to a per-branch repository.
+   */
+  const point = async (db: any, treeHasProject: boolean) => {
+    if (treeHasProject) {
+      const t = (await db.getTrees()).find((x: any) => x.id === 't1');
+      await db.saveTree(withProject(t, 'p-existing'));
+    }
+    await db.saveProject({ id: 'p-github', ownerId: 'u1', name: 'github-mcp', giteaOwner: 'koala-u1', giteaRepo: 'github-mcp', createdAt: 'now' });
+    await db.saveLeaf({ id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'Verify it', status: 'proposed', createdAt: 'now', updatedAt: 'now' });
+    return JSON.parse(await runLeafTool(ctx(db, fakeProjects(db)), {
+      name: 'set_leaf_project', arguments: JSON.stringify({ id: 'l1', projectId: 'p-github' }),
+    }));
+  };
+
+  it('makes it the branch\'s repository when the tree has none', async () => {
+    const db = await seeded();
+    const out = await point(db, false);
+    expect(out.updated.projectId).toBe('p-github');
+    expect(primaryProjectId((await db.getTrees()).find((t: any) => t.id === 't1'))).toBe('p-github');
+    expect(out.note).toMatch(/Other leaves on this branch/);
+  });
+
+  it('does NOT repoint a tree whose work is already landing somewhere', async () => {
+    // A per-leaf exception must stay per-leaf.
+    const db = await seeded();
+    const out = await point(db, true);
+    expect(out.updated.projectId).toBe('p-github');
+    expect(primaryProjectId((await db.getTrees()).find((t: any) => t.id === 't1'))).toBe('p-existing');
+    expect(out.note).toBeUndefined();
+  });
+});
+
 describe('link two: a leaf resolves the tree\'s project', () => {
   const deps = (db: any, treeProjectId?: string) => ({
     ...(treeProjectId ? { treeProjectId } : {}),

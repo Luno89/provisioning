@@ -82,6 +82,7 @@ import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
+import { claimService, claimNotice } from './lib/service-claim.js';
 import { wantsMcp } from './lib/agent-run.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
@@ -103,7 +104,7 @@ import { normaliseLeafInput } from './lib/leaf-input.js';
 import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
 import { summariseDelivery } from './lib/branch-delivery.js';
 import { unassignedLeaves, buildAssignmentPrompt, buildUnassignedNotice, MAX_ASSIGNMENT_ROUNDS } from './lib/persona-assignment.js';
-import { TREE_TYPES, normaliseTreeInput, type Tree } from './lib/trees.js';
+import { TREE_TYPES, normaliseTreeInput, withProject, type Tree } from './lib/trees.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
@@ -3967,8 +3968,35 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               ? (await ownedTrees((req as any).user.id)).find((t) => t.id === branchRecord.treeId)
               : undefined;
             if (tree && !tree.serviceName) {
-              await db.saveTree({ ...tree, serviceName: declaredName, updatedAt: now });
-              console.log(`[chat] tree ${tree.id}: service named "${declaredName}" by the planner`);
+              /**
+               * A name someone else already owns means this is the SAME service.
+               *
+               * `serviceName` is what a service's tools are prefixed with and what a persona names
+               * to reach it, so two trees declaring one name are two conversations about one
+               * service. Observed: a second run correctly found `github-mcp` running, said "no need
+               * to rebuild it", and still built in a new repository — because knowing a project id
+               * in prose is not attaching it, and the model never called `set_leaf_project`. That
+               * produced a second deployment under the same name, which then had to be worked
+               * around in three separate readers.
+               *
+               * Adopting rather than refusing: "that name is taken" would make the user rename it
+               * to `github-mcp-2`, which is the collision with extra steps.
+               */
+              const claim = claimService(declaredName, tree, await ownedTrees((req as any).user.id));
+              const adopted = claim.adoptProjectId
+                ? withProject({ ...tree, serviceName: declaredName, updatedAt: now }, claim.adoptProjectId)
+                : { ...tree, serviceName: declaredName, updatedAt: now };
+              await db.saveTree(adopted);
+              console.log(
+                `[chat] tree ${tree.id}: service named "${declaredName}" by the planner`
+                + (claim.adoptProjectId ? ` — adopting the repository of "${claim.ownedBy?.treeName}"` : ''),
+              );
+              // Said out loud: a silent repoint is how the work ends up somewhere nobody expected.
+              const text = claimNotice(declaredName, claim);
+              if (text) {
+                const fresh = (await db.getBranches()).find((b) => b.id === String(branchId));
+                if (fresh) await db.saveBranch(withNotice(fresh, { text }));
+              }
             }
           }
           /**

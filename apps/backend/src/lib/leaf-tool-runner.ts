@@ -360,7 +360,32 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         return JSON.stringify({ error: `That leaf is already ${leaf.status}; its sandbox exists and cannot be repointed.` });
       }
       await db.saveLeaf({ ...leaf, projectId: project.id, updatedAt: new Date().toISOString() });
-      return JSON.stringify({ updated: { id: leaf.id, projectId: project.id, repo: `${project.giteaOwner}/${project.giteaRepo}` } });
+
+      /**
+       * The tree adopts it too, but ONLY when it has no repository of its own.
+       *
+       * Pointing one leaf somewhere is a per-leaf decision and must not repoint a branch whose work
+       * is already landing. But when the tree has nothing — the case where a planner found an
+       * existing service and pointed its verify leaf at that project — the alternative is that
+       * every OTHER leaf on the branch falls through to a per-branch repository, which is how one
+       * service ended up with two.
+       */
+      let adopted = false;
+      const branchOf = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === userId);
+      if (branchOf?.treeId) {
+        const tree = (await db.getTrees()).find((t) => t.id === branchOf.treeId && t.ownerId === userId);
+        if (tree && !(tree.projectIds ?? []).length) {
+          await db.saveTree(withProject(tree, project.id));
+          adopted = true;
+        }
+      }
+
+      return JSON.stringify({
+        updated: { id: leaf.id, projectId: project.id, repo: `${project.giteaOwner}/${project.giteaRepo}` },
+        ...(adopted
+          ? { note: 'Other leaves on this branch will use this repository too, unless pointed elsewhere.' }
+          : {}),
+      });
     }
 
 // Both editing verbs stop at 'proposed'. Once a human has accepted a leaf there may be a

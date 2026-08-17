@@ -4,7 +4,13 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    /*
+     * `node` is here for the TEST files only — a couple of them read component source to assert
+     * that a presentational element has not been dropped, which needs node:fs. The app itself
+     * imports no node builtin, and Vite would fail the build if it did, so this widens what
+     * typecheck ACCEPTS without widening what ships.
+     */
+    "types": ["vite/client", "node"],
     "skipLibCheck": true,
 
     /* Bundler mode */
