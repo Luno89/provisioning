@@ -21,6 +21,7 @@ import { usablePaths } from './leaf-artifacts.js';
 import { normaliseLeafInput } from './leaf-input.js';
 import { usableAcceptancePlan } from './acceptance.js';
 import { rewireDependents } from './plan-review.js';
+import { withProject } from './trees.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
@@ -288,12 +289,46 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         // toolchain would resolve to no image at all.
         ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
       });
+      /**
+       * The tree learns about it NOW, not when a leaf happens to finish.
+       *
+       * ── THE RUN THIS SPLIT ──
+       * Creating a project used to attach it to nothing: it returned an id and relied on the model
+       * calling `set_leaf_project` for every leaf. A real planning turn created `github-mcp` and
+       * then did not, so each leaf resolved no project, fell through to the per-branch fallback,
+       * and built in `koala-request-30b2d228` — while `github-mcp` sat empty and unused.
+       *
+       * Worse, it could not be recovered afterwards: the first leaf to FINISH calls `withProject`
+       * with whatever it resolved, so the fallback became the tree's primary repository
+       * permanently, and every later branch of the same effort joined it too.
+       *
+       * Attaching here makes the named project `projectIds[0]`, which is what `resolveLeafProject`
+       * reads as `treeProjectId` — so every leaf of the branch lands in it without the model
+       * needing a second step it demonstrably does not take. The executor's own attach then finds
+       * the id already present and does nothing.
+       */
+      let attachedTo: string | undefined;
+      const branch = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === userId);
+      if (branch?.treeId) {
+        const tree = (await db.getTrees()).find((t) => t.id === branch.treeId && t.ownerId === userId);
+        // Re-read and append; saveTree is a full replace, and `withProject` keeps the first
+        // repository primary so this never hijacks a tree that already has one.
+        if (tree) {
+          await db.saveTree(withProject(tree, project.id));
+          attachedTo = tree.name;
+        }
+      }
+
       return JSON.stringify({
         created: {
           id: project.id, name: project.name, repo: `${project.giteaOwner}/${project.giteaRepo}`,
           // Echoed, so a dropped language is visible rather than silently becoming the default.
           language: project.language ?? DEFAULT_WORKSPACE_LANGUAGE,
         },
+        // Said explicitly so the model does not also try to point each leaf at it by hand.
+        ...(attachedTo
+          ? { note: `Leaves on this branch will use this repository by default — no need to set it per leaf.` }
+          : {}),
       });
     }
 
