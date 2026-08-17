@@ -18,6 +18,7 @@ import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topolo
 import { buildAppEnv } from '../lib/app-env.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
+import { deploymentIdFor } from '../lib/deployment-id.js';
 
 /**
  * The smallest allocatable memory across the cluster's nodes.
@@ -339,7 +340,9 @@ export async function DeployAppActivity(
     ? 'http://localhost:8080'
     : 'http://localhost:80';
 
-  const deploymentId = args.deploymentId || uuidv4().slice(0, 8);
+  // Derived from the deployment rather than invented, so two activities for one deployment cannot
+  // end up writing different Terraform states. See lib/deployment-id.ts.
+  const deploymentId = deploymentIdFor(args.deploymentId, args.name);
 
   // Real size from HuggingFace, not the repo-name regex guess tabbyapi.ts falls back to when
   // this is absent — sizes /dev/shm and the memory limit off what the model actually is rather

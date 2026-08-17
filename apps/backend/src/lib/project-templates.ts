@@ -54,7 +54,12 @@ export function nodeBaseImage(registryHost?: string): string {
 
 /** Node 22 is what the workspace image ships; the runtime has a test runner and fetch built in. */
 const NODE_DOCKERFILE = (base: string) => [
-  '# Minimal by construction: everything this needs is in the runtime.',
+  '# This Dockerfile already works. Change it only if you add dependencies or build steps.',
+  '#',
+  '# It is deliberately single-stage. A multi-stage build that copies node_modules out of an',
+  '# install stage FAILS on a project with no dependencies — npm installs nothing, the directory',
+  '# never exists, and the error names a path inside the builder rather than the cause.',
+  '# Measured: three separate build failures from one rewrite of this file.',
   // Mirrored in-cluster, not Docker Hub — see nodeBaseImage. Changing this back to a Docker Hub
   // name will build a handful of times and then start failing on the anonymous pull limit.
   `FROM ${base}`,

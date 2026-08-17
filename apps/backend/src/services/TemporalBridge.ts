@@ -20,6 +20,7 @@ const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
+import { deploymentIdFor } from '../lib/deployment-id.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
@@ -1296,7 +1297,14 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   const wfId = `app-deploy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-C3.log`
   const absoluteLogPath = path.join(LOG_DIR, logFileName)
-  const deploymentId = dep.deploymentId || Math.random().toString(36).slice(2, 10);
+  /**
+   * Derived, never minted — see lib/deployment-id.ts.
+   *
+   * Three deploys of this record started within 90ms, each read no id, and each invented one:
+   * four Terraform stacks for one deployment, and every deploy afterwards failing to create a
+   * namespace that already existed.
+   */
+  const deploymentId = deploymentIdFor(dep.deploymentId, dep.id || dep.name);
   dep.deploymentId = deploymentId;
 
     const activityArgs = {
