@@ -40,6 +40,12 @@ export interface LeafProposal {
    * the model writes it in the block and nothing downstream could read it.
    */
   mcp?: string[];
+  /**
+   * An existing project this work belongs in. Same reason as the two above: the planner knows it at
+   * proposal time — list_mcp_servers hands it over — and a follow-up call to attach it is the
+   * round-trip that has silently not happened twice.
+   */
+  projectId?: string;
 }
 
 /**
@@ -268,11 +274,13 @@ export function extractProposals(reply: string): LeafProposal[] {
       const mcp = Array.isArray((raw as any)?.mcp)
         ? [...new Set((raw as any).mcp.map((m: unknown) => String(m).trim()).filter(Boolean))].slice(0, 8)
         : [];
+      const projectId = typeof (raw as any)?.projectId === 'string' ? (raw as any).projectId.trim().slice(0, 64) : '';
       proposals.push({
         title: title.slice(0, MAX_TITLE),
         ...(body ? { body: body.slice(0, MAX_BODY) } : {}),
         ...(persona ? { persona: persona.slice(0, MAX_PERSONA_NAME) } : {}),
         ...(mcp.length ? { mcp: mcp as string[] } : {}),
+        ...(projectId ? { projectId } : {}),
       });
 
       if (proposals.length >= MAX_PROPOSALS_PER_REPLY) return proposals;

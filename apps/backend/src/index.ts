@@ -4007,6 +4007,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            * over a spelling mistake would trade real work for a typo.
            */
           const myPersonas = await ownedPersonas((req as any).user.id);
+          const myProjects = await projectRepoService.listForOwner((req as any).user.id);
           for (const proposal of proposals) {
             const assigned = resolvePersonaNamed(proposal.persona, myPersonas);
             if (proposal.persona && !assigned) {
@@ -4021,6 +4022,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               ...(assigned ? { personaId: assigned.id } : {}),
               // Without this the leaf has no tools for the service the plan told it to call.
               ...(proposal.mcp?.length ? { mcp: proposal.mcp } : {}),
+              // Owner-checked: a project id names a repository, and this arrives from model output.
+              ...(proposal.projectId && myProjects.some((p) => p.id === proposal.projectId)
+                ? { projectId: proposal.projectId }
+                : {}),
               column: 'todo',
               // Proposed, always: the model suggests, a human accepts. Nothing runs or spends here.
               status: 'proposed',

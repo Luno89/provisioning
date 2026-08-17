@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { extractProposals } from './plan-mode.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT } from './extraction.js';
+import { LEAF_TOOLS } from './leaf-tools.js';
 
 /**
  * The fields a plan writes surviving the trip to a leaf.
@@ -38,8 +39,8 @@ describe('the extractor carries what it must not decide', () => {
   });
 
   it('tells it to copy rather than choose', () => {
-    expect(EXTRACTION_SYSTEM_PROMPT).toMatch(/Copy `persona` and `mcp` exactly/);
-    expect(EXTRACTION_SYSTEM_PROMPT).toMatch(/Omit them if it did not/);
+    expect(EXTRACTION_SYSTEM_PROMPT).toMatch(/Copy `persona`, `mcp` and `projectId` exactly/);
+    expect(EXTRACTION_SYSTEM_PROMPT).toMatch(/Omit any it did not/);
   });
 });
 
@@ -73,5 +74,46 @@ describe('the prose parser, on the block the model actually wrote', () => {
   it('ignores a non-array mcp', () => {
     const [p] = extractProposals('```json{"leaves":[{"title":"x","mcp":"github-mcp"}]}```');
     expect(p).not.toHaveProperty('mcp');
+  });
+});
+
+describe('the project a plan says the work belongs in', () => {
+  /**
+   * ── THE ROUND TRIP THAT DID NOT HAPPEN ──
+   * The planner read list_mcp_servers, correctly said "No need to rebuild it", quoted the project
+   * the running server is built from — and then never pointed a single leaf at it. `set_leaf_project`
+   * existed, the tool result told it to use it, and it did not. The work went to a fresh repository
+   * and produced a second service answering to the same name.
+   *
+   * Declared at proposal time now, beside `persona` and `mcp`, because that is the one moment the
+   * planner has the id in hand. The same lesson as personas: a field that needs a follow-up call is
+   * a field that is sometimes never set, and nothing says so.
+   */
+  it('is offered on propose_leaf, pointing at where the id comes from', () => {
+    const params: any = LEAF_TOOLS.find((t) => t.function.name === 'propose_leaf')!.function.parameters;
+    expect(params.properties.projectId).toBeTruthy();
+    expect(params.properties.projectId.description).toMatch(/list_mcp_servers/);
+    expect(params.properties.projectId.description).toMatch(/CHANGES something that already exists/);
+  });
+
+  it('is carried by the prose parser', () => {
+    const [p] = extractProposals('```json{"leaves":[{"title":"Verify it","projectId":"p-9"}]}```');
+    expect(p!.projectId).toBe('p-9');
+  });
+
+  it('is declared in the constrained extractor, which wins over the parser', () => {
+    const props: any = (EXTRACTION_SCHEMA as any).properties.leaves.items.properties;
+    expect(props.projectId).toBeTruthy();
+    expect(EXTRACTION_SYSTEM_PROMPT).toMatch(/projectId/);
+  });
+
+  it('is omitted rather than sent empty', () => {
+    const [p] = extractProposals('```json{"leaves":[{"title":"x","projectId":"  "}]}```');
+    expect(p).not.toHaveProperty('projectId');
+  });
+
+  it('ignores a non-string', () => {
+    const [p] = extractProposals('```json{"leaves":[{"title":"x","projectId":{"id":"p-9"}}]}```');
+    expect(p).not.toHaveProperty('projectId');
   });
 });

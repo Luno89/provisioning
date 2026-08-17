@@ -174,6 +174,14 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         (await db.getPersonas()).filter((p) => p.ownerId === userId),
       );
 
+      const wantedProjectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';
+      const wantedProject = wantedProjectId
+        ? (await projects.listForOwner(userId)).find((p) => p.id === wantedProjectId)
+        : undefined;
+      if (wantedProjectId && !wantedProject) {
+        console.warn(`[leaf-tools] branch ${branchId}: no project ${wantedProjectId} for "${title.slice(0, 40)}"`);
+      }
+
       const now = new Date().toISOString();
       const leaf: Leaf = {
         id,
@@ -184,6 +192,13 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         title: title.slice(0, 200),
         ...(dependsOn.length ? { dependsOn } : {}),
         ...(persona ? { personaId: persona.id } : {}),
+        /**
+         * Resolved through the owner-filtered list, exactly as `set_leaf_project` does: a project
+         * id is a repository, and naming another user's would attach their code to this leaf.
+         * An id that resolves to nothing is dropped rather than refused — the work is still valid,
+         * and it falls back to the branch's repository the way it always did.
+         */
+        ...(wantedProject ? { projectId: wantedProject.id } : {}),
         column: 'todo',
         // Proposed, always. A tool call is still the model suggesting, not deciding.
         status: 'proposed',

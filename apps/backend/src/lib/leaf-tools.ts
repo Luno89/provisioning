@@ -111,6 +111,24 @@ export const LEAF_TOOLS = [
               + 'unmatched title means this leaf will not wait after all.',
           },
           /**
+           * Declared at proposal time, like `persona` and `mcp`, and for the same reason.
+           *
+           * The alternative — propose the leaf, then call `set_leaf_project` for it — is the
+           * round-trip pattern that has failed twice now. Observed: the planner read
+           * list_mcp_servers, correctly said "No need to rebuild it", quoted the project the
+           * running server is built from, and then never pointed a single leaf at it. The work went
+           * to a fresh repository and produced a second service under the same name.
+           */
+          projectId: {
+            type: 'string',
+            description:
+              'Optional — the id of an existing project this work belongs in, from list_projects or '
+              + 'the projectId reported by list_mcp_servers. Give it whenever the work CHANGES '
+              + 'something that already exists: the leaf then checks out that repository, and '
+              + 'merging rebuilds and redeploys it. Omit it for genuinely new work, which gets a '
+              + 'repository of its own.',
+          },
+          /**
            * Named per leaf because a persona is written before anything is deployed, so it cannot
            * know the name of a server this very plan is about to build.
            */

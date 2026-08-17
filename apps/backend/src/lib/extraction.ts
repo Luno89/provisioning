@@ -53,6 +53,7 @@ export const EXTRACTION_SCHEMA = {
            */
           persona: { type: 'string' },
           mcp: { type: 'array', items: { type: 'string' } },
+          projectId: { type: 'string' },
         },
         required: ['title'],
       },
@@ -73,7 +74,7 @@ export const EXTRACTION_SYSTEM_PROMPT = [
   '- Titles are imperative and specific. Body says what the work involves, in one or two sentences.',
   '- One entry per separately deliverable piece of work — not per step of a single change.',
   // Copied verbatim rather than chosen: picking either would be planning, which this must not do.
-  '- Copy `persona` and `mcp` exactly as the conversation gave them. Omit them if it did not.',
+  '- Copy `persona`, `mcp` and `projectId` exactly as the conversation gave them. Omit any it did not.',
 ].join('\n');
 
 /**
@@ -155,6 +156,9 @@ export function parseExtractionResult(reply: string, maxProposals: number): Leaf
       ...(body ? { body: body.slice(0, 4000) } : {}),
       ...(persona ? { persona: persona.slice(0, 60) } : {}),
       ...(mcp.length ? { mcp: mcp as string[] } : {}),
+      ...(typeof (raw as any)?.projectId === 'string' && (raw as any).projectId.trim()
+        ? { projectId: (raw as any).projectId.trim().slice(0, 64) }
+        : {}),
     });
     if (out.length >= maxProposals) break;
   }
