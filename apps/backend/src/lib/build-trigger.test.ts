@@ -73,3 +73,35 @@ describe('an unbuildable Dockerfile does not reach the default branch', () => {
     expect(activity).toMatch(/dockerProblems \? 'failed' : decideStatus/);
   });
 });
+
+describe('a plan that mixes tool calls and prose', () => {
+  const route = read('../index.ts');
+
+  /**
+   * ── THE STAGES THIS LOST ──
+   * The two proposal paths were exclusive: any `propose_leaf` call discarded the whole prose block,
+   * on the reasoning that prose is a REPORT of what the tools did. True when the model uses one
+   * path; false when it mixes them.
+   *
+   * Measured on a real planning turn: propose_leaf called twice, FOUR leaves written in the json
+   * block, one leaf created. Three stages of a four-stage plan vanished and nothing said so.
+   */
+  it('keeps prose proposals the tool calls did not cover', () => {
+    expect(route).toMatch(/const fromProse = extracted\?\.length \? extracted : extractProposals\(reply\)/);
+    expect(route).toMatch(/proposedViaTools\s*\n?\s*\? fromProse\.filter/);
+  });
+
+  it('dedupes on title, so a prose entry describing a tool-made leaf is not created twice', () => {
+    // Prose that reports what the tools did is still a report; only NEW titles are new work.
+    const at = route.indexOf('const already = new Set(');
+    expect(at).toBeGreaterThan(-1);
+    const block = route.slice(at, at + 400);
+    expect(block).toMatch(/toLowerCase\(\)\.replace/);
+    expect(block).toMatch(/l\.branchId === branchId/);
+  });
+
+  it('still takes everything when no tool proposed anything', () => {
+    // The prose-only path must be unaffected — it is how most plans arrive.
+    expect(route).toMatch(/: fromProse;/);
+  });
+});

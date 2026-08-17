@@ -3843,7 +3843,33 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            * The tools win because they are the deliberate path: a model that called them has said
            * exactly what it wants, while the prose is a report of having done so.
            */
-          const proposals = proposedViaTools ? [] : (extracted?.length ? extracted : extractProposals(reply));
+          /**
+           * Prose proposals the tools did NOT already cover.
+           *
+           * These two paths were treated as exclusive: any `propose_leaf` call discarded the whole
+           * prose block, on the reasoning that prose is a REPORT of what the tools did. That holds
+           * when the model uses one path. It does not when it mixes them.
+           *
+           * Measured: a planning turn called propose_leaf twice, wrote FOUR leaves in its json
+           * block, and produced one leaf. Three stages of a four-stage plan were silently dropped,
+           * and nothing anywhere said so.
+           *
+           * Matched on title rather than trusting either path: a prose entry describing a leaf the
+           * tools already made is a duplicate and must not be created twice, while one naming work
+           * no tool call covered is a stage that would otherwise be lost.
+           */
+          const fromProse = extracted?.length ? extracted : extractProposals(reply);
+          const already = new Set(
+            (await db.getLeaves())
+              .filter((l) => l.branchId === branchId)
+              .map((l) => l.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()),
+          );
+          const proposals = proposedViaTools
+            ? fromProse.filter((p) => !already.has(p.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()))
+            : fromProse;
+          if (proposedViaTools && proposals.length) {
+            console.log(`[chat] branch ${branchId}: ${proposals.length} prose proposal(s) the tool calls did not cover`);
+          }
           const now = new Date().toISOString();
 
           /**
