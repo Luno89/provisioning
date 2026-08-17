@@ -46,6 +46,42 @@ export interface VerifyResult {
 }
 
 /**
+ * Whether a passing verification is actually evidence about THIS leaf.
+ *
+ * ── THE OBSERVED FAILURE ──
+ * A leaf titled "Configure Docker build and deployment for the MCP server" finished with
+ * `verified: true` and an empty `outputBranch` — it committed NOTHING. Its summary described a
+ * Dockerfile it had written; the repository never received one.
+ *
+ * It passed because `verifyCommand` falls back to `defaultVerifyCommand()` for any repo leaf, which
+ * runs the repository's existing suite. That suite was green before the leaf started and was still
+ * green after it did nothing, so `combined` came out `passed` and the board showed a verified tick.
+ *
+ * `verified` therefore meant "this repository's tests pass", not "something checked this leaf" —
+ * the claimed-versus-verified conflation this codebase is built to avoid, arriving through the back
+ * door. Every leaf in the run carried the tick, including the two that changed nothing.
+ *
+ * ── THE RULE ──
+ * No change, no evidence. A suite the leaf did not affect cannot vouch for it.
+ *
+ * A command the LEAF declared is exempt, and that exemption is the point rather than a loophole:
+ * a leaf whose whole job is to call an already-deployed service legitimately commits nothing, and
+ * the command it named was chosen to check exactly that. Only the fallback is untrustworthy here,
+ * because nobody chose it with this leaf in mind.
+ *
+ * Failures are never downgraded. A suite that fails on an unchanged repository is still a broken
+ * repository, and turning that into `unverified` would hide it.
+ */
+export function evidenceOf(
+  outcome: VerifyOutcome,
+  { declaredCommand, changed }: { declaredCommand: boolean; changed: boolean },
+): VerifyOutcome {
+  if (outcome !== 'passed') return outcome;
+  if (declaredCommand || changed) return outcome;
+  return 'unverified';
+}
+
+/**
  * The command to run when the leaf did not bring its own.
  *
  * Detection is done in the shell rather than here, because this process cannot see the workspace —

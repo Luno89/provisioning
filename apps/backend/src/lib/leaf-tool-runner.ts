@@ -445,6 +445,16 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
           note: 'No MCP servers are deployed under this account yet. Building and deploying one makes its tools callable from a leaf.',
         });
       }
+      /**
+       * Same owner-scoped listing `list_projects` uses; the session decides, never the model.
+       *
+       * Wrapped because the NAME is a convenience and the id is the part that works: a project
+       * lookup that fails must not take the server list down with it. `try` rather than `.catch`
+       * — a missing dependency throws synchronously, which a promise catch never sees.
+       */
+      let mine: { id: string; name: string }[] = [];
+      try { mine = (await projects.listForOwner(userId)) as any[]; } catch { mine = []; }
+      const editable = servers.filter((s) => s.projectId);
       return JSON.stringify({
         servers: servers.map((s) => ({
           name: s.name,
@@ -453,7 +463,27 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
           // reason turns it into a server that silently has no tools.
           ...(s.unreachable ? { unreachable: s.unreachable } : {}),
           tools: (s.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? '' })),
+          /**
+           * What turns a server from something to CALL into something to CHANGE. Given as a
+           * project id because that is what `set_leaf_project` takes — a name would have to be
+           * matched back, and two projects can share one.
+           */
+          ...(s.projectId
+            ? {
+                projectId: s.projectId,
+                projectName: mine.find((p: any) => p.id === s.projectId)?.name,
+              }
+            : {}),
         })),
+        ...(editable.length
+          ? {
+              note:
+                'To change a server rather than call it — adding a tool, fixing one — propose leaves '
+                + 'and set each one\'s project to that server\'s projectId with set_leaf_project. The leaf '
+                + 'then works in the repository the server is built from, and merging rebuilds and '
+                + 'redeploys it. Building a second server instead leaves the running one unchanged.',
+            }
+          : {}),
       });
     }
 

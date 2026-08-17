@@ -88,6 +88,15 @@ export class McpRegistryService {
         deploymentName: dep.name,
         url: mcpUrlFor(dep, namespaceOfDeployment(dep)),
         probeUrl: await this.probeUrlFor(dep.name),
+        /**
+         * The repository this server is built from, so it can be CHANGED and not only called.
+         *
+         * The link was already in the data as `gitappProjectId` — it was simply never handed to
+         * anything that plans. Without it a planner can see that `github-mcp` exposes three tools
+         * and still has no way to add a fourth, so it proposes building a second server instead of
+         * extending the one running.
+         */
+        ...(dep.gitappProjectId ? { projectId: dep.gitappProjectId } : {}),
         tools: known?.tools ?? [],
         ...(known ? { lastSeen: new Date(known.at).toISOString() } : {}),
         ...(known?.error ? { unreachable: known.error } : {}),

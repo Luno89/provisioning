@@ -410,7 +410,9 @@ export const LEAF_TOOLS = [
         'List the MCP servers deployed under your account and the tools each one exposes. These are '
         + 'real, running services — including ones built here — and a leaf that names a server in its '
         + 'body can call its tools while it runs. Call this before planning work that needs a '
-        + 'capability, to find out whether it already exists.',
+        + 'capability, to find out whether it already exists. Each server also reports the projectId '
+        + 'of the repository it is built from, so an existing server can be EXTENDED with '
+        + 'set_leaf_project rather than replaced by a second one.',
       parameters: {
         type: 'object',
         properties: {

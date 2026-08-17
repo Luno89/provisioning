@@ -48,7 +48,8 @@ import {
   buildRepoStateScript, summariseRepoState, buildMergeScript, parseMergeResult,
 } from '../lib/leaf-checkout.js';
 import {
-  defaultVerifyCommand, buildVerifyScript, parseVerifyResult, decideStatus, type VerifyResult,
+  defaultVerifyCommand, buildVerifyScript, parseVerifyResult, decideStatus, evidenceOf,
+  type VerifyResult,
 } from '../lib/leaf-verify.js';
 import {
   buildArtifactCheckScript, parseArtifactResult, combineVerification,
@@ -742,6 +743,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
          * picking now.
          */
         let verify: VerifyResult = { outcome: 'unverified', output: '' };
+        // Whether the leaf chose this check or inherited the fallback. Decides, further down,
+        // whether a pass on an unchanged repository counts as evidence — see `evidenceOf`.
+        const declaredVerify = Boolean(wantsRepo && leaf.verifyCommand?.trim());
         const verifyCommand = wantsRepo ? (leaf.verifyCommand?.trim() || defaultVerifyCommand(persona?.scope?.language as WorkspaceLanguage)) : '';
         if (outputPath) {
           const verdict = assessFindings(findings, outputPath, persona?.scope?.requireSources !== false);
@@ -829,7 +833,21 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           }
         }
 
-        const combined = combineVerification(verify.outcome, artifacts.outcome);
+        /**
+         * A pass the leaf did not earn is downgraded here, once it is known whether it changed
+         * anything. Applied to the repository check only: a research leaf's findings are assessed
+         * against what it actually wrote, and never depended on a commit.
+         */
+        const earned = outputPath
+          ? verify.outcome
+          : evidenceOf(verify.outcome, { declaredCommand: declaredVerify, changed: Boolean(pushedBranch) });
+        if (earned !== verify.outcome) {
+          console.warn(
+            `[ExecuteLeafActivity] leaf ${leaf.id}: default suite passed but nothing was committed — recording unverified, not verified`,
+          );
+        }
+
+        const combined = combineVerification(earned, artifacts.outcome);
         /**
          * A Dockerfile that cannot build fails the leaf, whatever the tests said.
          *

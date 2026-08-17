@@ -76,6 +76,13 @@ export interface McpServer {
   lastSeen?: string;
   /** Why it is unusable, when it is. */
   unreachable?: string;
+  /**
+   * The project whose repository builds this server, when it has one.
+   *
+   * What makes a running server EDITABLE: a leaf pointed at this project checks out the repo the
+   * server is built from, so adding a tool is a change to what exists rather than a second server.
+   */
+  projectId?: string;
 }
 
 /** A deployment is a candidate if it is running and speaks MCP. */

@@ -24,7 +24,8 @@ const ctx = (overrides: Partial<LeafToolContext> = {}): LeafToolContext => ({
   branchId: 'b1',
   webSearch: async () => [],
   fetchWebPage: async () => '',
-  projects: {} as any,
+  // Real enough to resolve a project name; the runner must also survive it failing.
+  projects: { listForOwner: async () => [{ id: 'p-9', name: 'github-mcp' }] } as any,
   ...overrides,
 });
 
@@ -56,6 +57,13 @@ describe('the tool a planner is offered', () => {
     expect(desc).toMatch(/real, running/);
     expect(desc).toMatch(/call its tools/);
     expect(desc).toMatch(/already exists/);
+  });
+
+  it('says an existing server can be extended, not just called', () => {
+    // The half that decides whether "add a tool to github-mcp" edits the repo or builds a rival.
+    const desc = LEAF_TOOLS.find((t) => t.function.name === 'list_mcp_servers')!.function.description!;
+    expect(desc).toMatch(/projectId/);
+    expect(desc).toMatch(/set_leaf_project/);
   });
 
   it('takes no owner argument', () => {
@@ -100,6 +108,53 @@ describe('what it reports', () => {
     });
     expect(out.servers[0].status).toBe('unreachable');
     expect(out.servers[0].unreachable).toBe('connection refused');
+  });
+});
+
+describe('changing a server rather than calling it', () => {
+  const withProject = {
+    listWithTools: async () => [
+      { id: 'd1', name: 'github-mcp', url: 'http://x', tools: [{ name: 'get_repo' }], projectId: 'p-9' },
+    ],
+  };
+
+  it('reports the project the server is built from', async () => {
+    /**
+     * The link was in the data as `gitappProjectId` the whole time and was never handed to anything
+     * that plans — so a planner could see that github-mcp exposes three tools and still had no way
+     * to add a fourth.
+     */
+    const out = await call(withProject);
+    expect(out.servers[0].projectId).toBe('p-9');
+  });
+
+  it('tells the planner what to DO with it', async () => {
+    // A project id with no instruction is a field nobody uses.
+    const out = await call(withProject);
+    expect(out.note).toMatch(/set_leaf_project/);
+    expect(out.note).toMatch(/rebuilds and redeploys/);
+  });
+
+  it('resolves the project NAME when it can', async () => {
+    expect((await call(withProject)).servers[0].projectName).toBe('github-mcp');
+  });
+
+  it('still reports the server when the project lookup fails outright', async () => {
+    // The id is what set_leaf_project needs; the name is a convenience. Losing the convenience must
+    // not lose the server — and a missing dependency throws synchronously, which no .catch sees.
+    const out = await runLeafTool(
+      ctx({ mcpRegistry: withProject as any, projects: {} as any }),
+      { name: 'list_mcp_servers', arguments: '{}' },
+    ).then((r) => JSON.parse(r));
+    expect(out.servers[0].projectId).toBe('p-9');
+    expect(out.servers[0].projectName).toBeUndefined();
+  });
+
+  it('says nothing about editing when no server has a repository', async () => {
+    // A discovered server nobody here builds cannot be edited, and saying so would be a dead end.
+    const out = await call({ listWithTools: async () => [{ id: 'd1', name: 'external', url: 'http://x', tools: [] }] });
+    expect(out.servers[0].projectId).toBeUndefined();
+    expect(out.note).toBeUndefined();
   });
 });
 
