@@ -10,8 +10,9 @@ import type { Database } from '../lib/db-interface.js';
  * that is there makes it rebuild what it already has.
  */
 
+const OWNER = 'u1';
 const deployment = (over: Record<string, unknown> = {}) =>
-  ({ id: 'd1', name: 'weather', clusterId: 'c1', status: 'running', appType: 'gitapp', ...over });
+  ({ id: 'd1', name: 'weather', clusterId: 'c1', status: 'running', appType: 'gitapp', ownerId: OWNER, ...over });
 
 const dbWith = (deployments: unknown[], projects: unknown[] = [], trees: unknown[] = []): Database =>
   ({
@@ -42,12 +43,12 @@ describe('what the registry offers', () => {
      * A separate table drifts the moment a deployment is destroyed, and a registry that offers a
      * pod which no longer exists is worse than none.
      */
-    const svc = new McpRegistryService(dbWith([deployment(), deployment({ id: 'd2', name: 'github' })]), probe);
+    const svc = new McpRegistryService(dbWith([deployment(), deployment({ id: 'd2', name: 'github' })]), OWNER, probe);
     expect((await svc.list()).map((s) => s.name)).toEqual(['weather', 'github']);
   });
 
   it('leaves out anything not running', async () => {
-    const svc = new McpRegistryService(dbWith([deployment({ status: 'destroyed' })]), probe);
+    const svc = new McpRegistryService(dbWith([deployment({ status: 'destroyed' })]), OWNER, probe);
     expect(await svc.list()).toEqual([]);
   });
 
@@ -62,7 +63,7 @@ describe('what the registry offers', () => {
       getProjects: async () => [],
       getTrees: async () => [],
     } as unknown as Database;
-    const svc = new McpRegistryService(db, probe, okServer([{ name: 'get-forecast' }]) as never);
+    const svc = new McpRegistryService(db, OWNER, probe, okServer([{ name: 'get-forecast' }]) as never);
 
     expect((await svc.listWithTools())[0]!.tools).toHaveLength(1);
     deployments[0]!.status = 'destroyed';
@@ -76,7 +77,7 @@ describe('what the registry offers', () => {
 
 describe('asking a server what it can do', () => {
   it('reports its tools', async () => {
-    const svc = new McpRegistryService(dbWith([deployment()]), probe, okServer([{ name: 'get-forecast' }, { name: 'get-current' }]) as never);
+    const svc = new McpRegistryService(dbWith([deployment()]), OWNER, probe, okServer([{ name: 'get-forecast' }, { name: 'get-current' }]) as never);
     const [server] = await svc.listWithTools();
     expect(server!.tools.map((t) => t.name)).toEqual(['get-forecast', 'get-current']);
     expect(server!.lastSeen).toBeTruthy();
@@ -93,7 +94,7 @@ describe('asking a server what it can do', () => {
     });
     const svc = new McpRegistryService(
       dbWith([deployment({ id: 'd1', name: 'broken' }), deployment({ id: 'd2', name: 'fine' })]),
-      probe, fetchImpl as never,
+      OWNER, probe, fetchImpl as never,
     );
     const servers = await svc.listWithTools();
     expect(servers.find((s) => s.name === 'broken')!.unreachable).toContain('ECONNREFUSED');
@@ -105,7 +106,7 @@ describe('asking a server what it can do', () => {
      * Both are an empty tool list, and they mean opposite things: one is a broken server, the other
      * is a server nobody has got to yet. The UI cannot say anything useful if they look identical.
      */
-    const svc = new McpRegistryService(dbWith([deployment()]), probe, vi.fn(async () => { throw new Error('nope'); }) as never);
+    const svc = new McpRegistryService(dbWith([deployment()]), OWNER, probe, vi.fn(async () => { throw new Error('nope'); }) as never);
     expect((await svc.list())[0]!.lastSeen).toBeUndefined();
     const probed = await svc.listWithTools();
     expect(probed[0]!.lastSeen).toBeTruthy();
@@ -116,7 +117,7 @@ describe('asking a server what it can do', () => {
     // Tools change when a server is redeployed, not between turns. Probing per turn would add a
     // round trip to every step of every run.
     const fetchImpl = okServer([{ name: 'x' }]);
-    const svc = new McpRegistryService(dbWith([deployment()]), probe, fetchImpl as never);
+    const svc = new McpRegistryService(dbWith([deployment()]), OWNER, probe, fetchImpl as never);
     await svc.listWithTools();
     const afterFirst = fetchImpl.mock.calls.length;
     await svc.listWithTools();
@@ -125,7 +126,7 @@ describe('asking a server what it can do', () => {
 
   it('re-asks when told to, so a redeploy is picked up', async () => {
     const fetchImpl = okServer([{ name: 'x' }]);
-    const svc = new McpRegistryService(dbWith([deployment()]), probe, fetchImpl as never);
+    const svc = new McpRegistryService(dbWith([deployment()]), OWNER, probe, fetchImpl as never);
     await svc.listWithTools();
     const afterFirst = fetchImpl.mock.calls.length;
     await svc.listWithTools(true);
@@ -139,7 +140,7 @@ describe('asking a server what it can do', () => {
       if (fail) throw new Error('starting up');
       return okServer([{ name: 'ready' }])(url, init);
     });
-    const svc = new McpRegistryService(dbWith([deployment()]), probe, fetchImpl as never);
+    const svc = new McpRegistryService(dbWith([deployment()]), OWNER, probe, fetchImpl as never);
     expect((await svc.listWithTools())[0]!.unreachable).toBeTruthy();
     fail = false;
     expect((await svc.listWithTools())[0]!.tools).toHaveLength(1);
@@ -149,7 +150,7 @@ describe('asking a server what it can do', () => {
 describe('calling a tool', () => {
   it('returns an unreachable server as a result, not a throw', async () => {
     // Killing the run over one bad call would discard everything done so far.
-    const svc = new McpRegistryService(dbWith([]), probe, vi.fn(async () => { throw new Error('ECONNREFUSED'); }) as never);
+    const svc = new McpRegistryService(dbWith([]), OWNER, probe, vi.fn(async () => { throw new Error('ECONNREFUSED'); }) as never);
     const out = await svc.call({ id: 'd1', name: 'weather', url: 'http://x/mcp', tools: [] }, 'get-forecast', {});
     expect(out.isError).toBe(true);
     expect(out.text).toContain('Could not reach weather');
@@ -163,7 +164,7 @@ describe('the two addresses', () => {
      * `*.svc.cluster.local`, so probing through the sandbox's URL fails with "fetch failed" — which
      * reads exactly like a dead server.
      */
-    const svc = new McpRegistryService(dbWith([deployment({ name: 'koala-request-42784df9' })]), probe, okServer([{ name: 't' }]) as never);
+    const svc = new McpRegistryService(dbWith([deployment({ name: 'koala-request-42784df9' })]), OWNER, probe, okServer([{ name: 't' }]) as never);
     const [server] = await svc.list();
     expect(server!.url).toBe('http://gitapp.koala-request-42784df9.svc.cluster.local:8080/mcp');
     expect(server!.probeUrl).toContain('10.0.0.155');
@@ -172,7 +173,7 @@ describe('the two addresses', () => {
   it('says the harness has no route rather than blaming the server', async () => {
     // Without a NodePort there is no route at all, and "fetch failed" would attribute the harness's
     // own missing address to the deployment.
-    const svc = new McpRegistryService(dbWith([deployment()]), async () => undefined, okServer([{ name: 't' }]) as never);
+    const svc = new McpRegistryService(dbWith([deployment()]), OWNER, async () => undefined, okServer([{ name: 't' }]) as never);
     const [server] = await svc.listWithTools();
     expect(server!.unreachable).toMatch(/no route to it/i);
   });
@@ -185,11 +186,11 @@ describe('what a service is called', () => {
    * the whole time and nothing used it.
    */
   const dep = deployment({ name: 'koala-request-42784df9', gitappProjectId: 'p1' });
-  const project = { id: 'p1', name: 'koala-request-42784df9' };
+  const project = { id: 'p1', name: 'koala-request-42784df9', ownerId: OWNER };
 
   it('uses the tree name instead of the request id', async () => {
     const svc = new McpRegistryService(
-      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'] }]), probe,
+      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'], ownerId: OWNER }]), OWNER, probe,
     );
     const [server] = await svc.list();
     expect(server!.name).toBe('weather-api-mcp');
@@ -200,7 +201,7 @@ describe('what a service is called', () => {
 
   it('prefers a name the planner declared', async () => {
     const svc = new McpRegistryService(
-      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'], serviceName: 'weather' }]), probe,
+      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'], serviceName: 'weather', ownerId: OWNER }]), OWNER, probe,
     );
     expect((await svc.list())[0]!.name).toBe('weather');
   });
@@ -209,15 +210,45 @@ describe('what a service is called', () => {
     // Asked for a short name, a model sometimes answers with a description; prefixing every tool
     // with that is worse than the tree name.
     const svc = new McpRegistryService(
-      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'],
-        serviceName: 'the service that wraps the weather API' }]), probe,
+      dbWith([dep], [project], [{ id: 't1', name: 'Weather API MCP', projectIds: ['p1'], ownerId: OWNER,
+        serviceName: 'the service that wraps the weather API' }]), OWNER, probe,
     );
     expect((await svc.list())[0]!.name).toBe('weather-api-mcp');
   });
 
   it('falls back to the id when nothing better exists', async () => {
     // Honest rather than invented: two services both called `service` would be worse.
-    const svc = new McpRegistryService(dbWith([dep], [project], []), probe);
+    const svc = new McpRegistryService(dbWith([dep], [project], []), OWNER, probe);
     expect((await svc.list())[0]!.name).toBe('koala-request-42784df9');
+  });
+});
+
+describe('one tenant cannot see another\'s services', () => {
+  it('offers only the caller\'s own deployments', async () => {
+    /**
+     * A registry that reads every deployment offers one tenant's agent the tools of another
+     * tenant's service — and mcpUrlFor hands it the in-cluster address to call them with. Invisible
+     * on a single-user instance right up until it is not.
+     */
+    const svc = new McpRegistryService(
+      dbWith([deployment({ id: 'mine', name: 'mine' }), deployment({ id: 'theirs', name: 'theirs', ownerId: 'someone-else' })]),
+      OWNER, probe,
+    );
+    expect((await svc.list()).map((s) => s.name)).toEqual(['mine']);
+  });
+
+  it('does not resolve a name through another tenant\'s tree', async () => {
+    // The name is theirs to choose; reading it would leak what they called their project.
+    const svc = new McpRegistryService(
+      dbWith(
+        [deployment({ name: 'koala-request-42784df9', gitappProjectId: 'p1' })],
+        [{ id: 'p1', name: 'koala-request-42784df9', ownerId: 'someone-else' }],
+        [{ id: 't1', name: 'Their Secret Project', projectIds: ['p1'], ownerId: 'someone-else' }],
+      ),
+      OWNER, probe,
+    );
+    const [server] = await svc.list();
+    expect(server!.name).toBe('koala-request-42784df9');
+    expect(server!.name).not.toContain('secret');
   });
 });

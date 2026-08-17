@@ -14,6 +14,12 @@ import { serviceNameFor, usableServiceName } from '../lib/service-name.js';
  * So the LIST is always derived, and only the introspection result is remembered — with the time it
  * was taken, because a stale answer presented as current is the same failure in slow motion.
  *
+ * ── SCOPED TO ONE OWNER ──
+ * Every lookup is filtered by `ownerId`. A registry that reads every deployment offers one tenant's
+ * agent the tools of another tenant's service — and `mcpUrlFor` hands it the in-cluster address to
+ * call them with. That is cross-tenant access dressed up as a feature, and it is the kind of thing
+ * that is invisible on a single-user instance right up until it is not.
+ *
  * ── EVERY PROBE IS BEST-EFFORT ──
  * A server that is deploying, wedged, or not actually MCP must not take down the caller. A registry
  * that throws when one of eleven servers is unhealthy is a registry nobody can use.
@@ -24,6 +30,8 @@ export class McpRegistryService {
 
   constructor(
     private readonly db: Database,
+    /** Whose deployments this registry may see. Never optional — see the header. */
+    private readonly ownerId: string,
     /**
      * How the BACKEND reaches a given deployment, which is not how a sandbox reaches it.
      *
@@ -39,7 +47,9 @@ export class McpRegistryService {
 
   /** Running deployments that could be MCP servers, with whatever is known about their tools. */
   async list(): Promise<McpServer[]> {
-    const deployments = (await this.db.getDeployments()).filter(looksLikeMcp);
+    const deployments = (await this.db.getDeployments())
+      .filter((d) => d.ownerId === this.ownerId)
+      .filter(looksLikeMcp);
     /**
      * The NAME a service is offered under, which is not its deployment's name.
      *
@@ -48,7 +58,10 @@ export class McpRegistryService {
      * time. Resolved rather than renamed: renaming the deployment would mean renaming its
      * namespace, Service and DNS, orphaning everything running.
      */
-    const [projects, trees] = await Promise.all([this.db.getProjects(), this.db.getTrees()]);
+    // Scoped too: a name resolved through somebody else's tree would leak what they called it.
+    const [allProjects, allTrees] = await Promise.all([this.db.getProjects(), this.db.getTrees()]);
+    const projects = allProjects.filter((p) => p.ownerId === this.ownerId);
+    const trees = allTrees.filter((t) => t.ownerId === this.ownerId);
     const nameOf = (dep: { name: string; gitappProjectId?: string }) => {
       const project = projects.find((p) => p.id === dep.gitappProjectId);
       const tree = project ? trees.find((t) => (t.projectIds ?? []).includes(project.id)) : undefined;

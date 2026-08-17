@@ -117,7 +117,9 @@ async function resolveMcpForLeaf(db: any, persona: any, leaf: any): Promise<Reco
   if (!wanted.length) return {};
 
   try {
-    const registry = new McpRegistryService(db, (name: string) => resolveMcpProbeUrl(name));
+    // Scoped to the leaf's owner: a registry that reads every deployment would offer one
+    // tenant's agent the tools of another tenant's service.
+    const registry = new McpRegistryService(db, leaf.ownerId, (name: string) => resolveMcpProbeUrl(name));
     const { servers, missing } = resolveForPersona(wanted, await registry.listWithTools());
 
     if (missing.length) {

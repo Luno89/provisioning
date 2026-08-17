@@ -31,10 +31,33 @@ export interface TemplateFile {
   content: string;
 }
 
+/**
+ * Where base images come from.
+ *
+ * ── WHY NOT DOCKER HUB ──
+ * Every build pulled `node:22-alpine` anonymously from Docker Hub, and Docker Hub rate-limits
+ * anonymous pulls per source IP. A cluster is one IP, so a handful of builds in an afternoon is
+ * enough: `TOOMANYREQUESTS: You have reached your unauthenticated pull rate limit`, and every
+ * build fails at the first instruction with an error that has nothing to do with the code.
+ *
+ * The same reasoning as the in-cluster npm mirror. A build that depends on an unauthenticated
+ * third party is a build that stops working on somebody else's schedule.
+ *
+ * Mirrored with: skopeo copy docker://docker.io/library/node:22-alpine docker://<registry>/provisioning-bot/node:22-alpine
+ */
+export const MIRROR_NAMESPACE = 'provisioning-bot';
+
+/** The mirrored base for a given registry, or Docker Hub's name when there is no registry yet. */
+export function nodeBaseImage(registryHost?: string): string {
+  return registryHost ? `${registryHost}/${MIRROR_NAMESPACE}/node:22-alpine` : 'node:22-alpine';
+}
+
 /** Node 22 is what the workspace image ships; the runtime has a test runner and fetch built in. */
-const NODE_DOCKERFILE = [
+const NODE_DOCKERFILE = (base: string) => [
   '# Minimal by construction: everything this needs is in the runtime.',
-  'FROM node:22-alpine',
+  // Mirrored in-cluster, not Docker Hub — see nodeBaseImage. Changing this back to a Docker Hub
+  // name will build a handful of times and then start failing on the anonymous pull limit.
+  `FROM ${base}`,
   'WORKDIR /app',
   'COPY . .',
   '# Installs only if there is something to install, so a dependency-free project stays fast.',
@@ -133,11 +156,16 @@ const README = (name: string, kind: string) => [
  * investigation works on code that already exists — dropping a server skeleton into either would be
  * noise the first leaf has to delete.
  */
-export function templateFor(treeType: string | undefined, projectName: string): TemplateFile[] {
+export function templateFor(
+  treeType: string | undefined,
+  projectName: string,
+  /** The in-cluster registry, so the scaffold does not depend on Docker Hub. */
+  registryHost?: string,
+): TemplateFile[] {
   switch (treeType) {
     case 'api-service':
       return [
-        { path: 'Dockerfile', content: NODE_DOCKERFILE },
+        { path: 'Dockerfile', content: NODE_DOCKERFILE(nodeBaseImage(registryHost)) },
         { path: 'package.json', content: NODE_PACKAGE(projectName) },
         { path: 'src/server.js', content: NODE_SERVER },
         { path: 'test/server.test.js', content: NODE_TEST },
