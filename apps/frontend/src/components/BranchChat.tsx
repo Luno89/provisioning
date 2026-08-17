@@ -34,7 +34,7 @@ export interface BranchRecord {
  */
 export default function BranchChat({
   apiBase, branchId, record, leaves, messages, onMessagesChange, onProposals,
-  onAccept, onReject, onAcceptAll, autoSend, onAutoSent,
+  onAccept, onReject, onAcceptAll, autoSend, onAutoSent, mode = 'auto', onModeChange,
 }: {
   apiBase: string;
   branchId: string;
@@ -49,8 +49,17 @@ export default function BranchChat({
   onAcceptAll: (ids: string[]) => void;
   autoSend?: string | undefined;
   onAutoSent?: (() => void) | undefined;
+  /**
+   * Which mode this conversation is in, held by the CALLER.
+   *
+   * It lived here at first, and this component unmounts every time a leaf is selected — so typing
+   * `/chat`, clicking a leaf to look at something, and coming back silently put you in `auto`
+   * again, where the next message would start extracting work. The one place mode must not live is
+   * the thing that unmounts while you are using it.
+   */
+  mode?: 'chat' | 'auto' | 'plan';
+  onModeChange?: ((mode: 'chat' | 'auto' | 'plan') => void) | undefined;
 }) {
-  const [mode, setMode] = useState<'chat' | 'auto' | 'plan'>('auto');
 
   const stages = record?.delivery ?? [];
   // `skipped` counts as settled — a research request never builds an image, and waiting for a stage
@@ -111,7 +120,7 @@ export default function BranchChat({
           apiBase={apiBase}
           branchId={branchId}
           mode={mode}
-          onModeChange={setMode}
+          {...(onModeChange ? { onModeChange } : {})}
           onProposals={onProposals}
           {...(autoSend ? { autoSend, ...(onAutoSent ? { onAutoSent } : {}) } : {})}
           messages={messages}

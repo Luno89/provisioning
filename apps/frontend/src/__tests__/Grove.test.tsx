@@ -100,6 +100,7 @@ const mockApi = ({ branches = [] as unknown[], leaves = [] as unknown[], trees =
     } });
     if (url.includes('/trees')) return Promise.resolve({ data: trees });
     if (url.includes('/personas')) return Promise.resolve({ data: [] });
+    if (url.includes('/models')) return Promise.resolve({ data: [{ id: 'm1', name: 'Model', source: 'deployment', kind: 'tabbyapi' }] });
     return Promise.resolve({ data: [] });
   });
 };
@@ -360,5 +361,59 @@ describe('a failure handed over from the board', () => {
     await waitFor(() => expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1));
     await new Promise((r) => setTimeout(r, 60));
     expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1);
+  });
+});
+
+describe('chat mode surviving the navigator', () => {
+  /**
+   * ── THE REGRESSION ──
+   * Mode lived inside BranchChat, and BranchChat unmounts every time a leaf is selected. So typing
+   * `/chat`, clicking a leaf to look at something and coming back silently put you back in `auto`,
+   * where the next message starts extracting work you did not ask for. Nothing said it had changed.
+   */
+  it('keeps the mode after looking at a leaf and coming back', async () => {
+    mockApi({ branches: [branch()], leaves: [leaf({ body: 'Some detail.' })] });
+    renderGrove();
+    await openTree();
+    await openBranch('Rate limiting work');
+
+    // Switch to chat mode the way a person does.
+    await waitFor(() => expect(detail().getByPlaceholderText(/Send a message/i)).toBeInTheDocument());
+    const box = detail().getByPlaceholderText(/Send a message/i);
+    fireEvent.change(box, { target: { value: '/chat' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(detail().getByText('/chat')).toBeInTheDocument());
+
+    // Look at a leaf, then come back to the conversation.
+    fireEvent.click(tree().getByText('Add rate limiting'));
+    await waitFor(() => expect(detail().getByText('Some detail.')).toBeInTheDocument());
+    fireEvent.click(tree().getAllByText('Rate limiting work')[0]!);
+
+    // Still in chat, not silently back in auto.
+    await waitFor(() => expect(detail().getByText('/chat')).toBeInTheDocument());
+  });
+
+  it('keeps two conversations in different modes', async () => {
+    /**
+     * Per branch, not global. One conversation being planned and another merely discussed is
+     * normal, and a single setting would flip both.
+     */
+    mockApi({
+      branches: [branch(), branch({ id: 'branch-2', title: 'Second conversation' })],
+      leaves: [leaf()],
+    });
+    renderGrove();
+    await openTree();
+    await openBranch('Rate limiting work');
+
+    const box = () => detail().getByPlaceholderText(/Send a message/i);
+    await waitFor(() => expect(box()).toBeInTheDocument());
+    fireEvent.change(box(), { target: { value: '/chat' } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    await waitFor(() => expect(detail().getByText('/chat')).toBeInTheDocument());
+
+    // The other conversation is untouched by that.
+    fireEvent.click(tree().getAllByText('Second conversation')[0]!);
+    await waitFor(() => expect(detail().getByText('/auto')).toBeInTheDocument());
   });
 });

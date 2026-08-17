@@ -79,6 +79,13 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
   const [newTree, setNewTree] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
   /**
+   * Chat mode, per conversation, held above the component that unmounts.
+   *
+   * Per branch rather than global: two conversations are legitimately in different modes — one
+   * being planned, one just being talked about — and a single setting would flip both.
+   */
+  const [modes, setModes] = useState<Record<string, 'chat' | 'auto' | 'plan'>>({});
+  /**
    * The opening message for a conversation started from the home page.
    *
    * Held here rather than passed straight through because the branch does not exist yet when the
@@ -478,6 +485,8 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
                 [selectedBranch.id]: typeof next === 'function' ? next(t[selectedBranch.id] ?? []) : next,
               }))
             }
+            mode={modes[selectedBranch.id] ?? 'auto'}
+            onModeChange={(m) => setModes((all) => ({ ...all, [selectedBranch.id]: m }))}
             onProposals={refresh}
             onAccept={(id) => accept.mutate(id)}
             onReject={(id) => reject.mutate(id)}
