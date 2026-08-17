@@ -42,6 +42,17 @@ export const EXTRACTION_SCHEMA = {
         properties: {
           title: { type: 'string' },
           body: { type: 'string' },
+          /**
+           * Carried, not decided.
+           *
+           * This extractor's whole job is to not add anything — but its result WINS over the
+           * conversation model's own JSON block (`extracted?.length ? extracted : ...`), so a
+           * field it does not know about is a field the model wrote and this silently deleted.
+           * Observed: a plan that named `"persona":"Builder"` and `"mcp":["github-mcp"]` produced
+           * a leaf with neither, which could not be accepted and could not have called the server.
+           */
+          persona: { type: 'string' },
+          mcp: { type: 'array', items: { type: 'string' } },
         },
         required: ['title'],
       },
@@ -53,7 +64,7 @@ export const EXTRACTION_SCHEMA = {
 export const EXTRACTION_SYSTEM_PROMPT = [
   'You extract concrete work items from a conversation. You do not plan, advise, or add ideas.',
   '',
-  'Return JSON: {"leaves":[{"title":"...","body":"..."}]}',
+  'Return JSON: {"leaves":[{"title":"...","body":"...","persona":"...","mcp":["server-name"]}]}',
   '',
   'Rules:',
   '- Only work the conversation actually settled on. Never invent, extend or improve on it.',
@@ -61,6 +72,8 @@ export const EXTRACTION_SYSTEM_PROMPT = [
   '- Ignore questions, options being weighed, and things explicitly rejected.',
   '- Titles are imperative and specific. Body says what the work involves, in one or two sentences.',
   '- One entry per separately deliverable piece of work — not per step of a single change.',
+  // Copied verbatim rather than chosen: picking either would be planning, which this must not do.
+  '- Copy `persona` and `mcp` exactly as the conversation gave them. Omit them if it did not.',
 ].join('\n');
 
 /**
@@ -133,7 +146,16 @@ export function parseExtractionResult(reply: string, maxProposals: number): Leaf
     const title = typeof (raw as any)?.title === 'string' ? (raw as any).title.trim() : '';
     if (!title) continue;
     const body = typeof (raw as any)?.body === 'string' ? (raw as any).body.trim() : '';
-    out.push({ title: title.slice(0, 200), ...(body ? { body: body.slice(0, 4000) } : {}) });
+    const persona = typeof (raw as any)?.persona === 'string' ? (raw as any).persona.trim() : '';
+    const mcp = Array.isArray((raw as any)?.mcp)
+      ? [...new Set((raw as any).mcp.map((m: unknown) => String(m).trim()).filter(Boolean))].slice(0, 8)
+      : [];
+    out.push({
+      title: title.slice(0, 200),
+      ...(body ? { body: body.slice(0, 4000) } : {}),
+      ...(persona ? { persona: persona.slice(0, 60) } : {}),
+      ...(mcp.length ? { mcp: mcp as string[] } : {}),
+    });
     if (out.length >= maxProposals) break;
   }
   return out;

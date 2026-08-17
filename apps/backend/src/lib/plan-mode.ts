@@ -35,6 +35,11 @@ export interface LeafProposal {
    * the persona in the block removes the round-trip instead of making it more reliable.
    */
   persona?: string;
+  /**
+   * MCP servers the leaf must be able to call, by name. Carried for the same reason as `persona`:
+   * the model writes it in the block and nothing downstream could read it.
+   */
+  mcp?: string[];
 }
 
 /**
@@ -260,10 +265,14 @@ export function extractProposals(reply: string): LeafProposal[] {
       // Carried as the model wrote it. Resolving a name to an id needs the user's personas, which
       // a pure parser has no business reaching for — the caller does it.
       const persona = typeof (raw as any)?.persona === 'string' ? (raw as any).persona.trim() : '';
+      const mcp = Array.isArray((raw as any)?.mcp)
+        ? [...new Set((raw as any).mcp.map((m: unknown) => String(m).trim()).filter(Boolean))].slice(0, 8)
+        : [];
       proposals.push({
         title: title.slice(0, MAX_TITLE),
         ...(body ? { body: body.slice(0, MAX_BODY) } : {}),
         ...(persona ? { persona: persona.slice(0, MAX_PERSONA_NAME) } : {}),
+        ...(mcp.length ? { mcp: mcp as string[] } : {}),
       });
 
       if (proposals.length >= MAX_PROPOSALS_PER_REPLY) return proposals;

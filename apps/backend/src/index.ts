@@ -3923,6 +3923,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               title: proposal.title,
               ...(proposal.body ? { body: proposal.body } : {}),
               ...(assigned ? { personaId: assigned.id } : {}),
+              // Without this the leaf has no tools for the service the plan told it to call.
+              ...(proposal.mcp?.length ? { mcp: proposal.mcp } : {}),
               column: 'todo',
               // Proposed, always: the model suggests, a human accepts. Nothing runs or spends here.
               status: 'proposed',
