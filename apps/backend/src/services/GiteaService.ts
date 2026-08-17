@@ -389,8 +389,55 @@ export class GiteaService {
     name: string,
     files: { path: string; content: string }[],
   ): Promise<string[]> {
-    const written: string[] = [];
+    if (!files.length) return [];
+
+    /**
+     * ── ONE COMMIT, NOT ONE PER FILE ──
+     * A five-file scaffold used to be five commits, and each one fires a push webhook: five
+     * pipeline runs, five image builds and five deploys for a repository nobody had touched yet.
+     * Measured on this instance — four scaffold commits produced three deploy workflows inside
+     * 90 milliseconds, which is what exposed the deployment-id race in the first place.
+     *
+     * The scaffold is one act. It should read as one act in the history, and it should wake the
+     * pipeline once.
+     */
+    const baseUrl = await this.resolveBaseUrl();
+    const adminPassword = await this.readAdminPassword();
+    const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
+    const repo = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}`;
+
+    // Only files that are not already there: seeding must never overwrite work.
+    const missing: { path: string; content: string }[] = [];
     for (const f of files) {
+      const existing = await fetch(`${repo}/contents/${f.path}`, { headers: { Authorization: auth } })
+        .catch(() => undefined);
+      if (!existing?.ok) missing.push(f);
+    }
+    if (!missing.length) return [];
+
+    const res = await fetch(`${repo}/contents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
+      body: JSON.stringify({
+        message: `Scaffold the project\n\n${missing.map((f) => `- ${f.path}`).join('\n')}`,
+        files: missing.map((f) => ({
+          operation: 'create',
+          path: f.path,
+          content: Buffer.from(f.content).toString('base64'),
+        })),
+      }),
+    }).catch(() => undefined);
+
+    if (res?.ok) return missing.map((f) => f.path);
+
+    /**
+     * Per file, if the batch endpoint is unavailable.
+     *
+     * It arrived in a later Gitea, and a scaffold that half-lands is still better than a repository
+     * with nothing in it — the leaf that follows can see what is missing.
+     */
+    const written: string[] = [];
+    for (const f of missing) {
       const did = await this.ensureFile(username, name, f.path, f.content, `Scaffold ${f.path}`)
         .catch(() => false);
       if (did) written.push(f.path);
