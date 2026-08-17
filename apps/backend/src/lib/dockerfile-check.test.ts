@@ -163,3 +163,42 @@ describe('what the agent is told', () => {
     expect(text).toMatch(/fix:/);
   });
 });
+
+describe('a multi-stage build for a project with no dependencies', () => {
+  /**
+   * The third fault of the same family, and the subtlest: every instruction is individually
+   * correct and the whole is unbuildable. Kaniko reports
+   * `lstat /kaniko/0/app/node_modules: no such file or directory` — a path inside the builder that
+   * says nothing about the cause.
+   */
+  const multiStage = `
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+FROM node:22-alpine
+WORKDIR /app
+COPY --from=build /app/node_modules ./node_modules
+COPY package.json ./
+COPY src/ ./src/
+CMD ["node", "src/server.js"]`;
+
+  it('catches the copy when there are no dependencies', () => {
+    const problems = checkDockerfile(multiStage, FILES, undefined, false);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]!.problem).toMatch(/declares no dependencies/);
+    expect(problems[0]!.fix).toMatch(/Drop the build stage/);
+  });
+
+  it('says nothing when the project DOES have dependencies', () => {
+    // Then the multi-stage build is the right shape and this is a normal, working Dockerfile.
+    expect(checkDockerfile(multiStage, FILES, undefined, true)).toEqual([]);
+  });
+
+  it('says nothing when the caller could not determine the dependencies', () => {
+    // Unknown is not "none". Guessing would fire on every correct multi-stage build whose
+    // package.json the caller failed to read.
+    expect(checkDockerfile(multiStage, FILES)).toEqual([]);
+  });
+});

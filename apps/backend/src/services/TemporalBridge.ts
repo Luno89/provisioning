@@ -19,6 +19,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
+import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
@@ -765,8 +766,53 @@ export class TemporalBridge {
     }
   }
 
+    /**
+     * Pipeline runs, whose status is otherwise written only by whoever was watching.
+     *
+     * If nothing was watching — the backend restarted, the workflow was terminated by hand,
+     * Temporal was briefly unreachable — the record keeps whatever it last said, forever. Measured:
+     * five runs sat at `queued` for over three hours after their workflows were terminated, so the
+     * queue read as permanently busy and nothing in the system disagreed.
+     *
+     * Clusters and deployments were already reconciled here. Runs were simply never added.
+     */
+    const reconcileRuns = async () => {
+      if (!this.client) return
+      try {
+        const runs = await this.db.getPipelineRuns()
+        for (const run of runs) {
+          const current = run.status as RunStatus
+          if (!(LIVE_RUN_STATUSES as readonly string[]).includes(current)) continue
+
+          let next: RunStatus | undefined
+          try {
+            const described = await pollWorkflowRun(run.temporalWorkflowId!)
+            next = reconcileRun(current, described?.status?.name)
+          } catch (err: any) {
+            /**
+             * A workflow Temporal has never heard of is an ANSWER — terminated and aged out, or
+             * never started. Anything else is Temporal being unreachable, where saying nothing is
+             * the only safe move: guessing would mark every live run failed during a brief outage.
+             */
+            const missing = /not\s*found/i.test(String(err?.message ?? err))
+            if (!missing) continue
+            next = reconcileMissingWorkflow(current, run.startedAt)
+          }
+
+          if (!next) continue
+          await this.db.savePipelineRunInfo({ ...run, status: next })
+          console.warn(`[Reconcile] pipeline run ${String(run.commitSha).slice(0, 8)}: ${current} -> ${next} (its workflow had already ended)`)
+          if (this.io) this.io.emit('pipeline-run-updated')
+        }
+      } catch (err: any) {
+        console.warn(`[Reconcile] Could not reconcile pipeline runs: ${err.message}`)
+      }
+    }
+
     reconcile()
     setInterval(reconcile, RECONCILE_INTERVAL)
+    reconcileRuns()
+    setInterval(reconcileRuns, RECONCILE_INTERVAL)
     releaseBackstop()
     setInterval(releaseBackstop, DEPENDENCY_BACKSTOP_INTERVAL)
   }

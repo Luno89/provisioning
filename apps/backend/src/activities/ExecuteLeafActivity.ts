@@ -805,8 +805,23 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
               .then((r) => String(r.stdout ?? '').split('\n').map((f) => f.trim()).filter(Boolean))
               .catch(() => [] as string[]);
             const ignore = await workspaces.readFile(leaf.id, '/work/repo/.dockerignore').catch(() => '');
+            /**
+             * Whether the project has dependencies at all, so a multi-stage build that copies
+             * node_modules out of a stage installing nothing can be judged. Undefined when the
+             * manifest cannot be read — unknown is not "none", and guessing would fire on every
+             * correct multi-stage build.
+             */
+            let hasDependencies: boolean | undefined;
+            const manifest = await workspaces.readFile(leaf.id, '/work/repo/package.json').catch(() => '');
+            if (manifest.trim()) {
+              try {
+                const parsed = JSON.parse(manifest) as { dependencies?: object; devDependencies?: object };
+                hasDependencies = Object.keys(parsed.dependencies ?? {}).length > 0
+                  || Object.keys(parsed.devDependencies ?? {}).length > 0;
+              } catch { /* unparseable manifest: stay undefined rather than guess */ }
+            }
             dockerProblems = describeDockerfileProblems(
-              checkDockerfile(dockerfile, listing, ignore || undefined),
+              checkDockerfile(dockerfile, listing, ignore || undefined, hasDependencies),
             );
             if (dockerProblems) {
               console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: ${dockerProblems.replace(/\n/g, ' ')}`);

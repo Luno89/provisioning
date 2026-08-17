@@ -110,6 +110,8 @@ export function checkDockerfile(
   dockerfile: string,
   files: string[],
   dockerignore?: string,
+  /** What package.json declares, so a copy of node_modules can be judged. */
+  hasDependencies?: boolean,
 ): DockerfileProblem[] {
   const problems: DockerfileProblem[] = [];
   const instructions = parse(dockerfile);
@@ -126,7 +128,30 @@ export function checkDockerfile(
 
   for (const ins of instructions) {
     if (ins.verb === 'FROM') { copies = []; continue; }
-    if (ins.verb === 'COPY' || ins.verb === 'ADD') { copies.push(...copiedPaths(ins.rest)); continue; }
+    if (ins.verb === 'COPY' || ins.verb === 'ADD') {
+    /**
+     * Copying node_modules out of a stage that installs nothing.
+     *
+     * `npm ci` on a project with no dependencies creates no node_modules at all, so the copy fails
+     * with `lstat /kaniko/0/app/node_modules: no such file or directory` — an error that names a
+     * path inside the builder and says nothing about the cause.
+     *
+     * Observed: an agent asked for a zero-dependency server wrote a textbook multi-stage build for
+     * it. Every instruction is individually correct and the whole is unbuildable.
+     */
+      if (/--from=/.test(ins.rest) && /node_modules/.test(ins.rest)
+          && hasDependencies === false) {
+        problems.push({
+          line: ins.line,
+          problem: 'This copies node_modules from a build stage, but package.json declares no '
+            + 'dependencies — so nothing is installed and the directory never exists.',
+          fix: 'Drop the build stage and the node_modules copy; a project with no dependencies needs neither.',
+        });
+      }
+
+      copies.push(...copiedPaths(ins.rest));
+      continue;
+    }
 
     if (ins.verb === 'RUN' && /\bnpm\s+ci\b/.test(ins.rest)) {
       if (!has('package-lock.json')) {
