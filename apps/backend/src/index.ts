@@ -81,6 +81,8 @@ import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
+import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
+import { wantsMcp } from './lib/agent-run.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
@@ -3323,7 +3325,31 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.on('close', () => upstreamAbort.abort());
 
     try {
-      const upstream = await fetch(`${baseUrl}/chat/completions`, {
+      /**
+     * What the persona you are TALKING TO may call.
+     *
+     * Resolved once per turn, not per round: the registry caches introspection but the listing is
+     * still a database read plus a NodePort lookup per server, and a turn can take eight rounds.
+     *
+     * Soft in every direction — a registry that cannot be reached leaves chat exactly as it was
+     * rather than failing a conversation over a service it may not even need.
+     */
+    let chatMcp = NO_CHAT_MCP;
+    try {
+      if (wantsMcp(chatPersona).length) {
+        const reg = new McpRegistryService(db, (req as any).user.id, (n: string) => resolveMcpProbeUrl(n));
+        chatMcp = chatMcpFor(chatPersona, await reg.listWithTools(), (srv, tool, a) => reg.call(srv, tool, a));
+        if (chatMcp.missing.length) {
+          console.warn(`[chat] persona named MCP servers that are not usable — ${chatMcp.missing.join(', ')}`);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[chat] could not resolve MCP tools for this turn: ${err.message}`);
+    }
+    /** The board tools plus whatever the persona was granted. One array, built once. */
+    const turnTools = chatMcp.tools.length ? [...LEAF_TOOLS, ...chatMcp.tools] : LEAF_TOOLS;
+
+    const upstream = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -3339,7 +3365,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         body: JSON.stringify(turnRequest(outboundMessages, {
           // Offered only when in proposal/plan mode on a task-relevant turn. Selective tool framing
           // prevents casual Q&A turns from degenerating into tool-schema deliberation loops.
-          ...(offerTools ? { tools: LEAF_TOOLS } : {}),
+          ...(offerTools ? { tools: turnTools } : {}),
           stream,
           /**
            * Fitted to what the window has left, not asked for flat.
@@ -3454,6 +3480,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
         });
         for (const call of calls) {
+          /**
+           * A qualified remote name goes to its server; everything else is a board tool.
+           *
+           * `routeCall` refuses any name that is not `server__tool` for a granted server, so this
+           * cannot swallow `propose_leaf` — and checking it FIRST is safe only because of that
+           * refusal. The executor's loop had the same ordering bug caught by a test: trying remote
+           * before built-in let a handler shadow `run_command`.
+           */
+          const remote = await chatMcp.call(call.name, JSON.parse(call.arguments || '{}'));
+          if (remote) {
+            conversation.push({
+              role: 'tool', tool_call_id: call.id, name: call.name,
+              content: JSON.stringify({ ...(remote.isError ? { error: remote.text } : { result: remote.text }) }),
+            });
+            continue;
+          }
           const result = await runLeafTool((req as any).user.id, String(branchId), call);
           // A refused call created nothing, so it must not suppress extraction — that would turn a
           // rejected proposal into a turn that proposed nothing at all.
@@ -3465,7 +3507,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           method: 'POST',
           headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
           body: JSON.stringify(turnRequest(conversation, {
-            tools: LEAF_TOOLS,
+            tools: turnTools,
             stream: true,
             /**
            * Fitted to what the window has left, not asked for flat.

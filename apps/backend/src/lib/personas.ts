@@ -147,6 +147,15 @@ export function validateScope(scope: unknown): string | undefined {
   }
   if (s.repo !== undefined && typeof s.repo !== 'boolean') return 'Repo must be true or false.';
 
+  /**
+   * Never validated before, because only ExecuteLeafActivity read it and it was never set by hand.
+   * A field the API accepts and nothing checks is a field that fails much later, in a sandbox, as a
+   * server name that matches nothing running.
+   */
+  if (s.mcp !== undefined && (!Array.isArray(s.mcp) || s.mcp.some((m) => typeof m !== 'string' || !m.trim()))) {
+    return 'Mcp must be a list of MCP server names.';
+  }
+
   if (s.egress !== undefined) {
     if (!Array.isArray(s.egress)) return 'Egress must be a list of rules.';
     for (const rule of s.egress) {
