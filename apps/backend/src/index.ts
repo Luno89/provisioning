@@ -82,6 +82,7 @@ import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';
+import { specsToSeed } from './lib/app-spec.js';
 import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
 import type { AcceptanceCheck } from './lib/acceptance.js';
 import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
@@ -3131,6 +3132,41 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.json({ success: true });
   });
 
+
+  /**
+   * The built-in app specs exist in the database.
+   *
+   * Specs live in Mongo so they can be edited at runtime, which is the point — but a fresh
+   * `git clone && npm run setup` starts with an empty one, and a platform that can deploy nothing
+   * until somebody types a spec is not functional. The repo carries the seeds; the database is the
+   * runtime source.
+   *
+   * Idempotent and conservative: `specsToSeed` adds what is missing, ships a changed default, and
+   * leaves alone anything a person has edited. Failure is logged, never fatal — the platform still
+   * has fifteen constructs and works without a single spec.
+   */
+  async function seedAppSpecs(): Promise<void> {
+    try {
+      const stored = await db.getAppSpecs();
+      const pending = specsToSeed(stored);
+      if (!pending.length) return;
+      const now = new Date().toISOString();
+      for (const spec of pending) {
+        const existing = stored.find((s) => s.id === spec.id);
+        await db.saveAppSpec({
+          id: spec.id,
+          spec,
+          builtIn: true,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        });
+      }
+      console.log(`[app-specs] seeded ${pending.length} built-in spec(s): ${pending.map((s) => s.id).join(', ')}`);
+    } catch (err: any) {
+      console.warn(`[app-specs] could not seed built-in specs: ${err.message}`);
+    }
+  }
+  await seedAppSpecs();
 
   /** ── GENERAL CHAT — Koala outside the tree structure (see lib/conversations.ts) ── */
 

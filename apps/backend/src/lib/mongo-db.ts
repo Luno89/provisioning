@@ -1,5 +1,6 @@
 import type { Persona } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
+import type { StoredAppSpec } from './app-spec.js';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
@@ -105,6 +106,10 @@ export class MongoDB implements Database {
 
   private get branches(): Collection {
     return this.db!.collection('branches');
+  }
+
+  private get appSpecs(): Collection {
+    return this.db!.collection('appSpecs');
   }
 
   private get conversations(): Collection {
@@ -499,6 +504,22 @@ export class MongoDB implements Database {
 
   async deleteBranch(id: string): Promise<void> {
     await this.branches.deleteOne({ _id: id as any });
+  }
+
+  async getAppSpecs(): Promise<StoredAppSpec[]> {
+    return (await this.appSpecs.find({}).toArray()).map((doc) => fromDoc<StoredAppSpec>(doc));
+  }
+
+  async saveAppSpec(spec: StoredAppSpec): Promise<void> {
+    const doc = toDoc(spec);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.appSpecs.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteAppSpec(id: string): Promise<void> {
+    // Keyed on `_id`: these documents carry no `id` field, and { id } would match every one.
+    await this.appSpecs.deleteOne({ _id: id as any });
   }
 
   async getConversations(): Promise<Conversation[]> {

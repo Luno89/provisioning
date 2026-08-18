@@ -1,5 +1,6 @@
 import type { Persona } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
+import type { StoredAppSpec } from './app-spec.js';
 import { MemoryDB } from './memory-db.js';
 import { MongoDB } from './mongo-db.js';
 import type { Branch, Leaf } from './leaves.js';
@@ -132,6 +133,16 @@ export interface Database {
   getBranches(): Promise<Branch[]>;
   saveBranch(branch: Branch): Promise<void>;
   deleteBranch(id: string): Promise<void>;
+
+  /**
+   * Deployable app types as DATA — see lib/app-spec.ts.
+   *
+   * Seeded from the repo on setup so a fresh clone is functional, then editable at runtime. One
+   * runtime source, so there is no second lookup path to drift from this one.
+   */
+  getAppSpecs(): Promise<StoredAppSpec[]>;
+  saveAppSpec(spec: StoredAppSpec): Promise<void>;
+  deleteAppSpec(id: string): Promise<void>;
 
   /** General chat with Koala — threads, not branches. See lib/conversations.ts for why. */
   getConversations(): Promise<Conversation[]>;

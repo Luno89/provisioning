@@ -235,3 +235,65 @@ export const MINIO_SPEC: AppSpec = {
   resources: { limits: { memory: '2Gi', cpu: '2000m' }, requests: { memory: '256Mi', cpu: '100m' } },
   ingressPort: 9001,
 };
+
+
+/**
+ * A spec as it is stored, with the provenance the record needs and the spec does not.
+ *
+ * `builtIn` is what makes seeding safe to re-run: the setup seeds these on every start, so a
+ * built-in that someone has edited must not be silently reverted, and a user's own spec must not be
+ * deleted because it is absent from the repo. Which of the two a record is decides both.
+ */
+export interface StoredAppSpec {
+  id: string;
+  spec: AppSpec;
+  /** Shipped in the repo, as opposed to written here. */
+  builtIn: boolean;
+  /** Absent for built-ins: they belong to the platform, not to a person. */
+  ownerId?: string;
+  /** Set once a person has changed a built-in, so seeding leaves it alone from then on. */
+  editedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The specs shipped in the repo, seeded into the database on setup.
+ *
+ * ── WHY BOTH A REPO AND A DATABASE ──
+ * Specs live in the database so they can be edited at runtime, which is the whole point. But a
+ * fresh `git clone && npm run setup` has an empty database, and a platform that can deploy nothing
+ * until someone types a spec is not functional. So the repo carries the seeds and the database is
+ * the runtime source — one place to read from, no second lookup path to drift.
+ *
+ * This list grows as each construct is verified against a spec, not in one sweep: `minio` is here
+ * because `app-spec.test.ts` renders it and checks the result field for field against
+ * `minio-native.ts`. Adding one without that check would be asserting the abstraction fits rather
+ * than showing it.
+ */
+export const BUILT_IN_SPECS: AppSpec[] = [MINIO_SPEC];
+
+/**
+ * The specs to write, given what is already stored.
+ *
+ * Idempotent, and deliberately conservative about what it overwrites:
+ *
+ *   · a built-in that is missing is added — this is the fresh-clone case;
+ *   · a built-in the repo has CHANGED is updated, so a fix ships;
+ *   · a built-in someone has EDITED is left alone, because reverting a deliberate change on every
+ *     restart is worse than shipping an out-of-date default;
+ *   · anything not built in is never touched.
+ */
+export function specsToSeed(
+  stored: readonly StoredAppSpec[],
+  builtIn: readonly AppSpec[] = BUILT_IN_SPECS,
+): AppSpec[] {
+  const byId = new Map(stored.map((s) => [s.id, s]));
+  return builtIn.filter((spec) => {
+    const existing = byId.get(spec.id);
+    if (!existing) return true;
+    if (existing.editedAt) return false;
+    // Compared by value: an unchanged spec should not churn `updatedAt` on every start.
+    return JSON.stringify(existing.spec) !== JSON.stringify(spec);
+  });
+}
