@@ -68,6 +68,14 @@ describe('Cluster Health Inspector', () => {
       </QueryClientProvider>
     );
 
+    /**
+     * Chat is the landing view now, so this navigates to Clusters first.
+     *
+     * The inspector lives on the clusters screen, which the app used to open on. This test asserted
+     * that front door implicitly and caught the change.
+     */
+    await user.click(await screen.findByText('Clusters'));
+
     // Wait for the cluster to render
     const inspectorButton = await screen.findByText(/Cluster Inspector/i);
     await user.click(inspectorButton);

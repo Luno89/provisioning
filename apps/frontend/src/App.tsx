@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap, MessageSquare } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap, Trees as TreesIcon } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -234,7 +234,14 @@ function App() {
   const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
   const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'lab' | 'personas' | 'grove' | 'chat'>(
     // The URL wins on load, so a refresh keeps your place and a link opens where it points.
-    () => resolveView(parseHash(window.location.hash)?.view, KNOWN_VIEWS, 'clusters') as any,
+    /**
+     * Chat is the front door.
+     *
+     * The landing view was 'clusters' — a table of infrastructure, which is what you look at when
+     * something is wrong, not when you arrive. Opening Koala now starts a conversation, and the
+     * projects are one click away.
+     */
+    () => resolveView(parseHash(window.location.hash)?.view, KNOWN_VIEWS, 'chat') as any,
   );
 
   /**
@@ -1095,20 +1102,20 @@ function App() {
               pane — a navigator with no destination, which is what made the front door of the
               product feel like a file browser. Grove's landing answers what happened and what is
               owed instead. */}
-          <button
-            onClick={() => setView('grove')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${view === 'grove' ? 'bg-[var(--leaf-stem)] text-white' : 'text-slate-300 hover:bg-[var(--bark-700)]'}`}
-          >
-            <Koala size={20} mood={view === 'grove' ? 'happy' : 'idle'} /> Koala
-          </button>
-
-          {/* General chat, beside the Grove rather than inside it: the Grove is for building, and
-              you should not have to pick a tree before asking a question. */}
+          {/* Koala IS the chat now. The Grove sits under it as Projects: you arrive in a
+              conversation, and go to the projects when you want to build. */}
           <button
             onClick={() => setView('chat')}
-            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'chat' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${view === 'chat' ? 'bg-[var(--leaf-stem)] text-white' : 'text-slate-300 hover:bg-[var(--bark-700)]'}`}
           >
-            <MessageSquare size={15} /> Chat
+            <Koala size={20} mood={view === 'chat' ? 'happy' : 'idle'} /> Koala
+          </button>
+
+          <button
+            onClick={() => setView('grove')}
+            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'grove' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
+          >
+            <TreesIcon size={15} /> Projects
           </button>
 
           {/* Indented under Koala rather than listed beside it: a tree is the scope conversations

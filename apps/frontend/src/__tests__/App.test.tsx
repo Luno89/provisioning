@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
@@ -40,8 +40,15 @@ describe('App Dashboard', () => {
 
   it('switches between Clusters and Applications views', async () => {
     render(<App />, { wrapper });
-    
-    // Default view is clusters
+
+    /**
+     * Chat is the landing view now, so this navigates to Clusters first.
+     *
+     * It used to be 'clusters' — a table of infrastructure, which is what you look at when
+     * something is wrong rather than when you arrive. This test asserted the old front door and
+     * caught the change, which is what it is for.
+     */
+    fireEvent.click(screen.getByText('Clusters'));
     expect(screen.getByText('Infrastructures')).toBeInTheDocument();
     
     // Switch to apps

@@ -28,6 +28,8 @@ interface ProposedTree {
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  /** Deliberation, kept apart from the answer so it can be collapsed. */
+  reasoning?: string;
   at: string;
   /** Services hooked up while producing this message — a record, not the model's claim. */
   enabled?: string[];
@@ -51,6 +53,7 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [live, setLive] = useState('');
+  const [liveThinking, setLiveThinking] = useState('');
   const [liveEnabled, setLiveEnabled] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -110,6 +113,7 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
     setError(null);
     setStreaming(true);
     setLive('');
+    setLiveThinking('');
     setLiveEnabled([]);
     try {
       const res = await fetch(`${apiBase}/koala/chat`, {
@@ -136,6 +140,9 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
           try {
             const frame = JSON.parse(payload);
             if (frame.delta) setLive((prev) => prev + frame.delta);
+            // Streamed from the first round, so a turn that spends eighty seconds deciding what to
+            // do shows its working rather than a spinner.
+            if (frame.reasoning) setLiveThinking((prev) => prev + frame.reasoning);
             // Shown as it happens rather than trusting the model to mention it.
             if (frame.enabled) setLiveEnabled((prev) => [...prev, ...frame.enabled]);
             if (frame.proposedTree) qc.invalidateQueries({ queryKey: ['koala-conversation', id] });
@@ -147,6 +154,7 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
     } finally {
       setStreaming(false);
       setLive('');
+      setLiveThinking('');
       setLiveEnabled([]);
       qc.invalidateQueries({ queryKey: ['koala-conversation', id] });
       qc.invalidateQueries({ queryKey: ['koala-conversations'] });
@@ -195,6 +203,7 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
           {(thread?.messages ?? []).map((m, i) => (
             <div key={i} className={m.role === 'user' ? 'self-end max-w-[80%]' : 'max-w-[85%]'}>
               {m.enabled?.length ? <EnabledLine names={m.enabled} /> : null}
+              {m.reasoning?.trim() ? <Thinking text={m.reasoning} /> : null}
               <div className={`rounded-2xl px-4 py-2.5 text-[14px] whitespace-pre-wrap ${
                 m.role === 'user'
                   ? 'bg-[var(--leaf-stem)] text-white'
@@ -206,12 +215,13 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
           ))}
 
           {liveEnabled.length > 0 && <EnabledLine names={liveEnabled} />}
+          {liveThinking.trim() && <Thinking text={liveThinking} open={!live} live={!live} />}
           {live && (
             <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-[14px] whitespace-pre-wrap bg-[var(--bark-800)] text-slate-200 border border-[var(--bark-600)]">
               {live}
             </div>
           )}
-          {streaming && !live && (
+          {streaming && !live && !liveThinking && (
             <div className="flex items-center gap-2 text-[12px] text-slate-500">
               <Loader2 size={13} className="animate-spin" /> Koala is thinking…
             </div>
@@ -263,6 +273,31 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * Deliberation, collapsed.
+ *
+ * Open while it is the only thing there and closed once the answer arrives, so a long think is
+ * visible as it happens and out of the way afterwards — the same shape branch chat uses, because
+ * it is the same model doing the same kind of work.
+ *
+ * Blank reasoning is never rendered: `pre-wrap` faithfully preserves newlines, and a disclosure
+ * holding nothing but them shows up as a mysterious vertical gap.
+ */
+function Thinking({ text, open, live }: { text: string; open?: boolean; live?: boolean }) {
+  return (
+    <details className="mb-1.5 group" open={open}>
+      <summary className="text-[11px] uppercase tracking-widest text-slate-500 cursor-pointer select-none">
+        Thinking{live ? '…' : ''}
+      </summary>
+      {/* pre-wrap rather than markdown: deliberation is not written as markdown, and its
+          indentation is often the only structure it has. */}
+      <div className="mt-1 text-[12px] text-slate-500 whitespace-pre-wrap leading-relaxed border-l-2 border-[var(--bark-600)] pl-3">
+        {text.trim()}
+      </div>
+    </details>
   );
 }
 
