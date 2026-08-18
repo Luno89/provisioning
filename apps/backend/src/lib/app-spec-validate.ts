@@ -122,6 +122,24 @@ export function validateSpec(raw: unknown): SpecProblem[] {
   }
 
   /**
+   * Two generated values cannot share one secret key.
+   *
+   * Observed on the first spec Koala wrote: `MONGO_INITDB_ROOT_USERNAME` and
+   * `MONGO_INITDB_ROOT_PASSWORD` both read `mongo-credentials`, so the second generated value
+   * overwrites the first and the container receives the same string for both. Nothing fails — the
+   * app starts with a username equal to its password, which is worse than a crash because it works.
+   */
+  const seen = new Map<string, string>();
+  for (const [i, e] of (spec.env ?? []).entries()) {
+    if (!e?.fromSecret) continue;
+    const prior = seen.get(e.fromSecret);
+    if (prior) {
+      say(`env[${i}].fromSecret`, `"${e.fromSecret}" is already used by ${prior} — two values sharing a key overwrite each other.`);
+    }
+    seen.set(e.fromSecret, e.name);
+  }
+
+  /**
    * The structural escapes, found anywhere at any depth.
    *
    * Scanned over the whole object rather than checked field by field: the schema is what is

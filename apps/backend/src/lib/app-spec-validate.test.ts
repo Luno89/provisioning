@@ -109,6 +109,35 @@ describe('generated credentials', () => {
   });
 });
 
+describe('two generated values sharing one secret key', () => {
+  it('refuses it, because the second overwrites the first', () => {
+    /**
+     * Observed on the first spec Koala wrote: both mongo credentials read `mongo-credentials`, so
+     * the container would receive the same string for username and password. Nothing fails — the
+     * app starts with a username equal to its password, which is worse than a crash because it
+     * works.
+     */
+    const problems = validateSpec({
+      ...ok(),
+      env: [
+        { name: 'MONGO_INITDB_ROOT_USERNAME', generate: 'username', fromSecret: 'creds' },
+        { name: 'MONGO_INITDB_ROOT_PASSWORD', generate: 'password', fromSecret: 'creds' },
+      ],
+    });
+    expect(problems.some((p) => /overwrite each other/.test(p.problem))).toBe(true);
+  });
+
+  it('accepts distinct keys', () => {
+    expect(validateSpec({
+      ...ok(),
+      env: [
+        { name: 'USER', generate: 'username', fromSecret: 'user' },
+        { name: 'PASS', generate: 'password', fromSecret: 'pass' },
+      ],
+    })).toEqual([]);
+  });
+});
+
 describe('what the author is told', () => {
   it('reports EVERY problem, not the first', () => {
     /**

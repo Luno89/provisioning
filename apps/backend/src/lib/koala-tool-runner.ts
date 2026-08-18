@@ -123,6 +123,9 @@ export async function runKoalaTool(
       const infra = describeInfrastructure(await db.getDeployments(), userId);
       return json({
         running: infra.running,
+        // First, because it is the thing that needs doing. A broken deployment Koala proposed is
+        // the one question it should answer before anything else it might be asked.
+        ...(infra.broken.length ? { broken: infra.broken } : {}),
         deployable: infra.deployable,
         /**
          * Said plainly, because the absence is the part that gets ignored. A model reading a list
@@ -131,7 +134,11 @@ export async function runKoalaTool(
          */
         note: 'Anything not in `running` and not in `deployable` does not exist here and cannot be '
           + 'built — say so rather than planning around it. Connection addresses are resolved when a '
-          + 'service is deployed; do not invent one.',
+          + 'service is deployed; do not invent one.'
+          + (infra.broken.length
+            ? ' Something in `broken` is deployed and not working: read the reason, and if it came '
+              + 'from an app spec, propose a corrected one rather than deploying it again unchanged.'
+            : ''),
       });
     }
 

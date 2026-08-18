@@ -453,3 +453,69 @@ describe('proposing a new app type', () => {
     expect((tool.function.parameters as any).required).toContain('resources');
   });
 });
+
+
+describe('knowing that something it built is broken', () => {
+  /**
+   * ── WHY VALIDATION WAS NEVER GOING TO BE ENOUGH ──
+   * The first spec Koala wrote deployed and crash-looped: it set `--noauth` alongside root
+   * credentials, and Mongo refuses to start with both —
+   * `auth is not allowed when noauth is specified`. No generic validator catches that. It is one
+   * app's flag semantics, and encoding every app's would be writing the fifteen constructs again in
+   * another form.
+   *
+   * So the answer is a feedback loop, not more rules. The reconciliation loop already probes and
+   * writes `healthReason`; this is what carries it back to the thing that can fix the spec.
+   */
+  const broken = [
+    { id: 'd1', name: 'spec-mongo', appType: 'mongo', status: 'unhealthy', ownerId: 'u1',
+      healthReason: 'auth is not allowed when noauth is specified' },
+    { id: 'd2', name: 'fine', appType: 'qdrant', status: 'running', ownerId: 'u1' },
+    { id: 'd3', name: 'starting', appType: 'minio', status: 'deploying', ownerId: 'u1' },
+    { id: 'd4', name: 'theirs', appType: 'mongo', status: 'unhealthy', ownerId: 'u2' },
+  ];
+
+  it('reports what is broken, with the reason', async () => {
+    const db = await seeded();
+    for (const d of broken) await db.saveDeployment(d as any);
+    const out = await run(db, 'list_infrastructure');
+    expect(out.body.broken).toEqual([
+      { name: 'spec-mongo', type: 'mongo', reason: 'auth is not allowed when noauth is specified' },
+    ]);
+  });
+
+  it('leaves out what is merely still deploying', async () => {
+    // Not broken, not finished. Reporting it would have Koala fixing something that is working.
+    const db = await seeded();
+    for (const d of broken) await db.saveDeployment(d as any);
+    const names = (await run(db, 'list_infrastructure')).body.broken.map((b: any) => b.name);
+    expect(names).not.toContain('starting');
+    expect(names).not.toContain('theirs');
+  });
+
+  it('tells Koala to fix the SPEC rather than redeploy it unchanged', async () => {
+    /**
+     * The instruction that makes the loop a loop. Without it the obvious move is to try again, and
+     * a spec that cannot start does not start the second time either.
+     */
+    const db = await seeded();
+    for (const d of broken) await db.saveDeployment(d as any);
+    expect((await run(db, 'list_infrastructure')).body.note).toMatch(/propose a corrected one/);
+  });
+
+  it('says nothing about broken things when nothing is', async () => {
+    // A permanently present empty list is noise that stops being read.
+    const db = await seeded();
+    await db.saveDeployment(broken[1] as any);
+    const out = await run(db, 'list_infrastructure');
+    expect(out.body.broken).toBeUndefined();
+    expect(out.body.note).not.toMatch(/propose a corrected one/);
+  });
+
+  it('falls back to the status when no reason was recorded', async () => {
+    // "Unhealthy" alone still beats silence; it just sends someone to kubectl.
+    const db = await seeded();
+    await db.saveDeployment({ id: 'd9', name: 'x', appType: 'mongo', status: 'failed', ownerId: 'u1' } as any);
+    expect((await run(db, 'list_infrastructure')).body.broken[0].reason).toBe('status is failed');
+  });
+});

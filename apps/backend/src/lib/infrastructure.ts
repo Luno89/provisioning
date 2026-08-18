@@ -37,6 +37,20 @@ export interface RunningService {
 export interface Infrastructure {
   running: RunningService[];
   /**
+   * Deployed and NOT working, with why.
+   *
+   * ── WHY THIS IS ITS OWN LIST ──
+   * The first spec Koala wrote deployed and crash-looped: it set `--noauth` alongside root
+   * credentials, and Mongo refuses to start with both. No generic validator catches that — it is
+   * one app's flag semantics, and encoding every app's would be writing the fifteen constructs
+   * again in another form.
+   *
+   * So the answer is not more validation, it is a feedback loop. Koala proposed a spec, it failed,
+   * and nothing told Koala. The reconciliation loop already knows — it probes and writes
+   * `healthReason` — and this is what carries that back to the thing that can fix the spec.
+   */
+  broken: { name: string; type: string; reason: string }[];
+  /**
    * Everything this platform knows how to deploy, with what each one IS.
    *
    * Ids alone were unreadable: nothing said `qdrant` is a vector database or `tei` an embedding
@@ -50,6 +64,8 @@ interface DeploymentLike {
   appType?: string | undefined;
   status?: string | undefined;
   ownerId?: string | undefined;
+  /** Why it is unhealthy, written by the reconciliation loop's probe. */
+  healthReason?: string | undefined;
 }
 
 /**
@@ -77,6 +93,18 @@ export function describeInfrastructure(
           : {}),
         // Namespaces are the deployment name, sanitised the same way the deploy path does it.
         namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+      })),
+    /**
+     * `unhealthy` and `failed` both mean "deployed and not working" to somebody trying to fix it.
+     * `deploying` is excluded: it is not broken, it is not finished.
+     */
+    broken: deployments
+      .filter((d) => d.ownerId === ownerId && (d.status === 'unhealthy' || d.status === 'failed'))
+      .map((d) => ({
+        name: d.name,
+        type: d.appType ?? 'unknown',
+        // The probe's own words, when there are any. "Unhealthy" alone sends someone to kubectl.
+        reason: d.healthReason?.trim() || `status is ${d.status}`,
       })),
     deployable: (APP_TYPES as readonly AppType[]).map((id) => ({ id, ...APP_FACTS[id] })),
   };
