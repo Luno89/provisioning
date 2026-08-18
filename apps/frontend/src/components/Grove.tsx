@@ -3,8 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import {
   ChevronRight, ChevronDown, GitBranch, Plus, Loader2,
-  PanelLeftClose, PanelLeftOpen, Trash2, Trees as TreesIcon, Inbox,
-} from 'lucide-react';
+  PanelLeftClose, PanelLeftOpen, Trash2, Trees as TreesIcon, Inbox, AlertTriangle } from 'lucide-react';
 import BranchChat, { type BranchRecord } from './BranchChat.js';
 import Home from './Home.js';
 import NewTreeDialog from './NewTreeDialog.js';
@@ -211,9 +210,26 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
       refresh();
     },
   });
+  /**
+   * Why an accept was refused.
+   *
+   * ── THE BUG THIS FIXES ──
+   * There was no `onError`, so a 409 went nowhere: the button did nothing, no message appeared, and
+   * the leaf sat there looking clickable. Reported as "I can't click accept" on the second branch of
+   * a tree, which is exactly where it bites — the acceptance-plan guard is checked per BRANCH, and a
+   * second branch starts with none, so every leaf on it is refused until someone sets one.
+   *
+   * The refusals are all actionable ("assign a persona", "ask the planner to call set_acceptance"),
+   * which is worth nothing while they are swallowed.
+   */
+  const [acceptError, setAcceptError] = useState<string | null>(null);
+  const refusal = (err: any) =>
+    err?.response?.data?.error ?? err?.message ?? 'That could not be accepted.';
+
   const accept = useMutation({
     mutationFn: (id: string) => axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true }),
-    onSuccess: refresh,
+    onSuccess: () => { setAcceptError(null); refresh(); },
+    onError: (err) => setAcceptError(refusal(err)),
   });
   const reject = useMutation({
     mutationFn: (id: string) => axios.delete(`${apiBase}/leaves/${id}`, { withCredentials: true }),
@@ -223,9 +239,14 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
     // Sequential, not parallel: each accept re-checks the branch budget, and firing them at once
     // would let several slip through a ceiling that only had room for one.
     mutationFn: async (ids: string[]) => {
+      let failed: string | null = null;
       for (const id of ids) {
-        await axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true }).catch(() => {});
+        // The FIRST refusal is kept and the rest of the batch still runs: one leaf missing a
+        // persona should not stop its siblings, and reporting the last one would hide the cause.
+        await axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true })
+          .catch((err) => { if (!failed) failed = refusal(err); });
       }
+      setAcceptError(failed);
     },
     onSuccess: refresh,
   });
@@ -318,7 +339,17 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
   };
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] gap-0">
+    <div className="flex h-[calc(100vh-7rem)] gap-0 relative">
+      {acceptError && (
+        /* Above everything, because the click that caused it may have been anywhere in the tree. */
+        <div className="absolute top-0 left-0 right-0 z-30 m-2 rounded-xl border border-amber-500/40 bg-amber-950/60 px-4 py-2.5 flex items-start gap-3">
+          <AlertTriangle size={15} className="text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-[12px] text-amber-100 leading-relaxed flex-1">{acceptError}</p>
+          <button onClick={() => setAcceptError(null)} className="text-amber-400/70 hover:text-amber-200 text-[11px]">
+            dismiss
+          </button>
+        </div>
+      )}
       {/* ── Navigator: tree → branch → leaf ── */}
       <aside className={`${railClosed ? 'w-0 opacity-0 overflow-hidden hidden' : 'w-72 pr-3'} shrink-0 border-r border-[var(--bark-600)] overflow-y-auto transition-all duration-200`}>
         <div className="flex items-center justify-between mb-3 pl-2">

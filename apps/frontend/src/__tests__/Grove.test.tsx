@@ -417,3 +417,52 @@ describe('chat mode surviving the navigator', () => {
     await waitFor(() => expect(detail().getByText('/auto')).toBeInTheDocument());
   });
 });
+
+
+describe('an accept the server refuses', () => {
+  /**
+   * ── THE BUG ──
+   * Reported as "I can't click accept" on the second branch of a tree. There was no `onError`, so a
+   * 409 went nowhere: the button did nothing, no message appeared, and the leaf sat there looking
+   * clickable.
+   *
+   * The second branch is exactly where it bites. The acceptance-plan guard is checked per BRANCH and
+   * a second branch starts with none — measured on the live database, every FIRST branch had one
+   * check and every second had zero, with its leaves stuck at `proposed`.
+   *
+   * The refusals are all actionable ("assign a persona", "ask the planner to call set_acceptance"),
+   * which is worth nothing while they are swallowed.
+   */
+  it('shows why, instead of doing nothing', async () => {
+    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
+    mockedAxios.post.mockRejectedValue({
+      response: { data: { error: 'Nothing would check the finished result. Ask the planner to call set_acceptance for this request.' } },
+    });
+    renderGrove();
+    await openTree();
+    await openBranch('Rate limiting work');
+    await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
+
+    fireEvent.click(detail().getByTitle('Accept — starts the work'));
+
+    expect(await screen.findByText(/Ask the planner to call set_acceptance/)).toBeInTheDocument();
+  });
+
+  it('clears the warning once an accept succeeds', async () => {
+    // A refusal that outlives the problem is its own bug: the next accept works and the banner
+    // still says it did not.
+    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
+    mockedAxios.post.mockRejectedValueOnce({ response: { data: { error: 'Assign a persona first.' } } });
+    renderGrove();
+    await openTree();
+    await openBranch('Rate limiting work');
+    await waitFor(() => expect(detail().getByTitle('Accept — starts the work')).toBeInTheDocument());
+
+    fireEvent.click(detail().getByTitle('Accept — starts the work'));
+    expect(await screen.findByText(/Assign a persona first/)).toBeInTheDocument();
+
+    mockedAxios.post.mockResolvedValue({ data: {} });
+    fireEvent.click(detail().getByTitle('Accept — starts the work'));
+    await waitFor(() => expect(screen.queryByText(/Assign a persona first/)).not.toBeInTheDocument());
+  });
+});
