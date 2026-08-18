@@ -3563,6 +3563,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             {
               db, userId, conversationId: conversation!.id, sessionId,
               servers, webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage,
+              /**
+               * Read-only, and only ever the two diagnostic commands the runner builds — it takes
+               * an argument array, never a string, so nothing a model writes reaches a shell.
+               */
+              kubectl: (a: string[]) => new InfrastructureService().runKubectl(a).then((r: any) =>
+                typeof r === 'string' ? r : (r?.stdout ?? '')),
             },
             { name: c.name, arguments: c.arguments },
           );

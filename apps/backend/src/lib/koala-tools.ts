@@ -18,7 +18,7 @@ const TREE_TYPE_IDS = TREE_TYPES.map((t) => t.id);
 
 export const KOALA_TOOL_NAMES = [
   'list_mcp_servers', 'enable_mcp_server', 'propose_tree', 'propose_spec', 'list_trees',
-  'list_infrastructure', 'web_search', 'fetch_web_page',
+  'list_infrastructure', 'get_logs', 'get_events', 'web_search', 'fetch_web_page',
 ] as const;
 
 export const KOALA_TOOLS = [
@@ -204,6 +204,45 @@ export const KOALA_TOOLS = [
           },
         },
         required: ['id', 'image', 'ports', 'resources'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      /**
+       * Added after Koala guessed. It found a crash-looping MongoDB and said the cause was
+       * "insufficient memory or a missing persistent volume" — plausible and wrong. The real reason
+       * was in the pod's own output, which nothing let it read.
+       */
+      name: 'get_logs',
+      description:
+        'The recent output of a deployment, for working out WHY it is not working. Read this before '
+        + 'saying what is wrong with something in `broken` — the cause is almost always in the last '
+        + 'few lines, and guessing from the app name sends the fix in the wrong direction.',
+      parameters: {
+        type: 'object',
+        properties: {
+          deployment: { type: 'string', description: 'The deployment name, as reported by list_infrastructure.' },
+        },
+        required: ['deployment'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_events',
+      description:
+        'Recent Kubernetes events for a deployment. Answers the failures logs cannot: an image that '
+        + 'will not pull, a volume that never bound, a pod that was never scheduled. Use it when '
+        + 'get_logs is empty — a container that never started has no output.',
+      parameters: {
+        type: 'object',
+        properties: {
+          deployment: { type: 'string', description: 'The deployment name, as reported by list_infrastructure.' },
+        },
+        required: ['deployment'],
       },
     },
   },

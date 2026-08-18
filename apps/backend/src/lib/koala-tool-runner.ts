@@ -6,6 +6,7 @@ import { preferUsable, type McpServer } from './mcp-registry.js';
 import { TREE_TYPES } from './trees.js';
 import { rollup } from './tree-board.js';
 import { describeInfrastructure } from './infrastructure.js';
+import { namespaceFor, logsCommand, eventsCommand, trimOutput } from './kube-diagnostics.js';
 import { validateSpec, explainSpecProblems } from './app-spec-validate.js';
 import type { AppSpec } from './app-spec.js';
 
@@ -26,6 +27,11 @@ export interface KoalaToolContext {
   servers: readonly McpServer[];
   webSearch: (query: string) => Promise<{ title: string; snippet: string; url: string }[]>;
   fetchWebPage: (url: string) => Promise<string>;
+  /**
+   * Runs a READ-ONLY kubectl command. Optional: absent says so rather than reporting no output,
+   * because "cannot look" and "nothing to see" lead to opposite conclusions.
+   */
+  kubectl?: ((args: string[]) => Promise<string>) | undefined;
 }
 
 export interface KoalaToolResult {
@@ -51,7 +57,7 @@ export async function runKoalaTool(
   ctx: KoalaToolContext,
   call: { name: string; arguments: string },
 ): Promise<KoalaToolResult> {
-  const { db, userId, conversationId, sessionId, servers } = ctx;
+  const { db, userId, conversationId, sessionId, servers, kubectl } = ctx;
   let args: Record<string, unknown> = {};
   try {
     args = JSON.parse(call.arguments || '{}');
@@ -199,6 +205,42 @@ export async function runKoalaTool(
         }),
         proposedSpec: proposal,
       };
+    }
+
+    if (call.name === 'get_logs' || call.name === 'get_events') {
+      if (!kubectl) {
+        // "Cannot look" and "nothing to see" must not read alike, exactly as with the registry.
+        return json({ error: 'Cluster access is not available here, so the cause cannot be read.' });
+      }
+      const wanted = typeof args.deployment === 'string' ? args.deployment : '';
+      const deployments = (await db.getDeployments()).map((d) => ({
+        name: d.name,
+        namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+        ownerId: d.ownerId,
+      }));
+      /**
+       * Resolved from THEIR deployments, never from the argument. A namespace taken straight from a
+       * tool call would let any string be read, which is every other namespace on the cluster — and
+       * pod logs routinely contain a connection string or a token.
+       */
+      const namespace = namespaceFor(wanted, deployments, userId);
+      if (!namespace) {
+        return json({ error: `No deployment named "${wanted}".` });
+      }
+
+      const out = await kubectl(
+        call.name === 'get_logs' ? logsCommand(namespace) : eventsCommand(namespace),
+      ).catch((err: any) => `could not read: ${String(err?.message ?? err).slice(0, 200)}`);
+      const text = trimOutput(out);
+      return json({
+        deployment: wanted,
+        [call.name === 'get_logs' ? 'logs' : 'events']: text || '(nothing)',
+        ...(text ? {} : {
+          note: call.name === 'get_logs'
+            ? 'No output. A container that never started has none — try get_events.'
+            : 'No recent events.',
+        }),
+      });
     }
 
     if (call.name === 'list_trees') {
