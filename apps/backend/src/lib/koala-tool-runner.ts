@@ -1,11 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
-import type { Conversation, ProposedTree } from './conversations.js';
+import type { Conversation, ProposedTree, ProposedSpec } from './conversations.js';
 import { withEnabled, enabledForSession } from './conversations.js';
 import { preferUsable, type McpServer } from './mcp-registry.js';
 import { TREE_TYPES } from './trees.js';
 import { rollup } from './tree-board.js';
 import { describeInfrastructure } from './infrastructure.js';
+import { validateSpec, explainSpecProblems } from './app-spec-validate.js';
+import type { AppSpec } from './app-spec.js';
 
 /**
  * Executing the tools a general-chat turn calls.
@@ -39,6 +41,8 @@ export interface KoalaToolResult {
   enabled?: string;
   /** A project proposed by this call, for the reply to carry back to the UI. */
   proposed?: ProposedTree;
+  /** An app type proposed by this call. */
+  proposedSpec?: ProposedSpec;
 }
 
 const json = (value: unknown): KoalaToolResult => ({ content: JSON.stringify(value) });
@@ -129,6 +133,50 @@ export async function runKoalaTool(
           + 'built — say so rather than planning around it. Connection addresses are resolved when a '
           + 'service is deployed; do not invent one.',
       });
+    }
+
+    if (call.name === 'propose_spec') {
+      /**
+       * Validated here, not at acceptance.
+       *
+       * A refusal reaching the model in the turn that wrote the spec is one it can act on — it has
+       * the context and can fix it. The same check runs again on accept, because a proposal can sit
+       * for a week and the rules can change under it.
+       */
+      const problems = validateSpec(args);
+      if (problems.length) {
+        return json({ error: explainSpecProblems(problems) });
+      }
+
+      const conversation = (await db.getConversations())
+        .find((c) => c.id === conversationId && c.ownerId === userId);
+      if (!conversation) return json({ error: 'This conversation no longer exists.' });
+
+      const spec = args as unknown as AppSpec;
+      // An id already in the catalogue would be an edit, not an addition, and those are different
+      // decisions — one replaces something people may be running.
+      const taken = (await db.getAppSpecs()).some((s) => s.id === spec.id);
+      if (taken) {
+        return json({ error: `"${spec.id}" is already deployable. Nothing to add.` });
+      }
+
+      const proposal: ProposedSpec = {
+        id: spec.id,
+        spec,
+        proposedAt: new Date().toISOString(),
+      };
+      await db.saveConversation({
+        ...conversation,
+        proposedSpecs: [...(conversation.proposedSpecs ?? []), proposal],
+        updatedAt: proposal.proposedAt,
+      });
+      return {
+        content: JSON.stringify({
+          proposed: { id: spec.id, image: spec.image },
+          note: 'Proposed only. It is not deployable until the user accepts it.',
+        }),
+        proposedSpec: proposal,
+      };
     }
 
     if (call.name === 'list_trees') {

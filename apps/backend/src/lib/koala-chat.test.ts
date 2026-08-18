@@ -390,3 +390,66 @@ describe('knowing what the cluster actually has', () => {
     expect(KOALA_PROMPT).toMatch(/does not exist here and cannot be built/);
   });
 });
+
+describe('proposing a new app type', () => {
+  /**
+   * Adding a deployable app is a RECORD now, not a construct — so this is how Koala closes the gap
+   * that started all of it: asked for MongoDB caching on a platform with no MongoDB, it can now
+   * propose one instead of planning around the absence.
+   *
+   * Proposed and accepted like everything else it creates. A spec runs containers in someone's
+   * cluster, and the moment before it exists is the cheapest place to look at it.
+   */
+  const mongo = {
+    id: 'mongo',
+    image: 'mongo:7',
+    ports: [{ name: 'mongo', port: 27017 }],
+    env: [{ name: 'MONGO_INITDB_ROOT_PASSWORD', fromSecret: 'password', generate: 'password' }],
+    volumes: [{ path: '/data/db', size: '10Gi' }],
+    resources: { limits: { memory: '1Gi', cpu: '1000m' } },
+  };
+
+  it('records it and says plainly that nothing is deployable yet', async () => {
+    const db = await seeded();
+    const out = await run(db, 'propose_spec', mongo);
+    expect(out.proposedSpec?.id).toBe('mongo');
+    expect(out.body.note).toMatch(/not deployable until the user accepts/);
+    expect((await db.getConversations())[0].proposedSpecs).toHaveLength(1);
+  });
+
+  it('refuses one that would escape its namespace, in the turn that wrote it', async () => {
+    /**
+     * Validated at propose time so the refusal reaches the model while it still has the context to
+     * fix it. The same check runs again on accept, because a proposal can sit for a week.
+     */
+    const db = await seeded();
+    const out = await run(db, 'propose_spec', { ...mongo, hostPath: '/etc' });
+    expect(out.proposedSpec).toBeUndefined();
+    expect(out.body.error).toMatch(/may not reach the node/);
+    expect((await db.getConversations())[0].proposedSpecs ?? []).toHaveLength(0);
+  });
+
+  it('refuses one with no memory limit', async () => {
+    const db = await seeded();
+    const { resources, ...noLimits } = mongo;
+    expect((await run(db, 'propose_spec', noLimits)).body.error).toMatch(/memory limit/);
+  });
+
+  it('refuses to re-add something already deployable', async () => {
+    // That would be an edit, not an addition, and an edit replaces something people may be running.
+    const db = await seeded();
+    await db.saveAppSpec({ id: 'mongo', spec: mongo as any, builtIn: false, createdAt: 'n', updatedAt: 'n' });
+    expect((await run(db, 'propose_spec', mongo)).body.error).toMatch(/already deployable/);
+  });
+
+  it('is offered, and told never to write a password', async () => {
+    /**
+     * The rule that keeps a spec safe to author. A generated credential is minted by the platform
+     * and injected from a Secret; Koala never holds one and never writes one down.
+     */
+    const tool = KOALA_TOOLS.find((t) => t.function.name === 'propose_spec')!;
+    const env: any = (tool.function.parameters as any).properties.env;
+    expect(env.description).toMatch(/Never write a password here/);
+    expect((tool.function.parameters as any).required).toContain('resources');
+  });
+});

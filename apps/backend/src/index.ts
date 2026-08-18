@@ -82,7 +82,8 @@ import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';
-import { specsToSeed } from './lib/app-spec.js';
+import { specsToSeed, type AppSpec } from './lib/app-spec.js';
+import { validateSpec, explainSpecProblems } from './lib/app-spec-validate.js';
 import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
 import type { AcceptanceCheck } from './lib/acceptance.js';
 import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
@@ -3277,6 +3278,50 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   /**
+   * Accepting a proposed app type.
+   *
+   * Validated AGAIN here, not only when it was proposed. A proposal can sit for a week, and the
+   * rules can change under it — a spec that was acceptable then and is not now must be refused at
+   * the moment it would become real, which is this one.
+   */
+  app.post('/api/koala/conversations/:id/specs/:proposalId/accept', async (req, res) => {
+    const userId = (req as any).user.id;
+    const conversation = (await ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedSpecs ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+    if (proposal.acceptedAt) return res.status(409).json({ error: 'That app type already exists' });
+
+    const problems = validateSpec(proposal.spec);
+    if (problems.length) return res.status(400).json({ error: explainSpecProblems(problems) });
+
+    // An id taken since the proposal was made would be an edit, not an addition — and those replace
+    // something people may already be running.
+    if ((await db.getAppSpecs()).some((s) => s.id === proposal.id)) {
+      return res.status(409).json({ error: `"${proposal.id}" is already deployable.` });
+    }
+
+    const now = new Date().toISOString();
+    await db.saveAppSpec({
+      id: proposal.id,
+      spec: proposal.spec as AppSpec,
+      // Not built in: the repo does not manage it, and seeding must never touch it.
+      builtIn: false,
+      ownerId: userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.saveConversation({
+      ...conversation,
+      proposedSpecs: (conversation.proposedSpecs ?? [])
+        .map((p) => (p.id === proposal.id ? { ...p, acceptedAt: now } : p)),
+      updatedAt: now,
+    });
+    console.log(`[app-specs] ${userId.slice(0, 8)} accepted a new app type: ${proposal.id}`);
+    res.json({ id: proposal.id });
+  });
+
+  /**
    * One general-chat turn.
    *
    * ── WHY THE TOOL ROUNDS ARE NOT STREAMED ──
@@ -3497,6 +3542,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           if (out.proposed) {
             proposed.push(out.proposed);
             res.write(`data: ${JSON.stringify({ proposedTree: out.proposed })}\n\n`);
+          }
+          if (out.proposedSpec) {
+            res.write(`data: ${JSON.stringify({ proposedSpec: out.proposedSpec })}\n\n`);
           }
           turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });
         }

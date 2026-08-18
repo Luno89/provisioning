@@ -50,6 +50,16 @@ export interface ProposedTree {
   treeId?: string;
 }
 
+/** An app type Koala thinks should exist. Nothing is deployable until a human accepts it. */
+export interface ProposedSpec {
+  id: string;
+  /** The spec itself, already validated when it was proposed. */
+  spec: unknown;
+  proposedAt: string;
+  /** Set when accepted, so the card links to what it became rather than offering twice. */
+  acceptedAt?: string;
+}
+
 export interface Conversation {
   id: string;
   ownerId: string;
@@ -63,6 +73,7 @@ export interface Conversation {
   sessionId?: string;
   enabledMcp?: string[];
   proposedTrees?: ProposedTree[];
+  proposedSpecs?: ProposedSpec[];
   createdAt: string;
   updatedAt: string;
 }

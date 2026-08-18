@@ -17,8 +17,8 @@ const TREE_TYPE_IDS = TREE_TYPES.map((t) => t.id);
  */
 
 export const KOALA_TOOL_NAMES = [
-  'list_mcp_servers', 'enable_mcp_server', 'propose_tree', 'list_trees', 'list_infrastructure',
-  'web_search', 'fetch_web_page',
+  'list_mcp_servers', 'enable_mcp_server', 'propose_tree', 'propose_spec', 'list_trees',
+  'list_infrastructure', 'web_search', 'fetch_web_page',
 ] as const;
 
 export const KOALA_TOOLS = [
@@ -113,6 +113,98 @@ export const KOALA_TOOLS = [
         + 'proposing work that depends on a piece of infrastructure. Anything absent from both lists '
         + 'does not exist here and cannot be built: say so rather than planning around it.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      /**
+       * Adding a deployable app is a RECORD now, not a construct — see lib/app-spec.ts. This is how
+       * Koala writes one. Proposed and accepted like everything else it creates: a spec runs
+       * containers in someone's cluster, and the moment before it exists is the cheapest place to
+       * look at it.
+       */
+      name: 'propose_spec',
+      description:
+        'Propose a new deployable app type, so this platform can deploy something it currently '
+        + 'cannot — a database, a cache, a queue. It is created as a PROPOSAL for a human to accept; '
+        + 'nothing is deployed and nothing is added to the catalogue by calling this. Check '
+        + 'list_infrastructure first: if it is already deployable, propose nothing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            description: 'Lowercase name, e.g. "mongo". Becomes the namespace, Service name and DNS label.',
+          },
+          image: { type: 'string', description: 'Container image with a tag, e.g. "mongo:7".' },
+          args: { type: 'array', items: { type: 'string' }, description: 'Optional container arguments.' },
+          ports: {
+            type: 'array',
+            description: 'At least one. Services target ports by name, so each needs one.',
+            items: {
+              type: 'object',
+              properties: { name: { type: 'string' }, port: { type: 'number' } },
+              required: ['name', 'port'],
+            },
+          },
+          env: {
+            type: 'array',
+            description:
+              'Environment variables. For a credential use `generate` with `fromSecret` and give NO '
+              + 'value — the platform mints it and injects it from a Secret, and you never see it. '
+              + 'Never write a password here.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                value: { type: 'string' },
+                fromSecret: { type: 'string', description: 'Secret key a generated value is read from.' },
+                generate: { type: 'string', enum: ['password', 'username'] },
+              },
+              required: ['name'],
+            },
+          },
+          volumes: {
+            type: 'array',
+            description: 'Persistent disks. Anything that stores data needs one, or it is lost on restart.',
+            items: {
+              type: 'object',
+              properties: { path: { type: 'string' }, size: { type: 'string' } },
+              required: ['path', 'size'],
+            },
+          },
+          resources: {
+            type: 'object',
+            description:
+              'REQUIRED. Both limits must be given — an app with no memory limit can take a node '
+              + 'down and evict everything on it.',
+            properties: {
+              limits: {
+                type: 'object',
+                properties: { cpu: { type: 'string' }, memory: { type: 'string' } },
+                required: ['cpu', 'memory'],
+              },
+              requests: {
+                type: 'object',
+                properties: { cpu: { type: 'string' }, memory: { type: 'string' } },
+              },
+            },
+            required: ['limits'],
+          },
+          liveness: {
+            type: 'object',
+            description: 'An HTTP health check, when the app has one. Omit for anything that does not speak HTTP.',
+            properties: { path: { type: 'string' }, port: { type: 'number' } },
+            required: ['path', 'port'],
+          },
+          ingressPort: {
+            type: 'number',
+            description: 'Only if a person would open this in a browser. Omit for databases and caches.',
+          },
+        },
+        required: ['id', 'image', 'ports', 'resources'],
+      },
     },
   },
   {
