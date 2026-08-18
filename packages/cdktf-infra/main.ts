@@ -1,4 +1,5 @@
 import { App, TerraformStack } from "cdktf";
+import { SpecApp } from "./constructs/spec-app.js";
 import { Construct } from "constructs";
 import { BaseCluster } from "./constructs/cluster.js";
 import { OdooApp } from "./constructs/odoo.js";
@@ -168,6 +169,25 @@ class AppStack extends TerraformStack {
     const vpnConfig = process.env.VPN_CONFIG;
     const vpnDedicatedIp = process.env.VPN_DEDICATED_IP;
     const vpnProps: VpnConfig = vpnEnabled ? { vpnEnabled, vpnProtocol: vpnProtocol || 'wireguard', vpnConfig, vpnDedicatedIp } : {};
+
+    /**
+     * A spec deploys before any construct is consulted.
+     *
+     * This is the migration: `APP_SPEC_JSON` present means the backend rendered this app from a
+     * stored spec, and the fifteen hand-written constructs stay exactly where they are as the
+     * fallback. Nothing breaks while types move over one at a time, and apps with real logic keep
+     * their constructs permanently.
+     */
+    if (process.env.APP_SPEC_JSON) {
+      let rendered: any;
+      try {
+        rendered = JSON.parse(process.env.APP_SPEC_JSON);
+      } catch (err) {
+        throw new Error(`APP_SPEC_JSON is not valid JSON: ${(err as Error).message}`);
+      }
+      new SpecApp(this, "spec-app", { rendered, ...vpnProps });
+      return;
+    }
 
     if (strategy === 'native') {
       if (appType === 'wordpress') {

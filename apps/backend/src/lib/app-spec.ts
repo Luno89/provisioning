@@ -95,6 +95,10 @@ export interface RenderedApp {
   pvcs: { metadata: { name: string; namespace: string }; spec: unknown; waitUntilBound: boolean }[];
   deployment: Record<string, unknown>;
   service: Record<string, unknown>;
+  /** Which port a browser should reach. Absent for apps with nothing a person would open. */
+  ingressPort?: number;
+  /** Where the platform's own probe should look, so a spec-deployed app reports health like any other. */
+  health?: { port: number; path: string };
 }
 
 const secretName = (id: string) => `${id}-secret`;
@@ -190,6 +194,16 @@ export function renderApp(spec: AppSpec, ctx: RenderContext): RenderedApp {
         template: { metadata: { labels: { app: label } }, spec: podSpec },
       },
     },
+    /**
+     * Only when the app has something a person would open. A database has no console, and an
+     * ingress pointing at one is a hostname that answers with a protocol error.
+     */
+    ...(spec.ingressPort ? { ingressPort: spec.ingressPort } : {}),
+    /**
+     * Liveness is what the platform's probe should watch — readiness goes false for ordinary
+     * reasons (a MinIO still scanning its disk) and would report a healthy app as down.
+     */
+    ...(spec.liveness ? { health: { port: spec.liveness.port, path: spec.liveness.path } } : {}),
     service: {
       metadata: { name: spec.id, namespace: ctx.namespace },
       spec: {

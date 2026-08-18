@@ -172,3 +172,52 @@ describe('what this means for adding MongoDB', () => {
     expect(env[1].valueFrom.secretKeyRef).toEqual({ name: 'mongo-secret', key: 'password' });
   });
 });
+
+describe('the contract with the construct', () => {
+  /**
+   * `SpecApp` receives this as JSON across a process boundary — cdktf-infra is a separate workspace
+   * and the backend passes `APP_SPEC_JSON`, the same way `APP_SETTINGS_JSON` already works for game
+   * servers. So the shape is a contract, not a shared type, and only a test keeps the two ends
+   * agreeing.
+   */
+  const out = renderApp(MINIO_SPEC, ctx);
+
+  it('survives the JSON round trip it actually makes', () => {
+    // Anything undefined, a function, or a Date would arrive as something else at the far end.
+    expect(JSON.parse(JSON.stringify(out))).toEqual(out);
+  });
+
+  it('provides every field the construct reads', () => {
+    // SpecApp reads exactly these. A missing one is a runtime crash inside a Terraform apply.
+    expect(out.namespace.metadata.name).toBeTruthy();
+    expect(out.secret?.metadata.name).toBeTruthy();
+    expect(Array.isArray(out.pvcs)).toBe(true);
+    expect((out.deployment as any).spec.template.spec).toBeTruthy();
+    expect((out.service as any).metadata.name).toBeTruthy();
+  });
+
+  it('tells the platform where to probe, using LIVENESS', () => {
+    /**
+     * Readiness goes false for ordinary reasons — a MinIO still scanning its disk answers ready
+     * false while being perfectly healthy — so probing it would report a working app as down.
+     */
+    expect(out.health).toEqual({ port: 9000, path: '/minio/health/live' });
+  });
+
+  it('exposes the console, not the API, to a browser', () => {
+    // 9000 is the S3 API and 9001 the web console; an ingress on 9000 answers a browser with a
+    // protocol error.
+    expect(out.ingressPort).toBe(9001);
+  });
+
+  it('asks for no ingress when there is nothing to open', () => {
+    // A database has no console. An ingress pointing at one is a hostname that fails confusingly.
+    const db: AppSpec = {
+      id: 'mongo', image: 'mongo:7', ports: [{ name: 'mongo', port: 27017 }],
+      resources: { limits: { memory: '1Gi', cpu: '1' } },
+    };
+    const rendered = renderApp(db, { ...ctx, namespace: 'mongo' });
+    expect(rendered.ingressPort).toBeUndefined();
+    expect(rendered.health).toBeUndefined();
+  });
+});
