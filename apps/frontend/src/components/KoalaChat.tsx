@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { MessageSquarePlus, Trash2, Plug, Sprout, Send, Loader2 } from 'lucide-react';
+import SpecProposal from './SpecProposal.js';
 
 /**
  * General chat with Koala — the front door when you have not decided what you are building.
@@ -35,11 +36,18 @@ interface Message {
   enabled?: string[];
 }
 
+interface ProposedSpec {
+  id: string;
+  spec: import('./SpecProposal.js').Spec;
+  acceptedAt?: string;
+}
+
 interface Conversation {
   id: string;
   title: string;
   messages: Message[];
   proposedTrees?: ProposedTree[];
+  proposedSpecs?: ProposedSpec[];
   updatedAt: string;
 }
 
@@ -83,6 +91,18 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
       if (selected === id) setSelected(null);
       qc.invalidateQueries({ queryKey: ['koala-conversations'] });
     },
+  });
+
+  const acceptSpec = useMutation({
+    mutationFn: (proposalId: string) => axios.post(
+      `${apiBase}/koala/conversations/${selected}/specs/${proposalId}/accept`, {}, { withCredentials: true },
+    ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
+      // The catalogue changed, so anything showing what can be deployed is now stale.
+      qc.invalidateQueries({ queryKey: ['persona-options'] });
+    },
+    onError: (err: any) => setError(err?.response?.data?.error ?? 'Could not add that app type.'),
   });
 
   const accept = useMutation({
@@ -145,7 +165,11 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
             if (frame.reasoning) setLiveThinking((prev) => prev + frame.reasoning);
             // Shown as it happens rather than trusting the model to mention it.
             if (frame.enabled) setLiveEnabled((prev) => [...prev, ...frame.enabled]);
-            if (frame.proposedTree) qc.invalidateQueries({ queryKey: ['koala-conversation', id] });
+            // Both refetch the thread rather than being appended locally: the server already wrote
+            // them, and a second copy in state is a second source of truth.
+            if (frame.proposedTree || frame.proposedSpec) {
+              qc.invalidateQueries({ queryKey: ['koala-conversation', id] });
+            }
           } catch { /* a partial frame; the next chunk completes it */ }
         }
       }
@@ -162,6 +186,7 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
   };
 
   const proposals = (thread?.proposedTrees ?? []);
+  const specs = (thread?.proposedSpecs ?? []);
 
   return (
     <div className="flex gap-4 h-[calc(100vh-8rem)]">
@@ -226,6 +251,16 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
               <Loader2 size={13} className="animate-spin" /> Koala is thinking…
             </div>
           )}
+
+          {specs.map((p) => (
+            <SpecProposal
+              key={p.id}
+              spec={p.spec}
+              accepted={Boolean(p.acceptedAt)}
+              pending={acceptSpec.isPending}
+              onAccept={() => acceptSpec.mutate(p.id)}
+            />
+          ))}
 
           {proposals.map((p) => (
             <div key={p.id} className="max-w-[85%] rounded-2xl border border-[var(--leaf)]/40 bg-[var(--leaf)]/5 px-4 py-3">
