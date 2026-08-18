@@ -1,4 +1,4 @@
-import { APP_TYPES, type AppType } from './app-catalog.js';
+import { APP_TYPES, APP_FACTS, type AppType } from './app-catalog.js';
 
 /**
  * What is actually running, and what could be, so Koala stops agreeing to build the impossible.
@@ -27,14 +27,22 @@ import { APP_TYPES, type AppType } from './app-catalog.js';
 export interface RunningService {
   name: string;
   type: string;
+  /** What it is, in plain words. A type id alone is not something to reason from. */
+  is?: string;
+  provides?: string[];
   /** Where it lives in the cluster. The address is derived from this at deploy time, not here. */
   namespace: string;
 }
 
 export interface Infrastructure {
   running: RunningService[];
-  /** Everything this platform knows how to deploy. What is absent here cannot be built. */
-  deployable: readonly AppType[];
+  /**
+   * Everything this platform knows how to deploy, with what each one IS.
+   *
+   * Ids alone were unreadable: nothing said `qdrant` is a vector database or `tei` an embedding
+   * server, so a model could neither pick the right one nor tell that what it wanted was absent.
+   */
+  deployable: { id: AppType; is: string; provides: string[] }[];
 }
 
 interface DeploymentLike {
@@ -61,10 +69,16 @@ export function describeInfrastructure(
       .map((d) => ({
         name: d.name,
         type: d.appType ?? 'unknown',
+        ...(d.appType && d.appType in APP_FACTS
+          ? {
+              is: APP_FACTS[d.appType as AppType].is,
+              provides: APP_FACTS[d.appType as AppType].provides,
+            }
+          : {}),
         // Namespaces are the deployment name, sanitised the same way the deploy path does it.
         namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
       })),
-    deployable: APP_TYPES,
+    deployable: (APP_TYPES as readonly AppType[]).map((id) => ({ id, ...APP_FACTS[id] })),
   };
 }
 
@@ -84,6 +98,7 @@ export function findCapability(
   );
   return {
     ...(running ? { running } : {}),
-    deployable: infra.deployable.some((t) => t.toLowerCase() === needle),
+    deployable: infra.deployable.some((t) => t.id.toLowerCase() === needle
+      || t.provides.some((p) => p === needle)),
   };
 }

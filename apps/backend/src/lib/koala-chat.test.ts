@@ -334,10 +334,35 @@ describe('knowing what the cluster actually has', () => {
   it('lists what CAN be deployed, and mongo is not among it', async () => {
     // The exact request that could not be satisfied.
     const db = await seeded();
-    const out = await run(db, 'list_infrastructure');
-    expect(out.body.deployable).toContain('qdrant');
-    expect(out.body.deployable).not.toContain('mongo');
-    expect(out.body.deployable).not.toContain('mongodb');
+    const ids = (await run(db, 'list_infrastructure')).body.deployable.map((d: any) => d.id);
+    expect(ids).toContain('qdrant');
+    expect(ids).not.toContain('mongo');
+    expect(ids).not.toContain('mongodb');
+  });
+
+  it('says what each deployable thing IS, not just its id', async () => {
+    /**
+     * The half that makes the list usable. `qdrant`, `tei` and `quickwit` are unguessable from
+     * their names, so a model could neither pick the right one nor recognise the alternative to
+     * something absent.
+     */
+    const db = await seeded();
+    const byId = new Map<string, any>(
+      (await run(db, 'list_infrastructure')).body.deployable.map((d: any) => [d.id, d]),
+    );
+    expect(byId.get('qdrant').is).toMatch(/vector database/);
+    expect(byId.get('minio').is).toMatch(/object storage/);
+    expect(byId.get('tei').is).toMatch(/embedding/);
+    expect(byId.get('quickwit').provides).toContain('full-text-search');
+  });
+
+  it('describes what is RUNNING too', async () => {
+    // Same reason: "koala-vectors, type qdrant" is not something to reason from.
+    const db = await seeded();
+    for (const d of deployments) await db.saveDeployment(d as any);
+    const running = (await run(db, 'list_infrastructure')).body.running;
+    expect(running.find((s: any) => s.name === 'koala-vectors').is).toMatch(/vector database/);
+    expect(running.find((s: any) => s.name === 'koala-store').provides).toContain('object-storage');
   });
 
   it('says what an absence MEANS, since a long list hides it', async () => {

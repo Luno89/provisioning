@@ -24,6 +24,74 @@ export const APP_TYPES = [
 
 export type AppType = typeof APP_TYPES[number];
 
+/**
+ * What each app IS, for anything that has to reason about infrastructure rather than list it.
+ *
+ * ── WHY THIS EXISTS ──
+ * `APP_TYPES` is twenty-six bare ids. Asked to add MongoDB caching to an MCP server, Koala planned
+ * it — there is no MongoDB here, and nothing in the catalogue would have told it so. Worse, it could
+ * not have found the alternative either: nothing says `qdrant` is a vector database or `minio` is
+ * object storage, and `tei` and `quickwit` are unguessable from their names.
+ *
+ * A model reading a list of ids can only pattern-match on what those words mean elsewhere. This is
+ * the difference between listing infrastructure and knowing what any of it is FOR.
+ *
+ * `provides` is the part that answers a question like "where do I put this": it is what the thing
+ * offers, not what it is called. Several apps can provide the same capability, and a request for one
+ * nothing provides is a request this platform cannot satisfy — which is the answer that was missing.
+ */
+export interface AppFacts {
+  /** One line, in plain words. */
+  is: string;
+  /** Capabilities, for matching a need to a service. */
+  provides: string[];
+}
+
+export const APP_FACTS: Record<AppType, AppFacts> = {
+  odoo: { is: 'an ERP and business suite', provides: ['crm', 'accounting', 'inventory'] },
+  wordpress: { is: 'a website and blog platform', provides: ['website', 'cms'] },
+  nextcloud: { is: 'a file sync and share server', provides: ['file-storage', 'sharing'] },
+  audiobookshelf: { is: 'an audiobook and podcast server', provides: ['media'] },
+  prometheus: { is: 'a metrics database and alerting system', provides: ['metrics', 'monitoring'] },
+  traefik: { is: 'an ingress controller and reverse proxy', provides: ['ingress', 'routing'] },
+  vllm: { is: 'a GPU inference server for large language models', provides: ['llm-inference'] },
+  tabbyapi: { is: 'a GPU inference server with an OpenAI-compatible API', provides: ['llm-inference'] },
+  openwebui: { is: 'a chat interface for language models', provides: ['chat-ui'] },
+  hermes: { is: 'an agent runtime', provides: ['agent'] },
+  gitapp: { is: 'a service built from one of your own repositories', provides: ['custom-service'] },
+  palworld: { is: 'a game server', provides: ['game-server'] },
+  jellyfin: { is: 'a media server for video and music', provides: ['media'] },
+  plex: { is: 'a media server for video and music', provides: ['media'] },
+  navidrome: { is: 'a music streaming server', provides: ['media'] },
+  kavita: { is: 'a comic and ebook reader', provides: ['media'] },
+  immich: { is: 'a photo and video library', provides: ['media', 'photos'] },
+  papra: { is: 'a document archive', provides: ['documents'] },
+  homeassistant: { is: 'a home automation hub', provides: ['home-automation'] },
+  searxng: { is: 'a metasearch engine', provides: ['web-search'] },
+  crawl4ai: { is: 'a web crawler that returns clean page text', provides: ['web-crawl', 'scraping'] },
+  /**
+   * The three that matter most for wiring up a data architecture, and the three least guessable
+   * from their names.
+   */
+  qdrant: { is: 'a vector database', provides: ['vector-search', 'similarity-search', 'embeddings-storage'] },
+  minio: { is: 'S3-compatible object storage', provides: ['object-storage', 'blob-storage', 'file-storage'] },
+  quickwit: { is: 'a full-text search engine', provides: ['full-text-search', 'log-search'] },
+  tei: { is: 'a text-embedding server', provides: ['embeddings'] },
+  verdaccio: { is: 'a private npm registry', provides: ['package-registry'] },
+};
+
+/**
+ * The app types offering a capability, for "where do I put this" rather than "what is deployed".
+ *
+ * An empty result is a real answer and the useful one: nothing here provides it, so the request
+ * cannot be satisfied — say so instead of designing around it.
+ */
+export function providing(capability: string): AppType[] {
+  const want = capability.trim().toLowerCase();
+  return (APP_TYPES as readonly AppType[])
+    .filter((t) => APP_FACTS[t].provides.some((p) => p === want));
+}
+
 export function isAppType(value: unknown): value is AppType {
   return typeof value === 'string' && (APP_TYPES as readonly string[]).includes(value);
 }
