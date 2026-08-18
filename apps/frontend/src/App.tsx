@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import KoalaChat from './components/KoalaChat';
+import Sidebar from './components/Sidebar';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronRight, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, FlaskConical, Terminal, Timer, Trash2, Trees, X, Zap, Trees as TreesIcon } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Plus, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Timer, Trash2, X, Zap } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -18,7 +19,6 @@ import Grove from './components/Grove.js';
 import { parseHash, formatHash, shouldReplace, resolveView, type Route } from './lib/route.js';
 import MeshDevices from './components/MeshDevices.js';
 import Personas from './components/Personas.js';
-import { Koala } from './components/Koala.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
@@ -1085,85 +1085,14 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[var(--bark-900)] canopy text-slate-100 flex font-sans overflow-hidden">
-      <aside className="w-64 bg-[var(--bark-800)] border-r border-[var(--bark-600)] p-5 flex flex-col shadow-xl z-20">
-        <div className="flex items-center gap-2.5 mb-8">
-          <Koala size={34} mood="idle" />
-          <div className="leading-none">
-            <h1 className="text-lg font-bold tracking-tight">NO WRINKLES</h1>
-            <p className="text-[10px] text-[var(--leaf)] tracking-widest uppercase mt-0.5">smooth brained ops</p>
-          </div>
-        </div>
-
-        <nav className="space-y-1 flex-1 overflow-y-auto">
-          {/* Koala is the product; everything else is the infrastructure it runs on. Giving the
-              harness top billing and folding ten operational tabs into one keeps that hierarchy
-              legible instead of presenting eleven equal choices. */}
-          {/* Koala opens Grove. It used to open a flat list of every conversation beside an empty
-              pane — a navigator with no destination, which is what made the front door of the
-              product feel like a file browser. Grove's landing answers what happened and what is
-              owed instead. */}
-          {/* Koala IS the chat now. The Grove sits under it as Projects: you arrive in a
-              conversation, and go to the projects when you want to build. */}
-          <button
-            onClick={() => setView('chat')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${view === 'chat' ? 'bg-[var(--leaf-stem)] text-white' : 'text-slate-300 hover:bg-[var(--bark-700)]'}`}
-          >
-            <Koala size={20} mood={view === 'chat' ? 'happy' : 'idle'} /> Koala
-          </button>
-
-          <button
-            onClick={() => setView('grove')}
-            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'grove' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
-          >
-            <TreesIcon size={15} /> Projects
-          </button>
-
-          {/* Indented under Koala rather than listed beside it: a tree is the scope conversations
-              live in, so it belongs to the harness, not to the infrastructure below. */}
-          <button
-            onClick={() => setView('personas')}
-            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'personas' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
-          >
-            <Shield size={15} className="text-[var(--leaf)]" /> Personas
-          </button>
-          {/* Moved out of the Forest, where it sat two levels down inside a collapsible section
-              whose open state was not persisted — collapsing Forest made it vanish entirely. It is
-              where the harness is inspected and tuned, which is Koala's business, not the
-              infrastructure's. */}
-          <button
-            onClick={() => setView('lab')}
-            className={`w-full flex items-center gap-2.5 pl-11 pr-3 py-2 rounded-xl text-[13px] transition-colors ${view === 'lab' ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
-          >
-            <FlaskConical size={15} className="text-[var(--leaf)]" /> Lab
-          </button>
-
-          <button
-            onClick={() => setForestOpen((o) => !o)}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-[var(--bark-700)] transition-colors"
-          >
-            <Trees size={20} className="text-[var(--leaf)]" />
-            <span className="flex-1 text-left">Forest</span>
-            {forestOpen ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
-          </button>
-
-          {forestOpen && (
-            <div className="ml-3 pl-3 border-l border-[var(--bark-600)] space-y-0.5">
-              {FOREST_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setView(tab.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-colors ${view === tab.id ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
-                >
-                  <tab.icon size={15} /> {tab.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </nav>
-
-        <button onClick={handleLogout} className="w-full mt-4 mb-4 flex items-center gap-3 px-3 py-2.5 text-red-400/80 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer text-[13px] font-semibold">Log Out</button>
-        <div className="pt-4 border-t border-[var(--bark-600)] flex items-center gap-2 text-slate-600 text-[10px] uppercase font-black tracking-widest"><Terminal size={13} /> <span>Local Ops Active</span></div>
-      </aside>
+      <Sidebar
+        view={view}
+        setView={setView}
+        forestOpen={forestOpen}
+        setForestOpen={setForestOpen}
+        forestTabs={FOREST_TABS}
+        onLogout={handleLogout}
+      />
 
       <main className="flex-1 p-10 overflow-y-auto relative">
         <div className="fixed top-6 right-6 z-[60] space-y-3">
