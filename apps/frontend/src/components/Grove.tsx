@@ -520,6 +520,19 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
             onModeChange={(m) => setModes((all) => ({ ...all, [selectedBranch.id]: m }))}
             onProposals={refresh}
             onAccept={(id) => accept.mutate(id)}
+            /**
+             * Grove owns the request because it owns the cache: saving has to refresh the branch
+             * records, and the editor should not know that a query cache exists.
+             */
+            onSetAcceptance={async (commands) => {
+              await axios.patch(
+                `${apiBase}/branches/${selectedBranch.id}`,
+                { acceptance: commands },
+                { withCredentials: true },
+              );
+              setAcceptError(null);
+              refresh();
+            }}
             onReject={(id) => reject.mutate(id)}
             onAcceptAll={(ids) => acceptAll.mutate(ids)}
             {...(handoff && handoff.branchId === selectedBranch.id

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import AcceptanceEditor from './AcceptanceEditor.js';
 import { ChevronDown, ChevronRight, Target, CircleDot } from 'lucide-react';
 import Chat, { type Message } from './Chat.js';
 import AcceptancePlan from './AcceptancePlan.js';
@@ -34,7 +35,7 @@ export interface BranchRecord {
  */
 export default function BranchChat({
   apiBase, branchId, record, leaves, messages, onMessagesChange, onProposals,
-  onAccept, onReject, onAcceptAll, autoSend, onAutoSent, mode = 'auto', onModeChange,
+  onAccept, onReject, onAcceptAll, autoSend, onAutoSent, mode = 'auto', onModeChange, onSetAcceptance,
 }: {
   apiBase: string;
   branchId: string;
@@ -47,6 +48,13 @@ export default function BranchChat({
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
   onAcceptAll: (ids: string[]) => void;
+  /**
+   * Saves an acceptance plan for this branch, one command per entry.
+   *
+   * Optional so every existing caller keeps working. Absent hides the editor rather than showing a
+   * control that does nothing.
+   */
+  onSetAcceptance?: ((commands: string[]) => Promise<void>) | undefined;
   autoSend?: string | undefined;
   onAutoSent?: (() => void) | undefined;
   /**
@@ -70,7 +78,16 @@ export default function BranchChat({
   // Open while there is something to watch; closed once it is history.
   const [open, setOpen] = useState(!landed);
 
-  const hasHeader = Boolean(record?.acceptance) || stages.length > 0;
+  /**
+   * The header shows even with NO acceptance plan, which is the case it now exists for.
+   *
+   * A branch without one cannot accept anything, and until this there was no way to see that or fix
+   * it — the only route to a plan was persuading the planner to call `set_acceptance`. A follow-up
+   * branch inherits its tree's, so this is the way out when that inherited nothing, or the wrong
+   * thing.
+   */
+  const planned = Array.isArray(record?.acceptance) ? record.acceptance : [];
+  const hasHeader = Boolean(record?.acceptance) || stages.length > 0 || Boolean(onSetAcceptance);
   const done = stages.filter((s) => s.state === 'done').length;
 
   const proposed = leaves
@@ -103,7 +120,10 @@ export default function BranchChat({
 
           {open && (
             <div className="pb-2">
+              {/* Display and editing are siblings, composed here: one component is responsible for
+                  showing a plan, and a different one for changing it. */}
               <AcceptancePlan acceptance={record?.acceptance} />
+              {onSetAcceptance && <AcceptanceEditor checks={planned} onSave={onSetAcceptance} />}
               <Delivery
                 stages={record?.delivery}
                 {...(record?.projectName ? { projectName: record.projectName } : {})}
