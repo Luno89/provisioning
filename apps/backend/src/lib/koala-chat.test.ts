@@ -435,11 +435,27 @@ describe('proposing a new app type', () => {
     expect((await run(db, 'propose_spec', noLimits)).body.error).toMatch(/memory limit/);
   });
 
-  it('refuses to re-add something already deployable', async () => {
-    // That would be an edit, not an addition, and an edit replaces something people may be running.
+  it('proposes a REPLACEMENT for one that already exists', async () => {
+    /**
+     * It used to refuse this, on the reasoning that an edit is a different decision from an
+     * addition. True — and why the proposal is marked — but refusing outright left no way to
+     * correct a broken spec at all. Koala hit exactly that: it found its own MongoDB crash-looping,
+     * worked out it needed fixing, and could not propose the fix. It called it a catch-22.
+     */
     const db = await seeded();
     await db.saveAppSpec({ id: 'mongo', spec: mongo as any, builtIn: false, createdAt: 'n', updatedAt: 'n' });
-    expect((await run(db, 'propose_spec', mongo)).body.error).toMatch(/already deployable/);
+    const out = await run(db, 'propose_spec', { ...mongo, args: [] });
+    expect(out.proposedSpec?.replaces).toBe(true);
+    expect(out.body.note).toMatch(/keeps running until it is redeployed/);
+  });
+
+  it('still refuses to rewrite a BUILT-IN', async () => {
+    // Those ship with the platform and a test pins the list; a conversation rewriting one would
+    // have a fresh clone and a running instance disagreeing about what minio is.
+    const db = await seeded();
+    await db.saveAppSpec({ id: 'minio', spec: mongo as any, builtIn: true, createdAt: 'n', updatedAt: 'n' });
+    expect((await run(db, 'propose_spec', { ...mongo, id: 'minio' })).body.error)
+      .toMatch(/ships with the platform/);
   });
 
   it('is offered, and told never to write a password', async () => {

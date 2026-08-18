@@ -160,16 +160,28 @@ export async function runKoalaTool(
       if (!conversation) return json({ error: 'This conversation no longer exists.' });
 
       const spec = args as unknown as AppSpec;
-      // An id already in the catalogue would be an edit, not an addition, and those are different
-      // decisions — one replaces something people may be running.
-      const taken = (await db.getAppSpecs()).some((s) => s.id === spec.id);
-      if (taken) {
-        return json({ error: `"${spec.id}" is already deployable. Nothing to add.` });
+      /**
+       * An id already in the catalogue is a REPLACEMENT, not a refusal.
+       *
+       * It used to be refused, on the reasoning that an edit is a different decision from an
+       * addition. That is true, and it is why the proposal is marked — but refusing outright left
+       * no way to correct a broken spec at all. Koala hit exactly that: it found its own MongoDB
+       * crash-looping, worked out it needed fixing, and could not propose the fix. It called the
+       * result a catch-22, and it was right.
+       *
+       * A built-in is still refused. Those ship with the platform and a test pins the list; letting
+       * a conversation rewrite one would have a fresh clone and a running instance disagreeing
+       * about what `minio` is.
+       */
+      const existing = (await db.getAppSpecs()).find((st) => st.id === spec.id);
+      if (existing?.builtIn) {
+        return json({ error: `"${spec.id}" ships with the platform and cannot be replaced here.` });
       }
 
       const proposal: ProposedSpec = {
         id: spec.id,
         spec,
+        ...(existing ? { replaces: true } : {}),
         proposedAt: new Date().toISOString(),
       };
       await db.saveConversation({
@@ -179,8 +191,11 @@ export async function runKoalaTool(
       });
       return {
         content: JSON.stringify({
-          proposed: { id: spec.id, image: spec.image },
-          note: 'Proposed only. It is not deployable until the user accepts it.',
+          proposed: { id: spec.id, image: spec.image, replaces: Boolean(existing) },
+          note: existing
+            ? 'Proposed only. Accepting replaces the existing spec; anything already deployed from '
+              + 'the old one keeps running until it is redeployed.'
+            : 'Proposed only. It is not deployable until the user accepts it.',
         }),
         proposedSpec: proposal,
       };

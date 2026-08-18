@@ -3326,10 +3326,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const problems = validateSpec(proposal.spec);
     if (problems.length) return res.status(400).json({ error: explainSpecProblems(problems) });
 
-    // An id taken since the proposal was made would be an edit, not an addition — and those replace
-    // something people may already be running.
-    if ((await db.getAppSpecs()).some((s) => s.id === proposal.id)) {
-      return res.status(409).json({ error: `"${proposal.id}" is already deployable.` });
+    /**
+     * A replacement overwrites; a built-in never does.
+     *
+     * Built-ins ship with the platform and a test pins the list, so letting a conversation rewrite
+     * one would have a fresh clone and a running instance disagreeing about what `minio` is.
+     * Anything else is the user's own, and correcting it is the point.
+     */
+    const existing = (await db.getAppSpecs()).find((s) => s.id === proposal.id);
+    if (existing?.builtIn) {
+      return res.status(409).json({ error: `"${proposal.id}" ships with the platform and cannot be replaced.` });
     }
 
     const now = new Date().toISOString();
@@ -3339,7 +3345,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // Not built in: the repo does not manage it, and seeding must never touch it.
       builtIn: false,
       ownerId: userId,
-      createdAt: now,
+      // Kept from the original: a spec being corrected is the same spec, and losing when it first
+      // appeared would make the catalogue's history a lie.
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     });
     await db.saveConversation({

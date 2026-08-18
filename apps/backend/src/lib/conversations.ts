@@ -56,6 +56,15 @@ export interface ProposedSpec {
   /** The spec itself, already validated when it was proposed. */
   spec: unknown;
   proposedAt: string;
+  /**
+   * Replacing a spec that already exists, rather than adding one.
+   *
+   * Observed live: Koala found its own MongoDB spec crash-looping, worked out it should be
+   * corrected, and could not — `propose_spec` refused the id as "already deployable". It called
+   * that a catch-22 and it was right. Refusing an edit is only reasonable if editing is possible
+   * somewhere, and it was not.
+   */
+  replaces?: boolean;
   /** Set when accepted, so the card links to what it became rather than offering twice. */
   acceptedAt?: string;
 }
