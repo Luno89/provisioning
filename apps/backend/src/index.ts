@@ -81,6 +81,9 @@ import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
+import { inheritedAcceptance } from './lib/acceptance-inherit.js';
+import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
+import type { AcceptanceCheck } from './lib/acceptance.js';
 import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
 import { titleFrom, enabledForSession, type Conversation, type ProposedTree } from './lib/conversations.js';
 import { koalaSeed, isChatOnly, buildKoalaPrompt } from './lib/koala-persona.js';
@@ -3030,6 +3033,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       : undefined;
     if (requestedTree && !tree) return res.status(404).json({ error: 'Tree not found' });
 
+    /**
+     * A follow-up branch starts with its tree's acceptance plan.
+     *
+     * Nothing may be accepted on a branch without one, and only the planner ever set one — during
+     * planning, on the first branch. So every follow-up was born unacceptable, and the refusal was
+     * swallowed by the UI, which is what "I can't click accept" turned out to be. A default, not a
+     * decision: it is editable, and a planner that sets its own replaces it.
+     */
+    const inherited = tree ? inheritedAcceptance(tree.id, await ownedBranches(user.id)) : [];
+    if (inherited.length) {
+      console.log(`[branches] new branch inherits ${inherited.length} acceptance check(s) from tree ${tree!.id.slice(0, 8)}`);
+    }
+
     const branch: Branch = {
       id: uuidv4(),
       ownerId: user.id,
@@ -3038,7 +3054,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ...(tree ? { treeId: tree.id } : {}),
       createdAt: now,
       updatedAt: now,
-    };
+          ...(inherited.length ? { acceptance: inherited } : {}),
+};
     await db.saveBranch(branch);
     res.status(201).json(branch);
   });
@@ -3047,10 +3064,38 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const user = (req as any).user;
     const branch = (await ownedBranches(user.id)).find((b) => b.id === req.params.id);
     if (!branch) return res.status(404).json({ error: 'Branch not found' });
-    const { title, treeId } = req.body ?? {};
+    const { title, treeId, acceptance } = req.body ?? {};
     const renaming = typeof title === 'string' && title.trim();
     const refiling = typeof treeId === 'string';
-    if (!renaming && !refiling) return res.status(400).json({ error: 'title or treeId is required' });
+    const reChecking = acceptance !== undefined;
+    if (!renaming && !refiling && !reChecking) {
+      return res.status(400).json({ error: 'title, treeId or acceptance is required' });
+    }
+
+    /**
+     * Setting the acceptance plan by hand.
+     *
+     * Without this the only way to get one was to persuade the planner to call `set_acceptance`,
+     * which left a person with no way forward on a branch it had not — and no way to correct one
+     * it got wrong.
+     *
+     * Held to the SAME two rules the tool is: the checks must be usable, and they must be able to
+     * fail. A hand-written `echo ok` would satisfy the accept gate and prove nothing, which is the
+     * hollow green this gate exists to prevent — it does not matter who typed it.
+     */
+    let checks: { acceptance?: AcceptanceCheck[] } = {};
+    if (reChecking) {
+      const plan = usableAcceptancePlan(acceptance);
+      if (plan.length === 0) {
+        return res.status(400).json({
+          error: 'No usable checks. Each needs a name and a single-line command, with no command '
+            + 'substitution, backgrounding, or chaining beyond `&&`.',
+        });
+      }
+      const hollow = hollowChecks(plan);
+      if (hollow.length) return res.status(400).json({ error: explainHollow(hollow) });
+      checks = { acceptance: plan };
+    }
 
     // An empty treeId un-files the conversation rather than being rejected — moving something out
     // of a tree has to be as possible as moving it in.
@@ -3065,6 +3110,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ...(refiling ? withoutTree : branch),
       ...filed,
       ...(renaming ? { title: title.trim().slice(0, 200) } : {}),
+      ...checks,
       updatedAt: new Date().toISOString(),
     };
     await db.saveBranch(updated);
