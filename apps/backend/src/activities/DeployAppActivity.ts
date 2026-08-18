@@ -4,6 +4,9 @@
  * Runs the deployment pipeline: builds a custom image if modules are selected,
  * imports it into the cluster (for k3d), then CDKTF-deploys the app stack.
  */
+import { randomBytes } from 'node:crypto';
+import { renderApp } from '../lib/app-spec.js';
+import { createDatabase } from '../lib/db-interface.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -400,7 +403,51 @@ export async function DeployAppActivity(
     }
   }
 
+  /**
+   * A stored spec deploys instead of a construct.
+   *
+   * Looked up by app type: if the catalogue has one, this app is rendered from data and `main.ts`
+   * builds it with the generic construct. If it does not — which is every type today — nothing
+   * changes and the hand-written construct runs exactly as before. That is the migration: one type
+   * at a time, with the constructs as the fallback the whole way.
+   *
+   * Secrets are minted HERE, per deployment, and never live in the spec. The renderer puts them in
+   * a Kubernetes Secret and references them, so the value reaches the container and appears in no
+   * pod spec, no proposal and nothing a model can read.
+   */
+  let renderedSpec: unknown;
+  try {
+    // Opened for the lookup and closed straight after: this activity holds no database handle, and
+    // a deploy should not start depending on one staying open for its whole run.
+    const specDb = createDatabase();
+    await specDb.init();
+    const stored = (await specDb.getAppSpecs()).find((s) => s.id === args.appType)
+      ?? undefined;
+    await specDb.close().catch(() => undefined);
+    if (stored) {
+      const secrets: Record<string, string> = {};
+      for (const e of stored.spec.env ?? []) {
+        if (e.generate && e.fromSecret) {
+          secrets[e.fromSecret] = e.generate === 'username'
+            ? 'koala'
+            : randomBytes(24).toString('hex');
+        }
+      }
+      renderedSpec = renderApp(stored.spec, {
+        id: deploymentId,
+        namespace: sanitizedName,
+        serviceType: isSelfManagedCluster(args.provider, isMock) ? 'NodePort' : 'LoadBalancer',
+        secrets,
+      });
+      console.log(`[DeployAppActivity] ${args.appType} deploying from a stored spec, not a construct`);
+    }
+  } catch (err: any) {
+    // A catalogue that cannot be read must not stop a deploy that has a construct.
+    console.warn(`[DeployAppActivity] could not read app specs: ${err.message}`);
+  }
+
   const env = buildAppEnv({
+    ...(renderedSpec ? { renderedSpec } : {}),
     physicalName,
     strategy: args.strategy,
     sanitizedName,

@@ -16,6 +16,13 @@ export interface AppEnvArgs {
   provider: string;
   isMock: boolean;
   appType: string;
+  /**
+   * A rendered app spec, when this type is deployed from the catalogue rather than a construct.
+   *
+   * Present means `main.ts` builds it with the generic `SpecApp` and never reaches the hand-written
+   * constructs — the migration, one type at a time. Absent is every app today.
+   */
+  renderedSpec?: unknown;
   webRepo?: string | undefined;
   webTag?: string | undefined;
   dbRepo?: string | undefined;
@@ -346,6 +353,12 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     WEBUI_WEB_SEARCH_ENGINE: a.webuiWebSearchEngine || '',
     WEBUI_WEB_SEARCH_API_KEY: a.webuiWebSearchApiKey || '',
     APP_SETTINGS_JSON: JSON.stringify(a.appSettings ?? {}),
+    /**
+     * The whole app as one blob, the same way APP_SETTINGS_JSON already carries a game server's
+     * hundred-odd settings. Empty when this type still has a construct, and `main.ts` only branches
+     * on whether the string is set — so an app that has not been migrated is untouched by this.
+     */
+    APP_SPEC_JSON: a.renderedSpec ? JSON.stringify(a.renderedSpec) : '',
     ...a.storageEnv,
   };
 }

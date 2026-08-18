@@ -83,6 +83,7 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';
 import { specsToSeed, type AppSpec } from './lib/app-spec.js';
+import { PERSONA_SEEDS } from './lib/persona-seeds.js';
 import { validateSpec, explainSpecProblems } from './lib/app-spec-validate.js';
 import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
 import type { AcceptanceCheck } from './lib/acceptance.js';
@@ -2235,6 +2236,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   /** ── PERSONAS — named configurations you pick, rather than the one everybody gets ── */
 
   app.get('/api/personas', async (req, res) => {
+    // The list is where a new user first needs them, and where their absence is most visible.
+    await ensurePersonas((req as any).user.id);
     res.json(await ownedPersonas((req as any).user.id));
   });
 
@@ -3180,6 +3183,34 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * and puts Koala back if someone deletes it — only its EXISTENCE is guaranteed, never its contents,
    * so an edited prompt survives.
    */
+  /**
+   * The user has the personas that do the work.
+   *
+   * `scripts/seed-personas.ts` had them inline with a hardcoded owner, so they were seeded by hand
+   * for one account and a new user got none. That is not a cosmetic gap: a leaf with no persona has
+   * no environment and `acceptLeaf` refuses it, so a fresh install could not accept a single piece
+   * of work.
+   *
+   * ADDS only, never overwrites. Reverting someone's edited persona every time they open the app is
+   * the failure the app-spec seeding avoids for the same reason — they fix it, restart, and find it
+   * undone with nothing saying why. The script still overwrites, because that is how a developer
+   * ships a change to a prompt.
+   */
+  async function ensurePersonas(userId: string): Promise<void> {
+    try {
+      const mine = await ownedPersonas(userId);
+      const missing = PERSONA_SEEDS.filter((seed) => !mine.some((p) => p.name === seed.name));
+      if (!missing.length) return;
+      const now = new Date().toISOString();
+      for (const seed of missing) {
+        await db.savePersona({ id: uuidv4(), ownerId: userId, ...seed, createdAt: now, updatedAt: now } as Persona);
+      }
+      console.log(`[personas] seeded ${missing.length} for ${userId.slice(0, 8)}: ${missing.map((s) => s.name).join(', ')}`);
+    } catch (err: any) {
+      console.warn(`[personas] could not seed: ${err.message}`);
+    }
+  }
+
   async function ensureKoala(userId: string): Promise<Persona> {
     const mine = await ownedPersonas(userId);
     const found = mine.find((p) => isChatOnly(p));
@@ -3339,6 +3370,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     let conversation = (await ownedConversations(userId)).find((c) => c.id === String(conversationId));
     if (!conversation) return res.status(404).json({ error: 'No such conversation' });
 
+    await ensurePersonas(userId);
     const persona = await ensureKoala(userId);
     /**
      * The same resolution chain the branch route uses: adopted profile, then persona, then request.
