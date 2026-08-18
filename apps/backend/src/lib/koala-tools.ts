@@ -17,7 +17,8 @@ const TREE_TYPE_IDS = TREE_TYPES.map((t) => t.id);
  */
 
 export const KOALA_TOOL_NAMES = [
-  'list_mcp_servers', 'enable_mcp_server', 'propose_tree', 'list_trees', 'web_search', 'fetch_web_page',
+  'list_mcp_servers', 'enable_mcp_server', 'propose_tree', 'list_trees', 'list_infrastructure',
+  'web_search', 'fetch_web_page',
 ] as const;
 
 export const KOALA_TOOLS = [
@@ -93,6 +94,25 @@ export const KOALA_TOOLS = [
         },
         required: ['name', 'goal'],
       },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      /**
+       * Added after Koala planned MongoDB caching for a platform with no MongoDB. `mongo` is not in
+       * APP_TYPES, so one cannot be deployed, and the instance's own runs under docker-compose —
+       * not in the cluster and not reachable by a built service. Koala had no way to know, so it
+       * agreed. A request the platform cannot satisfy should be refused in conversation, where it
+       * costs a sentence, not in a build, where it costs a run.
+       */
+      name: 'list_infrastructure',
+      description:
+        'What is running in the cluster that a built service could use — databases, storage, search, '
+        + 'embeddings — and the full list of what this platform can deploy. Call this BEFORE '
+        + 'proposing work that depends on a piece of infrastructure. Anything absent from both lists '
+        + 'does not exist here and cannot be built: say so rather than planning around it.',
+      parameters: { type: 'object', properties: {} },
     },
   },
   {

@@ -5,6 +5,7 @@ import { withEnabled, enabledForSession } from './conversations.js';
 import { preferUsable, type McpServer } from './mcp-registry.js';
 import { TREE_TYPES } from './trees.js';
 import { rollup } from './tree-board.js';
+import { describeInfrastructure } from './infrastructure.js';
 
 /**
  * Executing the tools a general-chat turn calls.
@@ -112,6 +113,22 @@ export async function runKoalaTool(
         }),
         enabled: wanted,
       };
+    }
+
+    if (call.name === 'list_infrastructure') {
+      const infra = describeInfrastructure(await db.getDeployments(), userId);
+      return json({
+        running: infra.running,
+        deployable: infra.deployable,
+        /**
+         * Said plainly, because the absence is the part that gets ignored. A model reading a list
+         * of twenty-six app types will not notice that `mongo` is not among them unless told what
+         * the list means.
+         */
+        note: 'Anything not in `running` and not in `deployable` does not exist here and cannot be '
+          + 'built — say so rather than planning around it. Connection addresses are resolved when a '
+          + 'service is deployed; do not invent one.',
+      });
     }
 
     if (call.name === 'list_trees') {

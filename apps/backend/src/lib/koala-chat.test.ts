@@ -3,7 +3,7 @@ import { MemoryDB } from './memory-db.js';
 import { runKoalaTool, type KoalaToolContext } from './koala-tool-runner.js';
 import { KOALA_TOOLS } from './koala-tools.js';
 import { titleFrom, enabledForSession, withEnabled, type Conversation } from './conversations.js';
-import { buildKoalaPrompt, isChatOnly, koalaSeed, KOALA_NAME } from './koala-persona.js';
+import { buildKoalaPrompt, isChatOnly, koalaSeed, KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
 import { LEAF_TOOLS } from './leaf-tools.js';
 import { acceptLeaf } from './accept-leaf.js';
 
@@ -285,5 +285,83 @@ describe('a leaf must never be assigned to Koala', () => {
     // somebody did not pass.
     const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: withPlan } }, leaf, []);
     expect(result.ok).toBe(true);
+  });
+});
+
+describe('knowing what the cluster actually has', () => {
+  /**
+   * ── THE GAP ──
+   * Asked to add MongoDB caching to the GitHub MCP server, Koala planned it. There is no MongoDB:
+   * `mongo` is not in APP_TYPES, so the platform cannot deploy one, and the instance's own runs
+   * under docker-compose — not in the cluster, not reachable by a built service.
+   *
+   * Koala had no way to know. `list_mcp_servers` shows only gitapp deployments that speak MCP, so
+   * the eight other services actually running were invisible too. It could neither use what was
+   * there nor say that what was asked for was not.
+   */
+  /**
+   * Ids matter here, and not only for realism: MemoryDB saves with
+   * `findIndex(d => d.id === deployment.id)`, so records without one all collide on
+   * `undefined === undefined` and each save overwrites the first. The same undefined-id hazard that
+   * deleted 21 pipeline records against Mongo earlier.
+   */
+  const deployments = [
+    { id: 'd1', name: 'koala-vectors', appType: 'qdrant', status: 'running', ownerId: 'u1' },
+    { id: 'd2', name: 'koala-store', appType: 'minio', status: 'running', ownerId: 'u1' },
+    { id: 'd3', name: 'half-built', appType: 'qdrant', status: 'deploying', ownerId: 'u1' },
+    { id: 'd4', name: 'someone-elses', appType: 'minio', status: 'running', ownerId: 'u2' },
+  ];
+
+  it('reports the services a build could actually reach', async () => {
+    const db = await seeded();
+    for (const d of deployments) await db.saveDeployment(d as any);
+    const out = await run(db, 'list_infrastructure');
+    expect(out.body.running.map((s: any) => s.name)).toEqual(['koala-vectors', 'koala-store']);
+  });
+
+  it('leaves out what is not running, and what is not theirs', async () => {
+    /**
+     * A deployment still deploying is not something to plan against — a leaf written to connect to
+     * it would reach an address that answers nothing. Another tenant's is not visible at all.
+     */
+    const db = await seeded();
+    for (const d of deployments) await db.saveDeployment(d as any);
+    const names = (await run(db, 'list_infrastructure')).body.running.map((s: any) => s.name);
+    expect(names).not.toContain('half-built');
+    expect(names).not.toContain('someone-elses');
+  });
+
+  it('lists what CAN be deployed, and mongo is not among it', async () => {
+    // The exact request that could not be satisfied.
+    const db = await seeded();
+    const out = await run(db, 'list_infrastructure');
+    expect(out.body.deployable).toContain('qdrant');
+    expect(out.body.deployable).not.toContain('mongo');
+    expect(out.body.deployable).not.toContain('mongodb');
+  });
+
+  it('says what an absence MEANS, since a long list hides it', async () => {
+    // A model reading twenty-six app types will not notice `mongo` is missing unless told.
+    const db = await seeded();
+    const out = await run(db, 'list_infrastructure');
+    expect(out.body.note).toMatch(/does not exist here and cannot be built/);
+    expect(out.body.note).toMatch(/do not invent one/);
+  });
+
+  it('invents no connection strings', async () => {
+    /**
+     * A plausible-looking address is worse than none: every service here is addressed differently,
+     * and a URL this invented would be indistinguishable to a model from one it was told.
+     */
+    const db = await seeded();
+    for (const d of deployments) await db.saveDeployment(d as any);
+    const out = await run(db, 'list_infrastructure');
+    expect(JSON.stringify(out.body.running)).not.toMatch(/http|:\d{4}|svc\.cluster\.local/);
+  });
+
+  it('is offered as a tool, and the prompt says to call it first', async () => {
+    expect(KOALA_TOOLS.map((t) => t.function.name)).toContain('list_infrastructure');
+    expect(KOALA_PROMPT).toMatch(/call\s*\n?\s*list_infrastructure|list_infrastructure/);
+    expect(KOALA_PROMPT).toMatch(/does not exist here and cannot be built/);
   });
 });
