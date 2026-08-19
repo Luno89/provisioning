@@ -4,6 +4,7 @@
  * an existing deployment's current config) so the two can never drift out of sync on env var names.
  */
 import { randomBytes } from 'node:crypto';
+import { clusterUrl } from './cluster-dns.js';
 import type { DeploymentMetadata } from './types.js';
 import { isSelfManagedCluster } from './cluster-topology.js';
 
@@ -230,7 +231,7 @@ export function resolveQuickwitDefaults(
     quickwitS3Endpoint: dep.quickwitS3Endpoint
       // The in-cluster Service address, not an ingress: this is pod-to-pod and must not depend on
       // an ingress controller or a port-forward being up.
-      || `http://minio.${minio?.name ?? 'minio'}.svc.cluster.local:9000`,
+      || clusterUrl({ service: 'minio', namespace: minio?.name ?? 'minio', port: 9000 }),
   });
 }
 

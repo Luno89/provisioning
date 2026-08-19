@@ -18,6 +18,7 @@
  * else is derived. Endpoints the platform did not deploy are handled separately, either by the
  * per-deployment escape hatch below or by a registered ModelEndpoint.
  */
+import { clusterUrl } from './cluster-dns.js';
 
 export interface LlmAppSpec {
   /** DeploymentMetadata.appType this applies to. */
@@ -72,7 +73,12 @@ export function isLlmApp(appType: string | undefined): boolean {
  * is why AppService refuses to hand it to a consumer on a different one.
  */
 export function inClusterBaseUrl(spec: LlmAppSpec, namespace: string): string {
-  return `http://${namespace}-${spec.serviceSuffix}.${namespace}.svc.cluster.local:${spec.port}${spec.apiPath}`;
+  // The Service is named `<namespace>-<suffix>` for these apps, which is a fact about how they
+  // deploy rather than a different address shape.
+  return clusterUrl(
+    { service: `${namespace}-${spec.serviceSuffix}`, namespace, port: spec.port },
+    { path: spec.apiPath },
+  );
 }
 
 /**

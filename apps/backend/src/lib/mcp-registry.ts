@@ -21,6 +21,7 @@
  * rather than one that is absent. `mcpGaps` reports exactly that disagreement.
  */
 import type { DeploymentMetadata } from './types.js';
+import { clusterUrl } from './cluster-dns.js';
 import type { McpTool } from './mcp-client.js';
 
 /**
@@ -45,7 +46,7 @@ export function namespaceOfDeployment(dep: Pick<DeploymentMetadata, 'name'>): st
  * depend on an ingress controller being up or a hostname resolving outside the cluster.
  */
 export function mcpUrlFor(dep: Pick<DeploymentMetadata, 'name'>, namespace = namespaceOfDeployment(dep), port = 8080): string {
-  return `http://${GITAPP_SERVICE}.${namespace}.svc.cluster.local:${port}/mcp`;
+  return clusterUrl({ service: GITAPP_SERVICE, namespace, port }, { path: '/mcp' });
 }
 
 /**
