@@ -434,6 +434,35 @@ export const LEAF_TOOLS = [
     type: 'function',
     function: {
       /**
+       * Declaring a dependency is what makes a service reachable. Without it a leaf can SEE that
+       * mongo exists and has no way to say its project should be able to connect to one.
+       */
+      name: 'add_project_dependency',
+      description:
+        'Declare that this project depends on a running service, so its deployment is given the '
+        + 'address and credentials for it. Call this before proposing work that connects to '
+        + 'something — the leaf then reads the connection from $SERVICE_BINDING_ROOT at runtime '
+        + 'rather than being told it now. The service must be one list_infrastructure reports.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'The project that needs it, from list_projects.' },
+          service: { type: 'string', description: 'The running service to depend on, by name.' },
+          as: {
+            type: 'string',
+            description:
+              'Optional directory name under $SERVICE_BINDING_ROOT. Defaults to the service type. '
+              + 'Give one only when a project needs two of the same kind.',
+          },
+        },
+        required: ['projectId', 'service'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      /**
        * Koala had this and the planning personas did not, so a planner could see MCP servers and
        * not the database sitting beside them. A leaf planned to "add caching" could not discover
        * that anything cacheable existed.

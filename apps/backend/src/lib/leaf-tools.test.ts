@@ -101,7 +101,7 @@ describe('LEAF_TOOLS', () => {
       'start_ingest', 'ingest_status', 'search_corpus',
       'list_personas',
       'list_projects', 'create_project', 'set_leaf_project',
-      'list_infrastructure', 'list_mcp_servers', 'update_leaf_memory', 'web_search', 'fetch_web_page',
+      'add_project_dependency', 'list_infrastructure', 'list_mcp_servers', 'update_leaf_memory', 'web_search', 'fetch_web_page',
     ]);
   });
 
