@@ -1,0 +1,133 @@
+import { clusterHost } from './cluster-dns.js';
+
+/**
+ * How a workload is told where to reach a service it depends on.
+ *
+ * ── THIS IS A PUBLIC CONVENTION, NOT ONE WE INVENTED ──
+ * The Service Binding Specification for Kubernetes (servicebinding.io, v1.1.0) projects bindings as
+ * FILES in a directory, discovered through `$SERVICE_BINDING_ROOT`:
+ *
+ *     $SERVICE_BINDING_ROOT/<name>/type       required, e.g. "mongodb"
+ *     $SERVICE_BINDING_ROOT/<name>/host
+ *     $SERVICE_BINDING_ROOT/<name>/port
+ *     $SERVICE_BINDING_ROOT/<name>/username
+ *     $SERVICE_BINDING_ROOT/<name>/password
+ *
+ * Following it rather than inventing an env-var convention has two arguments. The weaker one is
+ * that client libraries exist for Go, Python and Java. The stronger one is why the spec moved away
+ * from environment variables in the first place: a secret in the environment appears in
+ * `kubectl describe pod`, in crash dumps, in anything that logs its own env at startup, and cannot
+ * be rotated without a restart. A file has none of those properties.
+ *
+ * There is no legacy application to accommodate here — the code reading these bindings is written
+ * by Koala — so the only reason to prefer env vars would be that they are easier for me to
+ * implement, which is not a reason.
+ *
+ * ── WHAT THIS MODULE IS NOT ──
+ * The full spec involves a `ServiceBinding` custom resource, a controller and a mutating admission
+ * webhook. That is a great deal of machinery for a local-first tool. This adopts the PROJECTION —
+ * the directory layout and the key names, which is what an application actually sees — and mounts
+ * a Secret to produce it. An app written against this works unmodified under a real
+ * servicebinding.io implementation, which is the property worth having.
+ */
+
+/**
+ * Where bindings are mounted.
+ *
+ * The spec says a value is assigned when the variable is absent, and names `/bindings` as the
+ * conventional one. Setting it explicitly means an application never has to guess.
+ */
+export const SERVICE_BINDING_ROOT = '/bindings';
+
+/** The binding type for an app type, as the spec's `type` file. Absent when it is not a backing service. */
+const BINDING_TYPES: Record<string, string> = {
+  mongo: 'mongodb',
+  minio: 's3',
+  qdrant: 'qdrant',
+  quickwit: 'quickwit',
+  tei: 'embeddings',
+  verdaccio: 'npm',
+};
+
+export function bindingTypeFor(appType: string): string | undefined {
+  return BINDING_TYPES[appType.trim().toLowerCase()];
+}
+
+/** One service a workload has been bound to. */
+export interface Binding {
+  /** The directory name under the root, and how an app tells two bindings apart. */
+  name: string;
+  /** The spec's `type` file — what KIND of service this is, e.g. `mongodb`. */
+  type: string;
+  host: string;
+  port: number;
+  /** Which credential keys will be present. Never the values — those exist only in the cluster. */
+  keys: string[];
+}
+
+/**
+ * A binding for a deployment, as an app will see it.
+ *
+ * The host is derived from the Service, never invented — see cluster-dns.ts for why one function
+ * owns that string.
+ */
+export function bindingFor(args: {
+  name: string;
+  appType: string;
+  service: string;
+  namespace: string;
+  port: number;
+  keys?: string[];
+}): Binding | undefined {
+  const type = bindingTypeFor(args.appType);
+  // A binding with no type is not projectable: `type` is the one required file, and an app uses it
+  // to tell what it has been handed.
+  if (!type) return undefined;
+  return {
+    name: args.name,
+    type,
+    host: clusterHost(args.service, args.namespace),
+    port: args.port,
+    keys: args.keys ?? [],
+  };
+}
+
+/**
+ * What a planner or an executing agent is told about bindings.
+ *
+ * Composed rather than seeded into each persona's prompt, for the same reason `describeSandbox()`
+ * is: seeding duplicates it across every persona, `ensurePersonas` only ever ADDS so existing users
+ * would never receive it, and editing a persona would silently drop it. One source, always current.
+ *
+ * With no bindings this is the convention alone — worth saying, because an agent that does not know
+ * the mechanism exists will hard-code a connection string instead of asking for one.
+ */
+export function describeBindings(bindings: readonly Binding[] = []): string {
+  const head = [
+    'Services this project depends on are provided as FILES, following the Kubernetes Service',
+    `Binding convention (servicebinding.io). The directory is in $SERVICE_BINDING_ROOT (${SERVICE_BINDING_ROOT}).`,
+    '',
+    'For a binding named `<name>`, read:',
+    `  $SERVICE_BINDING_ROOT/<name>/type       what kind of service it is`,
+    `  $SERVICE_BINDING_ROOT/<name>/host       and /port`,
+    `  $SERVICE_BINDING_ROOT/<name>/username   and /password, when it needs credentials`,
+    '',
+    'Read these at runtime. Never hard-code a host, a port or a credential, and never write a',
+    'credential into a repository — the values exist only inside the cluster.',
+  ];
+
+  if (!bindings.length) {
+    return [
+      ...head,
+      '',
+      'Nothing is bound to this project yet. If work needs a database, a cache or storage, say so —',
+      'the binding is declared on the project and provided at deploy time.',
+    ].join('\n');
+  }
+
+  const lines = bindings.map((b) => {
+    const keys = b.keys.length ? `, plus ${b.keys.join(' and ')}` : '';
+    return `  ${b.name}: type=${b.type}, host=${b.host}, port=${b.port}${keys}`;
+  });
+  return [...head, '', 'Bound to this project:', ...lines].join('\n');
+}

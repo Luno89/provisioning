@@ -434,6 +434,25 @@ export const LEAF_TOOLS = [
     type: 'function',
     function: {
       /**
+       * Koala had this and the planning personas did not, so a planner could see MCP servers and
+       * not the database sitting beside them. A leaf planned to "add caching" could not discover
+       * that anything cacheable existed.
+       */
+      name: 'list_infrastructure',
+      description:
+        'What is running in the cluster that this work could use — databases, storage, search, '
+        + 'embeddings — with the address a pod reaches each one at, and the full list of what this '
+        + 'platform can deploy. Call this BEFORE proposing work that depends on a service. Anything '
+        + 'in neither list does not exist here: say so rather than planning around it. Never '
+        + 'hard-code an address into a leaf — a service a project depends on is provided to it as a '
+        + 'binding at deploy time, read from $SERVICE_BINDING_ROOT at runtime.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      /**
        * ── WHAT THIS REPLACED ──
        * `list_tool_repository`, which returned six hardcoded strings — `pytest_runner`,
        * `git_inspector`, `linter_audit` — that no sandbox has ever had, alongside

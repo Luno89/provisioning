@@ -23,6 +23,7 @@ import { usableAcceptancePlan } from './acceptance.js';
 import { hollowChecks, explainHollow } from './acceptance-validation.js';
 import { rewireDependents } from './plan-review.js';
 import { withProject } from './trees.js';
+import { describeInfrastructure } from './infrastructure.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
@@ -514,6 +515,20 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       await db.saveLeaf(updated);
       return JSON.stringify({
         revised: { id: updated.id, title: updated.title, ...(persona ? { persona: persona.name } : {}) },
+      });
+    }
+
+    if (call.name === 'list_infrastructure') {
+      const infra = describeInfrastructure(await db.getDeployments(), userId, await db.getAppSpecs());
+      return JSON.stringify({
+        running: infra.running,
+        // First, because it is what needs doing before anything else is planned on top of it.
+        ...(infra.broken.length ? { broken: infra.broken } : {}),
+        deployable: infra.deployable,
+        note: 'Anything not in `running` and not in `deployable` does not exist here and cannot be '
+          + 'built — say so rather than planning around it. A service this project depends on is '
+          + 'provided as a binding at deploy time, so a leaf reads its address and credentials from '
+          + '$SERVICE_BINDING_ROOT at runtime rather than being given them now.',
       });
     }
 

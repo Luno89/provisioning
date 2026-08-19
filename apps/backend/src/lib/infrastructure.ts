@@ -1,4 +1,6 @@
 import { APP_TYPES, APP_FACTS, type AppType } from './app-catalog.js';
+import { clusterAuthority } from './cluster-dns.js';
+import { bindingTypeFor } from './service-binding.js';
 
 /**
  * What is actually running, and what could be, so Koala stops agreeing to build the impossible.
@@ -30,8 +32,18 @@ export interface RunningService {
   /** What it is, in plain words. A type id alone is not something to reason from. */
   is?: string;
   provides?: string[];
-  /** Where it lives in the cluster. The address is derived from this at deploy time, not here. */
   namespace: string;
+  /**
+   * Where a pod reaches it, when that is KNOWN.
+   *
+   * Absent rather than guessed. A spec-deployed app's Service name and port come from the spec that
+   * created it, so the address is a fact; for an app built by a hand-written construct there is no
+   * general answer, and a plausible-looking address is worse than none — it is indistinguishable to
+   * a model from one it was told, and sends work at a host that does not resolve.
+   */
+  address?: string;
+  /** The Service Binding `type`, when this is a backing service something could bind to. */
+  bindingType?: string;
 }
 
 export interface Infrastructure {
@@ -78,7 +90,15 @@ interface DeploymentLike {
 export function describeInfrastructure(
   deployments: readonly DeploymentLike[],
   ownerId: string,
+  /**
+   * The app-spec catalogue, for resolving addresses.
+   *
+   * Optional: without it every service still reports its name, type and namespace, just no address.
+   * That is the honest degradation — fewer facts, never invented ones.
+   */
+  specs: readonly { id: string; spec: { ports?: { port: number }[] } }[] = [],
 ): Infrastructure {
+  const byType = new Map(specs.map((s) => [s.id, s.spec]));
   return {
     running: deployments
       .filter((d) => d.ownerId === ownerId && d.status === 'running')
@@ -93,6 +113,7 @@ export function describeInfrastructure(
           : {}),
         // Namespaces are the deployment name, sanitised the same way the deploy path does it.
         namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+        ...addressOf(d, byType),
       })),
     /**
      * `unhealthy` and `failed` both mean "deployed and not working" to somebody trying to fix it.
@@ -128,5 +149,28 @@ export function findCapability(
     ...(running ? { running } : {}),
     deployable: infra.deployable.some((t) => t.id.toLowerCase() === needle
       || t.provides.some((p) => p === needle)),
+  };
+}
+
+/**
+ * The address and binding type of a deployment, when they are known.
+ *
+ * Known means a stored spec created it: `renderApp` names the Service after the spec id and takes
+ * the port from the spec, so both are facts rather than inferences. Anything built by a
+ * hand-written construct names its Service its own way, and this returns nothing rather than
+ * guessing.
+ */
+function addressOf(
+  d: DeploymentLike,
+  byType: Map<string, { ports?: { port: number }[] }>,
+): { address?: string; bindingType?: string } {
+  const spec = d.appType ? byType.get(d.appType) : undefined;
+  const port = spec?.ports?.[0]?.port;
+  if (!spec || port === undefined) return {};
+  const namespace = String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  return {
+    // The Service is named after the spec, which is the app type — see renderApp.
+    address: clusterAuthority({ service: String(d.appType), namespace, port }),
+    ...(bindingTypeFor(String(d.appType)) ? { bindingType: bindingTypeFor(String(d.appType))! } : {}),
   };
 }
