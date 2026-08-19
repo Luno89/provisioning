@@ -18,7 +18,8 @@ const TREE_TYPE_IDS = TREE_TYPES.map((t) => t.id);
 
 export const KOALA_TOOL_NAMES = [
   'list_mcp_servers', 'enable_mcp_server', 'propose_tree', 'propose_spec', 'list_trees',
-  'list_infrastructure', 'get_logs', 'get_events', 'web_search', 'fetch_web_page',
+  'list_infrastructure', 'add_project_dependency', 'get_logs', 'get_events',
+  'web_search', 'fetch_web_page',
 ] as const;
 
 export const KOALA_TOOLS = [
@@ -93,6 +94,37 @@ export const KOALA_TOOLS = [
           },
         },
         required: ['name', 'goal'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      /**
+       * Koala could SEE infrastructure and not wire it up: asked to make a service cache in mongo it
+       * would discover the database, propose a project, and stop — a plausible answer from something
+       * that quietly cannot act. A person should not have to know which surface is able to do a
+       * thing.
+       */
+      name: 'add_project_dependency',
+      description:
+        'Declare that an existing project depends on a running service, so its deployment is given '
+        + 'the address and credentials for it. Use the projectId reported by list_mcp_servers or '
+        + 'list_trees. The service must be one list_infrastructure reports. Nothing is deployed by '
+        + 'this — the binding is provided the next time that project deploys.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'The project that needs it.' },
+          service: { type: 'string', description: 'The running service to depend on, by name.' },
+          as: {
+            type: 'string',
+            description:
+              'Optional directory name under $SERVICE_BINDING_ROOT. Defaults to the service type; '
+              + 'give one only when a project needs two of the same kind.',
+          },
+        },
+        required: ['projectId', 'service'],
       },
     },
   },

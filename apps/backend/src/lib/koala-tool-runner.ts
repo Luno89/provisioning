@@ -6,6 +6,7 @@ import { preferUsable, type McpServer } from './mcp-registry.js';
 import { TREE_TYPES } from './trees.js';
 import { rollup } from './tree-board.js';
 import { describeInfrastructure } from './infrastructure.js';
+import { declareDependency } from './declare-dependency.js';
 import { namespaceFor, logsCommand, eventsCommand, trimOutput } from './kube-diagnostics.js';
 import { validateSpec, explainSpecProblems } from './app-spec-validate.js';
 import type { AppSpec } from './app-spec.js';
@@ -123,6 +124,12 @@ export async function runKoalaTool(
         }),
         enabled: wanted,
       };
+    }
+
+    if (call.name === 'add_project_dependency') {
+      // The same module the planners use — the refusals are a security boundary, and a second copy
+      // that fell behind would be worse than untidy.
+      return json(await declareDependency(db, userId, args));
     }
 
     if (call.name === 'list_infrastructure') {

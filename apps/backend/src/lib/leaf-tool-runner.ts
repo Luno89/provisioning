@@ -24,7 +24,7 @@ import { hollowChecks, explainHollow } from './acceptance-validation.js';
 import { rewireDependents } from './plan-review.js';
 import { withProject } from './trees.js';
 import { describeInfrastructure } from './infrastructure.js';
-import { resolveBindings } from './binding-resolve.js';
+import { declareDependency } from './declare-dependency.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
@@ -520,44 +520,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     }
 
     if (call.name === 'add_project_dependency') {
-      const project = (await projects.listForOwner(userId))
-        .find((p) => p.id === String(args.projectId ?? ''));
-      if (!project) return JSON.stringify({ error: 'No project with that id.' });
-
-      const service = String(args.service ?? '').trim();
-      /**
-       * Resolved now rather than at deploy time, so a name that cannot be bound is refused while
-       * the model still has the context to fix it. The same check runs again on deploy, because a
-       * service can be destroyed between declaring the dependency and using it.
-       */
-      const { bindings, problems } = resolveBindings(
-        [{ service, ...(args.as ? { as: String(args.as) } : {}) }],
-        await db.getDeployments(),
-        await db.getAppSpecs(),
-        userId,
-      );
-      if (!bindings.length) {
-        return JSON.stringify({ error: problems[0] ?? `Cannot bind to "${service}".` });
-      }
-
-      const binding = bindings[0]!;
-      const needs = project.needs ?? [];
-      if (needs.some((n) => n.service === service)) {
-        return JSON.stringify({ note: `This project already depends on "${service}".` });
-      }
-      await db.saveProject({
-        ...project,
-        needs: [...needs, { service, ...(args.as ? { as: String(args.as) } : {}) }],
-        updatedAt: new Date().toISOString(),
-      } as typeof project);
-      return JSON.stringify({
-        added: { service, as: binding.name, type: binding.type },
-        // What the leaf will actually find, so it writes code against real paths.
-        readAt: `$SERVICE_BINDING_ROOT/${binding.name}/`,
-        files: ['type', 'host', 'port', ...Object.keys(binding.source.keys)],
-        note: 'Provided at deploy time. Read these files at runtime — do not hard-code the address '
-          + 'or the credentials, and never commit them.',
-      });
+      return JSON.stringify(await declareDependency(db, userId, args));
     }
 
     if (call.name === 'list_infrastructure') {

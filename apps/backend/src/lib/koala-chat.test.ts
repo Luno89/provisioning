@@ -535,3 +535,25 @@ describe('knowing that something it built is broken', () => {
     expect((await run(db, 'list_infrastructure')).body.broken[0].reason).toBe('status is failed');
   });
 });
+
+
+describe('Koala can wire up what it discovers', () => {
+  /**
+   * It could SEE infrastructure and not act on it: asked to make a service cache in mongo it would
+   * find the database, propose a project, and stop — a plausible answer from something that quietly
+   * cannot do the thing. A person should not have to know which surface is able to act.
+   */
+  it('has the same dependency tool the planners do', () => {
+    expect(KOALA_TOOLS.map((t) => t.function.name)).toContain('add_project_dependency');
+  });
+
+  it('points at where a projectId comes from, since Koala has no list_projects', () => {
+    const tool = KOALA_TOOLS.find((t) => t.function.name === 'add_project_dependency')!;
+    expect(tool.function.description).toMatch(/list_mcp_servers or\s*\n?\s*list_trees/);
+  });
+
+  it('says plainly that declaring is not deploying', () => {
+    const tool = KOALA_TOOLS.find((t) => t.function.name === 'add_project_dependency')!;
+    expect(tool.function.description).toMatch(/Nothing is deployed by\s*\n?\s*this/);
+  });
+});
