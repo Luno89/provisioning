@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  bindingFor, bindingTypeFor, describeBindings, SERVICE_BINDING_ROOT,
+  bindingFor, bindingTypeFor, describeBindings, bindingProjection, SERVICE_BINDING_ROOT,
 } from './service-binding.js';
 import { describeInfrastructure } from './infrastructure.js';
 import { MINIO_SPEC } from './app-spec.js';
@@ -121,5 +121,51 @@ describe('addresses reported to a planner', () => {
     const infra = describeInfrastructure(deployments, 'u1');
     expect(infra.running).toHaveLength(2);
     expect(infra.running.every((s) => s.address === undefined)).toBe(true);
+  });
+});
+
+describe('projecting bindings into a pod', () => {
+  const projected = [
+    { name: 'mongo', secretName: 'binding-mongo' },
+    { name: 'cache', secretName: 'binding-cache' },
+  ];
+
+  it('mounts each binding at its own directory under the root', () => {
+    const { volumeMounts } = bindingProjection(projected);
+    expect(volumeMounts.map((m) => m.mountPath)).toEqual([
+      `${SERVICE_BINDING_ROOT}/mongo`,
+      `${SERVICE_BINDING_ROOT}/cache`,
+    ]);
+  });
+
+  it('mounts them READ-ONLY', () => {
+    // A credential an app can edit is one it can corrupt, and nothing should write to a binding.
+    expect(bindingProjection(projected).volumeMounts.every((m) => m.readOnly)).toBe(true);
+  });
+
+  it('sets SERVICE_BINDING_ROOT explicitly', () => {
+    /**
+     * The spec says an implementation assigns a value when the variable is absent, so an app that
+     * reads it works either way — but one that reads it and finds nothing has to guess, and guessing
+     * is what the convention exists to remove.
+     */
+    expect(bindingProjection(projected).env).toEqual([
+      { name: 'SERVICE_BINDING_ROOT', value: SERVICE_BINDING_ROOT },
+    ]);
+  });
+
+  it('names volumes and mounts consistently, or the pod will not start', () => {
+    const { volumes, volumeMounts } = bindingProjection(projected);
+    expect(volumes.map((v) => v.name)).toEqual(volumeMounts.map((m) => m.name));
+  });
+
+  it('carries no credential value — only the Secret to read it from', () => {
+    // The projection says WHERE the files come from. The values never pass through this.
+    expect(JSON.stringify(bindingProjection(projected))).not.toMatch(/password|username/i);
+  });
+
+  it('produces nothing at all for an app with no dependencies', () => {
+    // Which is every app today. An empty volume list must not add an env var either.
+    expect(bindingProjection([])).toEqual({ volumes: [], volumeMounts: [], env: [] });
   });
 });

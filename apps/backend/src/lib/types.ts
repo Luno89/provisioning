@@ -337,6 +337,15 @@ export interface ProjectMetadata {
    * this repository produces needs the same token.
    */
   deployEnv?: string;
+  /**
+   * Services this project's deployment depends on, provided as service bindings.
+   *
+   * Declared here rather than per-deploy: this is a property of the SERVICE, so every deploy and
+   * every redeploy binds the same things. It is also the decision worth approving — the credential
+   * copy that follows is a mechanical consequence, and an approval seen on every deploy is one that
+   * gets clicked through.
+   */
+  needs?: { service: string; as?: string }[];
   webhookSecretEnc?: string; // AES-256-GCM encrypted (crypto.ts) — HMAC key for verifying Gitea's push webhook signature
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
   createdAt: string;

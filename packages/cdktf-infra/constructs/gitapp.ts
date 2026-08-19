@@ -25,6 +25,27 @@ export class GitappApp extends Construct {
     super(scope, id);
 
     const namespaceName = config.namespace || "gitapp";
+    /**
+     * Service-binding projection, computed by the backend and passed as JSON.
+     *
+     * Same pattern as APP_SPEC_JSON: cdktf-infra is a separate workspace, so a shared type would be
+     * a build-order dependency for no gain — and the decision of WHAT to mount belongs where it can
+     * be unit-tested. Absent means no bindings, which is every app that declares no dependencies.
+     */
+    const binding: {
+      volumes: any[];
+      volumeMounts: any[];
+      env: { name: string; value: string }[];
+    } = (() => {
+      const raw = process.env.BINDINGS_JSON;
+      if (!raw) return { volumes: [], volumeMounts: [], env: [] };
+      try {
+        return JSON.parse(raw);
+      } catch (err) {
+        throw new Error(`BINDINGS_JSON is not valid JSON: ${(err as Error).message}`);
+      }
+    })();
+
     const containerPort = config.containerPort || 8080;
     const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 
@@ -118,12 +139,21 @@ export class GitappApp extends Construct {
                 name: "gitapp",
                 image: `${config.webRepo}:${config.webTag}`,
                 port: [{ containerPort }],
-                ...(envVars.length ? { env: envVars } : {}),
+                ...((envVars.length || binding.env.length) ? { env: [...envVars, ...binding.env] } : {}),
                 resources: {
                   limits: { cpu: "1", memory: "1G" },
                   requests: { cpu: "100m", memory: "128M" },
                 },
-                ...(dataPvc ? { volumeMount: [{ name: "data", mountPath: "/data" }] } : {}),
+                /**
+                 * Service bindings are mounted as files — see lib/service-binding.ts. The backend
+                 * computes the fragments so the decision is unit-tested; this only spreads them.
+                 */
+                ...((dataPvc || binding.volumeMounts.length) ? {
+                  volumeMount: [
+                    ...(dataPvc ? [{ name: "data", mountPath: "/data" }] : []),
+                    ...binding.volumeMounts,
+                  ],
+                } : {}),
                 // No fixed health-check path — unlike this platform's known app types, an
                 // arbitrary sibling project has no guaranteed /health endpoint. TCP-socket
                 // checks against the declared port are the only universal signal available.
@@ -140,14 +170,13 @@ export class GitappApp extends Construct {
                 },
               },
             ],
-            ...(dataPvc ? {
+            ...((dataPvc || binding.volumes.length) ? {
               volume: [
-                {
+                ...(dataPvc ? [{
                   name: "data",
-                  persistentVolumeClaim: {
-                    claimName: dataPvc.metadata.name,
-                  },
-                },
+                  persistentVolumeClaim: { claimName: dataPvc.metadata.name },
+                }] : []),
+                ...binding.volumes,
               ],
             } : {}),
           },

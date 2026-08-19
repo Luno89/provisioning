@@ -6,6 +6,8 @@
  */
 import { randomBytes } from 'node:crypto';
 import { renderApp } from '../lib/app-spec.js';
+import { resolveBindings, bindingFiles } from '../lib/binding-resolve.js';
+import { bindingProjection, type ProjectedBinding } from '../lib/service-binding.js';
 import { createDatabase } from '../lib/db-interface.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -446,8 +448,96 @@ export async function DeployAppActivity(
     console.warn(`[DeployAppActivity] could not read app specs: ${err.message}`);
   }
 
+  /**
+   * Service bindings: read the provider's Secret, write the consumer's, mount it as files.
+   *
+   * Kubernetes Secrets are namespace-scoped with no supported cross-namespace reference, so this is
+   * the only way a deployed app reaches a service in another namespace. `resolveBindings` has
+   * already refused anything the owner does not own — that filter is the security boundary, and it
+   * runs before any secret is read.
+   *
+   * Every copy is logged. There is no per-deploy approval — the DECLARATION is what a person
+   * approves, and a prompt seen on every redeploy is one that gets clicked through — so the record
+   * is what makes a credential movement reviewable afterwards.
+   */
+  let bindingsJson = '';
+  try {
+    // Own handle, closed straight after, like the spec lookup above: this activity holds none, and
+    // a deploy should not depend on one staying open for its whole run.
+    const bindDb = createDatabase();
+    await bindDb.init();
+    const deployments = await bindDb.getDeployments();
+    // The project id is on the DEPLOYMENT record, not in the activity's arguments.
+    const self = deployments.find((d) => d.name === args.name || d.id === args.name);
+    const project = self?.gitappProjectId
+      ? (await bindDb.getProjects()).find((p) => p.id === self.gitappProjectId)
+      : undefined;
+    const needs = project?.needs ?? [];
+    const specs = needs.length ? await bindDb.getAppSpecs() : [];
+    await bindDb.close().catch(() => undefined);
+
+    if (needs.length && project?.ownerId) {
+      const { bindings, problems } = resolveBindings(needs, deployments, specs, project.ownerId);
+      for (const p of problems) console.warn(`[bindings] ${physicalName}: ${p}`);
+
+      const projected: ProjectedBinding[] = [];
+      for (const b of bindings) {
+        // Read the provider's Secret. `-o json` rather than jsonpath: one parse, and a missing key
+        // is visible rather than an empty string.
+        const raw = await infra.runKubectl(
+          ['get', 'secret', b.source.secretName, '-n', b.source.namespace, '-o', 'json'],
+          kubeconfigPath,
+        ).catch(() => '');
+        const data = (() => {
+          try { return JSON.parse(typeof raw === 'string' ? raw : (raw as any)?.stdout ?? '')?.data ?? {}; }
+          catch { return {}; }
+        })();
+        const credentials: Record<string, string> = {};
+        for (const [bindingKey, sourceKey] of Object.entries(b.source.keys)) {
+          const value = data[sourceKey];
+          // Kubernetes stores Secret data base64-encoded.
+          if (typeof value === 'string') credentials[bindingKey] = Buffer.from(value, 'base64').toString('utf8');
+        }
+
+        const secretName = `binding-${b.name}`;
+        const files = bindingFiles(b, credentials);
+        // Applied rather than created, so a redeploy updates a rotated credential instead of
+        // failing on an object that already exists.
+        const manifest = JSON.stringify({
+          apiVersion: 'v1',
+          kind: 'Secret',
+          metadata: { name: secretName, namespace: sanitizedName },
+          type: 'Opaque',
+          stringData: files,
+        });
+        /**
+         * Through a file, not `--from-literal`: an argument is visible in `ps` on the host for the
+         * lifetime of the process, and this one is a password. Written 0600 and removed straight
+         * after — the same shape RunPipelineActivity uses to apply a Job manifest.
+         */
+        const manifestPath = path.join(os.tmpdir(), `binding-${sanitizedName}-${b.name}-${Date.now()}.json`);
+        try {
+          await fs.writeFile(manifestPath, manifest, { encoding: 'utf-8', mode: 0o600 });
+          await infra.runKubectl(['apply', '-f', manifestPath], kubeconfigPath);
+        } catch (err: any) {
+          console.warn(`[bindings] could not write ${secretName}: ${err.message}`);
+        } finally {
+          await fs.unlink(manifestPath).catch(() => undefined);
+        }
+        projected.push({ name: b.name, secretName });
+        console.log(`[bindings] ${physicalName}: bound ${b.name} (${b.type}) from ${b.source.namespace}`);
+      }
+      if (projected.length) bindingsJson = JSON.stringify(bindingProjection(projected));
+    }
+  } catch (err: any) {
+    // A binding failure must not take down a deploy that might not need it. The app starts, finds
+    // no binding, and says so — which is a better failure than no deploy at all.
+    console.warn(`[bindings] ${physicalName}: ${err.message}`);
+  }
+
   const env = buildAppEnv({
     ...(renderedSpec ? { renderedSpec } : {}),
+    ...(bindingsJson ? { bindingsJson } : {}),
     physicalName,
     strategy: args.strategy,
     sanitizedName,

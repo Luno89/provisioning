@@ -131,3 +131,50 @@ export function describeBindings(bindings: readonly Binding[] = []): string {
   });
   return [...head, '', 'Bound to this project:', ...lines].join('\n');
 }
+
+
+/** A binding as it exists in the cluster: a Secret in the CONSUMER's namespace. */
+export interface ProjectedBinding {
+  /** Directory name under the root. */
+  name: string;
+  /** The Secret holding this binding's files, already written into the consumer's namespace. */
+  secretName: string;
+}
+
+/**
+ * The pod-spec fragments that turn binding Secrets into files an app can read.
+ *
+ * Computed here rather than in the construct, for the same reason `renderApp` is: a decision that
+ * can be unit-tested should not live in a package that needs a Terraform stack to exercise. The
+ * construct spreads the result and makes no choices of its own.
+ *
+ * Each Secret is mounted READ-ONLY at `$SERVICE_BINDING_ROOT/<name>`, which is what the spec
+ * describes — every key in the Secret becomes a file named for that key.
+ */
+export function bindingProjection(bindings: readonly ProjectedBinding[]): {
+  volumes: { name: string; secret: { secretName: string } }[];
+  volumeMounts: { name: string; mountPath: string; readOnly: boolean }[];
+  env: { name: string; value: string }[];
+} {
+  if (!bindings.length) return { volumes: [], volumeMounts: [], env: [] };
+  const volumeName = (name: string) => `binding-${name}`;
+  return {
+    volumes: bindings.map((b) => ({
+      name: volumeName(b.name),
+      secret: { secretName: b.secretName },
+    })),
+    volumeMounts: bindings.map((b) => ({
+      name: volumeName(b.name),
+      mountPath: `${SERVICE_BINDING_ROOT}/${b.name}`,
+      // Nothing should write to a binding; a credential an app can edit is one it can corrupt.
+      readOnly: true,
+    })),
+    /**
+     * Set explicitly rather than relying on the conventional default. The spec says an
+     * implementation assigns a value when the variable is absent, so an app that reads the variable
+     * works either way — but an app that reads it and finds nothing has to guess, and guessing is
+     * what this whole convention exists to remove.
+     */
+    env: [{ name: 'SERVICE_BINDING_ROOT', value: SERVICE_BINDING_ROOT }],
+  };
+}

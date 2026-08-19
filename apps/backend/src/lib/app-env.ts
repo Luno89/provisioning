@@ -24,6 +24,8 @@ export interface AppEnvArgs {
    * constructs — the migration, one type at a time. Absent is every app today.
    */
   renderedSpec?: unknown;
+  /** Service-binding volumes and mounts, when this project declares dependencies. */
+  bindingsJson?: string | undefined;
   webRepo?: string | undefined;
   webTag?: string | undefined;
   dbRepo?: string | undefined;
@@ -360,6 +362,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
      * on whether the string is set — so an app that has not been migrated is untouched by this.
      */
     APP_SPEC_JSON: a.renderedSpec ? JSON.stringify(a.renderedSpec) : '',
+    BINDINGS_JSON: a.bindingsJson || '',
     ...a.storageEnv,
   };
 }
