@@ -106,6 +106,24 @@ export const PLAN_SYSTEM_PROMPT = [
   '- Call set_acceptance once, for the request as a whole. Per-leaf checks prove each piece; only',
   '  this proves the finished thing works. For a service, that means RUNNING it and calling it for',
   '  real, not just running the test suite.',
+  /**
+   * The observed failure this exists for: a plan whose only acceptance check was `node
+   * verify-cache.js` with nothing installing dependencies first, so it died on ERR_MODULE_NOT_FOUND
+   * having tested nothing. `set_acceptance`'s own description already asked for install-then-run;
+   * stating it as an ordered sequence is what made it stick.
+   */
+  '  Write the checks as a SEQUENCE: install dependencies, then build or test, then run the thing.',
+  '  A check that runs the product without installing it first fails on a missing package and',
+  '  proves nothing about the product.',
+  /**
+   * A project type states what finished means for it — `doneMeans`, composed into this turn's
+   * context. Ending the plan with a leaf that exercises the assembled result is the difference
+   * between a run that reports success on individually-passing pieces and one that knows they add
+   * up.
+   */
+  '- End the plan with a leaf that exercises the FINISHED thing the way a user would: call the',
+  '  deployed service, run the entry point, open the artefact. Name what it must produce in',
+  '  `expects`, so its success is a file that exists rather than a claim.',
   '- Propose nothing if the work is still unclear. Ask a question instead.',
   '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
   /**

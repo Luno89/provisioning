@@ -206,17 +206,36 @@ export function buildOutboundMessages(opts: {
    * regardless of mode, so it is the one thing that can bring a system message into being.
    */
   toolPrompt?: string | undefined;
+  /**
+   * What this KIND of project means by finished, from TREE_TYPES.
+   *
+   * Eleven types have carried a `doneMeans` since trees were introduced and nothing has ever read
+   * one — `api-service` has said "its tests pass, it builds, it deploys, and the endpoint responds"
+   * the whole time, while planners wrote whatever acceptance occurred to them. Composing it is what
+   * turns a description into a standard the plan is held to.
+   */
+  doneMeans?: string | undefined;
 }): OutboundMessage[] {
   const {
     messages, lastIndex, prompt, personaPrompt, leaves, siblingLeaves, siblingBranches, planText, toolPrompt,
+    doneMeans,
   } = opts;
-  if (!prompt && !toolPrompt && !personaPrompt) return messages;
+  if (!prompt && !toolPrompt && !personaPrompt && !doneMeans) return messages;
 
   const context = buildLeafContext(leaves);
   const siblings = buildSiblingContext(siblingBranches ?? [], siblingLeaves ?? []);
   const system: OutboundMessage = {
     role: 'system',
-    content: [personaPrompt, prompt, context, siblings, toolPrompt].filter(Boolean).join('\n\n'),
+    content: [
+      personaPrompt,
+      prompt,
+      // Before the board, because it is the standard the work is judged against rather than a
+      // detail about it.
+      doneMeans ? `This project is a ${doneMeans}` : undefined,
+      context,
+      siblings,
+      toolPrompt,
+    ].filter(Boolean).join('\n\n'),
   };
 
   if (planText === undefined) return [system, ...messages];

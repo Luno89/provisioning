@@ -147,7 +147,7 @@ import { normaliseLeafInput } from './lib/leaf-input.js';
 import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
 import { summariseDelivery } from './lib/branch-delivery.js';
 import { unassignedLeaves, buildAssignmentPrompt, buildUnassignedNotice, MAX_ASSIGNMENT_ROUNDS } from './lib/persona-assignment.js';
-import { TREE_TYPES, normaliseTreeInput, withProject, type Tree } from './lib/trees.js';
+import { TREE_TYPES, normaliseTreeInput, withProject, isTreeType, treeTypeSpec, type Tree } from './lib/trees.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
@@ -3871,7 +3871,28 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const extracting = planning || mode === 'auto';
     const strategy = estimatePromptComplexity(messages, mode, explicitPlan);
     const offerTools = Boolean(branchId) && mode !== 'chat' && (explicitPlan || strategy.tier !== 'casual');
+    /**
+     * What this KIND of project means by finished.
+     *
+     * `TREE_TYPES` has carried a `doneMeans` for eleven types since trees were introduced and
+     * nothing ever read one. `api-service` has said "its tests pass, it builds, it deploys, and the
+     * endpoint responds" the whole time, while planners wrote whatever acceptance occurred to them —
+     * which is how a run ended with `echo` as its only check.
+     */
+    const planTree = branchId
+      ? await (async () => {
+          const b = (await ownedBranches((req as any).user.id)).find((x) => x.id === branchId);
+          return b?.treeId
+            ? (await ownedTrees((req as any).user.id)).find((t) => t.id === b.treeId)
+            : undefined;
+        })()
+      : undefined;
+    const doneMeans = planTree?.type && isTreeType(planTree.type)
+      ? treeTypeSpec(planTree.type).doneMeans
+      : undefined;
+
     const outboundMessages = buildOutboundMessages({
+      ...(doneMeans ? { doneMeans } : {}),
       messages,
       lastIndex,
       prompt: explicitPlan ? PLAN_SYSTEM_PROMPT : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
