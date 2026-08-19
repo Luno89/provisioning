@@ -73,3 +73,37 @@ describe('the plan rules that came out of the failed run', () => {
     expect(PLAN_SYSTEM_PROMPT).toMatch(/Name what it must produce in\s*\n?\s*`expects`/);
   });
 });
+
+
+describe('verifying something that depends on a service', () => {
+  /**
+   * ── WHY THE TRIGGER IS A FACT, NOT A JUDGEMENT ──
+   * "Test it harder when it looks risky" is an assessment a model re-makes every run and answers
+   * differently — the same failure mode as "check first", which a model obeys while still designing
+   * around whatever it found missing. Whether a project has DEPENDENCIES is observable.
+   *
+   * It is also exactly the case nothing else can cover: a leaf's sandbox has no binding, so code
+   * reading $SERVICE_BINDING_ROOT can only be exercised where the binding exists — the deployed
+   * service.
+   */
+  it('says a sandbox cannot verify a binding', () => {
+    expect(PLAN_SYSTEM_PROMPT).toMatch(/sandbox CANNOT verify the connection/);
+    expect(PLAN_SYSTEM_PROMPT).toMatch(/bindings exist only in the deployed service/);
+  });
+
+  it('names the mechanism that makes the call possible', () => {
+    // `mcp` on the leaf is what hands it the deployed service's tools; without it the leaf can only
+    // guess at raw HTTP.
+    expect(PLAN_SYSTEM_PROMPT).toMatch(/name the service in its `mcp`/);
+  });
+
+  it('ties it to the declaration, not to a feeling', () => {
+    expect(PLAN_SYSTEM_PROMPT).toMatch(/anything you declared with add_project_dependency/);
+  });
+
+  it('still lets the planner escalate on judgement', () => {
+    // The observable trigger is the floor, not the ceiling — some assembled results fail in ways
+    // their pieces cannot, and no field predicts that.
+    expect(PLAN_SYSTEM_PROMPT).toMatch(/fail in ways the individual pieces cannot/);
+  });
+});

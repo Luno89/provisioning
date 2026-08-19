@@ -124,6 +124,22 @@ export const PLAN_SYSTEM_PROMPT = [
   '- End the plan with a leaf that exercises the FINISHED thing the way a user would: call the',
   '  deployed service, run the entry point, open the artefact. Name what it must produce in',
   '  `expects`, so its success is a file that exists rather than a claim.',
+  /**
+   * Tied to an observable fact rather than to a judgement about risk.
+   *
+   * "Test it harder when it looks risky" is an assessment a model re-makes every run and answers
+   * differently — the same failure as "check first", which a model obeys while still designing
+   * around whatever it found missing. Whether a project has DEPENDENCIES is not an opinion.
+   *
+   * And it is exactly the case that cannot be checked any other way: a leaf's sandbox has no
+   * binding, so code that reads $SERVICE_BINDING_ROOT can only be exercised where the binding
+   * exists, which is the deployed service.
+   */
+  '- When this project depends on a service (anything you declared with add_project_dependency), a',
+  '  sandbox CANNOT verify the connection — bindings exist only in the deployed service. That final',
+  '  leaf must call the DEPLOYED thing instead: name the service in its `mcp` so it can call its',
+  '  tools for real, and check the response is what a user would get.',
+  '  Do the same whenever the assembled result could fail in ways the individual pieces cannot.',
   '- Propose nothing if the work is still unclear. Ask a question instead.',
   '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
   /**
