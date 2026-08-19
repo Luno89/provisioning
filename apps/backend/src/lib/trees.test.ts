@@ -18,10 +18,36 @@ describe('the tree type registry', () => {
     for (const spec of TREE_TYPES) expect(spec.doneMeans.length).toBeGreaterThan(20);
   });
 
-  it('knows which types produce files and which produce answers', () => {
-    expect(treeTypeSpec('research-paper').usesRepo).toBe(false);
-    expect(treeTypeSpec('decision-brief').usesRepo).toBe(false);
-    expect(treeTypeSpec('api-service').usesRepo).toBe(true);
+  it('knows which types deploy and which produce artefacts', () => {
+    /**
+     * Replaces a `usesRepo` boolean that said research projects get NO repository. That was written
+     * before `leaf-project.ts` made repositories non-optional — because opt-in lost work: a leaf
+     * wrote correct, tested code into a sandbox that was then destroyed, and reported success.
+     *
+     * `produces` keeps the real distinction (a service must answer; an artefact is read) without
+     * reviving the one that would delete work.
+     */
+    expect(treeTypeSpec('research-paper').produces).toBe('artefact');
+    expect(treeTypeSpec('decision-brief').produces).toBe('artefact');
+    expect(treeTypeSpec('api-service').produces).toBe('service');
+    expect(treeTypeSpec('mcp-server').produces).toBe('service');
+  });
+
+  it('gives every type a language, since the type decides the workspace', () => {
+    // The type is an opinionated template, not a label: a persona installs what it needs on top,
+    // but the image is where the work starts.
+    for (const spec of TREE_TYPES) expect(spec.language, spec.id).toBeTruthy();
+    expect(treeTypeSpec('dataset').language).toBe('python');
+    expect(treeTypeSpec('mcp-server').language).toBe('node');
+  });
+
+  it('has a type for MCP servers, which the data asked for', () => {
+    /**
+     * Four of the five trees on this instance were MCP servers labelled `api-service` or
+     * `infra-module`, because there was nothing closer. A type people reach for by approximation is
+     * a type that should exist.
+     */
+    expect(treeTypeSpec('mcp-server').doneMeans).toMatch(/answers `initialize`/);
   });
 
   it('rejects a type that is not in the table', () => {
