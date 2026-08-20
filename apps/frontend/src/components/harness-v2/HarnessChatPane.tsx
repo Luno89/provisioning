@@ -6,17 +6,15 @@ import {
   Play,
   Sparkles,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Layers,
   Award,
   Server,
   Activity,
   Cpu,
-  BookOpen,
   AlertCircle,
 } from 'lucide-react';
 import type { HarnessConversation, ProposedHarnessTask, HarnessChatMessage } from '@koala/harness-types';
+import ChatMessageRenderer from '../../lib/chat-parser/ChatMessageRenderer.js';
 
 export default function HarnessChatPane({
   apiBase = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api',
@@ -33,7 +31,6 @@ export default function HarnessChatPane({
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -172,9 +169,6 @@ export default function HarnessChatPane({
     }
   };
 
-  const toggleReasoning = (msgId: string) => {
-    setExpandedReasoning((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
-  };
 
   return (
     <div className="flex h-full w-full bg-[var(--bark-900)] text-slate-100 overflow-hidden font-sans">
@@ -278,27 +272,7 @@ export default function HarnessChatPane({
                 <span>• {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
 
-              {/* Collapsible Reasoning */}
-              {msg.reasoning && (
-                <div className="w-full max-w-2xl bg-black/25 rounded-xl border border-[var(--bark-700)] text-xs overflow-hidden">
-                  <button
-                    onClick={() => toggleReasoning(msg.id)}
-                    className="w-full px-3.5 py-2 flex items-center justify-between text-slate-400 hover:text-slate-200 transition-colors text-[11px]"
-                  >
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <BookOpen size={12} className="text-[var(--leaf)]" /> Orchestrator Reasoning & Plan
-                    </span>
-                    {expandedReasoning[msg.id] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                  </button>
-                  {expandedReasoning[msg.id] && (
-                    <div className="px-3.5 pb-3 text-slate-300 text-[11px] border-t border-[var(--bark-700)]/60 pt-2 font-mono whitespace-pre-wrap leading-relaxed">
-                      {msg.reasoning}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Message Bubble */}
+              {/* Message Bubble & Formatted Content */}
               <div
                 className={`p-4 rounded-2xl text-xs max-w-2xl leading-relaxed ${
                   msg.role === 'user'
@@ -306,7 +280,7 @@ export default function HarnessChatPane({
                     : 'bg-[var(--bark-800)] text-slate-200 border border-[var(--bark-700)] shadow-lg'
                 }`}
               >
-                <div className="whitespace-pre-wrap">{msg.content}</div>
+                <ChatMessageRenderer content={msg.content} reasoning={msg.reasoning} />
 
                 {/* Proposed Task Cards */}
                 {msg.proposals && msg.proposals.length > 0 && (
