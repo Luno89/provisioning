@@ -1,4 +1,4 @@
-import { Shield, FlaskConical, Trees, Trees as TreesIcon, ChevronDown, ChevronRight, Terminal } from 'lucide-react';
+import { Shield, FlaskConical, Trees, Trees as TreesIcon, ChevronDown, ChevronRight, Terminal, Cpu } from 'lucide-react';
 import { Koala } from './Koala';
 
 /**
@@ -72,6 +72,10 @@ export default function Sidebar({
 
         <button onClick={() => setView('lab')} className={nested(view === 'lab')}>
           <FlaskConical size={15} className="text-[var(--leaf)]" /> Lab
+        </button>
+
+        <button onClick={() => setView('harness')} className={nested(view === 'harness')}>
+          <Cpu size={15} className="text-[var(--leaf)]" /> Harness
         </button>
 
         <button

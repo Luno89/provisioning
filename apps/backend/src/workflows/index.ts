@@ -8,3 +8,4 @@ export { executeSyncConfigWorkflow } from './SyncConfigWorkflow.js';
 export { executePipelineRunWorkflow } from './PipelineRunWorkflow.js';
 export { LeafWorkflow } from './LeafWorkflow.js';
 export { executeIngestWorkflow } from './IngestWorkflow.js';
+export { HarnessTaskWorkflow } from '../harness-v2/workflows/HarnessTaskWorkflow.js';

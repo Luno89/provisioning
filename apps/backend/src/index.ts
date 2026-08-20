@@ -93,6 +93,7 @@ import { koalaSeed, isChatOnly, buildKoalaPrompt } from './lib/koala-persona.js'
 import { KOALA_TOOLS } from './lib/koala-tools.js';
 import { runKoalaTool } from './lib/koala-tool-runner.js';
 import { toLoopTools, routeCall } from './lib/mcp-tools.js';
+import { createHarnessV2Router } from './harness-v2/routes/harness-v2-routes.js';
 /** Room for a turn that inspects, enables a service and then answers. */
 const KOALA_MAX_TOKENS = 8000;
 /**
@@ -430,6 +431,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   };
 
   app.use('/api', requireAuth);
+  app.use('/api/harness-v2', createHarnessV2Router());
 
   const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!(req as any).user?.isAdmin) {

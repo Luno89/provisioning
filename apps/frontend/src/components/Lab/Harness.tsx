@@ -185,8 +185,8 @@ export function Harness({
                       onChange={(e) => setKnobValue(t.key, e.target.value)}
                       className="w-full bg-[var(--bark-800)] border border-[var(--bark-600)] rounded px-2.5 py-1 text-slate-200 text-xs"
                     >
-                      {t.options.map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
+                      {t.options.map((opt: any) => (
+                        <option key={String(opt)} value={String(opt)}>{String(opt)}</option>
                       ))}
                     </select>
                   )}

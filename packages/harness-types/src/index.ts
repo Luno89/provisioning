@@ -872,3 +872,5 @@ export interface OutcomeCounts {
   incomplete: number;
   broken: number;
 }
+
+export * from './harness-v2-types.js';
