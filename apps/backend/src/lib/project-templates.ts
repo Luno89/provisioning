@@ -161,6 +161,173 @@ const README = (name: string, kind: string) => [
  * investigation works on code that already exists — dropping a server skeleton into either would be
  * noise the first leaf has to delete.
  */
+/**
+ * A working MCP server over Streamable HTTP, with no dependencies.
+ *
+ * ── WHY NO SDK ──
+ * The one MCP server this platform has built imports `@modelcontextprotocol/sdk` and `zod`, registers
+ * its tools on an `McpServer`, and then hand-rolls the JSON-RPC over `node:http` anyway — the SDK is
+ * not doing the transport. `zod` is imported and not even declared as a dependency.
+ *
+ * The protocol surface a server needs is three methods. Writing them out is smaller than the seam,
+ * cannot fail on a registry that lacks a package, and is checkable against `lib/mcp-client.ts`,
+ * which is what actually calls it.
+ *
+ * ── AND WHY IT ANSWERS `initialize` FIRST ──
+ * A server built without this returned `HTTP 404 from initialize` and the registry recorded it as
+ * unreachable with no tools — deployed, running, and useless. That is the failure this file exists
+ * to make impossible.
+ */
+const MCP_SERVER = `import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
+
+/**
+ * The tools this server offers.
+ *
+ * Add to this list and the server advertises them; nothing else needs changing. \`inputSchema\` is
+ * JSON Schema, which is what a caller reads to know how to call the tool.
+ */
+const TOOLS = [
+  {
+    name: 'echo',
+    description: 'Returns whatever it is given. Replace this with a real tool.',
+    inputSchema: {
+      type: 'object',
+      properties: { message: { type: 'string', description: 'Anything at all.' } },
+      required: ['message'],
+    },
+    run: async ({ message }) => \`You said: \${message}\`,
+  },
+];
+
+const PROTOCOL_VERSION = '2025-06-18';
+
+/** A JSON-RPC reply. Every response is 200 — errors travel in the body, per JSON-RPC. */
+const reply = (res, id, payload, sessionId) => {
+  res.writeHead(200, {
+    'content-type': 'application/json',
+    // Streamable HTTP is not stateless: the client sends this back on every later call.
+    ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
+  });
+  res.end(JSON.stringify({ jsonrpc: '2.0', id, ...payload }));
+};
+
+const server = createServer(async (req, res) => {
+  // The platform probes this to decide whether the deployment is healthy.
+  if (req.url === '/health') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ status: 'ok' }));
+  }
+
+  if (req.url !== '/mcp' || req.method !== 'POST') {
+    res.writeHead(404, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'Not found' }));
+  }
+
+  let body = '';
+  for await (const chunk of req) body += chunk;
+
+  let message;
+  try {
+    message = JSON.parse(body);
+  } catch {
+    return reply(res, 0, { error: { code: -32700, message: 'Parse error' } });
+  }
+  const id = message.id ?? 0;
+
+  if (message.method === 'initialize') {
+    return reply(res, id, {
+      result: {
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: { name: 'NAME_PLACEHOLDER', version: '0.1.0' },
+      },
+    }, randomUUID());
+  }
+
+  if (message.method === 'tools/list') {
+    // Without \`run\`, which is this server's business and not the caller's.
+    return reply(res, id, {
+      result: { tools: TOOLS.map(({ run, ...tool }) => tool) },
+    });
+  }
+
+  if (message.method === 'tools/call') {
+    const tool = TOOLS.find((t) => t.name === message.params?.name);
+    if (!tool) {
+      return reply(res, id, { error: { code: -32602, message: \`No tool named "\${message.params?.name}"\` } });
+    }
+    try {
+      const text = await tool.run(message.params?.arguments ?? {});
+      // Content is an ARRAY of typed parts; a caller joins the text ones.
+      return reply(res, id, { result: { content: [{ type: 'text', text: String(text) }] } });
+    } catch (err) {
+      // isError rather than a JSON-RPC error: the call reached the tool and the tool failed, which
+      // is something the caller can act on.
+      return reply(res, id, {
+        result: { content: [{ type: 'text', text: String(err?.message ?? err) }], isError: true },
+      });
+    }
+  }
+
+  // A notification has no id and expects no reply.
+  if (id === 0 && message.method?.startsWith('notifications/')) {
+    res.writeHead(202);
+    return res.end();
+  }
+
+  return reply(res, id, { error: { code: -32601, message: \`Unknown method "\${message.method}"\` } });
+});
+
+// PORT decides whether this is a service at all: a server that ignores it binds the wrong port,
+// the readiness probe never passes, and the deployment restarts forever.
+const port = Number(process.env.PORT) || 8080;
+server.listen(port, () => console.log(\`MCP server listening on \${port}\`));
+`;
+
+const MCP_TEST = `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+/**
+ * What the platform's registry actually calls. If these pass, it can introspect this server and
+ * offer its tools to an agent; if they fail, it records the server as unreachable with no tools.
+ */
+const call = async (method, params = {}) => {
+  const res = await fetch(\`http://127.0.0.1:\${process.env.PORT || 8080}/mcp\`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  return { res, body: await res.json() };
+};
+
+test('initialize answers with a protocol version and a session', async () => {
+  const { res, body } = await call('initialize', {});
+  assert.equal(res.status, 200);
+  assert.ok(body.result.protocolVersion, 'the client reads this');
+  assert.ok(res.headers.get('mcp-session-id'), 'sent back on every later call');
+});
+
+test('tools/list is not empty', async () => {
+  // A server with no tools is indistinguishable from a broken one to anything that lists it.
+  const { body } = await call('tools/list');
+  assert.ok(body.result.tools.length > 0);
+  assert.ok(body.result.tools[0].inputSchema, 'a caller needs this to know how to call it');
+});
+
+test('tools/call returns text content', async () => {
+  const { body } = await call('tools/call', { name: 'echo', arguments: { message: 'hi' } });
+  assert.equal(body.result.content[0].type, 'text');
+  assert.match(body.result.content[0].text, /hi/);
+});
+
+test('an unknown tool is an error, not a crash', async () => {
+  const { res, body } = await call('tools/call', { name: 'nope', arguments: {} });
+  assert.equal(res.status, 200, 'errors travel in the body, per JSON-RPC');
+  assert.ok(body.error);
+});
+`;
+
 export function templateFor(
   treeType: string | undefined,
   projectName: string,
@@ -176,6 +343,14 @@ export function templateFor(
         { path: 'test/server.test.js', content: NODE_TEST },
         { path: 'README.md', content: README(projectName, 'service') },
       ];
+    case 'mcp-server':
+      return [
+        { path: 'Dockerfile', content: NODE_DOCKERFILE(nodeBaseImage(registryHost)) },
+        { path: 'package.json', content: NODE_PACKAGE(projectName) },
+        { path: 'src/server.js', content: MCP_SERVER.replace('NAME_PLACEHOLDER', projectName) },
+        { path: 'test/server.test.js', content: MCP_TEST },
+        { path: 'README.md', content: README(projectName, 'service') },
+      ];
     case 'library':
       // No Dockerfile and no server: a library is not deployed, and giving it one would have the
       // pipeline build an image nobody wants.
@@ -189,4 +364,4 @@ export function templateFor(
 }
 
 /** Which tree types start from something. Used to say so in the UI rather than surprising anyone. */
-export const TEMPLATED_TREE_TYPES = ['api-service', 'library'];
+export const TEMPLATED_TREE_TYPES = ['mcp-server', 'api-service', 'library'];

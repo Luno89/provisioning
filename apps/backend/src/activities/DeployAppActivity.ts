@@ -20,7 +20,7 @@ import { BuilderService } from '../services/BuilderService.js';
 import { StorageAdapter } from '../services/StorageAdapter.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
-import { buildAppEnv } from '../lib/app-env.js';
+import { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
 import { deploymentIdFor } from '../lib/deployment-id.js';
@@ -381,7 +381,7 @@ export async function DeployAppActivity(
     tabbyMemoryPlan = planHostMemory({
       modelBytes: tabbyModelSizeBytes,
       gpuCount: effectiveTabbyGpuCount,
-      maxSeqLen: args.tabbyMaxSeqLen ?? 262144,
+      maxSeqLen: args.tabbyMaxSeqLen ?? TABBYAPI_DEFAULT_MAX_SEQ_LEN,
       inlineModelLoading: args.tabbyInlineModelLoading === true,
       allocatableBytes,
     });

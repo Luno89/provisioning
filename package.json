@@ -11,6 +11,8 @@
     "dev": "bash scripts/ensure-cluster.sh && bash scripts/ensure-gitea.sh && bash scripts/ensure-temporal.sh && bash scripts/ensure-mongo.sh && bash scripts/ensure-headscale.sh && concurrently --kill-others \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\" \"npm run dev:worker -w apps/backend\" \"npm run dev:worker:cluster -w apps/backend\"",
     "clean-dev": "bash scripts/cleanup-all.sh",
     "backup": "bash scripts/backup-to-drive.sh",
+    "backup:mongo": "bash scripts/backup-mongo.sh",
+    "restore:mongo": "bash scripts/restore-mongo.sh",
     "worker": "bash scripts/first-time.sh --deploy",
     "deploy-worker": "bash scripts/deploy-worker.sh",
     "test": "npm run test:unit && npm run test:e2e:sync",

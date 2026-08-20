@@ -66,6 +66,9 @@ cdktf.out/
 .env.production.local
 
 # OS Metadata
+# Backups
+/backups/
+
 .DS_Store
 Thumbs.db
 apps/frontend/dist/

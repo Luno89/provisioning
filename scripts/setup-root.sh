@@ -68,6 +68,10 @@ fi
 echo "🔄 Installing native k3s management cluster..."
 "${ROOT}/scripts/cluster.sh" install provisioning-lunorica
 
+# Ensure model cache directories exist with full read/write permissions so host workers can pre-download
+mkdir -p /var/lib/rancher/tabbyapi-model-cache /var/lib/rancher/vllm-model-cache
+chmod 1777 /var/lib/rancher/tabbyapi-model-cache /var/lib/rancher/vllm-model-cache
+
 # 4. Trust the self-hosted Gitea registry (scripts/ensure-gitea.sh, deployed later by
 #    `npm run dev`) as an insecure/HTTP registry. containerd defaults to HTTPS-only for image
 #    pulls — Gitea's registry is plain HTTP (no cluster-internal TLS story yet) — and unlike

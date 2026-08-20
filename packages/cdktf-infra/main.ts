@@ -130,7 +130,12 @@ class AppStack extends TerraformStack {
 
     let strategy = process.env.DEPLOYMENT_STRATEGY || 'helm';
     const appType = process.env.APP_TYPE || 'odoo';
-    if (appType === 'odoo') {
+    const NATIVE_ONLY_APPS = [
+      'odoo', 'vllm', 'tabbyapi', 'palworld', 'minio', 'qdrant', 'quickwit',
+      'tei', 'verdaccio', 'homeassistant', 'searxng', 'crawl4ai', 'openwebui',
+      'hermes', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich', 'papra', 'gitapp',
+    ];
+    if (NATIVE_ONLY_APPS.includes(appType)) {
       strategy = 'native';
     }
     const deploymentName = process.env.DEPLOYMENT_NAME || 'app';

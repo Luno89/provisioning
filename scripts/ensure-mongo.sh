@@ -48,3 +48,23 @@ else
     exit 1
   fi
 fi
+
+# Check if database is empty and a backup exists to offer restoring
+LATEST_BACKUP="${ROOT}/backups/mongo_backup_latest.archive.gz"
+if [ -f "$LATEST_BACKUP" ] && [ -t 0 ]; then
+  # Check if users collection has any documents
+  DOC_COUNT="$(docker exec provisioning-mongodb-1 mongosh -u admin -p admin --authenticationDatabase admin provisioning --quiet --eval "db.users.countDocuments()" 2>/dev/null || echo "0")"
+  if [ "$DOC_COUNT" = "0" ]; then
+    echo ""
+    echo "📦 An existing MongoDB backup was found (${LATEST_BACKUP})."
+    read -r -p "   The current database is empty. Would you like to restore the backup? (y/N): " RESTORE_CONFIRM
+    case "$RESTORE_CONFIRM" in
+      [yY][eE][sS]|[yY])
+        bash "${ROOT}/scripts/restore-mongo.sh" -y "$LATEST_BACKUP"
+        ;;
+      *)
+        echo "   Skipping backup restoration."
+        ;;
+    esac
+  fi
+fi

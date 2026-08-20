@@ -69,6 +69,7 @@ export async function DownloadModelActivity(args: DownloadModelArgs): Promise<Do
   }
 
   await fsp.writeFile(completeMarker, '');
+
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
   return { skipped: false, totalBytes, modelDir };
 }
