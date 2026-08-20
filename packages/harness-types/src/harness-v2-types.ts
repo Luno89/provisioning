@@ -81,9 +81,40 @@ export interface TaskCheckpoint {
   summary: string;
 }
 
+export interface ProposedHarnessTask {
+  id: string;
+  title: string;
+  description: string;
+  personaId: string;
+  budget: HarnessBudget;
+  rubrics?: { name: string; weight: number; description: string }[];
+  status: 'proposed' | 'accepted' | 'rejected';
+  taskId?: string;
+  createdAt: string;
+}
+
+export interface HarnessChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  reasoning?: string;
+  proposals?: ProposedHarnessTask[];
+  createdAt: string;
+}
+
+export interface HarnessConversation {
+  id: string;
+  title: string;
+  messages: HarnessChatMessage[];
+  activeTaskId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface HarnessTask {
   id: string;
   projectId?: string;
+  conversationId?: string;
   title: string;
   description: string;
   personaId: string;

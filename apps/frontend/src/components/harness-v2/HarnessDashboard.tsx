@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { Play, Pause, ShieldCheck, ShieldAlert, Cpu, Layers, RefreshCw, Send, Terminal, Award } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Play, Pause, ShieldCheck, ShieldAlert, Cpu, Layers, RefreshCw, Terminal, Award, MessageSquare, ListTodo } from 'lucide-react';
 import axios from 'axios';
 import type { HarnessTask, TurnExecutionStep } from '@koala/harness-types';
+import HarnessChatPane from './HarnessChatPane.js';
 
 export default function HarnessDashboard() {
   const [tasks, setTasks] = useState<HarnessTask[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<HarnessTask | null>(null);
   const [traces, setTraces] = useState<TurnExecutionStep[]>([]);
   const [loading, setLoading] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newDescription, setNewDescription] = useState('');
+  const [activeTab, setActiveTab] = useState<'chat' | 'tasks'>('chat');
 
   const fetchTasks = async () => {
     try {
@@ -17,14 +18,25 @@ export default function HarnessDashboard() {
       const res = await axios.get('/api/harness-v2/tasks');
       if (res.data.success) {
         setTasks(res.data.tasks);
-        if (!selectedTask && res.data.tasks.length > 0) {
-          setSelectedTask(res.data.tasks[0]);
+        if (!selectedTaskId && res.data.tasks.length > 0) {
+          setSelectedTaskId(res.data.tasks[0].id);
         }
       }
     } catch (err) {
       console.error('Failed to fetch tasks', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTaskDetails = async (id: string) => {
+    try {
+      const res = await axios.get(`/api/harness-v2/tasks/${id}`);
+      if (res.data.success) {
+        setSelectedTask(res.data.task);
+      }
+    } catch (err) {
+      console.error('Failed to fetch task details', err);
     }
   };
 
@@ -46,29 +58,15 @@ export default function HarnessDashboard() {
   }, []);
 
   useEffect(() => {
-    if (selectedTask) {
-      fetchTraces(selectedTask.id);
+    if (selectedTaskId) {
+      fetchTaskDetails(selectedTaskId);
+      fetchTraces(selectedTaskId);
     }
-  }, [selectedTask?.id]);
+  }, [selectedTaskId]);
 
-  const createTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-
-    try {
-      const res = await axios.post('/api/harness-v2/tasks', {
-        title: newTitle,
-        description: newDescription,
-      });
-      if (res.data.success) {
-        setNewTitle('');
-        setNewDescription('');
-        await fetchTasks();
-        setSelectedTask(res.data.task);
-      }
-    } catch (err) {
-      console.error('Failed to create task', err);
-    }
+  const handleSelectTaskFromChat = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    fetchTasks();
   };
 
   const togglePause = async (task: HarnessTask) => {
@@ -76,6 +74,7 @@ export default function HarnessDashboard() {
     try {
       await axios.post(`/api/harness-v2/tasks/${task.id}/${endpoint}`);
       fetchTasks();
+      fetchTaskDetails(task.id);
     } catch (err) {
       console.error(`Failed to ${endpoint} task`, err);
     }
@@ -83,94 +82,109 @@ export default function HarnessDashboard() {
 
   return (
     <div className="flex h-full w-full bg-[var(--bark-900)] text-slate-100 overflow-hidden font-sans">
-      {/* Task List Sidebar */}
-      <div className="w-80 border-r border-[var(--bark-600)] flex flex-col bg-[var(--bark-800)]/60">
-        <div className="p-4 border-b border-[var(--bark-600)] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Cpu className="text-[var(--leaf)]" size={20} />
-            <h2 className="font-bold text-sm tracking-wide uppercase">Harness V2</h2>
-          </div>
-          <button onClick={fetchTasks} className="p-1 hover:bg-[var(--bark-700)] rounded-lg text-slate-400">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+      {/* Left Column: Switchable between Orchestrator Chat & Task Catalog */}
+      <div className="w-[440px] border-r border-[var(--bark-600)] flex flex-col bg-[var(--bark-850)] flex-shrink-0">
+        {/* Top Tab Bar */}
+        <div className="flex border-b border-[var(--bark-600)] bg-[var(--bark-800)]">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${
+              activeTab === 'chat'
+                ? 'text-[var(--leaf)] border-b-2 border-[var(--leaf)] bg-[var(--bark-750)]'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MessageSquare size={14} /> Orchestrator Chat
+          </button>
+          <button
+            onClick={() => setActiveTab('tasks')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${
+              activeTab === 'tasks'
+                ? 'text-[var(--leaf)] border-b-2 border-[var(--leaf)] bg-[var(--bark-750)]'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ListTodo size={14} /> Tasks ({tasks.length})
           </button>
         </div>
 
-        {/* Task Creator */}
-        <form onSubmit={createTask} className="p-4 border-b border-[var(--bark-600)] space-y-2.5 bg-[var(--bark-800)]">
-          <input
-            type="text"
-            placeholder="Task Title (e.g. Implement Auth Rate Limiter)"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            className="w-full px-3 py-1.5 text-xs bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-lg text-slate-200 focus:outline-none focus:border-[var(--leaf)]"
-          />
-          <textarea
-            placeholder="Task Specifications & Scope..."
-            value={newDescription}
-            onChange={(e) => setNewDescription(e.target.value)}
-            rows={2}
-            className="w-full px-3 py-1.5 text-xs bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-lg text-slate-200 focus:outline-none focus:border-[var(--leaf)] resize-none"
-          />
-          <button
-            type="submit"
-            className="w-full flex items-center justify-center gap-2 py-1.5 px-3 bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white text-xs font-semibold rounded-lg transition-colors"
-          >
-            <Send size={12} /> Launch Task
-          </button>
-        </form>
-
-        {/* Tasks List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-[var(--bark-700)]">
-          {tasks.map((task) => (
-            <div
-              key={task.id}
-              onClick={() => setSelectedTask(task)}
-              className={`p-3.5 cursor-pointer transition-colors ${
-                selectedTask?.id === task.id ? 'bg-[var(--bark-700)] border-l-4 border-[var(--leaf)]' : 'hover:bg-[var(--bark-750)]'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold truncate max-w-[180px]">{task.title}</span>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
-                    task.status === 'succeeded'
-                      ? 'bg-emerald-500/20 text-emerald-300'
-                      : task.status === 'running'
-                      ? 'bg-sky-500/20 text-sky-300 animate-pulse'
-                      : task.status === 'paused'
-                      ? 'bg-amber-500/20 text-amber-300'
-                      : 'bg-red-500/20 text-red-300'
+        {/* Tab Body */}
+        <div className="flex-1 overflow-hidden">
+          {activeTab === 'chat' ? (
+            <HarnessChatPane onSelectTask={handleSelectTaskFromChat} />
+          ) : (
+            <div className="flex flex-col h-full overflow-y-auto divide-y divide-[var(--bark-700)]">
+              <div className="p-3 border-b border-[var(--bark-600)] flex items-center justify-between bg-[var(--bark-800)]">
+                <span className="text-xs font-bold text-slate-300">All Harness V2 Tasks</span>
+                <button onClick={fetchTasks} className="p-1 hover:bg-[var(--bark-700)] rounded text-slate-400">
+                  <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+              {tasks.map((task) => (
+                <div
+                  key={task.id}
+                  onClick={() => setSelectedTaskId(task.id)}
+                  className={`p-3.5 cursor-pointer transition-colors ${
+                    selectedTaskId === task.id ? 'bg-[var(--bark-700)] border-l-4 border-[var(--leaf)]' : 'hover:bg-[var(--bark-750)]'
                   }`}
                 >
-                  {task.status}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Phase: {task.phase}</span>
-                <span>Turns: {task.budget.turnsCompleted}/{task.budget.maxTurns}</span>
-              </div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold truncate max-w-[260px]">{task.title}</span>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
+                        task.status === 'succeeded'
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : task.status === 'running'
+                          ? 'bg-sky-500/20 text-sky-300 animate-pulse'
+                          : task.status === 'paused'
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-red-500/20 text-red-300'
+                      }`}
+                    >
+                      {task.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Phase: {task.phase}</span>
+                    <span>Turns: {task.budget.turnsCompleted}/{task.budget.maxTurns}</span>
+                  </div>
+                </div>
+              ))}
+              {tasks.length === 0 && (
+                <div className="p-8 text-center text-xs text-slate-500">No tasks executed yet. Start chatting to propose one!</div>
+              )}
             </div>
-          ))}
-          {tasks.length === 0 && (
-            <div className="p-8 text-center text-xs text-slate-500">No active Harness V2 tasks yet.</div>
           )}
         </div>
       </div>
 
-      {/* Main Workspace Detail Area */}
+      {/* Right Column: Active Task Execution Viewer */}
       <div className="flex-1 flex flex-col overflow-hidden bg-[var(--bark-900)]">
         {selectedTask ? (
           <>
             {/* Header */}
-            <div className="p-5 border-b border-[var(--bark-600)] flex items-center justify-between bg-[var(--bark-800)]/40">
+            <div className="p-4 border-b border-[var(--bark-600)] flex items-center justify-between bg-[var(--bark-800)]/50">
               <div>
                 <div className="flex items-center gap-3">
-                  <h1 className="text-lg font-bold">{selectedTask.title}</h1>
-                  <span className="text-xs px-2.5 py-0.5 rounded-md bg-[var(--bark-700)] text-slate-300 font-mono">
+                  <h1 className="text-base font-bold text-slate-100">{selectedTask.title}</h1>
+                  <span className="text-xs px-2 py-0.5 rounded bg-[var(--bark-700)] text-slate-300 font-mono">
                     {selectedTask.id}
                   </span>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${
+                      selectedTask.status === 'succeeded'
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : selectedTask.status === 'running'
+                        ? 'bg-sky-500/20 text-sky-300 animate-pulse'
+                        : selectedTask.status === 'paused'
+                        ? 'bg-amber-500/20 text-amber-300'
+                        : 'bg-red-500/20 text-red-300'
+                    }`}
+                  >
+                    {selectedTask.status}
+                  </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">{selectedTask.description || 'No extended description.'}</p>
+                <p className="text-xs text-slate-400 mt-1">{selectedTask.description || 'No description provided.'}</p>
               </div>
               <div className="flex items-center gap-3">
                 <button
@@ -183,11 +197,17 @@ export default function HarnessDashboard() {
               </div>
             </div>
 
-            {/* Content Body */}
+            {/* Scrollable Trace & Metric Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Evaluator Verdict Card */}
+              {/* Evaluator Scorecard */}
               {selectedTask.verdict && (
-                <div className={`p-4 rounded-xl border ${selectedTask.verdict.passed ? 'bg-emerald-950/20 border-emerald-800/50' : 'bg-red-950/20 border-red-800/50'}`}>
+                <div
+                  className={`p-4 rounded-xl border ${
+                    selectedTask.verdict.passed
+                      ? 'bg-emerald-950/20 border-emerald-800/50'
+                      : 'bg-red-950/20 border-red-800/50'
+                  }`}
+                >
                   <div className="flex items-center gap-2 mb-2">
                     <Award className={selectedTask.verdict.passed ? 'text-emerald-400' : 'text-red-400'} size={18} />
                     <h3 className="font-bold text-sm">Evaluator Scorecard: {selectedTask.verdict.score}/100</h3>
@@ -195,7 +215,10 @@ export default function HarnessDashboard() {
                   <p className="text-xs text-slate-300 mb-3">{selectedTask.verdict.evaluatorNotes}</p>
                   <div className="grid grid-cols-2 gap-2">
                     {Object.entries(selectedTask.verdict.rubricBreakdown).map(([key, crit]) => (
-                      <div key={key} className="p-2 bg-[var(--bark-800)]/80 rounded-lg text-[11px] border border-[var(--bark-700)] flex items-center justify-between">
+                      <div
+                        key={key}
+                        className="p-2 bg-[var(--bark-800)]/80 rounded-lg text-[11px] border border-[var(--bark-700)] flex items-center justify-between"
+                      >
                         <span className="font-mono text-slate-300">{key}</span>
                         <span className={crit.passed ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
                           {crit.score} pts
@@ -216,9 +239,14 @@ export default function HarnessDashboard() {
 
                 <div className="space-y-3">
                   {traces.map((step) => (
-                    <div key={step.turnIndex} className="p-4 rounded-xl bg-[var(--bark-800)]/50 border border-[var(--bark-700)] space-y-3">
+                    <div
+                      key={step.turnIndex}
+                      className="p-4 rounded-xl bg-[var(--bark-800)]/50 border border-[var(--bark-700)] space-y-3"
+                    >
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-200">Turn #{step.turnIndex} ({step.phase})</span>
+                        <span className="font-bold text-slate-200">
+                          Turn #{step.turnIndex} ({step.phase})
+                        </span>
                         <div className="flex items-center gap-2">
                           {step.actionGate.passed ? (
                             <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded">
@@ -243,7 +271,10 @@ export default function HarnessDashboard() {
 
                       {/* Tool Executions */}
                       {step.toolResults.map((tr) => (
-                        <div key={tr.toolCallId} className="p-2.5 bg-black/40 rounded-lg border border-[var(--bark-700)] font-mono text-[11px] space-y-1">
+                        <div
+                          key={tr.toolCallId}
+                          className="p-2.5 bg-black/40 rounded-lg border border-[var(--bark-700)] font-mono text-[11px] space-y-1"
+                        >
                           <div className="flex items-center justify-between text-slate-400">
                             <span className="flex items-center gap-1.5 text-slate-300">
                               <Terminal size={12} /> {tr.toolName}
@@ -259,7 +290,9 @@ export default function HarnessDashboard() {
                     </div>
                   ))}
                   {traces.length === 0 && (
-                    <div className="p-6 text-center text-xs text-slate-500">Waiting for turn-by-turn trace output...</div>
+                    <div className="p-6 text-center text-xs text-slate-500">
+                      Waiting for turn-by-turn trace output...
+                    </div>
                   )}
                 </div>
               </div>
@@ -268,7 +301,7 @@ export default function HarnessDashboard() {
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-500 space-y-2">
             <Cpu size={40} className="text-slate-600" />
-            <p className="text-xs">Select or launch a Harness V2 task to view execution traces and evaluation metrics.</p>
+            <p className="text-xs">Select or approve a Harness V2 task to view execution traces and evaluation metrics.</p>
           </div>
         )}
       </div>
