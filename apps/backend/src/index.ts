@@ -94,6 +94,7 @@ import { KOALA_TOOLS } from './lib/koala-tools.js';
 import { runKoalaTool } from './lib/koala-tool-runner.js';
 import { toLoopTools, routeCall } from './lib/mcp-tools.js';
 import { createHarnessV2Router } from './harness-v2/routes/harness-v2-routes.js';
+import { PLATFORM_OPENAPI_SPEC } from './lib/platform-openapi.js';
 /** Room for a turn that inspects, enables a service and then answers. */
 const KOALA_MAX_TOKENS = 8000;
 /**
@@ -395,6 +396,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const publicPaths = [
+      '/openapi.json',
       '/auth/login',
       '/auth/register',
       '/auth/2fa/verify',
@@ -430,8 +432,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     next();
   };
 
+  app.get('/api/openapi.json', (_req, res) => {
+    res.json(PLATFORM_OPENAPI_SPEC);
+  });
+
   app.use('/api', requireAuth);
-  app.use('/api/harness-v2', createHarnessV2Router());
+  app.use('/api/harness-v2', createHarnessV2Router({ modelService }));
 
   const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!(req as any).user?.isAdmin) {

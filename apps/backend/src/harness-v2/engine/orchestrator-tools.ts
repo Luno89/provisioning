@@ -1,11 +1,42 @@
 /**
  * Orchestrator Tools Definition for Harness V2.
  *
- * Equips the Harness V2 Orchestrator with web search, web page extraction,
- * infrastructure inspection, log diagnostics, file reading, semantic memory search, and task proposals.
+ * Equips the Harness V2 Orchestrator with OpenAPI discovery, platform API invocation,
+ * web search, web page extraction, infrastructure inspection, log diagnostics,
+ * workspace file reading, semantic memory search, and task proposals.
  */
 
 export const HARNESS_ORCHESTRATOR_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'get_openapi_spec',
+      description: 'Get the full OpenAPI 3.0 specification of the platform, including all available endpoints, parameters, and schemas.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pathFilter: { type: 'string', description: 'Optional substring to filter specific endpoints (e.g. "/clusters", "/apps", "/harness-v2").' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'call_platform_api',
+      description: 'Execute ANY HTTP request against the platform API (/api/...) using the current session. Allows creating clusters, deploying apps, querying MCP servers, managing tasks, etc.',
+      parameters: {
+        type: 'object',
+        properties: {
+          method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'], description: 'HTTP method.' },
+          path: { type: 'string', description: 'API path starting with /api (e.g. "/api/clusters", "/api/apps", "/api/harness-v2/tasks").' },
+          body: { type: 'object', description: 'Optional JSON payload for POST/PUT/PATCH requests.' },
+          params: { type: 'object', description: 'Optional URL query parameters.' },
+        },
+        required: ['method', 'path'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -24,7 +55,7 @@ export const HARNESS_ORCHESTRATOR_TOOLS = [
     type: 'function',
     function: {
       name: 'fetch_web_page',
-      description: 'Fetch and extract the readable text/markdown from a web URL using Crawl4AI or HTTP fetch.',
+      description: 'Fetch and extract readable text/markdown from a web URL using Crawl4AI or HTTP fetch.',
       parameters: {
         type: 'object',
         properties: {

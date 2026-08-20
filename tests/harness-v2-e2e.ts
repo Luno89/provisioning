@@ -4,12 +4,14 @@
  * Exercises the entire client-facing API flow against the live running Express backend:
  * 1. Mock OAuth login & session cookie acquisition
  * 2. Session verification (/api/auth/me)
- * 3. Conversation creation (/api/harness-v2/conversations)
- * 4. Message dispatch & Orchestrator reasoning + proposal generation
- * 5. Web search tool execution through chat
- * 6. Infrastructure telemetry tool execution through chat
- * 7. Proposal acceptance & task creation
- * 8. Task details & trace inspection
+ * 3. Platform OpenAPI specification inspection (/api/openapi.json)
+ * 4. In-chat OpenAPI discovery tool execution
+ * 5. Conversation creation (/api/harness-v2/conversations)
+ * 6. Message dispatch & Orchestrator reasoning + proposal generation
+ * 7. Web search tool execution through chat
+ * 8. Infrastructure telemetry tool execution through chat
+ * 9. Proposal acceptance & task creation in Temporal
+ * 10. Task details & trace inspection
  */
 import axios from 'axios';
 
@@ -45,7 +47,14 @@ async function runE2E() {
   }
   console.log(`✓ Authenticated as: ${meRes.data.email} (${meRes.data.id})`);
 
-  console.log('\n--- Step 3: Creating New Planning Session ---');
+  console.log('\n--- Step 3: Verifying Platform OpenAPI Specification ---');
+  const openapiRes = await axios.get(`${API_BASE}/openapi.json`);
+  if (openapiRes.status !== 200 || !openapiRes.data.openapi || !openapiRes.data.paths['/clusters']) {
+    throw new Error(`Failed /api/openapi.json: status ${openapiRes.status}`);
+  }
+  console.log(`✓ Platform OpenAPI v${openapiRes.data.openapi} loaded with ${Object.keys(openapiRes.data.paths).length} endpoints`);
+
+  console.log('\n--- Step 4: Creating New Planning Session ---');
   const createRes = await client.post(`${API_BASE}/harness-v2/conversations`, {});
   if (!createRes.data.success || !createRes.data.conversation?.id) {
     throw new Error(`Failed to create conversation: ${JSON.stringify(createRes.data)}`);
@@ -53,7 +62,16 @@ async function runE2E() {
   const convId = createRes.data.conversation.id;
   console.log(`✓ Created conversation session: ${convId}`);
 
-  console.log('\n--- Step 4: Dispatching Coding Task Request ---');
+  console.log('\n--- Step 5: Testing In-Chat OpenAPI Tool Discovery ---');
+  const openapiMsgRes = await client.post(`${API_BASE}/harness-v2/conversations/${convId}/messages`, {
+    content: 'show me the platform openapi spec for clusters and apps',
+  });
+  if (!openapiMsgRes.data.success || !openapiMsgRes.data.assistantMessage) {
+    throw new Error(`OpenAPI query failed: ${JSON.stringify(openapiMsgRes.data)}`);
+  }
+  console.log('✓ In-chat OpenAPI discovery returned content length:', openapiMsgRes.data.assistantMessage.content.length);
+
+  console.log('\n--- Step 6: Dispatching Coding Task Request ---');
   const msgRes = await client.post(`${API_BASE}/harness-v2/conversations/${convId}/messages`, {
     content: 'Implement token bucket rate limiter for API endpoints',
   });
@@ -70,7 +88,7 @@ async function runE2E() {
   const proposal = assistantMsg.proposals[0];
   console.log(`✓ Proposed Task: "${proposal.title}" (Persona: ${proposal.personaId}, Budget: ${proposal.budget.maxTurns} turns)`);
 
-  console.log('\n--- Step 5: Testing In-Chat Web Search Tool ---');
+  console.log('\n--- Step 7: Testing In-Chat Web Search Tool ---');
   const searchMsgRes = await client.post(`${API_BASE}/harness-v2/conversations/${convId}/messages`, {
     content: 'search web for Temporal TypeScript workflow signals',
   });
@@ -79,7 +97,7 @@ async function runE2E() {
   }
   console.log('✓ Search Response received with content length:', searchMsgRes.data.assistantMessage.content.length);
 
-  console.log('\n--- Step 6: Testing In-Chat Infrastructure Inspection Tool ---');
+  console.log('\n--- Step 8: Testing In-Chat Infrastructure Inspection Tool ---');
   const infraMsgRes = await client.post(`${API_BASE}/harness-v2/conversations/${convId}/messages`, {
     content: 'what is deployed in the cluster infrastructure?',
   });
@@ -88,7 +106,7 @@ async function runE2E() {
   }
   console.log('✓ Infra telemetry received with content length:', infraMsgRes.data.assistantMessage.content.length);
 
-  console.log('\n--- Step 7: Accepting Task Proposal & Launching Temporal Workflow ---');
+  console.log('\n--- Step 9: Accepting Task Proposal & Launching Temporal Workflow ---');
   const acceptRes = await client.post(`${API_BASE}/harness-v2/conversations/${convId}/proposals/${proposal.id}/accept`);
   if (!acceptRes.data.success || !acceptRes.data.task?.id) {
     throw new Error(`Failed to accept proposal: ${JSON.stringify(acceptRes.data)}`);
@@ -96,7 +114,7 @@ async function runE2E() {
   const launchedTask = acceptRes.data.task;
   console.log(`✓ Successfully launched HarnessTask: ${launchedTask.id} (Status: ${launchedTask.status})`);
 
-  console.log('\n--- Step 8: Inspecting Task Details & Traces ---');
+  console.log('\n--- Step 10: Inspecting Task Details & Traces ---');
   const taskRes = await client.get(`${API_BASE}/harness-v2/tasks/${launchedTask.id}`);
   const traceRes = await client.get(`${API_BASE}/harness-v2/tasks/${launchedTask.id}/traces`);
 

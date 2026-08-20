@@ -9,6 +9,13 @@ describe('OrchestratorChat', () => {
     expect(res.proposals).toHaveLength(0);
   });
 
+  it('discovers platform OpenAPI specification via get_openapi_spec tool', async () => {
+    const res = await OrchestratorChat.processMessage('show me the platform openapi spec');
+    expect(res.toolCallsExecuted).toHaveLength(1);
+    expect(res.toolCallsExecuted[0]?.name).toBe('get_openapi_spec');
+    expect(res.message.content).toContain('OpenAPI specification');
+  });
+
   it('executes web search tool when asked to search online', async () => {
     const res = await OrchestratorChat.processMessage('search web for Temporal workflows TypeScript');
     expect(res.toolCallsExecuted).toHaveLength(1);

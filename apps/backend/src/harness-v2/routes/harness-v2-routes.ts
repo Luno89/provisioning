@@ -10,8 +10,11 @@ import type { HarnessTask, HarnessConversation, HarnessChatMessage } from '@koal
 import { Connection, Client } from '@temporalio/client';
 import { buildDataConverter } from '../../lib/temporal-codec.js';
 
-export function createHarnessV2Router(): Router {
+import type { ModelService } from '../../services/ModelService.js';
+
+export function createHarnessV2Router(deps: { modelService?: ModelService } = {}): Router {
   const router = Router();
+  const { modelService } = deps;
 
   // Helper to connect to Temporal Client
   async function getTemporalClient() {
@@ -81,7 +84,7 @@ export function createHarnessV2Router(): Router {
   // POST /api/harness-v2/conversations/:id/messages
   router.post('/conversations/:id/messages', async (req, res) => {
     try {
-      const { content } = req.body;
+      const { content, modelId } = req.body;
       if (!content || !content.trim()) {
         res.status(400).json({ success: false, error: 'Message content is required' });
         return;
@@ -103,10 +106,19 @@ export function createHarnessV2Router(): Router {
 
       await db.addMessageToConversation(conversation.id, userMsg);
 
-      // Run Orchestrator deliberation & proposal extraction
+      const userId = (req as any).user?.id;
+      const sessionCookie = req.headers.cookie;
+
+      // Run Orchestrator deliberation & proposal extraction with full live context
       const { message: assistantMsg, proposals } = await OrchestratorChat.processMessage(
         content.trim(),
         conversation.messages,
+        {
+          userId,
+          sessionCookie,
+          modelService,
+          modelId,
+        },
       );
 
       // Auto-update conversation title from first user prompt if default
