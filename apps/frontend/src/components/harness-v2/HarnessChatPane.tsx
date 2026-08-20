@@ -32,7 +32,23 @@ export default function HarnessChatPane({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [availableModels, setAvailableModels] = useState<{ id: string; name: string; model?: string }[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
+
+  const fetchModels = async () => {
+    try {
+      const res = await axios.get(`${apiBase}/models`, { withCredentials: true });
+      if (Array.isArray(res.data)) {
+        setAvailableModels(res.data);
+        if (res.data.length > 0 && !selectedModelId) {
+          setSelectedModelId(res.data[0].id);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch models', err);
+    }
+  };
 
   const fetchConversations = async () => {
     try {
@@ -66,6 +82,7 @@ export default function HarnessChatPane({
 
   useEffect(() => {
     fetchConversations();
+    fetchModels();
   }, []);
 
   useEffect(() => {
@@ -81,9 +98,9 @@ export default function HarnessChatPane({
   const createConversation = async () => {
     try {
       const res = await axios.post(`${apiBase}/harness-v2/conversations`, {}, { withCredentials: true });
-      if (res.data.success) {
+      if (res.data.success && res.data.conversation) {
         const newConv = res.data.conversation;
-        setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== newConv.id)]);
+        setConversations((prev) => [newConv, ...(Array.isArray(prev) ? prev.filter((c) => c?.id && c.id !== newConv.id) : [])]);
         setSelectedConvId(newConv.id);
         setActiveConversation(newConv);
         return newConv.id;
@@ -130,7 +147,10 @@ export default function HarnessChatPane({
 
       const res = await axios.post(
         `${apiBase}/harness-v2/conversations/${targetConvId}/messages`,
-        { content: textToSend },
+        {
+          content: textToSend,
+          modelId: selectedModelId || undefined,
+        },
         { withCredentials: true },
       );
 
@@ -189,7 +209,7 @@ export default function HarnessChatPane({
           </div>
 
           <div className="flex-1 overflow-y-auto divide-y divide-[var(--bark-750)]">
-            {conversations.map((conv) => (
+            {(Array.isArray(conversations) ? conversations : []).filter((c) => c && c.id).map((conv) => (
               <div
                 key={conv.id}
                 onClick={() => setSelectedConvId(conv.id)}
@@ -229,17 +249,31 @@ export default function HarnessChatPane({
             </h1>
           </div>
 
-          {/* Quick Action Badges */}
+          {/* Quick Action Badges & Model Selector */}
           <div className="flex items-center gap-2">
+            {availableModels.length > 0 && (
+              <select
+                aria-label="Model Selector"
+                value={selectedModelId}
+                onChange={(e) => setSelectedModelId(e.target.value)}
+                className="px-2.5 py-1 bg-[var(--bark-700)] border border-[var(--bark-600)] rounded-lg text-slate-200 text-[11px] font-medium focus:outline-none focus:border-[var(--leaf)] cursor-pointer"
+              >
+                {availableModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               onClick={() => sendMessage('what is deployed in the cluster infrastructure?')}
-              className="flex items-center gap-1 px-2.5 py-1 bg-[var(--bark-700)] hover:bg-[var(--bark-650)] text-slate-300 rounded-full text-[11px] font-medium transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 bg-[var(--bark-700)] hover:bg-[var(--bark-650)] text-slate-300 rounded-full text-[11px] font-medium transition-colors cursor-pointer"
             >
               <Server size={12} className="text-sky-400" /> Inspect Cluster
             </button>
             <button
               onClick={() => sendMessage('list all active harness v2 tasks and their evaluation results')}
-              className="flex items-center gap-1 px-2.5 py-1 bg-[var(--bark-700)] hover:bg-[var(--bark-650)] text-slate-300 rounded-full text-[11px] font-medium transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 bg-[var(--bark-700)] hover:bg-[var(--bark-650)] text-slate-300 rounded-full text-[11px] font-medium transition-colors cursor-pointer"
             >
               <Activity size={12} className="text-emerald-400" /> Active Tasks
             </button>
