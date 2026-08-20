@@ -1151,7 +1151,7 @@ function App() {
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
-        {view === 'harness' && <HarnessDashboard />}
+        {view === 'harness' && <HarnessDashboard apiBase={API_BASE} />}
         {view === 'grove' && (
           <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}

@@ -19,9 +19,11 @@ import {
 import type { HarnessConversation, ProposedHarnessTask, HarnessChatMessage } from '@koala/harness-types';
 
 export default function HarnessChatPane({
+  apiBase = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api',
   onSelectTask,
   activeTaskId: _activeTaskId,
 }: {
+  apiBase?: string;
   onSelectTask: (taskId: string) => void;
   activeTaskId?: string | null;
 }) {
@@ -37,7 +39,7 @@ export default function HarnessChatPane({
 
   const fetchConversations = async () => {
     try {
-      const res = await axios.get('/api/harness-v2/conversations');
+      const res = await axios.get(`${apiBase}/harness-v2/conversations`, { withCredentials: true });
       if (res.data.success) {
         setConversations(res.data.conversations);
         if (res.data.conversations.length > 0) {
@@ -56,7 +58,7 @@ export default function HarnessChatPane({
 
   const fetchActiveConversation = async (id: string) => {
     try {
-      const res = await axios.get(`/api/harness-v2/conversations/${id}`);
+      const res = await axios.get(`${apiBase}/harness-v2/conversations/${id}`, { withCredentials: true });
       if (res.data.success) {
         setActiveConversation(res.data.conversation);
       }
@@ -81,7 +83,7 @@ export default function HarnessChatPane({
 
   const createConversation = async () => {
     try {
-      const res = await axios.post('/api/harness-v2/conversations', {});
+      const res = await axios.post(`${apiBase}/harness-v2/conversations`, {}, { withCredentials: true });
       if (res.data.success) {
         const newConv = res.data.conversation;
         setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== newConv.id)]);
@@ -129,9 +131,11 @@ export default function HarnessChatPane({
         };
       });
 
-      const res = await axios.post(`/api/harness-v2/conversations/${targetConvId}/messages`, {
-        content: textToSend,
-      });
+      const res = await axios.post(
+        `${apiBase}/harness-v2/conversations/${targetConvId}/messages`,
+        { content: textToSend },
+        { withCredentials: true },
+      );
 
       if (res.data.success) {
         await fetchActiveConversation(targetConvId);
@@ -153,7 +157,11 @@ export default function HarnessChatPane({
   const acceptProposal = async (proposal: ProposedHarnessTask) => {
     if (!selectedConvId) return;
     try {
-      const res = await axios.post(`/api/harness-v2/conversations/${selectedConvId}/proposals/${proposal.id}/accept`);
+      const res = await axios.post(
+        `${apiBase}/harness-v2/conversations/${selectedConvId}/proposals/${proposal.id}/accept`,
+        {},
+        { withCredentials: true },
+      );
       if (res.data.success) {
         await fetchActiveConversation(selectedConvId);
         onSelectTask(res.data.task.id);

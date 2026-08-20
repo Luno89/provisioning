@@ -4,7 +4,11 @@ import axios from 'axios';
 import type { HarnessTask, TurnExecutionStep } from '@koala/harness-types';
 import HarnessChatPane from './HarnessChatPane.js';
 
-export default function HarnessDashboard() {
+export default function HarnessDashboard({
+  apiBase = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api',
+}: {
+  apiBase?: string;
+}) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<HarnessTask | null>(null);
   const [traces, setTraces] = useState<TurnExecutionStep[]>([]);
@@ -14,7 +18,7 @@ export default function HarnessDashboard() {
   const fetchTaskDetails = async (id: string) => {
     try {
       setLoading(true);
-      const res = await axios.get(`/api/harness-v2/tasks/${id}`);
+      const res = await axios.get(`${apiBase}/harness-v2/tasks/${id}`, { withCredentials: true });
       if (res.data.success) {
         setSelectedTask(res.data.task);
       }
@@ -27,7 +31,7 @@ export default function HarnessDashboard() {
 
   const fetchTraces = async (taskId: string) => {
     try {
-      const res = await axios.get(`/api/harness-v2/tasks/${taskId}/traces`);
+      const res = await axios.get(`${apiBase}/harness-v2/tasks/${taskId}/traces`, { withCredentials: true });
       if (res.data.success) {
         setTraces(res.data.traces);
       }
@@ -56,7 +60,7 @@ export default function HarnessDashboard() {
   const togglePause = async (task: HarnessTask) => {
     const endpoint = task.status === 'paused' ? 'resume' : 'pause';
     try {
-      await axios.post(`/api/harness-v2/tasks/${task.id}/${endpoint}`);
+      await axios.post(`${apiBase}/harness-v2/tasks/${task.id}/${endpoint}`, {}, { withCredentials: true });
       fetchTaskDetails(task.id);
     } catch (err) {
       console.error(`Failed to ${endpoint} task`, err);
@@ -67,7 +71,7 @@ export default function HarnessDashboard() {
     <div className="relative flex h-full w-full bg-[var(--bark-900)] text-slate-100 overflow-hidden font-sans">
       {/* Primary Full-Canvas Conversational Workspace */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        <HarnessChatPane onSelectTask={handleSelectTaskFromChat} activeTaskId={selectedTaskId} />
+        <HarnessChatPane apiBase={apiBase} onSelectTask={handleSelectTaskFromChat} activeTaskId={selectedTaskId} />
       </div>
 
       {/* Floating Execution Quick-Bar if Task is Active & Drawer is Closed */}
