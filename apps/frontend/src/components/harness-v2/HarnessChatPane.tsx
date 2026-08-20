@@ -14,8 +14,9 @@ import {
   Activity,
   Cpu,
   BookOpen,
+  AlertCircle,
 } from 'lucide-react';
-import type { HarnessConversation, ProposedHarnessTask } from '@koala/harness-types';
+import type { HarnessConversation, ProposedHarnessTask, HarnessChatMessage } from '@koala/harness-types';
 
 export default function HarnessChatPane({
   onSelectTask,
@@ -29,6 +30,7 @@ export default function HarnessChatPane({
   const [activeConversation, setActiveConversation] = useState<HarnessConversation | null>(null);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
@@ -38,11 +40,16 @@ export default function HarnessChatPane({
       const res = await axios.get('/api/harness-v2/conversations');
       if (res.data.success) {
         setConversations(res.data.conversations);
-        if (!selectedConvId && res.data.conversations.length > 0) {
-          setSelectedConvId(res.data.conversations[0].id);
+        if (res.data.conversations.length > 0) {
+          if (!selectedConvId) {
+            setSelectedConvId(res.data.conversations[0].id);
+          }
+        } else {
+          // Auto-create initial session if none exists
+          createConversation();
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch conversations', err);
     }
   };
@@ -53,7 +60,7 @@ export default function HarnessChatPane({
       if (res.data.success) {
         setActiveConversation(res.data.conversation);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch active conversation', err);
     }
   };
@@ -76,31 +83,63 @@ export default function HarnessChatPane({
     try {
       const res = await axios.post('/api/harness-v2/conversations', {});
       if (res.data.success) {
-        await fetchConversations();
-        setSelectedConvId(res.data.conversation.id);
+        const newConv = res.data.conversation;
+        setConversations((prev) => [newConv, ...prev.filter((c) => c.id !== newConv.id)]);
+        setSelectedConvId(newConv.id);
+        setActiveConversation(newConv);
+        return newConv.id;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create conversation', err);
+      setErrorMessage('Failed to create planning session.');
     }
+    return null;
   };
 
   const sendMessage = async (customPrompt?: string) => {
-    const textToSend = customPrompt || inputText;
-    if (!textToSend.trim() || !selectedConvId || loading) return;
+    const textToSend = (customPrompt || inputText).trim();
+    if (!textToSend || loading) return;
 
+    setErrorMessage(null);
     setInputText('');
     setLoading(true);
 
     try {
-      const res = await axios.post(`/api/harness-v2/conversations/${selectedConvId}/messages`, {
-        content: textToSend.trim(),
+      let targetConvId = selectedConvId;
+      if (!targetConvId) {
+        targetConvId = await createConversation();
+        if (!targetConvId) {
+          throw new Error('Unable to establish planning session');
+        }
+      }
+
+      // Optimistic user message rendering
+      const optimisticMsg: HarnessChatMessage = {
+        id: `temp-${Date.now()}`,
+        role: 'user',
+        content: textToSend,
+        createdAt: new Date().toISOString(),
+      };
+
+      setActiveConversation((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          messages: [...prev.messages, optimisticMsg],
+        };
       });
+
+      const res = await axios.post(`/api/harness-v2/conversations/${targetConvId}/messages`, {
+        content: textToSend,
+      });
+
       if (res.data.success) {
-        await fetchActiveConversation(selectedConvId);
+        await fetchActiveConversation(targetConvId);
         await fetchConversations();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to send message', err);
+      setErrorMessage(err.response?.data?.error || err.message || 'Failed to send message.');
     } finally {
       setLoading(false);
     }
@@ -119,8 +158,9 @@ export default function HarnessChatPane({
         await fetchActiveConversation(selectedConvId);
         onSelectTask(res.data.task.id);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to accept proposal', err);
+      setErrorMessage('Failed to launch task workflow.');
     }
   };
 
@@ -139,7 +179,7 @@ export default function HarnessChatPane({
               <span className="text-xs font-bold uppercase tracking-wide">Sessions</span>
             </div>
             <button
-              onClick={createConversation}
+              onClick={() => createConversation()}
               className="flex items-center gap-1 px-2 py-1 bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white rounded text-[11px] font-semibold transition-colors"
             >
               <Plus size={12} /> New
@@ -203,6 +243,14 @@ export default function HarnessChatPane({
             </button>
           </div>
         </div>
+
+        {/* Error Notification */}
+        {errorMessage && (
+          <div className="mx-6 mt-4 p-3 bg-red-950/40 border border-red-800/60 rounded-xl flex items-center gap-2 text-xs text-red-300">
+            <AlertCircle size={14} className="text-red-400 flex-shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
 
         {/* Messages Stream */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl w-full mx-auto">
@@ -347,7 +395,7 @@ export default function HarnessChatPane({
             <button
               type="submit"
               disabled={loading || !inputText.trim()}
-              className="px-5 py-2.5 bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all shadow flex items-center gap-2"
+              className="px-5 py-2.5 bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all shadow flex items-center gap-2 cursor-pointer"
             >
               <Send size={13} /> Send
             </button>
