@@ -10,7 +10,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { HarnessChatMessage, ProposedHarnessTask, TurnToolCall, TurnToolResult } from '@koala/harness-types';
 import { BudgetAllocator } from './budget-allocator.js';
-import { webTools } from '../../lib/web-tools.js';
+import { createWebTools } from '../../lib/web-tools.js';
 import { getHarnessDb } from '../db.js';
 import { SemanticRag } from '../memory/semantic-rag.js';
 import { AstValidator } from '../safety/ast-validator.js';
@@ -40,7 +40,7 @@ export class OrchestratorChat {
     try {
       if (name === 'web_search') {
         const query = String(args.query || '');
-        const tools = await webTools();
+        const tools = createWebTools();
         const hits = await tools.search(query);
         return {
           toolCallId: call.id,
@@ -52,7 +52,7 @@ export class OrchestratorChat {
 
       if (name === 'fetch_web_page') {
         const url = String(args.url || '');
-        const tools = await webTools();
+        const tools = createWebTools();
         const content = await tools.fetchPage(url);
         return {
           toolCallId: call.id,
