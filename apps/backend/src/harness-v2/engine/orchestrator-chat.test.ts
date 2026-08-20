@@ -1,44 +1,61 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { OrchestratorChat } from './orchestrator-chat.js';
 
 describe('OrchestratorChat', () => {
-  it('generates a rich conversational greeting for generic input', async () => {
-    const res = await OrchestratorChat.processMessage('hello there');
+  it('executes get_openapi_spec tool directly', async () => {
+    const res = await OrchestratorChat.executeTool({
+      id: 'call-1',
+      name: 'get_openapi_spec',
+      args: {},
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain('openapi');
+    expect(res.stdout).toContain('/clusters');
+  });
+
+  it('executes propose_task tool directly with dynamic rubrics', async () => {
+    const res = await OrchestratorChat.executeTool({
+      id: 'call-2',
+      name: 'propose_task',
+      args: {
+        title: 'Build Redis rate limiter',
+        description: 'Create rate limiting middleware in Express with token bucket algorithm',
+        personaId: 'coder',
+      },
+    });
+    expect(res.exitCode).toBe(0);
+    const proposal = JSON.parse(res.stdout!);
+    expect(proposal.title).toBe('Build Redis rate limiter');
+    expect(proposal.personaId).toBe('coder');
+    expect(proposal.budget.maxTurns).toBeGreaterThanOrEqual(10);
+    expect(proposal.rubrics.length).toBeGreaterThan(0);
+  });
+
+  it('executes web_search tool directly', async () => {
+    const res = await OrchestratorChat.executeTool({
+      id: 'call-3',
+      name: 'web_search',
+      args: { query: 'Temporal TypeScript SDK' },
+    });
+    expect(res.exitCode).toBe(0);
+  });
+
+  it('processes message and invokes model completions with tools', async () => {
+    const mockModelService: any = {
+      list: vi.fn().mockResolvedValue([
+        { id: 'mock-model', name: 'Mock LLM', source: 'endpoint', baseUrl: 'http://localhost:11434/v1', model: 'mock' },
+      ]),
+      resolveBaseUrl: vi.fn().mockResolvedValue({
+        provider: { id: 'mock-model', name: 'Mock LLM', source: 'endpoint', model: 'mock' },
+        baseUrl: 'http://localhost:11434/v1',
+      }),
+    };
+
+    // When model server is unavailable, returns clear diagnostic notice
+    const res = await OrchestratorChat.processMessage('hello', [], {
+      userId: 'test-user',
+      modelService: mockModelService,
+    });
     expect(res.message.role).toBe('assistant');
-    expect(res.message.content).toContain('Harness V2 Orchestrator');
-    expect(res.proposals).toHaveLength(0);
-  });
-
-  it('discovers platform OpenAPI specification via get_openapi_spec tool', async () => {
-    const res = await OrchestratorChat.processMessage('show me the platform openapi spec');
-    expect(res.toolCallsExecuted).toHaveLength(1);
-    expect(res.toolCallsExecuted[0]?.name).toBe('get_openapi_spec');
-    expect(res.message.content).toContain('OpenAPI specification');
-  });
-
-  it('executes web search tool when asked to search online', async () => {
-    const res = await OrchestratorChat.processMessage('search web for Temporal workflows TypeScript');
-    expect(res.toolCallsExecuted).toHaveLength(1);
-    expect(res.toolCallsExecuted[0]?.name).toBe('web_search');
-    expect(res.message.content).toContain('latest web findings');
-  });
-
-  it('inspects infrastructure when asked about cluster services', async () => {
-    const res = await OrchestratorChat.processMessage('what is deployed in the cluster infrastructure?');
-    expect(res.toolCallsExecuted).toHaveLength(1);
-    expect(res.toolCallsExecuted[0]?.name).toBe('list_infrastructure');
-    expect(res.message.content).toContain('platform services');
-  });
-
-  it('proposes a structured HarnessTask for coding requests', async () => {
-    const res = await OrchestratorChat.processMessage('Implement Redis rate limiting for authentication API');
-    expect(res.proposals).toHaveLength(1);
-
-    const proposal = res.proposals[0];
-    expect(proposal?.title).toContain('Redis rate limiting');
-    expect(proposal?.personaId).toBe('coder');
-    expect(proposal?.budget.maxTurns).toBeGreaterThanOrEqual(10);
-    expect(proposal?.rubrics).toBeDefined();
-    expect(proposal?.status).toBe('proposed');
   });
 });

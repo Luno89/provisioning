@@ -1,7 +1,7 @@
 /**
  * Live Conversational Orchestrator for Harness V2.
  *
- * Connects to live Model LLMs (TabbyAPI, vLLM, Ollama, OpenAI) with dynamic multi-round
+ * Connects to live Model LLMs (Ollama, TabbyAPI, vLLM, OpenAI endpoints) with dynamic multi-round
  * tool calling: OpenAPI spec discovery, live platform API execution, web search,
  * infrastructure diagnostics, workspace inspection, and task proposals.
  */
@@ -91,6 +91,7 @@ export class OrchestratorChat {
           headers,
           data: args.body,
           params: args.params as Record<string, unknown>,
+          timeout: 5000,
           validateStatus: () => true,
         });
 
@@ -290,7 +291,7 @@ export class OrchestratorChat {
   }
 
   /**
-   * Processes a user message with full LLM model loop or direct tool execution.
+   * Processes a user message with full dynamic LLM model loop.
    */
   static async processMessage(
     userText: string,
@@ -301,224 +302,184 @@ export class OrchestratorChat {
     const proposals: ProposedHarnessTask[] = [];
     const toolCallsExecuted: { name: string; args: Record<string, unknown>; result: string }[] = [];
 
-    // Attempt live Model LLM multi-round tool loop
+    // Attempt live Model LLM multi-round tool loop against available model providers
     if (ctx.modelService && ctx.userId) {
       try {
-        const { baseUrl, apiKey, provider } = await ctx.modelService.resolveBaseUrl(ctx.userId, ctx.modelId);
-        if (baseUrl) {
-          const systemPrompt = [
-            `You are the Harness V2 Conversational Orchestrator.`,
-            `You have full access to platform tools, OpenAPI specification discovery (/api/openapi.json), live platform API execution (call_platform_api), web search, and task proposals.`,
-            `When the user asks to inspect or control platform resources, use get_openapi_spec and call_platform_api.`,
-            `When the user wants to implement, build, or research an engineering goal, call propose_task to formulate a structured task with dynamic budgets and rubrics.`,
-          ].join(' ');
+        const allProviders = await ctx.modelService.list(ctx.userId);
 
-          const messages: any[] = [
-            { role: 'system', content: systemPrompt },
-            ...history.slice(-8).map((m) => ({ role: m.role, content: m.content })),
-            { role: 'user', content: trimmed },
-          ];
+        // Sort candidates: requested model first, then local/responsive endpoints (Ollama), then cluster deployments
+        const candidates = [...allProviders].sort((a, b) => {
+          if (ctx.modelId && a.id === ctx.modelId) return -1;
+          if (ctx.modelId && b.id === ctx.modelId) return 1;
+          if (a.source === 'endpoint' && b.source !== 'endpoint') return -1;
+          if (b.source === 'endpoint' && a.source !== 'endpoint') return 1;
+          return 0;
+        });
 
-          let rounds = 0;
-          let finalReply = '';
-          let finalReasoning = '';
+        for (const candidate of candidates) {
+          try {
+            const { baseUrl, apiKey, provider } = await ctx.modelService.resolveBaseUrl(ctx.userId, candidate.id);
+            if (!baseUrl) continue;
 
-          while (rounds < 5) {
-            rounds++;
-            const llmRes = await axios.post(
-              `${baseUrl}/chat/completions`,
-              {
-                model: provider?.model || 'default',
-                messages,
-                tools: HARNESS_ORCHESTRATOR_TOOLS,
-                temperature: 0.3,
-              },
-              {
-                headers: {
-                  'Content-Type': 'application/json',
-                  ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            const systemPrompt = [
+              `You are the Harness V2 Conversational Orchestrator for this platform.`,
+              `You are an expert AI engineering assistant with full capability to discuss architecture, debug code, search the web, inspect platform resources, and propose structured tasks.`,
+              `Tools available:`,
+              `- get_openapi_spec: to view the platform API specification.`,
+              `- call_platform_api: to execute requests against the platform API (/api/clusters, /api/apps, /api/models, etc).`,
+              `- web_search / fetch_web_page: to search the live web.`,
+              `- propose_task: when the user asks to build, implement, refactor, or research a task that should be executed autonomously.`,
+              `Be concise, helpful, and direct in your answers. Format code with standard markdown.`,
+            ].join(' ');
+
+            const messages: any[] = [
+              { role: 'system', content: systemPrompt },
+              ...history.slice(-8).map((m) => ({ role: m.role, content: m.content })),
+              { role: 'user', content: trimmed },
+            ];
+
+            let rounds = 0;
+            let finalReply = '';
+            let finalReasoning = '';
+            let callSucceeded = false;
+
+            while (rounds < 5) {
+              rounds++;
+              const llmRes = await axios.post(
+                `${baseUrl}/chat/completions`,
+                {
+                  model: provider?.model || 'default',
+                  messages,
+                  tools: HARNESS_ORCHESTRATOR_TOOLS,
+                  temperature: 0.3,
                 },
-                timeout: 3000,
-              },
-            );
-
-            const choice = llmRes.data?.choices?.[0];
-            const choiceMsg = choice?.message;
-            if (!choiceMsg) break;
-
-            if (choiceMsg.reasoning_content || choiceMsg.reasoning) {
-              finalReasoning = choiceMsg.reasoning_content || choiceMsg.reasoning;
-            }
-
-            if (choiceMsg.content) {
-              finalReply = choiceMsg.content;
-            }
-
-            const rawToolCalls = choiceMsg.tool_calls || [];
-            if (rawToolCalls.length === 0) {
-              break;
-            }
-
-            // Append assistant tool request
-            messages.push(choiceMsg);
-
-            for (const tc of rawToolCalls) {
-              const fnName = tc.function?.name;
-              let fnArgs: Record<string, unknown> = {};
-              try {
-                fnArgs = typeof tc.function?.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function?.arguments || {};
-              } catch {}
-
-              const toolRes = await this.executeTool(
-                { id: tc.id || `call-${uuidv4().slice(0, 6)}`, name: fnName, args: fnArgs },
-                ctx,
+                {
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+                  },
+                  timeout: 12000,
+                },
               );
 
-              const outStr = toolRes.stdout || toolRes.stderr || '';
-              toolCallsExecuted.push({
-                name: fnName,
-                args: fnArgs,
-                result: outStr,
-              });
+              callSucceeded = true;
+              const choice = llmRes.data?.choices?.[0];
+              const choiceMsg = choice?.message;
+              if (!choiceMsg) break;
 
-              if (fnName === 'propose_task' && toolRes.stdout) {
+              if (choiceMsg.reasoning_content || choiceMsg.reasoning) {
+                finalReasoning = choiceMsg.reasoning_content || choiceMsg.reasoning;
+              }
+
+              if (choiceMsg.content) {
+                finalReply = choiceMsg.content;
+              }
+
+              const rawToolCalls = choiceMsg.tool_calls || [];
+              if (rawToolCalls.length === 0) {
+                break;
+              }
+
+              messages.push(choiceMsg);
+
+              for (const tc of rawToolCalls) {
+                const fnName = tc.function?.name;
+                let fnArgs: Record<string, unknown> = {};
                 try {
-                  const prop = JSON.parse(toolRes.stdout);
-                  proposals.push(prop);
+                  fnArgs = typeof tc.function?.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function?.arguments || {};
+                } catch {}
+
+                const toolRes = await this.executeTool(
+                  { id: tc.id || `call-${uuidv4().slice(0, 6)}`, name: fnName, args: fnArgs },
+                  ctx,
+                );
+
+                const outStr = toolRes.stdout || toolRes.stderr || '';
+                toolCallsExecuted.push({
+                  name: fnName,
+                  args: fnArgs,
+                  result: outStr,
+                });
+
+                if (fnName === 'propose_task' && toolRes.stdout) {
+                  try {
+                    const prop = JSON.parse(toolRes.stdout);
+                    proposals.push(prop);
+                  } catch {}
+                }
+
+                messages.push({
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  name: fnName,
+                  content: outStr,
+                });
+              }
+            }
+
+            if (callSucceeded && (finalReply || proposals.length > 0 || toolCallsExecuted.length > 0)) {
+              if (proposals.length === 0 && finalReply) {
+                try {
+                  const jsonMatch = finalReply.match(/\{[\s\S]*"title"[\s\S]*"description"[\s\S]*\}/);
+                  if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (parsed.title && parsed.description) {
+                      const budget = BudgetAllocator.estimateBudget(parsed.title, parsed.description);
+                      if (typeof parsed.maxTurns === 'number') budget.maxTurns = parsed.maxTurns;
+                      const proposal: ProposedHarnessTask = {
+                        id: `prop-${uuidv4().slice(0, 8)}`,
+                        title: parsed.title,
+                        description: parsed.description,
+                        personaId: parsed.personaId || 'coder',
+                        budget,
+                        rubrics: Array.isArray(parsed.rubrics) ? parsed.rubrics : [
+                          { name: 'test_pass_rate', weight: 0.4, description: 'All unit tests pass with 0 errors.' },
+                          { name: 'code_completeness', weight: 0.3, description: 'No dummy stubs or unfinished placeholders.' },
+                          { name: 'specification_fidelity', weight: 0.3, description: 'Fulfills all requirements specified in scope.' },
+                        ],
+                        status: 'proposed',
+                        createdAt: new Date().toISOString(),
+                      };
+                      proposals.push(proposal);
+                    }
+                  }
                 } catch {}
               }
 
-              // Append tool response
-              messages.push({
-                role: 'tool',
-                tool_call_id: tc.id,
-                name: fnName,
-                content: outStr,
-              });
+              if (proposals.length > 0 && !finalReply) {
+                finalReply = `I have formulated a structured Harness V2 task proposal for your objective. Review the details and click **Approve & Launch Task** below to begin execution in Temporal.`;
+              }
+
+              const assistantMsg: HarnessChatMessage = {
+                id: `msg-${uuidv4().slice(0, 8)}`,
+                role: 'assistant',
+                content: finalReply || 'Executed requested operations.',
+                reasoning: finalReasoning || (toolCallsExecuted.length > 0 ? `Executed tools: ${toolCallsExecuted.map((t) => t.name).join(', ')}` : undefined),
+                proposals: proposals.length > 0 ? proposals : undefined,
+                createdAt: new Date().toISOString(),
+              };
+
+              return {
+                message: assistantMsg,
+                proposals,
+                toolCallsExecuted,
+              };
             }
-          }
-
-          if (proposals.length > 0 && !finalReply) {
-            finalReply = `I have formulated a structured Harness V2 task proposal for your objective. Review the details and click **Approve & Launch Task** below to begin execution in Temporal.`;
-          }
-
-          if (finalReply || proposals.length > 0 || toolCallsExecuted.length > 0) {
-            const assistantMsg: HarnessChatMessage = {
-              id: `msg-${uuidv4().slice(0, 8)}`,
-              role: 'assistant',
-              content: finalReply || 'Executed requested operations.',
-              reasoning: finalReasoning || (toolCallsExecuted.length > 0 ? `Executed tools: ${toolCallsExecuted.map((t) => t.name).join(', ')}` : undefined),
-              proposals: proposals.length > 0 ? proposals : undefined,
-              createdAt: new Date().toISOString(),
-            };
-
-            return {
-              message: assistantMsg,
-              proposals,
-              toolCallsExecuted,
-            };
+          } catch (modelErr: any) {
+            // Try next candidate provider
+            console.warn(`[orchestrator-chat] Candidate model ${candidate.name} failed: ${modelErr.message}`);
           }
         }
       } catch (err: any) {
-        // Fall back to direct tool execution if model server is unreachable
+        console.warn(`[orchestrator-chat] Model resolution failed: ${err.message}`);
       }
     }
 
-    // Direct Tool Dispatch Fallback (when model endpoint is unreachable or in tests)
-    const needsSearch = /^(search|lookup|find online|latest documentation for|what is the api for)\b/i.test(trimmed)
-      || trimmed.toLowerCase().includes('search web')
-      || trimmed.toLowerCase().includes('google');
-
-    const isOpenApiQuery = trimmed.toLowerCase().includes('openapi')
-      || trimmed.toLowerCase().includes('api spec')
-      || trimmed.toLowerCase().includes('swagger');
-
-    const isInfraQuery = trimmed.toLowerCase().includes('infrastructure')
-      || trimmed.toLowerCase().includes('cluster')
-      || trimmed.toLowerCase().includes('services')
-      || trimmed.toLowerCase().includes('what is deployed');
-
-    const isTaskRequest = /^(implement|build|create|add|fix|refactor|research|investigate|audit)\b/i.test(trimmed)
-      || trimmed.includes('can we')
-      || trimmed.includes('task');
-
-    let reasoning = `Processing user query: "${trimmed}".`;
-    let content = '';
-
-    if (isOpenApiQuery) {
-      const openapiCall: TurnToolCall = { id: `call-${uuidv4().slice(0, 6)}`, name: 'get_openapi_spec', args: {} };
-      const openapiRes = await this.executeTool(openapiCall, ctx);
-      toolCallsExecuted.push({ name: 'get_openapi_spec', args: {}, result: openapiRes.stdout || '' });
-      reasoning += ` Retrieved platform OpenAPI specification.`;
-      content = `Here is the live OpenAPI specification for the platform:\n\n\`\`\`json\n${openapiRes.stdout}\n\`\`\``;
-    } else if (needsSearch) {
-      const query = trimmed.replace(/^(search|lookup|find online for)\s*/i, '');
-      const searchCall: TurnToolCall = { id: `call-${uuidv4().slice(0, 6)}`, name: 'web_search', args: { query } };
-      const searchRes = await this.executeTool(searchCall, ctx);
-      toolCallsExecuted.push({ name: 'web_search', args: { query }, result: searchRes.stdout || searchRes.stderr || '' });
-      reasoning += ` Executed web search for "${query}".`;
-      content = `Here are the latest web findings for **${query}**:\n\n${searchRes.stdout || 'No live results found.'}`;
-    } else if (isInfraQuery) {
-      const infraCall: TurnToolCall = { id: `call-${uuidv4().slice(0, 6)}`, name: 'list_infrastructure', args: {} };
-      const infraRes = await this.executeTool(infraCall, ctx);
-      toolCallsExecuted.push({ name: 'list_infrastructure', args: {}, result: infraRes.stdout || '' });
-      reasoning += ` Queried active platform infrastructure.`;
-      content = `Here is the live state of platform services and deployed infrastructure:\n\n\`\`\`json\n${infraRes.stdout}\n\`\`\``;
-    } else if (isTaskRequest) {
-      reasoning += ` Formulating structured Harness V2 Task Proposal via propose_task tool.`;
-      const title = trimmed.length > 50 ? `${trimmed.slice(0, 47)}...` : trimmed;
-      const isResearch = trimmed.toLowerCase().includes('research') || trimmed.toLowerCase().includes('investigate');
-
-      const propCall: TurnToolCall = {
-        id: `call-${uuidv4().slice(0, 6)}`,
-        name: 'propose_task',
-        args: {
-          title,
-          description: trimmed,
-          personaId: isResearch ? 'researcher' : 'coder',
-        },
-      };
-
-      const propRes = await this.executeTool(propCall, ctx);
-      toolCallsExecuted.push({ name: 'propose_task', args: propCall.args, result: propRes.stdout || '' });
-
-      if (propRes.stdout) {
-        try {
-          const proposal = JSON.parse(propRes.stdout);
-          proposals.push(proposal);
-        } catch {}
-      }
-
-      const proposal = proposals[0];
-      content = [
-        `I have structured your objective into an autonomous Harness V2 task proposal:`,
-        ``,
-        `• **Assigned Persona**: \`${proposal?.personaId || 'coder'}\``,
-        `• **Dynamic Budget**: ${proposal?.budget.maxTurns || 15} turns`,
-        `• **OpenAPI & Platform Tools**: Enabled`,
-        `• **Independent Evaluator**: Automated Tests + Specification Fidelity Rubric`,
-        ``,
-        `Review the proposal card below and click **Approve & Launch Task** to begin execution in Temporal.`,
-      ].join('\n');
-    } else {
-      reasoning += ` Providing guidance with live OpenAPI & platform tool capabilities.`;
-      content = [
-        `I am your Harness V2 Orchestrator with live access to the platform's OpenAPI specification, cluster management, web search, and task execution.`,
-        ``,
-        `What would you like to do?`,
-        `- **Explore API**: *"Show me the platform OpenAPI specification"*`,
-        `- **Call Platform API**: *"List all deployed applications and clusters"*`,
-        `- **Plan & Execute**: *"Implement Redis rate limiting for auth endpoints"*`,
-        `- **Search Web**: *"Search web for latest Temporal TypeScript SDK features"*`,
-      ].join('\n');
-    }
-
+    // Explicit fallback when no model endpoint is responsive
     const assistantMsg: HarnessChatMessage = {
       id: `msg-${uuidv4().slice(0, 8)}`,
       role: 'assistant',
-      content,
-      reasoning,
-      proposals: proposals.length > 0 ? proposals : undefined,
+      content: `⚠️ **Model Inference Unavailable**\n\nCould not connect to any active LLM provider (Ollama, TabbyAPI, vLLM). Please ensure Ollama is running or register an OpenAI-compatible endpoint under **Model Providers**.`,
       createdAt: new Date().toISOString(),
     };
 
