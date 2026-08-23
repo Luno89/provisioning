@@ -112,14 +112,22 @@ build_and_check() {
   # files, so a stale build means a new API behind an old UI.
   npm run build --silent
   npm run typecheck --silent
+  # Errors only, and only in files not on the LEGACY list in eslint.config.js — so this catches a
+  # new violation without a pile of known debt blocking a deploy.
+  #
+  # The unit suites are deliberately NOT here. They take ~57s, and this gate auto-reverts to the
+  # previous commit on failure: one flaky test would silently roll back a production deploy, which
+  # is a far worse outcome than a test failure nobody noticed. CI (.github/workflows/ci.yml) runs
+  # them on the push, which is the right place — it can be red without reverting anything.
+  npm run lint --silent
 }
 if ! build_and_check; then
-  warn "Build or typecheck failed — reverting to ${PREVIOUS_COMMIT:0:12}, service untouched"
+  warn "Build, typecheck or lint failed — reverting to ${PREVIOUS_COMMIT:0:12}, service untouched"
   git checkout --detach "$PREVIOUS_COMMIT"
   npm ci --silent && npm run build --silent
   die "Update aborted before restart. The running version was never interrupted."
 fi
-ok "Build and typecheck clean"
+ok "Build, typecheck and lint clean"
 
 # ── 6. Restart ─────────────────────────────────────────────────────────────────────────────────
 # Restarts the backend AND both workers together, which is the entire point of doing it through

@@ -1,0 +1,64 @@
+# The gate that did not exist.
+#
+# Until now nothing ran on a commit or a push: no CI, no git hooks, no root lint script. Every check
+# in this repo was opt-in and manual, which is a large part of why `index.ts` reached 5,900 lines and
+# `App.tsx` reached 2,858 with 47 `any`s in it. Rules that nothing enforces are suggestions.
+#
+# ── WHY THIS IS ONE SHORT JOB ──
+# The budget is under two minutes, and the hard cap is three. Past that people stop waiting for the
+# result, start pushing on red, and the gate becomes decoration — which is worse than no gate,
+# because it looks like coverage. Everything here is a command that already existed and already
+# passes locally; splitting into parallel jobs would cost more in runner startup and `npm ci` than
+# it saves.
+#
+# ── WHAT IS DELIBERATELY NOT HERE ──
+# Playwright. `tests/e2e.spec.ts` provisions real k3d clusters and needs Docker, Temporal and Mongo
+# live, with `workers: 1` because parallel runs collide on host ports. That is minutes per run and a
+# whole environment to stand up. It stays a local/manual check — see CLAUDE.md's testing escalation
+# path, where it is level 4.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the engine used in development. The repo requires Node 20+; this is what runs.
+          node-version: '22'
+          cache: npm
+
+      # `ci` rather than `install`: it respects the lockfile exactly, so a green run here means the
+      # same dependency tree a developer has, not a resolved-today approximation of it.
+      - name: Install
+        run: npm ci
+
+      # First because it is the fastest (~11s) and catches the largest class of mistake — every
+      # broken import path, every changed shape crossing `@koala/harness-types`. During the router
+      # extraction it is the primary safety net, since `verbatimModuleSyntax` makes the `.js`
+      # extension part of the specifier and an auto-import will happily produce one that resolves at
+      # compile time and fails at runtime.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Errors only — the legacy files in `eslint.config.js` report as warnings by design, so this
+      # fails on a NEW violation in a clean file and not on debt that is already scheduled for
+      # rewrite. See the LEGACY list there.
+      - name: Lint
+        run: npm run lint
+
+      # Run separately so a failure names which half broke without scrolling.
+      - name: Frontend unit tests
+        run: npm run test:unit:frontend
+
+      - name: Backend unit tests
+        run: npm run test:unit:backend
