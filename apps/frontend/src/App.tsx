@@ -1146,7 +1146,7 @@ function App() {
         {view === 'temporal' && <TemporalPanel />}
         {view === 'services' && <ServicesPanel />}
         {view === 'accounts' && (
-          <CloudAccounts apiBase={API_BASE} />
+          <CloudAccounts />
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}

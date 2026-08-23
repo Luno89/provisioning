@@ -33,8 +33,6 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 const LEGACY = [
   // Slice 4 (the App.tsx modal extraction) retires this one; it is a third of all debt.
   'src/App.tsx',
-  // Slice 1.
-  'src/components/CloudAccounts.tsx',
   // Slice 2.
   'src/components/ClustersView.tsx',
   // Slice 3.
