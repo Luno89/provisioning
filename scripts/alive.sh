@@ -144,6 +144,12 @@ if [ $FAILED -eq 0 ]; then
     # excluded (it is the backend entry, and it hot-reloads), as are tests. CDKTF constructs are
     # excluded too: cdktf is a subprocess that reads its sources fresh, so editing one needs no
     # worker restart — see CLAUDE.md.
+    #
+    # routes/ and middleware/ are excluded for the same reason index.ts is: they are reached only
+    # through the Express entry, which hot-reloads, and no worker imports them. Without this, the
+    # first router extracted out of index.ts would make EVERY route edit report stale workers —
+    # turning the check that exists to catch a real, silent failure into noise that gets ignored,
+    # which is the one way to lose it. If a worker ever does import from routes/, delete this.
     if [ $HOST_WORKER_UP -eq 1 ] || [ $CLUSTER_WORKER_UP -eq 1 ]; then
       WORKER_PID="$(pgrep -f 'worker-host' | head -1 || true)"
       [ -z "$WORKER_PID" ] && WORKER_PID="$(pgrep -f 'worker-cluster' | head -1 || true)"
@@ -154,12 +160,14 @@ if [ $FAILED -eq 0 ]; then
         if [ -n "$WORKER_AGE" ]; then
           WORKER_STARTED_AT=$(( $(date +%s) - WORKER_AGE ))
           NEWEST_FILE="$(find "${ROOT}/apps/backend/src" -type f -name '*.ts' \
-            ! -name 'index.ts' ! -name '*.test.ts' -newermt "@${WORKER_STARTED_AT}" \
+            ! -name 'index.ts' ! -name '*.test.ts' \
+            ! -path '*/routes/*' ! -path '*/middleware/*' -newermt "@${WORKER_STARTED_AT}" \
             -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)"
 
           if [ -n "$NEWEST_FILE" ]; then
             STALE_COUNT="$(find "${ROOT}/apps/backend/src" -type f -name '*.ts' \
-              ! -name 'index.ts' ! -name '*.test.ts' -newermt "@${WORKER_STARTED_AT}" 2>/dev/null | wc -l | tr -d ' ')"
+              ! -name 'index.ts' ! -name '*.test.ts' \
+              ! -path '*/routes/*' ! -path '*/middleware/*' -newermt "@${WORKER_STARTED_AT}" 2>/dev/null | wc -l | tr -d ' ')"
             print_fail \
               "Workers are STALE — ${STALE_COUNT} source file(s) changed since they started (newest: ${NEWEST_FILE#"${ROOT}/"})" \
               "Workers do not hot-reload. Restart 'npm run dev', or the workers will keep running the old code with no error."
