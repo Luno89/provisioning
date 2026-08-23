@@ -1,0 +1,135 @@
+import type { TreeTypeSeed } from './tree-types.js';
+import { NODE_SERVICE_FILES, MCP_SERVER_FILES, LIBRARY_FILES } from './project-templates.js';
+
+/**
+ * The types this platform ships with.
+ *
+ * A starting point, not the source of truth — `seedTreeTypes` copies these to an owner once and
+ * never again, so a type edited in the Lab stays edited. Same relationship `PERSONA_SEEDS` has to
+ * personas.
+ *
+ * ── THE LANGUAGE IS WHAT THE DELIVERABLE IS WRITTEN IN, AND NOTHING ELSE ──
+ * `research-paper` and `decision-brief` say `base` because prose needs no toolchain. They briefly
+ * said `node`, because every tree takes a checkout and `base` has no git — which encoded "must be
+ * able to clone" as "is a Node project". That is the wrong field: cloning is a requirement of the
+ * CHECKOUT, and `capableImage` reads the image catalogue to satisfy it. A type says what it
+ * produces; it does not carry someone else's prerequisite.
+ */
+export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
+  {
+    /**
+     * Added because the data asked for it: four of the five trees on this instance are MCP servers
+     * labelled `api-service` or `infra-module`, because there was nothing closer. A type people
+     * reach for by approximation is a type that should exist.
+     */
+    id: 'mcp-server',
+    label: 'MCP server',
+    summary: 'A service exposing tools over MCP, callable by this platform and by other agents.',
+    language: 'node',
+    produces: 'service',
+    doneMeans: 'It builds, it deploys, it answers `initialize`, and its tools return real data when called.',
+    files: MCP_SERVER_FILES,
+  },
+  {
+    id: 'research-paper',
+    // Prose needs no toolchain. That a checkout also needs git is a fact about checkouts, not about
+    // this project type — see `capableImage`.
+    language: 'base',
+    produces: 'artefact',
+    label: 'Research paper',
+    summary: 'A written answer with sources — a comparison, a survey, a recommendation.',
+    doneMeans: 'Every question is answered, every claim carries a source, and the write-up reads as one piece.',
+    files: [],
+  },
+  {
+    id: 'api-service',
+    language: 'node',
+    produces: 'service',
+    label: 'API / service',
+    summary: 'Something that runs and answers requests.',
+    doneMeans: 'Its tests pass, it builds, it deploys, and the endpoint responds.',
+    files: NODE_SERVICE_FILES,
+  },
+  {
+    id: 'library',
+    language: 'node',
+    produces: 'artefact',
+    label: 'Library / CLI',
+    summary: 'Code other things import or run. No deployment.',
+    doneMeans: 'Its tests pass and it installs cleanly from a fresh checkout.',
+    files: LIBRARY_FILES,
+  },
+  {
+    id: 'dataset',
+    language: 'python',
+    produces: 'artefact',
+    label: 'Dataset',
+    summary: 'Data collected, cleaned and labelled, with provenance.',
+    doneMeans: 'The schema validates, the row counts are what was promised, and every row can say where it came from.',
+    files: [],
+  },
+  {
+    id: 'investigation',
+    language: 'node',
+    produces: 'artefact',
+    label: 'Investigation',
+    summary: 'Why something is broken or slow, and what to do about it.',
+    doneMeans: 'There is a reproduction that fails before the fix and passes after it.',
+    files: [],
+  },
+  {
+    id: 'migration',
+    language: 'node',
+    produces: 'artefact',
+    label: 'Migration / refactor',
+    summary: 'A bounded change across code that already exists.',
+    doneMeans: 'The existing test suite still passes and behaviour is unchanged.',
+    files: [],
+  },
+  {
+    id: 'benchmark',
+    language: 'python',
+    produces: 'artefact',
+    label: 'Benchmark',
+    summary: 'A task set, run across variants, compared.',
+    doneMeans: 'Every run completed, the metrics are produced, and the spread between runs is reported.',
+    files: [],
+  },
+  {
+    id: 'data-analysis',
+    language: 'python',
+    produces: 'artefact',
+    label: 'Data analysis',
+    summary: 'Load, analyse, and report — charts and conclusions.',
+    doneMeans: 'The analysis runs end to end from a clean checkout and produces its outputs.',
+    files: [],
+  },
+  {
+    id: 'decision-brief',
+    // Prose, as above.
+    language: 'base',
+    produces: 'artefact',
+    label: 'Decision brief',
+    summary: 'Options compared against criteria, ending in a recommendation.',
+    doneMeans: 'Every option is covered against every criterion, and every claim is cited.',
+    files: [],
+  },
+  {
+    id: 'docs-site',
+    language: 'node',
+    produces: 'service',
+    label: 'Documentation',
+    summary: 'Documentation derived from a codebase.',
+    doneMeans: 'Links resolve and the code examples actually run.',
+    files: [],
+  },
+  {
+    id: 'infra-module',
+    language: 'node',
+    produces: 'artefact',
+    label: 'Infrastructure module',
+    summary: 'A reusable piece of infrastructure.',
+    doneMeans: 'It provisions, verifies, and destroys again without leaving anything behind.',
+    files: [],
+  },
+];

@@ -3,7 +3,9 @@ import { writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { templateFor, TEMPLATED_TREE_TYPES } from './project-templates.js';
+import { NODE_SERVICE_FILES, MCP_SERVER_FILES, LIBRARY_FILES } from './project-templates.js';
+import { renderStarterFiles } from './tree-types.js';
+import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 import { McpClient } from './mcp-client.js';
 
 /**
@@ -24,7 +26,7 @@ afterEach(() => { child?.kill(); child = undefined; });
 
 const startScaffold = async (): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'mcp-template-'));
-  for (const file of templateFor('mcp-server', 'test-server')) {
+  for (const file of renderStarterFiles(MCP_SERVER_FILES, { projectName: 'test-server', registryHost: '' })) {
     const full = join(dir, file.path);
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.content);
@@ -66,7 +68,7 @@ describe('a project started from the mcp-server template', () => {
   it('runs a tool and returns text a caller can read', async () => {
     const client = new McpClient(await startScaffold());
     await client.initialize();
-    const out = await client.call('echo', { message: 'hello' });
+    const out = await client.callTool('echo', { message: 'hello' });
     expect(out.isError).toBe(false);
     expect(out.text).toMatch(/hello/);
   }, 30_000);
@@ -76,7 +78,7 @@ describe('a project started from the mcp-server template', () => {
     // deployment down over one mistake.
     const client = new McpClient(await startScaffold());
     await client.initialize();
-    const out = await client.call('does-not-exist', {});
+    const out = await client.callTool('does-not-exist', {});
     expect(out.isError).toBe(true);
   }, 30_000);
 
@@ -95,7 +97,7 @@ describe('the scaffold itself', () => {
      * nothing to build and retried 622 times, and no test runner so the agent reached for jest
      * against a registry it could not see.
      */
-    const paths = templateFor('mcp-server', 'x').map((f) => f.path);
+    const paths = renderStarterFiles(MCP_SERVER_FILES, { projectName: 'x', registryHost: '' }).map((f) => f.path);
     expect(paths).toEqual(expect.arrayContaining([
       'Dockerfile', 'package.json', 'src/server.js', 'test/server.test.js', 'README.md',
     ]));
@@ -107,12 +109,15 @@ describe('the scaffold itself', () => {
      * transport anyway, and does not declare zod at all. A scaffold with no dependencies cannot
      * fail on a registry that lacks a package.
      */
-    const pkg = templateFor('mcp-server', 'x').find((f) => f.path === 'package.json')!;
+    const pkg = renderStarterFiles(MCP_SERVER_FILES, { projectName: 'x', registryHost: '' }).find((f) => f.path === 'package.json')!;
     const parsed = JSON.parse(pkg.content);
     expect(parsed.dependencies ?? {}).toEqual({});
   });
 
-  it('is offered as a templated type', () => {
-    expect(TEMPLATED_TREE_TYPES).toContain('mcp-server');
+  it('is carried by the mcp-server type record', () => {
+    // `TEMPLATED_TREE_TYPES` was a second list of which types had a skeleton, kept in step with the
+    // switch by hand. A type carries its own files now, so the record IS the answer.
+    const seed = TREE_TYPE_SEEDS.find((t) => t.id === 'mcp-server')!;
+    expect(seed.files.map((f) => f.path)).toContain('src/server.js');
   });
 });

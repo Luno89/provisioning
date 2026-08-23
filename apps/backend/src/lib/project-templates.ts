@@ -154,30 +154,6 @@ const README = (name: string, kind: string) => [
   '',
 ].join('\n');
 
-/**
- * The skeleton for a tree type, or nothing.
- *
- * Deliberately absent for most types. A research tree has no repository, and a migration or an
- * investigation works on code that already exists — dropping a server skeleton into either would be
- * noise the first leaf has to delete.
- */
-/**
- * A working MCP server over Streamable HTTP, with no dependencies.
- *
- * ── WHY NO SDK ──
- * The one MCP server this platform has built imports `@modelcontextprotocol/sdk` and `zod`, registers
- * its tools on an `McpServer`, and then hand-rolls the JSON-RPC over `node:http` anyway — the SDK is
- * not doing the transport. `zod` is imported and not even declared as a dependency.
- *
- * The protocol surface a server needs is three methods. Writing them out is smaller than the seam,
- * cannot fail on a registry that lacks a package, and is checkable against `lib/mcp-client.ts`,
- * which is what actually calls it.
- *
- * ── AND WHY IT ANSWERS `initialize` FIRST ──
- * A server built without this returned `HTTP 404 from initialize` and the registry recorded it as
- * unreachable with no tools — deployed, running, and useless. That is the failure this file exists
- * to make impossible.
- */
 const MCP_SERVER = `import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 
@@ -328,40 +304,39 @@ test('an unknown tool is an error, not a crash', async () => {
 });
 `;
 
-export function templateFor(
-  treeType: string | undefined,
-  projectName: string,
-  /** The in-cluster registry, so the scaffold does not depend on Docker Hub. */
-  registryHost?: string,
-): TemplateFile[] {
-  switch (treeType) {
-    case 'api-service':
-      return [
-        { path: 'Dockerfile', content: NODE_DOCKERFILE(nodeBaseImage(registryHost)) },
-        { path: 'package.json', content: NODE_PACKAGE(projectName) },
-        { path: 'src/server.js', content: NODE_SERVER },
-        { path: 'test/server.test.js', content: NODE_TEST },
-        { path: 'README.md', content: README(projectName, 'service') },
-      ];
-    case 'mcp-server':
-      return [
-        { path: 'Dockerfile', content: NODE_DOCKERFILE(nodeBaseImage(registryHost)) },
-        { path: 'package.json', content: NODE_PACKAGE(projectName) },
-        { path: 'src/server.js', content: MCP_SERVER.replace('NAME_PLACEHOLDER', projectName) },
-        { path: 'test/server.test.js', content: MCP_TEST },
-        { path: 'README.md', content: README(projectName, 'service') },
-      ];
-    case 'library':
-      // No Dockerfile and no server: a library is not deployed, and giving it one would have the
-      // pipeline build an image nobody wants.
-      return [
-        { path: 'package.json', content: NODE_PACKAGE(projectName) },
-        { path: 'README.md', content: README(projectName, 'library') },
-      ];
-    default:
-      return [];
-  }
-}
+/**
+ * The starter file SETS, as data.
+ *
+ * ── WHY THE SWITCH ON TREE TYPE IS GONE ──
+ * `templateFor(treeType)` keyed a `switch` on type strings, one of the three places that duplicated
+ * what `TREE_TYPES` already declared. A project type is a record now and carries its own starter
+ * files — so these are the CONTENTS those seeds point at, with `{{projectName}}` and
+ * `{{registryHost}}` filled by `renderStarterFiles` rather than by a function call here.
+ *
+ * Exported so the seed file references them by name instead of holding several kilobytes of inline
+ * source, which would make the seeds unreadable and their diffs useless.
+ */
+export const NODE_SERVICE_FILES = [
+  { path: 'Dockerfile', content: NODE_DOCKERFILE('{{registryHost}}') },
+  { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
+  { path: 'src/server.js', content: NODE_SERVER },
+  { path: 'test/server.test.js', content: NODE_TEST },
+  { path: 'README.md', content: README('{{projectName}}', 'service') },
+];
 
-/** Which tree types start from something. Used to say so in the UI rather than surprising anyone. */
-export const TEMPLATED_TREE_TYPES = ['mcp-server', 'api-service', 'library'];
+export const MCP_SERVER_FILES = [
+  { path: 'Dockerfile', content: NODE_DOCKERFILE('{{registryHost}}') },
+  { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
+  { path: 'src/server.js', content: MCP_SERVER.replace('NAME_PLACEHOLDER', '{{projectName}}') },
+  { path: 'test/server.test.js', content: MCP_TEST },
+  { path: 'README.md', content: README('{{projectName}}', 'service') },
+];
+
+/**
+ * No Dockerfile and no server: a library is not deployed, and giving it one would have the pipeline
+ * build an image nobody wants.
+ */
+export const LIBRARY_FILES = [
+  { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
+  { path: 'README.md', content: README('{{projectName}}', 'library') },
+];

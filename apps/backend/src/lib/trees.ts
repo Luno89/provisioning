@@ -26,161 +26,15 @@ import type { WorkspaceLanguage } from './workspace-spec.js';
  * until the predicates were collected into a single table. A tree type decides the workspace, the
  * deliverable and what verification even means, so it will attract exactly the same sprawl.
  */
-export type TreeType =
-  | 'mcp-server'
-  | 'research-paper'
-  | 'api-service'
-  | 'library'
-  | 'dataset'
-  | 'investigation'
-  | 'migration'
-  | 'benchmark'
-  | 'data-analysis'
-  | 'decision-brief'
-  | 'docs-site'
-  | 'infra-module';
+/**
+ * A project type, by id.
+ *
+ * A bare string now, not a union: types are owned records (lib/tree-types.ts), so the set is not
+ * known at compile time — which is the point. Validity is 'does this owner have one with this id',
+ * answered by `resolveTreeType` against the store.
+ */
+export type TreeType = string;
 
-export interface TreeTypeSpec {
-  id: TreeType;
-  label: string;
-  /** One line, shown when picking a type. Says what the tree produces, not how it works. */
-  summary: string;
-  /**
-   * The language the DELIVERABLE is written in, which decides the workspace image.
-   *
-   * The type decides, full stop — that is what makes it an opinionated template rather than a
-   * label. A persona can still install whatever it needs on top: the image is where work STARTS,
-   * not a limit on the worker. Those are different things, and conflating them is how I nearly
-   * proposed making a research project repo-less.
-   */
-  language: WorkspaceLanguage;
-  /**
-   * What this kind of project produces.
-   *
-   * `service` deploys and must answer; `artefact` produces files that are reviewed and never
-   * deployed. Deliberately NOT the `usesRepo` boolean this replaces — every project gets a
-   * repository, because opt-in lost work and `leaf-project.ts` exists to say so.
-   */
-  produces: 'service' | 'artefact';
-  /** What finishing looks like, in the user's words. Shown on the tree, and seeds its acceptance. */
-  doneMeans: string;
-}
-
-export const TREE_TYPES: TreeTypeSpec[] = [
-  {
-    /**
-     * Added because the data asked for it: four of the five trees on this instance are MCP servers
-     * labelled `api-service` or `infra-module`, because there was nothing closer. A type people
-     * reach for by approximation is a type that should exist.
-     */
-    id: 'mcp-server',
-    label: 'MCP server',
-    summary: 'A service exposing tools over MCP, callable by this platform and by other agents.',
-    language: 'node',
-    produces: 'service',
-    doneMeans: 'It builds, it deploys, it answers `initialize`, and its tools return real data when called.',
-  },
-  {
-    id: 'research-paper',
-    language: 'base',
-    produces: 'artefact',
-    label: 'Research paper',
-    summary: 'A written answer with sources — a comparison, a survey, a recommendation.',
-    doneMeans: 'Every question is answered, every claim carries a source, and the write-up reads as one piece.',
-  },
-  {
-    id: 'api-service',
-    language: 'node',
-    produces: 'service',
-    label: 'API / service',
-    summary: 'Something that runs and answers requests.',
-    doneMeans: 'Its tests pass, it builds, it deploys, and the endpoint responds.',
-  },
-  {
-    id: 'library',
-    language: 'node',
-    produces: 'artefact',
-    label: 'Library / CLI',
-    summary: 'Code other things import or run. No deployment.',
-    doneMeans: 'Its tests pass and it installs cleanly from a fresh checkout.',
-  },
-  {
-    id: 'dataset',
-    language: 'python',
-    produces: 'artefact',
-    label: 'Dataset',
-    summary: 'Data collected, cleaned and labelled, with provenance.',
-    doneMeans: 'The schema validates, the row counts are what was promised, and every row can say where it came from.',
-  },
-  {
-    id: 'investigation',
-    language: 'node',
-    produces: 'artefact',
-    label: 'Investigation',
-    summary: 'Why something is broken or slow, and what to do about it.',
-    doneMeans: 'There is a reproduction that fails before the fix and passes after it.',
-  },
-  {
-    id: 'migration',
-    language: 'node',
-    produces: 'artefact',
-    label: 'Migration / refactor',
-    summary: 'A bounded change across code that already exists.',
-    doneMeans: 'The existing test suite still passes and behaviour is unchanged.',
-  },
-  {
-    id: 'benchmark',
-    language: 'python',
-    produces: 'artefact',
-    label: 'Benchmark',
-    summary: 'A task set, run across variants, compared.',
-    doneMeans: 'Every run completed, the metrics are produced, and the spread between runs is reported.',
-  },
-  {
-    id: 'data-analysis',
-    language: 'python',
-    produces: 'artefact',
-    label: 'Data analysis',
-    summary: 'Load, analyse, and report — charts and conclusions.',
-    doneMeans: 'The analysis runs end to end from a clean checkout and produces its outputs.',
-  },
-  {
-    id: 'decision-brief',
-    language: 'base',
-    produces: 'artefact',
-    label: 'Decision brief',
-    summary: 'Options compared against criteria, ending in a recommendation.',
-    doneMeans: 'Every option is covered against every criterion, and every claim is cited.',
-  },
-  {
-    id: 'docs-site',
-    language: 'node',
-    produces: 'service',
-    label: 'Documentation',
-    summary: 'Documentation derived from a codebase.',
-    doneMeans: 'Links resolve and the code examples actually run.',
-  },
-  {
-    id: 'infra-module',
-    language: 'node',
-    produces: 'artefact',
-    label: 'Infrastructure module',
-    summary: 'A reusable piece of infrastructure.',
-    doneMeans: 'It provisions, verifies, and destroys again without leaving anything behind.',
-  },
-];
-
-const BY_ID = new Map(TREE_TYPES.map((t) => [t.id, t]));
-
-/** Validated rather than trusted: the type arrives as untrusted JSON and the union checks nothing at runtime. */
-export function isTreeType(value: unknown): value is TreeType {
-  return typeof value === 'string' && BY_ID.has(value as TreeType);
-}
-
-export function treeTypeSpec(type: TreeType): TreeTypeSpec {
-  // Non-null: every member of the union is in the table, and the test below keeps it that way.
-  return BY_ID.get(type)!;
-}
 
 export interface Tree {
   id: string;
@@ -232,9 +86,15 @@ const MAX_GOAL = 2000;
 export function normaliseTreeInput(raw: Record<string, unknown>): { name: string; type: TreeType; goal?: string } | undefined {
   const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, MAX_NAME) : '';
   if (!name) return undefined;
-  if (!isTreeType(raw.type)) return undefined;
+  /**
+   * Shape only. Whether the type EXISTS is a question for the store, not for this module — types are
+   * owned records now, so a compile-time union cannot answer it and a hardcoded list here would be
+   * the very duplication this change removes. The route resolves it and refuses an unknown id.
+   */
+  const type = typeof raw.type === 'string' ? raw.type.trim() : '';
+  if (!type) return undefined;
   const goal = typeof raw.goal === 'string' ? raw.goal.trim().slice(0, MAX_GOAL) : '';
-  return { name, type: raw.type, ...(goal ? { goal } : {}) };
+  return { name, type, ...(goal ? { goal } : {}) };
 }
 
 

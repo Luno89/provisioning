@@ -7,12 +7,13 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
-import type { LeafTrace } from './leaf-trace.js';
+import type { LeafTrace, LeafEvidence } from './leaf-trace.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
+import type { TreeTypeSpec } from './tree-types.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
@@ -70,6 +71,14 @@ export interface Database {
   saveHarnessProfile(profile: HarnessProfile): Promise<void>;
 
   /** Owner-filtered by the caller, like leaves and experiments — never trust the id alone. */
+  /**
+   * Project types, owned and editable — see lib/tree-types.ts for why they stopped being a constant.
+   * `ownerId` narrows, because a type id is unique per owner rather than globally.
+   */
+  getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
+  saveTreeType(treeType: TreeTypeSpec): Promise<void>;
+  deleteTreeType(id: string, ownerId: string): Promise<void>;
+
   getPersonas(): Promise<Persona[]>;
   savePersona(persona: Persona): Promise<void>;
   deletePersona(id: string): Promise<void>;
@@ -124,6 +133,14 @@ export interface Database {
    * for exactly the crashes worth reading.
    */
   appendLeafStep(trace: Omit<LeafTrace, 'steps'> & { step: AgentStep }): Promise<void>;
+  /**
+   * Attaches evidence to an existing trace, without rewriting it.
+   *
+   * Targeted rather than a read-modify-write of the whole trace, because `saveLeafTrace` is a FULL
+   * REPLACE and is written BEFORE verification runs — so a naive save here would race with, and
+   * clobber, the steps the run had already recorded.
+   */
+  saveLeafEvidence(leafId: string, evidence: LeafEvidence): Promise<void>;
   deleteLeafTrace(leafId: string): Promise<void>;
 
   getTrees(): Promise<Tree[]>;

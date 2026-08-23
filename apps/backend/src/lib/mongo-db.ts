@@ -10,12 +10,13 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { LeafTrace } from './leaf-trace.js';
+import type { LeafTrace, LeafEvidence } from './leaf-trace.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
+import type { TreeTypeSpec } from './tree-types.js';
 import { TOOL_REPOSITORY, type ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 
@@ -78,6 +79,10 @@ export class MongoDB implements Database {
 
   private get personas(): Collection {
     return this.db!.collection('personas');
+  }
+
+  private get treeTypes(): Collection {
+    return this.db!.collection('treeTypes');
   }
 
   private get harnessProfiles(): Collection {
@@ -472,6 +477,15 @@ export class MongoDB implements Database {
     );
   }
 
+  async saveLeafEvidence(leafId: string, evidence: LeafEvidence): Promise<void> {
+    // $set on one field, upserting so evidence survives even if the trace write lost its race.
+    await this.leafTraces.updateOne(
+      { _id: leafId as any },
+      { $set: { evidence: evidence as any }, $setOnInsert: { _id: leafId as any } },
+      { upsert: true },
+    );
+  }
+
   async deleteLeafTrace(leafId: string): Promise<void> {
     await this.leafTraces.deleteOne({ _id: leafId as any });
   }
@@ -556,6 +570,46 @@ export class MongoDB implements Database {
   }
 
   /** Keyed by its own id, unlike the profile: a user has several personas, not one. */
+  /**
+   * ── WHY THIS COLLECTION DOES NOT USE toDoc/fromDoc ──
+   *
+   * Those two assume `_id` IS the entity's id, which every other collection here can afford because
+   * every other id is globally unique. A type id is unique PER OWNER — two people may both keep a
+   * "playbook" — so the storage key is a composite and the entity's own `id` has to survive as an
+   * ordinary field.
+   *
+   * Running them anyway produced both halves of one outage: `toDoc` overwrote the composite with
+   * the bare id, so Mongo refused every write as an altered `_id` and the route (which logs and
+   * continues) served an empty list to everybody; and `fromDoc` would have handed back
+   * `id: "owner:mcp-server"` for anything that did save, so every lookup by id would have missed.
+   */
+  async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
+    const filter = ownerId ? { ownerId } : {};
+    const docs = await this.treeTypes.find(filter).toArray();
+    // `id` is a stored field here, so the composite key is dropped rather than read back as one.
+    return docs.map(({ _id, ...rest }) => rest as unknown as TreeTypeSpec);
+  }
+
+  async saveTreeType(treeType: TreeTypeSpec): Promise<void> {
+    /**
+     * Keyed on owner AND id, because a type id is unique per owner rather than globally: two people
+     * may both keep a "playbook" type and they are not the same record. `_id` is the composite so
+     * the upsert cannot silently merge them.
+     */
+    const { _id: _ignored, ...doc } = treeType as TreeTypeSpec & { _id?: unknown };
+    // No `_id` in the replacement: an upsert takes it from the filter, and including it is what
+    // made Mongo reject the write as an alteration of an immutable field.
+    await this.treeTypes.replaceOne(
+      { _id: `${treeType.ownerId}:${treeType.id}` } as never,
+      doc,
+      { upsert: true },
+    );
+  }
+
+  async deleteTreeType(id: string, ownerId: string): Promise<void> {
+    await this.treeTypes.deleteOne({ _id: `${ownerId}:${id}` } as never);
+  }
+
   async getPersonas(): Promise<Persona[]> {
     return (await this.personas.find({}).toArray()).map(doc => fromDoc<Persona>(doc));
   }
