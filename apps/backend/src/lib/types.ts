@@ -567,12 +567,29 @@ export interface CloudCredentials {
   googledrive?: GoogleDriveCredentials;
 }
 
-export type CloudProvider =
-  | 'aws' | 'gcp' | 'azure' | 'do' | 'hetzner'
-  | 'vultr' | 'linode' | 'scaleway' | 'hostinger' | 'contabo'
+/**
+ * Every provider credentials can be stored for.
+ *
+ * A runtime list, with the type derived from it, because both were needed and both existed: this
+ * union was written by hand here and a `VALID_PROVIDERS` array was written by hand in index.ts to
+ * validate `req.params.provider` against. Fourteen entries each, kept in step by nobody — adding a
+ * provider to one and not the other gives you either a type that permits an unroutable value or a
+ * route that rejects a valid one.
+ */
+export const CLOUD_PROVIDERS = [
+  'aws', 'gcp', 'azure', 'do', 'hetzner',
+  'vultr', 'linode', 'scaleway', 'hostinger', 'contabo',
   // Not a compute provider — DNS only, for the platform's own records.
-  | 'cloudflare'
-  | 'huggingface' | 'github' | 'googledrive';
+  'cloudflare',
+  'huggingface', 'github', 'googledrive',
+] as const;
+
+export type CloudProvider = typeof CLOUD_PROVIDERS[number];
+
+/** Whether an untrusted string names a provider. The only check a route needs. */
+export function isCloudProvider(value: unknown): value is CloudProvider {
+  return typeof value === 'string' && (CLOUD_PROVIDERS as readonly string[]).includes(value);
+}
 
 export interface UserMetadata {
   id: string;

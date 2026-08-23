@@ -23,6 +23,8 @@ import { Server as SocketServer } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 
 // Library Imports
+import { credentialsRouter } from './routes/credentials.js';
+import { backupRouter } from './routes/backup.js';
 import { ownsProject } from './lib/ownership.js';
 import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase } from './lib/db-interface.js';
@@ -1183,8 +1185,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── CREDENTIALS ── */
 
-  const VALID_PROVIDERS = ['aws', 'gcp', 'azure', 'do', 'hetzner', 'cloudflare', 'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'huggingface', 'github', 'googledrive'] as const;
-
   /**
    * Live VPS plan/price search across providers — see VpsCatalogService for why this is queried
    * rather than hardcoded. Public catalogues (Linode, Vultr) always appear; Hetzner and
@@ -1229,147 +1229,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.json({ ok: true });
   });
 
-  app.get('/api/credentials', async (req, res) => {
-    try {
-      const user = (req as any).user;
-      const statuses = await credentialService.getConfiguredProviders(user.id);
-      res.json({ providers: statuses });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.post('/api/credentials/validate/:provider', async (req, res) => {
-    try {
-      const provider = req.params.provider as CloudProvider;
-      if (!VALID_PROVIDERS.includes(provider)) {
-        return res.status(400).json({ error: `Invalid provider: ${provider}` });
-      }
-      const user = (req as any).user;
-      // googledrive's refresh token was never typed into the form (it came from the OAuth
-      // callback) so there's nothing meaningful in req.body to validate — check the stored one.
-      const result = provider === 'googledrive'
-        ? await credentialService.testGoogleDriveConnection(user.id)
-        : await credentialService.validateCredentials(provider, req.body);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ valid: false, error: err.message });
-    }
-  });
-
-  app.get('/api/credentials/:provider', async (req, res) => {
-    try {
-      const provider = req.params.provider as CloudProvider;
-      if (!VALID_PROVIDERS.includes(provider)) {
-        return res.status(400).json({ error: `Invalid provider: ${provider}` });
-      }
-      const user = (req as any).user;
-      const creds = await credentialService.getCredentials(user.id, provider);
-      res.json({ provider, credentials: creds });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.put('/api/credentials/:provider', async (req, res) => {
-    try {
-      const provider = req.params.provider as CloudProvider;
-      if (!VALID_PROVIDERS.includes(provider)) {
-        return res.status(400).json({ error: `Invalid provider: ${provider}` });
-      }
-      const user = (req as any).user;
-      await credentialService.saveCredentials(user.id, provider, req.body);
-      const updated = await credentialService.getCredentials(user.id, provider);
-      res.json({ success: true, provider, credentials: updated });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.delete('/api/credentials/:provider', async (req, res) => {
-    try {
-      const provider = req.params.provider as CloudProvider;
-      if (!VALID_PROVIDERS.includes(provider)) {
-        return res.status(400).json({ error: `Invalid provider: ${provider}` });
-      }
-      const user = (req as any).user;
-      await credentialService.deleteCredentials(user.id, provider);
-      res.json({ success: true, provider });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  /** ── GOOGLE DRIVE (backup destination) ──
-   * Separate OAuth dance from /api/auth/google (login) — same GOOGLE_CLIENT_ID/SECRET app
-   * registration can serve both as long as this callback URL is also added under "Authorized
-   * redirect URIs" in Google Cloud Console, and the Drive API is enabled for that project.
-   * scripts/backup-to-drive.sh picks these credentials up via generate-rclone-config.ts. */
-
-  app.get('/api/credentials/googledrive/connect', (req, res) => {
-    const googleId = process.env.GOOGLE_CLIENT_ID;
-    if (!googleId) {
-      return res.redirect(`${APP_URL}/?driveError=missing_client_id`);
-    }
-    const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/credentials/googledrive/callback`);
-    // access_type=offline + prompt=consent: without both, Google only hands back a
-    // refresh_token on a user's very first-ever consent for this app — reconnecting later
-    // (e.g. after a Disconnect) would silently get an access-token-only response otherwise.
-    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&access_type=offline&prompt=consent&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}`);
-  });
-
-  app.get('/api/credentials/googledrive/callback', async (req, res) => {
-    try {
-      const { code } = req.query;
-      const googleId = process.env.GOOGLE_CLIENT_ID;
-      const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
-      if (!googleId || !googleSecret) {
-        return res.redirect(`${APP_URL}/?driveError=missing_client_id`);
-      }
-
-      const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-        client_id: googleId,
-        client_secret: googleSecret,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: `${PUBLIC_URL}/api/credentials/googledrive/callback`,
-      });
-
-      const refreshToken = tokenRes.data.refresh_token;
-      const accessToken = tokenRes.data.access_token;
-      if (!refreshToken) {
-        // Happens if the user had already granted consent before and Google didn't re-issue a
-        // refresh_token despite prompt=consent (rare, but possible with cached grants) — send
-        // them to revoke access at myaccount.google.com/permissions and try again.
-        return res.redirect(`${APP_URL}/?driveError=no_refresh_token`);
-      }
-
-      const aboutRes = await axios.get('https://www.googleapis.com/drive/v3/about?fields=user', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const email = aboutRes.data.user?.emailAddress || '';
-
-      const user = (req as any).user;
-      await credentialService.saveCredentials(user.id, 'googledrive', { refreshToken, email });
-      res.redirect(`${APP_URL}/?driveConnected=1`);
-    } catch (err: any) {
-      res.redirect(`${APP_URL}/?driveError=${encodeURIComponent(err.message)}`);
-    }
-  });
-
-  app.post('/api/backup/run', async (req, res) => {
-    const script = path.join(__dirname, '../../../scripts/backup-to-drive.sh');
-    const child = spawn('bash', [script], { cwd: path.join(__dirname, '../../..') });
-    let output = '';
-    child.stdout.on('data', (d) => { output += d.toString(); });
-    child.stderr.on('data', (d) => { output += d.toString(); });
-    child.on('close', (exitCode) => {
-      res.json({ success: exitCode === 0, output });
-    });
-    child.on('error', (err) => {
-      res.status(500).json({ success: false, output: output + `\n${err.message}` });
-    });
-  });
+  /**
+   * ── CREDENTIALS + BACKUP ──
+   *
+   * The first two routers. Everything they replace — eight handlers, four copies of the provider
+   * check and eight hand-written 500s — now lives in `routes/credentials.ts` and `routes/backup.ts`
+   * where it can be tested without booting this file. See `routes/test-harness.ts`.
+   *
+   * Mounted in the position the routes previously occupied. Order is not load-bearing between these
+   * two prefixes, but keeping it means the diff says what it did and nothing else.
+   */
+  app.use('/api/credentials', credentialsRouter({
+    credentialService,
+    publicUrl: PUBLIC_URL,
+    appUrl: APP_URL,
+  }));
+  app.use('/api/backup', backupRouter({ repoRoot: path.join(__dirname, '../../..') }));
 
   /** ── CLUSTERS ── */
 
