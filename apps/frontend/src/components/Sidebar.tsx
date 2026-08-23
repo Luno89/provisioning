@@ -1,3 +1,4 @@
+import { useShellStore, type ViewName } from '../stores/shell';
 import { Shield, FlaskConical, Trees, Trees as TreesIcon, ChevronDown, ChevronRight, Terminal } from 'lucide-react';
 import { Koala } from './Koala';
 
@@ -27,16 +28,30 @@ export interface ForestTab {
   icon: React.ComponentType<{ size?: number; className?: string }>;
 }
 
-export default function Sidebar({
-  view, setView, forestOpen, setForestOpen, forestTabs, onLogout,
-}: {
-  view: string;
-  setView: (view: any) => void;
-  forestOpen: boolean;
-  setForestOpen: (update: (open: boolean) => boolean) => void;
+/**
+ * ── SUBSCRIBES RATHER THAN BEING HANDED SETTERS ──
+ *
+ * This took `view`, `setView`, `forestOpen` and `setForestOpen` as props — four of the fifteen raw
+ * setters App was drilling into children. A component handed `setView` can put the shell into any
+ * view at all, and the only way to find out which components can is to grep for the setter.
+ *
+ * It reads the two values it renders and calls the two actions it triggers. `forestTabs` and
+ * `onLogout` stay props: the tab list is App's nav configuration, and logging out is App's
+ * business, not the sidebar's.
+ *
+ * Each selector is a separate subscription on purpose — `useShellStore((s) => s.view)` re-renders
+ * this when the view changes and not when a notification arrives. Destructuring the whole store
+ * would subscribe to everything.
+ */
+export default function Sidebar({ forestTabs, onLogout }: {
   forestTabs: readonly ForestTab[];
   onLogout: () => void;
 }) {
+  const view = useShellStore((s) => s.view);
+  const setView = useShellStore((s) => s.setView);
+  const forestOpen = useShellStore((s) => s.forestOpen);
+  const setForestOpen = useShellStore((s) => s.setForestOpen);
+
   /** Top-level entry: the product itself. */
   const primary = (active: boolean) =>
     `w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${
@@ -90,7 +105,7 @@ export default function Sidebar({
             {forestTabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setView(tab.id)}
+                onClick={() => setView(tab.id as ViewName)}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] transition-colors ${
                   view === tab.id ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`}
               >

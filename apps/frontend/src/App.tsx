@@ -20,7 +20,7 @@ import GameServerSettings from './components/GameServerSettings.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
 import Grove from './components/Grove.js';
-import { parseHash, formatHash, shouldReplace, resolveView, type Route } from './lib/route.js';
+import { useShellStore, startHistorySync, type AppUser } from './stores/shell';
 import MeshDevices from './components/MeshDevices.js';
 import Personas from './components/Personas.js';
 
@@ -54,11 +54,6 @@ const FOREST_TABS = [
  * Anything else — a stale bookmark to a retired view, a typo — is resolved rather than rendered as
  * a blank page. See RETIRED_VIEWS in lib/route.ts.
  */
-const KNOWN_VIEWS = [
-  ...FOREST_TABS.map((t) => t.id as string),
-  'grove', 'chat', 'personas', 'lab',
-] as const;
-
 /**
  * Mirrors APP_TYPES in apps/backend/src/lib/app-catalog.ts — the frontend does not import backend
  * modules, so this is the one copy on this side rather than the two inline unions it replaced.
@@ -224,63 +219,31 @@ const TABBY_TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', '
 
 function App() {
   const queryClient = useQueryClient();
-  // Open by default: collapsed, a first-time user sees two items and no way to tell that ten
-  // more exist. Folding the infrastructure away is about hierarchy, not about hiding it.
-  const [forestOpen, setForestOpen] = useState(true);
-  /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
-  const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'lab' | 'personas' | 'grove' | 'chat'>(
-    // The URL wins on load, so a refresh keeps your place and a link opens where it points.
-    /**
-     * Chat is the front door.
-     *
-     * The landing view was 'clusters' — a table of infrastructure, which is what you look at when
-     * something is wrong, not when you arrive. Opening Koala now starts a conversation, and the
-     * projects are one click away.
-     */
-    () => resolveView(parseHash(window.location.hash)?.view, KNOWN_VIEWS, 'chat') as any,
-  );
-
   /**
-   * The URL, kept in step with the view.
+   * ── SHELL STATE LIVES IN A STORE ──
    *
-   * Grove owns the ids under its own view — it writes them itself as the selection moves — so this
-   * only carries the view name and leaves whatever path is already there alone when it matches.
+   * These were seven `useState` hooks here, plus two effects keeping `view` and the URL in step,
+   * plus fifteen raw setters passed down as props. They are `stores/shell.ts` now: `setView` writes
+   * the hash itself, so the two cannot drift, and a child that needs the view subscribes rather
+   * than being handed a setter it could put anything into.
+   *
+   * Read through selectors with the same names the markup below already uses, so this file's 2,800
+   * lines did not have to be edited to move the state. Components subscribe directly as their own
+   * slices land — Sidebar already does.
    */
-  const routeRef = useRef<Route | undefined>(parseHash(window.location.hash));
-  useEffect(() => {
-    const current = parseHash(window.location.hash);
-    if (current?.view === view) { routeRef.current = current; return; }
-    const next: Route = { view, path: [] };
-    const hash = formatHash(view);
-    if (shouldReplace(routeRef.current, next)) window.history.replaceState(null, '', hash);
-    else window.history.pushState(null, '', hash);
-    routeRef.current = next;
-  }, [view]);
+  const view = useShellStore((s) => s.view);
+  const setView = useShellStore((s) => s.setView);
+  const handoff = useShellStore((s) => s.handoff);
+  const setHandoff = useShellStore((s) => s.setHandoff);
+  const user = useShellStore((s) => s.user);
+  const setUser = useShellStore((s) => s.setUser);
+  const authLoading = useShellStore((s) => s.authLoading);
+  const setAuthLoading = useShellStore((s) => s.setAuthLoading);
 
   // Back and Forward. Without this the buttons left the application entirely, because nothing had
   // ever pushed an entry.
-  useEffect(() => {
-    const onPop = () => {
-      const r = parseHash(window.location.hash);
-      routeRef.current = r;
-      setView(resolveView(r?.view, KNOWN_VIEWS, 'clusters') as any);
-    };
-    window.addEventListener('popstate', onPop);
-    window.addEventListener('hashchange', onPop);
-    return () => {
-      window.removeEventListener('popstate', onPop);
-      window.removeEventListener('hashchange', onPop);
-    };
-  }, []);
-  const [user, setUser] = useState<any>(
-    import.meta.env?.MODE === 'test' || import.meta.env?.VITE_IS_E2E === 'true' || window.location.port === '5174'
-      ? { id: 'test-user-id', email: 'test@example.com', createdAt: new Date().toISOString() }
-      : null
-  );
-  const [authLoading, setAuthLoading] = useState(
-    import.meta.env?.MODE !== 'test' && import.meta.env?.VITE_IS_E2E !== 'true' && window.location.port !== '5174'
-  );
+  useEffect(() => startHistorySync(), []);
+
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
   /** A bring-your-own cluster waiting for its generated public key to be authorised. */
@@ -289,9 +252,13 @@ function App() {
   const [wizardPreset, setWizardPreset] = useState<{ provider: string; serverType?: string; location?: string } | undefined>(undefined);
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
-  const [confirmDestroy, setConfirmDestroy] = useState<{ type: 'cluster' | 'app', id: string, name: string, isAbort?: boolean } | null>(null);
+  const confirmDestroy = useShellStore((s) => s.confirmDestroy);
+  const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy);
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const notifications = useShellStore((s) => s.notifications);
+  const pushNotification = useShellStore((s) => s.pushNotification);
+  const dismissNotification = useShellStore((s) => s.dismissNotification);
+  const clearDestroyFor = useShellStore((s) => s.clearDestroyFor);
   
   const [logTab, setLogTab] = useState<'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage'>('general');
   const [storageInputs, setStorageInputs] = useState<Record<string, string>>({});
@@ -362,12 +329,16 @@ function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setUser((prev: any) => ({
-          ...prev,
+        // A plain setter, not a React dispatch: read the current user rather than passing an
+        // updater function. `useShellStore.getState()` is the escape hatch for exactly this — a
+        // value needed inside a callback that must not re-run when it changes.
+        const current = useShellStore.getState().user;
+        setUser({
+          ...(current as AppUser),
           twoFactorEnabled: data.twoFactorEnabled,
           twoFactorPhone: data.twoFactorPhone,
           twoFactorPreferredMethod: data.twoFactorPreferredMethod,
-        }));
+        } as AppUser);
       }
     } catch (err) {
       console.error('Failed to update 2FA settings', err);
@@ -640,17 +611,18 @@ function App() {
     const socket = io(SOCKET_URL, { withCredentials: true });
     socketRef.current = socket;
     socket.on('resource-destroyed', (data) => {
-        const nid = Date.now();
-        setNotifications(prev => [...prev, { ...data, nid }]);
+        // The store assigns `nid`. It used to be `Date.now()` here, which collides when two
+        // resources finish in the same millisecond and hands React duplicate keys.
+        pushNotification(data);
 
         // Safely close modals/expand panels if the active resource was destroyed
         setShowLogModal(current => (current && current.id === data.id) ? null : current);
-        setConfirmDestroy(current => (current && current.id === data.id) ? null : current);
+        clearDestroyFor(data.id);
         setExpandedCluster(current => (current === data.id) ? null : current);
 
         queryClient.invalidateQueries({ queryKey: ['clusters'] });
         queryClient.invalidateQueries({ queryKey: ['deployments'] });
-        setTimeout(() => setNotifications(prev => prev.filter(n => n.nid !== nid)), 5000);
+        setTimeout(() => dismissNotification(useShellStore.getState().notifications.at(-1)?.nid ?? 0), 5000);
     });
     socket.on('deployment-updated', () => {
         queryClient.invalidateQueries({ queryKey: ['deployments'] });
@@ -1082,14 +1054,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[var(--bark-900)] canopy text-slate-100 flex font-sans overflow-hidden">
-      <Sidebar
-        view={view}
-        setView={setView}
-        forestOpen={forestOpen}
-        setForestOpen={setForestOpen}
-        forestTabs={FOREST_TABS}
-        onLogout={handleLogout}
-      />
+      <Sidebar forestTabs={FOREST_TABS} onLogout={handleLogout} />
 
       <main className="flex-1 p-10 overflow-y-auto relative">
         <div className="fixed top-6 right-6 z-[60] space-y-3">
@@ -1193,7 +1158,7 @@ function App() {
                 <div className="text-sm text-slate-300 space-y-2 mt-3">
                   <div><strong>Email:</strong> {user.email}</div>
                   <div><strong>Account ID:</strong> <span className="font-mono text-xs">{user.id}</span></div>
-                  <div><strong>Created:</strong> {new Date(user.createdAt).toLocaleDateString()}</div>
+                  <div><strong>Created:</strong> {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}</div>
                 </div>
               </div>
 
@@ -1210,7 +1175,7 @@ function App() {
                       <input
                         type="checkbox"
                         checked={user.twoFactorEnabled}
-                        onChange={(e) => update2FASettings(e.target.checked, user.twoFactorPhone, user.twoFactorPreferredMethod)}
+                        onChange={(e) => update2FASettings(e.target.checked, user.twoFactorPhone, user.twoFactorPreferredMethod as 'email' | 'sms' | undefined)}
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
@@ -1223,7 +1188,7 @@ function App() {
                         <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Preferred Delivery Method</label>
                         <select
                           value={user.twoFactorPreferredMethod || 'email'}
-                          onChange={(e) => update2FASettings(user.twoFactorEnabled, user.twoFactorPhone, e.target.value as any)}
+                          onChange={(e) => update2FASettings(user.twoFactorEnabled ?? false, user.twoFactorPhone, e.target.value as 'email' | 'sms')}
                           className="block w-full px-4 py-3 bg-slate-900/50 border border-white/5 rounded-2xl text-white focus:outline-none focus:border-blue-500"
                         >
                           <option value="email">Email Notification</option>
@@ -1238,7 +1203,7 @@ function App() {
                             type="text"
                             placeholder="e.g. +1234567890"
                             value={user.twoFactorPhone || ''}
-                            onChange={(e) => update2FASettings(user.twoFactorEnabled, e.target.value, user.twoFactorPreferredMethod)}
+                            onChange={(e) => update2FASettings(user.twoFactorEnabled ?? false, e.target.value, user.twoFactorPreferredMethod as 'email' | 'sms' | undefined)}
                             className="block w-full px-4 py-3 bg-slate-900/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
                           />
                           <p className="text-[10px] text-slate-500 mt-1">Include country code prefix (e.g. +1).</p>

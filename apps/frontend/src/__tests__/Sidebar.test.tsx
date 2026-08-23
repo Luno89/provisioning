@@ -1,3 +1,4 @@
+import { useShellStore, type ViewName } from '../stores/shell';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { Box, Server } from 'lucide-react';
@@ -21,22 +22,20 @@ const TABS = [
   { id: 'apps', label: 'Applications', icon: Box },
 ];
 
-const setup = (over: Record<string, unknown> = {}) => {
-  const setView = vi.fn();
-  const setForestOpen = vi.fn();
+/**
+ * Sidebar reads the shell store directly now rather than taking `view`/`setView` as props, so the
+ * setup drives the real store instead of passing spies. That is a better test: it asserts the
+ * sidebar actually CHANGES the shell, not merely that it called a function it was handed.
+ */
+const setup = (init: { view?: ViewName; forestOpen?: boolean } = {}) => {
+  useShellStore.setState({ view: init.view ?? 'chat', forestOpen: init.forestOpen ?? false });
   const onLogout = vi.fn();
-  render(
-    <Sidebar
-      view="chat"
-      setView={setView}
-      forestOpen={false}
-      setForestOpen={setForestOpen}
-      forestTabs={TABS}
-      onLogout={onLogout}
-      {...over}
-    />,
-  );
-  return { setView, setForestOpen, onLogout };
+  render(<Sidebar forestTabs={TABS} onLogout={onLogout} />);
+  return {
+    onLogout,
+    view: () => useShellStore.getState().view,
+    forestOpen: () => useShellStore.getState().forestOpen,
+  };
 };
 
 describe('what the nav offers', () => {
@@ -64,26 +63,27 @@ describe('what the nav offers', () => {
 
 describe('what clicking does', () => {
   it('navigates to each harness view', () => {
-    const { setView } = setup();
+    // Asserts the shell actually moved, rather than that a prop was called with a string.
+    const { view } = setup();
     for (const [label, id] of [['Koala', 'chat'], ['Projects', 'grove'], ['Personas', 'personas'], ['Lab', 'lab']]) {
       fireEvent.click(screen.getByText(label!));
-      expect(setView, label).toHaveBeenCalledWith(id);
+      expect(view(), label).toBe(id);
     }
   });
 
   it('navigates to a Forest tab by its id', () => {
-    const { setView } = setup({ forestOpen: true });
+    const { view } = setup({ forestOpen: true });
     fireEvent.click(screen.getByText('Applications'));
-    expect(setView).toHaveBeenCalledWith('apps');
+    expect(view()).toBe('apps');
   });
 
   it('toggles Forest rather than setting it', () => {
-    // A setter taking the previous value is why opening and closing both work from one handler.
-    const { setForestOpen } = setup();
+    // Both directions from one handler, which is why the action accepts an updater.
+    const { forestOpen } = setup({ forestOpen: false });
     fireEvent.click(screen.getByText('Forest'));
-    const update = setForestOpen.mock.calls[0]![0] as (o: boolean) => boolean;
-    expect(update(false)).toBe(true);
-    expect(update(true)).toBe(false);
+    expect(forestOpen()).toBe(true);
+    fireEvent.click(screen.getByText('Forest'));
+    expect(forestOpen()).toBe(false);
   });
 
   it('logs out', () => {
