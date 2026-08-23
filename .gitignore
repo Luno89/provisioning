@@ -73,3 +73,22 @@ cdktf.out/
 Thumbs.db
 apps/frontend/dist/
 scripts/root-node/.root-node-key*
+
+# Compiled output that shadows a .ts source.
+#
+# `vite.config.js` and `setup.js` were tracked alongside their .ts originals, so an edit to the
+# source could silently lose to the stale build depending on resolution order. Note the two .js
+# configs that are NOT artifacts and stay tracked: eslint.config.js (flat config must be .js) and
+# playwright.config.js (which has no .ts source at all).
+apps/*/vite.config.js
+apps/*/vite.config.js.map
+apps/*/vite.config.d.ts
+apps/*/vitest.config.js
+apps/*/vitest.config.js.map
+apps/*/vitest.config.d.ts
+apps/*/src/**/*.test.js
+apps/*/src/**/*.test.js.map
+apps/*/src/**/*.test.d.ts
+apps/*/src/test/setup.js
+apps/*/src/test/setup.js.map
+apps/*/src/test/setup.d.ts
