@@ -35,7 +35,8 @@ describe('what gets run', () => {
   });
 
   it('has a command per toolchain, and none for the bare image', () => {
-    expect(defaultVerifyCommand('python')).toContain('pytest');
+    // `unittest`, not pytest — see the note below on why a default must need no install.
+    expect(defaultVerifyCommand('python')).toContain('unittest');
     expect(defaultVerifyCommand('go')).toContain('go test');
     // Nothing installed to run anything with — claiming a verdict would be a lie.
     expect(defaultVerifyCommand('base')).toBeUndefined();
@@ -125,5 +126,30 @@ describe('who wins: the agent or the repository', () => {
   it('falls back to the claim when nothing could be checked', () => {
     expect(decideStatus(true, 'unverified')).toBe('succeeded');
     expect(decideStatus(false, 'unverified')).toBe('failed');
+  });
+});
+
+/**
+ * ── THE DEFAULT MUST BE RUNNABLE IN THE IMAGE IT RUNS IN ──
+ *
+ * The Python default was `python -m pytest -q`. pytest is not in the Python image — the catalogue
+ * lists `pip`, not pytest — and there is no PyPI index reachable from a workspace, so `pip install
+ * pytest` cannot fix it either. Every Python repository would have reported `unverified` no matter
+ * how good its tests were, and the score would have fallen back to the agent's own claim.
+ *
+ * `unittest` ships with the interpreter, which is the property that matters: a default has to work
+ * with nothing installed, because "nothing installed" is the guaranteed state of a sandbox.
+ */
+describe('a default verify command runs with nothing installed', () => {
+  it('uses the standard library runner for python', () => {
+    const cmd = defaultVerifyCommand('python')!;
+    expect(cmd).toContain('unittest');
+    expect(cmd).not.toContain('pytest');
+  });
+
+  it('keeps node and go on their built-in runners', () => {
+    // Both already ship a test runner in the toolchain; this pins that they stay that way.
+    expect(defaultVerifyCommand('node')).toContain('node --test');
+    expect(defaultVerifyCommand('go')).toContain('go test');
   });
 });

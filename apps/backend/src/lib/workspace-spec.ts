@@ -1,3 +1,4 @@
+import { bindingProjection, bindingSecretName } from './service-binding.js';
 /**
  * Manifests for a leaf's sandbox.
  *
@@ -92,6 +93,36 @@ export function imageForLanguage(language?: string): string {
   return isWorkspaceLanguage(language) ? WORKSPACE_IMAGES[language].image : DEFAULT_WORKSPACE_IMAGE;
 }
 
+/**
+ * The image for a language, upgraded if it cannot do what the workspace needs.
+ *
+ * ── WHY THIS EXISTS RATHER THAN A LANGUAGE THAT LIES ──
+ * A research paper is prose; its honest language is `base` — "shell and text editing only". But
+ * every tree takes a checkout now, and `base` has no git, so the tree-type seeds were quietly
+ * changed to `node`: encoding "must be able to clone" as "is a Node project". Wrong field. The
+ * requirement belongs to the checkout, and the catalogue already declares what each image lacks.
+ *
+ * So this reads the data rather than naming a case: start from what the work asked for, and if that
+ * image is `absent` something the workspace requires, take the first that is not. Add git to `base`
+ * tomorrow and this stops upgrading, with nothing to remember.
+ *
+ * Falls back to the declared language when NOTHING satisfies the requirement — building what was
+ * asked for and failing at the command beats substituting an unrelated toolchain over a requirement
+ * no image lists.
+ */
+export function capableImage(language: string | undefined, requires: readonly string[] = []): string {
+  const asked = imageForLanguage(language);
+  if (!requires.length) return asked;
+
+  const entry = Object.values(WORKSPACE_IMAGES).find((i) => i.image === asked);
+  const missing = requires.filter((tool) => entry?.absent.includes(tool));
+  if (!missing.length) return asked;
+
+  const capable = Object.values(WORKSPACE_IMAGES)
+    .find((i) => requires.every((tool) => !i.absent.includes(tool)));
+  return capable?.image ?? asked;
+}
+
 /** Where the leaf's files live. An emptyDir, so teardown takes the contents with it. */
 export const WORKSPACE_MOUNT = '/work';
 
@@ -119,6 +150,21 @@ export interface WorkspaceSpec {
   /** Hosts the sandbox may reach, as CIDRs and ports. Empty means DNS only. */
   egress?: EgressRule[];
   /**
+   * Services bound into the sandbox, projected at `$SERVICE_BINDING_ROOT`.
+   *
+   * ── WHY A SANDBOX GETS THESE AT ALL ──
+   * A leaf is told to read its connection details from `$SERVICE_BINDING_ROOT` at runtime, and until
+   * now the projection happened only at DEPLOY time — so a leaf could write integration code and
+   * never execute a line of it. Measured across two projects: an agent looked for
+   * `$SERVICE_BINDING_ROOT` at step 2, found nothing, searched the whole filesystem for it, then
+   * spent five steps guessing DNS names; when it finally guessed right the NetworkPolicy refused
+   * the connection and it spent fourteen more steps debugging its own client.
+   *
+   * Files are passed in rather than read here so this module stays pure. `WorkspaceService` reads
+   * the source Secrets, because it is the thing that holds a kubectl.
+   */
+  bindings?: WorkspaceBinding[];
+  /**
    * Variables to inject, on top of the fixed toolchain ones.
    *
    * Last, so a caller that deliberately overrides HOME or a cache path wins. Those defaults exist
@@ -141,6 +187,37 @@ export type EgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }
   | { namespace: string; cidr?: undefined; ports?: number[] };
 
+/** One binding, with its files already read. Each file becomes a key of a Secret, and so a filename. */
+export interface WorkspaceBinding {
+  name: string;
+  files: Record<string, string>;
+}
+
+/**
+ * The egress a set of bindings needs, and nothing more.
+ *
+ * ── DERIVED, NOT DECLARED ──
+ * Hand-writing egress alongside a dependency means two lists that must agree, and the one that
+ * silently wins is the network policy. Taking it from the resolved binding means a leaf reaches
+ * exactly what its project declared a need for, and opening a hole without a dependency that
+ * survived the ownership check in `binding-resolve.ts` is not possible.
+ *
+ * The `namespace` form is mandatory here rather than preferred — see the note on `EgressRule`:
+ * kube-proxy DNATs a NodePort before the policy is evaluated, so a rule naming the node fails
+ * closed. The port is the service's pod port, which is what `resolveBindings` returns.
+ */
+export function egressForBindings(
+  bindings: readonly { port: number; source: { namespace: string } }[],
+): EgressRule[] {
+  const byNamespace = new Map<string, Set<number>>();
+  for (const b of bindings) {
+    const ports = byNamespace.get(b.source.namespace) ?? new Set<number>();
+    ports.add(b.port);
+    byNamespace.set(b.source.namespace, ports);
+  }
+  return [...byNamespace.entries()].map(([namespace, ports]) => ({ namespace, ports: [...ports] }));
+}
+
 /**
  * Kubernetes names: lowercase alphanumerics and dashes, 63 characters, must start and end
  * alphanumeric. A leaf id is a UUID so it already complies, but this is what stands between a
@@ -158,6 +235,27 @@ export const WORKSPACE_POD = 'workspace';
 export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unknown>[] {
   const namespace = workspaceNamespace(spec.leafId);
   const labels = { 'koala.dev/leaf': spec.leafId, 'koala.dev/owner': spec.ownerId, 'app': 'koala-workspace' };
+
+  /**
+   * Bindings, as Secrets in THIS namespace and as mounts on the pod.
+   *
+   * In the same document rather than applied separately, which is the invariant
+   * `WorkspaceService.create` rests on: a Pod without its NetworkPolicy is a sandbox with
+   * unrestricted egress that still looks like a sandbox, and a Pod whose binding Secret is missing
+   * never starts at all. One document makes both impossible.
+   */
+  const bindings = spec.bindings ?? [];
+  const projection = bindingProjection(
+    bindings.map((b) => ({ name: b.name, secretName: bindingSecretName(b.name) })),
+  );
+  const bindingSecrets = bindings.map((b) => ({
+    apiVersion: 'v1',
+    kind: 'Secret',
+    metadata: { name: bindingSecretName(b.name), namespace, labels },
+    type: 'Opaque',
+    // `stringData`, so Kubernetes does the base64 and a value is never encoded twice.
+    stringData: b.files,
+  }));
 
   return [
     {
@@ -241,6 +339,9 @@ export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unk
               { name: 'GOMODCACHE', value: `${WORKSPACE_MOUNT}/.cache/go-mod` },
               { name: 'npm_config_cache', value: `${WORKSPACE_MOUNT}/.npm` },
               { name: 'PIP_CACHE_DIR', value: `${WORKSPACE_MOUNT}/.cache/pip` },
+              // SERVICE_BINDING_ROOT, when anything is bound. Before the caller's own entries so an
+              // explicit override still wins.
+              ...projection.env,
               // A later entry with the same name wins in Kubernetes, so a caller's own value
               // overrides the default above rather than being silently ignored.
               ...(spec.env ?? []),
@@ -261,15 +362,18 @@ export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unk
               // A read-only root still needs somewhere for temp files, or half of every toolchain
               // fails in ways that read as bugs in the task.
               { name: 'tmp', mountPath: '/tmp' },
+              ...projection.volumeMounts,
             ],
           },
         ],
         volumes: [
           { name: 'work', emptyDir: {} },
           { name: 'tmp', emptyDir: {} },
+          ...projection.volumes,
         ],
       },
     },
+    ...bindingSecrets,
   ];
 }
 
@@ -277,6 +381,109 @@ export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unk
 const IMAGE_DETAILS: Record<string, WorkspaceImage> = Object.fromEntries(
   Object.values(WORKSPACE_IMAGES).map((entry) => [entry.image, entry]),
 );
+
+
+
+/**
+ * The one way out of a sandbox, for the tools that need one.
+ *
+ * A CONNECT proxy with `FilterDefaultDeny Yes` and a committed allowlist — see
+ * `k8s/koala-egress/egress-proxy.yaml`. Named here so the NetworkPolicy rule and the proxy variables
+ * come from the same constant: pointing a tool at a proxy the policy does not permit fails as a
+ * connection timeout, which reads like the package index being down.
+ */
+export const EGRESS_PROXY_HOST = 'egress-proxy.koala-egress.svc.cluster.local:8888';
+export const EGRESS_PROXY_EGRESS: EgressRule = { namespace: 'koala-egress', ports: [8888] };
+
+/**
+ * ── WHAT A LANGUAGE NEEDS IN ORDER TO INSTALL ANYTHING ──
+ *
+ * Derived from the language, because that is what decides it. This lived on persona records and
+ * exactly one of eleven carried it: a Builder could `npm install` and a Merger standing in the same
+ * repository could not, with nothing in the brief explaining the difference. Then tree types made a
+ * Python workspace possible and the one persona that had a registry had the wrong one — it spent
+ * every turn it had resolving `pypi-mirror` and `pypi-proxy` before the circling veto stopped it.
+ *
+ * Same argument as `GITEA_EGRESS`: a hand-written list beside a derivable fact is two lists that
+ * must agree, and the one that silently wins is the NetworkPolicy.
+ *
+ * npm is served in-cluster by Verdaccio, which is a pull-through cache and therefore the tightest
+ * option available. pip and go have no local mirror, so they go to the real index through the proxy.
+ * Adding a mirror later means changing the value here and nothing else.
+ *
+ * Both spellings of the proxy variable are set on purpose: pip and curl read `https_proxy`, most Go
+ * and Node tooling reads `HTTPS_PROXY`, and setting one alone fails in a way that looks like the
+ * allowlist refusing the host.
+ */
+const PROXY_ENV = [
+  { name: 'HTTPS_PROXY', value: `http://${EGRESS_PROXY_HOST}` },
+  { name: 'https_proxy', value: `http://${EGRESS_PROXY_HOST}` },
+];
+
+const PACKAGE_ACCESS: Record<WorkspaceLanguage, { env: { name: string; value: string }[]; egress: EgressRule[] }> = {
+  node: {
+    env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://verdaccio.koala-registry.svc.cluster.local:4873' }],
+    egress: [{ namespace: 'koala-registry', ports: [4873] }],
+  },
+  python: {
+    // Explicit rather than left to pip's default, so `describeSandbox` can tell an agent that pip
+    // has somewhere to go — the check is "is the index variable set", for every manager alike.
+    env: [
+      { name: 'PIP_INDEX_URL', value: 'https://pypi.org/simple' },
+      /**
+       * Somewhere writable to install INTO — the other half of making pip work.
+       *
+       * Layer 3 mounts the root filesystem read-only, and Python is the only one of the three
+       * toolchains that installs outside the project directory: npm writes `./node_modules` and Go
+       * writes `GOMODCACHE`, both already under `/work`. Measured in a live sandbox once egress was
+       * open: every wheel downloaded through the proxy and the install then died with
+       * `[Errno 30] Read-only file system: '/opt/app-root/lib/python3.12/site-packages/urllib3'`.
+       *
+       * `PIP_TARGET` rather than `--user`, because the image is a virtualenv and pip refuses
+       * `--user` inside one ("User site-packages are not visible in this virtualenv"). `PYTHONPATH`
+       * has to name the same directory or the install succeeds and the import still fails.
+       */
+      { name: 'PIP_TARGET', value: `${WORKSPACE_MOUNT}/.python-packages` },
+      { name: 'PYTHONPATH', value: `${WORKSPACE_MOUNT}/.python-packages` },
+      ...PROXY_ENV,
+    ],
+    egress: [EGRESS_PROXY_EGRESS],
+  },
+  go: {
+    env: [
+      { name: 'GOPROXY', value: 'https://proxy.golang.org,direct' },
+      { name: 'GOSUMDB', value: 'sum.golang.org' },
+      ...PROXY_ENV,
+    ],
+    egress: [EGRESS_PROXY_EGRESS],
+  },
+  // No package manager, so nothing to point anywhere. Opening egress here would be a hole with no
+  // tool that could use it.
+  base: { env: [], egress: [] },
+};
+
+export function packageAccess(
+  language: string | undefined,
+): { env: { name: string; value: string }[]; egress: EgressRule[] } {
+  // Falls back the same way `imageForLanguage` does — an unknown language gets the Node image, so it
+  // must get the Node registry too, or it lands in a toolchain with nowhere to install from.
+  const key = isWorkspaceLanguage(language) ? language : DEFAULT_WORKSPACE_LANGUAGE;
+  const entry = PACKAGE_ACCESS[key];
+  return { env: entry.env.map((e) => ({ ...e })), egress: entry.egress.map((r) => ({ ...r, ...(r.ports ? { ports: [...r.ports] } : {}) })) };
+}
+
+/**
+ * Package managers, their index variable, and the command an agent would type.
+ *
+ * A table because the question "can I install things" has one answer per manager and the brief has
+ * to give each of them — see the note in `describeSandbox`. `tool` matches the catalogue's
+ * `available` entries, which carry versions (`node 22`), hence the prefix match at the call site.
+ */
+const PACKAGE_MANAGERS = [
+  { tool: 'npm', env: 'NPM_CONFIG_REGISTRY', command: 'npm install' },
+  { tool: 'pip', env: 'PIP_INDEX_URL', command: 'pip install' },
+  { tool: 'go', env: 'GOPROXY', command: 'go mod download' },
+] as const;
 
 export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'memory' | 'egress' | 'env'> = {}): string {
   const image = spec.image ?? DEFAULT_WORKSPACE_IMAGE;
@@ -300,26 +507,43 @@ export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'mem
   });
 
   /**
-   * Whether a package manager has somewhere to go.
+   * Which package managers have somewhere to go — one answer PER MANAGER, not one for all of them.
    *
    * Read off the injected environment rather than guessed from the egress rules: a mirror is just
    * another namespace, and there is no way to tell one from a database by its name. If the variable
-   * is set, something deliberately pointed the tool at a registry.
+   * is set, something deliberately pointed that tool at an index.
    *
-   * This matters because the sentence below is an INSTRUCTION. It told agents that installs would
-   * fail, which was true and is no longer, and an agent that believes it will hand-roll what it
-   * could have installed.
+   * ── WHY PER MANAGER ──
+   * This was one boolean — `NPM_CONFIG_REGISTRY || PIP_INDEX_URL` — and it said "a package registry
+   * IS reachable … `npm install` works" whenever either was set. Correct while every workspace was
+   * the Node image. The first leaf to run on a Python tree type got the Python image, the npm mirror
+   * (which is always reachable), and that sentence: it concluded pip had an index, and spent every
+   * turn it had resolving `pypi-mirror`, `pypi-proxy` and nine `.svc.cluster.local` variants before
+   * the circling veto stopped it.
+   *
+   * Both directions of the mistake are expensive — an agent wrongly told installs fail hand-rolls a
+   * library it could have installed — so each manager gets its own sentence, and only the ones the
+   * image actually has are mentioned at all. `available` already records that per image, so adding a
+   * pip mirror tomorrow is one entry here and nothing else.
    */
-  const registry = (spec.env ?? []).find((e) => e.name === 'NPM_CONFIG_REGISTRY' || e.name === 'PIP_INDEX_URL');
+  const managers = PACKAGE_MANAGERS
+    .filter((m) => tools?.available.some((t) => t === m.tool || t.startsWith(`${m.tool} `)))
+    .map((m) => ({ ...m, served: (spec.env ?? []).find((e) => e.name === m.env)?.value }));
+
+  const served = managers.filter((m) => m.served);
+  const unserved = managers.filter((m) => !m.served);
+  const packages = [
+    ...served.map((m) => `\`${m.command}\` works — it is pointed at ${m.served}.`),
+    ...(unserved.length
+      ? [`\`${unserved.map((m) => m.command).join('` and `')}\` WILL fail: nothing serves `
+        + `${unserved.map((m) => m.tool).join(' or ')} here, so build with what the image provides.`]
+      : []),
+  ].join(' ');
 
   const network = reachable.length
     ? `Outbound network is blocked except DNS and ${reachable.join(', ')}. `
-      + (registry
-        ? `A package registry IS reachable at ${registry.value}, and your package manager is already `
-          + 'pointed at it — `npm install` works. Nothing else on the public internet does.'
-        : 'NOTHING else is reachable: `npm install`, `pip install` and any download from the public '
-          + 'internet WILL fail, so build with what the image already provides.')
-    : 'There is NO outbound network beyond DNS. `npm install`, `git clone` and any download WILL fail.';
+      + (packages || 'Nothing else on the public internet is reachable.')
+    : 'There is NO outbound network beyond DNS. `git clone` and any download WILL fail. ' + packages;
 
   return [
     'YOUR EXECUTION ENVIRONMENT',

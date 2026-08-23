@@ -11,8 +11,12 @@
  * it works in, where it writes, how long it gets. Nothing here restricts what work it may be asked
  * to do, because nothing here knows better than the planner what a persona is good for.
  */
+import { GITEA_EGRESS } from './leaf-checkout.js';
 import type { Persona } from '@koala/harness-types';
-import { imageForLanguage, type EgressRule, type WorkspaceSpec, type WorkspaceLanguage } from './workspace-spec.js';
+import {
+  imageForLanguage, capableImage, egressForBindings, packageAccess,
+  type EgressRule, type WorkspaceSpec, type WorkspaceLanguage, type WorkspaceBinding,
+} from './workspace-spec.js';
 
 /**
  * The tools a run should actually offer.
@@ -124,18 +128,123 @@ export function personaWorkspace(
    * at all — a Researcher writing prose does not need a compiler, and should not inherit one from
    * whatever it happens to be working alongside.
    */
-  work: { language?: string | undefined } = {},
+  work: {
+    language?: string | undefined;
+    /**
+     * The services this project declared a need for, already resolved and ownership-checked.
+     *
+     * Two things come off these and both are derived rather than declared: the files projected at
+     * `$SERVICE_BINDING_ROOT`, and the egress that makes them reachable. Writing either by hand
+     * would create a second list that has to agree with the first, and the one that silently wins
+     * is the network policy.
+     */
+    bindings?: readonly { port: number; source: { namespace: string } }[] | undefined;
+    files?: WorkspaceBinding[] | undefined;
+    /**
+     * Tools the WORKSPACE needs regardless of what the work is written in — `git` when this leaf
+     * takes a checkout.
+     *
+     * Kept separate from `language` on purpose. A research paper's language is `base`, because prose
+     * needs no toolchain; that a clone also needs git is a fact about checkouts. Folding the second
+     * into the first is how the tree-type seeds briefly claimed a research paper was a Node project.
+     */
+    requires?: readonly string[] | undefined;
+    /**
+     * Whether this leaf is cloning. Decides the forge egress, for the reason given on
+     * `GITEA_EGRESS` — it is what cloning is, not what any particular role is allowed.
+     */
+    checkout?: boolean | undefined;
+  } = {},
 ): WorkspaceSpec {
   const scope = persona?.scope;
+
   const language = work.language ?? scope?.language;
-  const image = language ? imageForLanguage(language as WorkspaceLanguage) : undefined;
+  // Satisfied from the image catalogue, which declares what each image is `absent` — see
+  // `capableImage`. Reads the data rather than naming a case.
+  const image = language || work.requires?.length
+    ? capableImage(language, work.requires ?? [])
+    : undefined;
+
+  /**
+   * The persona's own rules first, then the project's dependencies.
+   *
+   * Additive on purpose. A persona's `egress` says what that ROLE may always reach — the Merger
+   * needs Gitea whatever it is merging — while a binding says what THIS work needs. Neither can
+   * remove the other, and a persona that opens nothing still gets what its project declared.
+   */
+  /**
+   * A leaf that clones needs to reach Gitea.
+   *
+   * ── WHY THIS IS INJECTED, WHEN AN EARLIER VERSION DELIBERATELY STOPPED INJECTING IT ──
+   * `ExecuteLeafActivity` records removing exactly this: "A persona that works in a repository
+   * declares the egress its clone needs… The last version of this injected that rule when a
+   * checkout existed, which meant the same persona had a different network depending on which
+   * caller reached it."
+   *
+   * That objection was about the CALLER deciding. It no longer does: whether a leaf takes a
+   * checkout is derived from the persona's own toolset (`writesFiles`), so a persona that writes
+   * files always clones and therefore always has the same network — which is the property that
+   * comment was protecting. What it cannot survive is a persona declaring `egress: []` because it
+   * had no repository, and then being given one: measured, the clone reached Gitea's address and
+   * failed to connect.
+   *
+   * Corrected here rather than on the persona records because `ensurePersonas` only ever ADDS, so
+   * editing the seeds would fix new installs and leave every existing persona broken.
+   */
+  /**
+   * What this LANGUAGE needs in order to install anything — see `packageAccess`.
+   *
+   * Derived rather than declared, for the same reason as the checkout rule above: it was written by
+   * hand on one persona out of eleven, so a Builder could `npm install` and every other role in the
+   * same repository could not.
+   *
+   * Conditional on an image having been chosen, which keeps ONE rule: whoever picks the toolchain
+   * picks its registry. A spec that names no image leaves that to the caller's default, and quietly
+   * opening egress for a toolchain we did not choose would be a hole with nothing behind it.
+   */
+  const packages = image ? packageAccess(language) : { env: [], egress: [] };
+
+  const egress = dedupeEgress([
+    ...((scope?.egress ?? []) as EgressRule[]),
+    ...egressForBindings(work.bindings ?? []),
+    ...(work.checkout ? [{ ...GITEA_EGRESS, ports: [...GITEA_EGRESS.ports] }] : []),
+    ...packages.egress,
+  ]);
+
+  /**
+   * Persona first, and first wins: a team pointing one role at an internal mirror is a real thing,
+   * and two entries with one name is not something Kubernetes merges — which of them applies would
+   * depend on ordering nobody controls.
+   */
+  const env = [...(scope?.env ?? []), ...packages.env]
+    .filter((e, i, all) => all.findIndex((o) => o.name === e.name) === i);
+
   return {
     leafId: ids.leafId,
     ownerId: ids.ownerId,
     ...(image ? { image } : {}),
     ...(scope?.cpu ? { cpu: scope.cpu } : {}),
     ...(scope?.memory ? { memory: scope.memory } : {}),
-    ...(scope?.egress ? { egress: scope.egress as EgressRule[] } : {}),
-    ...(scope?.env?.length ? { env: scope.env } : {}),
+    // Still only when something asked for it: absent and empty mean different things, and an empty
+    // list is a deliberate "open nothing" that must not be turned into "leave the default".
+    ...(egress.length || scope?.egress ? { egress } : {}),
+    ...(env.length ? { env } : {}),
+    ...(work.files?.length ? { bindings: work.files } : {}),
   };
+}
+
+/**
+ * Merges rules that name the same namespace, because two entries for one namespace is not what a
+ * NetworkPolicy means — the ports union, and a duplicate reads as a second hole in a review.
+ */
+function dedupeEgress(rules: EgressRule[]): EgressRule[] {
+  const out: EgressRule[] = [];
+  for (const rule of rules) {
+    const existing = rule.namespace
+      ? out.find((r) => r.namespace === rule.namespace)
+      : undefined;
+    if (!existing) { out.push({ ...rule, ...(rule.ports ? { ports: [...rule.ports] } : {}) }); continue; }
+    existing.ports = [...new Set([...(existing.ports ?? []), ...(rule.ports ?? [])])];
+  }
+  return out;
 }

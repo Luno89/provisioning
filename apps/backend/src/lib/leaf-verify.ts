@@ -103,7 +103,16 @@ export function defaultVerifyCommand(language: WorkspaceLanguage | undefined): s
       // Two invocations, so one pattern matching nothing does not suppress the other's output.
       return 'node --test $(ls test/*.test.js 2>/dev/null; ls *.test.js 2>/dev/null)';
     case 'python':
-      return 'python -m pytest -q';
+      /**
+       * `unittest`, not `pytest`: pytest is not in the Python image and there is no PyPI index
+       * reachable from a workspace, so it could never be installed either. Every Python repository
+       * would have scored `unverified` regardless of its tests, and an unverified leaf falls back
+       * to the agent's own claim about its work — which is the thing verification exists to replace.
+       *
+       * `discover` finds both `test_*.py` and `*_test.py` in either layout, so it does not impose
+       * a convention the way the Node glob has to.
+       */
+      return 'python -m unittest discover -v';
     case 'go':
       return 'go test ./...';
     // 'base' has no toolchain to run anything with.

@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   buildWorkspaceManifests,
   workspaceNamespace,
   WORKSPACE_POD,
   MAX_WORKSPACE_SECONDS,
   describeSandbox,
+  packageAccess,
   WORKSPACE_IMAGES,
   imageForLanguage,
   isWorkspaceLanguage,
@@ -200,5 +203,169 @@ describe('the image catalogue', () => {
     const go = describeSandbox({ image: imageForLanguage('go') });
     expect(go).toMatch(/go 1\.26/);
     expect(go).not.toMatch(/not catalogued/);
+  });
+});
+
+/**
+ * ── WHICH PACKAGE MANAGER, NOT WHETHER SOME REGISTRY EXISTS ──
+ *
+ * Measured on the first leaf ever to run on a Python tree type: the workspace was the Python image,
+ * `NPM_CONFIG_REGISTRY` was set because the npm mirror is always reachable, and the brief therefore
+ * said *"A package registry IS reachable … `npm install` works"*. The leaf read that, believed pip
+ * had somewhere to go, and spent every remaining turn resolving `pypi-mirror`, `pypi-proxy`,
+ * `pypi-registry` and nine `.svc.cluster.local` variants until the circling veto stopped it.
+ *
+ * The check was `find(NPM_CONFIG_REGISTRY || PIP_INDEX_URL)` — one boolean for two different
+ * questions. It was invisible while every workspace was Node; the tree-type work is what made a
+ * Python workspace possible at all.
+ *
+ * So the brief must name the manager it is talking about, and say the OTHER one fails. Both facts
+ * come from data already present: the env decides what is served, and the image catalogue's
+ * `available` decides which managers exist to ask about.
+ */
+describe('what the brief says about installing packages', () => {
+  const py = WORKSPACE_IMAGES.python.image;
+
+  it('does not promise pip when only the npm mirror is served', () => {
+    const brief = describeSandbox({
+      image: py,
+      egress: [{ namespace: 'koala-registry', ports: [4873] }],
+      env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://koala-registry:4873' }],
+    });
+    expect(brief).toMatch(/pip install.*(WILL fail|will fail)/);
+  });
+
+  it('still says npm works, because it does', () => {
+    // The opposite failure is just as expensive: an agent told installs fail hand-rolls a library.
+    const brief = describeSandbox({
+      image: py,
+      egress: [{ namespace: 'koala-registry', ports: [4873] }],
+      env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://koala-registry:4873' }],
+    });
+    expect(brief).toMatch(/npm install/);
+    expect(brief).toContain('http://koala-registry:4873');
+  });
+
+  it('promises pip once something actually serves it', () => {
+    const brief = describeSandbox({
+      image: py,
+      egress: [{ namespace: 'koala-pypi', ports: [8080] }],
+      env: [{ name: 'PIP_INDEX_URL', value: 'http://koala-pypi:8080/simple' }],
+    });
+    expect(brief).toContain('http://koala-pypi:8080/simple');
+    // Anchored on the pip clause alone: the npm clause in the same sentence legitimately says
+    // "WILL fail" here, and a looser regex matched across both and failed for the wrong reason.
+    expect(brief).toMatch(/`pip install` works/);
+    expect(brief).not.toMatch(/`pip install`[^.]*WILL fail/);
+  });
+
+  it('says nothing about a manager the image does not have', () => {
+    // `base` has no npm and no pip. Listing failures for tools that are not there is noise that
+    // pushes the sentences that matter out of the agent's attention.
+    const brief = describeSandbox({
+      image: WORKSPACE_IMAGES.base.image,
+      egress: [{ namespace: 'gitea', ports: [3000] }],
+      env: [],
+    });
+    expect(brief).not.toMatch(/npm install/);
+    expect(brief).not.toMatch(/pip install/);
+  });
+});
+
+/**
+ * ── PACKAGE ACCESS FOLLOWS THE LANGUAGE, NOT THE ROLE ──
+ *
+ * It was hand-written on persona records: 1 of 11 carried `egress: koala-registry` and
+ * `env: NPM_CONFIG_REGISTRY`. A Builder could install; a Researcher, a Synthesist or a Merger on the
+ * same repository could not, and nothing said why. The same shape of mistake as the Gitea rule — see
+ * `GITEA_EGRESS` — and it broke the same way: the moment tree types made a Python workspace
+ * possible, the one persona that HAD a registry had the wrong one.
+ *
+ * Which index a workspace needs is decided by what the code is written in. `npm` is served
+ * in-cluster by Verdaccio; `pip` and `go` have no local mirror and reach the real index through the
+ * CONNECT proxy in `k8s/koala-egress`, whose allowlist is a file in git for exactly this reason.
+ */
+describe('the package sources a language needs', () => {
+  it('points node at the in-cluster npm mirror', () => {
+    const { env, egress } = packageAccess('node');
+    expect(env.find((e) => e.name === 'NPM_CONFIG_REGISTRY')?.value).toContain('koala-registry');
+    expect(egress.find((r) => r.namespace === 'koala-registry')?.ports).toContain(4873);
+  });
+
+  it('sends python out through the egress proxy, because nothing mirrors PyPI here', () => {
+    const { env, egress } = packageAccess('python');
+    expect(env.find((e) => e.name === 'PIP_INDEX_URL')?.value).toContain('pypi.org');
+    // The proxy is the ONLY way out; without this rule the variable points somewhere unreachable.
+    expect(egress.find((r) => r.namespace === 'koala-egress')?.ports).toContain(8888);
+    expect(env.find((e) => e.name === 'HTTPS_PROXY')?.value).toContain('egress-proxy');
+  });
+
+  it('sets both proxy spellings, because tools disagree about the case', () => {
+    // curl and pip read `https_proxy`; many Go and Node tools read `HTTPS_PROXY`. Setting one and
+    // not the other is a failure that looks like the allowlist rejecting the host.
+    const names = packageAccess('python').env.map((e) => e.name);
+    expect(names).toContain('HTTPS_PROXY');
+    expect(names).toContain('https_proxy');
+  });
+
+  it('gives python somewhere writable to install into', () => {
+    /**
+     * Layer 3 makes the root filesystem read-only, and Python is the only one of the three that
+     * installs OUTSIDE the project directory by default. Measured in a live sandbox: pip downloaded
+     * every wheel through the proxy and then died with `[Errno 30] Read-only file system:
+     * '/opt/app-root/lib/python3.12/site-packages/urllib3'` — so the network fix alone bought a
+     * longer failure, not a working install.
+     *
+     * `--user` is not the answer: the image is a virtualenv, and pip refuses `--user` inside one.
+     * `PIP_TARGET` works there, and the same directory has to be on `PYTHONPATH` or the install
+     * succeeds and the import still fails.
+     */
+    const { env } = packageAccess('python');
+    const target = env.find((e) => e.name === 'PIP_TARGET')?.value;
+    expect(target).toMatch(/^\/work\//);
+    expect(env.find((e) => e.name === 'PYTHONPATH')?.value.split(':')).toContain(target);
+  });
+
+  it('needs no such thing for node or go, which install into the project', () => {
+    // npm writes ./node_modules and go writes GOMODCACHE, both already under /work.
+    for (const language of ['node', 'go'] as const) {
+      expect(packageAccess(language).env.find((e) => e.name === 'PIP_TARGET')).toBeUndefined();
+    }
+  });
+
+  it('gives go its proxy and checksum database', () => {
+    const { env } = packageAccess('go');
+    expect(env.find((e) => e.name === 'GOPROXY')?.value).toContain('proxy.golang.org');
+  });
+
+  it('gives the bare image nothing, because it has no package manager', () => {
+    expect(packageAccess('base')).toEqual({ env: [], egress: [] });
+  });
+
+  it('gives an unknown language the default toolchain\'s access', () => {
+    // `imageForLanguage` already falls back to node rather than failing; this has to agree with it,
+    // or a workspace gets the Node image and no registry.
+    expect(packageAccess(undefined)).toEqual(packageAccess('node'));
+  });
+
+  it('names only hosts the committed allowlist actually permits', () => {
+    /**
+     * The proxy runs `FilterDefaultDeny Yes`, so a host we point a tool at but never allowlisted
+     * fails as a refused CONNECT — which reads exactly like the package not existing. This asserts
+     * the two files agree, rather than trusting that whoever edits one remembers the other.
+     */
+    const filter = readFileSync(join(import.meta.dirname, '../../../../k8s/koala-egress/egress-proxy.yaml'), 'utf8');
+    const allowed = [...filter.matchAll(/^\s{4}\^(.+)\$$/gm)].map((m) => m[1]!.replace(/\\/g, ''));
+    for (const language of ['node', 'python', 'go'] as const) {
+      // `GOPROXY` is a comma-separated list and `GOSUMDB` is a bare hostname, so this splits and
+      // strips rather than assuming one URL per variable — the first version missed both.
+      const hosts = packageAccess(language).env
+        .flatMap((e) => e.value.split(','))
+        .map((part) => part.trim().replace(/^https?:\/\//, '').split(/[/:]/)[0]!)
+        .filter((h) => h && h !== 'direct' && h !== 'off' && !h.endsWith('.svc.cluster.local'));
+      for (const host of hosts) {
+        expect(allowed.some((a) => a === host || (a.startsWith('.+.') && host.endsWith(a.slice(2)))), `${host} is not in the proxy allowlist`).toBe(true);
+      }
+    }
   });
 });

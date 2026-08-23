@@ -77,4 +77,18 @@ mkdir -p "${ROOT}/apps/backend/data/logs/workers"
 # ever applied that stack to it. Idempotent — cheap fast-path skip when already installed.
 npx tsx "${ROOT}/scripts/ensure-cluster-stack.ts" || echo "  ⚠️  Monitoring/ingress stack check failed — continuing anyway"
 
+# The egress proxy every sandbox installs through.
+#
+# Applied here rather than by hand because it is load-bearing: `packageAccess()` in
+# lib/workspace-spec.ts points every Python and Go workspace at
+# `egress-proxy.koala-egress.svc.cluster.local:8888` and writes a NetworkPolicy rule permitting it.
+# On a cluster where this was never applied, that rule names a namespace that does not exist, so
+# `pip install` hangs and then reports a connection error — which reads as PyPI being down rather
+# than as missing infrastructure. `clean-dev` deletes the k3d cluster, so "never applied" is the
+# state of every fresh machine.
+#
+# Idempotent: `apply` on an unchanged manifest is a no-op.
+"$KUBECTL" --context "k3d-provisioning-lunorica" apply -f "${ROOT}/k8s/koala-egress/" \
+  || echo "  ⚠️  Egress proxy apply failed — sandboxes will not be able to install packages"
+
 # Cluster is running, setup complete.
