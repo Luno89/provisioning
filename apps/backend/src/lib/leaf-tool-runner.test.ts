@@ -16,7 +16,7 @@ const ctx = (over: Partial<LeafToolContext> = {}): LeafToolContext => ({
   db,
   userId: 'u1',
   branchId: 'b1',
-  webSearch: async () => [],
+  webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }),
   fetchWebPage: async () => '',
   projects: {} as LeafToolContext['projects'],
   ...over,

@@ -12,6 +12,7 @@
  * headless experiment run. Ownership still comes from `ctx.userId`, never from a tool argument —
  * see the schema tests: no tool takes an owner, because a prompt could then reach across tenants.
  */
+import { gate, ALL_EFFECTS, type ToolEffect } from './action-gate.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolvePersonaNamed } from './proposal-merge.js';
 import type { McpRegistryService } from '../services/McpRegistryService.js';
@@ -25,9 +26,10 @@ import { rewireDependents } from './plan-review.js';
 import { withProject } from './trees.js';
 import { describeInfrastructure } from './infrastructure.js';
 import { declareDependency } from './declare-dependency.js';
-import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
+import { summariseLeaf, detailLeaf, parseToolArguments, LEAF_TOOLS, LEAF_TOOL_EFFECTS } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
+import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
 
 export interface LeafToolCall {
   name: string;
@@ -50,7 +52,7 @@ export interface LeafToolContext {
   /** The session's user. Never a tool argument. */
   userId: string;
   branchId: string;
-  webSearch: (query: string) => Promise<{ title: string; snippet: string; url: string }[]>;
+  webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
   projects: ProjectRepoService;
   /**
@@ -61,11 +63,42 @@ export interface LeafToolContext {
    * which a planner reads as "none exist" and plans to rebuild something already running.
    */
   mcpRegistry?: Pick<McpRegistryService, 'listWithTools'>;
+  /** Which effects this planning turn may take. Absent means all — see the gate call below. */
+  permitted?: readonly ToolEffect[] | undefined;
 }
 
 export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Promise<string> {
   const { db, userId, branchId, webSearch, fetchWebPage, projects, ingest, mcpRegistry } = ctx;
   const args = parseToolArguments(call.arguments);
+
+  /**
+   * ── LAYER 2 ──
+   *
+   * Before the leaf query, not merely before the branch that handles the call: this file is an
+   * if-chain rather than a dispatch table, so a gate placed anywhere further down is one `return`
+   * away from being skipped by the next tool somebody adds. Here there is only one path past it.
+   *
+   * See `lib/action-gate.ts`. `permitted` absent means everything; an undeclared tool is refused.
+   */
+  /**
+   * A name that is in no registry is the MODEL's mistake, and it already had a sentence that says
+   * so. Letting it reach the gate instead answered "this is a defect in the tool" to a tool the
+   * model invented — which is both untrue and unactionable, since there is nothing to report.
+   *
+   * So: unknown name first, then the gate. The gate's refusal now only ever means what it says —
+   * a real tool whose author did not declare what it does.
+   */
+  if (!LEAF_TOOLS.some((t) => t.function.name === call.name)) {
+    return JSON.stringify({ error: `Unknown tool ${call.name}` });
+  }
+
+  const decision = gate(
+    call.name,
+    (LEAF_TOOL_EFFECTS as Record<string, ToolEffect | undefined>)[call.name],
+    ctx.permitted ?? ALL_EFFECTS,
+  );
+  if (!decision.allowed) return JSON.stringify({ error: decision.reason });
+
   const leaves = ((await db.getLeaves()).filter((l) => l.ownerId === userId)).filter((l) => l.branchId === branchId);
 
   try {
@@ -608,8 +641,9 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     if (call.name === 'web_search') {
       const query = String(args.query ?? '').trim();
       if (!query) return JSON.stringify({ error: 'query parameter is required' });
-      const results = await webSearch(query);
-      return JSON.stringify({ query, results: results.length ? results : [{ snippet: 'No results found or request failed' }] });
+      // "No results found or request failed" — this line knew it could not tell the two apart and
+      // merged them anyway. `renderSearchOutcome` keeps them apart, in one place for all callers.
+      return JSON.stringify(renderSearchOutcome(query, await webSearch(query)));
     }
 
     if (call.name === 'fetch_web_page') {

@@ -1,3 +1,4 @@
+import type { ToolEffect } from './action-gate.js';
 import { WORKSPACE_IMAGES, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 /**
  * Tools the model can call to inspect and grow a branch.
@@ -665,3 +666,44 @@ export function parseToolArguments(raw: string): Record<string, unknown> {
 export const WEB_TOOLS = LEAF_TOOLS.filter((t) =>
   (WEB_TOOL_NAMES as readonly string[]).includes(t.function.name),
 );
+
+/**
+ * What each planning tool DOES, for the Action Gate (`lib/action-gate.ts`).
+ *
+ * Read `lib/koala-tools.ts`' note on why this is a table rather than a field on the schema. The
+ * classifications worth arguing with:
+ *
+ * · `propose_leaf`, `revise_leaf`, `replace_leaf`, `withdraw_leaf` and `set_acceptance` all write
+ *   the board directly — they are NOT `propose`, despite the first one's name. A proposed leaf is
+ *   real the moment it lands: the planner's output IS the plan, and nothing accepts it afterwards.
+ *   Calling them `propose` would let a read-and-suggest context rewrite the board, which is the
+ *   exact confusion the three categories exist to prevent. The name is the tool's, from the model's
+ *   point of view; the effect is what the code does.
+ *
+ * · `start_ingest` writes, because it kicks off a job that fills a corpus. `ingest_status` and
+ *   `search_corpus` only look at the result.
+ *
+ * · `update_leaf_memory` writes what the next attempt reads, which is precisely why it exists.
+ */
+export const LEAF_TOOL_EFFECTS = {
+  list_leaves: 'read',
+  get_leaf: 'read',
+  propose_leaf: 'write',
+  set_acceptance: 'write',
+  revise_leaf: 'write',
+  replace_leaf: 'write',
+  withdraw_leaf: 'write',
+  start_ingest: 'write',
+  ingest_status: 'read',
+  search_corpus: 'read',
+  list_personas: 'read',
+  list_projects: 'read',
+  create_project: 'write',
+  set_leaf_project: 'write',
+  add_project_dependency: 'write',
+  list_infrastructure: 'read',
+  list_mcp_servers: 'read',
+  update_leaf_memory: 'write',
+  web_search: 'read',
+  fetch_web_page: 'read',
+} satisfies Record<typeof LEAF_TOOLS[number]['function']['name'], ToolEffect>;

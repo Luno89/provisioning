@@ -1,7 +1,13 @@
-import { TREE_TYPES } from './trees.js';
+import type { ToolEffect } from './action-gate.js';
+import { WEB_TOOLS, WEB_TOOL_NAMES } from './leaf-tools.js';
+import {
+  handleListMcpServers, handleEnableMcpServer, handleAddProjectDependency, handleListInfrastructure,
+  handleProposeSpec, handleGetLogs, handleListTrees, handleProposeTree, handleWebSearch,
+  handleInspectResources, handleClusterCapacity,
+  handleFetchWebPage, type KoalaToolHandler,
+} from './koala-tool-handlers.js';
 
 /** The ids a proposal may use, taken from the definitions rather than restated. */
-const TREE_TYPE_IDS = TREE_TYPES.map((t) => t.id);
 
 /**
  * The tools Koala gets in general chat.
@@ -16,13 +22,7 @@ const TREE_TYPE_IDS = TREE_TYPES.map((t) => t.id);
  * is where it gets built, by personas written for building.
  */
 
-export const KOALA_TOOL_NAMES = [
-  'list_mcp_servers', 'enable_mcp_server', 'propose_tree', 'propose_spec', 'list_trees',
-  'list_infrastructure', 'add_project_dependency', 'get_logs', 'get_events',
-  'web_search', 'fetch_web_page',
-] as const;
-
-export const KOALA_TOOLS = [
+const KOALA_OWN_TOOLS = [
   {
     type: 'function',
     function: {
@@ -81,10 +81,20 @@ export const KOALA_TOOLS = [
            */
           type: {
             type: 'string',
-            // Enumerated from the same source the route validates against, so the model cannot pick
-            // a type that is then silently replaced.
-            enum: TREE_TYPE_IDS,
-            description: 'What kind of thing this is. Omit it if none fits and one will be chosen.',
+            /**
+             * No enum, and no default.
+             *
+             * The enum came from a module constant. Project types are owned records now, so a
+             * schema built once at import cannot know a type someone added this morning — and a
+             * fixed list would quietly exclude it. The handler validates against the caller's own
+             * types and refuses with the valid ids, which is the division `validateArgs` sets out:
+             * this declares the shape, the handler decides whether the call makes sense.
+             *
+             * Omitting it is refused rather than defaulted. The type decides the image, the
+             * skeleton and what finishing means; substituting one silently builds a different kind
+             * of project than was asked for.
+             */
+            description: 'What kind of thing this is. Call list_tree_types to see the ids available.',
           },
           goal: {
             type: 'string',
@@ -281,6 +291,61 @@ export const KOALA_TOOLS = [
   {
     type: 'function',
     function: {
+      /**
+       * The general read, added because two specific ones were not enough.
+       *
+       * `get_logs` and `get_events` answer one question each. Everything else a person asks — why is
+       * this pod pending, what did the PVC bind to, which container is restarting — had no tool, so
+       * the model went back to reasoning from an app's name. That is precisely the failure
+       * `kube-diagnostics.ts` was written to stop, reappearing one question over.
+       */
+      name: 'inspect_resources',
+      description:
+        'Read the live state of Kubernetes objects belonging to one of your deployments or leaf '
+        + 'sandboxes — `get` for a list, `describe` for the detail including events and why a pod is '
+        + 'pending. Use it when get_logs is empty or the cause is not in the output: a pod that never '
+        + 'scheduled, a volume that never bound, a container stuck pulling. Read-only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          verb: { type: 'string', description: 'get or describe.', enum: ['get', 'describe'] },
+          resource: {
+            type: 'string',
+            description: 'pods, deployments, services, pvc, events, replicasets, jobs, ingress, nodes.',
+          },
+          target: {
+            type: 'string',
+            description: 'The deployment name from list_infrastructure, or a leaf id to look at its '
+              + 'sandbox. Not needed for cluster-wide resources like nodes.',
+          },
+          name: { type: 'string', description: 'One specific object, optional.' },
+        },
+        required: ['verb', 'resource'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cluster_capacity',
+      description:
+        'What the cluster has left: node CPU and memory usage, and node conditions such as disk or '
+        + 'memory pressure. The question behind "why is everything slow" and "why will nothing '
+        + 'schedule" — both of which look like application bugs from inside a single deployment.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Optional deployment or leaf sandbox, to see its pods\' usage instead of nodes.',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_trees',
       description:
         'The projects that already exist, with how their work is going. Call this before proposing '
@@ -290,3 +355,81 @@ export const KOALA_TOOLS = [
     },
   },
 ] as const;
+
+/**
+ * The web tools, taken from LEAF_TOOLS rather than restated.
+ *
+ * They were implemented in the runner and wired into the chat route's context, and never offered to
+ * a model, because nobody added a schema here — so Koala has not been able to search the web at
+ * all. Importing the declarations means there is exactly one copy of them in the codebase, which is
+ * the same rule the header of this file states about TREE_TYPES.
+ */
+export const KOALA_TOOLS = [...KOALA_OWN_TOOLS, ...WEB_TOOLS] as const;
+
+/** Every tool Koala can be offered, by name. Derived, so it cannot list one that does not exist. */
+export type KoalaToolName = typeof KOALA_OWN_TOOLS[number]['function']['name'] | typeof WEB_TOOL_NAMES[number];
+
+/**
+ * Schema ↔ handler, joined so that neither can exist alone.
+ *
+ * ── WHY THIS TABLE IS THE POINT ──
+ * The schemas lived here and the implementations lived in a flat if-chain in another file, and
+ * nothing connected them. A handler with no schema is invisible to the model; a schema with no
+ * handler answers `No tool named "…"` to a call the model was invited to make. The first happened
+ * — `web_search` and `fetch_web_page` were dead for exactly this reason — and it happened silently,
+ * because there was no place where the two facts had to agree.
+ *
+ * `satisfies Record<KoalaToolName, …>` is what makes them agree, at compile time: a missing key is
+ * an error, and an extra key is an error. Adding a tool now means adding a schema and a handler in
+ * the same edit, or the build fails.
+ */
+export const KOALA_TOOL_HANDLERS = {
+  list_mcp_servers: handleListMcpServers,
+  enable_mcp_server: handleEnableMcpServer,
+  add_project_dependency: handleAddProjectDependency,
+  list_infrastructure: handleListInfrastructure,
+  propose_spec: handleProposeSpec,
+  // Both names share one implementation, which reads the name to decide which command to build.
+  get_logs: (ctx, args) => handleGetLogs(ctx, args, 'get_logs'),
+  get_events: (ctx, args) => handleGetLogs(ctx, args, 'get_events'),
+  inspect_resources: handleInspectResources,
+  cluster_capacity: handleClusterCapacity,
+  list_trees: handleListTrees,
+  propose_tree: handleProposeTree,
+  web_search: handleWebSearch,
+  fetch_web_page: handleFetchWebPage,
+} satisfies Record<KoalaToolName, KoalaToolHandler>;
+
+/**
+ * What each tool DOES, for the Action Gate. See `lib/action-gate.ts` for why an undeclared tool is
+ * refused rather than allowed.
+ *
+ * ── WHY A SEPARATE TABLE AND NOT A FIELD ON THE SCHEMA ──
+ * The schemas above go to the model provider verbatim as OpenAI function definitions. An extra key
+ * inside `function` is a nonstandard field on a wire format, and providers vary between ignoring it
+ * and rejecting the request. Keeping it beside the schemas costs one `satisfies` — which is the
+ * same mechanism that already forces every schema to have a handler, and it fails at compile time
+ * for exactly the same reason: a missing key is an error and an extra key is an error.
+ *
+ * The classifications, and the one that is arguable:
+ * · `enable_mcp_server` is a WRITE. It looks like a read — it fetches a server's schemas — but it
+ *   changes what tools the rest of the conversation is offered, which is state a later turn acts on.
+ * · `add_project_dependency` writes a record AND opens network egress for a future deploy.
+ * · `propose_*` create pending things that a later, separate step accepts. That is the distinction
+ *   `propose` exists to name.
+ */
+export const KOALA_TOOL_EFFECTS = {
+  list_mcp_servers: 'read',
+  enable_mcp_server: 'write',
+  add_project_dependency: 'write',
+  list_infrastructure: 'read',
+  propose_spec: 'propose',
+  get_logs: 'read',
+  get_events: 'read',
+  inspect_resources: 'read',
+  cluster_capacity: 'read',
+  list_trees: 'read',
+  propose_tree: 'propose',
+  web_search: 'read',
+  fetch_web_page: 'read',
+} satisfies Record<KoalaToolName, ToolEffect>;

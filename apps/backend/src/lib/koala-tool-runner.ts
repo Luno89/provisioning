@@ -1,64 +1,74 @@
-import { v4 as uuidv4 } from 'uuid';
-import type { Database } from './db-interface.js';
-import type { Conversation, ProposedTree, ProposedSpec } from './conversations.js';
-import { withEnabled, enabledForSession } from './conversations.js';
-import { preferUsable, type McpServer } from './mcp-registry.js';
-import { TREE_TYPES } from './trees.js';
-import { rollup } from './tree-board.js';
-import { describeInfrastructure } from './infrastructure.js';
-import { declareDependency } from './declare-dependency.js';
-import { namespaceFor, logsCommand, eventsCommand, trimOutput } from './kube-diagnostics.js';
-import { validateSpec, explainSpecProblems } from './app-spec-validate.js';
-import type { AppSpec } from './app-spec.js';
-
 /**
  * Executing the tools a general-chat turn calls.
  *
  * Separate from `runLeafTool` because the two share no vocabulary: that one acts on a branch and
  * every call is scoped to one, and none of this is. Ownership still comes from the session and never
  * from a tool argument — the same rule, for the same reason.
+ *
+ * ── WHAT THIS FILE IS NOW, AND WHAT IT DELIBERATELY IS NOT ──
+ * It used to be a flat chain of `if (call.name === '…')` with every implementation inline. The
+ * bodies now live in koala-tool-handlers.ts and the schema↔handler join lives in koala-tools.ts,
+ * because keeping them apart let `web_search` and `fetch_web_page` exist as working handlers that
+ * no model was ever offered. What is left here is the part that is the same for every tool:
+ * parsing arguments, checking them against the declared schema, dispatching, and refusing safely.
+ *
+ * It is NOT a general HTTP or command gateway, and it must not become one. The abandoned harness-v2
+ * branch shipped a `call_platform_api` tool that let the model issue any authenticated request —
+ * any method, any path, DELETE included — with the caller's own session cookie. A dispatch table is
+ * exactly the structure that makes adding such a tool feel natural, so: every tool here is a named
+ * capability with a declared schema, ownership comes from `ctx`, and kubectl takes an argument
+ * array that only this codebase constructs.
  */
+import { KOALA_TOOLS, KOALA_TOOL_HANDLERS, KOALA_TOOL_EFFECTS, type KoalaToolName } from './koala-tools.js';
+import { gate, ALL_EFFECTS, type ToolEffect } from './action-gate.js';
+import { json, type KoalaToolContext, type KoalaToolResult } from './koala-tool-handlers.js';
 
-export interface KoalaToolContext {
-  db: Database;
-  userId: string;
-  conversationId: string;
-  sessionId?: string | undefined;
-  /** Everything deployed for this user, already collapsed by name. */
-  servers: readonly McpServer[];
-  webSearch: (query: string) => Promise<{ title: string; snippet: string; url: string }[]>;
-  fetchWebPage: (url: string) => Promise<string>;
-  /**
-   * Runs a READ-ONLY kubectl command. Optional: absent says so rather than reporting no output,
-   * because "cannot look" and "nothing to see" lead to opposite conclusions.
-   */
-  kubectl?: ((args: string[]) => Promise<string>) | undefined;
+export type { KoalaToolContext, KoalaToolResult };
+
+/** Every tool name that can actually be dispatched. Derived from the table, never restated. */
+export const KOALA_TOOL_NAMES = Object.keys(KOALA_TOOL_HANDLERS) as KoalaToolName[];
+
+/**
+ * Checks a call's argument TYPES against the schema the model was given.
+ *
+ * ── WHY IT DOES NOT CHECK REQUIRED FIELDS, HAVING TRIED ──
+ * The first version refused a call whose `required` keys were missing, and it made the tool worse.
+ * Every handler here already reports a missing field, and reports it far better, because it knows
+ * what the field is FOR: `propose_spec` answers "every app must set a memory limit" and
+ * `propose_tree` answers "goal is required — it is what the planner reads later". A generic
+ * `"propose_spec" needs "resources"` pre-empted both, and the model lost the sentence that told it
+ * what to do about it. Two tests caught this, which is what they are there for.
+ *
+ * So the division is: the HANDLER owns whether a call makes sense, and this owns only the thing a
+ * handler cannot report well — an argument of the wrong shape, which would otherwise reach code
+ * expecting a string and fail somewhere unrelated to the mistake. That also keeps this from
+ * becoming the second, weaker copy of rules that live properly elsewhere.
+ */
+export function validateArgs(
+  name: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  const schema = KOALA_TOOLS.find((t) => t.function.name === name)?.function.parameters as
+    | { properties?: Record<string, { type?: string }> }
+    | undefined;
+  if (!schema) return undefined;
+
+  for (const [key, value] of Object.entries(args)) {
+    const want = schema.properties?.[key]?.type;
+    if (!want || value === undefined || value === null) continue;
+    const got = Array.isArray(value) ? 'array' : typeof value;
+    // `integer` and `number` are both JS numbers; the schema distinction is not one JS can check.
+    const ok = want === 'integer' ? got === 'number' : got === want;
+    if (!ok) return `"${name}" wants "${key}" as ${want}, but got ${got}.`;
+  }
+
+  return undefined;
 }
-
-export interface KoalaToolResult {
-  /** What goes back to the model. */
-  content: string;
-  /**
-   * A server hooked up by this call, so the caller can widen the tool list for the NEXT round.
-   *
-   * Returned rather than applied here because the tool list belongs to the turn, not the database:
-   * a model that enables a service and then cannot call it until the user sends another message has
-   * been given a mechanism that does not work.
-   */
-  enabled?: string;
-  /** A project proposed by this call, for the reply to carry back to the UI. */
-  proposed?: ProposedTree;
-  /** An app type proposed by this call. */
-  proposedSpec?: ProposedSpec;
-}
-
-const json = (value: unknown): KoalaToolResult => ({ content: JSON.stringify(value) });
 
 export async function runKoalaTool(
   ctx: KoalaToolContext,
   call: { name: string; arguments: string },
 ): Promise<KoalaToolResult> {
-  const { db, userId, conversationId, sessionId, servers, kubectl } = ctx;
   let args: Record<string, unknown> = {};
   try {
     args = JSON.parse(call.arguments || '{}');
@@ -67,260 +77,31 @@ export async function runKoalaTool(
     return json({ error: 'Could not read those arguments as JSON.' });
   }
 
+  const handler = (KOALA_TOOL_HANDLERS as Record<string, typeof KOALA_TOOL_HANDLERS[KoalaToolName]>)[call.name];
+  if (!handler) return json({ error: `No tool named "${call.name}".` });
+
+  const complaint = validateArgs(call.name, args);
+  if (complaint) return json({ error: complaint });
+
+  /**
+   * ── LAYER 2, AT THE ONLY PLACE EVERY CALL PASSES ──
+   *
+   * After argument checking so the model hears about a malformed call as a malformed call, and
+   * before the handler so a refused tool has no chance to touch anything.
+   *
+   * `permitted` absent means every effect, which is what every existing caller wants and is not the
+   * default-deny part: the deny is on the tool's DECLARATION, which is the thing an author can
+   * forget. A context that wants less says so, and `READ_ONLY` is there for it.
+   */
+  const decision = gate(
+    call.name,
+    (KOALA_TOOL_EFFECTS as Record<string, ToolEffect | undefined>)[call.name],
+    ctx.permitted ?? ALL_EFFECTS,
+  );
+  if (!decision.allowed) return json({ error: decision.reason });
+
   try {
-    if (call.name === 'list_mcp_servers') {
-      const usable = preferUsable(servers);
-      if (!usable.length) {
-        return json({
-          servers: [],
-          note: 'Nothing is deployed under this account yet. Propose a project to build something.',
-        });
-      }
-      return json({
-        servers: usable.map((s) => ({
-          name: s.name,
-          status: s.unreachable ? 'unreachable' : 'running',
-          ...(s.unreachable ? { unreachable: s.unreachable } : {}),
-          tools: (s.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? '' })),
-        })),
-      });
-    }
-
-    if (call.name === 'enable_mcp_server') {
-      const wanted = typeof args.name === 'string' ? args.name.trim() : '';
-      if (!wanted) return json({ error: 'name is required.' });
-
-      const found = preferUsable(servers).find((s) => s.name === wanted);
-      if (!found) {
-        // Names the real ones: a model that guessed will otherwise guess again.
-        return json({
-          error: `No service named "${wanted}".`,
-          available: preferUsable(servers).map((s) => s.name),
-        });
-      }
-      if (found.unreachable || !found.tools.length) {
-        /**
-         * Refused rather than enabled-with-nothing. Loading a service that cannot answer gives the
-         * model tools whose every call fails, and it will spend the rest of the conversation
-         * reasoning about errors that have one cause it cannot see.
-         */
-        return json({
-          error: `"${wanted}" is deployed but not answering${found.unreachable ? `: ${found.unreachable}` : ' — it exposes no tools'}.`,
-        });
-      }
-
-      const conversation = (await db.getConversations())
-        .find((c) => c.id === conversationId && c.ownerId === userId);
-      if (!conversation) return json({ error: 'This conversation no longer exists.' });
-
-      const already = enabledForSession(conversation, sessionId).includes(wanted);
-      if (!already) await db.saveConversation(withEnabled(conversation, sessionId, wanted));
-
-      return {
-        content: JSON.stringify({
-          enabled: wanted,
-          ...(already ? { note: 'It was already hooked up; its tools are available.' } : {}),
-          tools: found.tools.map((t) => ({ name: t.name, description: t.description ?? '' })),
-        }),
-        enabled: wanted,
-      };
-    }
-
-    if (call.name === 'add_project_dependency') {
-      // The same module the planners use — the refusals are a security boundary, and a second copy
-      // that fell behind would be worse than untidy.
-      return json(await declareDependency(db, userId, args));
-    }
-
-    if (call.name === 'list_infrastructure') {
-      const infra = describeInfrastructure(await db.getDeployments(), userId);
-      return json({
-        running: infra.running,
-        // First, because it is the thing that needs doing. A broken deployment Koala proposed is
-        // the one question it should answer before anything else it might be asked.
-        ...(infra.broken.length ? { broken: infra.broken } : {}),
-        deployable: infra.deployable,
-        /**
-         * Said plainly, because the absence is the part that gets ignored. A model reading a list
-         * of twenty-six app types will not notice that `mongo` is not among them unless told what
-         * the list means.
-         */
-        note: 'Anything not in `running` and not in `deployable` does not exist here and cannot be '
-          + 'built — say so rather than planning around it. Connection addresses are resolved when a '
-          + 'service is deployed; do not invent one.'
-          + (infra.broken.length
-            ? ' Something in `broken` is deployed and not working: read the reason, and if it came '
-              + 'from an app spec, propose a corrected one rather than deploying it again unchanged.'
-            : ''),
-      });
-    }
-
-    if (call.name === 'propose_spec') {
-      /**
-       * Validated here, not at acceptance.
-       *
-       * A refusal reaching the model in the turn that wrote the spec is one it can act on — it has
-       * the context and can fix it. The same check runs again on accept, because a proposal can sit
-       * for a week and the rules can change under it.
-       */
-      const problems = validateSpec(args);
-      if (problems.length) {
-        return json({ error: explainSpecProblems(problems) });
-      }
-
-      const conversation = (await db.getConversations())
-        .find((c) => c.id === conversationId && c.ownerId === userId);
-      if (!conversation) return json({ error: 'This conversation no longer exists.' });
-
-      const spec = args as unknown as AppSpec;
-      /**
-       * An id already in the catalogue is a REPLACEMENT, not a refusal.
-       *
-       * It used to be refused, on the reasoning that an edit is a different decision from an
-       * addition. That is true, and it is why the proposal is marked — but refusing outright left
-       * no way to correct a broken spec at all. Koala hit exactly that: it found its own MongoDB
-       * crash-looping, worked out it needed fixing, and could not propose the fix. It called the
-       * result a catch-22, and it was right.
-       *
-       * A built-in is still refused. Those ship with the platform and a test pins the list; letting
-       * a conversation rewrite one would have a fresh clone and a running instance disagreeing
-       * about what `minio` is.
-       */
-      const existing = (await db.getAppSpecs()).find((st) => st.id === spec.id);
-      if (existing?.builtIn) {
-        return json({ error: `"${spec.id}" ships with the platform and cannot be replaced here.` });
-      }
-
-      const proposal: ProposedSpec = {
-        id: spec.id,
-        spec,
-        ...(existing ? { replaces: true } : {}),
-        proposedAt: new Date().toISOString(),
-      };
-      await db.saveConversation({
-        ...conversation,
-        proposedSpecs: [...(conversation.proposedSpecs ?? []), proposal],
-        updatedAt: proposal.proposedAt,
-      });
-      return {
-        content: JSON.stringify({
-          proposed: { id: spec.id, image: spec.image, replaces: Boolean(existing) },
-          note: existing
-            ? 'Proposed only. Accepting replaces the existing spec; anything already deployed from '
-              + 'the old one keeps running until it is redeployed.'
-            : 'Proposed only. It is not deployable until the user accepts it.',
-        }),
-        proposedSpec: proposal,
-      };
-    }
-
-    if (call.name === 'get_logs' || call.name === 'get_events') {
-      if (!kubectl) {
-        // "Cannot look" and "nothing to see" must not read alike, exactly as with the registry.
-        return json({ error: 'Cluster access is not available here, so the cause cannot be read.' });
-      }
-      const wanted = typeof args.deployment === 'string' ? args.deployment : '';
-      const deployments = (await db.getDeployments()).map((d) => ({
-        name: d.name,
-        namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-        ownerId: d.ownerId,
-      }));
-      /**
-       * Resolved from THEIR deployments, never from the argument. A namespace taken straight from a
-       * tool call would let any string be read, which is every other namespace on the cluster — and
-       * pod logs routinely contain a connection string or a token.
-       */
-      const namespace = namespaceFor(wanted, deployments, userId);
-      if (!namespace) {
-        return json({ error: `No deployment named "${wanted}".` });
-      }
-
-      const out = await kubectl(
-        call.name === 'get_logs' ? logsCommand(namespace) : eventsCommand(namespace),
-      ).catch((err: any) => `could not read: ${String(err?.message ?? err).slice(0, 200)}`);
-      const text = trimOutput(out);
-      return json({
-        deployment: wanted,
-        [call.name === 'get_logs' ? 'logs' : 'events']: text || '(nothing)',
-        ...(text ? {} : {
-          note: call.name === 'get_logs'
-            ? 'No output. A container that never started has none — try get_events.'
-            : 'No recent events.',
-        }),
-      });
-    }
-
-    if (call.name === 'list_trees') {
-      const trees = (await db.getTrees()).filter((t) => t.ownerId === userId);
-      const branches = (await db.getBranches()).filter((b) => b.ownerId === userId);
-      const leaves = (await db.getLeaves()).filter((l) => l.ownerId === userId);
-      return json({
-        trees: trees.map((t) => {
-          const ids = new Set(branches.filter((b) => b.treeId === t.id).map((b) => b.id));
-          const mine = leaves.filter((l) => ids.has(l.branchId));
-          // The same rollup the board renders, so what Koala says matches what the user sees.
-          const counts = rollup(mine, () => false);
-          return {
-            id: t.id,
-            name: t.name,
-            ...(t.goal ? { goal: t.goal } : {}),
-            ...(t.serviceName ? { serviceName: t.serviceName } : {}),
-            work: counts,
-          };
-        }),
-      });
-    }
-
-    if (call.name === 'propose_tree') {
-      const name = typeof args.name === 'string' ? args.name.trim() : '';
-      const goal = typeof args.goal === 'string' ? args.goal.trim() : '';
-      if (!name) return json({ error: 'name is required.' });
-      if (!goal) return json({ error: 'goal is required — it is what the planner reads later.' });
-
-      // Validated against the same list the HTTP route enforces; an unrecognised type becomes the
-      // fallback rather than a refusal, since the name and goal are the parts that matter.
-      const wantedType = typeof args.type === 'string' ? args.type.trim() : '';
-      const type = TREE_TYPES.some((t) => t.id === wantedType) ? wantedType : (TREE_TYPES[0]!.id);
-
-      const conversation = (await db.getConversations())
-        .find((c) => c.id === conversationId && c.ownerId === userId);
-      if (!conversation) return json({ error: 'This conversation no longer exists.' });
-
-      const proposal: ProposedTree = {
-        id: uuidv4(),
-        name: name.slice(0, 120),
-        type,
-        goal: goal.slice(0, 2000),
-        proposedAt: new Date().toISOString(),
-      };
-      await db.saveConversation({
-        ...conversation,
-        proposedTrees: [...(conversation.proposedTrees ?? []), proposal],
-        updatedAt: proposal.proposedAt,
-      });
-      return {
-        content: JSON.stringify({
-          proposed: { name: proposal.name, type: proposal.type },
-          // Said plainly so the model does not tell the user it has started building.
-          note: 'Proposed only. Nothing is created until the user accepts it.',
-        }),
-        proposed: proposal,
-      };
-    }
-
-    if (call.name === 'web_search') {
-      const query = typeof args.query === 'string' ? args.query.trim() : '';
-      if (!query) return json({ error: 'query is required.' });
-      return json({ results: await ctx.webSearch(query) });
-    }
-
-    if (call.name === 'fetch_web_page') {
-      const url = typeof args.url === 'string' ? args.url.trim() : '';
-      if (!/^https?:\/\//i.test(url)) return json({ error: 'url must be an http or https address.' });
-      return json({ text: (await ctx.fetchWebPage(url)).slice(0, 20000) });
-    }
-
-    return json({ error: `No tool named "${call.name}".` });
+    return await handler(ctx, args);
   } catch (err: any) {
     // A tool that throws must not take the conversation down with it.
     return json({ error: `That call failed: ${String(err?.message ?? err).slice(0, 300)}` });
