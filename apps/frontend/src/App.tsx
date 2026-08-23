@@ -253,7 +253,6 @@ function App() {
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
   const confirmDestroy = useShellStore((s) => s.confirmDestroy);
   const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy);
-  const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
   const notifications = useShellStore((s) => s.notifications);
   const pushNotification = useShellStore((s) => s.pushNotification);
   const dismissNotification = useShellStore((s) => s.dismissNotification);
@@ -405,26 +404,12 @@ function App() {
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d: any) => d.id === showLogModal.id) : null;
   const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c: any) => c.id === showLogModal.id) : null;
 
-  const { data: clusterPods, isLoading: loadingClusterPods, error: podError } = useQuery({ 
-    queryKey: ['cluster-pods', expandedCluster], 
-    queryFn: () => axios.get(`${API_BASE}/clusters/${expandedCluster}/all-pods`).then(res => res.data), 
-    enabled: !!expandedCluster, 
-    refetchInterval: 5000 
-  });
-
-  const { data: clusterHelmReleases, isLoading: loadingClusterHelm } = useQuery({ 
-    queryKey: ['cluster-helm', expandedCluster], 
-    queryFn: () => axios.get(`${API_BASE}/clusters/${expandedCluster}/helm-releases`).then(res => res.data), 
-    enabled: !!expandedCluster, 
-    refetchInterval: 5000 
-  });
-
-  const { data: clusterGpuStatus, isLoading: loadingClusterGpu } = useQuery({
-    queryKey: ['cluster-gpu', expandedCluster],
-    queryFn: () => axios.get(`${API_BASE}/clusters/${expandedCluster}/gpu-status`).then(res => res.data),
-    enabled: !!expandedCluster,
-    refetchInterval: 5000
-  });
+  /**
+   * The three cluster-detail queries that used to live here — pods, Helm releases and GPU status,
+   * all keyed on `expandedCluster` — are `useClusterDetail` inside ClustersView now. App was
+   * running queries on a child's behalf and handing back six data/loading values, for state the
+   * child owned.
+   */
 
   const { data: podResponse, dataUpdatedAt: podsCheckedAt } = useQuery({
     queryKey: ['pods', showLogModal?.id],
@@ -615,7 +600,8 @@ function App() {
     // Close anything that was showing the resource that just went away.
     setShowLogModal((current) => (current && current.id === data.id) ? null : current);
     clearDestroyFor(data.id);
-    setExpandedCluster((current) => (current === data.id) ? null : current);
+    // Collapsing the expanded cluster row is ClustersView's own reaction now — it owns that
+    // state, so it listens for this event itself.
 
     queryClient.invalidateQueries({ queryKey: ['clusters'] });
     queryClient.invalidateQueries({ queryKey: ['deployments'] });
@@ -1037,18 +1023,8 @@ function App() {
         {view === 'clusters' && (
           <ClustersView
             clusters={clusters}
-            expandedCluster={expandedCluster}
-            setExpandedCluster={setExpandedCluster}
-            clusterPods={clusterPods}
-            podError={podError}
-            loadingClusterPods={loadingClusterPods}
-            clusterHelmReleases={clusterHelmReleases}
-            loadingClusterHelm={loadingClusterHelm}
-            clusterGpuStatus={clusterGpuStatus}
-            loadingClusterGpu={loadingClusterGpu}
-            setShowClusterModal={setShowClusterModal}
-            setConfirmDestroy={setConfirmDestroy}
-            openDashboard={openDashboard}
+            onProvision={() => setShowClusterModal(true)}
+            onOpenLogs={(id) => openDashboard('cluster', id)}
           />
         )}
 

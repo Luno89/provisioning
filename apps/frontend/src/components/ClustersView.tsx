@@ -1,30 +1,76 @@
+import { useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Cloud, Cpu, FileText, Layers, Loader2, Plus, Shield, Trash2, Zap } from 'lucide-react';
+import { useClusterDetail } from '../api/clusters';
+import { useShellStore } from '../stores/shell';
+import { useSocketEvent } from '../stores/socket';
+import type { Cluster } from '../types/cluster';
 
 /**
  * The clusters screen.
  *
  * ── WHY IT IS ITS OWN FILE ──
  * 164 lines of it sat inside App's single component, between the sidebar and the apps table,
- * sharing a scope with every other screen and every modal in the product. It reads a dozen things
- * from App and writes three, and was only ever there because that is where it was written.
+ * sharing a scope with every other screen and every modal in the product.
  *
- * Moved mechanically rather than retyped, so the markup and handlers are byte-for-byte what they
- * were — the only way to be sure a screen with this little test coverage still behaves the same.
- * The props below are what the COMPILER said it needed; my own grep of the block missed some, which
- * is the argument for doing this in slices that typecheck.
+ * ── AND WHY IT IS NOW ITS OWN SCREEN ──
+ * The first extraction was mechanical and left it taking twelve props typed `any`, including three
+ * of App's raw setters and six `data`/`isLoading` values from queries App ran on its behalf. So
+ * expanding a row meant a child setting a parent's state to make the parent run a query whose
+ * result it was handed back.
+ *
+ * It owns `expandedCluster` now, `useClusterDetail` runs from it, and the destroy confirmation goes
+ * to the shell store rather than through a prop. What is left as props is what genuinely belongs to
+ * App: the cluster list it already queries, and two things the shell owns — opening the provision
+ * wizard and opening a dashboard.
+ *
+ * Typed by letting the compiler enumerate the interface, as `NginxView`'s docblock describes.
  */
+export interface ClustersViewProps {
+  clusters: Cluster[];
+  /** Opens App's provision wizard. A named intent, not App's `setShowClusterModal`. */
+  onProvision: () => void;
+  /**
+   * Opens the log/dashboard modal for a cluster. App owns that modal, so this is a named intent
+   * rather than the modal's setter — and it takes only the id, because from this screen the type is
+   * always 'cluster'. (I first typed this as a proxy-dashboard call, which is a different feature
+   * entirely; the compiler caught it at App's call site.)
+   */
+  onOpenLogs: (clusterId: string) => void;
+}
 
-export default function ClustersView(props: any) {
+export default function ClustersView({ clusters, onProvision, onOpenLogs }: ClustersViewProps) {
+  /**
+   * Which row is open. It was App's, for no reason other than that the markup used to live there —
+   * nothing outside this screen reads it.
+   */
+  const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
+
+  /**
+   * Collapse the row if its cluster is destroyed from anywhere.
+   *
+   * App used to do this, because App held the state — and when the state moved here that call
+   * became a write to something nothing rendered, which is a silent way to lose behaviour. It
+   * belongs with the state it changes: destroying a cluster while its row is open otherwise leaves
+   * an expanded panel polling three endpoints for something that no longer exists.
+   */
+  useSocketEvent<{ id: string }>('resource-destroyed', (data) => {
+    setExpandedCluster((current) => (current === data.id ? null : current));
+  });
+
   const {
-    clusters, expandedCluster, setExpandedCluster,
-    clusterPods, podError, loadingClusterPods, clusterHelmReleases, loadingClusterHelm,
-    clusterGpuStatus, loadingClusterGpu,
-    setShowClusterModal, setConfirmDestroy, openDashboard,
-  } = props;
+    pods: clusterPods, podError, loadingPods: loadingClusterPods,
+    helmReleases: clusterHelmReleases, loadingHelm: loadingClusterHelm,
+    gpuStatus: clusterGpuStatus, loadingGpu: loadingClusterGpu,
+  } = useClusterDetail(expandedCluster);
+
+  // Straight from the shell store: destroying a cluster raises the same confirmation dialog
+  // wherever it is triggered from, and App does not need to be in the middle of it.
+  const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy);
+
   return (
         <section>
-          <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Infrastructures</h2><p className="text-slate-400">Manage your Kubernetes fleet.</p></div><button onClick={() => setShowClusterModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Provision Cluster</button></header>
-          <div className="grid grid-cols-1 gap-8 max-w-5xl">{clusters.map((c: any) => (
+          <header className="flex justify-between items-center mb-10"><div><h2 className="text-3xl font-bold">Infrastructures</h2><p className="text-slate-400">Manage your Kubernetes fleet.</p></div><button onClick={onProvision} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium shadow-lg transition-all hover:scale-105"><Plus size={20} /> Provision Cluster</button></header>
+          <div className="grid grid-cols-1 gap-8 max-w-5xl">{clusters.map((c) => (
               <div key={c.id} className={c.isSystem
                 ? "bg-gradient-to-br from-purple-950/60 via-slate-800 to-slate-800 rounded-3xl border-2 border-purple-500/40 overflow-hidden shadow-lg shadow-purple-950/30 transition-all"
                 : "bg-slate-800 rounded-3xl border border-slate-700 overflow-hidden shadow-sm transition-all hover:border-slate-500"
@@ -38,7 +84,7 @@ export default function ClustersView(props: any) {
                         {c.status}
                       </span>
                       {!c.isSystem && (
-                        <button onClick={() => openDashboard('cluster', c.id)} className="p-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors">
+                        <button onClick={() => onOpenLogs(c.id)} className="p-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors">
                           <FileText size={20} />
                         </button>
                       )}
@@ -61,9 +107,9 @@ export default function ClustersView(props: any) {
                             <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Layers size={12} className="text-blue-400" /> Helm Chart Inventory</h5>
                             {loadingClusterHelm ? (
                               <div className="text-slate-500 text-xs italic">Scanning Helm repository...</div>
-                            ) : clusterHelmReleases?.length > 0 ? (
+                            ) : (clusterHelmReleases?.length ?? 0) > 0 ? (
                               <div className="grid grid-cols-2 gap-4">
-                                 {clusterHelmReleases.map((release: any) => (
+                                 {(clusterHelmReleases ?? []).map((release) => (
                                    <div key={release.name} className="bg-slate-900/50 border border-slate-700 p-4 rounded-xl flex justify-between items-center">
                                       <div>
                                         <div className="font-bold text-sm">{release.name}</div>
@@ -79,9 +125,9 @@ export default function ClustersView(props: any) {
                             <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Cpu size={12} className="text-blue-400" /> Infrastructure Node Status</h5>
                             {loadingClusterPods ? (
                               <div className="text-center py-6"><Loader2 className="animate-spin text-slate-600 mx-auto" size={24} /></div>
-                            ) : Array.isArray(clusterPods) && clusterPods.length > 0 ? (
+                            ) : Array.isArray(clusterPods) && (clusterPods?.length ?? 0) > 0 ? (
                               <div className="bg-slate-900/50 rounded-2xl border border-slate-700/50 overflow-hidden"><table className="w-full text-left text-xs"><thead className="bg-slate-800/50 text-slate-500 uppercase tracking-tighter"><tr><th className="px-6 py-3">Namespace</th><th className="px-6 py-3">Pod Name</th><th className="px-6 py-3">Status</th><th className="px-6 py-3">IP</th><th className="px-6 py-3 text-right">Age</th></tr></thead>
-                                  <tbody className="divide-y divide-slate-800">{clusterPods.map((pod: any) => (<tr key={pod?.metadata?.name || Math.random()} className="hover:bg-slate-800/30 transition-colors group"><td className="px-6 py-4 font-mono text-[10px] text-blue-400/80">{pod?.metadata?.namespace || '---'}</td><td className="px-6 py-4 font-bold text-slate-300 group-hover:text-white truncate max-w-[200px]">{pod?.metadata?.name || 'Unknown'}</td><td className="px-6 py-4"><div className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${pod?.status?.phase === 'Running' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-yellow-500 animate-pulse'}`}></div><span className="font-medium text-slate-400">{pod?.status?.phase || 'Pending'}</span></div></td><td className="px-6 py-4 font-mono text-slate-500 text-[10px]">{pod?.status?.podIP || '---'}</td><td className="px-6 py-4 text-right text-slate-600">{pod?.metadata?.creationTimestamp ? new Date(pod.metadata.creationTimestamp).toLocaleTimeString() : '---'}</td></tr>))}</tbody></table></div>
+                                  <tbody className="divide-y divide-slate-800">{(clusterPods ?? []).map((pod) => (<tr key={pod?.metadata?.name || Math.random()} className="hover:bg-slate-800/30 transition-colors group"><td className="px-6 py-4 font-mono text-[10px] text-blue-400/80">{pod?.metadata?.namespace || '---'}</td><td className="px-6 py-4 font-bold text-slate-300 group-hover:text-white truncate max-w-[200px]">{pod?.metadata?.name || 'Unknown'}</td><td className="px-6 py-4"><div className="flex items-center gap-2"><div className={`w-1.5 h-1.5 rounded-full ${pod?.status?.phase === 'Running' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-yellow-500 animate-pulse'}`}></div><span className="font-medium text-slate-400">{pod?.status?.phase || 'Pending'}</span></div></td><td className="px-6 py-4 font-mono text-slate-500 text-[10px]">{pod?.status?.podIP || '---'}</td><td className="px-6 py-4 text-right text-slate-600">{pod?.metadata?.creationTimestamp ? new Date(pod.metadata.creationTimestamp).toLocaleTimeString() : '---'}</td></tr>))}</tbody></table></div>
                             ) : <div className="text-center py-6 bg-slate-900/30 rounded-2xl border border-dashed border-slate-700 text-slate-500 text-sm">{podError ? 'API Error' : 'No nodes active.'}</div>}
                          </div>
                          <div>
@@ -105,9 +151,9 @@ export default function ClustersView(props: any) {
                                      </div>
                                    </div>
                                    <div className="flex items-center gap-2">
-                                     {clusterGpuStatus.totalCapacity > 0 ? (
-                                       <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase flex items-center gap-1.5 ${clusterGpuStatus.availableGpus > 0 ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                                         <div className={`w-1.5 h-1.5 rounded-full ${clusterGpuStatus.availableGpus > 0 ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                     {(clusterGpuStatus.totalCapacity ?? 0) > 0 ? (
+                                       <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase flex items-center gap-1.5 ${(clusterGpuStatus.availableGpus ?? 0) > 0 ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                                         <div className={`w-1.5 h-1.5 rounded-full ${(clusterGpuStatus.availableGpus ?? 0) > 0 ? 'bg-green-500' : 'bg-red-500'}`}></div>
                                          {clusterGpuStatus.availableGpus} / {clusterGpuStatus.totalAllocatable} GPU Available
                                        </span>
                                      ) : (c.gpuEnabled || clusterGpuStatus.passthroughEnabled) ? (
@@ -138,15 +184,15 @@ export default function ClustersView(props: any) {
                                    </div>
                                    <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/40">
                                      <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Available</div>
-                                     <div className={`text-lg font-bold mt-0.5 ${clusterGpuStatus.availableGpus > 0 ? 'text-green-400' : 'text-slate-400'}`}>{clusterGpuStatus.availableGpus} GPU</div>
+                                     <div className={`text-lg font-bold mt-0.5 ${(clusterGpuStatus.availableGpus ?? 0) > 0 ? 'text-green-400' : 'text-slate-400'}`}>{clusterGpuStatus.availableGpus} GPU</div>
                                    </div>
                                  </div>
 
-                                 {clusterGpuStatus.devicePlugins?.length > 0 && (
+                                 {(clusterGpuStatus.devicePlugins?.length ?? 0) > 0 && (
                                    <div className="pt-2 border-t border-slate-800/80">
                                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Device Plugin Status</div>
                                      <div className="flex flex-wrap gap-2">
-                                       {clusterGpuStatus.devicePlugins.map((dp: any) => (
+                                       {(clusterGpuStatus.devicePlugins ?? []).map((dp) => (
                                          <div key={dp.name} className="bg-slate-800 p-2.5 rounded-lg border border-slate-700/60 flex items-center justify-between text-xs w-full">
                                            <span className="font-mono text-slate-300 text-[11px]">{dp.name}</span>
                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${dp.status === 'active' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
@@ -158,11 +204,11 @@ export default function ClustersView(props: any) {
                                    </div>
                                  )}
 
-                                 {clusterGpuStatus.gpuPods?.length > 0 && (
+                                 {(clusterGpuStatus.gpuPods?.length ?? 0) > 0 && (
                                    <div className="pt-2 border-t border-slate-800/80">
                                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">Active GPU Workloads</div>
                                      <div className="space-y-1.5">
-                                       {clusterGpuStatus.gpuPods.map((gp: any) => (
+                                       {(clusterGpuStatus.gpuPods ?? []).map((gp) => (
                                          <div key={gp.name} className="bg-slate-800/70 px-3 py-2 rounded-lg border border-slate-700/50 flex justify-between items-center text-xs">
                                            <div className="flex items-center gap-2">
                                              <span className="text-amber-400 font-bold">{gp.gpus} GPU</span>
