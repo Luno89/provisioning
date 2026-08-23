@@ -37,7 +37,7 @@ const seeded = async () => {
 
 const ctx = (db: any): LeafToolContext => ({
   db, userId: 'u1', branchId: 'b1',
-  webSearch: async () => [], fetchWebPage: async () => '',
+  webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '',
   projects: { listForOwner: async (o: string) => (await db.getProjects()).filter((p: any) => p.ownerId === o) } as any,
 });
 

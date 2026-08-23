@@ -1,5 +1,5 @@
 import { clusterHost } from './cluster-dns.js';
-import { bindingTypeFor } from './service-binding.js';
+import { bindingTypeFor, type Binding } from './service-binding.js';
 import type { AppSpec } from './app-spec.js';
 
 /**
@@ -164,6 +164,24 @@ export function resolveBindings(
   }
 
   return { bindings, problems };
+}
+
+/**
+ * A resolved binding as the agent-facing description wants it.
+ *
+ * The two shapes differ in exactly one field and for a good reason: `ResolvedBinding.source.keys`
+ * maps a binding key to the SOURCE Secret's key, which is an internal fact, while `Binding.keys` is
+ * the list of filenames the agent will find. Converting here rather than at each call site keeps
+ * the source mapping from reaching a prompt.
+ */
+export function describable(binding: ResolvedBinding): Binding {
+  return {
+    name: binding.name,
+    type: binding.type,
+    host: binding.host,
+    port: binding.port,
+    keys: Object.keys(binding.source.keys),
+  };
 }
 
 /**

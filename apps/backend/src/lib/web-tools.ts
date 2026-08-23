@@ -43,8 +43,64 @@ export interface WebToolsConfig {
   fetchImpl?: typeof fetch;
 }
 
+/**
+ * A search, and whether anything actually looked.
+ *
+ * ── WHY THIS IS NOT JUST AN ARRAY ──
+ * It was an array, and the two states it cannot express cost a project its budget. A Researcher
+ * received `{"results":[{"snippet":"No results found"}]}` nineteen times, broadened its queries from
+ * "OpenUI open-source UI generation framework LLM" down to bare `HTML`, `CSS`, `LLM`, and then
+ * looped two terms for fifteen steps. SearXNG answers those same queries with ten results each —
+ * the backend was fine; the path to it was not, and the fallback was rate-limited.
+ *
+ * "Nothing matched" and "nothing looked" call for opposite responses: rephrase, versus stop. An
+ * empty array says the first while meaning the second, and an agent told confidently that the
+ * internet holds nothing on its topic will rationally try harder until its budget is gone.
+ */
+export interface SearchOutcome {
+  hits: SearchHit[];
+  /** Which backend answered. Absent when none could. */
+  answeredBy?: 'searxng' | 'duckduckgo';
+  /** No backend could be reached. Distinct from a backend that answered with nothing. */
+  unavailable: boolean;
+}
+
+/** The search callback as every agent-facing caller declares it. One type, so it cannot drift. */
+export type WebSearchFn = (query: string) => Promise<SearchOutcome>;
+
+/**
+ * What a search turns into for a model, said once.
+ *
+ * ── WHY THE WORDING IS CENTRAL ──
+ * Three call sites render search results to an agent, and the sentence they choose is the entire
+ * difference between a run that stops and a run that loops. The old wording — "No results found" —
+ * was produced for an outage, and a Researcher answered it by broadening its query nineteen times
+ * and then repeating two terms for fifteen steps. Keeping the phrasing in one place is what stops
+ * two of the three from quietly reverting to a friendlier lie.
+ */
+export function renderSearchOutcome(query: string, outcome: SearchOutcome): Record<string, unknown> {
+  if (outcome.unavailable) {
+    return {
+      query,
+      unavailable: true,
+      error: 'Search is unavailable — no backend could be reached.',
+      note: 'This says NOTHING about whether results exist. Rephrasing will not help. Work from what '
+        + 'you already have, and say in your summary that search was down.',
+    };
+  }
+  if (!outcome.hits.length) {
+    return {
+      query,
+      source: outcome.answeredBy,
+      results: [],
+      note: `${outcome.answeredBy} answered with no matches for this query. Different terms may help.`,
+    };
+  }
+  return { query, source: outcome.answeredBy, results: outcome.hits };
+}
+
 export interface WebTools {
-  search: (query: string) => Promise<SearchHit[]>;
+  search: (query: string) => Promise<SearchOutcome>;
   fetchPage: (url: string) => Promise<string>;
   /** Which implementation each side resolved to, so a run can say how it reached the web. */
   sources: { search: 'searxng' | 'duckduckgo'; fetch: 'crawl4ai' | 'strip-tags' };
@@ -81,15 +137,27 @@ async function tryFetch(
  * `uddg` unwrapping, because the raw hrefs are redirects and handing one to a fetcher wastes a
  * round trip at best.
  */
-async function duckduckgo(doFetch: typeof fetch, query: string): Promise<SearchHit[]> {
+async function duckduckgo(doFetch: typeof fetch, query: string): Promise<SearchHit[] | undefined> {
   const res = await tryFetch(doFetch, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     },
   }, SEARCH_TIMEOUT_MS);
-  if (!res?.ok) return [];
+  // Undefined, not empty: the caller has to be able to tell "the request failed" from "there is
+  // nothing about this", and returning `[]` for both is what made the whole tool untrustworthy.
+  if (!res?.ok) return undefined;
 
   const html = await res.text().catch(() => '');
+  /**
+   * The block page, which arrives as a 200.
+   *
+   * DuckDuckGo rate-limits datacenter addresses and serves an anomaly notice rather than an error
+   * status, so the parse below finds no results and the honest-looking answer is "nothing matched".
+   * This is the most likely thing that actually happened to the Researcher that looped: SearXNG was
+   * unreachable, the fallback was blocked, and the agent was told the topic was empty.
+   */
+  if (/anomaly|unusual traffic|blocked/i.test(html) && !html.includes('result__url')) return undefined;
+
   const hits: SearchHit[] = [];
   const pattern = /<a class="result__url"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
 
@@ -195,15 +263,22 @@ export function createWebTools(config: WebToolsConfig = {}): WebTools {
       fetch: scrape ? 'crawl4ai' : 'strip-tags',
     },
 
-    async search(query: string): Promise<SearchHit[]> {
-      if (!query.trim()) return [];
+    async search(query: string): Promise<SearchOutcome> {
+      // An empty query is the caller's mistake, not an outage.
+      if (!query.trim()) return { hits: [], unavailable: false };
+
       if (config.searxngUrl) {
         const hits = await searxng(doFetch, config.searxngUrl, query);
         // Falls back only when the service could not answer. A service that answered with nothing
         // has answered, and re-asking DuckDuckGo would present its results as the same search.
-        if (hits) return hits;
+        if (hits) return { hits, answeredBy: 'searxng', unavailable: false };
       }
-      return duckduckgo(doFetch, query);
+
+      const hits = await duckduckgo(doFetch, query);
+      if (hits) return { hits, answeredBy: 'duckduckgo', unavailable: false };
+
+      // Every configured backend failed. Saying so is the whole point of this type.
+      return { hits: [], unavailable: true };
     },
 
     async fetchPage(url: string): Promise<string> {

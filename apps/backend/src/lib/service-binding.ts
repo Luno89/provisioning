@@ -133,6 +133,14 @@ export function describeBindings(bindings: readonly Binding[] = []): string {
 }
 
 
+/**
+ * What the Secret holding a binding's files is called in the consumer's namespace.
+ *
+ * One function so the two writers — a deploy into an app's namespace and a leaf sandbox — cannot
+ * disagree about the name, which would project a volume from a Secret nothing wrote.
+ */
+export const bindingSecretName = (name: string) => `binding-${name}`;
+
 /** A binding as it exists in the cluster: a Secret in the CONSUMER's namespace. */
 export interface ProjectedBinding {
   /** Directory name under the root. */

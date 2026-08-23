@@ -36,7 +36,7 @@ describe('search', () => {
     ]);
     const tools = createWebTools({ searxngUrl: 'http://searx:8080', fetchImpl: impl });
 
-    expect(await tools.search('kubernetes')).toEqual([{ title: 'T', snippet: 'S', url: 'https://x.dev' }]);
+    expect((await tools.search('kubernetes')).hits).toEqual([{ title: 'T', snippet: 'S', url: 'https://x.dev' }]);
     // `format=json` is the whole reason the construct has to override the default settings — SearXNG
     // ships with JSON disabled and answers 403 to exactly this request until it is turned on.
     expect(calls[0]?.url).toContain('format=json');
@@ -49,15 +49,23 @@ describe('search', () => {
     ]);
     const tools = createWebTools({ searxngUrl: 'http://searx:8080', fetchImpl: impl });
 
-    // A deployment that went down must not take search with it — the point of the chain.
-    expect(await tools.search('kubernetes')).toHaveLength(1);
+    // A deployment that went down must not take search with it — the point of the chain. And the
+    // result says WHICH backend answered, so a silent downgrade is visible rather than inferred.
+    const out = await tools.search('kubernetes');
+    expect(out.hits).toHaveLength(1);
+    expect(out.answeredBy).toBe('duckduckgo');
+    expect(out.unavailable).toBe(false);
   });
 
   it('does not fall back when the service answered with no results', async () => {
     const { impl, calls } = stubFetch([['searx', { json: async () => ({ results: [] }) }]]);
     const tools = createWebTools({ searxngUrl: 'http://searx:8080', fetchImpl: impl });
 
-    expect(await tools.search('asdkjhasd')).toEqual([]);
+    const answered = await tools.search('asdkjhasd');
+    // Answered, with nothing. Distinct from unavailable — see the note on SearchOutcome.
+    expect(answered.hits).toEqual([]);
+    expect(answered.unavailable).toBe(false);
+    expect(answered.answeredBy).toBe('searxng');
     // Re-asking DuckDuckGo would present a DIFFERENT engine's results as the same search, and hide
     // a misconfigured SearXNG behind results that look fine.
     expect(calls).toHaveLength(1);
@@ -72,7 +80,7 @@ describe('search', () => {
     ]);
     const tools = createWebTools({ searxngUrl: 'http://searx:8080', fetchImpl: impl });
 
-    expect(await tools.search('kubernetes')).toHaveLength(1);
+    expect((await tools.search('kubernetes')).hits).toHaveLength(1);
   });
 
   it('unwraps a DuckDuckGo redirect into the destination', async () => {
@@ -81,15 +89,31 @@ describe('search', () => {
 
     // The raw href is a duckduckgo.com/l/ redirect; handing that to the fetcher wastes a round trip
     // and gives the model a URL it cannot cite.
-    expect((await tools.search('x'))[0]?.url).toBe('https://example.com/a');
+    expect((await tools.search('x')).hits[0]?.url).toBe('https://example.com/a');
   });
 
-  it('reports no results rather than throwing when everything is down', async () => {
+  it('reports UNAVAILABLE rather than empty when everything is down', async () => {
     const { impl } = stubFetch([['duckduckgo', () => { throw new Error('offline'); }]]);
     const tools = createWebTools({ fetchImpl: impl });
 
-    // A throw here fails the whole turn and loses a reply that has already streamed to the user.
-    await expect(tools.search('x')).resolves.toEqual([]);
+    /**
+     * Still does not throw — that would fail the whole turn and lose a reply already streamed. But
+     * it no longer reports an outage as a negative result, which is what sent a Researcher into
+     * nineteen broadening queries and a fifteen-step loop.
+     */
+    const out = await tools.search('x');
+    expect(out.unavailable).toBe(true);
+    expect(out.hits).toEqual([]);
+    expect(out.answeredBy).toBeUndefined();
+  });
+
+  it('treats a DuckDuckGo block page as unavailable, not as an empty topic', async () => {
+    // It arrives as a 200 with an anomaly notice, so the parse finds nothing and the honest-looking
+    // answer would be "no matches" — the most likely thing that actually happened in production.
+    const { impl } = stubFetch([['duckduckgo', { text: async () => '<html>anomaly detected</html>' }]]);
+    const tools = createWebTools({ fetchImpl: impl });
+
+    expect((await tools.search('x')).unavailable).toBe(true);
   });
 });
 
