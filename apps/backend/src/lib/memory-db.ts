@@ -9,12 +9,13 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { LeafTrace } from './leaf-trace.js';
+import type { LeafTrace, LeafEvidence } from './leaf-trace.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
+import type { TreeTypeSpec } from './tree-types.js';
 import { TOOL_REPOSITORY, type ToolRepositoryItem } from './tool-repository.js';
 
 export class MemoryDB implements Database {
@@ -36,6 +37,7 @@ export class MemoryDB implements Database {
   private giteaAccounts: GiteaAccount[] = [];
   private experiments: Experiment[] = [];
   private harnessProfiles: HarnessProfile[] = [];
+private treeTypes: TreeTypeSpec[] = [];
   private personas: Persona[] = [];
   private memories: MemoryItem[] = [];
   private customTools: ToolRepositoryItem[] = [];
@@ -308,6 +310,22 @@ export class MemoryDB implements Database {
     this.experiments = this.experiments.filter((e) => e.id !== id);
   }
 
+  async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
+    return ownerId ? this.treeTypes.filter((t) => t.ownerId === ownerId) : this.treeTypes;
+  }
+
+  async saveTreeType(treeType: TreeTypeSpec): Promise<void> {
+    // Keyed on (owner, id): a type id is unique per owner, not globally — two people may both have
+    // a "playbook" type and they are not the same record.
+    const i = this.treeTypes.findIndex((t) => t.id === treeType.id && t.ownerId === treeType.ownerId);
+    if (i >= 0) this.treeTypes[i] = treeType;
+    else this.treeTypes.push(treeType);
+  }
+
+  async deleteTreeType(id: string, ownerId: string): Promise<void> {
+    this.treeTypes = this.treeTypes.filter((t) => !(t.id === id && t.ownerId === ownerId));
+  }
+
   async getPersonas(): Promise<Persona[]> {
     return this.personas;
   }
@@ -454,6 +472,11 @@ export class MemoryDB implements Database {
       return;
     }
     this.leafTraces.push({ ...rest, steps: [step] });
+  }
+
+  async saveLeafEvidence(leafId: string, evidence: LeafEvidence): Promise<void> {
+    const existing = this.leafTraces.find((t) => t.id === leafId);
+    if (existing) existing.evidence = evidence;
   }
 
   async deleteLeafTrace(leafId: string): Promise<void> {
