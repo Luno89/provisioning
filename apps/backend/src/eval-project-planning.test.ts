@@ -86,8 +86,8 @@ To search for React projects, you can pass \`q=language:typescript+framework:rea
 
     const proposals = parseExtractionResult(rawJson, 8);
     expect(proposals).toHaveLength(2);
-    expect(proposals[0].title).toBe('Setup Redis connection pool with ioredis');
-    expect(proposals[1].title).toBe('Implement Express cache middleware for GET routes');
+    expect(proposals[0]!.title).toBe('Setup Redis connection pool with ioredis');
+    expect(proposals[1]!.title).toBe('Implement Express cache middleware for GET routes');
   });
 
   it('truncates oversized titles and bodies to safe limits', () => {
@@ -99,8 +99,8 @@ To search for React projects, you can pass \`q=language:typescript+framework:rea
 
     const proposals = parseExtractionResult(rawJson, 8);
     expect(proposals).toHaveLength(1);
-    expect(proposals[0].title.length).toBeLessThanOrEqual(200);
-    expect(proposals[0].body!.length).toBeLessThanOrEqual(4000);
+    expect(proposals[0]!.title.length).toBeLessThanOrEqual(200);
+    expect(proposals[0]!.body!.length).toBeLessThanOrEqual(4000);
   });
 
   it('formats extraction prompt correctly from turn history window', () => {

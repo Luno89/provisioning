@@ -91,3 +91,42 @@ describe.skipIf(!process.env.MONGO_URI && process.env.CI)('tree types in real Mo
     expect(await db.getTreeTypes(OWNERS[1])).toHaveLength(1);
   }, 15_000);
 });
+
+/**
+ * The same trap, on the other collection that has it.
+ *
+ * `ModelThinkingProfile` is keyed on `modelId` and has no `id` at all, yet it went through
+ * `toDoc`/`fromDoc` — which exist to map `id` ↔ `_id`. `toDoc` produced `_id: undefined` (harmless,
+ * since the filter is stripped before the write) and `fromDoc` grafted Mongo's own ObjectId onto
+ * the result as `id`, so every profile read back carried a field its type does not have.
+ *
+ * Benign only because nothing reads `.id` off a thinking profile. It is the identical shape to the
+ * tree-type outage above, which was not benign, so it is tested rather than argued about.
+ */
+describe('model thinking profiles in real Mongo', () => {
+  const MODEL = 'roundtrip-probe-model';
+  const profile = {
+    modelId: MODEL,
+    successSamples: 3, failureSamples: 1,
+    avgSuccessEntropy: 0.5, avgFailureEntropy: 0.9,
+    avgSuccessRepetition: 0.1, avgFailureRepetition: 0.4,
+    avgSuccessThoughtLength: 120, avgFailureThoughtLength: 900,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  it('round-trips without inventing an id', async () => {
+    if (!reachable) return;
+    await db.saveModelThinkingProfile(profile as never);
+    const back = await db.getModelThinkingProfile(MODEL);
+    expect(back?.modelId).toBe(MODEL);
+    expect(back?.avgSuccessEntropy).toBe(0.5);
+    expect(back as unknown as Record<string, unknown>).not.toHaveProperty('id');
+  }, 15_000);
+
+  it('upserts on the model rather than accumulating rows', async () => {
+    if (!reachable) return;
+    await db.saveModelThinkingProfile(profile as never);
+    await db.saveModelThinkingProfile({ ...profile, successSamples: 9 } as never);
+    expect((await db.getModelThinkingProfile(MODEL))?.successSamples).toBe(9);
+  }, 15_000);
+});

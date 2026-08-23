@@ -69,6 +69,41 @@ export function supersede(
 }
 
 /**
+ * A profile with different overrides and everything else intact.
+ *
+ * ── WHY THIS IS NOT THREE LINES IN THE ROUTE ──
+ * It was, and the three lines were wrong. `PUT /api/harness/profile` rebuilt the record from
+ * `ownerId`, `overrides` and `updatedAt`, then tried to carry the rest forward by spreading
+ * `current.reason` and `current.promotedFrom` — two fields that do not exist on this type. Both
+ * spreads were permanent no-ops, so every override edit silently dropped `personaId` and `from`.
+ *
+ * `personaId` is there because promotion once copied `overrides` and nothing else, handing Koala a
+ * winning arm's sampling knobs while discarding the prompt that actually won. Losing it on the next
+ * unrelated edit is the same defect with a longer fuse. `from` is what lets the Lab say which
+ * experiment produced the configuration in force; without it a promoted default is
+ * indistinguishable from a hand-typed one.
+ *
+ * So the carry-forward lives beside `supersede`, whose header already states the rule this file
+ * exists to enforce: every path that changes a profile goes through here, so none of them can be
+ * the one that forgets. A caller cannot get it wrong by writing out fewer fields than the type has.
+ */
+export function withOverrides(
+  current: HarnessProfile | null,
+  overrides: HarnessProfile['overrides'],
+  ownerId?: string,
+): Omit<HarnessProfile, 'history'> {
+  return {
+    ownerId: ownerId ?? current?.ownerId ?? '',
+    overrides,
+    // Conditional, not defaulted: absent and present are different states, and an empty provenance
+    // would make a profile that was never promoted claim an origin it does not have.
+    ...(current?.personaId ? { personaId: current.personaId } : {}),
+    ...(current?.from ? { from: current.from } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Restores a superseded configuration, filing the current one as it goes.
  *
  * Reverting is itself a change worth recording — otherwise undoing twice would silently lose the

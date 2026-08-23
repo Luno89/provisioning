@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildMemoryContext, MAX_MEMORY_CONTEXT_CHARS, type MemoryItem } from './memory-store.js';
+import { buildMemoryContext, MAX_MEMORY_CONTEXT_CHARS, type MemoryItem,
+  unreachableMemory,
+} from './memory-store.js';
 
 /**
  * The memory bank, and the one thing that made it dangerous: it had no size.
@@ -150,5 +152,46 @@ describe('what it still refuses to include', () => {
     const out = buildMemoryContext([mem({ text: 'x'.repeat(MAX_MEMORY_CONTEXT_CHARS * 2) })]);
     expect(out).toContain('omitted');
     expect(out).not.toBe('');
+  });
+});
+
+/**
+ * ── A MEMORY NOBODY CAN READ SHOULD NOT BE WRITABLE ──
+ *
+ * `selectForContext` gives a project-scoped memory only to a leaf with that project:
+ * `if (m.scope === 'project') return Boolean(projectId) && m.projectId === projectId`. So
+ * `scope: 'project'` with no `projectId` is a row no caller can ever receive.
+ *
+ * The consolidation loop already sweeps them (`planUnreachable`), which was written after promotion
+ * produced eleven of them. But `POST /api/harness/memories` could still create one — it defaulted
+ * `scope` to `'project'` and left `projectId` undefined — so a manually saved memory would be
+ * accepted, appear in the list, and quietly disappear on the next consolidation.
+ *
+ * Rejecting at the door rather than only sweeping afterwards: the sweep is a repair, and a repair
+ * that runs on a hand-written record turns a mistake the person could have fixed into data loss
+ * they never see.
+ */
+describe('a memory that could never be recalled', () => {
+  const base = {
+    id: 'm1', ownerId: 'u1', category: 'fact', title: 'T', text: 'x',
+    source: 'manual', status: 'active', recommendedScope: 'project',
+    createdAt: 'now', updatedAt: 'now',
+  } as const;
+
+  it('refuses project scope with no project', () => {
+    expect(unreachableMemory({ ...base, scope: 'project' } as never)).toBeTruthy();
+  });
+
+  it('accepts project scope with a project', () => {
+    expect(unreachableMemory({ ...base, scope: 'project', projectId: 'p1' } as never)).toBeUndefined();
+  });
+
+  it('accepts global scope with no project, which is what global means', () => {
+    expect(unreachableMemory({ ...base, scope: 'global' } as never)).toBeUndefined();
+  });
+
+  it('says which field would fix it', () => {
+    // A bare rejection makes the caller guess between changing the scope and adding the project.
+    expect(unreachableMemory({ ...base, scope: 'project' } as never)).toMatch(/projectId|global/);
   });
 });

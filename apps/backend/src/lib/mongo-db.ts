@@ -759,15 +759,21 @@ export class MongoDB implements Database {
     await this.tools.deleteOne({ _id: id as any });
   }
 
+  /**
+   * Keyed on `modelId`, so this collection does not use `toDoc`/`fromDoc` — the same reasoning as
+   * `getTreeTypes` above. Those two exist to map `id` ↔ `_id`, and `ModelThinkingProfile` has no
+   * `id` at all: `toDoc` produced `_id: undefined`, and `fromDoc` grafted Mongo's own ObjectId onto
+   * the result as an `id` the type does not declare.
+   */
   async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {
     const doc = await this.thinkingProfiles.findOne({ modelId });
-    return doc ? fromDoc<ModelThinkingProfile>(doc) : null;
+    if (!doc) return null;
+    const { _id, ...rest } = doc;
+    return rest as unknown as ModelThinkingProfile;
   }
 
   async saveModelThinkingProfile(profile: ModelThinkingProfile): Promise<void> {
-    const doc = toDoc(profile);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.thinkingProfiles.replaceOne({ modelId: profile.modelId }, filter, { upsert: true });
+    const { _id: _ignored, ...doc } = profile as ModelThinkingProfile & { _id?: unknown };
+    await this.thinkingProfiles.replaceOne({ modelId: profile.modelId }, doc, { upsert: true });
   }
 }

@@ -611,7 +611,11 @@ export class ExperimentService {
               label: variant.label,
               step: agentStep,
             }),
-            signal,
+            // Omitted when absent rather than passed as undefined: `AgentRunOptions.signal` is
+            // declared `signal?: AbortSignal`, and agent-loop forwards it the same way (see its
+            // fetch calls). A run started without a controller has no signal, which is a different
+            // thing from a signal that is undefined.
+            ...(signal ? { signal } : {}),
           }),
           VARIANT_TIMEOUT_MS,
         );

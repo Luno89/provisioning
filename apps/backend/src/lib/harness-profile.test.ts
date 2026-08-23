@@ -8,6 +8,7 @@ import {
   supersede,
   revertTo,
   MAX_PROFILE_HISTORY,
+  withOverrides,
   type HarnessProfile,
 } from './harness-profile.js';
 import type { Experiment, VariantResult } from './experiments.js';
@@ -257,5 +258,59 @@ describe('profile history', () => {
     expect(p.history).toHaveLength(MAX_PROFILE_HISTORY);
     // The useful undo is the recent one, so the oldest is what goes.
     expect(p.history![p.history!.length - 1]!.overrides).toEqual({ maxSteps: MAX_PROFILE_HISTORY + 3 });
+  });
+});
+
+/**
+ * ── EDITING OVERRIDES MUST NOT DISCARD A PROMOTION ──
+ *
+ * `PUT /api/harness/profile` rebuilt the profile from three fields — `ownerId`, `overrides`,
+ * `updatedAt` — and tried to carry the rest forward with
+ * `...(current?.reason ? { reason: current.reason } : {})` and the same for `promotedFrom`.
+ *
+ * Neither field exists. `HarnessProfile` has `personaId` and `from`. Both spreads were permanent
+ * no-ops, so every override edit dropped the promoted persona and its provenance — the exact
+ * failure `personaId`'s own comment describes as the reason it was added: "an arm that won BECAUSE
+ * of its persona therefore handed Koala its sampling knobs and silently dropped the prompt that
+ * actually won."
+ *
+ * The compiler said so, twice, as `Property 'reason' does not exist on type 'HarnessProfile'`. The
+ * annotation on the same line was `HarnessProfile` without an import, so it was also an unresolved
+ * name — which is how two real errors sat in a count I had written off as pre-existing noise.
+ *
+ * Fixed here rather than in the route because `supersede`'s own header states the rule: every path
+ * that changes a profile goes through this module, so none of them can be the one that forgets.
+ */
+describe('changing only the overrides', () => {
+  const promoted: HarnessProfile = {
+    ownerId: 'u1',
+    overrides: { temperature: 0.2 } as never,
+    personaId: 'persona-that-won',
+    from: { experimentId: 'e1', variantId: 'v1', promotedAt: '2026-01-01T00:00:00.000Z' } as never,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  it('keeps the persona the promotion adopted', () => {
+    const next = withOverrides(promoted, { temperature: 0.9 } as never);
+    expect(next.personaId).toBe('persona-that-won');
+  });
+
+  it('keeps where the promotion came from', () => {
+    // Without provenance a promoted default is indistinguishable from a hand-typed one, and the
+    // Lab loses the ability to say which experiment produced the configuration in force.
+    expect(withOverrides(promoted, { temperature: 0.9 } as never).from).toEqual(promoted.from);
+  });
+
+  it('applies the overrides it was given', () => {
+    expect(withOverrides(promoted, { temperature: 0.9 } as never).overrides).toEqual({ temperature: 0.9 });
+  });
+
+  it('adds nothing to a profile that was never promoted', () => {
+    // Absent and present are different states; inventing an empty provenance would make an
+    // unpromoted profile claim an origin it does not have.
+    const plain: HarnessProfile = { ownerId: 'u1', overrides: {} as never, updatedAt: 'x' };
+    const next = withOverrides(plain, { temperature: 0.1 } as never);
+    expect('personaId' in next).toBe(false);
+    expect('from' in next).toBe(false);
   });
 });

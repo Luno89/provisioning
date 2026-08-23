@@ -20,8 +20,10 @@ async function main() {
     id: existing1[0]?.id ?? uuidv4(),
     ownerId,
     name: name1,
-    language: 'js',
+    language: 'node',
     status: 'draft',
+    // Empty rather than absent: `results` is required, and a run appends to it.
+    results: [],
     repeats: 2,
     createdAt: now,
     updatedAt: now,
@@ -234,7 +236,7 @@ run().catch(err => {
   };
 
   await mongo.saveExperiment(experiment1);
-  console.log(`Successfully created benchmark suite 1: "${experiment1.name}" (${experiment1.id}) with ${experiment1.tasks.length} tasks`);
+  console.log(`Successfully created benchmark suite 1: "${experiment1.name}" (${experiment1.id}) with ${experiment1.tasks?.length ?? 0} tasks`);
 
   // 2. Dedicated Tool Repository & Memory Bank Coverage Suite
   const name2 = 'Tool Repository & Memory Bank Capabilities Suite';
@@ -247,8 +249,10 @@ run().catch(err => {
     id: existing2[0]?.id ?? uuidv4(),
     ownerId,
     name: name2,
-    language: 'js',
+    language: 'node',
     status: 'draft',
+    // Empty rather than absent: `results` is required, and a run appends to it.
+    results: [],
     repeats: 2,
     createdAt: now,
     updatedAt: now,
@@ -335,7 +339,7 @@ run().catch(err => {
   };
 
   await mongo.saveExperiment(experiment2);
-  console.log(`Successfully created Tool Repository & Memory suite 2: "${experiment2.name}" (${experiment2.id}) with ${experiment2.tasks.length} tasks`);
+  console.log(`Successfully created Tool Repository & Memory suite 2: "${experiment2.name}" (${experiment2.id}) with ${experiment2.tasks?.length ?? 0} tasks`);
 
   process.exit(0);
 }

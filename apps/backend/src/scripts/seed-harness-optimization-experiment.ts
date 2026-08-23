@@ -17,8 +17,10 @@ async function main() {
     id: existing[0]?.id ?? uuidv4(),
     ownerId: '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991',
     name,
-    language: 'js',
+    language: 'node',
     status: 'draft',
+    // Empty rather than absent: `results` is required, and a run appends to it.
+    results: [],
     repeats: 2,
     createdAt: now,
     updatedAt: now,

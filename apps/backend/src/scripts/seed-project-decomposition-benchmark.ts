@@ -18,9 +18,15 @@ export async function seedProjectDecompositionExperiment() {
     id: experimentId,
     ownerId: DEMO_USER_ID,
     name: 'GitHub API Client & Project Planning Decomposition Benchmark',
-    description: 'Evaluates how models break down high-level project requests into 3–6 distinct, imperative proposed leaves.',
+    // Evaluates how models break down high-level project requests into 3–6 distinct, imperative
+    // proposed leaves. A comment rather than a field: `Experiment` has no `description`, nothing
+    // renders one, and a key the type does not declare is dropped silently on the way to Mongo.
     repeats: 1,
     status: 'draft',
+    // Both required on `Experiment`; the language decides the workspace image and an unrun
+    // experiment has zero results rather than an absent field.
+    language: 'node',
+    results: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     tasks: [

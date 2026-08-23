@@ -77,7 +77,7 @@ import {
 } from './lib/experiment-authoring.js';
 import { AuthoringService, acceptedTasks } from './services/AuthoringService.js';
 import { WorkbenchService } from './services/WorkbenchService.js';
-import { buildPromotion, supersede, revertTo } from './lib/harness-profile.js';
+import { buildPromotion, supersede, revertTo, withOverrides } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
@@ -171,7 +171,7 @@ import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEA
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 import { getToolRepository } from './lib/tool-repository.js';
 import type { SearchOutcome } from './lib/web-tools.js';
-import type { MemoryItem } from './lib/memory-store.js';
+import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
 
 dotenv.config();
 
@@ -2441,15 +2441,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (invalid) return res.status(400).json({ error: invalid });
 
     const current = await db.getHarnessProfile(userId);
-    const updatedProfile: HarnessProfile = {
-      ownerId: userId,
-      overrides,
-      updatedAt: new Date().toISOString(),
-      ...(current?.reason ? { reason: current.reason } : {}),
-      ...(current?.promotedFrom ? { promotedFrom: current.promotedFrom } : {}),
-    };
-    await db.saveHarnessProfile(supersede(current, updatedProfile));
-    res.json(updatedProfile);
+    // Carry-forward lives in harness-profile.ts, not here — see `withOverrides` for what writing it
+    // out by hand cost.
+    const updatedProfile = withOverrides(current, overrides, userId);
+    const saved = supersede(current, updatedProfile);
+    await db.saveHarnessProfile(saved);
+    // The SAVED record, not the pre-supersede one: they differ by `history` and `updatedAt`, and
+    // answering with the input means the client renders a profile that was never stored.
+    res.json(saved);
   });
 
   /**
@@ -2830,7 +2829,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const item: MemoryItem = {
       id: uuidv4(),
       ownerId,
-      projectId: projectId ? String(projectId) : undefined,
+      // Omitted rather than set to undefined: `exactOptionalPropertyTypes` distinguishes the two,
+      // and so does Mongo — an explicit undefined is a stored key, not an absent one.
+      ...(projectId ? { projectId: String(projectId) } : {}),
       category,
       scope: scope === 'global' ? 'global' : 'project',
       recommendedScope: recommendedScope === 'global' ? 'global' : 'project',
@@ -2841,6 +2842,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    // Refused here as well as swept by the consolidation loop — see `unreachableMemory`.
+    const unreachable = unreachableMemory(item);
+    if (unreachable) return res.status(400).json({ error: unreachable });
+
     await db.saveMemory(item);
     res.status(201).json(item);
   });

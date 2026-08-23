@@ -214,3 +214,23 @@ export function buildMemoryContext(
   const { kept, dropped } = selectForContext(memories, projectId, opts);
   return renderMemoryContext(kept, dropped);
 }
+
+/**
+ * Why this memory could never be recalled, or `undefined` if it can be.
+ *
+ * `selectForContext` hands a project-scoped memory only to a leaf carrying that project, so
+ * `scope: 'project'` with no `projectId` is a row addressed to nobody. `planUnreachable` in the
+ * consolidation loop already deletes them — it was written after promotion produced eleven — but a
+ * sweep is a repair, and a repair running over a hand-written record turns a mistake the person
+ * could have corrected into data loss they never see. So the same rule is enforced at the door.
+ *
+ * Returns a sentence rather than a boolean because both fixes are valid and the caller has to pick:
+ * name the project, or say the memory is global.
+ */
+export function unreachableMemory(item: MemoryItem): string | undefined {
+  if (item.scope === 'project' && !item.projectId) {
+    return 'A project-scoped memory needs a projectId, or it can never be recalled — '
+      + 'set projectId, or use scope "global".';
+  }
+  return undefined;
+}
