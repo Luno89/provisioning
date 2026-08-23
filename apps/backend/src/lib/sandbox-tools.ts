@@ -9,7 +9,8 @@
  * There is no "install a package", no "start a server", no "call an API". A task needing one of
  * those should fail loudly rather than have the capability quietly added to every task.
  */
-import { describeSandbox, type WorkspaceLanguage, imageForLanguage } from './workspace-spec.js';
+import { describeSandbox, type WorkspaceLanguage, type WorkspaceSpec, imageForLanguage } from './workspace-spec.js';
+import { FALLBACK_CONTEXT_TOKENS } from './sampling.js';
 
 /**
  * Ceiling on model↔sandbox round trips for one attempt. Each is a full inference pass plus a
@@ -178,6 +179,48 @@ export const MAX_TOOL_RESULT_CHARS = 8_000;
  * prompt, the tool declarations and the reply on a 32k model.
  */
 export const CONVERSATION_CHAR_BUDGET = 60_000;
+
+/** Characters per token. The usual rough conversion; it needs to be conservative, not exact. */
+const CHARS_PER_TOKEN = 4;
+
+/**
+ * The share of the window this budget has always taken, derived rather than restated.
+ *
+ * 60,000 chars is ~15,000 tokens, which is ~46% of 32,768 — the figure the constant above was
+ * hand-fitted to. Computing it keeps one source of truth: change the baseline and the proportion
+ * follows, instead of two numbers that must be remembered together.
+ */
+const RETENTION_FRACTION = CONVERSATION_CHAR_BUDGET / (FALLBACK_CONTEXT_TOKENS * CHARS_PER_TOKEN);
+
+/**
+ * How much larger than the 32k baseline this budget may get on a bigger model.
+ *
+ * ── WHY NOT SIMPLY PROPORTIONAL ──
+ * A 131K window would take this to ~240,000 characters, and prompt length is the knob that changes
+ * behaviour everywhere at once: every turn gets slower, the KV cache gets larger, and the effect on
+ * an agent of remembering four times as much is genuinely unknown. Doubling is a step that can be
+ * measured; quadrupling on the strength of arithmetic is the same confidence that produced the
+ * hardcoded window in the first place.
+ *
+ * A tunable, so raising it is an experiment in the Lab rather than an argument.
+ */
+export const DEFAULT_CONVERSATION_GROWTH = 2;
+
+/**
+ * What a run may keep of its own conversation, given the window its model actually has.
+ *
+ * Leaves have been discarding history they had ample room for — a plausible contributor to the
+ * circling that killed three Researchers, since an agent that cannot remember its last five
+ * searches will repeat them.
+ */
+export function conversationBudget(
+  contextTokens: number = FALLBACK_CONTEXT_TOKENS,
+  growth: number = DEFAULT_CONVERSATION_GROWTH,
+): number {
+  const proportional = Math.floor(contextTokens * CHARS_PER_TOKEN * RETENTION_FRACTION);
+  // Never below the baseline: a small model keeps what it always kept rather than less.
+  return Math.max(CONVERSATION_CHAR_BUDGET, Math.min(proportional, CONVERSATION_CHAR_BUDGET * growth));
+}
 
 /** What replaces an old tool result once it no longer fits. */
 const DROPPED = '[earlier tool output dropped to fit the context window — re-run the tool if you still need it]';
@@ -377,12 +420,25 @@ export function buildAgentPrompt(
    * value was stated in two places: it typechecks, it runs, and the two quietly disagree.
    */
   maxSteps: number = MAX_AGENT_STEPS,
+  /**
+   * The sandbox as it was actually built.
+   *
+   * ── WHY THIS ARGUMENT EXISTS ──
+   * `describeSandbox` was called here with the image alone, so `egress` was always undefined and
+   * every agent was told "There is NO outbound network beyond DNS" — whatever its NetworkPolicy
+   * really said. The accurate branch of that function, written after a Builder confidently ran
+   * `npm install` against a registry it could not reach, could never run from here.
+   *
+   * That was merely wrong before. Once a leaf's declared dependencies open egress it is actively
+   * harmful: an agent told it has no network will not try the database it was given.
+   */
+  sandbox: Pick<WorkspaceSpec, 'egress' | 'env' | 'cpu' | 'memory'> = {},
 ): string {
   return [
     'You are completing one piece of work inside a sandboxed container. You have shell access and',
     'can read and write files. Work autonomously — nobody is available to answer questions.',
     '',
-    describeSandbox({ image: imageForLanguage(language) }),
+    describeSandbox({ ...sandbox, image: imageForLanguage(language) }),
     '',
     'HOW TO WORK',
     '- Look before you edit: list the directory and read a file rather than assuming its contents.',

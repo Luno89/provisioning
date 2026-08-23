@@ -164,12 +164,24 @@ export function turnMaxTokens(opts: { think?: boolean; canWriteFiles?: boolean }
 }
 
 /**
- * The context the deployed model actually has.
+ * What to assume when the model did not say.
  *
- * Conservative rather than negotiated: the endpoint reports `max_seq_len` and asking it per turn is
- * a round trip to learn a number that changes only when a model is redeployed.
+ * ── RENAMED FROM `ASSUMED_CONTEXT_TOKENS`, BECAUSE IT WAS BEING READ AS A FACT ──
+ * It was the only source of truth for every budget in the harness, and it was wrong by 4x. The
+ * deployed model reports `max_seq_len: 131072` and the platform already stored that on the
+ * deployment record as `tabbyMaxSeqLen`; nothing read it. So a leaf whose prompt reached 29,450
+ * tokens was handed `32768 - 29450 - 512` = 2,806 generation tokens, with 101,110 actually free —
+ * on a Synthesist whose deliverable is a long markdown document.
+ *
+ * The old comment was right that asking the endpoint per turn is a wasteful round trip. The mistake
+ * was concluding that a constant is the alternative: the value is recorded at deploy time, and the
+ * catalogue (`llm-apps.ts`) names the field per engine.
+ *
+ * This remains for the case nobody records — a registered OpenAI-compatible endpoint. Conservative
+ * on purpose: too small wastes room, too large fails the request outright before a token is
+ * generated.
  */
-export const ASSUMED_CONTEXT_TOKENS = 32_768;
+export const FALLBACK_CONTEXT_TOKENS = 32_768;
 
 /** Room left for the engine's own framing after the prompt and the reply. */
 const CONTEXT_MARGIN_TOKENS = 512;
@@ -193,10 +205,33 @@ export const MIN_TURN_TOKENS = 600;
  * Characters over four is the usual rough conversion. It does not need to be exact — it needs to
  * be conservative, and the margin covers the error.
  */
-export function fittedMaxTokens(ceiling: number, promptChars: number, contextTokens = ASSUMED_CONTEXT_TOKENS): number {
+export function fittedMaxTokens(ceiling: number, promptChars: number, contextTokens = FALLBACK_CONTEXT_TOKENS): number {
   const promptTokens = Math.ceil(promptChars / 4);
   const available = contextTokens - promptTokens - CONTEXT_MARGIN_TOKENS;
   return Math.max(MIN_TURN_TOKENS, Math.min(ceiling, available));
+}
+
+/**
+ * How much of the window a prompt has already eaten, as a fraction.
+ *
+ * ── WHY THIS EXISTS NEXT TO fittedMaxTokens AND NOT SOMEWHERE ELSE ──
+ * `fittedMaxTokens` FLOORS at MIN_TURN_TOKENS, which is the right behaviour for a reply budget and
+ * a terrible signal for a caller. Once `available` goes below the floor the function returns 600
+ * no matter how far past the window the prompt is, so the number stops moving exactly when the
+ * trouble starts — and the caller asks the engine for prompt + 600 against a window the prompt
+ * alone already exceeds. The engine allocates both up front and refuses, before a token is
+ * generated. There is no recovering from that mid-turn; it has to be seen coming.
+ *
+ * So this reports the raw pressure, unfloored and uncapped, and the two live side by side because
+ * they must agree about the window they are given and about the margin. They drifted once already
+ * in the sense that nothing was watching the number at all.
+ *
+ * Returns >1 when the prompt does not fit at all. Callers decide what to do about it — see
+ * lib/koala-context.ts, which resets the conversation well before this reaches 1.
+ */
+export function contextPressure(promptChars: number, contextTokens = FALLBACK_CONTEXT_TOKENS): number {
+  const promptTokens = Math.ceil(promptChars / 4);
+  return (promptTokens + CONTEXT_MARGIN_TOKENS) / contextTokens;
 }
 
 /**

@@ -43,6 +43,14 @@ export interface ModelProvider {
   service?: string;
   port?: number;
   gpuCount?: number;
+  /**
+   * The context window the engine was started with, when the platform deployed it and so knows.
+   *
+   * Absent for a registered endpoint, whose length nobody recorded — callers fall back to
+   * `FALLBACK_CONTEXT_TOKENS`. Absent is honest here; a guess would be the same class of mistake as
+   * the constant this replaces.
+   */
+  contextTokens?: number;
 
   // ── source === 'endpoint' ──
   /** Already validated by endpoint-url-safety.ts before it was ever stored. */
@@ -102,6 +110,13 @@ export function providerFromDeployment(dep: DeploymentMetadata): ModelProvider |
     service: `${namespace}-${spec.serviceSuffix}`,
     port: spec.port,
     ...(dep.vllmGpuCount !== undefined ? { gpuCount: dep.vllmGpuCount } : {}),
+    // Only for a catalogued engine: a tagged `llmApi` deployment has no field recording its window,
+    // and inventing one would put every budget back on a number nobody checked.
+    ...(() => {
+      const catalogued = llmAppSpec(dep.appType);
+      const window = catalogued?.contextField ? dep[catalogued.contextField] : undefined;
+      return typeof window === 'number' && window > 0 ? { contextTokens: window } : {};
+    })(),
   };
 }
 

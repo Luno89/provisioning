@@ -292,6 +292,38 @@ export const TUNABLES: Tunable[] = [
     source: 'lib/memory-store.ts',
   },
   {
+    key: 'memoryDecide',
+    label: 'Decide what to remember',
+    group: 'loop',
+    type: 'boolean',
+    placement: 'loop',
+    default: true,
+    suggested: [true, false],
+    note: 'When enabled, a memory a leaf extracts is checked against the most similar entries already '
+      + 'stored and the model decides whether it is new, refines one, contradicts one, or is already '
+      + 'known. This replaced a human review queue that nobody drained — 124 of 143 memories sat in it '
+      + 'unread. Turn off to admit everything unconditionally, which is what happens anyway whenever '
+      + 'the model or the search stack is unreachable.',
+    source: 'lib/memory-decide.ts',
+  },
+  {
+    key: 'conversationGrowth',
+    label: 'Conversation retention multiplier',
+    group: 'loop',
+    type: 'number',
+    placement: 'loop',
+    default: 2,
+    min: 1,
+    max: 4,
+    suggested: [1, 2, 3, 4],
+    note: 'How much more of its own conversation a run may keep than the 32k baseline allowed. The '
+      + 'budget is a share of the model\'s real window, capped by this. 1 reproduces the old '
+      + 'behaviour on any model; 4 is fully proportional. Held below proportional by default because '
+      + 'prompt length changes every turn\'s cost and the effect of remembering four times as much '
+      + 'is unmeasured — raise it here and compare, rather than assuming.',
+    source: 'lib/sandbox-tools.ts',
+  },
+  {
     key: 'maxTokens',
     label: 'Max tokens',
     group: 'loop',
@@ -348,6 +380,15 @@ export const TUNABLES: Tunable[] = [
     // The value is a PROVIDER id, not a model name — it selects which API to talk to, and the name
     // sent on the wire comes from that provider. Free text here only ever produced "not found".
     choicesFrom: 'models',
+    /**
+     * Not settable on the profile — see `settableAt`.
+     *
+     * `request` is kept because that is how the Lab compares two engines on one suite
+     * (`ExperimentService` passes variant overrides as the request layer); `persona` because a
+     * persona choosing its own model is the intended way to use several at once. What is refused is
+     * the one field that repoints an entire project.
+     */
+    settableAt: ['persona', 'request'],
     note: 'Which of your model APIs to run against — a deployed engine or a registered endpoint. '
       + 'Resolved to a base URL before the call, so two engines can be compared on the same suite.',
     source: 'services/ModelService.ts',
@@ -444,7 +485,20 @@ export function applyOverrides(
 }
 
 /** Rejects an override before it reaches a model call. */
-export function validateOverrides(overrides: Overrides): string | null {
+export interface OverrideContext {
+  /** Which layer is being written. Omitted means "not a layered write", and layer rules are skipped. */
+  layer?: 'profile' | 'persona' | 'request';
+  /**
+   * The values a `choicesFrom` knob may take, resolved by the caller.
+   *
+   * Passed in rather than looked up: this module is pure and has no database, and the valid set is
+   * per-tenant. Omitted means the caller could not resolve them, and the check is skipped rather
+   * than refusing everything — a model list that failed to load must not make the form unusable.
+   */
+  models?: string[];
+}
+
+export function validateOverrides(overrides: Overrides, context: OverrideContext = {}): string | null {
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) continue;
     const spec = BY_KEY.get(key);
@@ -458,6 +512,30 @@ export function validateOverrides(overrides: Overrides): string | null {
      * control arm ended up impossible to write.
      */
     if (value === null) continue;
+
+    /**
+     * Which layer may set this at all.
+     *
+     * Refused here rather than ignored at resolve time: a setting that is silently dropped is worse
+     * than one that is refused, because the person who set it goes on believing it took effect.
+     */
+    if (context.layer && spec.settableAt && !spec.settableAt.includes(context.layer)) {
+      return `${spec.label} cannot be set on the ${context.layer}. `
+        + `Set it on ${spec.settableAt.join(' or ')} instead — `
+        + 'a profile-wide value would repoint every persona in every project at once.';
+    }
+
+    /**
+     * A `choicesFrom` value must be one of the caller's own.
+     *
+     * This was a UI hint the server never enforced, so `model` accepted any string and the failure
+     * surfaced at every leaf, at run time, after a workspace had been built, as "Model X not found".
+     */
+    if (spec.choicesFrom === 'models' && context.models && !context.models.includes(String(value))) {
+      return context.models.length
+        ? `${spec.label} must be one of your models: ${context.models.join(', ')}.`
+        : `${spec.label} cannot be set — you have no models deployed or registered.`;
+    }
 
     if (spec.type === 'number') {
       if (typeof value !== 'number' || Number.isNaN(value)) return `${spec.label} must be a number.`;

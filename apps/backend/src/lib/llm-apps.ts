@@ -31,6 +31,18 @@ export interface LlmAppSpec {
   readonly apiPath: string;
   /** Which DeploymentMetadata field records the served model id. */
   readonly modelField: 'vllmModel' | 'tabbyModel';
+  /**
+   * Which field records the context window the engine was started with.
+   *
+   * ── WHY THIS BELONGS IN THE CATALOGUE ──
+   * The number was already stored — `tabbyMaxSeqLen: 131072` sits on the deployment record — and
+   * the agent loop computed every budget against a hardcoded 32,768 instead. So a 131K model ran
+   * with a quarter of its window: `fittedMaxTokens` handed a leaf 2,806 generation tokens when
+   * 101,000 were free. Naming the field here rather than reading it in the loop keeps the engine
+   * knowledge in the one place that already knows a vLLM from a TabbyAPI.
+   */
+  /** Optional: a custom `llmApi` deployment records no window, and absent is the honest answer. */
+  readonly contextField?: 'vllmMaxModelLen' | 'tabbyMaxSeqLen';
 }
 
 export const LLM_APPS: readonly LlmAppSpec[] = [
@@ -41,6 +53,7 @@ export const LLM_APPS: readonly LlmAppSpec[] = [
     port: 8000,
     apiPath: '/v1',
     modelField: 'vllmModel',
+    contextField: 'vllmMaxModelLen',
   },
   {
     appType: 'tabbyapi',
@@ -49,6 +62,7 @@ export const LLM_APPS: readonly LlmAppSpec[] = [
     port: 5000,
     apiPath: '/v1',
     modelField: 'tabbyModel',
+    contextField: 'tabbyMaxSeqLen',
   },
 ];
 
