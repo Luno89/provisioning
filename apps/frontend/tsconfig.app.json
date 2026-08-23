@@ -18,6 +18,24 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
+
+    /* Type safety.
+     *
+     * The backend has run fully strict since it was written; this side had none of it, and the
+     * asymmetry is a large part of why App.tsx accumulated 38 `any`s. Turning `strict` on cost
+     * exactly ONE error (an implicit-any callback parameter in NginxView) — because 138 existing
+     * `any`s were already suppressing strictNullChecks everywhere it would have fired.
+     *
+     * So this is cheap today and a ratchet from here: every line written from now on is checked.
+     * `noUncheckedIndexedAccess` is the remaining gap to backend parity — it costs 23 more errors,
+     * 17 of them in App.tsx, so it goes on once the App.tsx extraction slices have landed rather
+     * than fixing code that is about to be deleted.
+     */
+    "strict": true,
+    /* Matches the backend. A prop declared `x?: T` may be OMITTED but not explicitly passed
+     * `undefined` — so a component that really does accept undefined has to say `x?: T | undefined`
+     * and mean it. Cost: 5 declarations, all of them components that already handled the case. */
+    "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "jsx": "react-jsx",
 

@@ -12,7 +12,7 @@ export default function ChatMessageRenderer({
   className = '',
 }: {
   content: string;
-  reasoning?: string;
+  reasoning?: string | undefined;
   className?: string;
 }) {
   const parsed = ChatParser.parse(content);

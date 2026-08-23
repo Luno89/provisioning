@@ -38,7 +38,7 @@ interface Scope {
   /** MCP servers this persona may call, by service name. */
   mcp?: string[];
   env?: { name: string; value: string }[];
-  run?: { maxSteps?: number };
+  run?: { maxSteps?: number | undefined };
   tunedFor?: string;
 }
 

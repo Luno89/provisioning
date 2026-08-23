@@ -34,7 +34,7 @@ const STATE = {
   skipped: { icon: Minus, dot: 'bg-[var(--bark-600)]', text: 'text-slate-600' },
 } as const;
 
-export default function Delivery({ stages, projectName }: { stages?: DeliveryStage[]; projectName?: string }) {
+export default function Delivery({ stages, projectName }: { stages?: DeliveryStage[] | undefined; projectName?: string | undefined }) {
   // A conversation that has produced no work at all shows nothing — an empty chain on every new
   // chat would be noise attached to the thing you use most.
   if (!stages?.length || stages.every((s) => s.state === 'pending' || s.state === 'skipped')) return null;

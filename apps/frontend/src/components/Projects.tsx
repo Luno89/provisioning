@@ -47,7 +47,7 @@ const STATUS_STYLE: Record<string, { icon: any; className: string }> = {
   failed: { icon: XCircle, className: 'text-red-400 bg-red-500/10' },
 };
 
-function StatusBadge({ status }: { status?: string }) {
+function StatusBadge({ status }: { status?: string | undefined }) {
   const s = STATUS_STYLE[status || 'queued'] || STATUS_STYLE.queued;
   const Icon = s.icon;
   return (
@@ -81,7 +81,7 @@ const PROJECT_STATUS: Record<string, { icon: any; className: string; label: stri
   running: { icon: CheckCircle2, className: 'text-green-400 bg-green-500/10', label: 'running' },
 };
 
-function ProjectStatusBadge({ status, reason }: { status?: string; reason?: string }) {
+function ProjectStatusBadge({ status, reason }: { status?: string | undefined; reason?: string | undefined }) {
   const s = PROJECT_STATUS[status || 'no-build'] || PROJECT_STATUS['no-build']!;
   const Icon = s.icon;
   const spinning = status === 'building' || status === 'deploying';

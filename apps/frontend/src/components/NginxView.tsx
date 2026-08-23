@@ -35,7 +35,10 @@ export default function NginxView({
   clusters: any[];
   /** Domain per deployment id, not a list — the compiler caught this at the call site. */
   vpnDomains: Record<string, string>;
-  setVpnDomains: (value: any) => void;
+  // A React setter, for the same reason as `setEditorContent` above: the hostname input updates
+  // one key with a function updater. Typed as `any`, it was the ONLY error `strict` reported in
+  // the whole frontend — `prev` had nothing to infer from.
+  setVpnDomains: Dispatch<SetStateAction<Record<string, string>>>;
   setShowNginxWizard: (open: boolean) => void;
   setNginxWizardStep: (step: number) => void;
   setNginxWizardData: (data: any) => void;

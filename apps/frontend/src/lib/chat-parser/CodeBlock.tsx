@@ -5,7 +5,7 @@ export default function CodeBlock({
   language,
   value,
 }: {
-  language?: string;
+  language?: string | undefined;
   value: string;
 }) {
   const [copied, setCopied] = useState(false);
