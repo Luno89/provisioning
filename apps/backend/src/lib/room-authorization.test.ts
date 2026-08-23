@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { ownsProject, clusterVisible } from './ownership.js';
 
 /**
  * Ownership rules behind the Socket.IO room authorization added in index.ts.
@@ -13,13 +14,11 @@ import { describe, it, expect } from 'vitest';
  * which are pure and easy to get subtly wrong.
  */
 
-/** Mirrors ownsProject in index.ts. */
-const ownsProject = (project: any, user: any): boolean =>
-  project?.ownerId ? project.ownerId === user.id : user.isAdmin === true;
-
-/** Mirrors ClusterService.getById's visibility rule. */
-const clusterVisible = (cluster: any, userId: string): boolean =>
-  !!cluster && (cluster.isSystem === true || cluster.ownerId === userId);
+/**
+ * These used to be COPIES of the rules, declared right here — so this file imported nothing but
+ * vitest and could not fail however index.ts changed. They are imported now, which is the only
+ * arrangement under which any of the assertions below mean anything.
+ */
 
 describe('cluster room visibility', () => {
   const alice = 'user-alice';

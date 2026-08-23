@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { mockOAuthAllowed } from './oauth-gate.js';
 
 /**
  * Guards the mock OAuth flow against being reachable in production.
@@ -14,8 +15,6 @@ import { describe, it, expect, afterEach } from 'vitest';
  * The rule is asserted here rather than only in index.ts because it is one line that silently
  * turns into a full account takeover if anyone "simplifies" it back to a client-id check.
  */
-const mockOAuthAllowed = (): boolean => process.env.NODE_ENV !== 'production';
-
 const original = process.env.NODE_ENV;
 afterEach(() => {
   if (original === undefined) delete process.env.NODE_ENV;

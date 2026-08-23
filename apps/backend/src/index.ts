@@ -23,6 +23,8 @@ import { Server as SocketServer } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 
 // Library Imports
+import { ownsProject } from './lib/ownership.js';
+import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
 
@@ -523,7 +525,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const run = (await db.getPipelineRuns()).find((r: any) => r.id === id);
     if (run) {
       const project = (await db.getProjects()).find((p: any) => p.id === run.projectId);
-      const owned = project?.ownerId ? project.ownerId === user.id : user.isAdmin === true;
+      const owned = ownsProject(project, user);
       if (owned && run.logFile) return { ...run, lastLogPath: run.logFile };
     }
     return undefined;
@@ -850,7 +852,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * Gating on NODE_ENV rather than on whether a client id happens to be set means a production
    * host with missing configuration fails closed — no login — instead of failing open.
    */
-  const mockOAuthAllowed = (): boolean => process.env.NODE_ENV !== 'production';
 
   app.get('/api/auth/github', (req, res) => {
     // Carries any invite code through the OAuth roundtrip via `state` — GitHub/Google echo it
@@ -1732,8 +1733,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * visible to everyone (this instance's only projects are the admin's own, so nothing is
    * stranded — on a shared instance that would deserve a migration instead).
    */
-  const ownsProject = (project: any, user: any): boolean =>
-    project?.ownerId ? project.ownerId === user.id : user.isAdmin === true;
 
   const getOwnedProject = async (id: string, user: any): Promise<any | undefined> => {
     const project = (await db.getProjects()).find((p: any) => p.id === id);
