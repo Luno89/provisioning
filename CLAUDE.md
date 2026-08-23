@@ -21,7 +21,7 @@ npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (s
 
 npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
 npm run test:all     # test → test:infra:integration → test:remote-integration → test:unit:vpn
-npm run test:unit    # test:unit:frontend && test:unit:backend (Vitest, both under 5s)
+npm run test:unit    # typecheck + test:unit:frontend + test:unit:backend (Vitest, ~80s total)
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright against e2e/ directory (skips unit preflight)
@@ -70,7 +70,7 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 
 | Path | What |
 |---|---|
-| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, all services, JWT auth middleware, socket.io, ~30 inline routes (no Router) |
+| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, all services, JWT auth middleware, socket.io. **5,900 lines and 150 inline routes**; being extracted into `src/routes/` one domain at a time (see Structure rules) |
 | `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` — MongoDB unless `NODE_ENV=test` and not E2E, in which case `MemoryDB` |
 | `apps/backend/src/lib/mongo-db.ts` / `memory-db.ts` | MongoDB native driver impl / in-memory mock for unit tests |
 | `apps/backend/src/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
@@ -79,8 +79,9 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — cluster provisioning/destruction activities |
 | `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — app deploy/destroy/resize activities; reads K8s service account when in-cluster |
-| `apps/frontend/src/main.tsx` / `App.tsx` | React entry / ~1800-line monolith with most of the UI in one component |
-| `apps/frontend/src/components/` | Extracted pieces: `Login`, `CloudAccounts`, `AnsiText` (ANSI log rendering) |
+| `apps/frontend/src/main.tsx` / `App.tsx` | React entry / **2,858-line monolith**; ~1,530 lines of it is four inline modals, being extracted slice by slice. Target: a router and shell under ~800 lines |
+| `apps/frontend/src/api/` | The one axios client (`client.ts`) and one module per domain. **No component contains a URL.** |
+| `apps/frontend/src/components/` | Screens and widgets. A feature with more than ~4 files gets its own folder plus a `shared.ts` — see `components/Lab/` |
 | `packages/cdktf-infra/main.ts` | CDKTF entry — stack type selected via `STACK_TYPE=cluster\|app` env var |
 | `packages/cdktf-infra/constructs/` | Per-app CDKTF constructs, each with a Helm variant and a `-native` (raw K8s manifest) variant |
 | `bin/` | Pre-downloaded k3d, kubectl, helm binaries |
@@ -184,6 +185,69 @@ distinction also decides whether a `hostPort` (game servers) is reachable from t
 k3s it binds the host's network stack directly; on k3d it is not published without an explicit
 `-p` mapping at cluster-create time.
 
+## Structure rules
+
+These are enforced, not aspirational: `npm run lint` is green and fails on a new violation, the
+frontend is `strict`, and CI (`.github/workflows/ci.yml`) runs typecheck + lint + both unit suites
+on every push. Each rule below is here because something in this repo broke without it.
+
+### Frontend
+
+- **PascalCase = exports a component; kebab-case = exports none.** `components/leaf-types.ts` and
+  `home-summary.ts` already follow this; `react-refresh/only-export-components` is its linter.
+- **Nothing at `src/` root** except `App.tsx`, `main.tsx`, `index.css`.
+- **A feature with more than ~4 files gets a folder and a `shared.ts`.** `components/Lab/` is the
+  model: 19 files, every panel imports `./shared` and nothing else laterally.
+- **If it came from HTTP it belongs to react-query.** No hand-rolled loading/error state.
+  `CloudAccounts.tsx` (21 `useState`, 9 raw `fetch`) is the counter-example.
+- **UI state lives in the component that renders it**, and **never pass a raw `setState` down** —
+  pass a named intent. `ClustersView` receiving `setExpandedCluster` from a 2,858-line parent that
+  never reads it is the anti-pattern.
+- **Context needs all three:** many descendants need it, it is stable, and threading it by hand is
+  unreasonable. There is exactly one today (`EditorSlot` in `Lab/shared.ts`) and it earns it.
+- **No component contains a URL.** Components import hooks; hooks call `api/<domain>.ts`; only those
+  modules import `api/client.ts`.
+- **`props: any` is banned.** Let the compiler enumerate the interface — `NginxView.tsx`'s docblock
+  describes the method.
+- **Domain shapes are declared once**, in `src/types/` or from `@koala/harness-types`. Deliberate
+  duplication across the wire carries a `── DUPLICATED, KNOWINGLY ──` block naming the backend file
+  that wins; see `Lab/shared.ts`'s `isBroken`.
+- **Two copies of a `useEffect` means extract a hook.** Logic that needs no React goes to `lib/` as
+  pure functions with unit tests — `home-summary.ts` (29 tests) is the strongest pattern here.
+- **Tests are colocated** (`Foo.tsx` → `Foo.test.tsx`) and test the extracted unit, not `App`.
+
+### Backend
+
+- **One-way arrow: `index.ts → routes/ → services/ → lib/`**, with `middleware/` feeding routes.
+  `lib/` is pure and imports nothing above it. `lib/leaves.ts` (38 pure functions, no I/O) is the
+  target shape; `lib/activity-timeouts.ts` documents why the direction matters.
+- **A route handler does four things**: read the request, authorize, call one service method, shape
+  the response. A loop, a prompt or arithmetic belongs in a service or `lib/`.
+- **No `db.*` in a route.**
+- **Something becomes a service** when it holds state beyond a request, owns a resource, or is the
+  only writer of a collection. Otherwise it is a `lib/` function. `VpsCatalogService` over
+  `lib/vps-catalog/` is the model.
+- **One router per URL prefix in `src/routes/<domain>.ts`, exported as a factory** taking its deps,
+  so `src/routes/test-harness.ts` can mount it without booting the app.
+- **A test may not re-declare the logic it tests.** Two security tests did, and could not fail —
+  see `lib/ownership.ts` and `lib/oauth-gate.ts`.
+- **Route order in `bootstrap()` is load-bearing**: the Gitea webhook must stay before
+  `express.json()` (it verifies an HMAC over the raw body), `app.use('/api', requireAuth)` before
+  every `/api` router, and the SPA catch-all last.
+
+### Two halves, two import conventions
+
+Backend has `verbatimModuleSyntax`, so **relative imports need the `.js` extension** even in `.ts`.
+Frontend uses `moduleResolution: bundler` and is **extensionless**. An editor's auto-import will
+get this wrong across the boundary, and the backend form fails at runtime while sometimes
+typechecking.
+
+### One-time setup
+
+```bash
+git config core.hooksPath .githooks   # pre-push typecheck
+```
+
 ## TypeScript quirks
 
 - `verbatimModuleSyntax: true` → all relative imports need a `.js` extension, even in `.ts` files
@@ -199,7 +263,7 @@ k3s it binds the host's network stack directly; on k3d it is not published witho
    - Also flags **stale workers**: any `apps/backend/src` file (excluding `index.ts` and tests)
      modified after the worker process started. Workers don't hot-reload, so this is otherwise
      silent — it has caused two multi-hour misdiagnoses.
-2. **Unit** (`npm run test:unit`) — Vitest, frontend + backend, <5s.
+2. **Unit** (`npm run test:unit`) — typecheck + Vitest, frontend + backend. ~80s (20s typecheck, 29s frontend, 29s backend). The `<5s` this used to claim has not been true for a long time.
 3. **Worker isolation** (`npm run test:worker`, `tests/worker-isolated.ts` via `npx tsx`) — runs real Temporal workflows (`ClusterProvisionWorkflow`, `AppDeployWorkflow`, etc.) end-to-end (k3d, CDKTF, Helm, kubectl) without a browser or webserver.
 4. **Full E2E** (`npm run test:e2e`) — Playwright driving the React UI; starts host and cluster workers on the host network to support all deployment types.
 5. **Remote-host integration** (`npm run test:remote-integration`, `tests/remote-host-integration.ts`) — boots a real disposable QEMU/KVM VM (`tests/lib/disposable-vm.ts`) and drives the actual `POST /api/clusters` (`provider: 'remote'`) → Temporal → SSH-bootstrap-k3s path against it, the same way a user adding their own GPU workstation or a Phase-3 VPS would. Slow (~10-15 min, includes a one-time ~600MB cloud image download cached in `tests/.vm-cache/`) — not in the default `npm test` chain, only `npm run test:all`.
