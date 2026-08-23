@@ -38,6 +38,14 @@ interface Trace {
   trimmed?: boolean;
   dropped?: number;
   missing?: boolean;
+  /**
+   * Save points written mid-run, where the conversation was committed and then reset.
+   *
+   * Load-bearing for reading this panel honestly: after a checkpoint, `steps` is only the turns
+   * SINCE the last reset. Without saying so, a run that saved twice shows its final third and reads
+   * as the whole thing.
+   */
+  checkpoints?: { step: number; tokensUsed: number; sha?: string; branch?: string }[];
 }
 
 /** A tool call rendered as the thing a person recognises: the command, or the path. */
@@ -116,6 +124,11 @@ export default function LeafSteps({ apiBase, leafId, live }: {
         )}
         {totalSteps} {totalSteps === 1 ? 'turn' : 'turns'} · {tokensUsed.toLocaleString()} tokens
         {data.trimmed && data.dropped ? ` · ${data.dropped} middle turns dropped to fit` : ''}
+        {/* Said plainly, because it changes what the turns below MEAN — they are the run since the
+            last save, not the run. */}
+        {data.checkpoints?.length
+          ? ` · saved ${data.checkpoints.length}× (turns shown are since the last save)`
+          : ''}
       </p>
 
       {data.steps.map((step, i) => {

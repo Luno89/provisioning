@@ -134,7 +134,7 @@ export interface Leaf {
   summary?: string;
   /** A research leaf's answer, stored on the record because it has no repository. */
   findings?: string;
-  budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number };
+  budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number; maxReplans?: number };
   /**
    * What the run actually cost.
    *
@@ -144,6 +144,15 @@ export interface Leaf {
    * The board reads `usage` too; see tree-board.ts.
    */
   usage?: { tokens?: number; workspaces?: number; replans?: number };
+  /**
+   * The whole SUBTREE's spend, sent only on root leaves.
+   *
+   * Re-declared deliberately, and it is not the phantom described above. That one was declared here
+   * and written by nothing; this one is emitted by the leaves route for every root, and it is the
+   * only number a remaining-budget line can honestly be built from — `usage` is this leaf alone,
+   * and a request's cost is its whole tree.
+   */
+  usageTotal?: { tokens?: number; wallClockMs?: number; workspaces?: number; replans?: number };
 }
 
 export const STATE_LABEL: Record<LeafState, string> =

@@ -23,7 +23,6 @@ import Grove from './components/Grove.js';
 import { parseHash, formatHash, shouldReplace, resolveView, type Route } from './lib/route.js';
 import MeshDevices from './components/MeshDevices.js';
 import Personas from './components/Personas.js';
-import HarnessDashboard from './components/harness-v2/HarnessDashboard.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
@@ -57,7 +56,7 @@ const FOREST_TABS = [
  */
 const KNOWN_VIEWS = [
   ...FOREST_TABS.map((t) => t.id as string),
-  'grove', 'chat', 'personas', 'lab', 'harness',
+  'grove', 'chat', 'personas', 'lab',
 ] as const;
 
 /**
@@ -230,7 +229,7 @@ function App() {
   const [forestOpen, setForestOpen] = useState(true);
   /** A conversation to open with a message already queued. Cleared once Chat has sent it. */
   const [handoff, setHandoff] = useState<{ branchId: string; prompt: string } | undefined>(undefined);
-  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'lab' | 'personas' | 'grove' | 'chat' | 'harness'>(
+  const [view, setView] = useState<'clusters' | 'apps' | 'projects' | 'nginx' | 'temporal' | 'services' | 'settings' | 'accounts' | 'vps-catalog' | 'mesh' | 'lab' | 'personas' | 'grove' | 'chat'>(
     // The URL wins on load, so a refresh keeps your place and a link opens where it points.
     /**
      * Chat is the front door.
@@ -1151,7 +1150,6 @@ function App() {
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
         {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
-        {view === 'harness' && <HarnessDashboard apiBase={API_BASE} />}
         {view === 'grove' && (
           <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}

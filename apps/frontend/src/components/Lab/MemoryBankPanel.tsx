@@ -22,6 +22,20 @@ interface MemoryItem {
   };
   createdAt: string;
   updatedAt: string;
+  /** Set when the memory stopped being true. Absent means current — invalidated rows are history. */
+  invalidAt?: string;
+  supersededBy?: string;
+  lastUsedAt?: string;
+  useCount?: number;
+}
+
+interface ConsolidationReport {
+  at: string;
+  indexed: number;
+  deduped: number;
+  promoted: number;
+  decayed: number;
+  live: number;
 }
 
 const CATEGORY_META = {
@@ -45,6 +59,11 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
   const { data: memories, isLoading } = useQuery<MemoryItem[]>({
     queryKey: ['harness-memories'],
     queryFn: () => axios.get(`${apiBase}/harness/memories`, { withCredentials: true }).then((r) => r.data),
+  });
+
+  const { data: consolidation } = useQuery<ConsolidationReport | null>({
+    queryKey: ['harness-memory-consolidation'],
+    queryFn: () => axios.get(`${apiBase}/harness/memories/consolidation`, { withCredentials: true }).then((r) => r.data),
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['harness-memories'] });
@@ -91,13 +110,26 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
     setText(m.text);
   };
 
-  const pendingList = (memories ?? []).filter((m) => m.status === 'pending_review');
+  const pendingList = (memories ?? []).filter((m) => m.status === 'pending_review' && !m.invalidAt);
+  const retiredList = (memories ?? []).filter((m) => m.invalidAt);
+
+  /**
+   * Retired entries are excluded from every other view.
+   *
+   * They are kept so that "what did the harness believe when this leaf ran" stays answerable, and
+   * so a wrong supersession is reversible — but they are not current, and mixing them into the
+   * active list would present superseded facts as things the harness still believes.
+   */
   const activeList = (memories ?? []).filter((m) => {
+    if (filter === 'retired') return Boolean(m.invalidAt);
+    if (m.invalidAt) return false;
     if (filter === 'pending') return m.status === 'pending_review';
     if (filter === 'global') return (m.scope === 'global' || !m.scope) && m.status !== 'pending_review';
     if (filter === 'project') return m.scope === 'project' && m.status !== 'pending_review';
     return m.status !== 'pending_review';
   });
+
+  const titleOf = (id?: string) => (memories ?? []).find((m) => m.id === id)?.title;
 
   return (
     <div className="space-y-4">
@@ -105,10 +137,11 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
         <div>
           <h3 className="text-lg font-semibold text-slate-200 flex items-center gap-2">
             <Brain size={18} className="text-[var(--leaf-light)]" />
-            Harness Memory Bank & Review Queue
+            Harness Memory Bank
           </h3>
           <p className="text-[12px] text-slate-400">
-            Manage persistent lessons, facts, and prompt guidance with project scoping and manual approval controls.
+            Lessons, facts and prompt guidance, retrieved by relevance and admitted automatically.
+            Superseded entries are retired rather than deleted, so nothing here is lost.
           </p>
         </div>
         <button
@@ -123,9 +156,10 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
       <div className="flex items-center gap-1 bg-[var(--bark-900)] p-1 rounded-lg border border-[var(--bark-600)]">
         {[
           { id: 'all', label: 'All Active' },
-          { id: 'pending', label: `Pending Review (${pendingList.length})` },
+          ...(pendingList.length ? [{ id: 'pending', label: `Legacy Queue (${pendingList.length})` }] : []),
           { id: 'global', label: 'Global Memories' },
           { id: 'project', label: 'Project Memories' },
+          ...(retiredList.length ? [{ id: 'retired', label: `Retired (${retiredList.length})` }] : []),
         ].map((tab) => (
           <button
             key={tab.id}
@@ -141,20 +175,35 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
         ))}
       </div>
 
-      {/* PENDING REVIEW QUEUE HIGHLIGHT */}
+      {/* CONSOLIDATION — a loop that retires memories unattended should be visible. */}
+      {consolidation && (consolidation.deduped > 0 || consolidation.decayed > 0 || consolidation.promoted > 0) && (
+        <div className="bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl p-3 text-[11px] text-slate-400 flex items-center gap-2">
+          <Brain size={13} className="text-[var(--leaf-light)] shrink-0" />
+          <span>
+            Last consolidation kept <strong className="text-slate-200">{consolidation.live}</strong> memories
+            {consolidation.deduped > 0 && <> · retired <strong className="text-slate-200">{consolidation.deduped}</strong> duplicate(s)</>}
+            {consolidation.decayed > 0 && <> · retired <strong className="text-slate-200">{consolidation.decayed}</strong> unused</>}
+            {consolidation.promoted > 0 && <> · promoted <strong className="text-slate-200">{consolidation.promoted}</strong> finding(s)</>}
+          </span>
+        </div>
+      )}
+
+      {/* THE OLD REVIEW QUEUE, WHICH NOBODY DRAINED */}
       {pendingList.length > 0 && filter !== 'pending' && (
         <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl p-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5 text-amber-300 text-xs">
             <AlertCircle size={16} className="shrink-0" />
             <span>
-              <strong>{pendingList.length} memory item(s)</strong> generated by agent tools or post-run analysis are awaiting review.
+              <strong>{pendingList.length} memory item(s)</strong> are held over from the old review queue and
+              have never reached a prompt. New memories no longer wait here — approve any of these that
+              are still worth carrying, or leave them.
             </span>
           </div>
           <button
             onClick={() => setFilter('pending')}
             className="text-xs px-3 py-1 bg-amber-800/80 hover:bg-amber-700 text-amber-100 rounded-md font-medium"
           >
-            Review Queue
+            Open
           </button>
         </div>
       )}
@@ -240,6 +289,7 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
             const Icon = meta.icon;
             const isEditing = editingId === m.id;
             const isPending = m.status === 'pending_review';
+            const isRetired = Boolean(m.invalidAt);
 
             if (isEditing) {
               return (
@@ -311,7 +361,12 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
             }
 
             return (
-              <div key={m.id} className={`${card} p-4 flex flex-col justify-between ${isPending ? 'border-amber-800/80 bg-amber-950/20' : ''}`}>
+              <div
+                key={m.id}
+                className={`${card} p-4 flex flex-col justify-between ${
+                  isRetired ? 'opacity-60 border-[var(--bark-600)]' : isPending ? 'border-amber-800/80 bg-amber-950/20' : ''
+                }`}
+              >
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -335,9 +390,14 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
                           Recommended: {m.recommendedScope}
                         </span>
                       )}
-                      {isPending && (
-                        <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-900 text-amber-200 border border-amber-700 animate-pulse">
-                          Pending Approval
+                      {isPending && !isRetired && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-900 text-amber-200 border border-amber-700">
+                          Never Reached A Prompt
+                        </span>
+                      )}
+                      {isRetired && (
+                        <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--bark-800)] text-slate-400 border border-[var(--bark-600)]">
+                          Retired {new Date(m.invalidAt!).toLocaleDateString()}
                         </span>
                       )}
                     </div>
@@ -352,7 +412,7 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
                           Approve
                         </button>
                       )}
-                      {m.scope !== 'global' && (
+                      {m.scope !== 'global' && !isRetired && (
                         <button
                           onClick={() => promoteMut.mutate(m.id)}
                           title="Promote to global user scope"
@@ -382,6 +442,23 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
                   <p className="text-[12px] text-slate-300 leading-relaxed font-mono bg-[var(--bark-900)]/60 p-2 rounded border border-[var(--bark-600)]">
                     {m.text}
                   </p>
+
+                  {/*
+                    Use, not age. This is what decay is decided on, so it is the number worth showing:
+                    an old memory read by every leaf is load-bearing, and a recent one nothing ever
+                    matches is noise. "Never" on an old entry is the signal that it is about to go.
+                  */}
+                  <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
+                    <span>
+                      Read {m.useCount ? `${m.useCount}×` : 'never'}
+                      {m.lastUsedAt && <> · last {new Date(m.lastUsedAt).toLocaleDateString()}</>}
+                    </span>
+                    {m.supersededBy && (
+                      <span className="truncate">
+                        Superseded by <span className="text-slate-400">{titleOf(m.supersededBy) ?? m.supersededBy}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );

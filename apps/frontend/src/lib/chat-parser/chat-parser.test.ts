@@ -26,12 +26,16 @@ describe('ChatParser', () => {
     expect(parsed.cleanContent).toBe('');
   });
 
-  it('normalizes LaTeX math delimiters', () => {
-    const raw = 'The equation is \\( E = mc^2 \\) and in block mode: \\[ \\int_0^\\infty x dx \\]';
-    const parsed = ChatParser.parse(raw);
-    expect(parsed.hasMath).toBe(true);
-    expect(parsed.cleanContent).toContain('$E = mc^2$');
-    expect(parsed.cleanContent).toContain('$$\n\\int_0^\\infty x dx\n$$');
+  /**
+   * The parser used to rewrite `\\(x\\)` into `$x$` here. No math renderer is installed — there is
+   * no katex, no remark-math, no rehype-katex — so the delimiters it produced were rendered as
+   * literal dollar signs. It turned text that read acceptably into text that read worse, and the
+   * `hasMath` flag it set had no consumer anywhere. Removed rather than completed: wiring a real
+   * math renderer is a decision, not a bug fix.
+   */
+  it('leaves LaTeX alone, because nothing downstream can render it', () => {
+    const raw = 'The equation is \\( E = mc^2 \\).';
+    expect(ChatParser.parse(raw).cleanContent).toContain('\\( E = mc^2 \\)');
   });
 
   it('extracts embedded tool call structures', () => {

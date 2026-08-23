@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { MessageSquarePlus, Trash2, Plug, Sprout, Send, Loader2 } from 'lucide-react';
+import {
+  MessageSquarePlus, Trash2, Plug, Sprout, Send, Loader2, Terminal, Check, X, Info,
+} from 'lucide-react';
 import SpecProposal from './SpecProposal.js';
+import Markdown from './Markdown.js';
 
 /**
  * General chat with Koala — the front door when you have not decided what you are building.
@@ -26,6 +29,14 @@ interface ProposedTree {
   treeId?: string;
 }
 
+interface ToolCall {
+  id: string;
+  name: string;
+  args: string;
+  ok: boolean;
+  digest: string;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -34,6 +45,12 @@ interface Message {
   at: string;
   /** Services hooked up while producing this message — a record, not the model's claim. */
   enabled?: string[];
+  /** What the turn actually did. Same principle as `enabled`, extended to every tool. */
+  toolCalls?: ToolCall[];
+  /** Written by the harness, not the model. Rendered inline rather than as a chat bubble. */
+  notice?: true;
+  /** This notice is a context-reset boundary; everything above it was summarised into it. */
+  handoff?: true;
 }
 
 interface ProposedSpec {
@@ -63,6 +80,8 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
   const [live, setLive] = useState('');
   const [liveThinking, setLiveThinking] = useState('');
   const [liveEnabled, setLiveEnabled] = useState<string[]>([]);
+  /** Tool calls in flight this turn. `running` is local UI state — the record is on the message. */
+  const [liveTools, setLiveTools] = useState<(ToolCall & { running?: boolean })[]>([]);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   /** One per mount. What "session" means for the services Koala hooks up. */
@@ -135,6 +154,7 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
     setLive('');
     setLiveThinking('');
     setLiveEnabled([]);
+    setLiveTools([]);
     try {
       const res = await fetch(`${apiBase}/koala/chat`, {
         method: 'POST',
@@ -165,6 +185,23 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
             if (frame.reasoning) setLiveThinking((prev) => prev + frame.reasoning);
             // Shown as it happens rather than trusting the model to mention it.
             if (frame.enabled) setLiveEnabled((prev) => [...prev, ...frame.enabled]);
+            /**
+             * A pill appears BEFORE the call runs and flips when it lands.
+             *
+             * `get_logs` shells out to kubectl and an MCP call crosses the network; both used to
+             * render as "Koala is thinking…" with nothing behind them, so a slow tool was
+             * indistinguishable from a stuck app.
+             */
+            if (frame.toolCall) {
+              setLiveTools((prev) => [...prev, { ...frame.toolCall, running: true }]);
+            }
+            if (frame.toolResult) {
+              setLiveTools((prev) => prev.map((t) => (
+                t.id === frame.toolResult.id
+                  ? { ...t, running: false, ok: frame.toolResult.ok, digest: frame.toolResult.digest }
+                  : t
+              )));
+            }
             // Both refetch the thread rather than being appended locally: the server already wrote
             // them, and a second copy in state is a second source of truth.
             if (frame.proposedTree || frame.proposedSpec) {
@@ -180,6 +217,7 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
       setLive('');
       setLiveThinking('');
       setLiveEnabled([]);
+      setLiveTools([]);
       qc.invalidateQueries({ queryKey: ['koala-conversation', id] });
       qc.invalidateQueries({ queryKey: ['koala-conversations'] });
     }
@@ -226,24 +264,39 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
       <section className="flex-1 min-w-0 flex flex-col">
         <div ref={scrollRef} className="flex-1 overflow-y-auto flex flex-col gap-4 pr-2">
           {(thread?.messages ?? []).map((m, i) => (
-            <div key={i} className={m.role === 'user' ? 'self-end max-w-[80%]' : 'max-w-[85%]'}>
-              {m.enabled?.length ? <EnabledLine names={m.enabled} /> : null}
-              {m.reasoning?.trim() ? <Thinking text={m.reasoning} /> : null}
-              <div className={`rounded-2xl px-4 py-2.5 text-[14px] whitespace-pre-wrap ${
-                m.role === 'user'
-                  ? 'bg-[var(--leaf-stem)] text-white'
-                  : 'bg-[var(--bark-800)] text-slate-200 border border-[var(--bark-600)]'}`}
-              >
-                {m.content}
+            m.notice ? (
+              // Not a chat bubble: nobody said this. Same treatment branch notices get.
+              <Notice key={i} text={m.content} boundary={Boolean(m.handoff)} />
+            ) : (
+              <div key={i} className={m.role === 'user' ? 'self-end max-w-[80%]' : 'max-w-[85%]'}>
+                {m.enabled?.length ? <EnabledLine names={m.enabled} /> : null}
+                {m.reasoning?.trim() ? <Thinking text={m.reasoning} /> : null}
+                {m.toolCalls?.length ? <ToolPills calls={m.toolCalls} /> : null}
+                <div className={`rounded-2xl px-4 py-2.5 text-[14px] ${
+                  m.role === 'user'
+                    ? 'bg-[var(--leaf-stem)] text-white whitespace-pre-wrap'
+                    : 'bg-[var(--bark-800)] text-slate-200 border border-[var(--bark-600)]'}`}
+                >
+                  {/**
+                    * The user's own text stays literal — they typed it, and markdown-rendering it
+                    * would eat their asterisks. Koala's replies are markdown, and were being shown
+                    * as their own syntax: tables arrived as rows of pipes, `##` as literal hashes.
+                    * Branch chat has rendered them properly for a while; this had not caught up.
+                    */}
+                  {m.role === 'user' ? m.content : <Markdown>{m.content}</Markdown>}
+                </div>
               </div>
-            </div>
+            )
           ))}
 
           {liveEnabled.length > 0 && <EnabledLine names={liveEnabled} />}
+          {liveTools.length > 0 && <ToolPills calls={liveTools} />}
           {liveThinking.trim() && <Thinking text={liveThinking} open={!live} live={!live} />}
           {live && (
-            <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-[14px] whitespace-pre-wrap bg-[var(--bark-800)] text-slate-200 border border-[var(--bark-600)]">
-              {live}
+            <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-[14px] bg-[var(--bark-800)] text-slate-200 border border-[var(--bark-600)]">
+              {/* Rendered as markdown while streaming too, so the reply does not reflow the moment
+                  the turn ends — a half-written table looks better than one that jumps. */}
+              <Markdown>{live}</Markdown>
             </div>
           )}
           {streaming && !live && !liveThinking && (
@@ -347,6 +400,82 @@ function EnabledLine({ names }: { names: string[] }) {
     <div className="flex items-center gap-1.5 text-[11px] text-[var(--leaf)] mb-1">
       <Plug size={11} />
       hooked up {names.join(', ')}
+    </div>
+  );
+}
+
+/**
+ * What the turn actually did, one pill per call.
+ *
+ * ── WHY THIS IS NOT OPTIONAL POLISH ──
+ * Koala shells out to kubectl for pod logs, reaches across the network for MCP calls, and now
+ * searches the web — and none of it was visible. A turn that spent ninety seconds reading logs
+ * looked exactly like a turn that was stuck, and afterwards there was no way to tell whether an
+ * answer came from a tool or from the model's imagination. `EnabledLine` already applies this
+ * principle to services; this extends it to every call.
+ *
+ * The pill shows the tool and its arguments, never its output. The digest is on the record and in
+ * the title attribute for anyone who wants it, but a transcript that inlines twelve kilobytes of
+ * kubectl output is not a transcript.
+ */
+function ToolPills({ calls }: { calls: (ToolCall & { running?: boolean })[] }) {
+  return (
+    <div className="flex flex-col gap-1 mb-1.5">
+      {calls.map((c) => (
+        <div
+          key={c.id}
+          title={c.digest || undefined}
+          className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-black/25 border border-[var(--bark-600)] text-[11px] font-mono text-slate-400 w-fit max-w-full"
+        >
+          {c.running
+            ? <Loader2 size={11} className="animate-spin shrink-0 text-slate-500" />
+            : c.ok
+              ? <Check size={11} className="shrink-0 text-emerald-400" />
+              : <X size={11} className="shrink-0 text-rose-400" />}
+          <Terminal size={11} className="shrink-0 text-slate-500" />
+          <span className="text-slate-300 font-semibold">{c.name}</span>
+          {c.args && c.args !== '{}' && (
+            <span className="truncate text-slate-500">{c.args}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A message the harness wrote, not the model.
+ *
+ * Rendered inline and dimmed rather than as a chat bubble, because attributing it to Koala would be
+ * a lie about who said it — the same reason branch notices are drawn this way in Chat.tsx.
+ *
+ * The handoff variant is collapsed by default. Its whole job is to be reassuring at a glance
+ * ("older messages were summarised") while staying auditable for anyone who wants to know exactly
+ * what survived the reset, which is the question you ask precisely when something has gone wrong.
+ */
+function Notice({ text, boundary }: { text: string; boundary: boolean }) {
+  const [open, setOpen] = useState(false);
+  const headline = text.split('\n')[0] ?? text;
+
+  return (
+    <div className="flex items-start gap-2 py-1.5 text-[12px] text-slate-500 border-l-2 border-[var(--bark-600)] pl-3">
+      <Info size={13} className="shrink-0 mt-0.5" />
+      <div className="min-w-0 flex-1">
+        {boundary ? (
+          <>
+            <button onClick={() => setOpen((o) => !o)} className="text-left hover:text-slate-400">
+              {headline} <span className="underline">{open ? 'hide' : 'what was kept'}</span>
+            </button>
+            {open && (
+              <div className="mt-1.5 text-slate-400">
+                <Markdown>{text}</Markdown>
+              </div>
+            )}
+          </>
+        ) : (
+          <span>{text}</span>
+        )}
+      </div>
     </div>
   );
 }

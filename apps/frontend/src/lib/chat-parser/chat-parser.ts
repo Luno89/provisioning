@@ -4,16 +4,14 @@
  * Handles:
  * 1. DeepSeek / Qwen `<think>...</think>` thought tag extraction (including streaming unclosed tags).
  * 2. Control token stripping (<|im_start|>, <|im_end|>, <|eot_id|>, <s>, </s>, [INST], [/INST]).
- * 3. LaTeX equation normalization (\(...\) -> $...$, \[...\] -> $$...$$).
- * 4. GitHub-style callouts/alerts (> [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION]).
- * 5. Special tool call & artifact block extraction.
+ * 3. GitHub-style callouts/alerts (> [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION]).
+ * 4. Special tool call & artifact block extraction.
  */
 
 export interface ParsedChatMessage {
   thoughts: string[];
   isThinking: boolean;
   cleanContent: string;
-  hasMath: boolean;
   toolCalls: { name: string; args: string }[];
 }
 
@@ -86,32 +84,6 @@ export class ChatParser {
   }
 
   /**
-   * Normalizes LaTeX math delimiters for standard Markdown rendering.
-   * Converts \( ... \) to $ ... $ and \[ ... \] to $$ ... $$
-   */
-  static normalizeMathDelimiters(text: string): { text: string; hasMath: boolean } {
-    let hasMath = false;
-
-    // Display math: \[ ... \] -> $$ ... $$
-    let result = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => {
-      hasMath = true;
-      return `\n$$\n${math.trim()}\n$$\n`;
-    });
-
-    // Inline math: \( ... \) -> $ ... $
-    result = result.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => {
-      hasMath = true;
-      return `$${math.trim()}$`;
-    });
-
-    if (/\$[^$\n]+\$|\$\$[\s\S]+?\$\$/.test(result)) {
-      hasMath = true;
-    }
-
-    return { text: result, hasMath };
-  }
-
-  /**
    * Normalizes GitHub alerts / callouts.
    */
   static normalizeAlerts(text: string): string {
@@ -159,7 +131,7 @@ export class ChatParser {
    */
   static parse(rawMessage: string): ParsedChatMessage {
     if (!rawMessage) {
-      return { thoughts: [], isThinking: false, cleanContent: '', hasMath: false, toolCalls: [] };
+      return { thoughts: [], isThinking: false, cleanContent: '', toolCalls: [] };
     }
 
     // Step 1: Strip control tokens
@@ -171,14 +143,10 @@ export class ChatParser {
     // Step 3: Extract tool calls
     const { toolCalls, cleanContent: afterTools } = this.extractToolCalls(afterThoughts);
 
-    // Step 4: Normalize LaTeX Math
-    const { text: afterMath, hasMath } = this.normalizeMathDelimiters(afterTools);
-
     return {
       thoughts,
       isThinking,
-      cleanContent: afterMath,
-      hasMath,
+      cleanContent: afterTools,
       toolCalls,
     };
   }

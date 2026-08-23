@@ -48,6 +48,23 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
   const remove = useMutation(call(() => axios.delete(`${apiBase}/leaves/${leaf.id}`, { withCredentials: true })));
 
   /**
+   * Raising the request's token budget.
+   *
+   * Exists because the budget now REFUSES things. `accept-leaf.ts` answers a 409 saying "Token
+   * budget exhausted", and a limit with nothing on screen to lift it is an outage rather than a
+   * limit — so the number and the way to change it ship together.
+   *
+   * Doubling rather than a free-text field: the question a reader actually has at a ceiling is
+   * "let it keep going", not "what integer". A precise number is a PATCH away for anyone who wants
+   * one.
+   */
+  const raiseBudget = useMutation(call(() => axios.patch(
+    `${apiBase}/leaves/${leaf.id}`,
+    { maxTokens: (leaf.budget?.maxTokens ?? 0) * 2 },
+    { withCredentials: true },
+  )));
+
+  /**
    * Two different things to do with a failure, offered together on purpose.
    *
    * Retrying is not a no-op — the loop feeds the last failure into the next prompt, so attempt two
@@ -85,6 +102,23 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
    */
   const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
   const attemptCount = Array.isArray(leaf.attempts) ? leaf.attempts.length : Number(leaf.attempts ?? 0);
+  /**
+   * How much of the REQUEST's budget is gone, for a root leaf that has one.
+   *
+   * Derived here rather than inline so the "running low" threshold is one number rather than a
+   * condition repeated in a class name and a string.
+   */
+  const cap = leaf.budget?.maxTokens;
+  const usedTotal = leaf.usageTotal?.tokens;
+  const budgetLine = cap && typeof usedTotal === 'number'
+    ? {
+      used: usedTotal,
+      cap,
+      pct: Math.min(100, Math.round((usedTotal / cap) * 100)),
+      tight: usedTotal / cap >= 0.8,
+    }
+    : undefined;
+
 
   return (
     <div className="max-w-3xl pb-10">
@@ -282,14 +316,39 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
         </div>
       )}
 
-      {(leaf.usage?.tokens || leaf.budget) && (
-        <div className="mt-6 flex gap-6 text-[12px] text-slate-500">
-          {/* `usage`, not `usageTotal`: this block read a field the server never writes, so it had
-              never once rendered. No wall-clock here — the record deliberately omits it. */}
+      {(leaf.usage?.tokens || leaf.usageTotal?.tokens || leaf.budget) && (
+        <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-[12px] text-slate-500">
+          {/* `usage` is THIS leaf. No wall-clock here — the record deliberately omits it. */}
           {leaf.usage?.tokens ? (
             <span className="flex items-center gap-1.5"><Coins size={12} /> {leaf.usage.tokens.toLocaleString()} tokens</span>
           ) : null}
-          {leaf.budget?.maxTokens && <span>budget {leaf.budget.maxTokens.toLocaleString()}</span>}
+
+          {/*
+            * A root additionally shows what its WHOLE TREE has spent against the ceiling.
+            *
+            * Without this the budget is invisible until it refuses something, and a 409 saying
+            * "Token budget exhausted" with nothing on screen showing a budget is a support ticket,
+            * not a limit. `usageTotal` is the subtree rollup the leaves route sends on roots —
+            * `usage` is this leaf alone and cannot answer the question.
+            */}
+          {budgetLine && (
+            <span
+              className={budgetLine.tight ? 'text-amber-400' : undefined}
+              title={`${budgetLine.used.toLocaleString()} of ${budgetLine.cap.toLocaleString()} tokens used across this request`}
+            >
+              {budgetLine.pct}% of request budget used
+              {budgetLine.tight ? ' — running low' : ''}
+            </span>
+          )}
+          {budgetLine?.tight && (
+            <button
+              onClick={() => raiseBudget.mutate()}
+              disabled={raiseBudget.isPending}
+              className="text-[12px] text-[var(--leaf)] hover:underline disabled:opacity-50"
+            >
+              {raiseBudget.isPending ? 'raising…' : `raise to ${(budgetLine.cap * 2).toLocaleString()}`}
+            </button>
+          )}
         </div>
       )}
 
