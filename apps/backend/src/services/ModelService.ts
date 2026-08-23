@@ -10,7 +10,6 @@
  * kubectl port-forward machinery ClusterProxyService already runs for the Grafana/Traefik
  * dashboards: the forward is process-local, so nothing new becomes reachable from the network.
  */
-import axios from 'axios';
 import { BaseService } from './BaseService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { AppService } from './AppService.js';
@@ -34,42 +33,27 @@ export class ModelService extends BaseService {
   }
 
   /**
-   * Every model this user can use, from all sources:
-   * 1. App deployments (vLLM, TabbyAPI) in user's clusters
-   * 2. User-registered model endpoints
-   * 3. Local host Ollama instances when available
+   * Every model this user can use, from both sources. Reads through AppService.getAll, which is
+   * ownership-filtered, and filters endpoints by ownerId here — never the raw lists, or one tenant
+   * would see (and be able to select) another's model.
    */
   async list(userId: string): Promise<ModelProvider[]> {
     const [deployments, endpoints] = await Promise.all([
       this.apps.getAll(userId),
       this.db.getModelEndpoints(),
     ]);
-    const list = listProviders(deployments, endpoints.filter((e) => e.ownerId === userId));
-
-    // Probe local host Ollama if active
-    try {
-      const ollamaRes = await axios.get('http://127.0.0.1:11434/api/tags', { timeout: 800 });
-      if (Array.isArray(ollamaRes.data?.models)) {
-        for (const m of ollamaRes.data.models) {
-          const modelName = m.name;
-          list.push({
-            id: `ollama-${modelName}`,
-            name: `Ollama: ${modelName}`,
-            source: 'endpoint',
-            model: modelName,
-            baseUrl: 'http://127.0.0.1:11434/v1',
-          });
-        }
-      }
-    } catch {
-      // Ollama not reachable on localhost
-    }
-
-    return list;
+    return listProviders(deployments, endpoints.filter((e) => e.ownerId === userId));
   }
 
   /**
    * Confirms a mesh address is one of this user's OWN devices.
+   *
+   * Not optional. The root node carries `tag:platform` in acl.hujson, which grants it `dst: *:*` —
+   * it can reach every tenant's machines. Without this check a user could register a neighbour's
+   * 100.64.x.x Ollama address and the platform would happily proxy prompts to it, because from the
+   * network's point of view the request is perfectly authorised.
+   *
+   * Fails CLOSED: if Headscale cannot be reached we refuse rather than assume ownership.
    */
   private async assertOwnsMeshAddress(userId: string, host: string): Promise<void> {
     let devices;
@@ -86,6 +70,10 @@ export class ModelService extends BaseService {
 
   /**
    * Resolves this user's extraction model, if they have chosen one.
+   *
+   * Returns undefined rather than falling back to the conversation model: extracting with a
+   * reasoning model is exactly the thing that does not work, so a silent substitution would look
+   * like the feature functioning while reproducing the original failure.
    */
   async resolveExtractor(userId: string): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string } | undefined> {
     const user = await this.db.getUserById(userId);
@@ -94,12 +82,17 @@ export class ModelService extends BaseService {
     try {
       return await this.resolveBaseUrl(userId, chosen);
     } catch {
+      // A deleted or unreachable extractor must not fail the chat it was called from.
       return undefined;
     }
   }
 
   /**
-   * Resolves a model to an OpenAI-compatible base URL reachable from this process.
+   * Resolves a model to an OpenAI-compatible base URL reachable from this process, standing up a
+   * port-forward if one is not already running.
+   *
+   * Throws rather than falling back to a different model: silently rerouting a prompt to somewhere
+   * the user did not choose is worse than an error, especially once personas and tools exist.
    */
   async resolveBaseUrl(
     userId: string,
@@ -107,49 +100,32 @@ export class ModelService extends BaseService {
   ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }> {
     const providers = await this.list(userId);
     if (providers.length === 0) {
-      throw new Error('No models available. Deploy a vLLM or TabbyAPI app, run Ollama, or register an OpenAI-compatible endpoint.');
+      throw new Error('No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
     }
 
-    if (modelId) {
-      const provider = routeProvider(providers, modelId);
-      if (!provider) {
-        throw new Error(`Model ${modelId} not found`);
-      }
-      if (provider.source === 'endpoint') return this.resolveEndpoint(userId, provider);
-      return this.resolveDeployment(userId, provider);
+    const provider = routeProvider(providers, modelId);
+    if (!provider) {
+      // Ownership-filtered list above, so an unmatched id means "not yours" as much as "no such
+      // model" — same conflation ClusterService.getById makes deliberately.
+      throw new Error(`Model ${modelId} not found`);
     }
 
-    // Try available providers in order of responsiveness (local Ollama or healthy endpoints)
-    let lastErr: Error | null = null;
-    for (const provider of providers) {
-      try {
-        if (provider.source === 'endpoint') {
-          return await this.resolveEndpoint(userId, provider);
-        } else {
-          return await this.resolveDeployment(userId, provider);
-        }
-      } catch (err: any) {
-        lastErr = err;
-      }
-    }
-
-    throw lastErr || new Error('No available models could be reached.');
+    if (provider.source === 'endpoint') return this.resolveEndpoint(userId, provider);
+    return this.resolveDeployment(userId, provider);
   }
 
   /**
    * Registered endpoint: reached directly, across the mesh when the address is in the CGNAT range.
+   *
+   * The URL was validated at registration, but it is re-validated here rather than trusted. A
+   * record can be older than the current rules, and the cost of re-checking a parsed URL is
+   * nothing compared to the cost of the one case where it matters.
    */
   private async resolveEndpoint(
     userId: string,
     provider: ModelProvider,
   ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }> {
     const baseUrl = provider.baseUrl ?? '';
-
-    // Local host Ollama bypasses mesh/SSRF validation
-    if (provider.id.startsWith('ollama-') || baseUrl.includes('127.0.0.1:11434') || baseUrl.includes('localhost:11434')) {
-      return { provider, baseUrl: baseUrl.replace(/\/$/, '') };
-    }
-
     const check = checkEndpointUrl(baseUrl);
     if (!check.ok) throw new Error(`Endpoint "${provider.name}" is no longer allowed: ${check.reason}`);
 
@@ -170,6 +146,9 @@ export class ModelService extends BaseService {
     provider: ModelProvider,
   ): Promise<{ provider: ModelProvider; baseUrl: string }> {
     const { clusterId, service, namespace, port } = provider;
+    // providerFromDeployment always sets these together; if one is missing the record is malformed
+    // rather than the caller being wrong, so say so instead of asserting non-null and forwarding to
+    // "undefined" in a namespace called "undefined".
     if (!clusterId || !service || !namespace || port === undefined) {
       throw new Error(`Model ${provider.name} is missing its cluster location — it may need redeploying`);
     }
@@ -178,6 +157,8 @@ export class ModelService extends BaseService {
     if (!cluster) throw new Error(`Cluster for model ${provider.name} not found`);
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
 
+    // Cache key must be unique per model, not per service kind — two vLLM deployments on one
+    // cluster would otherwise share (and fight over) a single forward.
     const forwardUrl = await this.proxy.ensurePortForward(
       clusterId,
       `model:${provider.id}`,

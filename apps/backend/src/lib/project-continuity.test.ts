@@ -28,7 +28,7 @@ const seeded = async () => {
 
 const ctx = (db: any, projects: any): LeafToolContext => ({
   db, userId: 'u1', branchId: 'b1',
-  webSearch: async () => [], fetchWebPage: async () => '', projects,
+  webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '', projects,
 });
 
 const fakeProjects = (db: any) => ({

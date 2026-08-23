@@ -164,6 +164,38 @@ export interface Leaf {
   verified?: boolean;
 
   /**
+   * What each deterministic layer concluded, rather than only the one word they collapse to.
+   *
+   * `verified` answers "did anything check this"; this answers "what did each check say". The
+   * distinction matters because the layers disagree in informative ways — a leaf can have a green
+   * suite and a missing declared artifact, and the board shows one tick for both cases today.
+   *
+   * Small on purpose: it goes on the LEAF, which every list query returns. The bulky counterpart
+   * (diffs, file contents) lives on the trace as `LeafEvidence`.
+   */
+  checks?: import('./leaf-trace.js').LeafChecks;
+
+  /**
+   * A model's reading of the work, when one was asked.
+   *
+   * Deliberately NOT `verified`, and it can never become it. `verified` means a deterministic check
+   * ran and passed; this means something read the diff and had an opinion. Conflating them would
+   * destroy the claimed-versus-verified distinction the rest of this file is built on — the same
+   * reason `decideStatus` exists.
+   *
+   * Absent means no judge ran, which is different from a judge finding nothing wrong.
+   */
+  review?: {
+    verdict: 'sound' | 'concern' | 'unsound' | 'unavailable';
+    /** Each surviving dimension, with the quote that earned it. See lib/leaf-judge.ts. */
+    dimensions?: { name: string; verdict: string; quote: string; why: string }[];
+    model?: string;
+    at: string;
+    /** Why it could not run, when it could not. */
+    reason?: string;
+  };
+
+  /**
    * Whether the work reached the repository's default branch.
    *
    * False with `verified` true means the merge conflicted or was rejected — the work is intact on
@@ -239,7 +271,22 @@ export interface LeafBudget {
 }
 
 export interface BudgetUsage {
+  /**
+   * What a metered API bills: prompt PLUS completion, and the prompt is re-sent every turn.
+   *
+   * So this is the number a budget must enforce on, and the number that says least about the work.
+   * With the conversation pinned at CONVERSATION_CHAR_BUDGET a full-context turn costs roughly
+   * 15,000 of these whether it wrote a file or a sentence — which is why MAX_AGENT_STEPS (200) and
+   * MAX_AGENT_TOKENS (1,000,000) are mutually unreachable in practice.
+   */
   tokens: number;
+  /**
+   * What the agent actually GENERATED. Diagnosis only — never a ceiling.
+   *
+   * Separated from `tokens` because "this leaf cost 604k" and "this leaf produced 9k across 40
+   * re-reads of the same context" are different facts, and only the second one is about the work.
+   */
+  completionTokens: number;
   wallClockMs: number;
   workspaces: number;
   replans: number;
@@ -251,6 +298,36 @@ export interface LeafAttempt {
   attempt: number;
   error: string;
   failedAt: string;
+  /**
+   * Whether this attempt left anything behind — a commit, or a written deliverable.
+   *
+   * The distinction that separates the observed successes from the observed failure, per thrash.ts:
+   * every run that eventually worked began producing early, and the leaf that failed three times
+   * had written NOTHING at all across forty turns each of `ls`, `cat` and `git status`. Two barren
+   * attempts in a row is not bad luck, it is a leaf that is blocked on something the agent cannot
+   * see — and a third costs real tokens to learn the same thing.
+   *
+   * Optional because attempts recorded before this existed have no answer, and treating "unknown"
+   * as "barren" would retro-actively stop leaves that were doing fine.
+   */
+  produced?: boolean;
+}
+
+/**
+ * Whether to stop retrying because nothing is being produced.
+ *
+ * True only when THIS attempt produced nothing and the one before it also explicitly produced
+ * nothing. Unknown never counts: an attempt from before `produced` was recorded says nothing about
+ * whether it wrote anything, and reading silence as failure would stop leaves that were fine.
+ *
+ * Temporal cannot raise `maximumAttempts` at runtime, so stopping early is the only lever the retry
+ * policy offers — and it is the useful one. It converts a third attempt from "spend the budget
+ * again" into "surface it to a human", which is what POST /api/leaves/:id/review is for.
+ */
+export function barrenStreak(priorAttempts: LeafAttempt[], producedThisTime: boolean): boolean {
+  if (producedThisTime) return false;
+  const last = priorAttempts[priorAttempts.length - 1];
+  return last?.produced === false;
 }
 
 /**
@@ -468,6 +545,7 @@ export function aggregateUsage(leaves: Leaf[], root: Leaf, now: number): BudgetU
 
   return {
     tokens: sum('tokens'),
+    completionTokens: sum('completionTokens'),
     workspaces: sum('workspaces'),
     replans: sum('replans'),
     wallClockMs,

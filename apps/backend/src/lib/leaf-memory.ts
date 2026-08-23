@@ -66,7 +66,9 @@ function layoutFact(input: LeafMemoryInput, when: string, makeId: () => string):
     ownerId: input.leaf.ownerId,
     ...(input.leaf.projectId ? { projectId: input.leaf.projectId } : {}),
     category: 'environment_facts',
-    scope: 'project',
+    // A layout is about a repository, so it needs the project it describes. See the note on
+    // `failureLesson` for the shape this avoids.
+    scope: input.leaf.projectId ? 'project' : 'global',
     recommendedScope: 'project',
     // ACTIVE: read off git, not concluded from anything. See the note at the top of this file.
     status: 'active',
@@ -118,10 +120,34 @@ function failureLesson(input: LeafMemoryInput, when: string, makeId: () => strin
     ownerId: input.leaf.ownerId,
     ...(input.leaf.projectId ? { projectId: input.leaf.projectId } : {}),
     category,
-    scope: 'project',
+    /**
+     * ── SCOPE FOLLOWS THE DATA, BECAUSE THE ALTERNATIVE IS INVISIBLE ──
+     *
+     * This was `scope: 'project'` unconditionally while `projectId` was set only when the leaf had
+     * one. `buildMemoryContext` gives a project-scoped memory to a leaf only when the ids match, so
+     * every lesson from a project-less leaf matched nothing, ever. Measured: 25 such rows on this
+     * instance, written and never once read.
+     *
+     * Research personas (`repo: false`) have no project by design, and their failures are usually
+     * about the harness or the image rather than about a repository — "a command the sandbox does
+     * not have" is a fact about the environment everywhere. Owner-global is both reachable and the
+     * more accurate claim. Where a project exists, it is used.
+     */
+    scope: input.leaf.projectId ? 'project' : 'global',
     recommendedScope: 'project',
-    // PENDING_REVIEW: inferred, so a human decides. buildMemoryContext excludes these.
-    status: 'pending_review',
+    /**
+     * ── THE QUEUE IS GONE; THE JUDGEMENT IS NOT ──
+     *
+     * This was `pending_review`, on the rule stated at the top of this file: nothing a model
+     * concluded reaches a future prompt without somebody agreeing to it. The rule was right and the
+     * mechanism was not — measured on this instance, 124 of 143 memories were sitting unread in
+     * that queue, so what the harness had learned from failures reached nothing, ever.
+     *
+     * Admission is now decided against what is already stored (lib/memory-decide.ts), which is the
+     * question a reviewer would have been answering. `active` here means "eligible", not "kept":
+     * `admitMemory` still gets to say NOOP, and every retirement is reversible.
+     */
+    status: 'active',
     title,
     text,
     source: 'post_run_extractor',
@@ -153,16 +179,33 @@ export function extractLeafMemories(input: LeafMemoryInput): MemoryItem[] {
  *
  * Every leaf produces one, so without this a ten-leaf project would carry ten near-identical file
  * listings into every prompt — the memory bank becoming the context bloat it exists to prevent.
+ *
+ * ── IT INVALIDATES; IT NO LONGER DELETES ──
+ * This used to return ids for `db.deleteMemory`, and the row was gone. That made one question
+ * unanswerable: what did the harness believe when a given leaf ran? Failure review and the judge
+ * both read a finished leaf and ask exactly that, and a deleted layout fact cannot be consulted.
+ *
+ * The replacement carries `invalidAt` and `supersededBy`, so the history is intact and
+ * `buildMemoryContext` still shows only what is current. It also costs nothing to get wrong, which
+ * is what makes it safe for a model rather than a human to decide what supersedes what
+ * (memory-decide.ts).
  */
-export function supersede(existing: MemoryItem[], incoming: MemoryItem[]): { save: MemoryItem[]; remove: string[] } {
-  const remove: string[] = [];
+export function supersede(
+  existing: MemoryItem[],
+  incoming: MemoryItem[],
+  now = new Date().toISOString(),
+): { save: MemoryItem[]; invalidate: MemoryItem[] } {
+  const invalidate: MemoryItem[] = [];
   for (const item of incoming) {
     if (item.category !== 'environment_facts' || item.title !== 'Repository layout') continue;
-    remove.push(...existing
+    invalidate.push(...existing
       .filter((m) => m.title === 'Repository layout'
         && m.projectId === item.projectId
-        && m.ownerId === item.ownerId)
-      .map((m) => m.id));
+        && m.ownerId === item.ownerId
+        // Already retired by an earlier run. Re-stamping it would move the moment it stopped being
+        // true forward every time a leaf finishes, which is the one thing the field is for.
+        && !m.invalidAt)
+      .map((m) => ({ ...m, invalidAt: now, supersededBy: item.id, updatedAt: now })));
   }
-  return { save: incoming, remove };
+  return { save: incoming, invalidate };
 }

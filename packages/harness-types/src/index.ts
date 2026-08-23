@@ -156,6 +156,17 @@ export interface Tunable {
    * per request — which keeps the picker honest without the UI knowing that `model` is special.
    */
   choicesFrom?: 'models';
+  /**
+   * Which config layers may set this knob. Absent means all three.
+   *
+   * ── WHY A KNOB WOULD BE RESTRICTED ──
+   * `resolveConfig` layers profile → persona → request, so a profile value applies to every persona
+   * in every project at once. For most knobs that is the point. For `model` it is not: which engine
+   * answers is part of what a persona IS, and one profile field silently repointing every leaf —
+   * and, since budgets follow the model's window, silently resizing every leaf's context — is not
+   * something a single setting should be able to do.
+   */
+  settableAt?: ('profile' | 'persona' | 'request')[];
   /** Filled in by `buildHarnessConfig` for knobs with `choicesFrom`. Never authored by hand. */
   choices?: { value: string; label: string; note?: string }[];
   /** What the harness runs at today, read from the defining module rather than restated. */
@@ -299,6 +310,19 @@ export interface VariantResult {
   /** What the task said success looks like, stored so a result stays readable after an edit. */
   expected?: { verifyCommand: string; note: string };
   trace?: AgentStep[];
+  /**
+   * What the run actually changed, captured before its sandbox was destroyed.
+   *
+   * Exists so a judge can be CALIBRATED. An experiment run is the only place in this system with
+   * independent ground truth — a verify command whose exit code no model influenced — so it is the
+   * only corpus a model's judgement can be scored against. Without a diff there is nothing to score
+   * it ON, and `trace` will not substitute: MAX_TRACE_TOOL_ARGS clips `write_file` payloads, which
+   * is exactly the content that matters.
+   *
+   * Deliberately excludes the task's `solution`. That exists to gate the verify command two-sided,
+   * and showing it to a judge would make its job a different and much easier one than the live case.
+   */
+  evidence?: { diff?: string; diffTruncated?: boolean };
   /** Distinct tools called by the agent during this variant execution. */
   toolsUsed?: string[];
   /** Whether the agent invoked the expected dedicated tool for this task rather than falling back to run_command alone. */
@@ -873,4 +897,3 @@ export interface OutcomeCounts {
   broken: number;
 }
 
-export * from './harness-v2-types.js';

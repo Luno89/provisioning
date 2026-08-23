@@ -16,7 +16,7 @@ let db: MemoryDB;
 
 const tools = (over: Partial<LeafToolContext> = {}): LeafToolContext => ({
   db, userId: 'u1', branchId: 'b1',
-  webSearch: async () => [], fetchWebPage: async () => '',
+  webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '',
   projects: {} as LeafToolContext['projects'],
   ...over,
 });
@@ -249,7 +249,7 @@ describe('research, because the planner has no web access', () => {
 
     const result = await runPlanningTurn({
       baseUrl: 'http://model', prompt: 'Plan a GitHub client', tools: tools(), fetchImpl: impl,
-      research: { webSearch: async () => [], fetchWebPage: async () => '' },
+      research: { webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '' },
     });
 
     expect(result.research).toHaveLength(1);
@@ -271,7 +271,7 @@ describe('research, because the planner has no web access', () => {
 
     const result = await runPlanningTurn({
       baseUrl: 'http://model', prompt: 'x', tools: tools(), fetchImpl: impl,
-      research: { webSearch: async () => [], fetchWebPage: async () => '' },
+      research: { webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '' },
     });
 
     expect(result.exit).toBe('repeating');
@@ -291,7 +291,7 @@ describe('research, because the planner has no web access', () => {
 
     const result = await runPlanningTurn({
       baseUrl: 'http://model', prompt: 'x', tools: tools(), fetchImpl: impl,
-      research: { webSearch: async () => [], fetchWebPage: async () => '' },
+      research: { webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '' },
     });
 
     expect(result.exit).toBe('repeating');

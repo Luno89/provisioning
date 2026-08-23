@@ -22,7 +22,7 @@ const ctx = (overrides: Partial<LeafToolContext> = {}): LeafToolContext => ({
   db: new MemoryDB() as any,
   userId: 'u1',
   branchId: 'b1',
-  webSearch: async () => [],
+  webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }),
   fetchWebPage: async () => '',
   // Real enough to resolve a project name; the runner must also survive it failing.
   projects: { listForOwner: async () => [{ id: 'p-9', name: 'github-mcp' }] } as any,

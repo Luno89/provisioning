@@ -29,6 +29,9 @@ import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { readyToStart } from '../lib/leaves.js'
+import { consolidateMemories, type ConsolidationReport } from '../lib/memory-consolidate.js'
+import { corpusEndpoints } from '../lib/web-tools-resolver.js'
+import { indexMemories, similarTo } from '../lib/memory-index.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import { InfrastructureService } from './InfrastructureService.js'
 import { sanitizeNamespace } from '../lib/model-registry.js'
@@ -60,6 +63,15 @@ const RECONCILE_INTERVAL = 30000
  * would only mean scanning every leaf on the board twice a minute to find nothing.
  */
 const DEPENDENCY_BACKSTOP_INTERVAL = 300000
+
+/**
+ * How often the memory bank is consolidated.
+ *
+ * Half an hour, not the reconcile loop's thirty seconds: nothing here is time-critical, every step
+ * no-ops when there is nothing to do, and the pass reads the whole bank. It is the "dream" cadence —
+ * tidying that happens between the work rather than during it.
+ */
+const CONSOLIDATE_INTERVAL = 1_800_000
 const MAX_POLL_FAILURES = 12
 
 /**
@@ -248,6 +260,12 @@ export class TemporalBridge {
   clusterService?: ClusterService
   /** Structurally typed rather than importing HeadscaleService — only createPreAuthKey is used. */
   headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> }
+
+  /**
+   * What the last consolidation pass did. Read by the Lab so the panel can say when the bank was
+   * last tidied and what changed — a loop that edits memory unattended should be visible.
+   */
+  lastConsolidation?: ConsolidationReport
 
   constructor(
     db: Database,
@@ -843,8 +861,65 @@ export class TemporalBridge {
       }
     }
 
+    /**
+     * ── THE CONSOLIDATION PASS ──
+     *
+     * The review queue was the only thing bounding this bank's growth, and only by accident: 124 of
+     * 143 memories sat in it unread. `memory-decide.ts` removed it deliberately, which means
+     * something has to do the tidying it was accidentally doing. See lib/memory-consolidate.ts.
+     *
+     * Here rather than in a Temporal workflow because this file already owns every periodic job in
+     * the platform and no Temporal Schedules exist to extend; in the backend process because that
+     * one hot-reloads, and the workers do not.
+     *
+     * The in-flight guard is not decoration: the pass reads the whole bank and writes to Qdrant, and
+     * two overlapping passes would each decide what to retire from a snapshot the other is editing.
+     */
+    let consolidating = false
+    const consolidate = async () => {
+      if (consolidating) return
+      consolidating = true
+      try {
+        const memories = await this.db.getMemories().catch(() => [])
+        const ownerId = memories[0]?.ownerId
+        // Endpoints are per-owner, so a bank spanning several owners resolves the first one's and
+        // consolidates the rest on titles alone. Correct, just less thorough — and the title rule
+        // is the one that catches what this bank actually accumulates.
+        const ends = ownerId ? await corpusEndpoints(this.db, ownerId).catch(() => undefined) : undefined
+
+        const report = await consolidateMemories({
+          db: this.db as never,
+          ...(ends ? {
+            index: (items) => indexMemories(ends, items),
+            similar: async (ids: string[]) => {
+              const out = new Map<string, { id: string; score: number }[]>()
+              for (const id of ids) {
+                out.set(id, await similarTo(ends, id, { ownerId: ownerId! }).catch(() => []))
+              }
+              return out
+            },
+          } : {}),
+        })
+
+        // Logged only when it did something. A line every half hour saying nothing happened is a
+        // line nobody reads, and then the one that matters is not read either.
+        if (report.deduped || report.promoted || report.decayed) {
+          console.log(`[Consolidate] ${report.live} live memories`
+            + ` (deduped ${report.deduped}, promoted ${report.promoted}, decayed ${report.decayed},`
+            + ` indexed ${report.indexed})`)
+        }
+        this.lastConsolidation = report
+      } catch (err: any) {
+        console.warn(`[Consolidate] pass failed: ${err.message}`)
+      } finally {
+        consolidating = false
+      }
+    }
+
     reconcile()
     setInterval(reconcile, RECONCILE_INTERVAL)
+    consolidate()
+    setInterval(consolidate, CONSOLIDATE_INTERVAL)
     reconcileRuns()
     setInterval(reconcileRuns, RECONCILE_INTERVAL)
     releaseBackstop()

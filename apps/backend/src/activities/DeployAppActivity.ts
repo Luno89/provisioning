@@ -7,7 +7,8 @@
 import { randomBytes } from 'node:crypto';
 import { renderApp } from '../lib/app-spec.js';
 import { resolveBindings, bindingFiles } from '../lib/binding-resolve.js';
-import { bindingProjection, type ProjectedBinding } from '../lib/service-binding.js';
+import { bindingProjection, bindingSecretName, type ProjectedBinding } from '../lib/service-binding.js';
+import { readBindingCredentials } from '../lib/binding-project.js';
 import { createDatabase } from '../lib/db-interface.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -482,24 +483,15 @@ export async function DeployAppActivity(
 
       const projected: ProjectedBinding[] = [];
       for (const b of bindings) {
-        // Read the provider's Secret. `-o json` rather than jsonpath: one parse, and a missing key
-        // is visible rather than an empty string.
-        const raw = await infra.runKubectl(
-          ['get', 'secret', b.source.secretName, '-n', b.source.namespace, '-o', 'json'],
-          kubeconfigPath,
-        ).catch(() => '');
-        const data = (() => {
-          try { return JSON.parse(typeof raw === 'string' ? raw : (raw as any)?.stdout ?? '')?.data ?? {}; }
-          catch { return {}; }
-        })();
-        const credentials: Record<string, string> = {};
-        for (const [bindingKey, sourceKey] of Object.entries(b.source.keys)) {
-          const value = data[sourceKey];
-          // Kubernetes stores Secret data base64-encoded.
-          if (typeof value === 'string') credentials[bindingKey] = Buffer.from(value, 'base64').toString('utf8');
-        }
+        // Shared with the sandbox path (lib/binding-project.ts). The decode is the one step where a
+        // mistake is silent — a key mapped wrongly yields a Secret of empty strings, and the failure
+        // surfaces much later as an auth error against a service that is fine. One copy.
+        const credentials = await readBindingCredentials(async (args) => {
+          const raw = await infra.runKubectl(args, kubeconfigPath);
+          return typeof raw === 'string' ? raw : ((raw as any)?.stdout ?? '');
+        }, b);
 
-        const secretName = `binding-${b.name}`;
+        const secretName = bindingSecretName(b.name);
         const files = bindingFiles(b, credentials);
         // Applied rather than created, so a redeploy updates a rotated credential instead of
         // failing on an object that already exists.

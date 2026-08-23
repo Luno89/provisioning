@@ -22,7 +22,11 @@ import {
   WORKSPACE_POD,
   WORKSPACE_MOUNT,
   type WorkspaceSpec,
+  type WorkspaceBinding,
 } from '../lib/workspace-spec.js';
+import { readBindingCredentials } from '../lib/binding-project.js';
+import { bindingFiles } from '../lib/binding-resolve.js';
+import type { ResolvedBinding } from '../lib/binding-resolve.js';
 
 const BIN_DIR = path.join(process.cwd(), '..', '..', 'bin');
 
@@ -101,6 +105,34 @@ export class WorkspaceService {
    * would be a sandbox with unrestricted egress, which is worse than no sandbox at all because it
    * looks like one.
    */
+  /**
+   * Reads the credentials a set of bindings declared, turning them into sandbox files.
+   *
+   * Here rather than in the caller because this class is the one that holds a kubectl, and because
+   * a credential should travel through as few places as possible. Nothing is logged: a warning
+   * naming a Secret is fine, a warning containing one is not.
+   *
+   * A binding that cannot be read still produces its address files. That is deliberate — an agent
+   * that can see `host` and `port` but no password has a diagnosable problem, whereas a missing
+   * directory sends it back to guessing, which is the failure this whole path exists to end.
+   */
+  async materializeBindings(bindings: readonly ResolvedBinding[]): Promise<WorkspaceBinding[]> {
+    const out: WorkspaceBinding[] = [];
+    for (const binding of bindings) {
+      const credentials = await readBindingCredentials(
+        async (args) => (await this.run(args)).stdout,
+        binding,
+      );
+      const missing = Object.keys(binding.source.keys).filter((k) => credentials[k] === undefined);
+      if (missing.length) {
+        console.warn(`[workspace] binding ${binding.name}: no value for ${missing.join(', ')}`
+          + ` in ${binding.source.secretName}`);
+      }
+      out.push({ name: binding.name, files: bindingFiles(binding, credentials) });
+    }
+    return out;
+  }
+
   async create(spec: WorkspaceSpec, readyTimeoutMs = 120_000): Promise<string> {
     const namespace = workspaceNamespace(spec.leafId);
     const manifests = buildWorkspaceManifests(spec);

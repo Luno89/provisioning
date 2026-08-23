@@ -60,11 +60,31 @@ export const KOALA_PROMPT = [
 ].join('\n');
 
 /**
+ * Warmth, restored deliberately after the sampler change.
+ *
+ * The chat turn used to run as `turn: 'conversation'`, which sets no temperature at all and leaves
+ * the engine's default — but which also carries `frequency_penalty: 0.4` and
+ * `presence_penalty: 0.3`, and those were measured to ELIMINATE tool calling (exp-penalties-001:
+ * 0/12 with, 12/12 without, worse the more tools are on offer, and Koala offers eleven). The turn
+ * is now `'tool-turn'`, which drops the penalties — and pins temperature at 0.3, which is right for
+ * an agent picking a tool and wrong for the persona whose prompt says it is good company.
+ *
+ * So the penalties go and the warmth comes back separately, through the override chain rather than
+ * a third TurnKind. That keeps it visible and editable in the Lab instead of hard-coded, and it
+ * keeps the two decisions separable: one is measured, the other is taste.
+ */
+export const KOALA_TEMPERATURE = 0.7;
+
+/**
  * The seed, deliberately minimal.
  *
  * No language, no repo, no egress: those are execution settings and this persona never executes.
  * `mcp` stays empty because Koala's services are enabled per session, not granted up front — the
  * whole point of the lazy mechanism.
+ *
+ * `overrides` is the one exception to minimal — see KOALA_TEMPERATURE. Note that this seed only
+ * runs for a user who does not have a Koala yet, so it is not on its own enough: `ensureKoala`
+ * backfills the same value onto personas that predate it.
  */
 export function koalaSeed(): Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'> {
   return {
@@ -72,6 +92,7 @@ export function koalaSeed(): Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'upd
     description: 'General chat. Talks things through and proposes projects to build.',
     systemPrompt: KOALA_PROMPT,
     scope: {},
+    overrides: { temperature: KOALA_TEMPERATURE },
   } as Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'>;
 }
 

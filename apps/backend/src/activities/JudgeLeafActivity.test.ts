@@ -1,0 +1,158 @@
+/**
+ * The judge, with its collaborators faked at the module boundary — same approach and same reasons
+ * as ExecuteLeafActivity.test.ts.
+ *
+ * What is being pinned here is mostly what the judge must NOT do. It is a convenience over the
+ * deterministic layers, not a replacement for them, so every failure mode has to be inert.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryDB } from '../lib/memory-db.js';
+import type { Leaf } from '../lib/leaves.js';
+
+const resolveBaseUrl = vi.fn();
+const readStreamedReply = vi.fn();
+const fetchMock = vi.fn();
+
+let db: MemoryDB;
+
+vi.mock('../lib/db-interface.js', () => ({ createDatabase: () => db }));
+vi.mock('../lib/model-wiring.js', () => ({ createModelService: () => ({ resolveBaseUrl }) }));
+vi.mock('../lib/agent-loop.js', () => ({ readStreamedReply }));
+vi.stubGlobal('fetch', fetchMock);
+
+const { JudgeLeafActivity } = await import('./JudgeLeafActivity.js');
+
+const leaf = (over: Partial<Leaf> = {}): Leaf => ({
+  id: 'leaf-1', ownerId: 'u1', branchId: 'b1', title: 'Add a rate limiter',
+  status: 'succeeded', verified: false, column: 'review', depth: 0, blocking: true,
+  createdAt: '2026-08-21T00:00:00Z', updatedAt: '2026-08-21T00:00:00Z',
+  ...over,
+} as Leaf);
+
+const DIFF = '+const bucket = new TokenBucket(100);\n+// TODO: wire the middleware in';
+
+const seeded = async (records: Leaf[], evidence?: any) => {
+  const fresh = new MemoryDB();
+  await fresh.init();
+  for (const l of records) await fresh.saveLeaf(l);
+  if (evidence) {
+    await fresh.saveLeafTrace({
+      id: 'leaf-1', ownerId: 'u1', branchId: 'b1', steps: [],
+      totalSteps: 1, tokensUsed: 10, createdAt: 'now',
+    } as any);
+    await fresh.saveLeafEvidence('leaf-1', evidence);
+  }
+  (fresh as any).init = async () => undefined;
+  (fresh as any).close = async () => undefined;
+  return fresh;
+};
+
+const replied = (content: string) => {
+  fetchMock.mockResolvedValue({ ok: true } as any);
+  readStreamedReply.mockResolvedValue({ content, reasoning: '', toolCalls: [], tokens: 10, completionTokens: 5 });
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  resolveBaseUrl.mockResolvedValue({ provider: { id: 'd1', name: 'Tabby', model: 'Qwen3-32B' }, baseUrl: 'http://model' });
+});
+
+const review = async () => (await db.getLeaves()).find((l) => l.id === 'leaf-1')!.review;
+
+describe('what the judge writes', () => {
+  it('records a verdict with the quote that earned it', async () => {
+    db = await seeded([leaf()], { capturedAt: 'now', diff: DIFF });
+    replied(JSON.stringify({
+      dimensions: [{ name: 'no_stubs', verdict: 'unsound', quote: '// TODO: wire the middleware in', why: 'left as a stub' }],
+    }));
+
+    const out = await JudgeLeafActivity({ leafId: 'leaf-1' });
+
+    expect(out.verdict).toBe('unsound');
+    expect((await review())?.dimensions?.[0]?.quote).toContain('TODO: wire the middleware');
+  });
+
+  /**
+   * ── THE LINE THAT MUST NOT MOVE ──
+   * `verified` means a deterministic check ran and passed. Letting a model set it — or `status`, or
+   * `merged` — would destroy the claimed-versus-verified distinction the rest of this codebase is
+   * built on, which is the same reason `decideStatus` exists.
+   */
+  it('never touches status, verified or merged', async () => {
+    db = await seeded([leaf({ status: 'succeeded', verified: false })], { capturedAt: 'now', diff: DIFF });
+    replied(JSON.stringify({ dimensions: [{ name: 'x', verdict: 'unsound', quote: '// TODO: wire the middleware in', why: 'y' }] }));
+
+    await JudgeLeafActivity({ leafId: 'leaf-1' });
+
+    const after = (await db.getLeaves()).find((l) => l.id === 'leaf-1')!;
+    expect(after.status).toBe('succeeded');
+    expect(after.verified).toBe(false);
+    expect(after.merged).toBeUndefined();
+  });
+});
+
+/**
+ * Scope is a SAFETY property here, not a policy: the judge is never shown a green suite, so it is
+ * structurally incapable of overturning one.
+ */
+describe('which leaves it will look at', () => {
+  it('refuses a verified leaf without calling a model', async () => {
+    db = await seeded([leaf({ verified: true })], { capturedAt: 'now', diff: DIFF });
+
+    const out = await JudgeLeafActivity({ leafId: 'leaf-1' });
+
+    expect(out.verdict).toBe('unavailable');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await review()).toBeUndefined();
+  });
+
+  it('refuses a failed leaf', async () => {
+    db = await seeded([leaf({ status: 'failed' })], { capturedAt: 'now', diff: DIFF });
+    expect((await JudgeLeafActivity({ leafId: 'leaf-1' })).verdict).toBe('unavailable');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('when it cannot answer', () => {
+  it('says so rather than forming an opinion on nothing', async () => {
+    // The failure this entire design exists around: harness-v2 scored work against a hardcoded diff.
+    db = await seeded([leaf()]);
+
+    const out = await JudgeLeafActivity({ leafId: 'leaf-1' });
+
+    expect(out.verdict).toBe('unavailable');
+    expect((await review())?.reason).toMatch(/no evidence/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('degrades to unavailable when the model throws, and writes nothing', async () => {
+    db = await seeded([leaf()], { capturedAt: 'now', diff: DIFF });
+    fetchMock.mockRejectedValue(new Error('endpoint down'));
+
+    const out = await JudgeLeafActivity({ leafId: 'leaf-1' });
+
+    expect(out.verdict).toBe('unavailable');
+    // No verdict at all beats a wrong one — and silence must be distinguishable from approval.
+    expect(await review()).toBeUndefined();
+  });
+
+  it('degrades when the model returns nonsense', async () => {
+    db = await seeded([leaf()], { capturedAt: 'now', diff: DIFF });
+    replied('I am unable to review this.');
+
+    expect((await JudgeLeafActivity({ leafId: 'leaf-1' })).verdict).toBe('unavailable');
+  });
+
+  /**
+   * A fabricated quote is discarded before it can vote, so a judge that invents everything ends up
+   * with no opinion rather than a confident wrong one.
+   */
+  it('reaches no verdict when every finding was fabricated', async () => {
+    db = await seeded([leaf()], { capturedAt: 'now', diff: DIFF });
+    replied(JSON.stringify({
+      dimensions: [{ name: 'x', verdict: 'unsound', quote: 'throw new Error("not implemented")', why: 'stubbed' }],
+    }));
+
+    expect((await JudgeLeafActivity({ leafId: 'leaf-1' })).verdict).toBe('unavailable');
+  });
+});

@@ -17,6 +17,7 @@
  * which is the whole difference between the harness noticing and a person having to.
  */
 import { createDatabase } from '../lib/db-interface.js';
+import { countWorkspace } from '../lib/leaf-usage.js';
 import { requestFinished, type Branch, type Leaf } from '../lib/leaves.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
 import { GiteaService } from '../services/GiteaService.js';
@@ -95,6 +96,9 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
        */
       egress: [{ namespace: 'gitea', ports: [3000] }, { cidr: '0.0.0.0/0' }],
     });
+    // One of the three counted sites — see lib/leaf-usage.ts. Attributed to the leaf the request
+    // was reached through, not to `workspaceId` (`accept-<leafId>`), which matches no leaf record.
+    await countWorkspace(db, args.leafId);
 
     const cloned = await workspaces.exec(workspaceId, [
       'set -e',

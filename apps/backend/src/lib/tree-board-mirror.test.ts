@@ -118,9 +118,22 @@ describe('the board rule, on both sides of the wire', () => {
 
     expect(declares(record, 'usage'), 'the server stopped declaring `usage`').toBe(true);
     expect(declares(record, 'usageTotal')).toBe(false);
-    // So the browser must declare the same one, and must not resurrect the phantom.
+    // So the browser must declare the same one.
     expect(declares(frontendSource, 'usage')).toBe(true);
-    expect(frontendSource.includes('usageTotal?:')).toBe(false);
+
+    /**
+     * `usageTotal` is now written — but by the ROUTE, not by the record, which is why the record
+     * still must not declare it. It is the subtree rollup the leaves route adds to every root, and
+     * a remaining-budget line cannot be built from `usage` (this leaf alone) instead.
+     *
+     * So the rule this test enforces is unchanged — the browser may only declare fields something
+     * actually writes — while the fact it checks has moved. Pinned against the route's own emit so
+     * deleting the writer fails here rather than blanking a panel.
+     */
+    const route = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    const emitsRollup = route.includes('usageTotal: aggregateUsage(');
+    expect(emitsRollup, 'the leaves route stopped emitting the subtree rollup').toBe(true);
+    expect(frontendSource.includes('usageTotal?:')).toBe(emitsRollup);
   });
 
   it('agrees on when a run is over', () => {

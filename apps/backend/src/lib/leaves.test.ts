@@ -1,27 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  dependenciesMet,
-  blockedBy,
-  readyToStart,
-  wouldCycle,
-  isLeafColumn,
-  LEAF_COLUMNS,
-  aggregateUsage,
-  failureContext,
-  shouldRetry,
-  MAX_LEAF_ATTEMPTS,
-  type LeafAttempt,
-  canAddChild,
-  budgetExceeded,
-  deriveLeafStatus,
-  childWorkflowId,
-  childrenOf,
-  rootLeaf,
-  subtreeOf,
-  MAX_DEPTH,
-  MAX_CHILDREN_PER_LEAF,
-  type Leaf,
-  type BudgetUsage,
+  dependenciesMet, blockedBy, readyToStart, wouldCycle, isLeafColumn, LEAF_COLUMNS, aggregateUsage, failureContext, shouldRetry, MAX_LEAF_ATTEMPTS, type LeafAttempt, canAddChild, budgetExceeded, deriveLeafStatus, childWorkflowId, childrenOf, rootLeaf, subtreeOf, MAX_DEPTH, MAX_CHILDREN_PER_LEAF, type Leaf, type BudgetUsage, barrenStreak,
 } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
@@ -38,7 +17,7 @@ const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   ...over,
 });
 
-const noUsage: BudgetUsage = { tokens: 0, wallClockMs: 0, workspaces: 0, replans: 0 };
+const noUsage: BudgetUsage = { tokens: 0, completionTokens: 0, wallClockMs: 0, workspaces: 0, replans: 0 };
 
 describe('deriveLeafStatus', () => {
   it('returns the leaf\'s own status when it has no children', () => {
@@ -362,5 +341,43 @@ describe('dependency ordering', () => {
     expect(readyToStart([one, two, three]).map((l) => l.id)).toEqual(['two']);
     const done = { ...two, status: 'succeeded' as const };
     expect(readyToStart([one, done, three]).map((l) => l.id)).toEqual(['three']);
+  });
+});
+
+/**
+ * Stopping a leaf that is not producing, rather than spending a third attempt learning it again.
+ *
+ * thrash.ts records the shape this rests on: every run that eventually worked began producing
+ * early, and the leaf that failed three times had written nothing at all across forty turns each of
+ * `ls`, `cat` and `git status`. It was not short of budget.
+ */
+describe('a barren streak', () => {
+  const attempt = (over: Partial<LeafAttempt> = {}): LeafAttempt =>
+    ({ attempt: 0, error: 'boom', failedAt: '2026-08-21T00:00:00Z', ...over });
+
+  it('stops after two attempts that left nothing', () => {
+    expect(barrenStreak([attempt({ produced: false })], false)).toBe(true);
+  });
+
+  it('keeps going when this attempt produced something', () => {
+    // Partial work is what the next attempt inherits and builds on — that is progress.
+    expect(barrenStreak([attempt({ produced: false })], true)).toBe(false);
+  });
+
+  it('keeps going when the previous attempt produced something', () => {
+    expect(barrenStreak([attempt({ produced: true })], false)).toBe(false);
+  });
+
+  it('never stops on the first failure', () => {
+    // One barren attempt is normal: the retry exists precisely to give it the failure to read.
+    expect(barrenStreak([], false)).toBe(false);
+  });
+
+  /**
+   * Attempts recorded before `produced` existed say nothing about whether they wrote anything, and
+   * reading that silence as failure would retro-actively stop leaves that were doing fine.
+   */
+  it('treats an unknown previous attempt as not-barren', () => {
+    expect(barrenStreak([attempt({})], false)).toBe(false);
   });
 });

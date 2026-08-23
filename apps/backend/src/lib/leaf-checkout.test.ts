@@ -7,8 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
-  buildMergeScript, parseMergeResult,
+  branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch, buildMergeScript, parseMergeResult, checkpointPath, buildCheckpointScript, parseCheckpointResult, buildProgressScript, parseProgress,
 } from './leaf-checkout.js';
 import type { Leaf } from './leaves.js';
 
@@ -231,5 +230,93 @@ describe('the push-back script', () => {
 
   it('reports nothing when the push never landed', () => {
     expect(parsePushedBranch('fatal: could not read Username\n')).toBeUndefined();
+  });
+});
+
+/**
+ * Checkpoints: the save point a leaf writes mid-run.
+ *
+ * The failure they exist for is not a crash — it is the activity's own wall-clock timeout. One
+ * Temporal activity wraps the whole loop, so a run killed at 31 minutes restarted at step zero with
+ * `/work` (an emptyDir) already destroyed and nothing pushed. Everything below is about making the
+ * save survive that, and about not creating new failure modes while doing it.
+ */
+describe('where a checkpoint is written', () => {
+  it('is unique per leaf, so siblings cannot conflict at landing', () => {
+    /**
+     * A shared PROGRESS.md is the obvious design and it is the trap: two sibling leaves branching
+     * from a common base and landing through buildMergeScript would conflict on a file NEITHER
+     * agent wrote, stranding real work and sending ResolveLandingActivity off to resolve harness
+     * bookkeeping with a whole agent run.
+     */
+    expect(checkpointPath('aaaaaaaa-1111')).not.toBe(checkpointPath('bbbbbbbb-2222'));
+  });
+
+  it('is deterministic, so a retry overwrites its own save rather than adding one', () => {
+    expect(checkpointPath('aaaaaaaa-1111')).toBe(checkpointPath('aaaaaaaa-1111'));
+  });
+
+  it('lives under .koala/, which the layout extractor skips', () => {
+    expect(checkpointPath('abcdef12')).toMatch(/^\.koala\//);
+  });
+});
+
+describe('committing and proving a checkpoint', () => {
+  const script = buildCheckpointScript();
+
+  it('interpolates nothing — branch and path arrive as argv', () => {
+    // Same rule as every other script here: the values are stored data, and stored data is
+    // untrusted regardless of who wrote it.
+    expect(script).toContain('"$0"');
+    expect(script).toContain('"$1"');
+  });
+
+  it('commits the agent’s work before the artifact that describes it', () => {
+    expect(script.indexOf('work in progress')).toBeLessThan(script.indexOf('koala: checkpoint'));
+  });
+
+  it('asks the REMOTE whether the push landed', () => {
+    /**
+     * This is the load-bearing line. `outputBranch` is written from this result and
+     * buildCheckoutScript positions the next attempt with it — so a push that silently failed
+     * while this reported success would send attempt 2 branching off the default and lose
+     * everything the checkpoint was meant to save.
+     */
+    expect(script).toContain('git ls-remote --heads origin "$0"');
+  });
+
+  it('reads back a confirmed checkpoint', () => {
+    const out = parseCheckpointResult('noise\nCHECKPOINT:koala/abc12345:9f8e7d6\nmore noise');
+    expect(out).toEqual({ branch: 'koala/abc12345', sha: '9f8e7d6' });
+  });
+
+  it('reports nothing when the remote did not confirm', () => {
+    // Absent must mean "did not land", never "probably fine".
+    expect(parseCheckpointResult('git push failed\n')).toBeUndefined();
+  });
+});
+
+describe('what the repository shows at a checkpoint', () => {
+  it('measures this leaf’s contribution, not the repository’s history', () => {
+    const script = buildProgressScript();
+    expect(script).toContain('origin/$0..HEAD');
+  });
+
+  it('survives a repo with no remote-tracking base yet', () => {
+    // A first checkpoint has nothing to diff against; falling back to full history is the same
+    // answer there, and failing outright would lose the save entirely.
+    const script = buildProgressScript();
+    expect(script).toContain('|| git log --oneline');
+    expect(script).toContain('|| git diff --stat HEAD');
+  });
+
+  it('splits the two sections the artifact renders separately', () => {
+    const out = parseProgress('COMMITS:\na1b2c3 add bucket\nCHANGED:\n 2 files changed, 40 insertions');
+    expect(out.commits).toBe('a1b2c3 add bucket');
+    expect(out.changed).toBe('2 files changed, 40 insertions');
+  });
+
+  it('returns empty strings rather than throwing on an empty repo', () => {
+    expect(parseProgress('')).toEqual({ commits: '', changed: '' });
   });
 });

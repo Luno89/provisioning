@@ -31,7 +31,7 @@ const run = (overrides?: Record<string, unknown>) => {
   const { impl, bodies } = capture();
   return runResearchAgent({
     question: 'q', baseUrl: 'http://m', kind: 'tabbyapi',
-    webSearch: async () => [], fetchWebPage: async () => '',
+    webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '',
     fetchImpl: impl, ...(overrides ? { overrides } : {}),
   }).then(() => bodies[0]);
 };

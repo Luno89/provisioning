@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
-import { runKoalaTool, type KoalaToolContext } from './koala-tool-runner.js';
+import { seedTreeTypes } from './tree-types.js';
+import { runKoalaTool, KOALA_TOOL_NAMES, type KoalaToolContext } from './koala-tool-runner.js';
 import { KOALA_TOOLS } from './koala-tools.js';
 import { titleFrom, enabledForSession, withEnabled, type Conversation } from './conversations.js';
 import { buildKoalaPrompt, isChatOnly, koalaSeed, KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
@@ -34,13 +35,16 @@ const seeded = async (over: Partial<Conversation> = {}) => {
     id: 'c1', ownerId: 'u1', title: 'Chat', messages: [],
     createdAt: 'now', updatedAt: 'now', ...over,
   });
+  // Project types are owned records now, so a fixture without them cannot propose anything — the
+  // handler resolves the type against the caller's own list.
+  await seedTreeTypes(db, 'u1');
   return db;
 };
 
 const ctx = (db: any, over: Partial<KoalaToolContext> = {}): KoalaToolContext => ({
   db, userId: 'u1', conversationId: 'c1', sessionId: 's1',
   servers: [server()],
-  webSearch: async () => [{ title: 't', snippet: 's', url: 'u' }],
+  webSearch: async () => ({ hits: [{ title: 't', snippet: 's', url: 'u' }], unavailable: false, answeredBy: 'searxng' as const }),
   fetchWebPage: async () => 'page',
   ...over,
 });
@@ -75,10 +79,16 @@ describe('the tools Koala gets', () => {
     expect(enable.function.description).toMatch(/same reply/);
   });
 
-  it('constrains a proposed type to the real ones', () => {
+  it('does not pin the proposed type to a fixed list', () => {
+    /**
+     * This asserted an enum, built from a module constant. Project types are owned records now, so a
+     * schema built once at import cannot know a type added this morning — and a fixed list would
+     * quietly exclude it. The handler validates against the caller's own types instead and refuses
+     * with the valid ids, which is the division `validateArgs` sets out.
+     */
     const params: any = KOALA_TOOLS.find((t) => t.function.name === 'propose_tree')!.function.parameters;
-    expect(Array.isArray(params.properties.type.enum)).toBe(true);
-    expect(params.properties.type.enum.length).toBeGreaterThan(0);
+    expect(params.properties.type.enum).toBeUndefined();
+    expect(params.properties.type.description).toMatch(/list_tree_types|ids available/i);
   });
 });
 
@@ -154,7 +164,9 @@ describe('what "session" means', () => {
 describe('proposing a project', () => {
   it('records it and says plainly that nothing was created', async () => {
     const db = await seeded();
-    const out = await run(db, 'propose_tree', { name: 'GitHub API MCP', goal: 'Wrap the GitHub API.' });
+    // A type is required now rather than defaulted — it decides the image, the starter files and
+    // what finishing means, so it is not a field to guess. See propose-tree-type.test.ts.
+    const out = await run(db, 'propose_tree', { name: 'GitHub API MCP', goal: 'Wrap the GitHub API.', type: 'mcp-server' });
     expect(out.proposed?.name).toBe('GitHub API MCP');
     expect(out.body.note).toMatch(/Nothing is created until the user accepts/);
     expect((await db.getConversations())[0].proposedTrees).toHaveLength(1);
@@ -165,11 +177,18 @@ describe('proposing a project', () => {
     expect((await run(db, 'propose_tree', { name: 'Something' })).body.error).toMatch(/goal is required/);
   });
 
-  it('falls back to a real type rather than storing an invented one', async () => {
+  it('REFUSES an invented type rather than quietly storing another', async () => {
+    /**
+     * This used to assert a fallback to `TREE_TYPES[0]` — an MCP server. The type decides the
+     * workspace image, the starter files and what finishing means, so substituting one silently
+     * builds a different kind of project than was asked for, and nothing says so.
+     */
     const db = await seeded();
     const out = await run(db, 'propose_tree', { name: 'X', goal: 'Y', type: 'not-a-type' });
-    expect(out.proposed?.type).toBeTruthy();
-    expect(out.proposed?.type).not.toBe('not-a-type');
+
+    expect(out.proposed).toBeUndefined();
+    // The refusal is in the tool RESULT the model reads, not on the helper's typed shape.
+    expect(out.content).toMatch(/not-a-type/);
   });
 });
 
@@ -183,11 +202,99 @@ describe('ownership', () => {
     expect(JSON.parse(out.content).error).toMatch(/no longer exists/);
   });
 
-  it('takes no owner argument on any tool', () => {
+  /**
+   * Widened from KOALA_TOOLS to the dispatch table, so it covers what can be RUN rather than what
+   * happens to be declared. Ownership arrives on `ctx` from the session the route authenticated;
+   * an argument is a value the model chose, and the two must never be confusable.
+   */
+  it('takes no owner argument on any dispatchable tool', () => {
+    for (const name of KOALA_TOOL_NAMES) {
+      const schema = KOALA_TOOLS.find((t) => t.function.name === name);
+      const props = Object.keys((schema?.function.parameters as any)?.properties ?? {});
+      for (const prop of props) {
+        expect(prop, `${name}.${prop}`).not.toMatch(/owner|userId|tenant/i);
+      }
+    }
+  });
+
+  /**
+   * `get_logs` and `get_events` build kubectl invocations as ARGUMENT ARRAYS this codebase
+   * constructs — never a string a model wrote. A tool that took a command, a script or a URL
+   * template would hand that back, so the shape is asserted rather than remembered.
+   *
+   * The abandoned harness-v2 branch is the cautionary case: its `call_platform_api` took a method
+   * and a path and issued any authenticated request the model asked for, DELETE included.
+   */
+  it('offers no tool that takes a command, a script, or a raw request to issue', () => {
     for (const t of KOALA_TOOLS) {
       const props = Object.keys((t.function.parameters as any).properties ?? {});
-      expect(props, t.function.name).not.toContain('ownerId');
+      for (const prop of props) {
+        expect(prop, `${t.function.name}.${prop}`).not.toMatch(/^(command|shell|script|exec|method|body|headers)$/i);
+      }
     }
+  });
+});
+
+/**
+ * ── THE BUG THIS SECTION EXISTS FOR ──
+ * `web_search` and `fetch_web_page` had working handlers, and the chat route wired the live
+ * implementations into their context, and a dead `KOALA_TOOL_NAMES` constant listed them — but
+ * neither had a schema in KOALA_TOOLS, so no model was ever told they existed. Koala could not
+ * search the web, and every piece of the machinery said it could.
+ *
+ * The join in koala-tools.ts now makes that combination a compile error. These assert it stays one.
+ */
+describe('every declared tool can be run, and every runnable tool is declared', () => {
+  it('has a schema for each dispatchable name', () => {
+    for (const name of KOALA_TOOL_NAMES) {
+      expect(KOALA_TOOLS.map((t) => t.function.name), name).toContain(name);
+    }
+  });
+
+  it('has a handler for each declared schema', () => {
+    for (const t of KOALA_TOOLS) {
+      expect(KOALA_TOOL_NAMES, t.function.name).toContain(t.function.name);
+    }
+  });
+
+  it('refuses a name it cannot dispatch, rather than pretending', async () => {
+    const db = await seeded();
+    expect((await run(db, 'call_platform_api', { method: 'DELETE' })).body.error).toMatch(/No tool named/);
+  });
+});
+
+describe('reaching the web', () => {
+  it('searches, now that the tool is actually offered', async () => {
+    const db = await seeded();
+    const out = await run(db, 'web_search', { query: 'temporal typescript sdk' });
+    expect(out.body.results?.[0]?.url).toBe('u');
+  });
+
+  it('fetches a page', async () => {
+    const db = await seeded();
+    expect((await run(db, 'fetch_web_page', { url: 'https://example.com' })).body.text).toBe('page');
+  });
+
+  it('still refuses a non-http address', async () => {
+    // The handler's own rule, unchanged by the move — file:// and friends are not fetchable here.
+    const db = await seeded();
+    expect((await run(db, 'fetch_web_page', { url: 'file:///etc/passwd' })).body.error).toMatch(/http or https/);
+  });
+});
+
+describe('checking arguments before running anything', () => {
+  it('names the field when a type is wrong', async () => {
+    const db = await seeded();
+    expect((await run(db, 'web_search', { query: 42 })).body.error).toMatch(/"query" as string/);
+  });
+
+  /**
+   * Deliberately NOT enforced here: the handlers report a missing field far better, because they
+   * know what it is for. Asserted so nobody re-adds a generic required-key check on top of them.
+   */
+  it('leaves a missing field to the handler, which explains it properly', async () => {
+    const db = await seeded();
+    expect((await run(db, 'propose_tree', { name: 'X' })).body.error).toMatch(/goal is required/);
   });
 });
 

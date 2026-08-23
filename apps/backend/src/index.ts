@@ -57,6 +57,7 @@ import type { CloudProvider } from './lib/types.js';
 import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
+import { budgetForNewRoot } from './lib/budget-policy.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
 import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
 import { extractServiceName } from './lib/extraction.js';
@@ -88,13 +89,14 @@ import { validateSpec, explainSpecProblems } from './lib/app-spec-validate.js';
 import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
 import type { AcceptanceCheck } from './lib/acceptance.js';
 import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
-import { titleFrom, enabledForSession, type Conversation, type ProposedTree } from './lib/conversations.js';
-import { koalaSeed, isChatOnly, buildKoalaPrompt } from './lib/koala-persona.js';
+import {
+  titleFrom, enabledForSession, MAX_TOOL_CALL_ARGS, MAX_TOOL_CALL_DIGEST, MAX_TOOL_CALLS_PER_MESSAGE,
+  type Conversation, type ProposedTree, type ConversationToolCall,
+} from './lib/conversations.js';
+import { koalaSeed, isChatOnly, buildKoalaPrompt, KOALA_TEMPERATURE } from './lib/koala-persona.js';
 import { KOALA_TOOLS } from './lib/koala-tools.js';
 import { runKoalaTool } from './lib/koala-tool-runner.js';
 import { toLoopTools, routeCall } from './lib/mcp-tools.js';
-import { createHarnessV2Router } from './harness-v2/routes/harness-v2-routes.js';
-import { PLATFORM_OPENAPI_SPEC } from './lib/platform-openapi.js';
 /** Room for a turn that inspects, enables a service and then answers. */
 const KOALA_MAX_TOKENS = 8000;
 /**
@@ -135,7 +137,8 @@ import { preferUsable } from './lib/mcp-registry.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
-import { fittedMaxTokens } from './lib/sampling.js';
+import { fittedMaxTokens, MIN_TURN_TOKENS } from './lib/sampling.js';
+import { needsHandoff, withHandoff, historyForPrompt, trimKoalaThread } from './lib/koala-context.js';
 import { canRecheck, recheckVerdict, statusAfterRecheck } from './lib/leaf-recheck.js';
 import { webhookUrlFor } from './lib/project-shipping.js';
 import { buildReviewPrompt } from './lib/failure-review.js';
@@ -149,7 +152,8 @@ import { normaliseLeafInput } from './lib/leaf-input.js';
 import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
 import { summariseDelivery } from './lib/branch-delivery.js';
 import { unassignedLeaves, buildAssignmentPrompt, buildUnassignedNotice, MAX_ASSIGNMENT_ROUNDS } from './lib/persona-assignment.js';
-import { TREE_TYPES, normaliseTreeInput, withProject, isTreeType, treeTypeSpec, type Tree } from './lib/trees.js';
+import { normaliseTreeInput, withProject, type Tree } from './lib/trees.js';
+import { seedTreeTypes, validateTreeType, resolveTreeType } from './lib/tree-types.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
@@ -161,11 +165,12 @@ import {
   type Experiment, type ExperimentTask,
 } from './lib/experiments.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
-import { SANDBOX_TOOLS, MAX_AGENT_STEPS } from './lib/sandbox-tools.js';
+import { SANDBOX_TOOLS, MAX_AGENT_STEPS, trimConversation } from './lib/sandbox-tools.js';
 import { LEAF_TOOLS, MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
 import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, blockedBy, wouldCycle, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 import { getToolRepository } from './lib/tool-repository.js';
+import type { SearchOutcome } from './lib/web-tools.js';
 import type { MemoryItem } from './lib/memory-store.js';
 
 dotenv.config();
@@ -264,6 +269,22 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
+
+  /**
+   * The model ids this caller may name, for validating a `choicesFrom` knob at write time.
+   *
+   * Resolved per request because one tenant's models are not another's. Returns undefined when the
+   * list cannot be built, which tells `validateOverrides` to skip the check rather than refuse
+   * everything — a model list that failed to load must not make the persona form unusable.
+   */
+  const modelIdsFor = async (userId: string): Promise<string[] | undefined> => {
+    try {
+      return (await modelService.list(userId)).map((m) => m.id);
+    } catch {
+      return undefined;
+    }
+  };
+
   // The search functions are hoisted declarations, so passing them here — far above where they are
   // written — is safe. They reach the research SUB-AGENT only; the planner itself still has none.
   const experimentService = new ExperimentService(
@@ -396,7 +417,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const publicPaths = [
-      '/openapi.json',
       '/auth/login',
       '/auth/register',
       '/auth/2fa/verify',
@@ -432,12 +452,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     next();
   };
 
-  app.get('/api/openapi.json', (_req, res) => {
-    res.json(PLATFORM_OPENAPI_SPEC);
-  });
-
   app.use('/api', requireAuth);
-  app.use('/api/harness-v2', createHarnessV2Router({ modelService }));
 
   const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!(req as any).user?.isAdmin) {
@@ -1854,7 +1869,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     });
   }
 
-  async function executeWebSearch(query: string): Promise<{ title: string; snippet: string; url: string }[]> {
+  /**
+   * Returns the OUTCOME, not just the hits.
+   *
+   * Dropping to a bare array here is what erased the difference between "nothing matched" and
+   * "nothing looked" for every caller downstream — see `SearchOutcome` in lib/web-tools.ts.
+   */
+  async function executeWebSearch(query: string): Promise<SearchOutcome> {
     return (await webTools()).search(query);
   }
 
@@ -2309,8 +2330,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const refusal = validatePersona({ name: String(name ?? ''), systemPrompt }, existing);
     if (refusal) return res.status(400).json({ error: refusal });
 
-    // The same registry check every other override bag gets. A persona is not a way around it.
-    const invalid = validateOverrides(overrides ?? {});
+    // The same registry check every other override bag gets. A persona is not a way around it —
+    // and the layer matters now that `model` decides the run's context budget as well as its engine.
+    const models = await modelIdsFor(userId);
+    const invalid = validateOverrides(overrides ?? {}, { layer: 'persona', ...(models ? { models } : {}) });
     if (invalid) return res.status(400).json({ error: invalid });
     // Same check the edit route applies: a scope decides what the sandbox can reach, and a
     // malformed rule fails in the direction that matters — the pod comes up and the policy does
@@ -2347,7 +2370,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const refusal = validatePersona({ name: nextName, systemPrompt }, existing, persona.id);
     if (refusal) return res.status(400).json({ error: refusal });
     if (overrides !== undefined) {
-      const invalid = validateOverrides(overrides);
+      const models = await modelIdsFor(userId);
+      const invalid = validateOverrides(overrides, { layer: 'persona', ...(models ? { models } : {}) });
       if (invalid) return res.status(400).json({ error: invalid });
     }
     /**
@@ -2412,7 +2436,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (typeof overrides !== 'object' || overrides === null) {
       return res.status(400).json({ error: 'overrides must be an object' });
     }
-    const invalid = validateOverrides(overrides);
+    const models = await modelIdsFor(userId);
+    const invalid = validateOverrides(overrides, { layer: 'profile', ...(models ? { models } : {}) });
     if (invalid) return res.status(400).json({ error: invalid });
 
     const current = await db.getHarnessProfile(userId);
@@ -2448,7 +2473,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const built = buildPromotion(experiment, String(label ?? ''), current, userId);
     if (!built) return res.status(400).json({ error: 'That variant has no results to promote.' });
 
-    const invalid = validateOverrides(built.profile.overrides);
+    /**
+     * Promotion writes a PROFILE, so it is held to the profile's rules.
+     *
+     * A variant that won partly because of its model must not carry that model into a profile —
+     * that is precisely the one-field repointing of every persona that `settableAt` exists to stop.
+     * Refused rather than silently stripped: a promoted profile that quietly differs from the
+     * variant that won is worse than an error explaining why.
+     */
+    const models = await modelIdsFor(userId);
+    const invalid = validateOverrides(built.profile.overrides, { layer: 'profile', ...(models ? { models } : {}) });
     if (invalid) return res.status(400).json({ error: invalid });
 
     // Filed rather than overwritten: adopting a default has to be undoable, and a diff needs
@@ -2777,6 +2811,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.json(memories);
   });
 
+  /**
+   * What the last consolidation pass did.
+   *
+   * A loop that retires memories unattended should be visible to the person whose memories they
+   * are — otherwise the bank quietly shrinking is indistinguishable from the bank being broken.
+   */
+  app.get('/api/harness/memories/consolidation', async (_req, res) => {
+    res.json(temporalBridge.lastConsolidation ?? null);
+  });
+
   app.post('/api/harness/memories', async (req, res) => {
     const ownerId = (req as any).user.id;
     const { category, title, text, projectId, scope, recommendedScope, status } = req.body;
@@ -2869,7 +2913,49 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * into the frontend would give two lists to keep in step, which is the failure this codebase has
    * already had with leaf columns and with cluster providers.
    */
-  app.get('/api/tree-types', (_req, res) => res.json(TREE_TYPES));
+  app.get('/api/tree-types', async (req, res) => {
+    const userId = (req as any).user.id;
+    // Seeded on read: the same shape as personas, so a user who predates a type still gets it.
+    await seedTreeTypes(db, userId).catch((err: Error) => console.warn(`[tree-types] could not seed: ${err.message}`));
+    res.json(await db.getTreeTypes(userId));
+  });
+
+  /**
+   * Create or edit a project type.
+   *
+   * The point of the whole record: adding a project type is a form rather than a deploy. Validated
+   * against `validateTreeType` for the reason every other write here is — a bad record fails later,
+   * somewhere further from the mistake.
+   */
+  app.put('/api/tree-types/:id', async (req, res) => {
+    const userId = (req as any).user.id;
+    const candidate = { ...(req.body ?? {}), id: req.params.id, ownerId: userId };
+
+    const invalid = validateTreeType(candidate);
+    if (invalid) return res.status(400).json({ error: invalid });
+
+    await db.saveTreeType(candidate);
+    res.json(candidate);
+  });
+
+  app.delete('/api/tree-types/:id', async (req, res) => {
+    const userId = (req as any).user.id;
+    /**
+     * Refused while anything still uses it.
+     *
+     * A tree whose type has been deleted resolves nothing, and `resolveTreeType` deliberately does
+     * not substitute a default — so the tree would build no workspace at all. Better to say why.
+     */
+    const inUse = (await ownedTrees(userId)).filter((t) => t.type === req.params.id);
+    if (inUse.length) {
+      return res.status(409).json({
+        error: `${inUse.length} tree(s) still use this type: ${inUse.map((t) => t.name).join(', ')}.`,
+      });
+    }
+
+    await db.deleteTreeType(req.params.id, userId);
+    res.json({ deleted: req.params.id });
+  });
 
   app.get('/api/trees', async (req, res) => {
     const trees = await ownedTrees((req as any).user.id);
@@ -2949,12 +3035,32 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.post('/api/trees', async (req, res) => {
+    const userId = (req as any).user.id;
     const input = normaliseTreeInput(req.body ?? {});
-    if (!input) return res.status(400).json({ error: 'name and a known type are required' });
+    if (!input) return res.status(400).json({ error: 'name and type are required' });
+
+    /**
+     * The type must be one this owner HAS.
+     *
+     * `normaliseTreeInput` used to check this against a compile-time union. Types are owned records
+     * now, so shape is all it can answer and existence is a question for the store — checked here,
+     * where the owner is known. Refused rather than defaulted: the type decides the workspace image,
+     * the starter files and what finishing means.
+     */
+    await seedTreeTypes(db, userId).catch(() => undefined);
+    const typeSpec = await resolveTreeType(db, userId, input.type);
+    if (!typeSpec) {
+      const available = await db.getTreeTypes(userId);
+      return res.status(400).json({
+        error: `There is no project type "${input.type}".`,
+        available: available.map((t) => ({ id: t.id, label: t.label })),
+      });
+    }
+
     const now = new Date().toISOString();
     const tree: Tree = {
       id: uuidv4(),
-      ownerId: (req as any).user.id,
+      ownerId: userId,
       ...input,
       projectIds: [],
       createdAt: now,
@@ -3222,7 +3328,32 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   async function ensureKoala(userId: string): Promise<Persona> {
     const mine = await ownedPersonas(userId);
     const found = mine.find((p) => isChatOnly(p));
-    if (found) return found;
+    if (found) {
+      /**
+       * Backfill the warmth onto a Koala that predates it.
+       *
+       * `koalaSeed()` only runs for a user who has no Koala at all, so a change to it reaches
+       * nobody who already had one — which is everybody. The chat turn moved to `'tool-turn'` to
+       * drop the penalties that were killing tool calls, and that pins temperature at 0.3; without
+       * this, every existing Koala would quietly get the colder sampler and none of the warmth
+       * meant to replace it.
+       *
+       * Written only when the key is ABSENT, never over a value: a user who set their own
+       * temperature in the Lab chose it, and a migration that overwrites a deliberate setting is
+       * worse than one that never ran.
+       */
+      if (found.overrides?.temperature === undefined) {
+        const patched: Persona = {
+          ...found,
+          overrides: { ...(found.overrides ?? {}), temperature: KOALA_TEMPERATURE },
+          updatedAt: new Date().toISOString(),
+        };
+        await db.savePersona(patched);
+        console.log(`[koala] backfilled temperature for ${userId.slice(0, 8)}`);
+        return patched;
+      }
+      return found;
+    }
     const now = new Date().toISOString();
     const persona: Persona = {
       ...koalaSeed(), id: uuidv4(), ownerId: userId, createdAt: now, updatedAt: now,
@@ -3409,14 +3540,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
 
     const now = new Date().toISOString();
-    conversation = {
-      ...conversation,
-      // Named from the first thing said, so the list never shows a row of "New conversation".
-      title: conversation.messages.length === 0 ? titleFrom(message) : conversation.title,
-      messages: [...conversation.messages, { role: 'user' as const, content: message, at: now }],
-      updatedAt: now,
-    };
-    await db.saveConversation(conversation);
 
     const toolsFor = (names: string[]) => {
       const remote = servers
@@ -3425,26 +3548,96 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       return [...KOALA_TOOLS, ...remote];
     };
 
+    /**
+     * Reset the thread if this turn would not fit — BEFORE the new message is appended.
+     *
+     * Before, so the notice lands ahead of the message rather than having to be spliced in behind
+     * it, and so the reload path sees the same order. `message.length` is counted explicitly for
+     * the same reason: it is not in the array yet, and being one message out here is precisely the
+     * difference between resetting and hitting the engine's refusal.
+     *
+     * See lib/koala-context.ts for why the artifact is assembled rather than summarised, and why
+     * the threshold is 0.55 rather than something closer to full.
+     */
+    {
+      const enabledNow = enabledForSession(conversation, sessionId);
+      const promptNow = JSON.stringify([
+        { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, enabledNow) },
+        ...historyForPrompt(conversation.messages).map((m) => ({ role: m.role, content: m.content })),
+      ]).length + JSON.stringify(toolsFor(enabledNow)).length;
+
+      if (needsHandoff(promptNow, message.length)) {
+        conversation = { ...conversation, messages: withHandoff(conversation, now) };
+        console.log(`[koala] context reset for conversation ${conversation.id.slice(0, 8)}`);
+      }
+    }
+
+    conversation = {
+      ...conversation,
+      // Named from the first thing said, so the list never shows a row of "New conversation".
+      title: conversation.messages.length === 0 ? titleFrom(message) : conversation.title,
+      messages: trimKoalaThread([...conversation.messages, { role: 'user' as const, content: message, at: now }]),
+      updatedAt: now,
+    };
+    await db.saveConversation(conversation);
+
+    /**
+     * Sliced at the last handoff, so a reset thread does not silently keep paying for the messages
+     * it just summarised. With no handoff this is the whole conversation, unchanged.
+     */
     const conversationFor = (list: string[]) => [
       { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, list) },
-      ...conversation!.messages.map((m) => ({ role: m.role, content: m.content })),
+      ...historyForPrompt(conversation!.messages).map((m) => ({ role: m.role, content: m.content })),
     ];
 
     const upstreamAbort = new AbortController();
     res.on('close', () => upstreamAbort.abort());
 
-    const call = async (messages: unknown, stream: boolean, names: string[]) => fetch(`${baseUrl}/chat/completions`, {
+    /**
+     * What this turn will actually put in the window: the messages AND the tool schemas.
+     *
+     * The tools were not being counted, and they are not a rounding error — KOALA_TOOLS alone is
+     * roughly 8KB of JSON, and every MCP server enabled for the session adds its whole schema set
+     * on top. So the estimate was worst precisely when the prompt was largest, and it under-read by
+     * more the more services a user had hooked up. Both the reply budget and the pressure check
+     * below are only as honest as this number.
+     */
+    const promptCharsFor = (messages: unknown, names: string[]) =>
+      JSON.stringify(messages).length + JSON.stringify(toolsFor(names)).length;
+
+    const call = async (
+      messages: unknown,
+      stream: boolean,
+      names: string[],
+      extra?: Record<string, unknown>,
+    ) => fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
       body: JSON.stringify(buildModelRequest({
-        turn: 'conversation',
+        /**
+         * ── 'tool-turn', NOT 'conversation', AND IT IS NOT A STYLE CHOICE ──
+         * `conversationSampling` carries frequency_penalty 0.4 and presence_penalty 0.3, and
+         * exp-penalties-001 measured those scoring 0/12 on tool calling against 12/12 without —
+         * perfect separation across two tasks and two prompts, with the failing runs making ZERO
+         * tool calls. The mechanism is plain: emitting a call means reproducing the function names
+         * and JSON keys already in the prompt, and these penalties push away from exactly those
+         * tokens. It gets worse with more tools, and this turn offers eleven plus every MCP tool
+         * the session has enabled — the worst case that experiment describes.
+         *
+         * `toolTurnSampling` drops them and keeps DRY on TabbyAPI, which the same experiment found
+         * innocent (3/3 with DRY alone). What it also does is pin temperature at 0.3, which is
+         * wrong here — so the persona carries KOALA_TEMPERATURE and `resolved.overrides` puts it
+         * back, below anything the user set in the Lab.
+         */
+        turn: 'tool-turn',
         ...(provider!.kind ? { kind: provider!.kind } : {}),
         messages,
         tools: toolsFor(names),
         stream,
-        maxTokens: fittedMaxTokens(KOALA_MAX_TOKENS, JSON.stringify(messages).length),
+        maxTokens: fittedMaxTokens(KOALA_MAX_TOKENS, promptCharsFor(messages, names)),
         ...(provider!.model ? { model: provider!.model } : {}),
         overrides: resolved.overrides,
+        ...(extra ? { extra } : {}),
       }).body),
       signal: upstreamAbort.signal,
     });
@@ -3468,6 +3661,55 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       res.setHeader('connection', 'keep-alive');
 
       let answer = '';
+      /**
+       * Prose the model said on a round that ALSO called a tool.
+       *
+       * `answer` is only assigned on the round that stops, so "Let me check the logs first —"
+       * streamed to the reader live and then vanished on reload: the persisted message was whatever
+       * the final round said, or empty. The reader watched Koala say something and then found it
+       * gone, which reads as the app losing their conversation.
+       *
+       * Kept as a fallback rather than concatenated: when the last round DID answer, that answer is
+       * the reply and the running commentary before it is noise.
+       */
+      let spoken = '';
+      /** Whether the last round still wanted tools when the round budget ran out. */
+      let exhaustedRounds = false;
+      /** What this turn did, for the transcript and for the handoff artifact. See ConversationMessage. */
+      const toolCalls: ConversationToolCall[] = [];
+
+      /**
+       * Announced BEFORE the call, which is the whole point.
+       *
+       * `get_logs` shells out to kubectl and an MCP call crosses the network; both were rendering
+       * as "Koala is thinking…" with nothing behind them. The pill appears while the work happens
+       * and flips when the result lands.
+       */
+      const announceCall = (c: { id: string; name: string; arguments: string }) => {
+        res.write(`data: ${JSON.stringify({
+          toolCall: { id: c.id, name: c.name, args: (c.arguments || '').slice(0, MAX_TOOL_CALL_ARGS) },
+        })}\n\n`);
+      };
+
+      /**
+       * The result, digested.
+       *
+       * Never the full payload: a remote result runs to MAX_REMOTE_RESULT and is not persisted, so
+       * streaming it whole would make the live view and the reloaded view disagree about the same
+       * turn. Both sides get the same clipped digest, so they agree by construction.
+       */
+      const recordResult = (c: { id: string; name: string; arguments: string }, result: string) => {
+        const ok = !toolRefused(result);
+        const digest = result.slice(0, MAX_TOOL_CALL_DIGEST);
+        if (toolCalls.length < MAX_TOOL_CALLS_PER_MESSAGE) {
+          toolCalls.push({
+            id: c.id, name: c.name,
+            args: (c.arguments || '').slice(0, MAX_TOOL_CALL_ARGS),
+            ok, digest,
+          });
+        }
+        res.write(`data: ${JSON.stringify({ toolResult: { id: c.id, ok, digest } })}\n\n`);
+      };
       let thinking = '';
 
       const drain = async (upstream: Response) => {
@@ -3509,13 +3751,49 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       };
 
       for (let round = 0; round < KOALA_TOOL_ROUNDS; round++) {
-        const step = await call(turn, true, enabled);
+        /**
+         * Trimmed per round, because ONE turn can outgrow the window on its own.
+         *
+         * `turn` grows by an assistant message plus a tool result every round, and a remote result
+         * is allowed up to MAX_REMOTE_RESULT characters — twelve rounds of those is ~144KB against
+         * a 32k-token window. The thread being short is no protection: a single question that makes
+         * Koala read three sets of pod logs is enough.
+         *
+         * `trimConversation` is the leaf loop's, unchanged, because this is exactly the shape it
+         * was written for: it blanks over-budget TOOL output rather than deleting it, since
+         * removing a `tool` message orphans the `tool_calls` entry that referenced it and the API
+         * rejects the request outright. PRESERVE_HEAD=2 pins the system prompt and the oldest
+         * message, and it walks newest-first, so the rounds that the next decision depends on stay
+         * intact. Reassigned into a local rather than mutating `turn`, so the untrimmed array is
+         * still what gets appended to and what the next round trims from scratch.
+         */
+        exhaustedRounds = round === KOALA_TOOL_ROUNDS - 1;
+        const sent = trimConversation(turn);
+
+        /**
+         * Refuse before the engine does, with something a reader can act on.
+         *
+         * `fittedMaxTokens` floors at MIN_TURN_TOKENS, so once the prompt exceeds the window it
+         * stops reporting a smaller budget and just asks for 600 tokens on top of a prompt that
+         * already does not fit. The engine allocates the pair up front and returns an opaque 400.
+         * Nothing downstream recovers from that, and the reader sees a chat that stopped working.
+         */
+        if (fittedMaxTokens(KOALA_MAX_TOKENS, promptCharsFor(sent, enabled)) <= MIN_TURN_TOKENS) {
+          res.write(`data: ${JSON.stringify({
+            error: 'This conversation has outgrown the model\'s context window. Start a new one to keep going — '
+              + 'the trees and specs you have already accepted are safe.',
+          })}\n\n`);
+          break;
+        }
+
+        const step = await call(sent, true, enabled);
         if (!step.ok || !step.body) {
           res.write(`data: ${JSON.stringify({ error: `Model returned ${step.status}` })}\n\n`);
           break;
         }
         const { calls, content } = await drain(step as any);
         console.log(`[koala] round ${round}: calls=${calls.length} content=${content.length} thinking=${thinking.length}`);
+        if (content.trim()) spoken = content;
 
         if (!calls.length) {
           /**
@@ -3526,6 +3804,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
            * conversation came back empty. The model had said its piece and would not repeat it.
            */
           answer = content;
+          exhaustedRounds = false;
           break;
         }
 
@@ -3536,6 +3815,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         });
 
         for (const c of calls) {
+          announceCall(c);
           /**
            * A tool belonging to an enabled service goes to that service.
            *
@@ -3563,6 +3843,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             const trimmed = text.length > MAX_REMOTE_RESULT
               ? `${text.slice(0, MAX_REMOTE_RESULT)}\n…[trimmed, ${text.length} characters total]`
               : text;
+            recordResult(c, trimmed);
             turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: trimmed });
             continue;
           }
@@ -3600,9 +3881,47 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           if (out.proposedSpec) {
             res.write(`data: ${JSON.stringify({ proposedSpec: out.proposedSpec })}\n\n`);
           }
+          recordResult(c, out.content);
           turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });
         }
       }
+
+      /**
+       * ── ONE LAST ROUND, WITH THE TOOLS TAKEN AWAY ──
+       *
+       * Twelve rounds that all called tools leaves `answer` empty, and the turn persisted a blank
+       * assistant message: the reader watched Koala work for a minute and got an empty bubble.
+       *
+       * This does NOT contradict the decision recorded above about not asking for a "final" reply.
+       * That one is about a round which already produced content and then stopped — asking again
+       * there was measured as an inference that returned nothing, because the model had said its
+       * piece. This is the opposite case: a round that produced NO content and was still reaching
+       * for tools. Different situation, different answer. Someone will want to unify these; the
+       * distinguishing fact is whether the loop ended by choice or by running out.
+       *
+       * `tool_choice: 'none'` is what makes it a wrap-up rather than a thirteenth working round —
+       * the model cannot decide to keep going, which is the whole reason the budget was reached.
+       * The same shape as the agent loop's forced `finish` turn.
+       */
+      if (exhaustedRounds && !answer) {
+        try {
+          const last = await call(trimConversation(turn), true, enabled, { tool_choice: 'none' });
+          if (last.ok && last.body) {
+            const { content } = await drain(last as any);
+            if (content.trim()) answer = content;
+          }
+        } catch (err: any) {
+          // A wrap-up that fails must not take down the turn's own record — `spoken` and the tool
+          // list below are still true, and still worth persisting.
+          console.warn(`[koala] forced wrap-up failed: ${err.message}`);
+        }
+      }
+
+      /**
+       * Still nothing to show. Say so as a notice rather than persisting an empty bubble, which
+       * reads as the app breaking rather than as the turn running long.
+       */
+      const ranDry = exhaustedRounds && !answer && !spoken;
 
       // Persisted after the stream, so a reader who disconnects mid-answer does not lose what the
       // model already said.
@@ -3612,10 +3931,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           ...saved,
           messages: [...saved.messages, {
             role: 'assistant' as const,
-            content: answer,
+            // `spoken` covers the turn that talked while working and then ran out of rounds —
+            // without it that message persists empty and the UI shows a blank bubble.
+            content: answer || spoken
+              || `Koala used all ${KOALA_TOOL_ROUNDS} tool rounds without reaching an answer. `
+                + 'Ask again and it will continue from what it found.',
             at: new Date().toISOString(),
             ...(thinking.trim() ? { reasoning: thinking.slice(-20000) } : {}),
             ...(enabledNow.length ? { enabled: enabledNow } : {}),
+            ...(toolCalls.length ? { toolCalls } : {}),
+            // A notice, not a boundary: this summarises nothing, so it must not truncate the next
+            // prompt the way a handoff does. See ConversationMessage.handoff.
+            ...(ranDry ? { notice: true as const } : {}),
           }],
           updatedAt: new Date().toISOString(),
         });
@@ -3895,8 +4222,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             : undefined;
         })()
       : undefined;
-    const doneMeans = planTree?.type && isTreeType(planTree.type)
-      ? treeTypeSpec(planTree.type).doneMeans
+    // Resolved from the owner's records rather than a constant table — see lib/tree-types.ts.
+    const doneMeans = planTree
+      ? (await resolveTreeType(db, planTree.ownerId, planTree.type))?.doneMeans
       : undefined;
 
     const outboundMessages = buildOutboundMessages({
@@ -4732,9 +5060,20 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ...c,
         status: deriveLeafStatus(c.status, kids),
         childCount: kids.length,
-        // Root leaves report their subtree's spend, so the board can show a budget being consumed
-        // rather than only refusing once it is gone.
-        ...(c.budget ? { usageTotal: aggregateUsage(leaves, c, Date.now()) } : {}),
+        /**
+         * Root leaves report their SUBTREE's spend, so the board can show a budget being consumed
+         * rather than only refusing once it is gone.
+         *
+         * Emitted for every root rather than only budgeted ones. It was gated on `c.budget`, which
+         * nothing ever set — so this line had never executed, and the field it produces was a
+         * phantom the frontend had to be told to stop declaring (see tree-board-mirror.test.ts).
+         * Now that roots carry budgets it would start firing anyway; making it unconditional means
+         * the number is there for leaves created before this shipped too.
+         *
+         * Deliberately NOT the same as `usage`, which is this leaf alone. A request's cost is its
+         * whole tree, and that is the only number a remaining-budget line can honestly be built on.
+         */
+        ...(c.parentLeafId ? {} : { usageTotal: aggregateUsage(leaves, c, Date.now()) }),
       };
     }));
   });
@@ -4827,7 +5166,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         ...(dependsOn.length ? { dependsOn } : {}),
         // Budgets live on the ROOT only: depth and fan-out caps alone still permit hundreds of
         // workspaces, so the ceiling has to cover the whole subtree.
-        ...(!parentLeafId && budget ? { budget } : {}),
+        /**
+         * Every ROOT leaf carries a budget now, not only one that was given a number.
+         *
+         * `budgetExceeded` has been enforced since it was written and populated by nothing, so the
+         * ceiling could never trip — which reads exactly like a ceiling nobody reached. See
+         * lib/budget-policy.ts for why this is a flat default rather than an estimate.
+         */
+        ...(parentLeafId ? {} : { budget: budgetForNewRoot(budget) }),
       };
       await db.saveLeaf(leaf);
 
@@ -4915,9 +5261,31 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const leaf = leaves.find((c) => c.id === req.params.id);
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
 
-    const { column, title, body, personaId } = req.body ?? {};
+    const { column, title, body, personaId, maxTokens } = req.body ?? {};
     if (column !== undefined && !isLeafColumn(column)) {
       return res.status(400).json({ error: `column must be one of: ${LEAF_COLUMNS.join(', ')}` });
+    }
+
+    /**
+     * Raising the request's token budget.
+     *
+     * Shipped WITH the default that populates budgets, deliberately. A ceiling that starts refusing
+     * work with no way to lift it is not a limit, it is an outage — and `accept-leaf.ts` answers a
+     * 409 saying "Token budget exhausted" that the reader would otherwise have no response to.
+     *
+     * Roots only, because the budget is a subtree-wide ceiling; setting one on a child bounds
+     * nothing and would read as though it did.
+     */
+    let budgetPatch: Partial<Leaf> = {};
+    if (maxTokens !== undefined) {
+      if (leaf.parentLeafId) {
+        return res.status(400).json({ error: 'Only the first leaf of a request carries its budget' });
+      }
+      const wanted = Number(maxTokens);
+      if (!Number.isFinite(wanted) || wanted <= 0) {
+        return res.status(400).json({ error: 'maxTokens must be a positive number' });
+      }
+      budgetPatch = { budget: { ...(leaf.budget ?? {}), maxTokens: Math.round(wanted) } };
     }
     // A leaf with children has a DERIVED status, so moving it by hand is refused rather than
     // silently ignored — dragging a parent while its children run is genuinely ambiguous.
@@ -4930,6 +5298,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       ...(title ? { title: String(title).trim() } : {}),
       ...(body !== undefined ? { body: String(body) } : {}),
       ...(personaId !== undefined ? { personaId: String(personaId) } : {}),
+      ...budgetPatch,
       updatedAt: new Date().toISOString(),
     };
     await db.saveLeaf(updated);

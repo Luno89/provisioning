@@ -35,6 +35,7 @@ import { resolveConfig, type Persona } from './personas.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { Leaf } from './leaves.js';
 import type { ModelKind } from '@koala/harness-types';
+import type { WebSearchFn } from './web-tools.js';
 
 /**
  * The planner's tools: the leaf tools, minus live search, plus a way to ask for findings.
@@ -135,7 +136,7 @@ export interface PlanningTurnOptions {
    * the planner is told so rather than handed a tool that returns nothing.
    */
   research?: {
-    webSearch: (query: string) => Promise<{ title: string; snippet: string; url: string }[]>;
+    webSearch: WebSearchFn;
     fetchWebPage: (url: string) => Promise<string>;
   } | undefined;
 }

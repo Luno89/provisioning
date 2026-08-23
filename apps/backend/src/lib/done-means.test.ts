@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TREE_TYPES, treeTypeSpec, isTreeType } from './trees.js';
+import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 import { buildOutboundMessages } from './leaf-context.js';
 import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
 
@@ -18,14 +18,14 @@ import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
 
 describe('every type says what finished means', () => {
   it('leaves none unsaid', () => {
-    for (const t of TREE_TYPES) {
-      expect(treeTypeSpec(t.id).doneMeans, t.id).toBeTruthy();
+    for (const t of TREE_TYPE_SEEDS) {
+      expect(t.doneMeans, t.id).toBeTruthy();
     }
   });
 
   it('says the deployable ones must actually respond', () => {
     // The distinction that matters: a service is not finished when its tests pass.
-    expect(treeTypeSpec('api-service').doneMeans).toMatch(/endpoint responds/);
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'api-service')!.doneMeans).toMatch(/endpoint responds/);
   });
 });
 
@@ -52,8 +52,13 @@ describe('it reaches the planning turn', () => {
 
   it('is only reachable through a real type', () => {
     // The type arrives as untrusted JSON; an invented one must not look up.
-    expect(isTreeType('api-service')).toBe(true);
-    expect(isTreeType('whatever-i-typed')).toBe(false);
+    /**
+     * Validity moved to the store: types are owned records, so "is this a type" is a question about
+     * an owner's data rather than about a compile-time union. Covered by `tree-types.test.ts`'s
+     * resolution cases; what stays here is that the SEEDS are self-consistent.
+     */
+    expect(TREE_TYPE_SEEDS.some((t) => t.id === 'api-service')).toBe(true);
+    expect(TREE_TYPE_SEEDS.some((t) => t.id === 'whatever-i-typed')).toBe(false);
   });
 });
 

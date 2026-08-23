@@ -30,7 +30,65 @@ export interface LeafTrace {
   /** Total turns before trimming — what the run actually took. */
   totalSteps: number;
   tokensUsed: number;
+  /**
+   * Save points written during the run.
+   *
+   * Small, so it belongs here rather than in its own collection — and it has to be somewhere,
+   * because `steps` is only the window SINCE THE LAST RESET. Without this, a checkpointed run's
+   * trace silently describes the last third of itself and nothing says so.
+   */
+  checkpoints?: { step: number; tokensUsed: number; sha?: string; branch?: string }[];
+  /**
+   * The artifacts a run left behind, captured before the sandbox was destroyed.
+   *
+   * ── WHY THIS EXISTS EVEN IF NOTHING READS IT YET ──
+   * `failure-review.ts` diagnoses a failed leaf and has never been given a DIFF — it sees the
+   * summary and the error and nothing the run actually wrote. "Did the tests exercise the new code"
+   * has been unanswerable for every leaf in this codebase's history.
+   *
+   * It also happens to be the only honest input for a judge. The abandoned harness-v2 branch scored
+   * work against a hardcoded `gitDiff: '+export const feature = true;'`, which is the failure mode
+   * this field exists to make impossible: a judge is exactly as good as the artifacts it reads.
+   *
+   * Lives on the TRACE, not the leaf — `getLeaves()` is called by the board, the chat route and the
+   * reconcile loop, and a diff on the leaf would land in every list query to serve a panel opened
+   * deliberately. See this file's header.
+   */
+  evidence?: LeafEvidence;
   createdAt: string;
+}
+
+/** What a finished run left behind, in the form someone (or something) could check it. */
+export interface LeafEvidence {
+  /** `git diff --stat` against the base, then per-file patches until the budget runs out. */
+  diff?: string;
+  /** True when the diff was cut short, so a reader never mistakes a partial for the whole. */
+  diffTruncated?: boolean;
+  /** What the verify command printed. Already capped at 2,000 chars by parseVerifyResult. */
+  verifyOutput?: string;
+  /** The declared artifacts, as they actually ended up. */
+  expects?: { path: string; content: string; truncated?: boolean }[];
+  /** The deliverable, for a persona that produces a document rather than a repository. */
+  findings?: string;
+  capturedAt: string;
+}
+
+/**
+ * Everything the deterministic layers concluded, small enough to live on the leaf itself.
+ *
+ * Anticipated by a comment in ExecuteLeafActivity — "every outcome is recorded on the leaf so it
+ * can be answered with numbers later rather than by picking now" — and never actually written. The
+ * board renders one word; this is the rest of the sentence.
+ */
+export interface LeafChecks {
+  verify: { command?: string; outcome: string };
+  artifacts: { outcome: string; missing?: string[] };
+  docker?: { problems: boolean };
+  findings?: { outcome: string };
+  /** `combineVerification` of the above — what actually decided the status. */
+  combined: string;
+  /** The status that was written, after the docker gate and the agent's claim were folded in. */
+  settled: string;
 }
 
 /**

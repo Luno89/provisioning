@@ -1,21 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { TREE_TYPES, isTreeType, treeTypeSpec, normaliseTreeInput, primaryProjectId } from './trees.js';
+import { normaliseTreeInput, primaryProjectId } from './trees.js';
+import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 
 describe('the tree type registry', () => {
-  it('has a spec for every type, so treeTypeSpec can never miss', () => {
-    // treeTypeSpec asserts non-null. That is only safe while the table covers the union, and this
-    // is what keeps it covered when someone adds a member.
-    for (const spec of TREE_TYPES) expect(treeTypeSpec(spec.id).id).toBe(spec.id);
+  it('gives every seeded type a distinct id', () => {
+    // Ids key the record and appear on every tree, so a collision would make two types one.
+    const ids = TREE_TYPE_SEEDS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('has no duplicate ids', () => {
-    const ids = TREE_TYPES.map((t) => t.id);
+    const ids = TREE_TYPE_SEEDS.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('says what done means for every type', () => {
     // A type with no definition of done cannot seed acceptance, which is the point of having types.
-    for (const spec of TREE_TYPES) expect(spec.doneMeans.length).toBeGreaterThan(20);
+    for (const spec of TREE_TYPE_SEEDS) expect(spec.doneMeans.length).toBeGreaterThan(20);
   });
 
   it('knows which types deploy and which produce artefacts', () => {
@@ -27,18 +28,18 @@ describe('the tree type registry', () => {
      * `produces` keeps the real distinction (a service must answer; an artefact is read) without
      * reviving the one that would delete work.
      */
-    expect(treeTypeSpec('research-paper').produces).toBe('artefact');
-    expect(treeTypeSpec('decision-brief').produces).toBe('artefact');
-    expect(treeTypeSpec('api-service').produces).toBe('service');
-    expect(treeTypeSpec('mcp-server').produces).toBe('service');
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'research-paper')!.produces).toBe('artefact');
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'decision-brief')!.produces).toBe('artefact');
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'api-service')!.produces).toBe('service');
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'mcp-server')!.produces).toBe('service');
   });
 
   it('gives every type a language, since the type decides the workspace', () => {
     // The type is an opinionated template, not a label: a persona installs what it needs on top,
     // but the image is where the work starts.
-    for (const spec of TREE_TYPES) expect(spec.language, spec.id).toBeTruthy();
-    expect(treeTypeSpec('dataset').language).toBe('python');
-    expect(treeTypeSpec('mcp-server').language).toBe('node');
+    for (const spec of TREE_TYPE_SEEDS) expect(spec.language, spec.id).toBeTruthy();
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'dataset')!.language).toBe('python');
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'mcp-server')!.language).toBe('node');
   });
 
   it('has a type for MCP servers, which the data asked for', () => {
@@ -47,24 +48,31 @@ describe('the tree type registry', () => {
      * `infra-module`, because there was nothing closer. A type people reach for by approximation is
      * a type that should exist.
      */
-    expect(treeTypeSpec('mcp-server').doneMeans).toMatch(/answers `initialize`/);
+    expect(TREE_TYPE_SEEDS.find((t) => t.id === 'mcp-server')!.doneMeans).toMatch(/answers `initialize`/);
   });
 
-  it('rejects a type that is not in the table', () => {
-    // Arrives as untrusted JSON; the union checks nothing at runtime.
-    expect(isTreeType('api-service')).toBe(true);
-    expect(isTreeType('sql-injection')).toBe(false);
-    expect(isTreeType(undefined)).toBe(false);
-    expect(isTreeType(42)).toBe(false);
+  it('accepts any well-formed type id, leaving existence to the store', () => {
+    /**
+     * `isTreeType` is gone with the union it guarded. Existence is a question about an owner's
+     * records — `resolveTreeType` answers it, and `POST /api/trees` refuses an id nobody has.
+     * What survives here is that the seeds are internally consistent.
+     */
+    expect(TREE_TYPE_SEEDS.some((t) => t.id === 'api-service')).toBe(true);
+    expect(TREE_TYPE_SEEDS.some((t) => t.id === 'sql-injection')).toBe(false);
   });
 });
 
 describe('creating a tree from untrusted input', () => {
-  it('requires a name and a known type', () => {
+  it('requires a name and some type', () => {
     expect(normaliseTreeInput({ type: 'api-service' })).toBeUndefined();
     expect(normaliseTreeInput({ name: 'Koala API' })).toBeUndefined();
     expect(normaliseTreeInput({ name: '   ', type: 'api-service' })).toBeUndefined();
-    expect(normaliseTreeInput({ name: 'Koala API', type: 'nope' })).toBeUndefined();
+    /**
+     * Shape only. Types are owned records, so whether 'nope' exists is a question for the store —
+     * `POST /api/trees` resolves it against the caller's own types and refuses with the valid ids.
+     * A hardcoded list here would be the duplication this change removes.
+     */
+    expect(normaliseTreeInput({ name: 'Koala API', type: 'nope' })).toEqual({ name: 'Koala API', type: 'nope' });
   });
 
   it('keeps a valid name, type and goal', () => {

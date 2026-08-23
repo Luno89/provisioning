@@ -126,3 +126,58 @@ describe('two leaves of one request racing', () => {
     expect(d.db.saveProject).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * ── THE RACE THAT LOST TWO LEAVES THEIR REPOSITORY ──
+ *
+ * The re-read above `saveProject` narrows the window between "is there a row?" and "write one"; it
+ * cannot close it. This was survivable while only one or two coding leaves of a request raced. Once
+ * every leaf that writes files takes a checkout, four research leaves start at once — measured, two
+ * of five hit `E11000 duplicate key ... giteaOwner_1_giteaRepo_1` and reported "work will not
+ * persist", which is the exact outcome the repository exists to prevent.
+ */
+describe('two leaves of one request racing for the repository', () => {
+  const duplicateKey = () => Object.assign(
+    new Error('E11000 duplicate key error collection: provisioning.projects index: giteaOwner_1_giteaRepo_1'),
+    { code: 11000 },
+  );
+
+  it('returns the winner rather than failing the loser', async () => {
+    // Derived, not hardcoded: `autoRepoNameFor` strips non-alphanumerics from the branch id slice,
+    // so writing the name by hand silently tests a repo nobody would look for.
+    const repo = autoRepoNameFor(leaf().branchId);
+    const winner = {
+      id: 'winner', ownerId: 'u1', giteaOwner: 'koala-u1', giteaRepo: repo,
+      name: repo, appType: 'generic', createdAt: '',
+    };
+    let written = false;
+    const d = deps([], {
+      // Empty on the first read — the loser genuinely saw no row — and holding the winner by the
+      // time the write collides, which is what actually happens in Mongo.
+      db: {
+        getProjects: vi.fn(async () => (written ? [winner] : [])),
+        saveProject: vi.fn(async () => { written = true; throw duplicateKey(); }),
+      },
+    });
+
+    const got = await resolveLeafProject(d, leaf());
+
+    expect(got.id).toBe('winner');
+    // Both leaves of the request must end up on ONE project id, or their work splits across two
+    // repositories and neither sees the other's.
+    expect(got.giteaRepo).toBe(repo);
+  });
+
+  it('still throws when the write failed for some other reason', async () => {
+    // A collision means the row exists; anything else means it does not, and swallowing that would
+    // hand the leaf a project that was never saved.
+    const d = deps([], {
+      db: {
+        getProjects: vi.fn(async () => []),
+        saveProject: vi.fn(async () => { throw new Error('connection reset'); }),
+      },
+    });
+
+    await expect(resolveLeafProject(d, leaf())).rejects.toThrow(/connection reset/);
+  });
+});

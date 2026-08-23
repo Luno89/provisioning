@@ -44,15 +44,21 @@ describe('what is recorded as fact', () => {
     expect(extractLeafMemories(input())[0]?.scope).toBe('project');
   });
 
-  it('is useless without a project id, so that must be supplied', () => {
+  it('does not claim a project scope it has no project for', () => {
     /**
-     * A project-scoped memory with no projectId is excluded by buildMemoryContext for every
-     * project — written, active, and unreadable. It happened: the leaf record only gains its
-     * projectId after the memory is extracted, so the caller has to pass the resolved one.
+     * This used to assert `scope: 'project'` with no `projectId` — the shape its own comment
+     * described as "written, active, and unreadable", because `buildMemoryContext` gives a
+     * project-scoped memory to a leaf only when the ids match. It was a warning that the caller
+     * must pass the resolved project, and the warning was not enough: 25 such rows existed on this
+     * instance, none of which had ever reached a prompt.
+     *
+     * The caller contract still holds — the leaf record only gains its projectId after extraction,
+     * so `ExecuteLeafActivity` passes the resolved one — but getting it wrong now costs a wider
+     * scope rather than silent invisibility.
      */
     const [fact] = extractLeafMemories(input({ leaf: { id: 'l1', ownerId: 'u1', title: 't' } }));
 
-    expect(fact?.scope).toBe('project');
+    expect(fact?.scope).toBe('global');
     expect(fact?.projectId).toBeUndefined();
   });
 
@@ -67,14 +73,40 @@ describe('what is recorded as fact', () => {
   });
 });
 
-describe('what is recorded only for a human to approve', () => {
-  it('holds an inferred lesson back for review', () => {
-    // buildMemoryContext excludes pending_review, so nothing a model concluded reaches a future
-    // prompt until somebody agrees to it.
+describe('never writing a memory nothing can read', () => {
+  /**
+   * A `scope: 'project'` row with no `projectId` matches no leaf at all — `buildMemoryContext`
+   * requires the ids to be equal. This wrote 25 of them before it was noticed, because the scope
+   * was a constant while the project was conditional.
+   */
+  it('scopes to the owner when the leaf has no project', () => {
+    const out = extractLeafMemories(input({ leaf: { id: 'l1', ownerId: 'u1', title: 'Research something' }, succeeded: false }));
+
+    expect(out.length).toBeGreaterThan(0);
+    for (const m of out) expect(m.scope === 'project' ? Boolean(m.projectId) : true).toBe(true);
+    expect(out.every((m) => m.scope === 'global')).toBe(true);
+  });
+
+  it('keeps the tighter scope when there is a project', () => {
+    const out = extractLeafMemories(input({ succeeded: false }));
+    expect(out.every((m) => m.scope === 'project' && m.projectId)).toBe(true);
+  });
+});
+
+describe('what is recorded when a run fails', () => {
+  it('offers an inferred lesson for admission rather than for a queue', () => {
+    /**
+     * This asserted `pending_review`, on the rule that nothing a model concluded reaches a future
+     * prompt without somebody agreeing to it. The rule stands; the queue did not — 124 of 143
+     * memories were sitting in it unread, so lessons from failures reached nothing, ever.
+     *
+     * `active` here means eligible, not kept: `admitMemory` still decides against the entries
+     * already stored, and every retirement it causes is reversible.
+     */
     const out = extractLeafMemories(input({ succeeded: false, summary: 'Ran out of steps (40)' }));
     const lesson = out.find((m) => m.category !== 'environment_facts' || m.title !== 'Repository layout');
 
-    expect(lesson?.status).toBe('pending_review');
+    expect(lesson?.status).toBe('active');
   });
 
   it('recognises the step-exhaustion failure specifically', () => {
@@ -83,13 +115,11 @@ describe('what is recorded only for a human to approve', () => {
   });
 
   it('recognises a missing command as an environment problem', () => {
-    // Still pending: which command is missing is read off the output, but "the image needs it" is
-    // the inference.
     const out = extractLeafMemories(input({ succeeded: false, verifyOutput: 'sh: pytest: command not found' }));
     const m = out.find((x) => x.title.includes('command'));
 
     expect(m?.category).toBe('environment_facts');
-    expect(m?.status).toBe('pending_review');
+    expect(m?.status).toBe('active');
   });
 
   it('records a promised file that never arrived', () => {
@@ -112,17 +142,35 @@ describe('keeping the bank from becoming the bloat it prevents', () => {
     const existing = [{ id: 'old', ownerId: 'u1', projectId: 'p1', title: 'Repository layout' } as MemoryItem];
     const incoming = extractLeafMemories(input());
 
-    expect(supersede(existing, incoming).remove).toEqual(['old']);
+    const { invalidate } = supersede(existing, incoming, 'NOW');
+
+    /**
+     * Retired, not removed. The row survives so that "what did the harness believe when this leaf
+     * ran" stays answerable — failure review and the judge both ask it — and so that a wrong
+     * supersession is a field to clear rather than information destroyed.
+     */
+    expect(invalidate.map((m) => m.id)).toEqual(['old']);
+    expect(invalidate[0]!.invalidAt).toBe('NOW');
+    expect(invalidate[0]!.supersededBy).toBe(incoming[0]!.id);
+  });
+
+  it('does not move the moment an already-retired fact stopped being true', () => {
+    // Re-stamping on every later run would make `invalidAt` mean "the last time a leaf finished".
+    const existing = [{
+      id: 'old', ownerId: 'u1', projectId: 'p1', title: 'Repository layout', invalidAt: 'EARLIER',
+    } as MemoryItem];
+
+    expect(supersede(existing, extractLeafMemories(input()), 'NOW').invalidate).toEqual([]);
   });
 
   it('does not touch another project\'s layout', () => {
     const existing = [{ id: 'other', ownerId: 'u1', projectId: 'p2', title: 'Repository layout' } as MemoryItem];
-    expect(supersede(existing, extractLeafMemories(input())).remove).toEqual([]);
+    expect(supersede(existing, extractLeafMemories(input())).invalidate).toEqual([]);
   });
 
   it('does not supersede a lesson', () => {
     // Lessons accumulate; only the layout is a single current truth.
     const existing = [{ id: 'lesson', ownerId: 'u1', projectId: 'p1', title: 'Failed: something' } as MemoryItem];
-    expect(supersede(existing, extractLeafMemories(input())).remove).toEqual([]);
+    expect(supersede(existing, extractLeafMemories(input())).invalidate).toEqual([]);
   });
 });

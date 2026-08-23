@@ -37,7 +37,58 @@ export interface ConversationMessage {
    * appearing mid-conversation is visible whether or not the model mentions it.
    */
   enabled?: string[];
+
+  /**
+   * What this turn actually DID, as opposed to what it said about it.
+   *
+   * Same principle as `enabled`, extended to every tool. Koala shells out to kubectl for logs and
+   * reaches across the network for MCP calls, and none of that was visible anywhere: the reader saw
+   * "Koala is thinking…" for however long it took, and afterwards had no way to tell whether an
+   * answer came from a tool or from the model's imagination. The prose is the claim; this is the
+   * record — which is exactly why `ok` is derived from the tool RESULT and not from the model.
+   *
+   * Bounded on both axes. `args` and `digest` are clipped per entry because a `propose_spec`
+   * argument is a whole app spec and a remote result runs to MAX_REMOTE_RESULT, and the array is
+   * capped because twelve rounds times a fan-out of calls is otherwise an unbounded document.
+   */
+  toolCalls?: ConversationToolCall[];
+
+  /**
+   * A message the HARNESS wrote, not the model.
+   *
+   * Rendered inline and dimmed rather than as a chat bubble, the way `branch-notice.ts` notices are
+   * on a branch. Used for things the reader has to know and the model did not say: that older
+   * messages were summarised, that a turn ran out of tool rounds.
+   */
+  notice?: true;
+
+  /**
+   * This notice IS a context reset boundary — everything above it has been summarised into it.
+   *
+   * Separate from `notice` because the two answer different questions. `notice` decides how a
+   * message is drawn; this decides where `historyForPrompt` starts reading. A notice that is not a
+   * boundary (round exhaustion) must not truncate the next prompt.
+   */
+  handoff?: true;
 }
+
+/** One tool call and its outcome, as recorded on the message that made it. */
+export interface ConversationToolCall {
+  /** The model's own call id, so a streamed pill can be matched to its result. */
+  id: string;
+  name: string;
+  /** Clipped arguments, for display only — never re-parsed or re-executed. */
+  args: string;
+  /** Whether the tool answered. Derived from the RESULT, so the model cannot claim success. */
+  ok: boolean;
+  /** A clipped preview of what came back. Enough to see what happened, never the whole payload. */
+  digest: string;
+}
+
+/** Per-entry and per-message caps. See ConversationMessage.toolCalls for why each exists. */
+export const MAX_TOOL_CALL_ARGS = 300;
+export const MAX_TOOL_CALL_DIGEST = 300;
+export const MAX_TOOL_CALLS_PER_MESSAGE = 40;
 
 /** A tree Koala thinks should exist. Nothing is created until a human accepts it. */
 export interface ProposedTree {

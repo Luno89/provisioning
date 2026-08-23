@@ -15,11 +15,12 @@ import type { LandRequestArgs, LandRequestResult } from '../activities/LandReque
 import type { ResolveLandingArgs, ResolveLandingResult } from '../activities/ResolveLandingActivity.js';
 import type { AcceptRequestArgs, AcceptRequestResult } from '../activities/AcceptRequestActivity.js';
 import type { ReplanArgs, ReplanResult } from '../activities/ReplanActivity.js';
+import type { JudgeLeafArgs, JudgeLeafResult } from '../activities/JudgeLeafActivity.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
 // From lib/activity-timeouts.ts, never the activity file — importing a VALUE from an activity
 // pulls its whole dependency tree into this workflow's webpack bundle and Temporal's sandbox
 // cannot handle Node built-ins. See that file's docstring for the incident.
-import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta, replanActivityMeta,
+import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta, replanActivityMeta, judgeLeafActivityMeta,
 } from '../lib/activity-timeouts.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 
@@ -38,6 +39,9 @@ const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: Upda
  */
 const { ExecuteLeafActivity } = proxyActivities<{ ExecuteLeafActivity: (args: ExecuteLeafArgs) => Promise<ExecuteLeafResult> }>({
   startToCloseTimeout: executeLeafActivityMeta.startToCloseTimeout,
+  // Read from the meta, not restated: a heartbeat the activity sends and the call site never asks
+  // for is not a timeout, it is a no-op, and the two numbers would drift silently apart.
+  heartbeatTimeout: executeLeafActivityMeta.heartbeatTimeout,
   retry: {
     maximumAttempts: MAX_LEAF_ATTEMPTS,
     initialInterval: '10 seconds',
@@ -62,6 +66,16 @@ const { CheckLeafGateActivity } = proxyActivities<{ CheckLeafGateActivity: (args
 const { ReleaseDependentsActivity } = proxyActivities<{ ReleaseDependentsActivity: (args: LeafGateArgs) => Promise<ReleaseDependentsResult> }>({
   retry: ACTIVITY_RETRY,
   startToCloseTimeout: releaseDependentsActivityMeta.startToCloseTimeout,
+});
+
+/**
+ * The judge. One attempt, because a review is a convenience rather than a step of the work — see
+ * JudgeLeafActivity. Retrying it would spend a model call to re-answer a question nothing is
+ * waiting on.
+ */
+const { JudgeLeafActivity } = proxyActivities<{ JudgeLeafActivity: (args: JudgeLeafArgs) => Promise<JudgeLeafResult> }>({
+  startToCloseTimeout: judgeLeafActivityMeta.startToCloseTimeout,
+  retry: { maximumAttempts: 1 },
 });
 
 /**
@@ -312,15 +326,22 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
    * stay cancellable and stay able to accept sub-items while it is executing.
    *
    * Retries live inside this call (Temporal's policy on the activity), so a failure arriving here
-   * means every attempt was already spent. `tokensUsed` is folded into the leaf's usage so the
-   * root's budget sees real consumption rather than only wall-clock.
+   * means every attempt was already spent.
+   *
+   * ── USAGE IS NOT RECORDED HERE ──
+   * It used to be, and it double-counted every succeeded leaf. ExecuteLeafActivity already folds
+   * `run.tokensUsed` into `leaf.usage` and persists it on BOTH exit paths, so adding the returned
+   * total again here counted the successful path twice while the failing path — which throws, and
+   * never reaches this callback — counted once. Measured against the Personas "Typical tokens"
+   * column, which reported roughly double for every verified persona.
+   *
+   * The activity is the authoritative writer precisely because it is the only one that sees a
+   * failed attempt. `UpdateLeafArgs.usage` stays additive for the callers that do report new
+   * spend a piece at a time.
    */
   let ownWorkFailed: unknown;
   const ownWork = ExecuteLeafActivity({ leafId: args.leafId })
-    .then(async (result) => {
-      if (result.tokensUsed > 0) {
-        await UpdateLeafActivity({ leafId: args.leafId, usage: { tokens: result.tokensUsed } });
-      }
+    .then(() => {
       complete = true;
     })
     .catch((err) => {
@@ -412,6 +433,20 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
    * rather than trying to identify the last leaf, which has no stable answer while dependents are
    * still being released.
    */
+  /**
+   * A second opinion on work nothing could check.
+   *
+   * Placed here — after the board says `succeeded`, before landing — because it reads the evidence
+   * `ExecuteLeafActivity` captured and nothing downstream depends on its answer. It decides for
+   * itself whether this leaf is in its population (a success no deterministic layer confirmed), so
+   * the workflow does not have to ask.
+   *
+   * Never fatal, and not awaited for its verdict beyond logging: a judge that is down leaves a leaf
+   * in exactly the state it was in before judges existed. `maximumAttempts: 1` because a review is
+   * not worth retrying — if the endpoint was busy, the answer can be backfilled later.
+   */
+  await JudgeLeafActivity({ leafId: args.leafId }).catch(() => undefined);
+
   const landing = await LandRequestActivity({ leafId: args.leafId });
   // Only when the mechanical merge left something behind. Every other exit path is a leaf that
   // failed or was cancelled, where there is nothing verified to land.

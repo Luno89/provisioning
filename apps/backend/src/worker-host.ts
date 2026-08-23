@@ -12,11 +12,10 @@ import { ExecuteLeafActivity } from './activities/ExecuteLeafActivity.js';
 import { CheckLeafGateActivity, ReleaseDependentsActivity } from './activities/LeafGateActivity.js';
 import { LandRequestActivity } from './activities/LandRequestActivity.js';
 import { ResolveLandingActivity } from './activities/ResolveLandingActivity.js';
+import { JudgeLeafActivity } from './activities/JudgeLeafActivity.js';
 import { AcceptRequestActivity } from './activities/AcceptRequestActivity.js';
 import { ReplanActivity } from './activities/ReplanActivity.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { ExecuteHarnessTurnActivity } from './harness-v2/activities/ExecuteHarnessTurnActivity.js';
-import { EvaluateHarnessTaskActivity } from './harness-v2/activities/EvaluateHarnessTaskActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 
@@ -79,6 +78,7 @@ async function main() {
           ReleaseDependentsActivity,
           LandRequestActivity,
           ResolveLandingActivity,
+          JudgeLeafActivity,
           AcceptRequestActivity,
           ReplanActivity,
           CrawlBatchActivity,
@@ -88,8 +88,6 @@ async function main() {
           PurgeCorpusActivity,
           SearchCorpusActivity,
           NewIngestIdActivity,
-          ExecuteHarnessTurnActivity,
-          EvaluateHarnessTaskActivity,
         },
       });
       break;

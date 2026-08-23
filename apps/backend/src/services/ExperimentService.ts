@@ -28,10 +28,12 @@ import { boardFile } from '../lib/planning-board.js';
 import type { LeafToolContext } from '../lib/leaf-tool-runner.js';
 import type { ModelKind } from '@koala/harness-types';
 import { buildMemoryContext, type MemoryItem } from '../lib/memory-store.js';
+import { buildDiffScript, trimDiff } from '../lib/leaf-evidence.js';
 import type { ExperimentRun } from '@koala/harness-types';
 import type {
   ExperimentRunFinished, ExperimentRunStarted, ExperimentStepEvent,
 } from '@koala/harness-types';
+import type { WebSearchFn } from '../lib/web-tools.js';
 import {
   plannedRuns,
   experimentTasks,
@@ -77,8 +79,9 @@ export class ExperimentService {
      * How a research sub-agent reaches the web. Defaults to refusing, so a service constructed
      * without them plans from what the model knows rather than silently returning empty findings.
      */
-    private webSearch: (q: string) => Promise<{ title: string; snippet: string; url: string }[]>
-      = async () => [],
+    private webSearch: WebSearchFn
+      // No backend wired: an outage, not an empty internet — the distinction this type exists for.
+      = async () => ({ hits: [], unavailable: true }),
     private fetchWebPage: (url: string) => Promise<string> = async () => '',
   ) {}
 
@@ -377,7 +380,7 @@ export class ExperimentService {
            * sub-agent does the searching. So these stay empty here on purpose: they are the
            * planner's own tools, and it does not have them.
            */
-          webSearch: async () => [],
+          webSearch: async () => ({ hits: [], unavailable: true }),
           fetchWebPage: async () => '',
           /**
            * Inert on purpose — but only this one.
@@ -640,6 +643,23 @@ export class ExperimentService {
         const expectedTool = dedicatedToolMap[task.id];
         const usedDedicatedTool = expectedTool ? toolsUsed.includes(expectedTool) : undefined;
 
+        /**
+         * What the run changed, read before the `finally` below destroys the sandbox.
+         *
+         * The only reason this is here: an experiment run is the one place in this system with
+         * ground truth a model did not influence, so it is the only corpus a JUDGE can be scored
+         * against. Nothing else reads it. See scripts/calibrate-judge.ts.
+         *
+         * Never fatal — a run whose diff could not be read is still a run.
+         */
+        const evidence = await this.workspaces
+          .exec(runId, buildDiffScript(), 60_000, ['HEAD'])
+          .then((r) => {
+            const { diff, truncated } = trimDiff(r.stdout);
+            return diff ? { diff, ...(truncated ? { diffTruncated: true } : {}) } : undefined;
+          })
+          .catch(() => undefined);
+
         const variantResult: VariantResult = {
           ...blank,
           succeeded: run.succeeded,
@@ -660,6 +680,7 @@ export class ExperimentService {
           ...(usedDedicatedTool !== undefined ? { usedDedicatedTool } : {}),
           ...(run.trace ? { trace: run.trace } : {}),
           ...(run.conversation ? { conversation: run.conversation } : {}),
+          ...(evidence ? { evidence } : {}),
         };
 
         void this.autoExtractMemories(experiment, task, variant, variantResult).catch(() => undefined);

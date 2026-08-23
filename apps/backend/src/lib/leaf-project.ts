@@ -113,6 +113,28 @@ export async function resolveLeafProject(deps: LeafProjectDeps, leaf: Leaf): Pro
     appType: 'generic',
     createdAt: new Date().toISOString(),
   };
-  await deps.db.saveProject(project);
+  try {
+    await deps.db.saveProject(project);
+  } catch (err) {
+    /**
+     * Lost the race between the re-read above and this write.
+     *
+     * The re-read narrows the window; it cannot close it. Two leaves can both find no row, both
+     * build one, and the second write hits the unique index on (giteaOwner, giteaRepo) — which is
+     * the index doing its job. The end state we wanted exists, written by whoever got there first.
+     *
+     * This was survivable while only one or two CODING leaves of a request raced. Once every leaf
+     * that writes files takes a checkout, four research leaves start at once and hit it routinely:
+     * measured, two of five leaves lost their repository to `E11000` and reported "work will not
+     * persist" — the exact outcome the repository was given to them to prevent.
+     *
+     * Same shape as the `createRepo` guard above: try, and on failure ask whether the thing we
+     * wanted is now true anyway.
+     */
+    const winner = (await deps.db.getProjects())
+      .find((p) => p.ownerId === leaf.ownerId && p.giteaRepo === repo);
+    if (!winner) throw err;
+    return winner;
+  }
   return project;
 }

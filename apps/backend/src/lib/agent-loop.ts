@@ -18,6 +18,7 @@
  * saying "did 24 things" reads as success and would mark broken work complete.
  */
 import {
+  conversationBudget,
   SANDBOX_TOOLS,
   MAX_AGENT_STEPS,
   MAX_AGENT_TOKENS,
@@ -32,10 +33,15 @@ import {
   type ToolWithdrawal,
 } from './sandbox-tools.js';
 import { parseToolArguments, ToolCallScanner, WEB_TOOLS } from './leaf-tools.js';
+import {
+  shouldCheckpoint, parseHandoff, assembleResetPrompt, HANDOFF_TOOL, type Handoff,
+} from './leaf-checkpoint.js';
+import { extensionNotice } from './budget-extension.js';
 import { isProductive, thrashAction, nudgeMessage, thrashSummary } from './thrash.js';
 import { detectThoughtLoop, type Turn as ThoughtTurn } from './thought-loop.js';
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
-import type { WorkspaceLanguage } from './workspace-spec.js';
+import { renderSearchOutcome } from './web-tools.js';
+import type { WorkspaceLanguage, WorkspaceSpec } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
 import type { WebTools } from './web-tools.js';
 import {
@@ -54,6 +60,46 @@ export interface SandboxDriver {
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
 }
+
+/**
+ * What the loop needs in order to save a checkpoint. Supplied by the activity; absent in tests.
+ *
+ * Returns the artifact TEXT, because the loop needs it for the reset prompt — the whole point is
+ * that the conversation is replaced by this document. Returning undefined means the save did not
+ * happen, and the loop then carries on WITHOUT resetting: discarding a context whose replacement
+ * failed to write would lose the run.
+ */
+/**
+ * Decides whether a run that hit a ceiling has earned more room.
+ *
+ * A callback for the same reason `checkpoint` is: answering it needs the repository, the deliverable
+ * and the ROOT's remaining budget — a database read and a sandbox exec, neither of which belongs in
+ * a loop that must stay drivable from a test. The loop contributes the one thing only it knows: its
+ * own diagnoses of whether the run is thrashing, circling or gone quiet.
+ *
+ * Absent means budgets are hard ceilings, which is the behaviour every caller had before this.
+ */
+export type ExtendBudgetDriver = (input: {
+  exhausted: 'steps' | 'tokens';
+  extensionsUsed: number;
+  step: number;
+  tokensUsed: number;
+  originalMaxSteps: number;
+  originalMaxTokens: number;
+  /** The loop's own diagnoses. Any one of them vetoes an extension — see decideExtension. */
+  thrashing: boolean;
+  circling: boolean;
+  silent: boolean;
+}) => Promise<{ steps?: number; tokens?: number; reason: string } | undefined>;
+
+export type CheckpointDriver = (input: {
+  /** 1-based, for the artifact's own heading. */
+  number: number;
+  /** The agent's account of itself, when the handoff turn produced one. */
+  handoff?: Handoff | undefined;
+  tokensUsed: number;
+  maxTokens: number;
+}) => Promise<{ artifact: string; sha?: string; branch?: string } | undefined>;
 
 /** Per-field caps. A single reasoning block has been measured at ~8,000 characters, and a run has
  *  up to MAX_AGENT_STEPS of them — uncapped, one experiment could outgrow a Mongo document. */
@@ -80,7 +126,16 @@ export const MAX_CONVERSATION_MESSAGE = 6000;
 export interface AgentRunResult {
   succeeded: boolean;
   summary: string;
+  /** Billed tokens — prompt plus completion, re-read every turn. What budgets enforce on. */
   tokensUsed: number;
+  /**
+   * Generated tokens only. Reported, never enforced.
+   *
+   * `readStreamedReply` has always returned this and the loop discarded it everywhere except the
+   * truncation check. It is the difference between a leaf that thought hard and a leaf that read
+   * its own context forty times, and those looked identical in the record.
+   */
+  completionTokensUsed: number;
   /**
    * Whether the run was stopped by its budget rather than ending on its own terms.
    *
@@ -89,6 +144,24 @@ export interface AgentRunResult {
    * whether another attempt is worth making.
    */
   outOfBudget?: boolean;
+  /**
+   * WHY the run stopped, as a value rather than as prose in the summary.
+   *
+   * ── WHAT THIS IS FOR ──
+   * The three self-diagnoses below are conclusions the loop reached about itself: it is repeating,
+   * it is producing nothing, it has stopped calling tools. A budget stop is not — it is the clock
+   * running out on a run that might have been fine.
+   *
+   * That distinction decides whether a retry is worth anything. Measured across two projects: nine
+   * leaves failed, and every one of them was diagnosed correctly on its FIRST attempt — "This is a
+   * loop, not progress" — then retried twice more and looped again each time, identically. One
+   * Synthesist recorded the same sentence three times. Roughly two thirds of the ~3.7M tokens those
+   * projects spent on failures went into repeating a diagnosis that was already right.
+   *
+   * The summary said all of this in English. Nothing could act on it, because acting on it meant
+   * parsing prose.
+   */
+  stoppedBecause?: 'circling' | 'thrashing' | 'silent' | 'budget';
   steps: number;
   /** What the model was actually asked. Always populated — it is small and it is the context. */
   request: AgentRequest;
@@ -98,6 +171,20 @@ export interface AgentRunResult {
   trace?: AgentStep[];
   /** The conversation as SENT, verbatim. Populated alongside the trace. */
   conversation?: ConversationMessage[];
+  /**
+   * Save points written during the run, in order.
+   *
+   * Worth surfacing because `conversation` is only the window since the LAST reset — by design, but
+   * surprising if nothing says so. These are where the rest of it went.
+   */
+  checkpoints?: { step: number; tokensUsed: number; sha?: string; branch?: string }[];
+  /**
+   * Budget extensions granted, with the evidence that earned each one.
+   *
+   * Recorded because "this run took 300,000 tokens" and "this run took 300,000 tokens because its
+   * tests went green twice on the way" are different facts, and only the second one is a reason.
+   */
+  extensions?: { step: number; at: 'steps' | 'tokens'; steps?: number; tokens?: number; reason: string }[];
   /**
    * Overrides that could not be sent — unknown keys, or engine-gated samplers on another engine.
    *
@@ -137,6 +224,37 @@ export interface AgentRunOptions {
   fromProfile?: string[] | undefined;
   /** Keys supplied by a persona, recorded beside `fromProfile` rather than merged into it. */
   fromPersona?: string[] | undefined;
+  /**
+   * Saves a mid-run checkpoint, if the caller can. Absent means the run simply does not checkpoint.
+   *
+   * Everything a checkpoint does that touches the world — reading the repository, writing the
+   * artifact, committing, pushing, recording the branch — lives behind this, for the same reason
+   * `sandbox` and `web` do: the loop stays free of Temporal and of Mongo, so it can be driven
+   * against a real model in a test without either. The loop decides WHEN; this does HOW.
+   */
+  checkpoint?: CheckpointDriver | undefined;
+  /** Grants more room to a run that is still producing. See ExtendBudgetDriver. */
+  extendBudget?: ExtendBudgetDriver | undefined;
+  /**
+   * Persists a lesson the agent asked to record. Absent means the run cannot save memories.
+   *
+   * A callback because the loop has no database — the same reason `web` and `checkpoint` are. What
+   * it must NOT do is write an active memory: see the tool's handler for why this queues.
+   */
+  saveMemory?: ((memory: {
+    category: string;
+    title: string;
+    text: string;
+    suggestedScope: 'project' | 'global';
+    /**
+     * What the harness did with it, so the tool's reply can be true.
+     *
+     * The writer runs the candidate past the most similar stored entries before keeping it
+     * (lib/memory-decide.ts), so "saved" is no longer a foregone conclusion — it may have been
+     * judged a duplicate. Reporting that back matters: an agent told its lesson is in effect will
+     * reasonably stop repeating it.
+     */
+  }) => Promise<{ action: string }>) | undefined;
   /**
    * The web tools this run may use, already resolved to whatever is deployed.
    *
@@ -212,6 +330,29 @@ export interface AgentRunOptions {
   signal?: AbortSignal;
   /** Injected memory bank context. */
   memoryContext?: string;
+  /**
+   * What is mounted at `$SERVICE_BINDING_ROOT`, as `describeBindings` renders it.
+   *
+   * Passed in rather than derived, for the reason `service-binding.ts` gives: composing it keeps
+   * one source of truth, where seeding it into each persona would go stale the moment a project's
+   * dependencies changed.
+   */
+  bindingsContext?: string;
+  /**
+   * The sandbox as built, so the prompt can describe the real network rather than the default.
+   *
+   * Only the descriptive fields — this is for what the agent is TOLD, and the pod already exists by
+   * the time the loop starts.
+   */
+  sandboxSpec?: Pick<WorkspaceSpec, 'egress' | 'env' | 'cpu' | 'memory'>;
+  /**
+   * The context window of the model THIS run resolved to.
+   *
+   * Per run rather than global: a persona names its own model, so a Researcher on a 131K engine and
+   * a Judge on a smaller endpoint must not share a budget. Absent means nobody recorded one — a
+   * registered endpoint — and the conservative fallback applies.
+   */
+  contextTokens?: number;
 }
 
 /**
@@ -230,12 +371,21 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   // Loop-placement tunables are read here rather than sent. Explicit options still win, so a
   // caller that passes maxSteps directly is not overruled by an experiment's bag.
   const think = typeof overrides.think === 'boolean' ? overrides.think : Boolean(opts.think);
-  const maxSteps = typeof overrides.maxSteps === 'number'
+  /**
+   * Mutable, because a producing run can earn more room — see lib/budget-extension.ts.
+   *
+   * The ORIGINALS are kept beside them so every grant is measured against what the persona actually
+   * declared. Extending by a fraction of the CURRENT ceiling compounds, and a compounding runaway is
+   * precisely what a budget exists to prevent.
+   */
+  let maxSteps = typeof overrides.maxSteps === 'number'
     ? overrides.maxSteps
     : (opts.maxSteps ?? MAX_AGENT_STEPS);
-  const maxTokens = typeof overrides.maxTokens === 'number'
+  let maxTokens = typeof overrides.maxTokens === 'number'
     ? overrides.maxTokens
     : (opts.maxTokens ?? MAX_AGENT_TOKENS);
+  const originalMaxSteps = maxSteps;
+  const originalMaxTokens = maxTokens;
   const toolResultCap = typeof overrides.maxToolResultChars === 'number'
     ? overrides.maxToolResultChars
     : undefined;
@@ -244,6 +394,8 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   const transcript: string[] = [];
   const trace: AgentStep[] = [];
   let tokensUsed = 0;
+  /** Generated tokens only — reported, never a ceiling. See AgentRunResult.completionTokensUsed. */
+  let completionTokensUsed = 0;
   let consecutiveNoToolTurns = 0;
 
   /**
@@ -266,9 +418,18 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     ? overrides.extraInstructions
     : '';
   const systemPrompt = [
-    custom || buildAgentPrompt(opts.language, opts.taskContext, maxSteps),
+    custom || buildAgentPrompt(opts.language, opts.taskContext, maxSteps, opts.sandboxSpec ?? {}),
     ...(custom ? ['', 'YOUR TASK', opts.taskContext] : []),
     ...(extra ? ['', extra] : []),
+    /**
+     * Outside the `custom` branch, like `memoryContext`, and for a stronger reason.
+     *
+     * This is a fact about the container the agent is standing in. A prompt override changes how it
+     * is asked to work; it cannot change where its database lives. Dropping this on an override
+     * would put an agent back to guessing connection strings — the failure that cost two projects
+     * their budgets — and it would do so silently.
+     */
+    ...(opts.bindingsContext ? ['', opts.bindingsContext.trim()] : []),
     ...(memoryContext ? ['', memoryContext] : []),
   ].join('\n');
 
@@ -396,6 +557,75 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
    */
   let stoppedTalking = false;
   let stoppedAtStep = maxSteps;
+
+  /**
+   * One model call with exactly ONE tool on offer.
+   *
+   * ── WHY THIS IS SHARED RATHER THAN WRITTEN TWICE ──
+   * Two places need the same unusual turn: the forced wrap-up when a budget runs out, and the
+   * handoff when a checkpoint fires. Both work by WITHHOLDING every other tool — that is what makes
+   * them a pause rather than another working turn, because the agent cannot decide to keep going,
+   * which is the whole reason it was interrupted. Both must also survive failing: an interruption
+   * that takes the run down with it is worse than not interrupting.
+   *
+   * The instruction is pushed onto `messages`, so the model sees why it was stopped. Note that the
+   * checkpoint caller resets `messages` immediately afterwards, so for that path the push is
+   * transient by design.
+   *
+   * Returns the parsed arguments when the tool was called, the prose when the model answered
+   * without calling it, and undefined when the call itself failed. Callers decide what each of
+   * those means — a wrap-up keeps the prose as its summary, a checkpoint records that no handoff
+   * was written.
+   */
+  const oneToolTurn = async (
+    toolName: string,
+    instruction?: string,
+    toolDeclaration?: unknown,
+  ): Promise<{ args?: Record<string, unknown>; content: string } | undefined> => {
+    const tool = toolDeclaration
+      ?? activeTools.find((t: any) => (t.function?.name ?? t.name) === toolName);
+    if (!tool) return undefined;
+
+    if (instruction) messages.push({ role: 'user', content: instruction });
+
+    try {
+      const body = {
+        ...requestBody,
+        messages,
+        tools: [tool],
+        // Enough for an honest account of a long run, and no more.
+        max_tokens: fittedMaxTokens(1200, JSON.stringify(messages).length, opts.contextTokens),
+      };
+      const res = await doFetch(`${opts.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
+        },
+        body: JSON.stringify(body),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      if (!res.ok) return undefined;
+
+      const reply = await readStreamedReply(res);
+      // Counted like any other turn: it is a real inference against a real budget.
+      tokensUsed += reply.tokens;
+      completionTokensUsed += reply.completionTokens;
+
+      const call = reply.toolCalls.find((c) => c.name === toolName);
+      const content = reply.content?.trim() ?? '';
+      if (!call) return { content };
+      return { args: parseToolArguments(call.arguments), content };
+    } catch {
+      // Never fatal. The caller's own record of the run is still true without this.
+      return undefined;
+    }
+  };
+  /** Extensions granted this run, in order. Surfaced so a long run says WHY it was long. */
+  const extensions: { step: number; at: 'steps' | 'tokens'; steps?: number; tokens?: number; reason: string }[] = [];
+  let extensionsUsed = 0;
+  /** Save points written this run. See CheckpointDriver for why the loop only decides WHEN. */
+  const checkpoints: { step: number; tokensUsed: number; sha?: string; branch?: string }[] = [];
   /** Consecutive turns that inspected the workspace without changing it — see lib/thrash.ts. */
   let unproductiveTurns = 0;
   let thrashed = false;
@@ -409,16 +639,76 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   /** Which budget ran out, for a summary that says what actually happened. */
   let exhausted: 'steps' | 'tokens' | undefined;
 
-  for (let step = 0; step < maxSteps; step++) {
-    /**
-     * Checked before the turn, never during: stopping mid-turn would abandon a tool call whose
-     * result the agent is waiting for, and the overshoot of finishing one turn is bounded by a
-     * single reply.
-     */
-    if (tokensUsed >= maxTokens) {
-      exhausted = 'tokens';
-      stoppedAtStep = step;
-      break;
+  /**
+   * Unbounded, with BOTH ceilings decided at the top by one policy.
+   *
+   * It used to be `step < maxSteps` with the token check inside, which meant the two budgets were
+   * enforced in two places and only one of them could ever be reconsidered. A run that has earned
+   * more room has earned it whichever ceiling it hit, and putting the decision in one place is what
+   * makes that true without duplicating the extension logic.
+   *
+   * Checked BEFORE the turn, never during: stopping mid-turn would abandon a tool call whose result
+   * the agent is waiting for, and the overshoot of finishing one turn is bounded by a single reply.
+   */
+  for (let step = 0; ; step++) {
+    const hit = tokensUsed >= maxTokens ? 'tokens' : step >= maxSteps ? 'steps' : undefined;
+    if (hit) {
+      /**
+       * Ask whether this run deserves more room before calling it finished.
+       *
+       * The order matters: probe, decide, and only then checkpoint. An extension always carries a
+       * checkpoint because spending +50% on the most degraded context of the run is how you buy a
+       * worse outcome for more money — the save point resets the conversation, so the extra budget
+       * is spent thinking rather than re-reading.
+       *
+       * Every veto lives in `decideExtension`, and the loop's own diagnoses are what feed it: a run
+       * this loop has already identified as thrashing or circling must not be handed more room to
+       * do it in. That has been measured to make outcomes worse three separate times.
+       */
+      const extension = opts.extendBudget
+        ? await opts.extendBudget({
+          exhausted: hit,
+          extensionsUsed,
+          step,
+          tokensUsed,
+          originalMaxSteps,
+          originalMaxTokens,
+          thrashing: thrashed || unproductiveTurns > 0,
+          circling: Boolean(circling),
+          silent: consecutiveNoToolTurns > 0,
+        }).catch(() => undefined)
+        : undefined;
+
+      if (!extension) {
+        exhausted = hit;
+        stoppedAtStep = step;
+        break;
+      }
+
+      extensionsUsed++;
+      if (extension.steps) maxSteps += extension.steps;
+      if (extension.tokens) maxTokens += extension.tokens;
+      extensions.push({
+        step,
+        at: hit,
+        ...(extension.steps ? { steps: extension.steps } : {}),
+        ...(extension.tokens ? { tokens: extension.tokens } : {}),
+        reason: extension.reason,
+      });
+      transcript.push(`budget extended (${hit}): ${extension.reason}`);
+
+      /**
+       * Told to the agent, and not optional.
+       *
+       * `buildAgentPrompt` bakes the step budget into the system prompt ONCE at the start of the
+       * run, so an extension that is not announced leaves the agent working to a number that is no
+       * longer true. sandbox-tools.ts documents exactly this class of bug — "it typechecks, it
+       * runs, and the two quietly disagree" — and step-budget.test.ts exists to guard it.
+       */
+      messages.push({
+        role: 'user',
+        content: extensionNotice(extension, hit === 'steps' ? maxSteps : maxTokens, hit),
+      });
     }
     /**
      * `messages` is mutated across steps and the body was built once, so the array reference is
@@ -429,7 +719,96 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
      * Reassigned each turn so the full `messages` array stays intact for the trace and for the next
      * turn's own trimming.
      */
-    requestBody.messages = trimConversation(messages);
+    /**
+     * ── SAVE THE RUN, THEN FORGET HOW IT GOT HERE ──
+     *
+     * Fires at a TURN BOUNDARY, which is the only place it is safe: `write_file` is a single atomic
+     * write, so the working tree is never half-finished here, and sweeping it into the checkpoint
+     * commit cannot capture a partial file.
+     *
+     * Three things happen in one operation, deliberately — see lib/leaf-checkpoint.ts. The agent is
+     * asked what it has done (the part only it knows), the driver commits and pushes and writes the
+     * artifact (the part only the harness can check), and then the conversation is replaced by that
+     * artifact.
+     *
+     * The reset is CONDITIONAL on the save succeeding. Discarding a context whose replacement failed
+     * to write would turn a bookkeeping failure into a lost run, which is the exact outcome this
+     * whole mechanism exists to prevent.
+     */
+    if (opts.checkpoint && shouldCheckpoint({ tokensUsed, maxTokens, taken: checkpoints.length })) {
+      const number = checkpoints.length + 1;
+      /**
+       * The spend that TRIGGERED this, captured before the handoff turn adds its own.
+       *
+       * `tokensUsed` is mutated by `oneToolTurn` below, so reading it afterwards reports the cost
+       * of the interruption as though it were the reason for it. Measured live: checkpoint 2 of a
+       * 30,000-token run recorded 28,640 — which reads as a violation of the 15%-remaining rule
+       * that suppresses late checkpoints, when the decision was actually taken thousands of tokens
+       * earlier and the handoff turn accounted for the difference.
+       */
+      const triggeredAt = tokensUsed;
+      /**
+       * Where the conversation stood before we interrupted it.
+       *
+       * `oneToolTurn` appends its instruction to `messages`, and that instruction says the context
+       * is ABOUT TO BE RESET. If the save then fails we do not reset — so without rewinding, the
+       * agent would carry a standing announcement of something that never happened, followed by
+       * its own reply to it, for the rest of the run.
+       */
+      const before = messages.length;
+      const turn = await oneToolTurn(
+        'handoff',
+        'Pause. Your context is about to be reset so you can keep working without running out of '
+        + 'room — your work is safe and is being committed now. Call `handoff` to write down where '
+        + 'things stand. Be specific: what is genuinely finished, what comes next, and anything you '
+        + 'found out that would not be obvious from the diff. Do not call any other tool.',
+        HANDOFF_TOOL,
+      );
+      const handoff = turn?.args ? parseHandoff(turn.args) : undefined;
+
+      const saved = await opts.checkpoint({ number, handoff, tokensUsed: triggeredAt, maxTokens })
+        .catch(() => undefined);
+
+      if (saved) {
+        checkpoints.push({
+          step,
+          tokensUsed: triggeredAt,
+          ...(saved.sha ? { sha: saved.sha } : {}),
+          ...(saved.branch ? { branch: saved.branch } : {}),
+        });
+        transcript.push(`checkpoint ${number}: ${saved.sha ?? 'saved'}`);
+
+        /**
+         * The reset itself. `messages` is mutated in place because `requestBody.messages` is
+         * reassigned from it every turn just below — so truncating here is all that is required,
+         * and the array reference the rest of the loop holds stays valid.
+         *
+         * The system prompt survives (it carries the persona and the memory bank); everything else
+         * becomes one user message containing the artifact.
+         */
+        const system = messages[0];
+        messages.length = 0;
+        if (system) messages.push(system);
+        messages.push({
+          role: 'user',
+          content: assembleResetPrompt(opts.taskContext.split('\n')[0] ?? 'this task', saved.artifact),
+        });
+      } else {
+        // Rewind the interruption — see `before`. The run carries on as though it never paused.
+        messages.length = before;
+      }
+    }
+
+    /**
+     * Trimmed against the window this run's model actually has.
+     *
+     * A constant here meant a 131K model kept the same 60,000 characters a 32K one did, discarding
+     * history it had room for — see `conversationBudget`.
+     */
+    requestBody.messages = trimConversation(
+      messages,
+      conversationBudget(opts.contextTokens, typeof overrides.conversationGrowth === 'number' ? overrides.conversationGrowth : undefined),
+    );
     /**
      * The reply budget is re-fitted every turn, because the prompt grows.
      *
@@ -438,7 +817,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
      * generated. Measured: 26,816 prompt tokens plus an 8,000 ceiling is exactly the 34,816 the
      * engine reported against a 32,768 window.
      */
-    requestBody.max_tokens = fittedMaxTokens(turnCap, JSON.stringify(requestBody.messages).length);
+    requestBody.max_tokens = fittedMaxTokens(turnCap, JSON.stringify(requestBody.messages).length, opts.contextTokens);
     // Per turn, for the same reason as the messages above: the body is assembled once, and a tool
     // list fixed at that moment could never change partway through a run.
     requestBody.tools = toolsForStep(step, activeTools, opts.withdrawTools);
@@ -459,6 +838,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
     const { content, reasoning, toolCalls, tokens, completionTokens } = await readStreamedReply(response);
     tokensUsed += tokens;
+    completionTokensUsed += completionTokens;
 
     // Built whenever anyone wants it — the trace keeps it, the live view watches it, and both may
     // be off, in which case the work of assembling it is skipped entirely.
@@ -606,10 +986,13 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
           succeeded: Boolean(args.succeeded),
           summary: summaryStr,
           tokensUsed,
+          completionTokensUsed,
           steps: step + 1,
           request,
           transcript,
           ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
+          ...(checkpoints.length ? { checkpoints } : {}),
+          ...(extensions.length ? { extensions } : {}),
           ...(unsupported.length ? { unsupported } : {}),
         };
       }
@@ -630,7 +1013,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
           transcript.push(`${name} -> ${remote.isError ? 'error' : 'ok'}`);
           result = remote.text;
         } else {
-          result = await runSandboxTool(opts.sandbox, name, args, transcript, opts.web);
+          result = await runSandboxTool(opts.sandbox, name, args, transcript, opts.web, opts.saveMemory);
         }
       } catch (err: any) {
         // Returned to the model, not thrown: a tool that fails is information the agent can act
@@ -711,72 +1094,42 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
         + 'what is not, and what the next attempt should do differently. Do not call any other tool.',
     });
 
-    /**
-     * One call, `finish` the only tool on offer.
-     *
-     * Withholding every other tool is what makes this a wrap-up rather than another working turn —
-     * the agent cannot decide to keep going, which is the whole reason the budget was reached.
-     */
-    const wrapUp = await (async () => {
-      const finishTool = activeTools.find((t: any) => (t.function?.name ?? t.name) === 'finish');
-      if (!finishTool) return undefined;
-      try {
-        const body = {
-          ...requestBody,
-          messages,
-          tools: [finishTool],
-          // Enough for an honest account of a long run, and no more.
-          max_tokens: fittedMaxTokens(1200, JSON.stringify(messages).length),
-        };
-        const res = await doFetch(`${opts.baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
-          },
-          body: JSON.stringify(body),
-          ...(opts.signal ? { signal: opts.signal } : {}),
-        });
-        if (!res.ok) return undefined;
-        const reply = await readStreamedReply(res);
-        tokensUsed += reply.tokens;
-        const call = reply.toolCalls.find((c) => c.name === 'finish');
-        if (!call) {
-          /**
-           * It answered in prose instead of calling the tool. That prose is still the best account
-           * of where things stand — it is exactly what was thrown away before — so it is kept as
-           * the summary, but the run is NOT claimed as succeeded on the strength of it.
-           */
-          // Returned as PROSE, not as a verdict: it is kept alongside the budget diagnosis below
-          // rather than replacing it, so the run is still classified correctly and the account is
-          // not lost. Replacing it made a run that simply ran out report its last idle thought.
-          if (reply.content?.trim()) wrapUpProse = reply.content.trim().slice(0, 2000);
-          return undefined;
-        }
-        const args = parseToolArguments(call.arguments);
-        return {
-          succeeded: Boolean(args.succeeded),
-          summary: String(args.summary ?? '').slice(0, 4000) || 'No summary given.',
-        };
-      } catch {
-        // A wrap-up that fails must not take the run's own record down with it — the ordinary
-        // out-of-budget summary below is still true.
-        return undefined;
+    const wrapUpTurn = await oneToolTurn('finish');
+    if (!wrapUpTurn?.args && wrapUpTurn?.content) {
+      /**
+       * It answered in prose instead of calling the tool. That prose is still the best account of
+       * where things stand — it is exactly what was thrown away before — so it is kept as the
+       * summary, but the run is NOT claimed as succeeded on the strength of it.
+       *
+       * Kept alongside the budget diagnosis below rather than replacing it, so the run is still
+       * classified correctly and the account is not lost. Replacing it made a run that simply ran
+       * out report its last idle thought.
+       */
+      wrapUpProse = wrapUpTurn.content.slice(0, 2000);
+    }
+    const wrapUp = wrapUpTurn?.args
+      ? {
+        succeeded: Boolean(wrapUpTurn.args.succeeded),
+        summary: String(wrapUpTurn.args.summary ?? '').slice(0, 4000) || 'No summary given.',
       }
-    })();
+      : undefined;
     if (wrapUp) {
       transcript.push(`finish (forced): succeeded=${wrapUp.succeeded} summary=${wrapUp.summary}`);
       return {
         succeeded: wrapUp.succeeded,
         summary: wrapUp.summary,
         tokensUsed,
+        completionTokensUsed,
         steps: stoppedAtStep,
         request,
         transcript,
         // Said plainly so nothing downstream mistakes a forced wrap-up for a run that ended on its
         // own terms.
         outOfBudget: true,
+        stoppedBecause: 'budget',
         ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
+        ...(checkpoints.length ? { checkpoints } : {}),
+        ...(extensions.length ? { extensions } : {}),
         ...(unsupported.length ? { unsupported } : {}),
       };
     }
@@ -788,6 +1141,8 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     // marking them as budget stops would have the project's outstanding list report a confused run
     // as one that merely needed more room.
     ...(!circling && !thrashed && !stoppedTalking ? { outOfBudget: true } : {}),
+    // The same three conditions the summary below branches on, as a value the caller can act on.
+    stoppedBecause: circling ? 'circling' : thrashed ? 'thrashing' : stoppedTalking ? 'silent' : 'budget',
     summary: circling
       // Its own message, quoting what repeated, so the verdict can be checked rather than trusted.
       ? `${circling} Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
@@ -809,10 +1164,13 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
           + `Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`
         : `Ran out of steps (${maxSteps}) without calling finish. Last commands: ${transcript.slice(-3).join(' | ') || 'none'}`,
     tokensUsed,
+    completionTokensUsed,
     steps: stoppedAtStep,
     request,
     transcript,
     ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
+    ...(checkpoints.length ? { checkpoints } : {}),
+    ...(extensions.length ? { extensions } : {}),
     ...(unsupported.length ? { unsupported } : {}),
   };
 }
@@ -868,6 +1226,7 @@ async function runSandboxTool(
   args: Record<string, unknown>,
   transcript: string[],
   web?: WebTools | undefined,
+  saveMemory?: AgentRunOptions['saveMemory'],
 ): Promise<string> {
   if (name === 'run_command') {
     const command = String(args.command ?? '');
@@ -910,13 +1269,49 @@ async function runSandboxTool(
     const category = String(args.category ?? 'lessons_learned');
     if (!title || !text) return JSON.stringify({ error: 'title and text are required' });
     transcript.push(`memory: ${title}`);
-    return JSON.stringify({
-      saved: true,
-      category,
-      title,
-      suggestedScope: args.suggestedScope || 'project',
-      note: 'Memory recorded and sent to Memory Bank review queue.',
-    });
+
+    /**
+     * ── THIS USED TO RETURN `saved: true` AND WRITE NOTHING ──
+     *
+     * The tool was declared, offered, and answered "Memory recorded and sent to Memory Bank review
+     * queue." while never calling `saveMemory`. So the `source: 'agent_tool'` enum value was dead,
+     * every agent that used it was told it had worked, and — worse —
+     * `seed-harder-benchmark-experiment.ts` contains a task that SCORES an agent on calling it. The
+     * suite was rewarding a no-op and reporting the score as a capability.
+     *
+     * Behind a callback, for the same reason `web`, `callRemote` and `checkpoint` are: the loop has
+     * no database and must stay drivable from a test without one. Absent means the caller cannot
+     * persist, and the honest answer is to say so rather than claim success.
+     */
+    if (!saveMemory) {
+      return JSON.stringify({
+        saved: false,
+        error: 'Memory cannot be saved in this run — nothing is listening. Say it in your finish summary instead.',
+      });
+    }
+
+    const suggestedScope = args.suggestedScope === 'global' ? 'global' : 'project';
+    let action = 'ADD';
+    try {
+      ({ action } = await saveMemory({ category, title, text, suggestedScope }));
+    } catch (err: any) {
+      return JSON.stringify({ saved: false, error: `Could not save that: ${String(err?.message ?? err).slice(0, 200)}` });
+    }
+
+    /**
+     * Says what actually happened, which is no longer always "saved".
+     *
+     * This used to answer "Queued for review", because everything a model concluded waited for a
+     * human. Nobody drained that queue — 124 of 143 memories were sitting in it — so admission is
+     * now a decision made against the entries already stored (lib/memory-decide.ts), and a
+     * candidate can be judged a duplicate and dropped. An agent told "saved" when nothing was
+     * stored would stop repeating a lesson that is not recorded anywhere.
+     */
+    const noted = action === 'NOOP'
+      ? 'Not stored — the memory bank already holds this. Nothing more to do.'
+      : 'Stored. It will be available to future runs on this project.';
+
+    return JSON.stringify({ saved: action !== 'NOOP', action, category, title, suggestedScope, note: noted });
   }
 
   if (name === 'inspect_git_diff') {
@@ -999,10 +1394,30 @@ async function runSandboxTool(
       if (!query) return JSON.stringify({ error: 'query parameter is required' });
       transcript.push(`web_search: ${query}`);
       try {
-        const results = await web.search(query);
-        return JSON.stringify({ query, results: results.length ? results : [{ snippet: 'No results found' }] });
+        const outcome = await web.search(query);
+
+        /**
+         * ── THE SENTENCE THAT COST A PROJECT ITS BUDGET ──
+         *
+         * This used to answer "No results found" whenever the array came back empty — whether the
+         * topic was genuinely empty, the backend was unreachable, or the fallback was rate-limited.
+         * A Researcher received it nineteen times, broadened from a precise query down to bare
+         * `HTML` and `CSS`, then looped two terms for fifteen steps and failed at 204K tokens.
+         * SearXNG answers those queries with ten results each; nothing was wrong with the topic.
+         *
+         * So the two cases are now told apart, and the unavailable one says explicitly that
+         * rephrasing will not help. An agent cannot reason its way out of a false negative it has
+         * no way to detect.
+         */
+        return JSON.stringify(renderSearchOutcome(query, outcome));
       } catch (err: any) {
-        return JSON.stringify({ query, results: [{ snippet: `Web search error: ${err?.message || err}` }] });
+        // An exception is also not a negative result. Same distinction, said the same way.
+        return JSON.stringify({
+          query,
+          unavailable: true,
+          error: `Search failed: ${err?.message || err}`,
+          note: 'This says nothing about whether results exist. Rephrasing will not help.',
+        });
       }
     }
     const url = String(args.url ?? '').trim();

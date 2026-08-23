@@ -702,3 +702,325 @@ describe('tools from the servers this harness built', () => {
     expect(names).not.toContain('weather__get-forecast');
   });
 });
+
+/**
+ * Checkpoints: saving a run partway through, then forgetting how it got there.
+ *
+ * The failure these exist for is not exotic. ExecuteLeafActivity is ONE Temporal activity wrapping
+ * the whole loop, `/work` is an emptyDir destroyed with the pod, and the only push was the agent
+ * doing it at the end — so a run killed by the activity's own wall-clock timeout restarted at step
+ * zero having lost both the tokens and every file written.
+ *
+ * Driven here with a tiny token budget so a checkpoint lands within a few scripted turns.
+ */
+describe('checkpointing a run', () => {
+  /** Token budget small enough that CHECKPOINTS thresholds fall inside a short scripted run. */
+  const withCheckpoint = (fetchImpl: any, checkpoint: any, maxTokens = 30) =>
+    runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Add a rate limiter', sandbox: sandbox(),
+      fetchImpl, maxSteps: 8, maxTokens, checkpoint,
+    });
+
+  /** A run that keeps working, so the budget is what stops it rather than a `finish`. */
+  const working = () => scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
+
+  it('saves, and records where the save landed', async () => {
+    const checkpoint = vi.fn(async () => ({ artifact: '# Checkpoint 1\nsaved state', sha: 'abc1234', branch: 'koala/aaa' }));
+
+    const result = await withCheckpoint(working(), checkpoint);
+
+    expect(checkpoint).toHaveBeenCalled();
+    expect(result.checkpoints?.[0]).toMatchObject({ sha: 'abc1234', branch: 'koala/aaa' });
+  });
+
+  it('asks the agent for a handoff with exactly one tool on offer', async () => {
+    /**
+     * Withholding every other tool is what makes this a pause rather than another working turn —
+     * the agent cannot decide to keep going, which is the whole reason it was interrupted.
+     */
+    const model = working();
+    await withCheckpoint(model, vi.fn(async () => ({ artifact: 'a' })));
+
+    const handoffCall = model.mock.calls
+      .map((c: any) => JSON.parse(c[1].body))
+      .find((b: any) => b.tools?.length === 1 && b.tools[0].function?.name === 'handoff');
+
+    expect(handoffCall).toBeDefined();
+    expect(handoffCall.tools).toHaveLength(1);
+  });
+
+  it('passes the agent’s handoff through to whatever writes the artifact', async () => {
+    const checkpoint = vi.fn(async () => ({ artifact: 'a' }));
+    const model = vi.fn(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      // The handoff turn is the one offered a single `handoff` tool.
+      if (body.tools?.length === 1 && body.tools[0].function?.name === 'handoff') {
+        return reply({ tool_calls: [toolCall('handoff', { done: 'bucket written', next: 'wire middleware' })] }) as any;
+      }
+      return reply({ tool_calls: [toolCall('run_command', { command: 'ls' })] }) as any;
+    });
+
+    await withCheckpoint(model, checkpoint);
+
+    // `as any`: vi.fn's inferred arg tuple is empty, same reason `bodyOf` above is loose.
+    expect((checkpoint.mock.calls[0] as any)[0]).toMatchObject({
+      number: 1,
+      handoff: { done: 'bucket written', next: 'wire middleware' },
+    });
+  });
+
+  it('replaces the conversation with the artifact', async () => {
+    const model = working();
+    await withCheckpoint(model, vi.fn(async () => ({ artifact: '# Checkpoint 1\nTHE SAVED STATE' })));
+
+    // The first working turn AFTER the save: system prompt plus one user message carrying the
+    // artifact, and nothing else. That is the reset.
+    const after = model.mock.calls
+      .map((c: any) => JSON.parse(c[1].body))
+      .filter((b: any) => !(b.tools?.length === 1 && b.tools[0].function?.name === 'handoff'))
+      .find((b: any) => JSON.stringify(b.messages).includes('THE SAVED STATE'));
+
+    expect(after).toBeDefined();
+    expect(after.messages).toHaveLength(2);
+    expect(after.messages[0].role).toBe('system');
+    expect(after.messages[1].content).toContain('THE SAVED STATE');
+    // The agent is TOLD it happened — one that finds its context inexplicably shorter spends turns
+    // re-establishing things it already knew.
+    expect(after.messages[1].content).toContain('was reset');
+  });
+
+  it('does NOT reset when the save failed', async () => {
+    /**
+     * The load-bearing case. Discarding a context whose replacement failed to write would turn a
+     * bookkeeping failure into a lost run — the exact outcome checkpoints exist to prevent.
+     */
+    const model = working();
+    const result = await withCheckpoint(model, vi.fn(async () => undefined));
+
+    expect(result.checkpoints).toBeUndefined();
+    // Still ran to its budget and produced a normal result rather than dying.
+    expect(result.steps).toBeGreaterThan(0);
+  });
+
+  it('survives a driver that throws', async () => {
+    const model = working();
+    const result = await withCheckpoint(model, vi.fn(async () => { throw new Error('gitea exploded'); }));
+
+    expect(result.checkpoints).toBeUndefined();
+    expect(result.summary).toBeTruthy();
+  });
+
+  it('does not checkpoint at all when the caller cannot save', async () => {
+    // No driver means the run simply does not checkpoint — not that it fails to.
+    const result = await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
+      fetchImpl: working(), maxSteps: 4, maxTokens: 30,
+    });
+    expect(result.checkpoints).toBeUndefined();
+  });
+});
+
+/**
+ * Extending a run that is still producing.
+ *
+ * The ceiling has to exist — a loop whose model never calls `finish` runs forever — but it fires at
+ * the same number whether the agent is one command from done or has written nothing. This codebase
+ * has both cases on record: a leaf that wrote 30 passing tests and hit the cap before calling
+ * finish, and a leaf that failed three times having written nothing at all. Same ceiling, opposite
+ * right answers.
+ */
+describe('earning more room', () => {
+  const working = () => scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
+
+  const withBudget = (fetchImpl: any, extendBudget: any, maxSteps = 3) =>
+    runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Add a rate limiter', sandbox: sandbox(),
+      fetchImpl, maxSteps, extendBudget,
+    });
+
+  it('carries on when the run has earned it', async () => {
+    const extend = vi.fn(async () => ({ steps: 3, reason: 'granted because its tests now pass' }));
+    const result = await withBudget(working(), extend);
+
+    expect(extend).toHaveBeenCalled();
+    // It ran past the ceiling it was given rather than stopping at it.
+    expect(result.steps).toBeGreaterThan(3);
+    expect(result.extensions?.[0]?.reason).toContain('its tests now pass');
+  });
+
+  it('stops at the ceiling when nothing earned it', async () => {
+    const result = await withBudget(working(), vi.fn(async () => undefined));
+    expect(result.steps).toBe(3);
+    expect(result.extensions).toBeUndefined();
+  });
+
+  it('hands the loop’s own diagnoses to whoever decides', async () => {
+    /**
+     * The vetoes are the point of the whole mechanism, and the loop is the only thing that knows
+     * them — raising a budget on a thrashing run has been measured to make outcomes worse three
+     * separate times.
+     */
+    const extend = vi.fn(async () => undefined);
+    await withBudget(working(), extend);
+
+    expect((extend.mock.calls[0] as any)[0]).toMatchObject({
+      exhausted: 'steps',
+      extensionsUsed: 0,
+      thrashing: expect.any(Boolean),
+      circling: expect.any(Boolean),
+      silent: expect.any(Boolean),
+    });
+  });
+
+  it('tells the agent its budget moved', async () => {
+    /**
+     * `buildAgentPrompt` bakes the step budget into the system prompt ONCE, so an unannounced
+     * extension leaves the agent working to a number that is no longer true. sandbox-tools.ts
+     * documents this exact bug class and step-budget.test.ts guards it.
+     */
+    const model = working();
+    await withBudget(model, vi.fn(async () => ({ steps: 3, reason: 'granted because its tests now pass' })));
+
+    const sawNotice = model.mock.calls
+      .map((c: any) => JSON.parse(c[1].body))
+      .some((b: any) => JSON.stringify(b.messages).includes('Ignore any earlier statement of your budget'));
+
+    expect(sawNotice).toBe(true);
+  });
+
+  it('counts each grant, so the decider can eventually stop granting', async () => {
+    const extend = vi.fn(async () => ({ steps: 2, reason: 'granted because 2 new commits' }));
+    const result = await withBudget(working(), extend, 2);
+
+    expect((extend.mock.calls[0] as any)[0].extensionsUsed).toBe(0);
+    expect(result.extensions).toHaveLength(1);
+    expect(result.extensions?.[0]).toMatchObject({ at: 'steps', steps: 2 });
+  });
+
+  /**
+   * ── AN EXTENSION MUST NOT OUTRANK THE LOOP'S OWN DETECTORS ──
+   *
+   * Observed while writing these tests, and worth pinning: a run that was extended past its step
+   * ceiling then kept repeating itself, and the thought-loop detector stopped it — the extension
+   * did not buy it the right to circle for longer. That is the correct outcome and it is easy to
+   * lose, because the natural way to implement extensions is to relax the condition that stops the
+   * loop, which would relax all of them at once.
+   *
+   * `decideExtension` vetoes on these signals too, so this is belt and braces: even a decider that
+   * ignores the vetoes cannot turn a stuck run into an unbounded one.
+   */
+  it('still stops a circling run, extension or not', async () => {
+    // scriptedModel repeats its last reply forever, which is exactly what the detector is for.
+    const result = await withBudget(working(), vi.fn(async () => ({ steps: 2, reason: 'granted' })), 2);
+
+    expect(result.succeeded).toBe(false);
+    expect(result.summary).toMatch(/repeat|loop|no meaningful variation/i);
+    // It was extended once and then stopped anyway, rather than running to a second ceiling.
+    expect(result.extensions).toHaveLength(1);
+  });
+
+  it('survives a decider that throws', async () => {
+    // A broken affordability check must not turn a finished run into a crashed one.
+    const result = await withBudget(working(), vi.fn(async () => { throw new Error('mongo gone'); }));
+    expect(result.steps).toBe(3);
+    expect(result.summary).toBeTruthy();
+  });
+
+  it('does not extend at all when the caller cannot', async () => {
+    // Absent means hard ceilings, which is what every caller had before this existed.
+    const result = await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
+      fetchImpl: working(), maxSteps: 3,
+    });
+    expect(result.steps).toBe(3);
+    expect(result.extensions).toBeUndefined();
+  });
+});
+
+/**
+ * The memory tool that used to lie.
+ *
+ * It answered "Memory recorded and sent to Memory Bank review queue" and never called saveMemory —
+ * so `source: 'agent_tool'` was a dead enum value, every agent that used it was told it had worked,
+ * and seed-harder-benchmark-experiment.ts contains a task that SCORES an agent on calling it. The
+ * suite was rewarding a no-op and reporting the score as a capability.
+ */
+describe('saving a lesson', () => {
+  const asking = () => scriptedModel([
+    { tool_calls: [toolCall('save_harness_memory', { category: 'lessons_learned', title: 'npm ci needs a lockfile', text: 'The build context has no package-lock.json.' })] },
+  ]);
+
+  it('actually writes it', async () => {
+    const saveMemory = vi.fn(async () => ({ action: 'ADD' }));
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
+      fetchImpl: asking(), maxSteps: 2, saveMemory,
+    });
+
+    expect(saveMemory).toHaveBeenCalled();
+    expect((saveMemory.mock.calls[0] as any)[0]).toMatchObject({
+      category: 'lessons_learned',
+      title: 'npm ci needs a lockfile',
+      suggestedScope: 'project',
+    });
+  });
+
+  it('tells the agent it is stored, now that it actually is', async () => {
+    /**
+     * This asserted "Queued for review", because everything a model concluded waited for a human.
+     * Nobody drained that queue — 124 of 143 memories were sitting in it unread — so the reply was
+     * accurate and the mechanism was useless. Admission is now decided against what is already
+     * stored (lib/memory-decide.ts) and the reply reports what happened.
+     */
+    const model = asking();
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
+      fetchImpl: model, maxSteps: 2, saveMemory: vi.fn(async () => ({ action: 'ADD' })),
+    });
+
+    const result = toolMessageOf(model, 1);
+    expect(result.content).toContain('"saved":true');
+    expect(result.content).toContain('available to future runs');
+  });
+
+  it('says so when the bank already held it, rather than claiming a write', async () => {
+    // An agent told "saved" when nothing was stored would stop repeating a lesson that is recorded
+    // nowhere. NOOP is a real outcome of admission, not an error.
+    const model = asking();
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
+      fetchImpl: model, maxSteps: 2, saveMemory: vi.fn(async () => ({ action: 'NOOP' })),
+    });
+
+    const result = toolMessageOf(model, 1).content;
+    expect(result).toContain('"saved":false');
+    expect(result).toContain('already holds this');
+  });
+
+  it('says it could not save rather than claiming it did', async () => {
+    // The exact failure being fixed: `saved: true` with nothing written.
+    const model = asking();
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
+      fetchImpl: model, maxSteps: 2,
+    });
+
+    // Asserted on the text rather than parsed: the loop appends its own notes to a tool result.
+    const result = toolMessageOf(model, 1).content;
+    expect(result).toContain('"saved":false');
+    expect(result).toMatch(/nothing is listening/);
+  });
+
+  it('reports a write that failed, instead of swallowing it', async () => {
+    const model = asking();
+    await runAgentLoop({
+      baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
+      fetchImpl: model, maxSteps: 2,
+      saveMemory: vi.fn(async () => { throw new Error('mongo is down'); }),
+    });
+
+    const result = toolMessageOf(model, 1).content;
+    expect(result).toContain('"saved":false');
+    expect(result).toMatch(/mongo is down/);
+  });
+});

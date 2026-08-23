@@ -484,7 +484,9 @@ export function validateExperiment(input: Partial<Experiment>): string | null {
     // Checked against the registry rather than the type, so an unknown or out-of-range knob is a
     // message here instead of a variant that quietly runs the control configuration.
     const { language: _language, ...callOverrides } = variant.overrides ?? {};
-    const bad = validateOverrides(callOverrides);
+    // The REQUEST layer: a variant may name a model, which is how two engines are compared on one
+    // suite. Stated rather than defaulted, so a future layer rule applies here deliberately.
+    const bad = validateOverrides(callOverrides, { layer: 'request' });
     if (bad) return `Variant "${variant.label}": ${bad}`;
   }
   const repeats = input.repeats ?? 1;

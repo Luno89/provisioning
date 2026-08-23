@@ -19,6 +19,7 @@
  * the first resort.
  */
 import { createDatabase } from '../lib/db-interface.js';
+import { countWorkspace } from '../lib/leaf-usage.js';
 import { unlandedWork, type Leaf } from '../lib/leaves.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
 import { GiteaService } from '../services/GiteaService.js';
@@ -107,6 +108,9 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
      * to push. The outstanding leaf's toolchain is the fallback, for a Merger that names none.
      */
     await workspaces.create(personaWorkspace(persona, { leafId: workspaceId, ownerId }, { language: project.language }));
+    // One of the three counted sites — see lib/leaf-usage.ts. Attributed to the leaf being landed,
+    // not to `workspaceId`, which is the derived `merge-<leafId>` name and matches no leaf record.
+    await countWorkspace(db, args.leafId);
 
     const cleanUrl = `${gitea.internalBaseUrl}/${project.giteaOwner}/${project.giteaRepo}.git`;
     const cloned = await workspaces.exec(workspaceId, [

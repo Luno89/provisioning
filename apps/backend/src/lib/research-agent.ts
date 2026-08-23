@@ -20,6 +20,7 @@
 import type { ModelKind } from '@koala/harness-types';
 import { ToolCallScanner } from './leaf-tools.js';
 import { buildModelRequest } from './model-request.js';
+import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
 
 /** Findings for one question, with what they were drawn from. */
 export interface ResearchFinding {
@@ -89,7 +90,7 @@ export interface ResearchOptions {
    * Reasoning stays off regardless — see the floor applied below.
    */
   overrides?: Record<string, unknown> | undefined;
-  webSearch: (query: string) => Promise<{ title: string; snippet: string; url: string }[]>;
+  webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
@@ -192,9 +193,11 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
       let result = '';
       try {
         if (name === 'web_search') {
-          const hits = await opts.webSearch(String(args.query ?? ''));
-          for (const h of hits) sources.push(h.url);
-          result = JSON.stringify({ results: hits });
+          const outcome = await opts.webSearch(String(args.query ?? ''));
+          for (const h of outcome.hits) sources.push(h.url);
+          // Same wording as every other caller, including when nothing looked — a research agent
+          // told "no results" by an outage is the exact loop this whole change is about.
+          result = JSON.stringify(renderSearchOutcome(String(args.query ?? ''), outcome));
         } else if (name === 'fetch_web_page') {
           const url = String(args.url ?? '');
           sources.push(url);

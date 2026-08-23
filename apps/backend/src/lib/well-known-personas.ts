@@ -24,3 +24,17 @@ export const MERGER_PERSONA = 'Merger';
  * looking instead of reading, and everything it needs is already in the record.
  */
 export const REVIEWER_PERSONA = 'Reviewer';
+
+/**
+ * Reads what a leaf actually produced and says whether the claim holds up.
+ *
+ * Its own persona rather than reusing the Reviewer, though the two are close: the Reviewer explains
+ * a FAILURE and this examines a SUCCESS nothing checked. Different instincts — one is looking for a
+ * cause, the other is refusing to take a claim at face value — and different questions, so they get
+ * different prompts.
+ *
+ * Runs with no tools, for the same reason the Reviewer does. Everything it needs was captured
+ * before the sandbox was destroyed (see lib/leaf-evidence.ts), and a judge that could go looking
+ * would go looking instead of reading.
+ */
+export const JUDGE_PERSONA = 'Judge';
