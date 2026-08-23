@@ -7,7 +7,6 @@ import AppsView from './components/AppsView';
 import { NO_WEB_UI_APP_TYPES } from './lib/app-ui.js';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { io } from 'socket.io-client';
 import { AnsiText } from './components/AnsiText.js';
 import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Blocks, Box, Check, ChevronDown, ChevronUp, Cloud, Cpu, Database, ExternalLink, FileText, GitBranch, HardDrive, Key, Layers, Loader2, Network, Package, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Timer, Trash2, X, Zap } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
@@ -21,11 +20,11 @@ import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
 import Grove from './components/Grove.js';
 import { useShellStore, startHistorySync, type AppUser } from './stores/shell';
+import { useSocketEvent, useLogSocket } from './stores/socket';
 import MeshDevices from './components/MeshDevices.js';
 import Personas from './components/Personas.js';
 
 const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
-const SOCKET_URL = (import.meta.env?.VITE_SOCKET_URL as string) || 'http://localhost:3001';
 
 axios.defaults.withCredentials = true;
 
@@ -285,9 +284,6 @@ function App() {
   const [kubeLogs, setKubeLogs] = useState<string>('');
   const [lastLogAt, setLastLogAt] = useState<number | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
-  const socketRef = useRef<any>(null);
-  const activeLogRoomRef = useRef<string | null>(null);
-  const activeKubePodRef = useRef<{ id: string; podName: string; namespace: string } | null>(null);
   const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
   const [showNginxWizard, setShowNginxWizard] = useState(false);
   const [nginxWizardStep, setNginxWizardStep] = useState(1);
@@ -604,71 +600,45 @@ function App() {
   });
 
 
-  useEffect(() => {
-    // withCredentials sends the session cookie with the handshake. The server now authenticates
-    // sockets the same way it authenticates /api requests, and in dev the UI is a different origin
-    // to the API, so without this the connection is rejected outright.
-    const socket = io(SOCKET_URL, { withCredentials: true });
-    socketRef.current = socket;
-    socket.on('resource-destroyed', (data) => {
-        // The store assigns `nid`. It used to be `Date.now()` here, which collides when two
-        // resources finish in the same millisecond and hands React duplicate keys.
-        pushNotification(data);
+  /**
+   * ── BROADCAST EVENTS, ON THE SHARED CONNECTION ──
+   *
+   * This opened one of the app's three `io()` connections. The two log rooms it also managed have
+   * moved to `useLogSocket` below, which owns the rejoin-and-clear on reconnect that used to live
+   * in this effect's `socket.on('reconnect')` block.
+   */
+  useSocketEvent<{ id: string }>('resource-destroyed', (data) => {
+    // The store assigns the key. It used to be `Date.now()` here, which collides when two
+    // resources finish in the same millisecond and hands React duplicate keys.
+    pushNotification(data);
 
-        // Safely close modals/expand panels if the active resource was destroyed
-        setShowLogModal(current => (current && current.id === data.id) ? null : current);
-        clearDestroyFor(data.id);
-        setExpandedCluster(current => (current === data.id) ? null : current);
+    // Close anything that was showing the resource that just went away.
+    setShowLogModal((current) => (current && current.id === data.id) ? null : current);
+    clearDestroyFor(data.id);
+    setExpandedCluster((current) => (current === data.id) ? null : current);
 
-        queryClient.invalidateQueries({ queryKey: ['clusters'] });
-        queryClient.invalidateQueries({ queryKey: ['deployments'] });
-        setTimeout(() => dismissNotification(useShellStore.getState().notifications.at(-1)?.nid ?? 0), 5000);
-    });
-    socket.on('deployment-updated', () => {
-        queryClient.invalidateQueries({ queryKey: ['deployments'] });
-    });
-    socket.on('reconnect', () => {
-      if (activeLogRoomRef.current) {
-        // Same clear as on first join — a reconnect replays history from scratch.
-        setSocketLogs('');
-        socket.emit('join-room', activeLogRoomRef.current);
-      }
-      if (activeKubePodRef.current) {
-        const { id, podName, namespace } = activeKubePodRef.current;
-        // The server always restarts the pod's log tail from scratch (kubectl logs --tail=100),
-        // never a resume-from-where-we-left-off stream — without clearing here first, that
-        // re-fetched history lands on top of whatever was already accumulated client-side and
-        // shows up as the same lines repeating. Every backend restart or network blip triggers
-        // this path, so it's not just a one-off.
-        setKubeLogs('');
-        setLastLogAt(null);
-        socket.emit('join-kube-room', id);
-        socket.emit('tail-pod', { resourceId: id, podName, namespace });
-      }
-    });
-    return () => { socket.disconnect(); };
-  }, [queryClient]);
+    queryClient.invalidateQueries({ queryKey: ['clusters'] });
+    queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    setTimeout(() => dismissNotification(useShellStore.getState().notifications.at(-1)?.nid ?? 0), 5000);
+  });
 
-  useEffect(() => {
-    if (showLogModal && socketRef.current) {
-      const socket = socketRef.current;
-      activeLogRoomRef.current = showLogModal.id;
-      /**
-       * Cleared before joining, because the server now replays recent history on join.
-       *
-       * The same reason the pod tail clears: a replay landing on top of what was already
-       * accumulated shows as the identical lines repeating, and every reconnect triggers it.
-       */
-      setSocketLogs('');
-      socket.emit('join-room', showLogModal.id);
-      socket.on('log', (chunk: string) => setSocketLogs(prev => prev + chunk));
-      return () => {
-        socket.emit('leave-room', showLogModal.id);
-        activeLogRoomRef.current = null;
-        socket.off('log');
-      };
-    }
-  }, [showLogModal]);
+  useSocketEvent('deployment-updated', () => {
+    queryClient.invalidateQueries({ queryKey: ['deployments'] });
+  });
+
+  /**
+   * The resource's provisioning log, on its own connection joined to exactly one room.
+   *
+   * Cleared on join AND on reconnect, because the server replays recent history rather than
+   * resuming — a replay landing on top of what was already accumulated shows as the identical
+   * lines repeating, and every reconnect triggers it.
+   */
+  useLogSocket({
+    room: showLogModal?.id ?? null,
+    onChunk: (chunk) => setSocketLogs((prev) => prev + chunk),
+    onReconnect: () => setSocketLogs(''),
+  });
+  useEffect(() => { setSocketLogs(''); }, [showLogModal?.id]);
 
   useEffect(() => {
     if (showLogModal?.type === 'app' && logTab === 'app' && pods.length > 0) {
@@ -681,20 +651,23 @@ function App() {
     }
   }, [showLogModal, logTab, pods, selectedPod]);
 
-  useEffect(() => {
-    if (showLogModal?.type === 'app' && logTab === 'app' && selectedPod && socketRef.current) {
-      const socket = socketRef.current;
-      activeKubePodRef.current = { id: showLogModal.id, podName: selectedPod, namespace };
-      socket.emit('join-kube-room', showLogModal.id);
-      socket.emit('tail-pod', { resourceId: showLogModal.id, podName: selectedPod, namespace });
-      socket.on('kube-log', (chunk: string) => { setKubeLogs(prev => prev + chunk); setLastLogAt(Date.now()); });
-      return () => {
-        socket.emit('leave-kube-room', showLogModal.id);
-        activeKubePodRef.current = null;
-        socket.off('kube-log');
-      };
-    }
-  }, [showLogModal, logTab, selectedPod, namespace]);
+  /**
+   * The selected pod's live tail. Its own connection for the same reason as above.
+   *
+   * The server always restarts the tail from scratch (`kubectl logs --tail=100`) rather than
+   * resuming, so the buffer is cleared on every rejoin or the re-fetched history duplicates what
+   * is already on screen.
+   */
+  const tailing = showLogModal?.type === 'app' && logTab === 'app' && selectedPod;
+  useLogSocket({
+    room: tailing ? showLogModal.id : null,
+    event: 'kube-log',
+    join: tailing
+      ? { emit: 'tail-pod', payload: { resourceId: showLogModal.id, podName: selectedPod, namespace } }
+      : undefined,
+    onChunk: (chunk) => { setKubeLogs((prev) => prev + chunk); setLastLogAt(Date.now()); },
+    onReconnect: () => { setKubeLogs(''); setLastLogAt(null); },
+  });
 
   useEffect(() => {
     if (!showLogModal) {
@@ -1114,7 +1087,7 @@ function App() {
           <CloudAccounts />
         )}
         {view === 'mesh' && <MeshDevices apiBase={API_BASE} />}
-        {view === 'lab' && <Lab apiBase={API_BASE} socketUrl={SOCKET_URL} />}
+        {view === 'lab' && <Lab apiBase={API_BASE} />}
         {view === 'grove' && (
           <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}
@@ -1142,7 +1115,7 @@ function App() {
           />
         )}
         {view === 'projects' && (
-          <Projects apiBase={API_BASE} socketUrl={SOCKET_URL} clusters={clusters} />
+          <Projects apiBase={API_BASE} clusters={clusters} />
         )}
 
         {view === 'settings' && (

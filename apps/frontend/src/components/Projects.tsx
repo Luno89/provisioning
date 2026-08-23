@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useSocketEvent, useLogSocket } from '../stores/socket';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { io, type Socket } from 'socket.io-client';
 import { GitBranch, Plus, X, Loader2, CheckCircle2, XCircle, Clock, Rocket, RefreshCw, AlertTriangle } from 'lucide-react';
 import { AnsiText } from './AnsiText.js';
 
@@ -95,13 +95,12 @@ function ProjectStatusBadge({ status, reason }: { status?: string | undefined; r
   );
 }
 
-export default function Projects({ apiBase, socketUrl, clusters }: { apiBase: string; socketUrl: string; clusters: Cluster[] }) {
+export default function Projects({ apiBase, clusters }: { apiBase: string; clusters: Cluster[] }) {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [logRunId, setLogRunId] = useState<string | null>(null);
   const [socketLogs, setSocketLogs] = useState('');
-  const socketRef = useRef<Socket | null>(null);
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -133,39 +132,31 @@ export default function Projects({ apiBase, socketUrl, clusters }: { apiBase: st
     enabled: !!logRunId,
   });
 
-  useEffect(() => {
-    // See App.tsx: the socket handshake is authenticated by the session cookie now.
-    const socket = io(socketUrl, { withCredentials: true });
-    socketRef.current = socket;
-    return () => { socket.disconnect(); };
-  }, [socketUrl]);
-
-  useEffect(() => {
-    const socket = socketRef.current;
-    if (!socket || !logRunId) return;
-    setSocketLogs('');
-    socket.emit('join-room', logRunId);
-    socket.on('log', (chunk: string) => setSocketLogs(prev => prev + chunk));
-    return () => {
-      socket.emit('leave-room', logRunId);
-      socket.off('log');
-    };
-  }, [logRunId]);
+  /**
+   * Live pipeline output for whichever run is open.
+   *
+   * Its own short-lived connection, joined to exactly one room — see `stores/socket.ts`. Log
+   * payloads carry no room id, so a connection joined to two rooms could not tell a pipeline log
+   * from a cluster log, and both would interleave.
+   */
+  useLogSocket({
+    room: logRunId,
+    onChunk: (chunk) => setSocketLogs((prev) => prev + chunk),
+    onReconnect: () => setSocketLogs(''),
+  });
 
   /**
    * Refresh when a deployment changes, rather than only every 5s.
    *
-   * The project rollup now depends on deployment health, which the background reconciler can flip
-   * to `unhealthy` at any moment — this card was previously deaf to that event and only ever
-   * listened for build logs, so a pod that died showed up whenever the poll happened to land.
+   * The project rollup depends on deployment health, which the background reconciler can flip to
+   * `unhealthy` at any moment — this card was previously deaf to that event and only ever listened
+   * for build logs, so a pod that died showed up whenever the poll happened to land.
+   *
+   * Broadcast, not room-routed, so it rides the shared connection.
    */
-  useEffect(() => {
-    const socket = socketRef.current;
-    if (!socket) return;
-    const onChange = () => queryClient.invalidateQueries({ queryKey: ['projects'] });
-    socket.on('deployment-updated', onChange);
-    return () => { socket.off('deployment-updated', onChange); };
-  }, [queryClient]);
+  useSocketEvent('deployment-updated', () => {
+    queryClient.invalidateQueries({ queryKey: ['projects'] });
+  });
 
   return (
     <section>

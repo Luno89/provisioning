@@ -162,7 +162,7 @@ const cardTab = async (name: RegExp | string) =>
 const renderLab = () => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}><Lab apiBase="/api" socketUrl="http://localhost:3001" /></QueryClientProvider>,
+    <QueryClientProvider client={qc}><Lab apiBase="/api" /></QueryClientProvider>,
   );
 };
 

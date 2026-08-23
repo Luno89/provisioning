@@ -10,9 +10,9 @@
  * The column that matters in every results table is still `verified`, not `succeeded` — the
  * agent's own report is the least trustworthy number in a run.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useSocketEvent } from '../../stores/socket';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { io, type Socket } from 'socket.io-client';
 import axios from 'axios';
 import { FlaskConical, Plus } from 'lucide-react';
 import { KoalaSpot } from '../Koala';
@@ -33,14 +33,13 @@ const MAX_LIVE_STEPS = 12;
 
 type Tab = 'experiments' | 'tool-repo' | 'memories' | 'harness';
 
-export default function Lab({ apiBase, socketUrl }: { apiBase: string; socketUrl: string }) {
+export default function Lab({ apiBase }: { apiBase: string }) {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('experiments');
   const [live, setLive] = useState<Record<string, LiveRun>>({});
   const [openResult, setOpenResult] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [focused, setFocused] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
 
   const { data: config } = useQuery<HarnessConfig>({
     queryKey: ['harness-config'],
@@ -65,43 +64,45 @@ export default function Lab({ apiBase, socketUrl }: { apiBase: string; socketUrl
       (query.state.data ?? []).some((e) => e.running || e.status === 'running') ? 5000 : false,
   });
 
-  useEffect(() => {
-    const socket = io(socketUrl, { withCredentials: true });
-    socketRef.current = socket;
+  /**
+   * Live experiment frames, over the SHARED connection.
+   *
+   * This opened its own `io()` — one of three in the app, so having the Lab and a project on screen
+   * meant three handshakes and three server-side sessions for one user. These three events are
+   * broadcast rather than room-routed, so they are safe to share; see `stores/socket.ts` for why
+   * log streaming still is not.
+   */
 
-    // A new variant replaces the buffer rather than appending: the steps of the run that just
-    // ended belong to its result, and mixing two runs' steps would read plausibly and mean nothing.
-    socket.on('experiment-run-started', (d: ExperimentRunStarted) => setLive((prev) => ({
+  // A new variant replaces the buffer rather than appending: the steps of the run that just ended
+  // belong to its result, and mixing two runs' steps would read plausibly and mean nothing.
+  useSocketEvent<ExperimentRunStarted>('experiment-run-started', (d) => setLive((prev) => ({
+    ...prev,
+    [d.experimentId]: {
+      taskId: d.taskId, taskName: d.taskName, label: d.label,
+      done: d.done, total: d.total, steps: [],
+    },
+  })));
+
+  useSocketEvent<ExperimentStepEvent>('experiment-step', (d) => setLive((prev) => {
+    const current = prev[d.experimentId];
+    // Frames can arrive out of order around a handover, and one late step must not relabel it.
+    if (!current || current.label !== d.label || current.taskId !== d.taskId) return prev;
+    return {
       ...prev,
-      [d.experimentId]: {
-        taskId: d.taskId, taskName: d.taskName, label: d.label,
-        done: d.done, total: d.total, steps: [],
-      },
-    })));
+      [d.experimentId]: { ...current, steps: [...current.steps, d.step].slice(-MAX_LIVE_STEPS) },
+    };
+  }));
 
-    socket.on('experiment-step', (d: ExperimentStepEvent) => setLive((prev) => {
-      const current = prev[d.experimentId];
-      // Frames can arrive out of order around a handover, and one late step must not relabel it.
-      if (!current || current.label !== d.label || current.taskId !== d.taskId) return prev;
-      return {
-        ...prev,
-        [d.experimentId]: { ...current, steps: [...current.steps, d.step].slice(-MAX_LIVE_STEPS) },
-      };
-    }));
-
-    // Cleared on landing: from that moment the authoritative record is the trace on the result.
-    socket.on('experiment-run-finished', (d: ExperimentRunFinished) => {
-      setLive((prev) => {
-        if (!prev[d.experimentId]) return prev;
-        const rest = { ...prev };
-        delete rest[d.experimentId];
-        return rest;
-      });
-      invalidate();
+  // Cleared on landing: from that moment the authoritative record is the trace on the result.
+  useSocketEvent<ExperimentRunFinished>('experiment-run-finished', (d) => {
+    setLive((prev) => {
+      if (!prev[d.experimentId]) return prev;
+      const rest = { ...prev };
+      delete rest[d.experimentId];
+      return rest;
     });
-
-    return () => { socket.disconnect(); socketRef.current = null; };
-  }, [socketUrl]);
+    invalidate();
+  });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['experiments'] });

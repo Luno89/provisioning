@@ -203,8 +203,14 @@ on every push. Each rule below is here because something in this repo broke with
 - **UI state lives in the component that renders it**, and **never pass a raw `setState` down** —
   pass a named intent. `ClustersView` receiving `setExpandedCluster` from a 2,858-line parent that
   never reads it is the anti-pattern.
-- **Context needs all three:** many descendants need it, it is stable, and threading it by hand is
-  unreasonable. There is exactly one today (`EditorSlot` in `Lab/shared.ts`) and it earns it.
+- **Client state that crosses components lives in a zustand slice** under `src/stores/`, one per
+  domain — `shell.ts` (view, user, notifications), `socket.ts`. Never one store for everything: that
+  is structurally what App.tsx already was. Subscribe with a selector per value
+  (`useShellStore((s) => s.view)`), so an unrelated change does not re-render you.
+- **Server state is react-query's, never a store.** Putting fetched records in zustand means
+  hand-writing caching, dedup, invalidate-after-mutate and refetch.
+- **Context is for what a store cannot do** — a value scoped to a subtree rather than the app.
+  There is exactly one (`EditorSlot` in `Lab/shared.ts`) and it earns it.
 - **No component contains a URL.** Components import hooks; hooks call `api/<domain>.ts`; only those
   modules import `api/client.ts`.
 - **`props: any` is banned.** Let the compiler enumerate the interface — `NginxView.tsx`'s docblock
