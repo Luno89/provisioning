@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#
+# Typecheck before a push. Nothing else.
+#
+# ── WHY PRE-PUSH AND NOT PRE-COMMIT ──
+# The unit suites take ~57s. A pre-commit hook that costs a minute gets bypassed with `--no-verify`
+# within a day, and a hook everyone bypasses is worse than no hook — it trains the reflex that
+# skipping checks is normal. Typecheck is ~20s and runs once per push rather than once per commit.
+#
+# CI runs the full set (.github/workflows/ci.yml). This exists only to catch the cheap, common
+# mistake before it costs a round trip: a broken import path, which `verbatimModuleSyntax` makes
+# easy to produce during the router extraction because the `.js` extension is part of the specifier.
+#
+# Enabled with:  git config core.hooksPath .githooks
+# Bypass with:   git push --no-verify   (fine when you mean it)
+set -euo pipefail
+
+echo "pre-push: typecheck…"
+if ! npm run typecheck --silent; then
+  echo ""
+  echo "  ✗ Typecheck failed — push aborted."
+  echo "    Fix it, or use 'git push --no-verify' if you genuinely mean to push this."
+  exit 1
+fi
+echo "  ✓ typecheck clean"
