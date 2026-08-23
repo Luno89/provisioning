@@ -53,6 +53,7 @@ function preprocessLogText(rawText: string): { lines: string[]; activeSpinnerInd
   if (!rawText) return { lines: [], activeSpinnerIndex: -1 };
 
   // Strip non-color ANSI control sequences (e.g. \x1b[2K, \x1b[1A, \x1b[G, \x1b[?25h)
+  // eslint-disable-next-line no-control-regex -- matching ESC is the entire job of an ANSI parser
   let cleaned = rawText.replace(/\x1b\[[0-9;?]*[a-lno-zA-Z]/g, '');
 
   // Strip orphan control artifacts ([2K, [1A, [G, [?25h, etc.) if \x1b was stripped before reaching frontend
@@ -171,6 +172,7 @@ export function AnsiText({ text }: { text: string }) {
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex]!;
     const showSpinner = lineIndex === activeSpinnerIndex;
+    // eslint-disable-next-line no-control-regex -- matching ESC is the entire job of an ANSI parser
     const hasAnsiColor = /\x1b\[[0-9;]*m/.test(line);
 
     if (hasAnsiColor) {
@@ -178,6 +180,7 @@ export function AnsiText({ text }: { text: string }) {
       const parts: { text: string; style: StyleState }[] = [];
       let pos = 0;
       let currentStyle: StyleState = {};
+      // eslint-disable-next-line no-control-regex -- matching ESC is the entire job of an ANSI parser
       const re = /\x1b\[([0-9;]*)m/g;
 
       while (true) {

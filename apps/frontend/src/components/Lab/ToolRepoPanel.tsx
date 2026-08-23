@@ -109,7 +109,8 @@ export function ToolRepoPanel({ apiBase }: { apiBase: string }) {
         scriptCommand: scriptCommand.trim() || undefined,
         parameters: { type: 'object', properties: parsedProps },
       });
-    } catch (e: any) {
+    } catch {
+      // The parse error itself says nothing a user can act on; the message below does.
       setJsonError('Invalid JSON properties object');
     }
   };
@@ -129,7 +130,8 @@ export function ToolRepoPanel({ apiBase }: { apiBase: string }) {
           parameters: { type: 'object', properties: parsedProps },
         },
       });
-    } catch (e: any) {
+    } catch {
+      // The parse error itself says nothing a user can act on; the message below does.
       setJsonError('Invalid JSON properties object');
     }
   };
