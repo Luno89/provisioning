@@ -255,9 +255,20 @@ private treeTypes: TreeTypeSpec[] = [];
     this.users = [...users];
   }
 
+  /**
+   * Matches Mongo's semantics exactly, which means normalising the QUERY and not the stored value.
+   *
+   * This used to normalise both sides, and that leniency hid a real defect: `mongo-db.ts` does
+   * `findOne({ email: email.trim().toLowerCase() })` against whatever was written, so a user stored
+   * as `MixedCase@Example.COM` is unreachable forever — every login says "Invalid email or
+   * password" with the correct password. Under the old MemoryDB that was a green test.
+   *
+   * Registration normalises before writing (see `routes/auth.ts`), so this is strictly the
+   * safety net for the next write path that forgets to.
+   */
   async getUserByEmail(email: string): Promise<UserMetadata | undefined> {
     const cleanEmail = email.trim().toLowerCase();
-    return this.users.find(u => u.email.trim().toLowerCase() === cleanEmail);
+    return this.users.find(u => u.email === cleanEmail);
   }
 
   async getUserById(id: string): Promise<UserMetadata | undefined> {
