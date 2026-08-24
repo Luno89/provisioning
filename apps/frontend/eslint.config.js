@@ -31,12 +31,6 @@ import { defineConfig, globalIgnores } from 'eslint/config'
  * parser, and 3 unused catch bindings) were fixed outright rather than listed.
  */
 const LEGACY = [
-  // Retired from the free list only after a source fix — each of these has exactly one real
-  // violation, and the fix waits for the E2E run in flight (a vite HMR reload mid-test would
-  // restart the page under Playwright).
-  'src/components/AcceptanceEditor.tsx',
-  'src/components/Lab/index.tsx',
-  'src/lib/proposal-display.ts',
   // Slice 4 (the App.tsx modal extraction) retires this one; it is a third of all debt.
   'src/App.tsx',
   // Slice 3.

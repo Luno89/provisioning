@@ -40,9 +40,12 @@ export function splitProposalBlock(text: string): SplitReply {
     try {
       const leaves = JSON.parse(complete[1]!)?.leaves;
       if (Array.isArray(leaves)) {
-        proposals = leaves
-          .filter((l: any) => typeof l?.title === 'string' && l.title.trim())
-          .map((l: any) => ({
+        proposals = (leaves as unknown[])
+          // `unknown`, not `any`: this is parsed JSON from a model, so the guard below is the only
+          // thing that makes `l.title` safe to read — with `any` the compiler agreed either way.
+          .filter((l): l is { title: string; body?: unknown } =>
+            typeof (l as { title?: unknown })?.title === 'string' && !!(l as { title: string }).title.trim())
+          .map((l) => ({
             title: String(l.title).trim(),
             ...(typeof l?.body === 'string' && l.body.trim() ? { body: String(l.body).trim() } : {}),
           }));

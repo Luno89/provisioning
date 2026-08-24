@@ -93,6 +93,19 @@ export default function Lab({ apiBase }: { apiBase: string }) {
     };
   }));
 
+  /**
+   * Declared BEFORE the socket handlers that call it.
+   *
+   * It sat below them, which worked only because a socket event cannot fire until after the
+   * component body has run — the handler closed over a `const` still in its temporal dead zone at
+   * the moment it was registered. True today, and silently untrue the first time anything calls it
+   * synchronously during render.
+   */
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['experiments'] });
+    qc.invalidateQueries({ queryKey: ['experiment'] });
+  };
+
   // Cleared on landing: from that moment the authoritative record is the trace on the result.
   useSocketEvent<ExperimentRunFinished>('experiment-run-finished', (d) => {
     setLive((prev) => {
@@ -104,10 +117,6 @@ export default function Lab({ apiBase }: { apiBase: string }) {
     invalidate();
   });
 
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['experiments'] });
-    qc.invalidateQueries({ queryKey: ['experiment'] });
-  };
   const run = useMutation({
     mutationFn: (id: string) => axios.post(`${apiBase}/harness/experiments/${id}/run`, {}, { withCredentials: true }),
     onSuccess: invalidate,

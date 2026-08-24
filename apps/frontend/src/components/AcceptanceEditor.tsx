@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ChecksForm from './ChecksForm.js';
+import { errorMessage } from '../api/client';
 
 /**
  * Changing the acceptance plan for a branch.
@@ -42,13 +43,16 @@ export default function AcceptanceEditor({ checks, onSave }: {
     try {
       await onSave(commands);
       setDraft(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       /**
        * The server refuses a check that cannot fail — `echo ok` satisfies the accept gate and proves
        * nothing, and it does not matter who typed it. That reason is the useful half of the refusal,
        * so it is shown rather than replaced with "could not save".
        */
-      setError(err?.response?.data?.error ?? err?.message ?? 'Could not save those checks.');
+      // `errorMessage` from api/client is the one reader of a server error — this was a fourth
+      // hand-rolled copy of the same `response.data.error ?? message` chain, and the only thing
+      // holding it together was `any`.
+      setError(errorMessage(err) || 'Could not save those checks.');
     } finally {
       setSaving(false);
     }

@@ -2,28 +2,24 @@
 [0m[1][0m > backend@1.0.0 dev:worker
 [0m[1][0m > tsx src/worker-host.ts
 [0m[1][0m 
-[0m[2][0m 
-[0m[2][0m > backend@1.0.0 dev:worker:cluster
-[0m[2][0m > tsx src/worker-cluster.ts
-[0m[2][0m 
 [0m[0][0m 
 [0m[0][0m > backend@1.0.0 dev
 [0m[0][0m > tsx watch --exclude data src/index.ts
 [0m[0][0m 
-[0m[2][0m ◇ injected env (10) from .env // tip: ⌘ override existing { override: true }
-[0m[0][0m ◇ injected env (10) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
-[0m[1][0m ◇ injected env (10) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
-[0m[1][0m 2026-08-24T22:48:01.481Z [INFO] [HostWorker] Starting — taskQueue=host-ops-queue, address=localhost:7233
-[0m[2][0m 2026-08-24T22:48:01.481Z [INFO] [ClusterWorker] Starting — taskQueue=cluster-ops-queue, address=localhost:7233
+[0m[2][0m 
+[0m[2][0m > backend@1.0.0 dev:worker:cluster
+[0m[2][0m > tsx src/worker-cluster.ts
+[0m[2][0m 
+[0m[1][0m ◇ injected env (10) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+[0m[2][0m ◇ injected env (10) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+[0m[2][0m 2026-08-24T23:04:38.406Z [INFO] [ClusterWorker] Starting — taskQueue=cluster-ops-queue, address=localhost:7233
+[0m[1][0m 2026-08-24T23:04:38.407Z [INFO] [HostWorker] Starting — taskQueue=host-ops-queue, address=localhost:7233
+[0m[0][0m ◇ injected env (10) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
 [0m[0][0m [TemporalBridge] Running active workflow recovery check...
 [0m[0][0m [app-specs] seeded 1 built-in spec(s): minio
 [0m[0][0m 🚀 Provisioning Server Active on http://localhost:3002
 [0m[0][0m 🚀 Host Tunnel Server active on http://[::]:8001
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) DaemonSet already exists, skipping install.
-[0m[0][0m [InfrastructureService] Waiting for GPU device plugin (nvidia) pod to become ready...
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) is ready.
-[0m[0][0m [15:48:02.289] [32mINFO[39m (3178451): [36mGPU device plugin ready on the management cluster.[39m
-[0m[2][0m 2026-08-24T22:48:02.459Z [INFO] asset workflow-bundle-b7497f7330449d527792.js 1.71 MiB [emitted] [immutable] (name: main)
+[0m[2][0m 2026-08-24T23:04:40.505Z [INFO] asset workflow-bundle-b7497f7330449d527792.js 1.71 MiB [emitted] [immutable] (name: main)
 [0m[2][0m runtime modules 1.34 KiB 4 modules
 [0m[2][0m modules by path ../../node_modules/ 431 KiB
 [0m[2][0m   modules by path ../../node_modules/@temporalio/ 359 KiB 61 modules
@@ -38,8 +34,9 @@
 [0m[2][0m optional modules 30 bytes [optional]
 [0m[2][0m   __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]
 [0m[2][0m   __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]
-[0m[2][0m webpack 5.108.1 compiled successfully in 578 ms {"sdkComponent":"worker","taskQueue":"cluster-ops-queue"}
-[0m[1][0m 2026-08-24T22:48:02.461Z [INFO] asset workflow-bundle-b7497f7330449d527792.js 1.71 MiB [emitted] [immutable] (name: main)
+[0m[2][0m webpack 5.108.1 compiled successfully in 960 ms {"sdkComponent":"worker","taskQueue":"cluster-ops-queue"}
+[0m[2][0m 2026-08-24T23:04:40.510Z [INFO] Workflow bundle created {"sdkComponent":"worker","taskQueue":"cluster-ops-queue","size":"1.71MB"}
+[0m[1][0m 2026-08-24T23:04:40.513Z [INFO] asset workflow-bundle-b7497f7330449d527792.js 1.71 MiB [emitted] [immutable] (name: main)
 [0m[1][0m runtime modules 1.34 KiB 4 modules
 [0m[1][0m modules by path ../../node_modules/ 431 KiB
 [0m[1][0m   modules by path ../../node_modules/@temporalio/ 359 KiB 61 modules
@@ -54,64 +51,17 @@
 [0m[1][0m optional modules 30 bytes [optional]
 [0m[1][0m   __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]
 [0m[1][0m   __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]
-[0m[1][0m webpack 5.108.1 compiled successfully in 574 ms {"sdkComponent":"worker","taskQueue":"host-ops-queue"}
-[0m[2][0m 2026-08-24T22:48:02.463Z [INFO] Workflow bundle created {"sdkComponent":"worker","taskQueue":"cluster-ops-queue","size":"1.71MB"}
-[0m[1][0m 2026-08-24T22:48:02.464Z [INFO] Workflow bundle created {"sdkComponent":"worker","taskQueue":"host-ops-queue","size":"1.71MB"}
-[0m[1][0m 2026-08-24T22:48:02.756Z [INFO] [HostWorker] ✅ Listening for cluster provisioning tasks
-[0m[1][0m 2026-08-24T22:48:02.756Z [INFO] Worker state changed {"sdkComponent":"worker","taskQueue":"host-ops-queue","state":"RUNNING"}
-[0m[1][0m 2026-08-24T22:48:02.758Z [INFO] No Nexus services registered, not polling for Nexus tasks {"sdkComponent":"worker","taskQueue":"host-ops-queue"}
-[0m[2][0m 2026-08-24T22:48:02.776Z [INFO] [ClusterWorker] ✅ Listening for app deployment tasks
-[0m[2][0m 2026-08-24T22:48:02.777Z [INFO] Worker state changed {"sdkComponent":"worker","taskQueue":"cluster-ops-queue","state":"RUNNING"}
-[0m[2][0m 2026-08-24T22:48:02.778Z [INFO] No Nexus services registered, not polling for Nexus tasks {"sdkComponent":"worker","taskQueue":"cluster-ops-queue"}
-[0m[0][0m [15:54:43.144] [32mINFO[39m (3178451): [36mDetected local cluster e2e-fleet-698 deleted outside the system. Syncing...[39m
-[0m[0][0m [15:54:43.154] [32mINFO[39m (3178451): [36mDetected local cluster e2e-fleet-698 deleted outside the system. Syncing...[39m
-[0m[0][0m [90m3:57:10 PM[39m [96m[tsx][39m [95mchange[39m in [92m./src/lib/cluster-capacity.ts[39m [33mRestarting...[39m
-[0m[0][0m c◇ injected env (10) from .env // tip: ⌘ enable debugging { debug: true }
-[0m[0][0m [TemporalBridge] Running active workflow recovery check...
-[0m[0][0m [app-specs] seeded 1 built-in spec(s): minio
-[0m[0][0m 🚀 Provisioning Server Active on http://localhost:3002
-[0m[0][0m 🚀 Host Tunnel Server active on http://[::]:8001
+[0m[1][0m webpack 5.108.1 compiled successfully in 970 ms {"sdkComponent":"worker","taskQueue":"host-ops-queue"}
+[0m[1][0m 2026-08-24T23:04:40.518Z [INFO] Workflow bundle created {"sdkComponent":"worker","taskQueue":"host-ops-queue","size":"1.71MB"}
 [0m[0][0m [InfrastructureService] GPU device plugin (nvidia) DaemonSet already exists, skipping install.
 [0m[0][0m [InfrastructureService] Waiting for GPU device plugin (nvidia) pod to become ready...
 [0m[0][0m [InfrastructureService] GPU device plugin (nvidia) is ready.
-[0m[0][0m [15:57:13.789] [32mINFO[39m (3256456): [36mGPU device plugin ready on the management cluster.[39m
-[0m[0][0m [90m3:57:26 PM[39m [96m[tsx][39m [95mchange[39m in [92m./src/services/TemporalBridge.ts[39m [33mRestarting...[39m
-[0m[0][0m c◇ injected env (10) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
-[0m[0][0m [TemporalBridge] Running active workflow recovery check...
-[0m[0][0m [app-specs] seeded 1 built-in spec(s): minio
-[0m[0][0m 🚀 Provisioning Server Active on http://localhost:3002
-[0m[0][0m 🚀 Host Tunnel Server active on http://[::]:8001
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) DaemonSet already exists, skipping install.
-[0m[0][0m [InfrastructureService] Waiting for GPU device plugin (nvidia) pod to become ready...
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) is ready.
-[0m[0][0m [15:57:28.219] [32mINFO[39m (3259615): [36mGPU device plugin ready on the management cluster.[39m
-[0m[0][0m [90m3:58:28 PM[39m [96m[tsx][39m [95mchange[39m in [92m./src/routes/deployments.ts[39m [33mRestarting...[39m
-[0m[0][0m c◇ injected env (10) from .env // tip: ◈ encrypted .env [www.dotenvx.com]
-[0m[0][0m [TemporalBridge] Running active workflow recovery check...
-[0m[0][0m [app-specs] seeded 1 built-in spec(s): minio
-[0m[0][0m 🚀 Provisioning Server Active on http://localhost:3002
-[0m[0][0m 🚀 Host Tunnel Server active on http://[::]:8001
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) DaemonSet already exists, skipping install.
-[0m[0][0m [InfrastructureService] Waiting for GPU device plugin (nvidia) pod to become ready...
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) is ready.
-[0m[0][0m [15:58:30.730] [32mINFO[39m (3265533): [36mGPU device plugin ready on the management cluster.[39m
-[0m[0][0m [90m3:59:54 PM[39m [96m[tsx][39m [95mchange[39m in [92m./src/routes/deployments.ts[39m [33mRestarting...[39m
-[0m[0][0m c◇ injected env (10) from .env // tip: ⌘ override existing { override: true }
-[0m[0][0m [TemporalBridge] Running active workflow recovery check...
-[0m[0][0m [app-specs] seeded 1 built-in spec(s): minio
-[0m[0][0m 🚀 Provisioning Server Active on http://localhost:3002
-[0m[0][0m 🚀 Host Tunnel Server active on http://[::]:8001
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) DaemonSet already exists, skipping install.
-[0m[0][0m [InfrastructureService] Waiting for GPU device plugin (nvidia) pod to become ready...
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) is ready.
-[0m[0][0m [15:59:56.590] [32mINFO[39m (3275431): [36mGPU device plugin ready on the management cluster.[39m
-[0m[0][0m [90m4:00:02 PM[39m [96m[tsx][39m [95mchange[39m in [92m./src/routes/deployments.ts[39m [33mRestarting...[39m
-[0m[0][0m c◇ injected env (10) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
-[0m[0][0m [TemporalBridge] Running active workflow recovery check...
-[0m[0][0m [app-specs] seeded 1 built-in spec(s): minio
-[0m[0][0m 🚀 Provisioning Server Active on http://localhost:3002
-[0m[0][0m 🚀 Host Tunnel Server active on http://[::]:8001
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) DaemonSet already exists, skipping install.
-[0m[0][0m [InfrastructureService] Waiting for GPU device plugin (nvidia) pod to become ready...
-[0m[0][0m [InfrastructureService] GPU device plugin (nvidia) is ready.
-[0m[0][0m [16:00:04.223] [32mINFO[39m (3277971): [36mGPU device plugin ready on the management cluster.[39m
+[0m[0][0m [16:04:44.808] [32mINFO[39m (3303839): [36mGPU device plugin ready on the management cluster.[39m
+[0m[1][0m 2026-08-24T23:04:45.146Z [INFO] [HostWorker] ✅ Listening for cluster provisioning tasks
+[0m[1][0m 2026-08-24T23:04:45.146Z [INFO] Worker state changed {"sdkComponent":"worker","taskQueue":"host-ops-queue","state":"RUNNING"}
+[0m[1][0m 2026-08-24T23:04:45.149Z [INFO] No Nexus services registered, not polling for Nexus tasks {"sdkComponent":"worker","taskQueue":"host-ops-queue"}
+[0m[2][0m 2026-08-24T23:04:45.176Z [INFO] [ClusterWorker] ✅ Listening for app deployment tasks
+[0m[2][0m 2026-08-24T23:04:45.177Z [INFO] Worker state changed {"sdkComponent":"worker","taskQueue":"cluster-ops-queue","state":"RUNNING"}
+[0m[2][0m 2026-08-24T23:04:45.179Z [INFO] No Nexus services registered, not polling for Nexus tasks {"sdkComponent":"worker","taskQueue":"cluster-ops-queue"}
+[0m[2][0m [InfrastructureService] Spawning cmd=npx args=["cdktf","deploy","app-provisioning-lunorica-ee8de357","--auto-approve"] (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)
+[0m[2][0m 2026-08-24T23:26:41.729Z [INFO] Workload for Wp-Probe is running {"sdkComponent":"workflow","taskQueue":"cluster-ops-queue","namespace":"default","workflowId":"app-deploy-Wp-Probe-1787613964620-5shwqc","runId":"01a03618-6980-7333-b0be-a3b688634335","workflowType":"executeDeployAppWorkflow"}
