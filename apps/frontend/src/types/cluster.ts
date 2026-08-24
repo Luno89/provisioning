@@ -45,6 +45,8 @@ export interface Cluster {
   progress?: { stage?: string; message?: string }
   /** Present on a bring-your-own cluster waiting for its key to be installed. */
   publicKey?: string
+  /** The machine a `remote` cluster runs on. Shown so a tunnel URL is attributable to a host. */
+  remoteHost?: string
 }
 
 /**

@@ -29,6 +29,9 @@ export interface Deployment {
   /** Public exposure, via Localtunnel or an ingress. */
   isExposed?: boolean
   exposureUrl?: string
+  /** The public half specifically — a deployment can be exposed locally and not publicly. */
+  isExposedPublicly?: boolean
+  publicExposureUrl?: string
   exposurePath?: string
   /** Reachable on the host without leaving the machine. */
   isExposedLocally?: boolean
@@ -54,6 +57,14 @@ export interface Deployment {
   vllmModel?: string
   tabbyModel?: string
   vpnEnabled?: boolean
+  /** Which VPN carries the exposure — rendered on the badge. */
+  vpnProtocol?: string
+  /**
+   * Schema-validated per-app settings, for app types that declare a schema (game servers today).
+   * Distinct from the flat per-type fields below — these round-trip through
+   * `validateAppSettings` on the backend rather than being written straight onto the record.
+   */
+  appSettings?: Record<string, string>
 
   /** Per-app-type configuration. See the note above on why this is not enumerated. */
   [key: string]: unknown
