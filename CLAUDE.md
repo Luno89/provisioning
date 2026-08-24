@@ -24,7 +24,7 @@ npm run test:all     # test → test:infra:integration → test:remote-integrati
 npm run test:unit    # typecheck + test:unit:frontend + test:unit:backend (Vitest, ~80s total)
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
-npm run test:e2e     # test:alive → Playwright against e2e/ directory (skips unit preflight)
+npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
                                    # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves
@@ -32,7 +32,10 @@ npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as
                                    # Needs qemu-kvm/cloud-utils/genisoimage + /dev/kvm (tests/remote-host-integration.ts)
 ```
 
-Note: there are two separate Playwright suites — `tests/e2e.spec.ts` (run by `npm test` via `test:e2e:sync`) and the `e2e/` directory (run by `npm run test:e2e`). Check which one a change needs before assuming coverage.
+Note: there is ONE Playwright suite, `tests/e2e.spec.ts` (11 tests, `testDir: './tests'`).
+`npm test` reaches it via `test:e2e:sync` (unit preflight first), `npm run test:e2e` runs it
+directly. The `e2e/` directory this used to describe was deleted — it sat outside `testDir`
+and never ran.
 
 Per-workspace scripts (`test`, `lint`, `dev`, `dev:worker`, `dev:worker:cluster`) run the standard
 way: `npm run <script> -w apps/backend`. See each workspace's `package.json` for what they invoke.

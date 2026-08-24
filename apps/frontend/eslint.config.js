@@ -31,34 +31,34 @@ import { defineConfig, globalIgnores } from 'eslint/config'
  * parser, and 3 unused catch bindings) were fixed outright rather than listed.
  */
 const LEGACY = [
+  // Retired from the free list only after a source fix — each of these has exactly one real
+  // violation, and the fix waits for the E2E run in flight (a vite HMR reload mid-test would
+  // restart the page under Playwright).
+  'src/components/AcceptanceEditor.tsx',
+  'src/components/Lab/index.tsx',
+  'src/lib/proposal-display.ts',
   // Slice 4 (the App.tsx modal extraction) retires this one; it is a third of all debt.
   'src/App.tsx',
   // Slice 3.
   'src/components/NginxView.tsx',
   'src/components/ClusterWizard.tsx',
-  'src/components/GameServerSettings.tsx',
   // Slice 5 (Grove) and slice 6 (Lab) — mostly `any` on records that want a real shared type.
   'src/components/Grove.tsx',
   'src/components/Chat.tsx',
   'src/components/KoalaChat.tsx',
   'src/components/LeafDetail.tsx',
   'src/components/Home.tsx',
-  'src/components/AcceptanceEditor.tsx',
   'src/components/PersonaEditor.tsx',
   'src/components/Projects.tsx',
   'src/components/Lab/ToolRepoPanel.tsx',
   'src/components/Lab/Harness.tsx',
   'src/components/Lab/MemoryBankPanel.tsx',
-  'src/components/Lab/index.tsx',
   // Not yet assigned to a slice: small, and each wants a domain type that does not exist yet.
   'src/TemporalPanel.tsx',
   'src/ServicesPanel.tsx',
   'src/components/MeshDevices.tsx',
   'src/components/VpsCatalog.tsx',
-  'src/components/Sidebar.tsx',
   'src/components/Login.tsx',
-  'src/components/AnsiText.tsx',
-  'src/lib/proposal-display.ts',
 ]
 
 /**
