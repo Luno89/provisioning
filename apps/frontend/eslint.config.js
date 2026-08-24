@@ -34,7 +34,6 @@ const LEGACY = [
   // Slice 4 (the App.tsx modal extraction) retires this one; it is a third of all debt.
   'src/App.tsx',
   // Slice 3.
-  'src/components/AppsView.tsx',
   'src/components/NginxView.tsx',
   'src/components/ClusterWizard.tsx',
   'src/components/GameServerSettings.tsx',
