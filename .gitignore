@@ -92,3 +92,7 @@ apps/*/src/**/*.test.d.ts
 apps/*/src/test/setup.js
 apps/*/src/test/setup.js.map
 apps/*/src/test/setup.d.ts
+
+# Scratch written by scripts/test-e2e-setup.sh (which cluster it provisioned, what it stopped).
+# Running the E2E suite otherwise leaves the working tree dirty.
+.test-e2e-state/
