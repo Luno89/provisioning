@@ -31,6 +31,9 @@ import { treeTypesRouter } from './routes/tree-types.js';
 import { treesRouter } from './routes/trees.js';
 import { branchesRouter } from './routes/branches.js';
 import { leavesRouter } from './routes/leaves.js';
+import { harnessRouter } from './routes/harness/index.js';
+import { personasRouter } from './routes/personas.js';
+import { personaOptionsRouter } from './routes/persona-options.js';
 import { ownsProject, ownedBy } from './lib/ownership.js';
 import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase } from './lib/db-interface.js';
@@ -84,6 +87,7 @@ import type { HarnessConfig } from '@koala/harness-types';
 import {
   buildTaskAuthorPrompt, buildTaskChatPrompt, extractTaskProposals, extractTaskRevision, stripTaskBlock,
   AUTHORING_SAMPLING, AUTHORING_MAX_TOKENS,
+  normaliseTasks,
 } from './lib/experiment-authoring.js';
 import { AuthoringService, acceptedTasks } from './services/AuthoringService.js';
 import { WorkbenchService } from './services/WorkbenchService.js';
@@ -1445,55 +1449,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── HARNESS — what the agent is configured to do, and experiments against it ── */
 
-  /**
-   * Client task shapes → stored tasks.
-   *
-   * Ids are generated here rather than trusted. The client's copy only has to be unique within its
-   * own form, while these become part of a Kubernetes namespace and are what results are attributed
-   * by — so position decides identity, and editing a task in place keeps its results attached.
-   */
-  const normaliseTasks = (tasks: any[]): ExperimentTask[] =>
-    tasks.slice(0, MAX_TASKS).map((t: any, i: number) => ({
-      id: `t${i + 1}`,
-      name: String(t?.name ?? '').trim().slice(0, 80) || `Task ${i + 1}`,
-      prompt: String(t?.prompt ?? '').slice(0, MAX_TASK_CHARS),
-      verifyCommand: String(t?.verifyCommand ?? '').trim().slice(0, 2000),
-      // The world the agent wakes up in, and a reference answer used only by the gate. Both
-      // optional; a task that starts from nothing carries neither.
-      ...(Array.isArray(t?.seed) && t.seed.length ? { seed: taskFiles(t.seed) } : {}),
-      ...(Array.isArray(t?.solution) && t.solution.length ? { solution: taskFiles(t.solution) } : {}),
-      ...(isWorkspaceLanguage(t?.language) ? { language: t.language } : {}),
-      /**
-       * Which loop the task runs. Dropped here until recently.
-       *
-       * `kind` was added to ExperimentTask precisely because a planning experiment written as an
-       * execution task checked for a file that loop has no tool to produce — and this normaliser,
-       * the one path every authored task goes through, silently discarded it. So the field that
-       * exists to make that mistake unrepresentable was itself unreachable over the API.
-       *
-       * Through `asWorkKind` rather than compared against literals: it arrives as untrusted JSON, an
-       * unrecognised kind would select no loop at all, and the old `sandbox` spelling still has to
-       * be readable.
-       */
-      /**
-       * Whether this task runs the planning turn. Dropped by this normaliser until recently, which
-       * made the field that exists to prevent a planning experiment being written as an execution
-       * one unreachable over the API.
-       *
-       * The old `kind: 'planning'` spelling is still accepted: experiments are stored documents.
-       */
-      ...(t?.planning === true || t?.kind === 'planning' ? { planning: true } : {}),
-    }));
 
-  /** File lists from a client, bounded and stripped of anything that could escape /work. */
-  const taskFiles = (raw: any[]): { path: string; content: string }[] =>
-    raw
-      .slice(0, MAX_TASK_FILES)
-      .map((f: any) => ({
-        path: String(f?.path ?? '').trim(),
-        content: String(f?.content ?? '').slice(0, MAX_TASK_FILE_CHARS),
-      }))
-      .filter((f) => f.path && !f.path.startsWith('/') && !f.path.includes('..'));
 
   /**
    * The live configuration, assembled from the modules the running code uses.
@@ -1533,157 +1489,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── WORKBENCH — a live sandbox for writing a verify command against ── */
 
-  app.post('/api/harness/workbench/open', async (req, res) => {
-    try {
-      const { language, seed } = req.body ?? {};
-      res.json(await workbenchService.open((req as any).user.id, {
-        ...(isWorkspaceLanguage(language) ? { language } : {}),
-        ...(Array.isArray(seed) ? { seed: taskFiles(seed) } : {}),
-      }));
-    } catch (err: any) {
-      res.status(503).json({ error: `Could not open a sandbox: ${String(err?.message ?? err).slice(0, 200)}` });
-    }
-  });
 
-  app.post('/api/harness/workbench/exec', async (req, res) => {
-    const { sessionId, command } = req.body ?? {};
-    if (!String(command ?? '').trim()) return res.status(400).json({ error: 'No command.' });
-    try {
-      res.json(await workbenchService.exec((req as any).user.id, String(sessionId), String(command)));
-    } catch (err: any) {
-      // A dead session is the common case — the idle reaper took it — and is worth saying plainly
-      // so the client can reopen rather than showing a failure that looks like the command's.
-      res.status(409).json({ error: String(err?.message ?? err).slice(0, 200) });
-    }
-  });
 
-  app.post('/api/harness/workbench/reset', async (req, res) => {
-    const { sessionId, seed } = req.body ?? {};
-    try {
-      await workbenchService.reset(
-        (req as any).user.id,
-        String(sessionId),
-        Array.isArray(seed) ? taskFiles(seed) : undefined,
-      );
-      res.json({ reset: true });
-    } catch (err: any) {
-      res.status(409).json({ error: String(err?.message ?? err).slice(0, 200) });
-    }
-  });
 
-  app.delete('/api/harness/workbench/:sessionId', async (req, res) => {
-    await workbenchService.close((req as any).user.id, req.params.sessionId).catch(() => undefined);
-    res.json({ closed: true });
-  });
 
   /** ── AUTHORING — Koala proposes the suite, the sandbox proves the verify commands ── */
 
-  /**
-   * Asks Koala for tasks. Proposals only — nothing is stored and nothing runs.
-   *
-   * Reasoning is OFF here, unlike the planning chat. Authoring is one-shot structured output, and
-   * measured on this prompt with reasoning on the model produced 16,664 characters of deliberation,
-   * hit the token ceiling and emitted no answer at all.
-   */
-  app.post('/api/harness/author/tasks', async (req, res) => {
-    const { goal, existing, modelId } = req.body ?? {};
-    if (!String(goal ?? '').trim()) return res.status(400).json({ error: 'Say what the suite should test.' });
 
-    let provider, baseUrl, apiKey;
-    try {
-      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl((req as any).user.id, modelId));
-    } catch (err: any) {
-      return res.status(404).json({ error: err.message });
-    }
-
-    try {
-      const upstream = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-        },
-        /**
-         * Built through the shared builder, and honouring an adopted profile.
-         *
-         * This route spread `conversationSampling` and then its own bag by hand — the exact pattern
-         * the builder exists to delete. It meant an adopted profile did not apply here (so a
-         * configuration promoted from an experiment reached leaves and chat but not the authoring
-         * that produces the next experiment), and any knob set on it would have gone out at the top
-         * level regardless of where the engine actually reads it.
-         *
-         * Profile only, no persona, and that is deliberate: this is the Lab writing a test suite,
-         * not a persona doing its job. `AUTHORING_SAMPLING` is applied last as a floor rather than a
-         * default — reasoning off is not a preference here, it is what makes the route work at all
-         * (measured: with it on, 16,664 characters of deliberation, the token ceiling hit, and no
-         * answer emitted).
-         */
-        body: JSON.stringify(buildModelRequest({
-          turn: 'conversation',
-          ...(provider.kind ? { kind: provider.kind } : {}),
-          ...(provider.model ? { model: provider.model } : {}),
-          messages: [
-            {
-              role: 'system',
-              content: buildTaskAuthorPrompt(
-                Array.isArray(existing) ? { existing: existing.map((n: unknown) => String(n)) } : {},
-              ),
-            },
-            { role: 'user', content: String(goal).slice(0, 2000) },
-          ],
-          stream: false,
-          maxTokens: AUTHORING_MAX_TOKENS,
-          overrides: resolveConfig(await db.getHarnessProfile((req as any).user.id), null).overrides,
-          extra: AUTHORING_SAMPLING,
-        }).body),
-      });
-
-      if (!upstream.ok) {
-        return res.status(502).json({ error: `Model call failed (${upstream.status})` });
-      }
-      const body: any = await upstream.json();
-      const reply = body?.choices?.[0]?.message?.content ?? '';
-      const { tasks, rejected } = extractTaskProposals(reply);
-
-      // The prose without the payload — the tasks are rendered as cards, so leaving the JSON in
-      // would show the same thing twice.
-      res.json({ tasks, rejected, note: stripTaskBlock(reply) });
-    } catch (err: any) {
-      res.status(502).json({ error: String(err?.message ?? err).slice(0, 300) });
-    }
-  });
-
-  /**
-   * Runs each proposed verify command in an empty sandbox and requires it to FAIL.
-   *
-   * The gate that matters. A command that passes where no work has been done passes always, so a
-   * suite built from such commands scores every variant a winner — the exact failure the Lab
-   * exists to catch, produced automatically. One sandbox for the batch; see AuthoringService.
-   */
-  app.post('/api/harness/author/validate', async (req, res) => {
-    const { tasks } = req.body ?? {};
-    if (!Array.isArray(tasks) || !tasks.length) {
-      return res.status(400).json({ error: 'Nothing to validate.' });
-    }
-    if (tasks.length > MAX_TASKS) {
-      return res.status(400).json({ error: `At most ${MAX_TASKS} tasks in a suite.` });
-    }
-
-    try {
-      const validated = await authoringService.validateOnEmptyWorkspace(
-        (req as any).user.id,
-        // Through `normaliseTasks` rather than a second hand-written mapping. The duplicate here
-        // silently dropped seed and solution, so the gate validated a task with neither and
-        // reported it fine — the exact class of silent drop the gate exists to catch.
-        normaliseTasks(tasks),
-      );
-      res.json({ tasks: validated, accepted: acceptedTasks(validated) });
-    } catch (err: any) {
-      // A cluster problem is not a verdict on the commands — saying otherwise would reject good
-      // tasks for a reason that has nothing to do with them.
-      res.status(503).json({ error: `Could not reach a sandbox: ${String(err?.message ?? err).slice(0, 200)}` });
-    }
-  });
 
   /**
    * The configuration as a file you can commit.
@@ -1733,664 +1545,40 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   /** ── PROMOTED DEFAULTS — a winning configuration adopted as the harness's own ── */
 
-  /**
-   * Refuses an arm pointing at a persona that is not yours or no longer exists.
-   *
-   * Checked at save rather than at run: an arm labelled "runs as Reviewer" that silently resolves
-   * to nobody produces numbers filed under a configuration nothing used, which is the single
-   * failure this whole surface is built to prevent.
-   */
-  const unknownPersona = async (userId: string, variants: unknown): Promise<string | undefined> => {
-    if (!Array.isArray(variants)) return undefined;
-    const wanted = variants
-      .map((v) => (v && typeof v === 'object' ? (v as any).personaId : undefined))
-      .filter((id): id is string => typeof id === 'string' && id !== '');
-    if (!wanted.length) return undefined;
-    const mine = new Set((await db.getPersonas()).filter((p) => p.ownerId === userId).map((p) => p.id));
-    const missing = wanted.find((id) => !mine.has(id));
-    return missing ? `No persona ${missing} — it may have been deleted.` : undefined;
-  };
 
   /** ── PERSONAS — named configurations you pick, rather than the one everybody gets ── */
 
-  app.get('/api/personas', async (req, res) => {
-    // The list is where a new user first needs them, and where their absence is most visible.
-    await ensurePersonas((req as any).user.id);
-    res.json(await ownedPersonas((req as any).user.id));
-  });
 
-  /**
-   * What a persona may be set to, served rather than duplicated in the editor.
-   *
-   * The same reasoning as /api/tree-types: the toolchain images, the tool names and the sandbox
-   * defaults all live in code that changes, and a second copy in a form is a second thing to keep
-   * in step. This codebase has already paid for that twice — the app-type list and the leaf
-   * columns.
-   */
-  app.get('/api/persona-options', async (req, res) => {
-    /**
-     * The MCP servers this user actually has running.
-     *
-     * `scope.mcp` was a free-text comma list, so granting a persona a service meant typing its name
-     * from memory and matching it exactly. A typo did not fail loudly — validation only checks the
-     * SHAPE — it produced a persona granted a server that does not exist, which reads at run time
-     * as "the tool never appeared" three layers from the cause.
-     *
-     * Best-effort: the editor must open when the cluster is unreachable, just without the picker.
-     */
-    let mcpServers: { name: string; tools: number; unreachable?: string }[] = [];
-    try {
-      const reg = new McpRegistryService(db, (req as any).user.id, (n: string) => resolveMcpProbeUrl(n));
-      // Collapsed by name, healthiest copy first: two deployments can answer to one service.
-      mcpServers = preferUsable(await reg.listWithTools()).map((s) => ({
-        name: s.name,
-        tools: s.tools.length,
-        // Offered anyway, labelled: a server that is down is still the one you meant to name, and
-        // hiding it would have the user retype a name that is already right.
-        ...(s.unreachable ? { unreachable: s.unreachable } : {}),
-      }));
-    } catch (err: any) {
-      console.warn(`[persona-options] could not list MCP servers: ${err.message}`);
-    }
-    res.json({
-      mcpServers,
-      languages: Object.entries(WORKSPACE_IMAGES).map(([id, spec]) => ({
-        id,
-        image: spec.image,
-        summary: spec.summary,
-        available: spec.available,
-        absent: spec.absent,
-      })),
-      // Every tool a persona could be allowed. The intersection with what the environment actually
-      // offers happens at run time — naming one here does not conjure it.
-      tools: [
-        ...SANDBOX_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description })),
-        ...LEAF_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description })),
-      ].filter((t, i, all) => t.name && all.findIndex((x) => x.name === t.name) === i),
-      defaults: { cpu: DEFAULT_WORKSPACE_CPU, memory: DEFAULT_WORKSPACE_MEMORY, maxSteps: MAX_AGENT_STEPS },
-    });
-  });
 
-  app.post('/api/personas', async (req, res) => {
-    const userId = (req as any).user.id;
-    const { name, description, systemPrompt, overrides, scope, basedOn } = req.body ?? {};
 
-    const existing = await ownedPersonas(userId);
-    const refusal = validatePersona({ name: String(name ?? ''), systemPrompt }, existing);
-    if (refusal) return res.status(400).json({ error: refusal });
 
-    // The same registry check every other override bag gets. A persona is not a way around it —
-    // and the layer matters now that `model` decides the run's context budget as well as its engine.
-    const models = await modelIdsFor(userId);
-    const invalid = validateOverrides(overrides ?? {}, { layer: 'persona', ...(models ? { models } : {}) });
-    if (invalid) return res.status(400).json({ error: invalid });
-    // Same check the edit route applies: a scope decides what the sandbox can reach, and a
-    // malformed rule fails in the direction that matters — the pod comes up and the policy does
-    // not do what was meant.
-    const badScope = validateScope(scope);
-    if (badScope) return res.status(400).json({ error: badScope });
 
-    const now = new Date().toISOString();
-    const persona: Persona = {
-      id: uuidv4(),
-      ownerId: userId,
-      name: String(name).trim(),
-      ...(description ? { description: String(description).slice(0, 200) } : {}),
-      ...(systemPrompt ? { systemPrompt: String(systemPrompt) } : {}),
-      ...(scope !== undefined ? { scope } : {}),
-      // A persona built on another inherits its prompt, sampling and scope — see Persona.basedOn.
-      ...(basedOn ? { basedOn: String(basedOn) } : {}),
-      overrides: overrides ?? {},
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.savePersona(persona);
-    res.status(201).json(persona);
-  });
 
-  app.put('/api/personas/:id', async (req, res) => {
-    const userId = (req as any).user.id;
-    const existing = await ownedPersonas(userId);
-    const persona = existing.find((p) => p.id === req.params.id);
-    if (!persona) return res.status(404).json({ error: 'No such persona' });
 
-    const { name, description, systemPrompt, overrides, scope, basedOn } = req.body ?? {};
-    const nextName = name === undefined ? persona.name : String(name);
-    const refusal = validatePersona({ name: nextName, systemPrompt }, existing, persona.id);
-    if (refusal) return res.status(400).json({ error: refusal });
-    if (overrides !== undefined) {
-      const models = await modelIdsFor(userId);
-      const invalid = validateOverrides(overrides, { layer: 'persona', ...(models ? { models } : {}) });
-      if (invalid) return res.status(400).json({ error: invalid });
-    }
-    /**
-     * Scope is editable now, which it was not.
-     *
-     * It carries the isolation — which tools exist, whether there is a repository, and the egress
-     * rules that become the sandbox's NetworkPolicy — and all of it was fixed at seed time.
-     * Widening one rule meant editing the seed script and re-running it.
-     */
-    const badScope = validateScope(scope);
-    if (badScope) return res.status(400).json({ error: badScope });
 
-    const updated: Persona = {
-      ...persona,
-      name: nextName.trim(),
-      ...(description !== undefined ? { description: String(description).slice(0, 200) } : {}),
-      ...(systemPrompt !== undefined ? { systemPrompt: String(systemPrompt) } : {}),
-      ...(overrides !== undefined ? { overrides } : {}),
-      // Merged onto the existing scope, not replacing it: an edit that sends only `egress` must
-      // not silently drop the tool list.
-      ...(scope !== undefined ? { scope: { ...(persona.scope ?? {}), ...scope } } : {}),
-      ...(basedOn ? { basedOn: String(basedOn) } : {}),
-      updatedAt: new Date().toISOString(),
-    };
-    /**
-     * An empty string CLEARS the parent; omitting the field leaves it alone.
-     *
-     * Deleted rather than set to undefined — under exactOptionalPropertyTypes those are different,
-     * and only one of them is what "no parent" looks like. A persona that could not be un-based
-     * would be stuck inheriting a prompt somebody has since rewritten.
-     */
-    if (basedOn === '') delete (updated as { basedOn?: string }).basedOn;
 
-    await db.savePersona(updated);
-    res.json(updated);
-  });
 
-  app.delete('/api/personas/:id', async (req, res) => {
-    const userId = (req as any).user.id;
-    const persona = (await ownedPersonas(userId)).find((p) => p.id === req.params.id);
-    if (!persona) return res.status(404).json({ error: 'No such persona' });
 
-    /**
-     * Leaves keep their `personaId` after the persona is gone.
-     *
-     * Clearing it would rewrite the record of what a completed leaf ran under, which is the one
-     * thing history must never do — the same reason a superseded profile is filed rather than
-     * overwritten. A dangling id resolves to nobody and the leaf simply runs with no persona.
-     */
-    await db.deletePersona(persona.id);
-    res.json({ deleted: true });
-  });
 
-  app.get('/api/harness/profile', async (req, res) => {
-    res.json(await db.getHarnessProfile((req as any).user.id));
-  });
 
-  /** Directly updates adopted profile overrides. */
-  app.put('/api/harness/profile', async (req, res) => {
-    const userId = (req as any).user.id;
-    const { overrides } = req.body ?? {};
-    if (typeof overrides !== 'object' || overrides === null) {
-      return res.status(400).json({ error: 'overrides must be an object' });
-    }
-    const models = await modelIdsFor(userId);
-    const invalid = validateOverrides(overrides, { layer: 'profile', ...(models ? { models } : {}) });
-    if (invalid) return res.status(400).json({ error: invalid });
 
-    const current = await db.getHarnessProfile(userId);
-    // Carry-forward lives in harness-profile.ts, not here — see `withOverrides` for what writing it
-    // out by hand cost.
-    const updatedProfile = withOverrides(current, overrides, userId);
-    const saved = supersede(current, updatedProfile);
-    await db.saveHarnessProfile(saved);
-    // The SAVED record, not the pre-supersede one: they differ by `history` and `updatedAt`, and
-    // answering with the input means the client renders a profile that was never stored.
-    res.json(saved);
-  });
 
-  /**
-   * Adopts a variant's configuration as the default.
-   *
-   * Deliberately does NOT refuse a variant that lost. A variant that ties on verification while
-   * costing half the tokens is worth adopting, and so is one that loses on a suite you have judged
-   * unrepresentative — refusing would push the same decision into a hand-edited config where no
-   * evidence is recorded at all. What it does instead is compute the standing server-side and
-   * store it, so a default can always explain what it beat and by how much.
-   */
-  app.post('/api/harness/profile/promote', async (req, res) => {
-    const userId = (req as any).user.id;
-    const { experimentId, label } = req.body ?? {};
 
-    const experiment = (await db.getExperiments())
-      .find((e) => e.id === experimentId && e.ownerId === userId);
-    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
 
-    const current = await db.getHarnessProfile(userId);
-    const built = buildPromotion(experiment, String(label ?? ''), current, userId);
-    if (!built) return res.status(400).json({ error: 'That variant has no results to promote.' });
 
-    /**
-     * Promotion writes a PROFILE, so it is held to the profile's rules.
-     *
-     * A variant that won partly because of its model must not carry that model into a profile —
-     * that is precisely the one-field repointing of every persona that `settableAt` exists to stop.
-     * Refused rather than silently stripped: a promoted profile that quietly differs from the
-     * variant that won is worse than an error explaining why.
-     */
-    const models = await modelIdsFor(userId);
-    const invalid = validateOverrides(built.profile.overrides, { layer: 'profile', ...(models ? { models } : {}) });
-    if (invalid) return res.status(400).json({ error: invalid });
-
-    // Filed rather than overwritten: adopting a default has to be undoable, and a diff needs
-    // something to diff against.
-    await db.saveHarnessProfile(supersede(current, built.profile));
-    res.json(built);
-  });
-
-  /** Previews a promotion without applying it, so the diff can be shown before the button. */
-  app.get('/api/harness/profile/preview', async (req, res) => {
-    const userId = (req as any).user.id;
-    const experiment = (await db.getExperiments())
-      .find((e) => e.id === req.query.experimentId && e.ownerId === userId);
-    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
-
-    const built = buildPromotion(
-      experiment,
-      String(req.query.label ?? ''),
-      await db.getHarnessProfile(userId),
-      userId,
-    );
-    if (!built) return res.status(400).json({ error: 'That variant has no results to promote.' });
-    res.json({ standing: built.standing, changes: built.changes });
-  });
-
-  /** Back to the harness's built-in settings — but the configuration dropped is kept. */
-  app.delete('/api/harness/profile', async (req, res) => {
-    const userId = (req as any).user.id;
-    const current = await db.getHarnessProfile(userId);
-    if (!current) return res.json({ reset: true });
-
-    // Not a delete. Resetting is a change like any other, and a reset you cannot undo is how an
-    // afternoon of tuning disappears on one click.
-    await db.saveHarnessProfile(supersede(current, { ownerId: userId, overrides: {}, updatedAt: '' }));
-    res.json({ reset: true });
-  });
-
-  /** Restores a superseded configuration, filing the current one on the way. */
-  app.post('/api/harness/profile/revert', async (req, res) => {
-    const userId = (req as any).user.id;
-    const current = await db.getHarnessProfile(userId);
-    if (!current) return res.status(404).json({ error: 'Nothing has been adopted yet.' });
-
-    const reverted = revertTo(current, String(req.body?.versionId ?? ''));
-    if (!reverted) return res.status(404).json({ error: 'No such version.' });
-
-    await db.saveHarnessProfile(reverted);
-    res.json(reverted);
-  });
-
-  /**
-   * The list: scores only.
-   *
-   * Full records carry a trace per run — up to 24 steps of several kilobytes each — plus every
-   * task's prompt and every run's verify output. Returning those here meant the client re-fetched
-   * the entire archive every five seconds, which was survivable only while probe experiments
-   * deleted themselves. Once history persists it grows without bound, so evidence moved to the
-   * detail route and this carries what the matrix renders.
-   */
-  app.get('/api/harness/experiments', async (req, res) => {
-    const mine = (await db.getExperiments()).filter((e) => e.ownerId === (req as any).user.id);
-    res.json(
-      mine
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        // Recomputed rather than stored: a backend restart during a run leaves the record saying
-        // "running" forever, and the service is the only thing that knows the truth.
-        .map((e) => ({ ...summariseExperiment(e), running: experimentService.isRunning(e.id) })),
-    );
-  });
-
-  /** One experiment in full — prompts, traces, requests. Fetched when something is expanded. */
-  app.get('/api/harness/experiments/:id', async (req, res) => {
-    const experiment = (await db.getExperiments())
-      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
-    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
-    // Normalised like the list is, so the client never branches on a record's age.
-    res.json({ ...normaliseExperiment(experiment), running: experimentService.isRunning(experiment.id) });
-  });
-
-  app.post('/api/harness/experiments', async (req, res) => {
-    const { name, tasks, task, verifyCommand, language, variants, axes, repeats } = req.body ?? {};
-    // Axes are the friendlier form — one question at a time — and expand to explicit variants so a
-    // stored experiment always says exactly what it ran.
-    const resolved = Array.isArray(variants) && variants.length
-      ? variants
-      : expandAxes(axes && typeof axes === 'object' ? axes : {});
-
-    // A suite, or the single task the older client sends — both normalise to the same stored
-    // shape, so nothing downstream has to ask which one arrived.
-    const suite: ExperimentTask[] = Array.isArray(tasks) && tasks.length
-      ? normaliseTasks(tasks)
-      : [{
-          id: 't1',
-          name: 'Task',
-          prompt: String(task ?? '').slice(0, MAX_TASK_CHARS),
-          verifyCommand: String(verifyCommand ?? '').trim().slice(0, 2000),
-        }];
-
-    const draft: Experiment = {
-      id: uuidv4(),
-      ownerId: (req as any).user.id,
-      name: String(name ?? '').trim().slice(0, 120),
-      tasks: suite,
-      language: isWorkspaceLanguage(language) ? language : 'node',
-      variants: resolved,
-      repeats: Math.max(1, Math.min(MAX_REPEATS, Number(repeats) || 1)),
-      status: 'draft',
-      results: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const invalid = validateExperiment(draft);
-    if (invalid) return res.status(400).json({ error: invalid });
-
-    await db.saveExperiment(draft);
-    res.status(201).json(draft);
-  });
-
-  /**
-   * Edits an experiment in place.
-   *
-   * ── WHY EDITING A PROMPT DISCARDS THAT TASK'S RESULTS ──
-   * A result is a measurement OF a prompt. Change the prompt and keep the number and the record
-   * quietly asserts something that was never run — the worst kind of wrong, because it looks like
-   * evidence. So results are dropped for exactly the tasks whose prompt or verify command moved,
-   * and kept for the ones that did not. `duplicate` is the non-destructive path when the old
-   * numbers are worth keeping alongside the new ones.
-   */
-  app.put('/api/harness/experiments/:id', async (req, res) => {
-    const existing = (await db.getExperiments())
-      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
-    if (!existing) return res.status(404).json({ error: 'No such experiment' });
-    if (experimentService.isRunning(existing.id)) {
-      return res.status(409).json({ error: 'Still running — wait for it to finish before editing.' });
-    }
-
-    const { name, tasks, variants, axes, repeats } = req.body ?? {};
-    const before = experimentTasks(existing);
-    const suite = Array.isArray(tasks) && tasks.length ? normaliseTasks(tasks) : before;
-    const badPersona = await unknownPersona((req as any).user.id, variants);
-    if (badPersona) return res.status(400).json({ error: badPersona });
-
-    const resolvedVariants = Array.isArray(variants) && variants.length
-      ? variants
-      : axes && typeof axes === 'object'
-        ? expandAxes(axes)
-        : existing.variants;
-
-    // Spread the existing record: saveExperiment replaces the whole document, so anything not
-    // carried forward here would be silently deleted.
-    const next: Experiment = {
-      ...existing,
-      name: name === undefined ? existing.name : String(name).trim().slice(0, 120),
-      tasks: suite,
-      variants: resolvedVariants,
-      repeats: repeats === undefined
-        ? existing.repeats
-        : Math.max(1, Math.min(MAX_REPEATS, Number(repeats) || 1)),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const invalid = validateExperiment(next);
-    if (invalid) return res.status(400).json({ error: invalid });
-
-    /**
-     * Editing keeps every past execution.
-     *
-     * This used to delete results whose prompt had changed, on the reasoning that a number
-     * attached to wording it never measured is a lie. That was right when a record held ONE set of
-     * results and nothing about the conditions. It stopped being right when runs became history:
-     * every execution now stores the prompt it was actually sent, the parameters as they went out,
-     * and which keys came from the profile — so an old run is a self-describing record of what was
-     * asked then, not a claim about what is asked now.
-     *
-     * Deleting it would throw away the very evidence that makes "re-run it after the change"
-     * answerable, which is the entire reason the suite is written down.
-     */
-    const changedTasks = suite
-      .filter((t) => {
-        const was = before.find((b) => b.id === t.id);
-        return !was || was.prompt !== t.prompt || was.verifyCommand !== t.verifyCommand;
-      })
-      .map((t) => t.name);
-    const variantsChanged = JSON.stringify(resolvedVariants) !== JSON.stringify(existing.variants);
-
-    await db.saveExperiment(next);
-    // Reported rather than acted on: the next run answers the new question, and the history says
-    // what the old one answered.
-    res.json({
-      ...next,
-      changedTasks,
-      variantsChanged,
-      priorRuns: (existing.runs?.length ?? 0) || (latestResults(existing).length ? 1 : 0),
-    });
-  });
-
-  /** Copies an experiment without its results — the non-destructive way to try a reworded prompt. */
-  app.post('/api/harness/experiments/:id/duplicate', async (req, res) => {
-    const existing = (await db.getExperiments())
-      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
-    if (!existing) return res.status(404).json({ error: 'No such experiment' });
-
-    const now = new Date().toISOString();
-    const copy: Experiment = {
-      ...existing,
-      id: uuidv4(),
-      name: `${existing.name} (copy)`.slice(0, 120),
-      tasks: experimentTasks(existing),
-      status: 'draft',
-      results: [],
-      progress: undefined,
-      error: undefined,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.saveExperiment(copy);
-    res.status(201).json(copy);
-  });
-
-  app.post('/api/harness/experiments/:id/run', async (req, res) => {
-    const experiment = (await db.getExperiments())
-      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
-    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
-    if (experimentService.isRunning(experiment.id)) {
-      return res.status(409).json({ error: 'Already running' });
-    }
-
-    // Returns immediately: an experiment is minutes of real sandboxes and inference, and the UI
-    // polls for results as each variant lands.
-    experimentService.start(experiment);
-    res.status(202).json({ started: true, runs: plannedRuns(experiment) });
-  });
-
-  app.post('/api/harness/experiments/:id/stop', async (req, res) => {
-    const experiment = (await db.getExperiments())
-      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
-    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
-    if (experimentService.isRunning(experiment.id)) {
-      experimentService.stop(experiment.id);
-    }
-    const runs = (experiment as any).runs ?? [];
-    const updatedRuns = runs.map((r: any) => ({
-      ...r,
-      status: r.status === 'running' ? 'complete' : r.status,
-      finishedAt: r.finishedAt || new Date().toISOString(),
-    }));
-    await db.saveExperiment({
-      ...experiment,
-      status: experiment.results?.length || updatedRuns.some((r: any) => r.results?.length) ? 'complete' : 'draft',
-      runs: updatedRuns,
-      progress: undefined,
-      updatedAt: new Date().toISOString(),
-    });
-    res.json({ stopped: true });
-  });
-
-  app.delete('/api/harness/experiments/:id', async (req, res) => {
-    const experiment = (await db.getExperiments())
-      .find((e) => e.id === req.params.id && e.ownerId === (req as any).user.id);
-    if (!experiment) return res.status(404).json({ error: 'No such experiment' });
-    if (experimentService.isRunning(experiment.id)) {
-      experimentService.stop(experiment.id);
-    }
-    await db.deleteExperiment(experiment.id);
-    res.json({ deleted: true });
-  });
 
   // ── TOOL REPOSITORY ──
-  app.get('/api/harness/tools', async (req, res) => {
-    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
-    const all = await db.getTools();
-    if (category && category !== 'all') {
-      return res.json(all.filter((t) => t.category === category));
-    }
-    res.json(all);
-  });
 
-  app.post('/api/harness/tools', async (req, res) => {
-    const { name, category, description, requiresBinaries, parameters, scriptCommand } = req.body;
-    if (!name || !description) {
-      return res.status(400).json({ error: 'name and description are required' });
-    }
-    const item = {
-      id: uuidv4(),
-      name: String(name).trim(),
-      category: category || 'custom',
-      description: String(description).trim(),
-      requiresBinaries: Array.isArray(requiresBinaries) ? requiresBinaries : [],
-      parameters: parameters || { type: 'object', properties: {} },
-      scriptCommand: scriptCommand ? String(scriptCommand) : undefined,
-      isBuiltIn: false,
-    };
-    await db.saveTool(item as any);
-    res.status(201).json(item);
-  });
 
-  app.put('/api/harness/tools/:id', async (req, res) => {
-    const existing = (await db.getTools()).find((t) => t.id === req.params.id);
-    if (!existing) return res.status(404).json({ error: 'No such tool' });
-    const { name, category, description, requiresBinaries, parameters, scriptCommand } = req.body;
-    const updated = {
-      ...existing,
-      ...(name ? { name: String(name).trim() } : {}),
-      ...(category ? { category } : {}),
-      ...(description ? { description: String(description).trim() } : {}),
-      ...(requiresBinaries ? { requiresBinaries: Array.isArray(requiresBinaries) ? requiresBinaries : [] } : {}),
-      ...(parameters ? { parameters } : {}),
-      ...(scriptCommand !== undefined ? { scriptCommand: String(scriptCommand) } : {}),
-    };
-    await db.saveTool(updated as any);
-    res.json(updated);
-  });
 
-  app.delete('/api/harness/tools/:id', async (req, res) => {
-    const existing = (await db.getTools()).find((t) => t.id === req.params.id);
-    if (!existing) return res.status(404).json({ error: 'No such tool' });
-    await db.deleteTool(req.params.id);
-    res.json({ deleted: true });
-  });
 
   // ── MEMORY BANK ──
-  app.get('/api/harness/memories', async (req, res) => {
-    const ownerId = (req as any).user.id;
-    const memories = await db.getMemories(ownerId);
-    res.json(memories);
-  });
 
-  /**
-   * What the last consolidation pass did.
-   *
-   * A loop that retires memories unattended should be visible to the person whose memories they
-   * are — otherwise the bank quietly shrinking is indistinguishable from the bank being broken.
-   */
-  app.get('/api/harness/memories/consolidation', async (_req, res) => {
-    res.json(temporalBridge.lastConsolidation ?? null);
-  });
 
-  app.post('/api/harness/memories', async (req, res) => {
-    const ownerId = (req as any).user.id;
-    const { category, title, text, projectId, scope, recommendedScope, status } = req.body;
-    if (!category || !title || !text) {
-      return res.status(400).json({ error: 'category, title, and text are required' });
-    }
-    const item: MemoryItem = {
-      id: uuidv4(),
-      ownerId,
-      // Omitted rather than set to undefined: `exactOptionalPropertyTypes` distinguishes the two,
-      // and so does Mongo — an explicit undefined is a stored key, not an absent one.
-      ...(projectId ? { projectId: String(projectId) } : {}),
-      category,
-      scope: scope === 'global' ? 'global' : 'project',
-      recommendedScope: recommendedScope === 'global' ? 'global' : 'project',
-      status: status === 'pending_review' ? 'pending_review' : 'active',
-      source: 'manual',
-      title: String(title).trim(),
-      text: String(text).trim(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    // Refused here as well as swept by the consolidation loop — see `unreachableMemory`.
-    const unreachable = unreachableMemory(item);
-    if (unreachable) return res.status(400).json({ error: unreachable });
 
-    await db.saveMemory(item);
-    res.status(201).json(item);
-  });
 
-  app.put('/api/harness/memories/:id/approve', async (req, res) => {
-    const ownerId = (req as any).user.id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
-    if (!existing) return res.status(404).json({ error: 'No such memory item' });
-    const updated: MemoryItem = {
-      ...existing,
-      status: 'active',
-      updatedAt: new Date().toISOString(),
-    };
-    await db.saveMemory(updated);
-    res.json(updated);
-  });
 
-  app.put('/api/harness/memories/:id/promote', async (req, res) => {
-    const ownerId = (req as any).user.id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
-    if (!existing) return res.status(404).json({ error: 'No such memory item' });
-    const updated: MemoryItem = {
-      ...existing,
-      scope: 'global',
-      updatedAt: new Date().toISOString(),
-    };
-    await db.saveMemory(updated);
-    res.json(updated);
-  });
 
-  app.put('/api/harness/memories/:id', async (req, res) => {
-    const ownerId = (req as any).user.id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
-    if (!existing) return res.status(404).json({ error: 'No such memory item' });
-    const { category, title, text, scope, status, projectId } = req.body;
-    const updated: MemoryItem = {
-      ...existing,
-      ...(category ? { category } : {}),
-      ...(title ? { title: String(title).trim() } : {}),
-      ...(text ? { text: String(text).trim() } : {}),
-      ...(scope ? { scope } : {}),
-      ...(status ? { status } : {}),
-      ...(projectId !== undefined ? { projectId } : {}),
-      updatedAt: new Date().toISOString(),
-    };
-    await db.saveMemory(updated);
-    res.json(updated);
-  });
-
-  app.delete('/api/harness/memories/:id', async (req, res) => {
-    const ownerId = (req as any).user.id;
-    const existing = (await db.getMemories(ownerId)).find((m) => m.id === req.params.id);
-    if (!existing) return res.status(404).json({ error: 'No such memory item' });
-    await db.deleteMemory(req.params.id);
-    res.json({ deleted: true });
-  });
 
   /**
    * Ownership filters, from `lib/ownership.ts`. These were hand-written closures — one per
@@ -2434,6 +1622,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   }
   await seedAppSpecs();
+
+  /**
+   * ── THE HARNESS AND PERSONAS ──
+   *
+   * `/api/harness/*` was 34 routes on one `app` object. Six sub-resources, six routers, composed
+   * in `routes/harness/index.ts` — so the one-router-per-prefix rule holds at the level a route
+   * actually belongs to, rather than producing one 900-line file.
+   *
+   * `/api/harness/config`, `/export` and `/import` stay here: they read the whole harness rather
+   * than any one resource, so there is no sub-prefix they belong under.
+   */
+  app.use('/api/harness', harnessRouter({
+    db, modelIdsFor, temporalBridge, experimentService, authoringService, workbenchService,
+    modelService,
+  }));
+  app.use('/api/personas', personasRouter({ db, modelIdsFor, ensurePersonas }));
+  app.use('/api/persona-options', personaOptionsRouter({ db, modelIdsFor }));
 
   /**
    * ── THE GROVE: TREE TYPES, TREES, BRANCHES ──

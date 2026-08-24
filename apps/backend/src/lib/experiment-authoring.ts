@@ -29,7 +29,9 @@
  */
 import type { TaskFile, WorkspaceLanguage  } from '@koala/harness-types';
 import { describeSandbox, WORKSPACE_IMAGES, isWorkspaceLanguage } from './workspace-spec.js';
-import { MAX_TASKS, MAX_TASK_CHARS } from './experiments.js';
+import { MAX_TASKS, MAX_TASK_CHARS, MAX_TASK_FILES, MAX_TASK_FILE_CHARS } from './experiments.js';
+import type { ExperimentTask } from '@koala/harness-types';
+import type { Database } from './db-interface.js';
 
 /**
  * Sampling for an authoring turn: reasoning OFF.
@@ -496,3 +498,79 @@ export function stripTaskBlock(reply: string): string {
   const tail = reply.slice(found.end).replace(/^\s*```/, '');
   return (head + tail).trim();
 }
+
+/**
+ * ── MOVED OUT OF index.ts ──
+ *
+ * These three were closures inside `bootstrap()`, used by the authoring and experiment routes.
+ * They are pure — client shapes in, stored shapes out — and the only reason they lived in a
+ * 5,900-line file is that both callers happened to be there.
+ */
+
+/**
+ * Client task shapes → stored tasks.
+ *
+ * Ids are generated here rather than trusted. The client's copy only has to be unique within its
+ * own form, while these become part of a Kubernetes namespace and are what results are attributed
+ * by — so position decides identity, and editing a task in place keeps its results attached.
+ */
+export const normaliseTasks = (tasks: any[]): ExperimentTask[] =>
+  tasks.slice(0, MAX_TASKS).map((t: any, i: number) => ({
+    id: `t${i + 1}`,
+    name: String(t?.name ?? '').trim().slice(0, 80) || `Task ${i + 1}`,
+    prompt: String(t?.prompt ?? '').slice(0, MAX_TASK_CHARS),
+    verifyCommand: String(t?.verifyCommand ?? '').trim().slice(0, 2000),
+    // The world the agent wakes up in, and a reference answer used only by the gate. Both
+    // optional; a task that starts from nothing carries neither.
+    ...(Array.isArray(t?.seed) && t.seed.length ? { seed: taskFiles(t.seed) } : {}),
+    ...(Array.isArray(t?.solution) && t.solution.length ? { solution: taskFiles(t.solution) } : {}),
+    ...(isWorkspaceLanguage(t?.language) ? { language: t.language } : {}),
+    /**
+     * Which loop the task runs. Dropped here until recently.
+     *
+     * `kind` was added to ExperimentTask precisely because a planning experiment written as an
+     * execution task checked for a file that loop has no tool to produce — and this normaliser,
+     * the one path every authored task goes through, silently discarded it. So the field that
+     * exists to make that mistake unrepresentable was itself unreachable over the API.
+     *
+     * Through `asWorkKind` rather than compared against literals: it arrives as untrusted JSON, an
+     * unrecognised kind would select no loop at all, and the old `sandbox` spelling still has to
+     * be readable.
+     */
+    /**
+     * Whether this task runs the planning turn. Dropped by this normaliser until recently, which
+     * made the field that exists to prevent a planning experiment being written as an execution
+     * one unreachable over the API.
+     *
+     * The old `kind: 'planning'` spelling is still accepted: experiments are stored documents.
+     */
+    ...(t?.planning === true || t?.kind === 'planning' ? { planning: true } : {}),
+  }));
+
+/** File lists from a client, bounded and stripped of anything that could escape /work. */
+export const taskFiles = (raw: any[]): { path: string; content: string }[] =>
+  raw
+    .slice(0, MAX_TASK_FILES)
+    .map((f: any) => ({
+      path: String(f?.path ?? '').trim(),
+      content: String(f?.content ?? '').slice(0, MAX_TASK_FILE_CHARS),
+    }))
+    .filter((f) => f.path && !f.path.startsWith('/') && !f.path.includes('..'));
+
+/**
+ * Refuses an arm pointing at a persona that is not yours or no longer exists.
+ *
+ * Checked at save rather than at run: an arm labelled "runs as Reviewer" that silently resolves
+ * to nobody produces numbers filed under a configuration nothing used, which is the single
+ * failure this whole surface is built to prevent.
+ */
+export const unknownPersona = async (db: Pick<Database, 'getPersonas'>, userId: string, variants: unknown): Promise<string | undefined> => {
+  if (!Array.isArray(variants)) return undefined;
+  const wanted = variants
+    .map((v) => (v && typeof v === 'object' ? (v as any).personaId : undefined))
+    .filter((id): id is string => typeof id === 'string' && id !== '');
+  if (!wanted.length) return undefined;
+  const mine = new Set((await db.getPersonas()).filter((p) => p.ownerId === userId).map((p) => p.id));
+  const missing = wanted.find((id) => !mine.has(id));
+  return missing ? `No persona ${missing} — it may have been deleted.` : undefined;
+};
