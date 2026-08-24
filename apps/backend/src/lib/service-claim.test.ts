@@ -94,8 +94,13 @@ describe('what it must not do', () => {
 });
 
 describe('how the route applies it', () => {
+  /**
+   * Reads `routes/chat.ts` rather than `index.ts`: the handler moved there when the route was
+   * extracted, and this assertion is against its SOURCE TEXT, so a stale path makes the test pass
+   * against a file that no longer contains the code.
+   */
   const here = dirname(fileURLToPath(import.meta.url));
-  const route = readFileSync(join(here, '../index.ts'), 'utf8');
+  const route = readFileSync(join(here, '../routes/chat.ts'), 'utf8');
 
   it('attaches the adopted project to the tree', () => {
     // Attaching is the whole point: resolveLeafProject reads projectIds[0], not prose.

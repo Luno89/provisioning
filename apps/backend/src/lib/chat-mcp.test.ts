@@ -163,8 +163,13 @@ describe('scope.mcp is a validated field now', () => {
 });
 
 describe('how the route uses it', () => {
+  /**
+   * Reads `routes/chat.ts` rather than `index.ts`: the handler moved there when the route was
+   * extracted, and this assertion is against its SOURCE TEXT, so a stale path makes the test pass
+   * against a file that no longer contains the code.
+   */
   const here = dirname(fileURLToPath(import.meta.url));
-  const route = readFileSync(join(here, '../index.ts'), 'utf8');
+  const route = readFileSync(join(here, '../routes/chat.ts'), 'utf8');
 
   it('sends the granted tools at every request site, not LEAF_TOOLS', () => {
     // Three sites. One left on the constant is a turn where the model loses its tools mid-thought.

@@ -75,7 +75,12 @@ describe('an unbuildable Dockerfile does not reach the default branch', () => {
 });
 
 describe('a plan that mixes tool calls and prose', () => {
-  const route = read('../index.ts');
+  /**
+   * Reads `routes/chat.ts` rather than `index.ts`: the handler moved there when the route was
+   * extracted, and this assertion is against its SOURCE TEXT, so a stale path makes the test pass
+   * against a file that no longer contains the code.
+   */
+  const route = read('../routes/chat.ts');
 
   /**
    * ── THE STAGES THIS LOST ──
