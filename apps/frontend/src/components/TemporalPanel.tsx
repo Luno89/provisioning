@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import {
+  getTemporalStatus, getWorkflowCount, listWorkflows, getWorkflow, temporalKeys,
+  type WorkflowSummary,
+} from '../api/temporal';
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
 import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Server, Hash, Play } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
-const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 
 const STATUS_COLORS: Record<string, string> = {
   RUNNING: 'bg-green-500/10 text-green-500',
@@ -14,7 +17,7 @@ const STATUS_COLORS: Record<string, string> = {
   TERMINATED: 'bg-red-500/10 text-red-500',
 };
 
-const STATUS_ICONS: Record<string, any> = {
+const STATUS_ICONS: Record<string, LucideIcon> = {
   RUNNING: Play,
   COMPLETED: CheckCircle,
   FAILED: XCircle,
@@ -52,36 +55,30 @@ export default function TemporalPanel() {
   const [expandedWf, setExpandedWf] = useState<string | null>(null);
 
   const { data: status } = useQuery({
-    queryKey: ['temporal-status'],
-    queryFn: () => axios.get(`${API_BASE}/temporal/status`).then(r => r.data),
+    queryKey: temporalKeys.status(),
+    queryFn: getTemporalStatus,
     refetchInterval: 10000,
   });
 
   const { data: counts } = useQuery({
-    queryKey: ['temporal-counts'],
-    queryFn: () => axios.get(`${API_BASE}/temporal/workflows/count`).then(r => r.data),
+    queryKey: temporalKeys.workflowCount(),
+    queryFn: getWorkflowCount,
     refetchInterval: 5000,
   });
 
   const { data: workflowsData, isLoading } = useQuery({
-    queryKey: ['temporal-workflows'],
-    queryFn: () =>
-      axios
-        .get(`${API_BASE}/temporal/workflows`, { params: { pageSize: 50 } })
-        .then(r => r.data.workflows || []),
+    queryKey: temporalKeys.workflows(),
+    queryFn: () => listWorkflows(50),
     refetchInterval: 5000,
   });
 
   const { data: wfDetail, isFetching: detailLoading } = useQuery({
-    queryKey: ['temporal-workflow', expandedWf],
-    queryFn: () =>
-      expandedWf
-        ? axios.get(`${API_BASE}/temporal/workflows/${encodeURIComponent(expandedWf)}`).then(r => r.data.workflow)
-        : null,
+    queryKey: temporalKeys.workflow(expandedWf ?? ''),
+    queryFn: () => (expandedWf ? getWorkflow(expandedWf) : null),
     enabled: !!expandedWf,
   });
 
-  const workflows: any[] = workflowsData || [];
+  const workflows: WorkflowSummary[] = workflowsData ?? [];
 
   const summaryCards = [
     {
@@ -178,7 +175,7 @@ export default function TemporalPanel() {
               <span></span>
             </div>
 
-            {workflows.map((wf: any) => {
+            {workflows.map((wf) => {
               const isExpanded = expandedWf === wf.workflowId;
               return (
                 <div key={wf.workflowId}>
