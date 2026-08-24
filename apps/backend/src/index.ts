@@ -35,6 +35,7 @@ import { harnessRouter } from './routes/harness/index.js';
 import { personasRouter } from './routes/personas.js';
 import { personaOptionsRouter } from './routes/persona-options.js';
 import { ownsProject, ownedBy } from './lib/ownership.js';
+import { openSse, sendFrame, forwardChunk, endSse } from './lib/sse.js';
 import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
@@ -2021,9 +2022,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        * "Koala is thinking…" the whole time with nothing behind it. Branch chat has always shown
        * its deliberation, and this is the same model doing the same kind of work.
        */
-      res.setHeader('content-type', 'text/event-stream');
-      res.setHeader('cache-control', 'no-cache');
-      res.setHeader('connection', 'keep-alive');
+      /**
+       * `openSse` rather than three hand-written headers — and this route was missing a fourth.
+       *
+       * It had no `X-Accel-Buffering: no`, which `/api/chat` sets with a comment explaining why:
+       * nginx buffers proxied responses by default, so every frame arrives at once when the
+       * response ends. Behind the platform's own proxy this stream was not streaming; it looked
+       * like a model that thought for a long time and then answered instantly.
+       */
+      openSse(res);
 
       let answer = '';
       /**
@@ -2051,9 +2058,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        * and flips when the result lands.
        */
       const announceCall = (c: { id: string; name: string; arguments: string }) => {
-        res.write(`data: ${JSON.stringify({
+        sendFrame(res, {
           toolCall: { id: c.id, name: c.name, args: (c.arguments || '').slice(0, MAX_TOOL_CALL_ARGS) },
-        })}\n\n`);
+        });
       };
 
       /**
@@ -2073,7 +2080,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
             ok, digest,
           });
         }
-        res.write(`data: ${JSON.stringify({ toolResult: { id: c.id, ok, digest } })}\n\n`);
+        sendFrame(res, { toolResult: { id: c.id, ok, digest } });
       };
       let thinking = '';
 
@@ -2103,11 +2110,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
               // Two channels, forwarded separately so the UI can collapse one and show the other.
               if (delta?.reasoning_content) {
                 thinking += delta.reasoning_content;
-                res.write(`data: ${JSON.stringify({ reasoning: delta.reasoning_content })}\n\n`);
+                sendFrame(res, { reasoning: delta.reasoning_content });
               }
               if (delta?.content) {
                 content += delta.content;
-                res.write(`data: ${JSON.stringify({ delta: delta.content })}\n\n`);
+                sendFrame(res, { delta: delta.content });
               }
             } catch { /* a partial frame; the next chunk completes it */ }
           }
@@ -2144,16 +2151,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
          * Nothing downstream recovers from that, and the reader sees a chat that stopped working.
          */
         if (fittedMaxTokens(KOALA_MAX_TOKENS, promptCharsFor(sent, enabled)) <= MIN_TURN_TOKENS) {
-          res.write(`data: ${JSON.stringify({
+          sendFrame(res, {
             error: 'This conversation has outgrown the model\'s context window. Start a new one to keep going — '
               + 'the trees and specs you have already accepted are safe.',
-          })}\n\n`);
+          });
           break;
         }
 
         const step = await call(sent, true, enabled);
         if (!step.ok || !step.body) {
-          res.write(`data: ${JSON.stringify({ error: `Model returned ${step.status}` })}\n\n`);
+          sendFrame(res, { error: `Model returned ${step.status}` });
           break;
         }
         const { calls, content } = await drain(step as any);
@@ -2235,16 +2242,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           if (out.enabled && !enabled.includes(out.enabled)) {
             enabled = [...enabled, out.enabled];
             enabledNow.push(out.enabled);
-            res.write(`data: ${JSON.stringify({ enabled: [out.enabled] })}\n\n`);
+            sendFrame(res, { enabled: [out.enabled] });
             // The system message carries the catalogue, so it is rewritten with the new state.
             turn[0] = { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, enabled) };
           }
           if (out.proposed) {
             proposed.push(out.proposed);
-            res.write(`data: ${JSON.stringify({ proposedTree: out.proposed })}\n\n`);
+            sendFrame(res, { proposedTree: out.proposed });
           }
           if (out.proposedSpec) {
-            res.write(`data: ${JSON.stringify({ proposedSpec: out.proposedSpec })}\n\n`);
+            sendFrame(res, { proposedSpec: out.proposedSpec });
           }
           recordResult(c, out.content);
           turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });
@@ -2312,8 +2319,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           updatedAt: new Date().toISOString(),
         });
       }
-      res.write('data: [DONE]\n\n');
-      res.end();
+      endSse(res);
     } catch (err: any) {
       console.error(`[koala] turn failed: ${err.message}`);
       if (!res.headersSent) res.status(500).json({ error: err.message });
@@ -2769,12 +2775,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
           if (pred.shouldInterrupt && !wasInterrupted) {
             wasInterrupted = true;
             const reasonMsg = pred.reason ?? 'Overthinking loop detected';
-            res.write(`data: ${JSON.stringify({ interruptedReason: reasonMsg })}\n\n`);
+            sendFrame(res, { interruptedReason: reasonMsg });
             upstreamAbort.abort();
             break;
           }
 
-          res.write(Buffer.from(value));
+          forwardChunk(res, value);
         }
         return tools.result();
       };
@@ -2995,7 +3001,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
        * part it never reached.
        */
       if (calls.length > 0 && branchId) {
-        res.write(`data: ${JSON.stringify({ interruptedReason: `Used all ${MAX_TOOL_ROUNDS} research steps — answering with what was found.` })}\n\n`);
+        sendFrame(res, { interruptedReason: `Used all ${MAX_TOOL_ROUNDS} research steps — answering with what was found.` });
         /**
          * Say WHICH calls were dropped, not just that the budget ran out.
          *
@@ -3038,7 +3044,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       // Automatic Continuation Pass: if the response ran out of tokens mid-thought (finish_reason === 'length'),
       // automatically send a seamless continuation pass so the model finishes its answer completely.
       if (finishScanner.result() === 'length' && calls.length === 0) {
-        res.write(`data: ${JSON.stringify({ interruptedReason: 'Completion token cap reached (finish_reason: length) — auto-continuing...' })}\n\n`);
+        sendFrame(res, { interruptedReason: 'Completion token cap reached (finish_reason: length) — auto-continuing...' });
         const partialAnswer = content?.result() ?? '';
         const continuationMessages: any[] = [
           ...outboundMessages,
