@@ -162,12 +162,61 @@ export function capacityFromNodes(payload: unknown): ClusterCapacity | undefined
  * OOMKilled under real load rather than refused up front. That is a genuine gap this check does not
  * cover, and covering it would mean modelling live usage rather than static capacity.
  */
-export const APP_RESOURCE_NEEDS: Record<string, { memory: string; label: string }> = {
+export const APP_RESOURCE_NEEDS: Record<
+  string,
+  { memory: string; label: string; gpuCountField?: string }
+> = {
   // packages/cdktf-infra/constructs/vllm.ts — resources.requests.memory
-  vllm: { memory: '6G', label: 'vLLM' },
+  vllm: { memory: '6G', label: 'vLLM', gpuCountField: 'vllmGpuCount' },
   // packages/cdktf-infra/constructs/tabbyapi.ts — resources.requests.memory
-  tabbyapi: { memory: '6G', label: 'TabbyAPI' },
+  tabbyapi: { memory: '6G', label: 'TabbyAPI', gpuCountField: 'tabbyGpuCount' },
 };
+
+/**
+ * A deploy refused because the cluster cannot fit it.
+ *
+ * ── WHY A CLASS AND NOT A PLAIN Error ──
+ * The route wrapped every throw from `deployApp` as `503 "Temporal app deploy unavailable: ..."`,
+ * so a perfectly healthy Temporal reported itself as down and the actual sentence — "this cluster
+ * has no GPUs" — arrived prefixed by a claim that was not true. Anyone reading it goes and checks
+ * Temporal.
+ *
+ * A refusal is the caller's problem (400), not a service outage (503), and the two have to be
+ * distinguishable at the route without matching on message text.
+ */
+export class CapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CapacityError';
+  }
+}
+
+/**
+ * How many GPUs this deploy is actually asking for.
+ *
+ * ── WHY THIS IS NOT `config.vllmGpuCount ?? config.tabbyGpuCount ?? 0` ──
+ * That is what it was, and it broke every non-GPU deploy on the platform. The deploy wizard posts
+ * its WHOLE state as one object — every app type's fields on it at once, with `tabbyGpuCount: '2'`
+ * sitting there as TabbyAPI's default — so a WordPress deploy carried a GPU request it had never
+ * made, and `checkCapacity` correctly refused it on a cluster that correctly has no GPUs:
+ *
+ *   503 "This deployment requests 2 GPU(s) but no GPUs are visible to the scheduler"
+ *
+ * Reading a field the request did not mean to set is the bug. Which field COUNTS is a property of
+ * the app type, so it is declared beside that app type's other resource facts above rather than
+ * inferred from what happens to be present — one table, so adding a third GPU app is one line and
+ * cannot half-land.
+ *
+ * Deliberately tolerant of strings: the wizard binds these to text inputs, so they arrive as `'2'`
+ * rather than `2`. Anything unparseable means none requested, because refusing a deploy over a
+ * field nobody typed is exactly the failure this replaces.
+ */
+export function requestedGpuCount(appType: string, config: Record<string, unknown>): number {
+  const field = APP_RESOURCE_NEEDS[appType]?.gpuCountField;
+  if (!field) return 0;
+  const n = Number(config[field]);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
 /**
  * Returns a human-readable reason the app cannot fit, or undefined if it fits or if we cannot tell.

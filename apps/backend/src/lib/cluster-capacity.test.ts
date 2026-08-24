@@ -3,6 +3,7 @@ import {
   parseMemoryQuantity,
   parseCpuQuantity,
   capacityFromNodes,
+  requestedGpuCount,
   checkCapacity,
   type ClusterCapacity,
 } from './cluster-capacity.js';
@@ -146,5 +147,65 @@ describe('checkCapacity', () => {
     // This is the RAM/VRAM conflation the module exists to prevent, in its most likely form.
     expect(checkCapacity('vllm', big, 4)).toMatch(/GPU/);
     expect(checkCapacity('vllm', big, 4)).not.toMatch(/GiB/);
+  });
+});
+
+/**
+ * ── THE BUG THIS PINS ──
+ * Every app-deploy E2E test failed with:
+ *
+ *   503 "Temporal app deploy unavailable: This deployment requests 2 GPU(s) but no GPUs are
+ *        visible to the scheduler on this cluster."
+ *
+ * for a WORDPRESS deploy. The wizard posts its whole state — one object with every app type's
+ * fields on it, `tabbyGpuCount: '2'` among them — and `TemporalBridge.deployApp` read
+ * `config.vllmGpuCount ?? config.tabbyGpuCount ?? 0` with no regard for which app was being
+ * deployed. So WordPress, Nextcloud, Odoo and every other non-GPU app inherited TabbyAPI's default
+ * GPU count and were refused on a cluster that correctly has no GPUs.
+ *
+ * It was invisible for two reasons: the preflight had never actually run until the commit that
+ * moved it here, and the UI had no onError, so the refusal reached the user as a button that did
+ * nothing.
+ */
+describe('requestedGpuCount', () => {
+  /** What the deploy wizard actually posts — every app type's fields on one object. */
+  const wizardPayload = {
+    name: 'Wordpress-E2E',
+    appType: 'wordpress',
+    tabbyGpuCount: '2',
+    vllmGpuCount: 1,
+  };
+
+  it('is zero for an app that does not use GPUs, whatever else is on the payload', () => {
+    expect(requestedGpuCount('wordpress', wizardPayload)).toBe(0);
+    expect(requestedGpuCount('odoo', wizardPayload)).toBe(0);
+    expect(requestedGpuCount('nextcloud', wizardPayload)).toBe(0);
+  });
+
+  it('reads only the field belonging to the app being deployed', () => {
+    expect(requestedGpuCount('tabbyapi', wizardPayload)).toBe(2);
+    expect(requestedGpuCount('vllm', wizardPayload)).toBe(1);
+  });
+
+  it('treats a missing, empty or unparseable count as none requested', () => {
+    expect(requestedGpuCount('tabbyapi', {})).toBe(0);
+    expect(requestedGpuCount('tabbyapi', { tabbyGpuCount: '' })).toBe(0);
+    expect(requestedGpuCount('tabbyapi', { tabbyGpuCount: 'two' })).toBe(0);
+  });
+
+  it('accepts the count as a string, which is what the wizard sends', () => {
+    // The wizard binds these to text inputs, so they arrive as strings — a numeric comparison
+    // against a string is how a check like this silently stops working.
+    expect(requestedGpuCount('vllm', { vllmGpuCount: '4' })).toBe(4);
+  });
+
+  /** The end-to-end shape of the bug, through the function that actually refused the deploy. */
+  it('lets a WordPress deploy through a GPU-less cluster', () => {
+    const noGpus = { cpuCores: 8, ramGb: 16, gpuCount: 0 };
+    expect(checkCapacity('wordpress', noGpus, requestedGpuCount('wordpress', wizardPayload)))
+      .toBeUndefined();
+    // ...while still refusing the app that genuinely asked for one.
+    expect(checkCapacity('tabbyapi', noGpus, requestedGpuCount('tabbyapi', wizardPayload)))
+      .toMatch(/no GPUs are visible/);
   });
 });

@@ -37,7 +37,7 @@ import { InfrastructureService } from './InfrastructureService.js'
 import { sanitizeNamespace } from '../lib/model-registry.js'
 import type { Database } from '../lib/db-interface.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
-import { checkCapacity } from '../lib/cluster-capacity.js'
+import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js'
 import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { LeafWorkflow } from '../workflows/LeafWorkflow.js'
@@ -1221,9 +1221,13 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     // cluster with no measured capacity skips the check entirely — never blocks.
     if (userId) {
       const cluster = (await this.db.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
-      const requestedGpus = Number(config.vllmGpuCount ?? config.tabbyGpuCount ?? 0) || 0
-      const problem = checkCapacity(config.appType || 'odoo', cluster?.capacity, requestedGpus)
-      if (problem) throw new Error(problem)
+      // Reads only the field belonging to the app type being deployed. It used to be
+      // `config.vllmGpuCount ?? config.tabbyGpuCount ?? 0`, and since the wizard posts every app
+      // type's fields on one object, that gave a WordPress deploy TabbyAPI's default of 2 GPUs and
+      // refused it on a GPU-less cluster — see `requestedGpuCount`.
+      const appType = config.appType || 'odoo'
+      const problem = checkCapacity(appType, cluster?.capacity, requestedGpuCount(appType, config))
+      if (problem) throw new CapacityError(problem)
     }
 
     // Find deployment row by name + clusterId (since config is req.body — may have no DB id)

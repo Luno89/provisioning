@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute } from '../middleware/async-route.js';
+import { CapacityError } from '../lib/cluster-capacity.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { parseQuantity, planHostMemory } from '../lib/host-memory-plan.js';
@@ -74,6 +75,12 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
         state: 'running',
       });
     } catch (err: any) {
+      // A capacity refusal is the request's problem, not an outage. It used to come back as
+      // `503 "Temporal app deploy unavailable: <reason>"`, which blamed a service that was fine
+      // and buried the actual sentence behind a claim that sent people to check Temporal.
+      if (err instanceof CapacityError) {
+        return res.status(400).json({ error: err.message });
+      }
       res.status(503).json({ error: `Temporal app deploy unavailable: ${err.message}` });
     }
   });

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import { deploymentsRouter } from './deployments.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
+import { CapacityError } from '../lib/cluster-capacity.js';
 
 /**
  * The deployments routes, over real HTTP.
@@ -32,7 +33,9 @@ const services = () => ({
   appExposureService: { expose: vi.fn(async () => ({ url: 'https://x' })), unexpose: vi.fn(async () => undefined) },
   infraService: { runKubectl: vi.fn(async () => ''), runCommand: vi.fn(async () => '') },
   temporalBridge: {
-    deploy: vi.fn(async () => ({ id: 'w1' })),
+    // The router calls deployApp, not deploy. The stub said `deploy`, so every POST in this file
+    // was really exercising the 503 catch on a TypeError — green, and testing nothing.
+    deployApp: vi.fn(async () => ({ id: 'w1', resourceId: 'd1' })),
     destroyApp: vi.fn(async () => ({ id: 'w2' })),
     resizeDisk: vi.fn(async () => ({ id: 'w3' })),
     updateConfigAndSync: vi.fn(async () => ({ id: 'w4' })),
@@ -149,5 +152,47 @@ describe('the four routes that lived 3,900 lines away', () => {
     expect(await reached(axios.patch(h.url('/api/deployments/d1/storage'), { size: '10Gi' }))).toBe(true);
     expect(await reached(axios.get(h.url('/api/deployments/d1/resource-plan')))).toBe(true);
     expect(await reached(axios.patch(h.url('/api/deployments/d1/config'), { replicas: 1 }))).toBe(true);
+  });
+});
+
+/**
+ * How a refused deploy comes back.
+ *
+ * ── THE BUG THIS PINS ──
+ * Every throw from `deployApp` became `503 "Temporal app deploy unavailable: <reason>"`. So a
+ * WordPress deploy refused for capacity reported a Temporal outage that was not happening, and the
+ * one sentence that mattered — "no GPUs are visible to the scheduler" — arrived behind a claim
+ * that sent whoever read it to check the wrong service. It cost a full E2E cycle to find, because
+ * the frontend also had no onError and showed nothing at all.
+ */
+describe('POST / when the deploy is refused', () => {
+  it('answers 400 with the reason when the cluster cannot fit the app', async () => {
+    const svc = services();
+    svc.temporalBridge.deployApp = vi.fn(async () => {
+      throw new CapacityError('vLLM needs about 6 GiB of RAM but this cluster has 2 GiB');
+    });
+    await mount(svc);
+
+    const res = await axios.post(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
+      validateStatus: () => true,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.data.error).toBe('vLLM needs about 6 GiB of RAM but this cluster has 2 GiB');
+    // Specifically NOT the outage wrapper — that is the whole point.
+    expect(res.data.error).not.toMatch(/Temporal/);
+  });
+
+  it('still answers 503 when Temporal genuinely is unavailable', async () => {
+    const svc = services();
+    svc.temporalBridge.deployApp = vi.fn(async () => { throw new Error('connection refused'); });
+    await mount(svc);
+
+    const res = await axios.post(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
+      validateStatus: () => true,
+    });
+
+    expect(res.status).toBe(503);
+    expect(res.data.error).toMatch(/Temporal app deploy unavailable: connection refused/);
   });
 });
