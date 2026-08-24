@@ -1,11 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import axios from 'axios';
 import VpsCatalog from './VpsCatalog';
+import * as vpsApi from '../api/vps-catalog';
 
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios, true);
+/**
+ * Mocked at the API module, not at axios.
+ *
+ * `vi.mock('axios')` does not touch the instance `api/client` builds with `axios.create()`, so a
+ * URL-matching stub simply never fires once a component goes through the api layer — an empty
+ * render rather than a mocking error. This says what the SERVER returns and knows no URLs.
+ */
+vi.mock('../api/vps-catalog', async (importOriginal) => ({
+  ...(await importOriginal<typeof vpsApi>()),
+  getVpsCatalog: vi.fn(),
+  refreshVpsCatalog: vi.fn(),
+}));
 
 /**
  * Covers the GPU / VRAM cell specifically.
@@ -46,17 +56,15 @@ const cpuOnly = {
 };
 
 const renderWith = (offers: unknown[], onDeploy?: (o: any) => void) => {
-  mockedAxios.get.mockResolvedValue({
-    data: {
-      offers,
-      sources: [{ provider: 'vultr', status: 'ok', offerCount: offers.length, requiresCredentials: false, cached: false }],
-      fetchedAt: new Date().toISOString(),
-    },
-  });
+  vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({
+    offers,
+    sources: [{ provider: 'vultr', status: 'ok', offerCount: offers.length, requiresCredentials: false, cached: false }],
+    fetchedAt: new Date().toISOString(),
+  } as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <VpsCatalog apiBase="http://localhost:3001/api" {...(onDeploy ? { onDeploy } : {})} />
+      <VpsCatalog {...(onDeploy ? { onDeploy } : {})} />
     </QueryClientProvider>,
   );
 };
@@ -69,7 +77,7 @@ const gpuCell = (planId: string) => {
 };
 
 describe('VpsCatalog GPU / VRAM cell', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); });
 
   it('renders VRAM when the provider publishes no card count (Vultr)', async () => {
     renderWith([vultrGpu]);

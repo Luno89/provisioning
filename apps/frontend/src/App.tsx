@@ -414,7 +414,6 @@ function App() {
 
         {view === 'vps-catalog' && (
           <VpsCatalog
-            apiBase={API_BASE}
             onDeploy={(offer) => {
               setWizardPreset({
                 provider: offer.provider,

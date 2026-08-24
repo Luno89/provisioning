@@ -50,7 +50,6 @@ const LEGACY = [
   // Not yet assigned to a slice: small, and each wants a domain type that does not exist yet.
   'src/TemporalPanel.tsx',
   'src/ServicesPanel.tsx',
-  'src/components/VpsCatalog.tsx',
   'src/components/Login.tsx',
 ]
 

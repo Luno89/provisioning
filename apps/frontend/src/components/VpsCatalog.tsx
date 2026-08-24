@@ -1,6 +1,10 @@
 import { useState } from 'react';
+import {
+  getVpsCatalog, refreshVpsCatalog, vpsKeys,
+  type VpsOffer, type CatalogResult,
+} from '../api/vps-catalog';
+import { errorMessage } from '../api/client';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info, ArrowUp, ArrowDown } from 'lucide-react';
 
 /**
@@ -11,21 +15,6 @@ import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info, ArrowUp, ArrowD
  * dedicated-vCPU line, which is exactly how a hardcoded table becomes bad advice.
  */
 
-interface VpsOffer {
-  id: string; provider: string; planId: string; label: string;
-  vcpu: number; cpuType: string; cpuVendor?: string; arch: string;
-  ramGb: number; diskGb: number; diskType?: string; bandwidthTb?: number;
-  gpuCount?: number; gpuVramGb?: number; gpuModel?: string;
-  priceMonthly: number; priceHourly?: number; currency: string; taxIncluded: boolean;
-  hourlyBilling: boolean; locations: string[]; provisionable: boolean;
-  pricePerGbRam: number; pricePerGbVram?: number;
-}
-interface VpsSource {
-  provider: string; status: 'ok' | 'no-credentials' | 'error';
-  offerCount: number; message?: string; requiresCredentials: boolean; cached: boolean;
-  skippedNoPrice?: number;
-}
-interface CatalogResult { offers: VpsOffer[]; sources: VpsSource[]; fetchedAt: string }
 
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€' };
 
@@ -37,7 +26,6 @@ const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€' };
 const hasGpuOffer = (o: VpsOffer) => Boolean(o.gpuCount || o.gpuVramGb || o.gpuModel);
 
 interface VpsCatalogProps {
-  apiBase: string;
   /**
    * Opens the cluster wizard pre-filled with this plan. Only offered on `provisionable` rows —
    * the platform can price far more providers than it can actually deploy to, and a Deploy button
@@ -46,7 +34,7 @@ interface VpsCatalogProps {
   onDeploy?: (offer: { provider: string; planId: string; location?: string }) => void;
 }
 
-export default function VpsCatalog({ apiBase, onDeploy }: VpsCatalogProps) {
+export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
   const [minRamGb, setMinRamGb] = useState('');
   const [minVcpu, setMinVcpu] = useState('');
   const [minDiskGb, setMinDiskGb] = useState('');
@@ -72,13 +60,13 @@ export default function VpsCatalog({ apiBase, onDeploy }: VpsCatalogProps) {
   );
 
   const { data, isFetching, refetch, error } = useQuery<CatalogResult>({
-    queryKey: ['vps-catalog', params.toString()],
-    queryFn: () => axios.get(`${apiBase}/vps-catalog?${params}`).then((r) => r.data),
+    queryKey: vpsKeys.catalog(params.toString()),
+    queryFn: () => getVpsCatalog(params.toString()),
     staleTime: 5 * 60 * 1000,
   });
 
   const refresh = useMutation({
-    mutationFn: () => axios.post(`${apiBase}/vps-catalog/refresh`),
+    mutationFn: refreshVpsCatalog,
     onSuccess: () => refetch(),
   });
 
@@ -247,7 +235,7 @@ export default function VpsCatalog({ apiBase, onDeploy }: VpsCatalogProps) {
 
       {error && (
         <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs mb-4">
-          Couldn't load the catalog: {(error as any).message}
+          Couldn't load the catalog: {errorMessage(error)}
         </div>
       )}
 
