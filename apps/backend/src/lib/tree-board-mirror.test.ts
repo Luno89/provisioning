@@ -130,7 +130,9 @@ describe('the board rule, on both sides of the wire', () => {
      * actually writes — while the fact it checks has moved. Pinned against the route's own emit so
      * deleting the writer fails here rather than blanking a panel.
      */
-    const route = readFileSync(join(here, '..', 'index.ts'), 'utf8');
+    // `routes/leaves.ts` since the board was extracted out of index.ts — this docblock already
+    // anticipated the fact moving, and it has.
+    const route = readFileSync(join(here, '..', 'routes', 'leaves.ts'), 'utf8');
     const emitsRollup = route.includes('usageTotal: aggregateUsage(');
     expect(emitsRollup, 'the leaves route stopped emitting the subtree rollup').toBe(true);
     expect(frontendSource.includes('usageTotal?:')).toBe(emitsRollup);
