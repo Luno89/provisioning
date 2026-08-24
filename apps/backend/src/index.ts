@@ -26,6 +26,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { credentialsRouter } from './routes/credentials.js';
 import { backupRouter } from './routes/backup.js';
 import { clustersRouter } from './routes/clusters.js';
+import { deploymentsRouter } from './routes/deployments.js';
 import { ownsProject } from './lib/ownership.js';
 import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase } from './lib/db-interface.js';
@@ -1199,98 +1200,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     clusterService, appService, clusterProxyService, infraService,
     temporalBridge, db, io, giteaService, jwtSecret: JWT_SECRET,
   }));
-  /** ── DEPLOYMENTS ── */
-
-  app.get('/api/deployments', async (req, res) => res.json(await appService.getAll((req as any).user.id, io)));
-
-  app.post('/api/deployments', async (req, res) => {
-    try {
-      const user = (req as any).user;
-      const targetCluster = await clusterService.getById(req.body.clusterId, user.id);
-      if (!targetCluster) return res.status(404).json({ error: 'Cluster not found' });
-      const info = await temporalBridge.deployApp(req.body, user?.id);
-      res.status(202).json({
-        message: 'Deployment started',
-        deploymentName: req.body.name,
-        id: info.resourceId,
-        workflowId: info.id,
-        state: 'running',
-      });
-    } catch (err: any) {
-      res.status(503).json({ error: `Temporal app deploy unavailable: ${err.message}` });
-    }
-  });
-
-  // No standalone POST .../abort route — same reasoning as clusters above: DELETE already
-  // checks dep.status === 'deploying' and calls appService.abort() itself.
-
-  app.delete('/api/deployments/:id', async (req, res) => {
-    try {
-      const dep = await appService.getById(req.params.id, (req as any).user.id);
-      if (!dep) return res.status(404).json({ error: 'Deployment not found' });
-      if (dep.status === 'deploying') {
-        await appService.abort(req.params.id, (req as any).user.id, io);
-        return res.json({ success: true, message: 'Deployment aborted' });
-      }
-      const info = await temporalBridge.destroyApp(req.params.id);
-      res.status(202).json({
-        message: 'Destroying app',
-        deploymentId: req.params.id,
-        workflowId: info.id,
-        state: 'running',
-      });
-    } catch (err: any) {
-      try {
-        await appService.abort(req.params.id, (req as any).user.id, io);
-        res.json({ success: true, message: 'Deployment deleted' });
-      } catch (fallbackErr: any) {
-        res.status(503).json({ error: `Deployment destruction unavailable: ${err.message}` });
-      }
-    }
-  });
-
-  app.get('/api/deployments/:id/helm', async (req, res) => res.json({ content: await appService.getHelmStatus(req.params.id, (req as any).user.id) }));
-  app.get('/api/deployments/:id/diagnostics', async (req, res) => res.json({ content: await appService.getDiagnostics(req.params.id, (req as any).user.id) }));
-  app.get('/api/deployments/:id/pods', async (req, res) => {
-    try { res.json(await appService.listPods(req.params.id, (req as any).user.id)); } catch { res.status(500).json({ error: 'Failed to list pods' }); }
-  });
-
-  app.post('/api/deployments/:id/expose', async (req, res) => {
-    try {
-      const dep = await appService.getById(req.params.id, (req as any).user.id);
-      if (!dep) return res.status(404).json({ error: 'Deployment not found' });
-      // The whole exposure path is HTTP — Traefik by Host header, then an HTTPS localtunnel. For a
-      // UDP game server it would build a working tunnel to nothing, so refuse rather than hand
-      // back a URL that can never carry game traffic. The UI hides the control too; this is the
-      // guard for a direct API call.
-      if (NO_WEB_UI_APP_TYPES.has(dep.appType ?? '')) {
-        return res.status(400).json({
-          error: `"${dep.appType}" has no HTTP interface to expose — players connect directly to the cluster node on its game port.`,
-        });
-      }
-      const mode = req.body?.mode === 'local' ? 'local' : 'public';
-      const result = mode === 'local' ? await appExposureService.exposeLocal(req.params.id) : await appExposureService.exposePublic(req.params.id);
-      res.json(result);
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
-  });
-  app.post('/api/deployments/:id/unexpose', async (req, res) => {
-    try {
-      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
-      const mode = req.body?.mode === 'local' ? 'local' : 'public';
-      const result = mode === 'local' ? await appExposureService.unexposeLocal(req.params.id) : await appExposureService.unexposePublic(req.params.id);
-      res.json(result);
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
-  });
-  app.patch('/api/deployments/:id/exposure-path', async (req, res) => {
-    try {
-      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
-      const { path } = req.body;
-      res.json(await appExposureService.updateExposurePath(req.params.id, path));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
+  /**
+   * ── DEPLOYMENTS ──
+   *
+   * Thirteen routes, four of which had been registered near the bottom of this file — `/modules`,
+   * `/storage`, `/resource-plan` and `/config`, past the board and the chat handlers, 3,900 lines
+   * from the other nine.
+   */
+  app.use('/api/deployments', deploymentsRouter({
+    appService, clusterService, appExposureService, infraService, temporalBridge, db, io,
+  }));
   /** ── PROJECTS (CI/CD: sibling repos hosted on the self-hosted Gitea) ── */
 
   /**
@@ -5078,142 +4997,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const schema = APP_SETTINGS_SCHEMAS[req.params.appType];
     if (!schema) return res.status(404).json({ error: `No settings schema for app type "${req.params.appType}"` });
     return res.json(schema);
-  });
-
-  app.patch('/api/deployments/:id/modules', async (req, res) => {
-    const { modules } = req.body;
-    res.status(202).json(await appService.updateModules(req.params.id, modules, (req as any).user.id, io));
-  });
-
-  app.patch('/api/deployments/:id/storage', async (req, res) => {
-    // Delegated to TemporalBridge (manual resize)
-    try {
-      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
-      const info = await temporalBridge.resizeDisk(req.params.id, req.body.storage);
-      res.status(202).json({
-        message: 'Resize started',
-        deploymentId: req.params.id,
-        workflowId: info.id,
-        state: 'running',
-      });
-    } catch (err: any) {
-      res.status(503).json({ error: `Temporal resize disk unavailable: ${err.message}` });
-    }
-  });
-
-  /**
-   * What the resource ceilings resolve to when you leave them blank.
-   *
-   * Computed on demand rather than stored. A stored figure goes stale the moment the GPU count or
-   * sequence length changes, and — worse — a persisted default would be sent on every deploy,
-   * permanently overriding the very plan it came from. Blank has to keep meaning "size this for
-   * me", so the number exists only to be SHOWN.
-   *
-   * The UI renders it as a placeholder, which is what makes an empty field read as "20G, computed
-   * from the model" rather than as a missing value.
-   */
-  app.get('/api/deployments/:id/resource-plan', async (req, res) => {
-    const user = (req as any).user;
-    const dep = (await db.getDeployments()).find((d) => d.id === req.params.id && d.ownerId === user.id);
-    if (!dep) return res.status(404).json({ error: 'Deployment not found' });
-    if (dep.appType !== 'tabbyapi') return res.json({ applicable: false });
-
-    // Non-fatal: a rate-limited lookup should cost the placeholder its precision, not the panel.
-    let modelBytes: number | undefined;
-    try {
-      const { getHfModelSize } = await import('./lib/huggingface.js');
-      modelBytes = (await getHfModelSize(dep.tabbyModel!, dep.tabbyRevision, dep.tabbyHfToken)).totalBytes;
-    } catch { /* falls back to the conservative assumption inside the plan */ }
-
-    let allocatableBytes: number | undefined;
-    try {
-      const nodes = await infraService.runCommand("kubectl", [
-        'get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}',
-      ], `resource-plan-${dep.id}`) as { stdout: string; exitCode: number };
-      if (nodes.exitCode === 0) {
-        const sizes = nodes.stdout.trim().split(/\s+/).map((q) => parseQuantity(q))
-          .filter((n): n is number => n !== undefined);
-        if (sizes.length) allocatableBytes = Math.min(...sizes);
-      }
-    } catch { /* no node reading means no budget, which the plan reports honestly */ }
-
-    const plan = planHostMemory({
-      modelBytes,
-      gpuCount: Number(dep.tabbyGpuCount) || 1,
-      maxSeqLen: Number(dep.tabbyMaxSeqLen) || TABBYAPI_DEFAULT_MAX_SEQ_LEN,
-      inlineModelLoading: dep.tabbyInlineModelLoading === true,
-      allocatableBytes,
-    });
-
-    res.json({
-      applicable: true,
-      memoryLimit: `${Math.ceil(plan.limitBytes / 1e9)}G`,
-      shmSize: `${Math.ceil(plan.shmBytes / 1024 ** 3)}Gi`,
-      // Not part of the memory plan — this is simply what the construct uses when nothing is set.
-      cpuLimit: '10',
-      basis: plan.basis,
-      ...(plan.refusal ? { refusal: plan.refusal } : {}),
-    });
-  });
-
-  app.patch('/api/deployments/:id/config', async (req, res) => {
-    try {
-      if (!(await appService.getById(req.params.id, (req as any).user.id))) return res.status(404).json({ error: 'Deployment not found' });
-      // Allowlist rather than trusting req.body wholesale — this reaches saveDeploymentInfo(),
-      // and fields like status/temporalWorkflowId are internal state a client should never be
-      // able to overwrite directly.
-      const CONFIGURABLE_FIELDS = [
-        'storage', 'webRepo', 'webTag', 'dbRepo', 'dbTag',
-        'vllmModel', 'vllmGpuCount', 'vllmGpuVendor', 'vllmCachePvc', 'vllmHfToken',
-        'vllmMaxModelLen', 'vllmGpuMemUtil', 'vllmExtraArgs', 'openWebuiTargetId', 'hermesTargetId',
-        'vllmToolCallingEnabled', 'vllmToolCallParser', 'vllmServedModelName',
-        'vllmMaxNumSeqs', 'vllmDtype', 'vllmEnablePrefixCaching',
-        'tabbyModel', 'tabbyRevision', 'tabbyGpuCount', 'tabbyHfToken', 'tabbyCachePvc',
-        'tabbyImageTag', 'tabbyCacheMode', 'tabbyMaxSeqLen', 'tabbyMaxBatchSize',
-        'tabbyReasoning', 'tabbyToolFormat', 'tabbyInlineModelLoading', 'tabbyDisableAuth',
-        // Resource ceilings. Absent from this list, they were stripped here before anything else
-        // saw them — so the UI offered three fields that could be edited, saved without complaint,
-        // and changed nothing. The bridge and the activity both handle them; only this list did not.
-        'tabbyMemoryLimit', 'tabbyShmSize', 'tabbyCpuLimit',
-        'tabbyExtraEnv',
-        'webuiEnableWebSearch', 'webuiWebSearchEngine', 'webuiWebSearchApiKey',
-        // Map-valued: deep-merged in updateConfigAndSync and key-validated against the app's
-        // schema below, since these become container env vars.
-        'appSettings',
-      ];
-      const patch: Record<string, any> = {};
-      for (const key of CONFIGURABLE_FIELDS) {
-        if (req.body[key] !== undefined) patch[key] = req.body[key];
-      }
-
-      // The allowlist above gates FIELD names; it says nothing about the KEYS inside appSettings —
-      // and those become container environment variables. Without this, any authenticated user
-      // could inject arbitrary env (LD_PRELOAD and friends) into a pod. Validated here rather
-      // than in the activity so the caller gets a synchronous 400 instead of a workflow that
-      // fails minutes later.
-      if (patch.appSettings !== undefined) {
-        const existing = await appService.getById(req.params.id, (req as any).user.id);
-        const schema = APP_SETTINGS_SCHEMAS[existing?.appType ?? ''];
-        if (!schema) {
-          return res.status(400).json({ error: `App type "${existing?.appType}" has no settings schema` });
-        }
-        const { values, errors } = validateAppSettings(schema, patch.appSettings);
-        if (errors.length > 0) {
-          return res.status(400).json({ error: 'Invalid settings', details: errors });
-        }
-        patch.appSettings = values;
-      }
-
-      const info = await temporalBridge.updateConfigAndSync(req.params.id, patch);
-      res.status(202).json({
-        message: 'Config updated, sync started',
-        deploymentId: req.params.id,
-        workflowId: info.id,
-        state: 'running',
-      });
-    } catch (err: any) {
-      res.status(503).json({ error: `Temporal config update unavailable: ${err.message}` });
-    }
   });
 
   /** ── REGISTRY ── */
