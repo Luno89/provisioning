@@ -20,9 +20,19 @@ exports.default = (0, test_1.defineConfig)({
             use: { ...test_1.devices['Desktop Chrome'] },
         },
     ],
+    // The E2E worker pair binds its own Prometheus ports.
+    //
+    // Both workers export metrics — 9465 for host, 9464 for cluster, and worker-host.ts's own
+    // comment explains why they differ ("same port would collide"). What it did not account for is
+    // a SECOND pair: `npm run test:e2e` runs `test:alive` first, which REQUIRES the dev workers to
+    // be running, and then Playwright starts its own pair here. Those hit the ports the dev pair
+    // already holds and die with "Failed to start prometheus metrics exporter: Address already in
+    // use", which surfaces only as "Process from config.webServer was not able to start".
+    //
+    // So the two requirements were in direct conflict and e2e could not pass either way.
     webServer: [
         {
-            command: 'PORT=3002 IS_E2E=true NODE_ENV=test npx concurrently --kill-others "npm run dev -w apps/backend" "npm run dev:worker -w apps/backend" "npm run dev:worker:cluster -w apps/backend" > backend.log 2>&1',
+            command: 'PORT=3002 IS_E2E=true NODE_ENV=test npx concurrently --kill-others "npm run dev -w apps/backend" "TEMPORAL_METRICS_PORT=9467 npm run dev:worker -w apps/backend" "TEMPORAL_METRICS_PORT=9466 npm run dev:worker:cluster -w apps/backend" > backend.log 2>&1',
             port: 3002,
             reuseExistingServer: true,
         },
