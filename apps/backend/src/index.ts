@@ -27,7 +27,10 @@ import { credentialsRouter } from './routes/credentials.js';
 import { backupRouter } from './routes/backup.js';
 import { clustersRouter } from './routes/clusters.js';
 import { deploymentsRouter } from './routes/deployments.js';
-import { ownsProject } from './lib/ownership.js';
+import { treeTypesRouter } from './routes/tree-types.js';
+import { treesRouter } from './routes/trees.js';
+import { branchesRouter } from './routes/branches.js';
+import { ownsProject, ownedBy } from './lib/ownership.js';
 import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
@@ -2388,358 +2391,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.json({ deleted: true });
   });
 
-  /** ── BRANCHES — one planning conversation each ── */
-
-  const ownedBranches = async (userId: string): Promise<Branch[]> =>
-    (await db.getBranches()).filter((b) => b.ownerId === userId);
-
-  const ownedTrees = async (userId: string): Promise<Tree[]> =>
-    (await db.getTrees()).filter((t) => t.ownerId === userId);
-
   /**
-   * The type catalogue, served rather than duplicated in the UI.
-   *
-   * The picker needs the label, the summary and what done means for each type. Copying that table
-   * into the frontend would give two lists to keep in step, which is the failure this codebase has
-   * already had with leaf columns and with cluster providers.
+   * Ownership filters, from `lib/ownership.ts`. These were hand-written closures — one per
+   * collection, each a line that could be forgotten on the next one.
    */
-  app.get('/api/tree-types', async (req, res) => {
-    const userId = (req as any).user.id;
-    // Seeded on read: the same shape as personas, so a user who predates a type still gets it.
-    await seedTreeTypes(db, userId).catch((err: Error) => console.warn(`[tree-types] could not seed: ${err.message}`));
-    res.json(await db.getTreeTypes(userId));
-  });
-
-  /**
-   * Create or edit a project type.
-   *
-   * The point of the whole record: adding a project type is a form rather than a deploy. Validated
-   * against `validateTreeType` for the reason every other write here is — a bad record fails later,
-   * somewhere further from the mistake.
-   */
-  app.put('/api/tree-types/:id', async (req, res) => {
-    const userId = (req as any).user.id;
-    const candidate = { ...(req.body ?? {}), id: req.params.id, ownerId: userId };
-
-    const invalid = validateTreeType(candidate);
-    if (invalid) return res.status(400).json({ error: invalid });
-
-    await db.saveTreeType(candidate);
-    res.json(candidate);
-  });
-
-  app.delete('/api/tree-types/:id', async (req, res) => {
-    const userId = (req as any).user.id;
-    /**
-     * Refused while anything still uses it.
-     *
-     * A tree whose type has been deleted resolves nothing, and `resolveTreeType` deliberately does
-     * not substitute a default — so the tree would build no workspace at all. Better to say why.
-     */
-    const inUse = (await ownedTrees(userId)).filter((t) => t.type === req.params.id);
-    if (inUse.length) {
-      return res.status(409).json({
-        error: `${inUse.length} tree(s) still use this type: ${inUse.map((t) => t.name).join(', ')}.`,
-      });
-    }
-
-    await db.deleteTreeType(req.params.id, userId);
-    res.json({ deleted: req.params.id });
-  });
-
-  app.get('/api/trees', async (req, res) => {
-    const trees = await ownedTrees((req as any).user.id);
-    const branches = await ownedBranches((req as any).user.id);
-    // Branch count comes back with the tree: a tree with no conversations in it is the thing you
-    // most want to notice, and asking for it separately means the list cannot show it at all.
-    res.json(
-      [...trees]
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .map((t) => ({ ...t, branchCount: branches.filter((b) => b.treeId === t.id).length })),
-    );
-  });
-
-  /**
-   * One tree's board: its leaves across every conversation, plus the rollup.
-   *
-   * Served assembled rather than letting the client join leaves to branches to trees itself — the
-   * blocked/queued split and the verified/claimed split are judgements (lib/tree-board.ts), and a
-   * component that recomputes them is a component that will eventually disagree with the server.
-   */
-  app.get('/api/trees/:id/board', async (req, res) => {
-    const user = (req as any).user;
-    const tree = (await ownedTrees(user.id)).find((t) => t.id === req.params.id);
-    if (!tree) return res.status(404).json({ error: 'Tree not found' });
-
-    const branches = (await ownedBranches(user.id)).filter((b) => b.treeId === tree.id);
-    const branchIds = new Set(branches.map((b) => b.id));
-    const all = await ownedLeaves(user.id);
-    const mine = all.filter((l) => branchIds.has(l.branchId));
-
-    // blockedBy needs the WHOLE list: a dependency may sit on another branch of the same tree.
-    const isBlocked = (leaf: Leaf) => blockedBy(leaf, all).length > 0;
-
-    const since = typeof req.query.since === 'string' ? req.query.since : undefined;
-    const projects = await db.getProjects();
-
-    res.json({
-      tree,
-      rollup: rollup(mine, isBlocked),
-      changed: changedSince(mine, since),
-      repos: (tree.projectIds ?? [])
-        .map((id) => projects.find((p) => p.id === id))
-        .filter(Boolean)
-        .map((p) => ({ id: p!.id, name: p!.name, owner: p!.giteaOwner, repo: p!.giteaRepo })),
-      branches: branches.map((b) => ({
-        id: b.id,
-        title: b.title,
-        acceptanceOutcome: b.acceptanceOutcome,
-        updatedAt: b.updatedAt,
-      })),
-      /**
-       * Only what the board can show.
-       *
-       * `columnFor` returns nothing for a cancelled leaf — it is neither done nor outstanding, so
-       * counting it either way would misstate the total. Sending it anyway would mean a payload
-       * that disagrees with the board it feeds, and the next person to add a count would take the
-       * array length.
-       */
-      leaves: mine.filter((l) => columnFor(l, isBlocked(l))).map((l) => ({
-        id: l.id,
-        branchId: l.branchId,
-        title: l.title,
-        status: l.status,
-        column: columnFor(l, isBlocked(l)),
-        personaId: l.personaId,
-        verified: l.verified,
-        merged: l.merged,
-        tokens: l.usage?.tokens ?? 0,
-        attempts: l.attempts?.length ?? 0,
-        // Named, not just counted: "waiting on something" is far less useful than "waiting on the
-        // transport leaf", and the board has room for the name.
-        waitingOn: blockedBy(l, all).map((w) => ({ id: w.id, title: w.title })),
-        outputBranch: l.outputBranch,
-        updatedAt: l.updatedAt,
-      })),
-    });
-  });
-
-  app.post('/api/trees', async (req, res) => {
-    const userId = (req as any).user.id;
-    const input = normaliseTreeInput(req.body ?? {});
-    if (!input) return res.status(400).json({ error: 'name and type are required' });
-
-    /**
-     * The type must be one this owner HAS.
-     *
-     * `normaliseTreeInput` used to check this against a compile-time union. Types are owned records
-     * now, so shape is all it can answer and existence is a question for the store — checked here,
-     * where the owner is known. Refused rather than defaulted: the type decides the workspace image,
-     * the starter files and what finishing means.
-     */
-    await seedTreeTypes(db, userId).catch(() => undefined);
-    const typeSpec = await resolveTreeType(db, userId, input.type);
-    if (!typeSpec) {
-      const available = await db.getTreeTypes(userId);
-      return res.status(400).json({
-        error: `There is no project type "${input.type}".`,
-        available: available.map((t) => ({ id: t.id, label: t.label })),
-      });
-    }
-
-    const now = new Date().toISOString();
-    const tree: Tree = {
-      id: uuidv4(),
-      ownerId: userId,
-      ...input,
-      projectIds: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.saveTree(tree);
-    res.status(201).json(tree);
-  });
-
-  app.patch('/api/trees/:id', async (req, res) => {
-    const tree = (await ownedTrees((req as any).user.id)).find((t) => t.id === req.params.id);
-    if (!tree) return res.status(404).json({ error: 'Tree not found' });
-    const { name, goal } = req.body ?? {};
-    // Spread the stored tree rather than naming its fields — saveTree is a full replace, and a
-    // rename that silently dropped projectIds is exactly the shape of bug this codebase keeps
-    // producing. The type is deliberately not editable: it decides how the work is verified.
-    const updated: Tree = {
-      ...tree,
-      ...(typeof name === 'string' && name.trim() ? { name: name.trim().slice(0, 120) } : {}),
-      ...(typeof goal === 'string' ? { goal: goal.trim().slice(0, 2000) } : {}),
-      updatedAt: new Date().toISOString(),
-    };
-    await db.saveTree(updated);
-    res.json(updated);
-  });
-
-  app.delete('/api/trees/:id', async (req, res) => {
-    const user = (req as any).user;
-    const tree = (await ownedTrees(user.id)).find((t) => t.id === req.params.id);
-    if (!tree) return res.status(404).json({ error: 'Tree not found' });
-    /**
-     * The conversations survive; they are only un-scoped.
-     *
-     * Deleting a tree is a filing decision, not a decision to destroy work — and a branch left
-     * pointing at a tree that no longer exists is the orphan this codebase just spent a session
-     * chasing. Its repositories are left alone too: a repo can outlive the tree that organised it,
-     * and deleting one from here would be irreversible.
-     */
-    for (const branch of (await ownedBranches(user.id)).filter((b) => b.treeId === tree.id)) {
-      const { treeId: _dropped, ...rest } = branch;
-      await db.saveBranch(rest as Branch);
-    }
-    await db.deleteTree(tree.id);
-    res.json({ success: true });
-  });
-
-  app.get('/api/branches', async (req, res) => {
-    const branches = await ownedBranches((req as any).user.id);
-    /**
-     * Each branch carries how far the request it represents actually got.
-     *
-     * Derived here from records the platform already writes — leaves, pipeline runs, deployments —
-     * so the branch view and the Projects list cannot disagree, and so nothing has to read git to
-     * answer it. The project rollup is looked up per branch through the leaves' projectId, since a
-     * request's repo is created lazily by its first leaf.
-     */
-    const [allLeaves, projects, runs, deployments] = await Promise.all([
-      db.getLeaves(), db.getProjects(), db.getPipelineRuns(), db.getDeployments(),
-    ]);
-    const withDelivery = branches.map((b) => {
-      const projectId = allLeaves.find((l: any) => l.branchId === b.id && l.projectId)?.projectId;
-      const project = projectId ? projects.find((p: any) => p.id === projectId) : undefined;
-      const rollup = project
-        ? rollupProjectStatus(project, runs, deploymentForProject(project, deployments))
-        : undefined;
-      return {
-        ...b,
-        delivery: summariseDelivery(b, allLeaves, rollup),
-        ...(project ? { projectName: project.name } : {}),
-      };
-    });
-    // Newest first: a conversation you just had is the one you want.
-    res.json(withDelivery.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
-  });
-
-  app.post('/api/branches', async (req, res) => {
-    const user = (req as any).user;
-    const now = new Date().toISOString();
-    /**
-     * Validated against the caller's own trees, not merely typechecked.
-     *
-     * A treeId is untrusted input, and an unchecked one would either file this conversation under
-     * someone else's tree or under nothing at all — the dangling reference the delete route goes
-     * out of its way to avoid creating.
-     */
-    const requestedTree = typeof req.body?.treeId === 'string' ? req.body.treeId : '';
-    const tree = requestedTree
-      ? (await ownedTrees(user.id)).find((t) => t.id === requestedTree)
-      : undefined;
-    if (requestedTree && !tree) return res.status(404).json({ error: 'Tree not found' });
-
-    /**
-     * A follow-up branch starts with its tree's acceptance plan.
-     *
-     * Nothing may be accepted on a branch without one, and only the planner ever set one — during
-     * planning, on the first branch. So every follow-up was born unacceptable, and the refusal was
-     * swallowed by the UI, which is what "I can't click accept" turned out to be. A default, not a
-     * decision: it is editable, and a planner that sets its own replaces it.
-     */
-    const inherited = tree ? inheritedAcceptance(tree.id, await ownedBranches(user.id)) : [];
-    if (inherited.length) {
-      console.log(`[branches] new branch inherits ${inherited.length} acceptance check(s) from tree ${tree!.id.slice(0, 8)}`);
-    }
-
-    const branch: Branch = {
-      id: uuidv4(),
-      ownerId: user.id,
-      title: typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim() : 'New branch',
-      messages: [],
-      ...(tree ? { treeId: tree.id } : {}),
-      createdAt: now,
-      updatedAt: now,
-          ...(inherited.length ? { acceptance: inherited } : {}),
-};
-    await db.saveBranch(branch);
-    res.status(201).json(branch);
-  });
-
-  app.patch('/api/branches/:id', async (req, res) => {
-    const user = (req as any).user;
-    const branch = (await ownedBranches(user.id)).find((b) => b.id === req.params.id);
-    if (!branch) return res.status(404).json({ error: 'Branch not found' });
-    const { title, treeId, acceptance } = req.body ?? {};
-    const renaming = typeof title === 'string' && title.trim();
-    const refiling = typeof treeId === 'string';
-    const reChecking = acceptance !== undefined;
-    if (!renaming && !refiling && !reChecking) {
-      return res.status(400).json({ error: 'title, treeId or acceptance is required' });
-    }
-
-    /**
-     * Setting the acceptance plan by hand.
-     *
-     * Without this the only way to get one was to persuade the planner to call `set_acceptance`,
-     * which left a person with no way forward on a branch it had not — and no way to correct one
-     * it got wrong.
-     *
-     * Held to the SAME two rules the tool is: the checks must be usable, and they must be able to
-     * fail. A hand-written `echo ok` would satisfy the accept gate and prove nothing, which is the
-     * hollow green this gate exists to prevent — it does not matter who typed it.
-     */
-    let checks: { acceptance?: AcceptanceCheck[] } = {};
-    if (reChecking) {
-      const plan = usableAcceptancePlan(acceptance);
-      if (plan.length === 0) {
-        return res.status(400).json({
-          error: 'No usable checks. Each needs a name and a single-line command, with no command '
-            + 'substitution, backgrounding, or chaining beyond `&&`.',
-        });
-      }
-      const hollow = hollowChecks(plan);
-      if (hollow.length) return res.status(400).json({ error: explainHollow(hollow) });
-      checks = { acceptance: plan };
-    }
-
-    // An empty treeId un-files the conversation rather than being rejected — moving something out
-    // of a tree has to be as possible as moving it in.
-    let filed: { treeId?: string } = {};
-    if (refiling && treeId) {
-      const target = (await ownedTrees(user.id)).find((t) => t.id === treeId);
-      if (!target) return res.status(404).json({ error: 'Tree not found' });
-      filed = { treeId: target.id };
-    }
-    const { treeId: _current, ...withoutTree } = branch;
-    const updated: Branch = {
-      ...(refiling ? withoutTree : branch),
-      ...filed,
-      ...(renaming ? { title: title.trim().slice(0, 200) } : {}),
-      ...checks,
-      updatedAt: new Date().toISOString(),
-    };
-    await db.saveBranch(updated);
-    res.json(updated);
-  });
-
-  app.delete('/api/branches/:id', async (req, res) => {
-    const user = (req as any).user;
-    const branch = (await ownedBranches(user.id)).find((b) => b.id === req.params.id);
-    if (!branch) return res.status(404).json({ error: 'Branch not found' });
-    // Its leaves go too. A leaf without its branch is unreachable in the tree and would still
-    // count against nothing — an orphan nobody can see or delete.
-    for (const leaf of (await ownedLeaves(user.id)).filter((l) => l.branchId === branch.id)) {
-      await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
-      await db.deleteLeaf(leaf.id);
-    }
-    await db.deleteBranch(branch.id);
-    res.json({ success: true });
-  });
-
+  const ownedBranches = async (userId: string) => ownedBy(await db.getBranches(), userId);
+  const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
 
   /**
    * The built-in app specs exist in the database.
@@ -2776,6 +2433,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
   await seedAppSpecs();
 
+  /**
+   * ── THE GROVE: TREE TYPES, TREES, BRANCHES ──
+   *
+   * Three prefixes, three routers. None of them gained a service: these routes read and write
+   * records and call `lib/` for anything that thinks, so a service would be a class whose every
+   * method was one `db` call with an ownership filter in front of it. The filter is `ownedBy` from
+   * lib/ownership.ts — which is what the `ownedTrees`/`ownedBranches` closures here became.
+   */
+  app.use('/api/tree-types', treeTypesRouter({ db }));
+  app.use('/api/trees', treesRouter({ db, temporalBridge }));
+  app.use('/api/branches', branchesRouter({ db, temporalBridge }));
   /** ── GENERAL CHAT — Koala outside the tree structure (see lib/conversations.ts) ── */
 
   /**

@@ -81,10 +81,18 @@ export function clusterVisible<T extends OwnedRecord & { isSystem?: boolean | un
 /**
  * Everything in `records` this user owns.
  *
+ * Constrained to just `{ ownerId }` rather than `OwnedRecord`: that interface carries an index
+ * signature so `ownsProject` can take a fresh object literal, and an interface without one is not
+ * assignable to a type with one — so `ownedBy(await db.getTrees(), id)` would be rejected for a
+ * reason that has nothing to do with ownership.
+ *
  * Replaces seven near-identical filter closures that had accumulated in index.ts — `ownedPersonas`,
  * `ownedBranches`, `ownedTrees`, `ownedConversations`, `ownedLeaves` and friends were each one line,
  * and each was one line that could be forgotten on the eighth collection.
  */
-export function ownedBy<T extends OwnedRecord>(records: readonly T[], userId: string): T[] {
+export function ownedBy<T extends { ownerId?: string | undefined }>(
+  records: readonly T[],
+  userId: string,
+): T[] {
   return records.filter((r) => r.ownerId === userId);
 }
