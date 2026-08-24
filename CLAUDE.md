@@ -70,13 +70,13 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 
 | Path | What |
 |---|---|
-| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, all services, JWT auth middleware, socket.io, and mounts the routers. 3,677 lines; ~60 routes still inline, mostly auth, chat and models |
+| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, all services, socket.io, and mounts the routers. 1,289 lines. Five routes are still inline and each has a reason: the Gitea webhook (must precede `express.json()` — it verifies an HMAC over the raw body), `/ingress/verify` (unauthenticated by design), and three `/api/harness` config routes |
 | `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` — MongoDB unless `NODE_ENV=test` and not E2E, in which case `MemoryDB` |
 | `apps/backend/src/lib/mongo-db.ts` / `memory-db.ts` | MongoDB native driver impl / in-memory mock for unit tests |
 | `apps/backend/src/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
 | `apps/backend/src/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` → mock mode |
-| `apps/backend/src/routes/` | One router per URL prefix, each a factory taking its deps. `routes/harness/` composes six sub-resource routers under `/api/harness`. `routes/test-harness.ts` mounts one router on a bare app so a route can be tested without booting `bootstrap()` |
-| `apps/backend/src/middleware/` | `asyncRoute` + the error responder. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
+| `apps/backend/src/routes/` | 33 routers, one per URL prefix, each a factory taking its deps. `routes/harness/` composes six sub-resource routers under `/api/harness`. `routes/test-harness.ts` mounts one router on a bare app so a route can be tested without booting `bootstrap()` |
+| `apps/backend/src/middleware/` | `asyncRoute` + the error responder, and `auth.ts`'s `createAuth()` — `requireAuth`, `requireAdmin`, the session cookie and the invite gate. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
 | `apps/backend/src/services/` | Service layer (see below) |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — cluster provisioning/destruction activities |
@@ -111,7 +111,13 @@ All services live in `apps/backend/src/services/`, most extend `BaseService`. Co
 
 ## Auth
 
-All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` middleware in `index.ts`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
+All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
+
+The public-path allow-list lives in `middleware/auth.ts`, **not** in `routes/auth.ts` — a router
+that could exempt itself is a router that can quietly stop being protected, so adding a route that
+must work signed-out means editing the guard too. `requireAuth` and the Socket.IO handshake share
+`userFromSessionCookie` for the same reason: a socket must never be able to resolve a user the HTTP
+API would reject.
 
 ## Root node (hosted deployment)
 
