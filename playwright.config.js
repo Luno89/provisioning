@@ -49,6 +49,11 @@ exports.default = (0, test_1.defineConfig)({
      * reason is in that output and nowhere else, so a failed deploy was undiagnosable from the
      * artefacts alone. Piping it costs noise on a passing run and answers the question on a
      * failing one.
+     *
+     * CAVEAT, learned the hard way: `reuseExistingServer` below means this has NO effect while a
+     * previous run's servers are still listening on 3002/5174 — Playwright attaches to those and
+     * never spawns the piped ones. Kill them first, or the log stays empty and the pipe looks
+     * broken. `npm run clean-dev` does it, as does `lsof -ti:3002,5174 | xargs kill`.
      */
     webServer: [
         {
