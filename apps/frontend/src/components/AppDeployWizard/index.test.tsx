@@ -70,3 +70,48 @@ describe('the deploy wizard', () => {
     expect(screen.getByDisplayValue('Odoo-Production')).toBeDefined();
   });
 });
+
+/**
+ * The path E2E takes, walked here in milliseconds.
+ *
+ * ── WHY THIS TEST EXISTS ──
+ * The E2E suite's `deployApplication` helper drives every app-deploy test, and all of them failed
+ * at the same point: the wizard sat on step 6 with a fully-populated summary and a click on
+ * "Initiate Deployment" produced nothing. That is a 15-minute round trip per attempt, needs a real
+ * k3d cluster, and reports only that a heading never appeared.
+ *
+ * The wizard's own contract is one callback, so it is assertable in a render test — and it was not
+ * asserted. Three tests covered opening, closing and step branching; nothing covered the button
+ * the whole feature exists for.
+ */
+describe('reaching the parent on deploy', () => {
+  /** Clicks through to the confirm step exactly the way the E2E helper does. */
+  async function walkToConfirm(user: ReturnType<typeof userEvent.setup>, appType: string) {
+    // Cluster AND app type are both step 1 — picking the type here is what decides which later
+    // steps exist at all, which is why `nextStep` takes the app type.
+    await user.selectOptions(screen.getByLabelText(/target cluster/i), 'c1');
+    await user.selectOptions(screen.getByLabelText(/application type/i), appType);
+    for (let i = 0; i < 5; i++) {
+      const next = screen.queryByRole('button', { name: /^Next/ });
+      if (!next) break;
+      await user.click(next);
+    }
+  }
+
+  it('calls onDeploy with the assembled payload when Initiate Deployment is clicked', async () => {
+    const { onDeploy, user } = setup();
+    await walkToConfirm(user, 'wordpress');
+
+    const initiate = screen.getByRole('button', { name: /Initiate Deployment/ });
+    await user.click(initiate);
+
+    expect(onDeploy).toHaveBeenCalledTimes(1);
+    const payload = onDeploy.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.appType).toBe('wordpress');
+    expect(payload.clusterId).toBe('c1');
+    // The database images are part of the payload for an app that has one — a deploy that omits
+    // them makes the construct mint its own credential, which is the app-field-plumbing failure.
+    expect(payload.pgRepo).toBeTruthy();
+    expect(payload.pgTag).toBeTruthy();
+  });
+});

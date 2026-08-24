@@ -63,3 +63,6 @@
 [0m[2][0m 2026-08-24T22:22:40.899Z [INFO] No Nexus services registered, not polling for Nexus tasks {"sdkComponent":"worker","taskQueue":"cluster-ops-queue"}
 [0m[0][0m [InfrastructureService] GPU device plugin (nvidia) is ready.
 [0m[0][0m [15:22:41.030] [32mINFO[39m (2940547): [36mGPU device plugin ready on the management cluster.[39m
+[0m[0][0m [Reconcile] Cluster e2e-fleet-200 workflow is COMPLETED but DB says provisioning — fixing
+[0m[0][0m [15:30:08.319] [32mINFO[39m (2940547): [36mDetected local cluster e2e-fleet-200 deleted outside the system. Syncing...[39m
+[0m[0][0m [15:30:08.335] [32mINFO[39m (2940547): [36mDetected local cluster e2e-fleet-200 deleted outside the system. Syncing...[39m

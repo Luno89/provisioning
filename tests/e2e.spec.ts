@@ -4,7 +4,32 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 test.describe('Provisioning Platform E2E Suite', () => {
-  const CLUSTER_NAME = `e2e-fleet-${Math.floor(Math.random() * 1000)}`;
+  /**
+   * The cluster name, held on disk so a worker restart cannot orphan the cluster.
+   *
+   * ── WHY THIS IS NOT JUST `Math.random()` ──
+   * It was, and that turned one failure into eleven. Playwright restarts the worker process after
+   * a failed test, which re-evaluates this module — so a new random name was generated, while the
+   * cluster test 2 had actually built kept the old one. Test 2 does not re-run (it already
+   * passed), so every remaining test targeted a cluster that did not exist and failed on a 15
+   * minute timeout. An hour of machine time, ten failures, one real bug.
+   *
+   * Reading it back from `.test-e2e-state/` makes the name survive the restart, so the cascade
+   * reports what it actually is: the tests after the first failure fail for their own reasons or
+   * not at all.
+   */
+  const STATE_DIR = path.join(__dirname, '../.test-e2e-state');
+  const NAME_FILE = path.join(STATE_DIR, 'cluster-name');
+  const CLUSTER_NAME = (() => {
+    try {
+      const held = fs.readFileSync(NAME_FILE, 'utf-8').trim();
+      if (held) return held;
+    } catch { /* first run in this suite — fall through and mint one */ }
+    const minted = `e2e-fleet-${Math.floor(Math.random() * 1000)}`;
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.writeFileSync(NAME_FILE, minted, 'utf-8');
+    return minted;
+  })();
 
   test.beforeAll(async () => {
     console.log(`🚀 Starting E2E test suite for cluster: ${CLUSTER_NAME}`);
@@ -56,6 +81,9 @@ http {
 
   test.afterAll(async () => {
     console.log(`🧹 E2E afterAll: Cleaning up cluster ${CLUSTER_NAME}...`);
+    // Released here, not in the setup script: afterAll is the last thing that runs in this suite,
+    // and a name left behind would make the NEXT run adopt a cluster that no longer exists.
+    try { fs.unlinkSync(NAME_FILE); } catch { /* already gone */ }
     try {
       execSync(`./bin/k3d cluster delete ${CLUSTER_NAME}`, { stdio: 'inherit' });
     } catch (e: any) {

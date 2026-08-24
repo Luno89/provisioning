@@ -13,6 +13,9 @@ if [ ! -f "$K3D" ] || ! "$K3D" --version >/dev/null 2>&1; then
   K3D="k3d"
 fi
 
+# A name held from a killed run points at a cluster the sweep below is about to delete.
+rm -f "$ROOT/.test-e2e-state/cluster-name"
+
 echo "  🧹 Cleaning up any leftover stale E2E clusters..."
 STALE_CLUSTERS=$("$K3D" cluster list --no-headers 2>/dev/null | awk '{print $1}' | grep -E '^e2e-fleet-' || true)
 for c in $STALE_CLUSTERS; do

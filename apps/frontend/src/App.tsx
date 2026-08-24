@@ -226,6 +226,22 @@ function App() {
 
 
 
+  /**
+   * Every mutation below reports its failure.
+   *
+   * ── WHY THIS IS HERE ──
+   * None of them did. A rejected POST left the wizard open with no message and no console error,
+   * so "click Deploy, nothing happens" was the entire user-visible symptom — and it was also the
+   * entire E2E failure report: a heading that never appeared, with no way to learn why from the
+   * artefacts. Diagnosing it needed a hand-driven browser and a request interceptor.
+   *
+   * `errorMessage` reads the server's `{ error }` body before falling back to the axios message,
+   * so a 404 "Cluster not found" reaches the user as those words rather than "Request failed with
+   * status code 404".
+   */
+  const reportFailure = (what: string) => (err: unknown) =>
+    pushNotification({ type: 'error', message: `${what}: ${errorMessage(err)}` });
+
   const provisionCluster = useMutation({
     mutationFn: (newCluster: any) => axios.post(`${API_BASE}/clusters`, newCluster),
     onSuccess: (res) => {
@@ -242,6 +258,7 @@ function App() {
       setShowLogModal({ type: 'cluster', id: res.data.id });
       setLogTab('provision');
     },
+    onError: reportFailure('Could not provision the cluster'),
   });
 
   const startAwaitingCluster = useMutation({
@@ -252,6 +269,7 @@ function App() {
       setShowLogModal({ type: 'cluster', id: res.data.id });
       setLogTab('provision');
     },
+    onError: reportFailure('Could not start the cluster'),
   });
   
   const deployApp = useMutation({ 
@@ -262,7 +280,10 @@ function App() {
       setShowLogModal({ type: 'app', id: res.data.id }); 
       setLogTab('provision'); 
       // The wizard resets itself: it unmounts on close, so its state goes with it.
-    } 
+    },
+    // Deliberately does NOT close the wizard: the configuration is still on screen, and the fix
+    // for "Cluster not found" is usually to pick a different one.
+    onError: reportFailure('Could not deploy the app'),
   });
 
 
@@ -275,7 +296,8 @@ function App() {
         setConfirmDestroy(null);
         setShowLogModal({ type: variables.type, id: variables.id });
         setLogTab('provision');
-    }
+    },
+    onError: reportFailure('Could not destroy that'),
   });
 
   // No separate "abort" mutation: DELETE /api/clusters/:id and /api/deployments/:id already
@@ -297,7 +319,10 @@ function App() {
     mutationFn: (newContent: string) => axios.post(`${API_BASE}/nginx/config`, { content: newContent }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['nginx-config'] });
-    }
+    },
+    // NginxView renders `updateNginxConfig.isError` itself, so this adds the toast rather than
+    // replacing that — a config save is worth noticing from another screen.
+    onError: reportFailure('Could not save the nginx config'),
   });
 
   useEffect(() => {
