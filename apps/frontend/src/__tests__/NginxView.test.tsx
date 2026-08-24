@@ -32,9 +32,7 @@ const setup = (over: Record<string, unknown> = {}) => {
     clusters: [{ id: 'c1', name: 'local' }],
     vpnDomains: {} as Record<string, string>,
     setVpnDomains: vi.fn(),
-    setShowNginxWizard: vi.fn(),
-    setNginxWizardStep: vi.fn(),
-    setNginxWizardData: vi.fn(),
+    onAddRoute: vi.fn(),
     ...over,
   };
   render(<NginxView {...(props as any)} />);
@@ -78,17 +76,18 @@ describe('saving', () => {
 });
 
 describe('the proxy wizard', () => {
-  it('opens at step one with a cleared form', () => {
+  it('asks to open the wizard, and nothing more', () => {
     /**
-     * All three, together: opening it without resetting leaves the previous domain in the field, and
-     * without the step it reopens wherever it was abandoned.
+     * This used to assert three separate setters — `setShowNginxWizard(true)`,
+     * `setNginxWizardStep(1)` and `setNginxWizardData({…})` — because opening the wizard without
+     * resetting it left the previous domain in the field and reopened on whatever step it had been
+     * abandoned at.
+     *
+     * That concern is structural now rather than this screen's job: the wizard unmounts when it
+     * closes, so it starts clean. `NginxWizard.test.tsx` asserts that property where it lives.
      */
     const props = setup();
     fireEvent.click(screen.getByText(/Proxy Wizard/i));
-    expect(props.setShowNginxWizard).toHaveBeenCalledWith(true);
-    expect(props.setNginxWizardStep).toHaveBeenCalledWith(1);
-    expect(props.setNginxWizardData).toHaveBeenCalledWith(
-      expect.objectContaining({ deploymentId: '', domain: '' }),
-    );
+    expect(props.onAddRoute).toHaveBeenCalled();
   });
 });

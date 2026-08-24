@@ -17,7 +17,7 @@ import type { Dispatch, SetStateAction } from 'react';
 export default function NginxView({
   editorContent, setEditorContent, loadingNginxConfig, updateNginxConfig,
   deployments, clusters, vpnDomains, setVpnDomains,
-  setShowNginxWizard, setNginxWizardStep, setNginxWizardData,
+  onAddRoute,
 }: {
   editorContent: string;
   // A React setter, not a plain callback: the wizard appends with a function updater.
@@ -39,9 +39,14 @@ export default function NginxView({
   // one key with a function updater. Typed as `any`, it was the ONLY error `strict` reported in
   // the whole frontend — `prev` had nothing to infer from.
   setVpnDomains: Dispatch<SetStateAction<Record<string, string>>>;
-  setShowNginxWizard: (open: boolean) => void;
-  setNginxWizardStep: (step: number) => void;
-  setNginxWizardData: (data: any) => void;
+  /**
+   * Opens the route wizard.
+   *
+   * This took `setShowNginxWizard`, `setNginxWizardStep` AND `setNginxWizardData` — three of App's
+   * raw setters, used in one `onClick` to reset a wizard before opening it. The wizard unmounts on
+   * close, so it resets itself.
+   */
+  onAddRoute: () => void;
 }) {
   return (
         <section className="animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-5xl">
@@ -53,7 +58,7 @@ export default function NginxView({
             <div className="flex gap-4">
               <button
                 type="button"
-                onClick={() => { setShowNginxWizard(true); setNginxWizardStep(1); setNginxWizardData({ deploymentId: '', domain: '', maxBodySize: '10G' }); }}
+                onClick={onAddRoute}
                 className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-5 py-2.5 rounded-xl flex items-center gap-2 font-semibold shadow-md transition-all cursor-pointer"
               >
                 <Shield size={18} /> Proxy Wizard

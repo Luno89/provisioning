@@ -6,7 +6,7 @@ import ClustersView from './components/ClustersView';
 import AppsView from './components/AppsView';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BellRing, Check, Cloud, GitBranch, Key, Loader2, Network, Package, Puzzle, Server, Shield, Timer, X } from 'lucide-react';
+import { Activity, AlertTriangle, BellRing, Cloud, GitBranch, Key, Loader2, Network, Package, Puzzle, Server, Shield, Timer } from 'lucide-react';
 import TemporalPanel from './TemporalPanel.js';
 import ServicesPanel from './ServicesPanel.js';
 import Login from './components/Login.js';
@@ -18,7 +18,11 @@ import Lab from './components/Lab';
 import Grove from './components/Grove.js';
 import AppDeployWizard from './components/AppDeployWizard';
 import AppDashboard from './components/AppDashboard';
-import { useShellStore, startHistorySync, type AppUser } from './stores/shell';
+import SettingsView from './components/SettingsView';
+import PendingKeyModal from './components/PendingKeyModal';
+import NginxWizard from './components/NginxWizard';
+import { errorMessage } from './api/client';
+import { useShellStore, startHistorySync } from './stores/shell';
 import { useSocketEvent } from './stores/socket';
 import MeshDevices from './components/MeshDevices.js';
 import Personas from './components/Personas.js';
@@ -111,13 +115,6 @@ function App() {
   // deployment record when the tab opens (see the effect that hydrates configInputs).
   const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
   const [showNginxWizard, setShowNginxWizard] = useState(false);
-  const [nginxWizardStep, setNginxWizardStep] = useState(1);
-  const [nginxWizardData, setNginxWizardData] = useState({
-    deploymentId: '',
-    domain: '',
-    maxBodySize: '10G',
-  });
-
   useEffect(() => {
     fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
       .then(async (res) => {
@@ -140,42 +137,12 @@ function App() {
     }
   };
 
-  const update2FASettings = async (enabled: boolean, phone?: string, preferredMethod?: 'email' | 'sms') => {
-    try {
-      const res = await fetch(`${API_BASE}/auth/2fa/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ enabled, phone, preferredMethod }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        // A plain setter, not a React dispatch: read the current user rather than passing an
-        // updater function. `useShellStore.getState()` is the escape hatch for exactly this — a
-        // value needed inside a callback that must not re-run when it changes.
-        const current = useShellStore.getState().user;
-        setUser({
-          ...(current as AppUser),
-          twoFactorEnabled: data.twoFactorEnabled,
-          twoFactorPhone: data.twoFactorPhone,
-          twoFactorPreferredMethod: data.twoFactorPreferredMethod,
-        } as AppUser);
-      }
-    } catch (err) {
-      console.error('Failed to update 2FA settings', err);
-    }
-  };
 
   // Unified Wizard State
 
   const { data: clusters = [] } = useQuery({ queryKey: ['clusters'], queryFn: () => axios.get(`${API_BASE}/clusters`).then(res => res.data), refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: ['deployments'], queryFn: () => axios.get(`${API_BASE}/deployments`).then(res => res.data), refetchInterval: 3000 });
   const { data: credentialsData } = useQuery({ queryKey: ['credentials'], queryFn: () => axios.get(`${API_BASE}/credentials`).then(res => res.data) });
-  const { data: invites = [] } = useQuery({ queryKey: ['invites'], queryFn: () => axios.get(`${API_BASE}/admin/invites`).then(res => res.data), enabled: !!user?.isAdmin });
-  const mintInvite = useMutation({
-    mutationFn: () => axios.post(`${API_BASE}/admin/invites`, {}).then(res => res.data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invites'] }),
-  });
 
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d: any) => d.id === showLogModal.id) : null;
   const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c: any) => c.id === showLogModal.id) : null;
@@ -397,9 +364,7 @@ function App() {
             clusters={clusters}
             vpnDomains={vpnDomains}
             setVpnDomains={setVpnDomains}
-            setShowNginxWizard={setShowNginxWizard}
-            setNginxWizardStep={setNginxWizardStep}
-            setNginxWizardData={setNginxWizardData}
+            onAddRoute={() => setShowNginxWizard(true)}
           />
         )}
         {view === 'temporal' && <TemporalPanel />}
@@ -439,142 +404,7 @@ function App() {
           <Projects apiBase={API_BASE} clusters={clusters} />
         )}
 
-        {view === 'settings' && (
-          <section className="max-w-xl">
-            <header className="mb-10">
-              <h2 className="text-3xl font-bold">Security & Settings</h2>
-              <p className="text-slate-400">Configure authentication and two-factor (2FA) mechanisms.</p>
-            </header>
-            
-            <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 space-y-6">
-              <div>
-                <h4 className="text-lg font-bold text-white mb-1">User Account Details</h4>
-                <div className="text-sm text-slate-300 space-y-2 mt-3">
-                  <div><strong>Email:</strong> {user.email}</div>
-                  <div><strong>Account ID:</strong> <span className="font-mono text-xs">{user.id}</span></div>
-                  <div><strong>Created:</strong> {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}</div>
-                </div>
-              </div>
-
-              <div className="pt-6 border-t border-slate-700">
-                <h4 className="text-lg font-bold text-white mb-4">Two-Factor Authentication (2FA)</h4>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
-                    <div>
-                      <div className="text-sm font-bold text-white">Enable 2FA Protection</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Require a one-time passcode on each sign-in attempt.</div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={user.twoFactorEnabled}
-                        onChange={(e) => update2FASettings(e.target.checked, user.twoFactorPhone, user.twoFactorPreferredMethod as 'email' | 'sms' | undefined)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
-                  </div>
-
-                  {user.twoFactorEnabled && (
-                    <div className="space-y-4 pt-2">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Preferred Delivery Method</label>
-                        <select
-                          value={user.twoFactorPreferredMethod || 'email'}
-                          onChange={(e) => update2FASettings(user.twoFactorEnabled ?? false, user.twoFactorPhone, e.target.value as 'email' | 'sms')}
-                          className="block w-full px-4 py-3 bg-slate-900/50 border border-white/5 rounded-2xl text-white focus:outline-none focus:border-blue-500"
-                        >
-                          <option value="email">Email Notification</option>
-                          <option value="sms">SMS Text Message</option>
-                        </select>
-                      </div>
-
-                      {user.twoFactorPreferredMethod === 'sms' && (
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Mobile Phone Number</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. +1234567890"
-                            value={user.twoFactorPhone || ''}
-                            onChange={(e) => update2FASettings(user.twoFactorEnabled ?? false, e.target.value, user.twoFactorPreferredMethod as 'email' | 'sms' | undefined)}
-                            className="block w-full px-4 py-3 bg-slate-900/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                          />
-                          <p className="text-[10px] text-slate-500 mt-1">Include country code prefix (e.g. +1).</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="pt-6 border-t border-slate-700">
-                <h4 className="text-lg font-bold text-white mb-1">Cluster Service Access</h4>
-                <p className="text-xs text-slate-400 mb-4">
-                  How each auto-provisioned service on your clusters is secured. No credentials are ever shown here —
-                  Grafana and Gitea log you in automatically (a real session, password never sent to your browser) when
-                  you click "Open Dashboard" on the Cluster Services page.
-                </p>
-                <div className="space-y-2">
-                  {[
-                    { name: 'Grafana', detail: 'Signed in automatically as admin.', status: 'Auto-login', ok: true },
-                    { name: 'Gitea', detail: 'Signed in automatically as provisioning-bot.', status: 'Auto-login', ok: true },
-                    { name: 'Prometheus', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },
-                    { name: 'Traefik Dashboard', detail: 'Runs in insecure/unauthenticated mode — local dev only.', status: 'No auth', ok: false },
-                    { name: 'Alertmanager', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },
-                    { name: 'Loki', detail: 'No dashboard of its own — browse logs via Grafana Explore.', status: 'N/A', ok: false },
-                  ].map((s) => (
-                    <div key={s.name} className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
-                      <div>
-                        <div className="text-sm font-bold text-white">{s.name}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">{s.detail}</div>
-                      </div>
-                      <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${s.ok ? 'bg-green-500/10 text-green-500' : 'bg-slate-500/10 text-slate-400'}`}>
-                        {s.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {user.isAdmin && (
-                <div className="pt-6 border-t border-slate-700">
-                  <div className="flex items-center justify-between mb-1">
-                    <h4 className="text-lg font-bold text-white">Invites</h4>
-                    <button
-                      onClick={() => mintInvite.mutate()}
-                      disabled={mintInvite.isPending}
-                      className="text-xs font-bold px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {mintInvite.isPending ? 'Generating...' : 'Generate Invite'}
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-4">
-                    This platform is invite-only. Share an unused code with anyone you want to give an account.
-                  </p>
-                  <div className="space-y-2">
-                    {invites.length === 0 && (
-                      <div className="text-sm text-slate-500 italic">No invites generated yet.</div>
-                    )}
-                    {[...invites].reverse().map((inv: any) => (
-                      <div key={inv.id} className="flex items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5">
-                        <div>
-                          <div className="text-sm font-mono font-bold text-white">{inv.code}</div>
-                          <div className="text-xs text-slate-400 mt-0.5">
-                            {inv.usedBy ? `Used ${new Date(inv.usedAt).toLocaleDateString()}` : `Created ${new Date(inv.createdAt).toLocaleDateString()}`}
-                          </div>
-                        </div>
-                        <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${inv.usedBy ? 'bg-slate-500/10 text-slate-400' : 'bg-green-500/10 text-green-500'}`}>
-                          {inv.usedBy ? 'Used' : 'Unused'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+        {view === 'settings' && <SettingsView />}
       </main>
 
       {confirmDestroy && (
@@ -651,228 +481,22 @@ function App() {
       )}
 
       {pendingKey && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-10 w-full max-w-2xl shadow-2xl">
-            <h3 className="text-2xl font-bold mb-2">Authorise this key</h3>
-            <p className="text-sm text-slate-400 mb-6">
-              Run this on the machine, then start provisioning. This is a public key — it grants
-              access <em>to</em> that machine and is safe to paste anywhere.
-            </p>
-
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-3">
-              <code className="text-[11px] text-slate-300 font-mono break-all leading-relaxed">
-                mkdir -p ~/.ssh &amp;&amp; echo '{pendingKey.publicKey}' &gt;&gt; ~/.ssh/authorized_keys
-              </code>
-            </div>
-            <button
-              onClick={() => navigator.clipboard.writeText(`mkdir -p ~/.ssh && echo '${pendingKey.publicKey}' >> ~/.ssh/authorized_keys`)}
-              className="text-[11px] text-slate-500 hover:text-white transition-colors mb-6"
-            >
-              Copy command
-            </button>
-
-            <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4 mb-8 flex items-start gap-3">
-              <Shield className="text-blue-400 flex-shrink-0 mt-0.5" size={16} />
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                The matching private key was generated on the platform and never sent to your
-                browser. It is stored encrypted and used only to install k3s and, if you destroy
-                the cluster, to remove it.
-              </p>
-            </div>
-
-            <div className="flex gap-4">
-              <button
-                onClick={() => setPendingKey(null)}
-                className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 transition-all text-sm font-bold"
-              >
-                Later
-              </button>
-              <button
-                onClick={() => startAwaitingCluster.mutate(pendingKey.id)}
-                disabled={startAwaitingCluster.isPending}
-                className="flex-1 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 transition-all text-sm font-bold flex items-center justify-center gap-2"
-              >
-                {startAwaitingCluster.isPending ? <Loader2 className="animate-spin" size={16} /> : "I've added it — start provisioning"}
-              </button>
-            </div>
-            {startAwaitingCluster.isError && (
-              <p className="text-[11px] text-red-400 mt-3">
-                {(startAwaitingCluster.error as any)?.response?.data?.error ?? 'Could not start provisioning.'}
-              </p>
-            )}
-          </div>
-        </div>
+        <PendingKeyModal
+          pending={pendingKey}
+          onDismiss={() => setPendingKey(null)}
+          onStart={(id) => startAwaitingCluster.mutate(id)}
+          starting={startAwaitingCluster.isPending}
+          startError={startAwaitingCluster.isError ? errorMessage(startAwaitingCluster.error) : null}
+        />
       )}
 
       {showNginxWizard && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-10 w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center mb-8">
-              <h3 className="text-2xl font-bold">Proxy Exposure Wizard</h3>
-              <div className="flex items-center gap-4">
-                <div className="flex gap-2">
-                  {[1, 2, 3].map(s => (
-                    <div key={s} className={`w-8 h-1.5 rounded-full transition-all ${nginxWizardStep >= s ? 'bg-blue-500' : 'bg-slate-700'}`}></div>
-                  ))}
-                </div>
-                <button onClick={() => setShowNginxWizard(false)} className="text-slate-400 hover:text-white transition-colors" aria-label="Close Wizard">
-                  <X size={24} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-              {nginxWizardStep === 1 && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                  <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10">
-                    <h4 className="font-bold flex items-center gap-2 mb-2"><Package className="text-blue-500" size={18}/> Select Application</h4>
-                    <p className="text-slate-400 text-sm">Choose the deployment instance you wish to expose over Nginx.</p>
-                  </div>
-                  <div>
-                    <label htmlFor="nginx-wizard-app" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Application Instance</label>
-                    <select
-                      id="nginx-wizard-app"
-                      value={nginxWizardData.deploymentId}
-                      onChange={e => {
-                        const dep = deployments.find((d: any) => d.id === e.target.value);
-                        setNginxWizardData(prev => ({
-                          ...prev,
-                          deploymentId: e.target.value,
-                          domain: dep ? `${dep.name.toLowerCase()}.vpn.local` : ''
-                        }));
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all text-slate-100"
-                    >
-                      <option value="">Select an application...</option>
-                      {deployments.map((d: any) => {
-                        const cluster = clusters.find((c: any) => c.id === d.clusterId);
-                        return (
-                          <option key={d.id} value={d.id}>
-                            {d.name} ({d.appType}) on {cluster ? cluster.name : 'Unknown'}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {nginxWizardStep === 2 && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                  <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10">
-                    <h4 className="font-bold flex items-center gap-2 mb-2"><Shield className="text-blue-500" size={18}/> Domain & Traffic Settings</h4>
-                    <p className="text-slate-400 text-sm">Configure the hostname and transfer settings for this proxy rule.</p>
-                  </div>
-                  <div>
-                    <label htmlFor="nginx-wizard-domain" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Proxy Hostname</label>
-                    <input 
-                      id="nginx-wizard-domain"
-                      type="text"
-                      value={nginxWizardData.domain}
-                      onChange={e => setNginxWizardData(prev => ({ ...prev, domain: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all text-slate-100 font-mono"
-                      placeholder="e.g. odoo.vpn.local"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="nginx-wizard-upload-limit" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Client Max Body Size (Upload Limit)</label>
-                    <select
-                      id="nginx-wizard-upload-limit"
-                      value={nginxWizardData.maxBodySize}
-                      onChange={e => setNginxWizardData(prev => ({ ...prev, maxBodySize: e.target.value }))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all text-slate-100"
-                    >
-                      <option value="1M">1 Megabyte (Standard API)</option>
-                      <option value="10M">10 Megabytes (Standard Web Apps)</option>
-                      <option value="100M">100 Megabytes (WordPress Media)</option>
-                      <option value="1G">1 Gigabyte (Nextcloud Small Files)</option>
-                      <option value="10G">10 Gigabytes (Large Backups / DB Dumps)</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {nginxWizardStep === 3 && (() => {
-                const dep = deployments.find((d: any) => d.id === nginxWizardData.deploymentId);
-                const cluster = dep ? clusters.find((c: any) => c.id === dep.clusterId) : null;
-                const clusterName = cluster ? cluster.name : 'unknown';
-                const ns = dep ? dep.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') : '';
-                const serviceName = dep ? (dep.appType === 'prometheus' ? 'prometheus-server' : dep.appType || 'odoo') : '';
-                const port = dep ? (dep.appType === 'odoo' ? '8069' : '80') : '80';
-                
-                const generatedConfig = `
-    # Proxy configuration for ${dep ? dep.name : ''} (${dep ? dep.appType : ''}) on cluster ${clusterName}
-    server {
-        listen 80;
-        server_name ${nginxWizardData.domain};
-        client_max_body_size ${nginxWizardData.maxBodySize};
-
-        location / {
-            resolver 127.0.0.11 valid=10s;
-            set $upstream "${serviceName}.${ns}.svc.cluster.local:${port}";
-            proxy_pass http://$upstream;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-    }`;
-
-                const handleInjectAndClose = () => {
-                  if (editorContent.includes('http {')) {
-                    const lastBraceIdx = editorContent.lastIndexOf('}');
-                    if (lastBraceIdx !== -1) {
-                      const newContent = editorContent.slice(0, lastBraceIdx) + generatedConfig + '\n' + editorContent.slice(lastBraceIdx);
-                      setEditorContent(newContent);
-                      setShowNginxWizard(false);
-                      return;
-                    }
-                  }
-                  setEditorContent(prev => prev + '\n' + generatedConfig);
-                  setShowNginxWizard(false);
-                };
-
-                return (
-                  <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                    <div className="p-6 bg-green-500/5 rounded-2xl border border-green-500/10">
-                      <h4 className="font-bold flex items-center gap-2 mb-2"><Check className="text-green-500" size={18}/> Review Configuration</h4>
-                      <p className="text-slate-400 text-sm">Review the generated Nginx proxy block configuration before injecting.</p>
-                    </div>
-                    <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6">
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-3">Generated Nginx server block</span>
-                      <pre className="bg-slate-950 p-4 rounded-xl font-mono text-xs text-slate-300 overflow-x-auto max-h-[30vh] custom-scrollbar border border-slate-800">
-                        {generatedConfig.trim()}
-                      </pre>
-                    </div>
-                    
-                    <div className="mt-8 flex gap-4 pt-6 border-t border-slate-700">
-                      <button onClick={() => setNginxWizardStep(2)} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2 font-bold transition-all"><ArrowLeft size={18} /> Back</button>
-                      <div className="flex-1"></div>
-                      <button onClick={handleInjectAndClose} className="px-8 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold transition-all flex items-center gap-2">🚀 Inject into config & Close</button>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-            
-            {nginxWizardStep < 3 && (
-              <div className="mt-8 flex gap-4 pt-6 border-t border-slate-700">
-                {nginxWizardStep > 1 && (
-                  <button onClick={() => setNginxWizardStep(1)} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2 font-bold transition-all"><ArrowLeft size={18} /> Back</button>
-                )}
-                <button onClick={() => setShowNginxWizard(false)} className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold transition-all">Cancel</button>
-                <div className="flex-1"></div>
-                <button
-                  disabled={nginxWizardStep === 1 && !nginxWizardData.deploymentId || nginxWizardStep === 2 && !nginxWizardData.domain}
-                  onClick={() => setNginxWizardStep(s => s + 1)}
-                  className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 font-bold disabled:opacity-50 transition-all"
-                >
-                  Next <ArrowRight size={18} />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <NginxWizard
+          clusters={clusters}
+          deployments={deployments}
+          onClose={() => setShowNginxWizard(false)}
+          onAppend={setEditorContent}
+        />
       )}
     </div>
   );
