@@ -70,17 +70,21 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 
 | Path | What |
 |---|---|
-| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, all services, JWT auth middleware, socket.io. **5,900 lines and 150 inline routes**; being extracted into `src/routes/` one domain at a time (see Structure rules) |
+| `apps/backend/src/index.ts` | Express server entry — `bootstrap()` inits DB, all services, JWT auth middleware, socket.io, and mounts the routers. 3,677 lines; ~60 routes still inline, mostly auth, chat and models |
 | `apps/backend/src/lib/db-interface.ts` | `Database` interface + `createDatabase()` — MongoDB unless `NODE_ENV=test` and not E2E, in which case `MemoryDB` |
 | `apps/backend/src/lib/mongo-db.ts` / `memory-db.ts` | MongoDB native driver impl / in-memory mock for unit tests |
 | `apps/backend/src/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
 | `apps/backend/src/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` → mock mode |
+| `apps/backend/src/routes/` | One router per URL prefix, each a factory taking its deps. `routes/harness/` composes six sub-resource routers under `/api/harness`. `routes/test-harness.ts` mounts one router on a bare app so a route can be tested without booting `bootstrap()` |
+| `apps/backend/src/middleware/` | `asyncRoute` + the error responder. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
 | `apps/backend/src/services/` | Service layer (see below) |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — cluster provisioning/destruction activities |
 | `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — app deploy/destroy/resize activities; reads K8s service account when in-cluster |
-| `apps/frontend/src/main.tsx` / `App.tsx` | React entry / **2,858-line monolith**; ~1,530 lines of it is four inline modals, being extracted slice by slice. Target: a router and shell under ~800 lines |
+| `apps/frontend/src/main.tsx` / `App.tsx` | React entry / the shell: routing, auth, the socket wiring and the view switch. 505 lines |
 | `apps/frontend/src/api/` | The one axios client (`client.ts`) and one module per domain. **No component contains a URL.** |
+| `apps/frontend/src/stores/` | zustand slices for client state — `shell.ts` (view, user, notifications), `socket.ts`. Server state is react-query's, never a store |
+| `apps/frontend/src/types/` | Domain shapes. Where one mirrors a backend record it carries a `── DUPLICATED, KNOWINGLY ──` block naming the authority |
 | `apps/frontend/src/components/` | Screens and widgets. A feature with more than ~4 files gets its own folder plus a `shared.ts` — see `components/Lab/` |
 | `packages/cdktf-infra/main.ts` | CDKTF entry — stack type selected via `STACK_TYPE=cluster\|app` env var |
 | `packages/cdktf-infra/constructs/` | Per-app CDKTF constructs, each with a Helm variant and a `-native` (raw K8s manifest) variant |
@@ -240,6 +244,14 @@ on every push. Each rule below is here because something in this repo broke with
 - **Route order in `bootstrap()` is load-bearing**: the Gitea webhook must stay before
   `express.json()` (it verifies an HMAC over the raw body), `app.use('/api', requireAuth)` before
   every `/api` router, and the SPA catch-all last.
+- **Every async handler is wrapped in `asyncRoute`.** Express 4 does not await handlers, so a
+  rejected promise produces an unhandled rejection and NO response — the request hangs until the
+  client times out. This has bitten every extraction: a missing import in the trees router
+  presented as a 15-second hang with nothing to diagnose, and became a 24ms error once wrapped.
+- **Typecheck is necessary and not sufficient.** Three failures during the router extraction
+  compiled clean and broke at runtime: a duplicate import only vitest's transform rejected, a symbol
+  used without being imported, and one imported from the wrong module — the last took the dev server
+  down on reload while `npm run typecheck` reported zero errors. Run the suite, and hit the route.
 
 ### Two halves, two import conventions
 
