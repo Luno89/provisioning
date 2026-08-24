@@ -201,7 +201,18 @@ http {
   test('should provision the cluster', async ({ page }) => {
     test.setTimeout(600000); // 10 mins
 
-    await page.goto('/');
+    /**
+     * Straight to the clusters view.
+     *
+     * `/` lands on chat — it became the front door, and a table of infrastructure is what you look
+     * at when something is wrong rather than when you arrive. This test still clicked "Provision
+     * Cluster" on the landing page and waited ten minutes for a button that was never rendered.
+     *
+     * The hash router (`lib/route.ts`) reads the URL on load precisely so a link opens where it
+     * points, so this needs no navigation click. The tests below reach their screens through
+     * `deployApplication`, which already clicks "Applications" itself.
+     */
+    await page.goto('/#/clusters');
     await expect(page.locator('h1')).toContainText('NO WRINKLES');
 
     await page.click('button:has-text("Provision Cluster")');
