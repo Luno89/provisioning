@@ -176,15 +176,15 @@ describe('ServicesPanel', () => {
     const links = screen.getAllByText('Open Dashboard');
     expect(links).toHaveLength(3);
 
-    expect(links[0].closest('a')).toHaveAttribute(
+    expect(links[0]!.closest('a')).toHaveAttribute(
       'href',
       expect.stringContaining('/proxy/prometheus/'),
     );
-    expect(links[1].closest('a')).toHaveAttribute(
+    expect(links[1]!.closest('a')).toHaveAttribute(
       'href',
       expect.stringContaining('/proxy/grafana/'),
     );
-    expect(links[2].closest('a')).toHaveAttribute(
+    expect(links[2]!.closest('a')).toHaveAttribute(
       'href',
       expect.stringContaining('/proxy/traefik/'),
     );
@@ -231,7 +231,7 @@ describe('ServicesPanel', () => {
       expect(screen.getByText('Prometheus Monitoring')).toBeInTheDocument();
     });
 
-    const link = screen.getAllByText('Open Dashboard')[0].closest('a');
+    const link = screen.getAllByText('Open Dashboard')[0]!.closest('a');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noreferrer');
   });

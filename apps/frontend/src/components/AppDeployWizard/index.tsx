@@ -5,7 +5,7 @@ import { useImageTags, useHfModelSize, useModelSearch, useTabbyImageTags, useHfB
 import { useDebounce } from '../../lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
 import { EMPTY_WIZARD_DATA, type WizardData } from '../wizard-defaults';
-import { APP_DEFAULTS, GPU_ONLY_APP_TYPES, TABBY_TOOL_FORMATS } from '../app-catalog';
+import { defaultsFor, GPU_ONLY_APP_TYPES, TABBY_TOOL_FORMATS } from '../app-catalog';
 import { nextStep, prevStep, isModelApp } from './steps';
 import type { Cluster } from '../../types/cluster';
 import type { Deployment } from '../../types/deployment';
@@ -127,8 +127,9 @@ export default function AppDeployWizard({
   }, [tabbyModelBranches]);
 
   const handleAppTypeChange = (newAppType: AppType) => {
-    const config = APP_DEFAULTS[newAppType];
-    const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : config.strategies[0];
+    const config = defaultsFor(newAppType);
+    // `strategies` is never empty in the catalogue, but the compiler cannot know that.
+    const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : (config.strategies[0] ?? 'native');
     const defaults = config[newStrategy];
     const capitalized = newAppType.charAt(0).toUpperCase() + newAppType.slice(1);
 
@@ -146,7 +147,7 @@ export default function AppDeployWizard({
       // there's exactly one candidate, never when there's a real choice to make.
       if (GPU_ONLY_APP_TYPES.has(newAppType) && !nextClusterId) {
         const gpuClusters = clusters.filter((c) => c.status === 'healthy' && c.gpuEnabled);
-        if (gpuClusters.length === 1) nextClusterId = gpuClusters[0].id;
+        if (gpuClusters.length === 1) nextClusterId = gpuClusters[0]!.id;
       }
       return {
         ...prev,
@@ -164,7 +165,7 @@ export default function AppDeployWizard({
 
   const selectStrategy = (strat: 'helm' | 'native') => {
     const appType = wizardData.appType || 'odoo';
-    const config = APP_DEFAULTS[appType];
+    const config = defaultsFor(appType);
     if (!config.strategies.includes(strat)) return;
     
     const defaults = config[strat];
@@ -211,7 +212,7 @@ export default function AppDeployWizard({
           <div className="flex items-center gap-4">
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5, 6].map(s => {
-                const config = APP_DEFAULTS[wizardData.appType];
+                const config = defaultsFor(wizardData.appType);
                 if (s === 3 && !isModelApp(wizardData.appType)) return null;
                 if (s === 5 && !config.hasDatabase) return null;
                 return (
@@ -282,26 +283,26 @@ export default function AppDeployWizard({
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Blocks className="text-blue-400" size={18}/> Deployment Strategy</h4><p className="text-slate-400 text-sm">Choose how the application is orchestrated.</p></div>
               <div className="grid grid-cols-2 gap-4">
                 <button
-                  disabled={!APP_DEFAULTS[wizardData.appType].strategies.includes('helm')}
+                  disabled={!defaultsFor(wizardData.appType).strategies.includes('helm')}
                   onClick={() => selectStrategy('helm')}
-                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!APP_DEFAULTS[wizardData.appType].strategies.includes('helm') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'helm' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
+                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!defaultsFor(wizardData.appType).strategies.includes('helm') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'helm' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
                 >
                   <div className="p-3 bg-blue-500/20 rounded-xl w-fit mb-4"><Layers size={24} className="text-blue-500" /></div>
                   <div className="font-bold text-lg">Helm Chart</div>
                   <div className="text-xs text-slate-400 mt-1">Bitnami-managed stack. Includes advanced features and hardened images.</div>
-                  {!APP_DEFAULTS[wizardData.appType].strategies.includes('helm') && (
+                  {!defaultsFor(wizardData.appType).strategies.includes('helm') && (
                     <span className="absolute top-4 right-4 text-[9px] font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-400 uppercase">Not Supported</span>
                   )}
                 </button>
                 <button
-                  disabled={!APP_DEFAULTS[wizardData.appType].strategies.includes('native')}
+                  disabled={!defaultsFor(wizardData.appType).strategies.includes('native')}
                   onClick={() => selectStrategy('native')}
-                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!APP_DEFAULTS[wizardData.appType].strategies.includes('native') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'native' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
+                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!defaultsFor(wizardData.appType).strategies.includes('native') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'native' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
                 >
                   <div className="p-3 bg-green-500/20 rounded-xl w-fit mb-4"><Box size={24} className="text-green-500" /></div>
                   <div className="font-bold text-lg">Native K8s</div>
                   <div className="text-xs text-slate-400 mt-1">Raw Kubernetes resources. Uses official library images directly.</div>
-                  {!APP_DEFAULTS[wizardData.appType].strategies.includes('native') && (
+                  {!defaultsFor(wizardData.appType).strategies.includes('native') && (
                     <span className="absolute top-4 right-4 text-[9px] font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-400 uppercase">Not Supported</span>
                   )}
                 </button>
@@ -688,7 +689,7 @@ export default function AppDeployWizard({
                 <div className="flex justify-between border-b border-slate-800 pb-3"><span>Cluster</span><span className="font-bold text-slate-300">{clusters.find((c) => c.id === wizardData.clusterId)?.name}</span></div>
                 <div className="flex justify-between border-b border-slate-800 pb-3"><span>Strategy</span><span className="font-bold text-blue-400 uppercase tracking-widest text-[10px]">{wizardData.strategy}</span></div>
                 <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.appType === 'tabbyapi' ? `${wizardData.tabbyModel}${wizardData.tabbyRevision ? '@' + wizardData.tabbyRevision : ''} (${wizardData.tabbyGpuCount} GPU)` : `${wizardData.odooRepo}:${wizardData.odooTag}`}</span></div>
-                {APP_DEFAULTS[wizardData.appType].hasDatabase && (
+                {defaultsFor(wizardData.appType).hasDatabase && (
                   <div className="flex justify-between"><span>Database</span><span className="font-mono text-xs text-slate-300">{wizardData.pgRepo}:{wizardData.pgTag}</span></div>
                 )}
               </div>

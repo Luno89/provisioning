@@ -48,7 +48,8 @@ const STATUS_STYLE: Record<string, { icon: any; className: string }> = {
 };
 
 function StatusBadge({ status }: { status?: string | undefined }) {
-  const s = STATUS_STYLE[status || 'queued'] || STATUS_STYLE.queued;
+  // `queued` is the documented fallback; the non-null is what says the table always has it.
+  const s = STATUS_STYLE[status || 'queued'] ?? STATUS_STYLE.queued!;
   const Icon = s.icon;
   return (
     <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase flex items-center gap-1.5 w-fit ${s.className}`}>

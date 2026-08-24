@@ -27,15 +27,21 @@
      * `any`s were already suppressing strictNullChecks everywhere it would have fired.
      *
      * So this is cheap today and a ratchet from here: every line written from now on is checked.
-     * `noUncheckedIndexedAccess` is the remaining gap to backend parity — it costs 23 more errors,
-     * 17 of them in App.tsx, so it goes on once the App.tsx extraction slices have landed rather
-     * than fixing code that is about to be deleted.
      */
     "strict": true,
     /* Matches the backend. A prop declared `x?: T` may be OMITTED but not explicitly passed
      * `undefined` — so a component that really does accept undefined has to say `x?: T | undefined`
      * and mean it. Cost: 5 declarations, all of them components that already handled the case. */
     "exactOptionalPropertyTypes": true,
+    /* The last flag, and full parity with the backend.
+     *
+     * Held back deliberately in Phase 0: it cost 23 errors then, 17 of them in App.tsx, and fixing
+     * code that four slices were about to delete would have been an afternoon spent twice. After
+     * the extraction it cost 22 — and the ones that mattered were real. Every
+     * `APP_DEFAULTS[appType]` in the deploy wizard was an unchecked lookup, so an app type present
+     * on the backend but missing from the frontend table crashed on a property of undefined
+     * instead of degrading. That is now `defaultsFor()`. */
+    "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "jsx": "react-jsx",
 

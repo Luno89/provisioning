@@ -164,3 +164,21 @@ export const GPU_ONLY_APP_TYPES = new Set(['vllm', 'tabbyapi']);
 // documented as equivalent to setting the separate `harmony: true` config flag, so it's passed
 // through as a plain tool_format value rather than needing special-casing.
 export const TABBY_TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', 'glm4_5', 'minimax_m2', 'harmony'];
+
+/**
+ * The defaults for an app type, never undefined.
+ *
+ * ── WHY THIS EXISTS ──
+ * Every call site was `APP_DEFAULTS[appType]` followed immediately by `config.strategies` or
+ * `config.hasDatabase`. `noUncheckedIndexedAccess` is right that this can be undefined: `appType`
+ * reaches these from a `<select>` value and from a stored deployment record, so a type added to the
+ * backend catalogue but not to this table — or an old record naming one that was removed — crashes
+ * the wizard on a property of undefined rather than degrading.
+ *
+ * Falls back to `odoo`, which is the shape everything else assumes: a web tier, a database, and
+ * both strategies. A wrong-but-working default beats a blank screen, and the picker still refuses
+ * to advance without a real selection.
+ */
+export function defaultsFor(appType: string): (typeof APP_DEFAULTS)[string] {
+  return APP_DEFAULTS[appType] ?? APP_DEFAULTS.odoo!;
+}

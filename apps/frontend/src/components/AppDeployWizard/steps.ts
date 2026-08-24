@@ -1,4 +1,4 @@
-import { APP_DEFAULTS } from '../app-catalog';
+import { defaultsFor } from '../app-catalog';
 
 /**
  * Which step comes next, and which came before.
@@ -22,7 +22,7 @@ export const isModelApp = (appType: string): boolean =>
 
 /** Whether this app type deploys a database alongside it, and therefore needs step 5. */
 export const hasDatabase = (appType: string): boolean =>
-  Boolean(APP_DEFAULTS[appType]?.hasDatabase);
+  Boolean(defaultsFor(appType).hasDatabase);
 
 export function nextStep(step: number, appType: string): number {
   if (step === 2) return isModelApp(appType) ? 3 : 4;
