@@ -1,6 +1,10 @@
 import { useState } from 'react';
+import {
+  getMeshConfig, listMeshDevices, createPreauthKey, deleteMeshDevice, meshKeys,
+  type MeshConfig, type MeshDevice,
+} from '../api/mesh';
+import { errorMessage } from '../api/client';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { Network, Loader2, AlertTriangle, Copy, Check, Trash2, Circle, RefreshCw } from 'lucide-react';
 
 /**
@@ -12,42 +16,31 @@ import { Network, Loader2, AlertTriangle, Copy, Check, Trash2, Circle, RefreshCw
  * instances use, so both end up looking identical to the rest of the platform.
  */
 
-interface MeshDevice {
-  id: string;
-  name: string;
-  ipAddresses: string[];
-  online: boolean;
-  lastSeen?: string;
-}
-interface MeshConfig {
-  loginServer: string | null;
-  configured: boolean;
-}
 
-export default function MeshDevices({ apiBase }: { apiBase: string }) {
+export default function MeshDevices() {
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const { data: config } = useQuery<MeshConfig>({
-    queryKey: ['mesh-config'],
-    queryFn: () => axios.get(`${apiBase}/mesh/config`).then((r) => r.data),
+    queryKey: meshKeys.config(),
+    queryFn: getMeshConfig,
   });
 
   const { data: devices, isLoading, error, refetch, isFetching } = useQuery<MeshDevice[]>({
-    queryKey: ['mesh-devices'],
-    queryFn: () => axios.get(`${apiBase}/mesh/devices`).then((r) => r.data),
+    queryKey: meshKeys.devices(),
+    queryFn: listMeshDevices,
     refetchInterval: 15000,
   });
 
   const mintKey = useMutation({
     // Single-use and short-lived on purpose: this key is about to be pasted into a terminal, and
     // anything longer-lived than the enrolment it authorises is a credential lying around.
-    mutationFn: () => axios.post(`${apiBase}/mesh/preauth-key`, { reusable: false, expirySeconds: 3600 }).then((r) => r.data),
+    mutationFn: () => createPreauthKey({ reusable: false, expirySeconds: 3600 }),
     onSuccess: (data) => { setIssuedKey(data.key); setCopied(false); },
   });
 
   const revoke = useMutation({
-    mutationFn: (nodeId: string) => axios.delete(`${apiBase}/mesh/devices/${nodeId}`),
+    mutationFn: deleteMeshDevice,
     onSuccess: () => refetch(),
   });
 
@@ -118,7 +111,7 @@ export default function MeshDevices({ apiBase }: { apiBase: string }) {
 
         {mintKey.isError && (
           <p className="text-[11px] text-red-400 mt-3">
-            {(mintKey.error as any)?.response?.data?.error ?? 'Could not generate a key.'}
+            {errorMessage(mintKey.error) || 'Could not generate a key.'}
           </p>
         )}
       </div>
@@ -134,7 +127,7 @@ export default function MeshDevices({ apiBase }: { apiBase: string }) {
         <div className="text-center py-10 text-slate-500 text-sm"><Loader2 className="animate-spin inline mr-2" size={16} /> Loading…</div>
       ) : error ? (
         <div className="bg-slate-800/30 border border-dashed border-slate-700 rounded-2xl py-8 text-center text-slate-500 text-sm">
-          {(error as any)?.response?.data?.error ?? 'Mesh unavailable.'}
+          {errorMessage(error) || 'Mesh unavailable.'}
         </div>
       ) : !devices?.length ? (
         <div className="bg-slate-800/30 border border-dashed border-slate-700 rounded-2xl py-10 text-center text-slate-500 text-sm">
