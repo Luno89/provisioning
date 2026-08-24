@@ -72,10 +72,21 @@ export function useDiagnostics(id: string | undefined, enabled: boolean) {
 }
 
 /** Which git modules can be added to this app type. Odoo is the only one that uses them today. */
+export interface GitModule {
+  id: string
+  name?: string
+  /** The one-line description shown on the module row. */
+  summary?: string
+  author?: string
+  version?: string
+  description?: string
+  repo?: string
+}
+
 export function useAvailableModules(appType: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: deploymentKeys.modules(appType),
-    queryFn: () => api.get<unknown[]>('/modules', { params: { appType: appType || 'odoo' } })
+    queryFn: () => api.get<GitModule[]>('/modules', { params: { appType: appType || 'odoo' } })
       .then((r) => r.data),
     enabled,
   })

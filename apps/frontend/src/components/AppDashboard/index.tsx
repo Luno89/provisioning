@@ -133,7 +133,14 @@ export default function AppDashboard({
     if (showLogModal.type === 'app' && logTab === 'app' && pods.length > 0) {
       const exists = pods.some((p) => p?.metadata?.name === selectedPod);
       if (!selectedPod || !exists) {
-        setSelectedPod(pods[0]?.metadata?.name || null);
+        /**
+         * `set-state-in-effect` is disabled rather than obeyed: this reacts to POLLED data, not to
+         * a render. `useDeploymentPods` refetches every 3s, and the whole point is to notice that
+         * the pod being tailed has been replaced by a rollout. There is nothing to derive from —
+         * the answer depends on what the previous poll returned, which is state by definition.
+         */
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSelectedPod(pods[0]?.metadata?.name ?? null);
         setKubeLogs('');
         setLastLogAt(null);
       }
@@ -141,8 +148,15 @@ export default function AppDashboard({
   }, [showLogModal, logTab, pods, selectedPod]);
 
 
-  /** Seeds the exposure-path field from the deployment when it opens. */
+  /**
+   * Seeds the exposure-path field from the deployment when it opens.
+   *
+   * Keyed on `id` so it seeds once per deployment and then leaves the field alone — the user edits
+   * it, and re-deriving on every render would discard what they typed the moment the deployment
+   * record refetched. That is why it is an effect rather than a derived value.
+   */
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (currentDeployment) setExposurePathInput(currentDeployment.exposurePath || '');
   }, [currentDeployment?.id]);
 
@@ -195,7 +209,7 @@ export default function AppDashboard({
   const [gameSettings, setGameSettings] = useState<Record<string, string>>({});
 
   const updateAppModules = useMutation({
-    mutationFn: ({ id, modules }: any) => api.patch(`/deployments/${id}/modules`, { modules }),
+    mutationFn: ({ id, modules }: { id: string; modules: string[] }) => api.patch(`/deployments/${id}/modules`, { modules }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       setLogTab('provision');
@@ -203,7 +217,7 @@ export default function AppDashboard({
   });
 
   const updateAppConfig = useMutation({
-    mutationFn: ({ id, patch }: { id: string, patch: Record<string, any> }) => api.patch(`/deployments/${id}/config`, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => api.patch(`/deployments/${id}/config`, patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       setLogTab('provision');
@@ -272,8 +286,8 @@ export default function AppDashboard({
                   {podsCheckedAt ? <span className="text-[9px] text-slate-600" title="Last time the pod list was refreshed">checked {new Date(podsCheckedAt).toLocaleTimeString()}</span> : null}
                 </div>
                 <div className="space-y-2">
-                   {pods.length > 0 ? pods.map((p: any) => (
-                     <button key={p?.metadata?.name || Math.random()} onClick={() => {setSelectedPod(p.metadata.name); setKubeLogs(''); setLastLogAt(null);}} className={`w-full text-left p-3 rounded-lg text-xs transition-all border ${selectedPod === p?.metadata?.name ? 'bg-blue-600/20 border-blue-500 text-blue-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                   {pods.length > 0 ? pods.map((p, i) => (
+                     <button key={p?.metadata?.name ?? `pod-${i}`} onClick={() => {setSelectedPod(p.metadata?.name ?? null); setKubeLogs(''); setLastLogAt(null);}} className={`w-full text-left p-3 rounded-lg text-xs transition-all border ${selectedPod === p?.metadata?.name ? 'bg-blue-600/20 border-blue-500 text-blue-100' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'}`}>
                        <div className="font-bold truncate">{p?.metadata?.name || 'Unknown'}</div>
                        <div className="flex items-center gap-1.5 mt-1 opacity-70"><div className={`w-1.5 h-1.5 rounded-full ${p?.status?.phase === 'Running' ? 'bg-green-500' : 'bg-yellow-500'}`}></div>{p?.status?.phase || 'Pending'}</div>
                      </button>
@@ -285,19 +299,19 @@ export default function AppDashboard({
              <div className="flex-1 flex flex-col min-h-0">
                 <div className="flex justify-between items-center mb-6">
                     <div><h4 className="text-xl font-bold">Module Marketplace</h4><p className="text-slate-400 text-xs">Manage custom addons for this instance.</p></div>
-                    <button disabled={updateAppModules.isPending} onClick={() => updateAppModules.mutate({ id: currentDeployment.id, modules: currentDeployment.modules })} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all">{updateAppModules.isPending ? <Loader2 size={16} className="animate-spin" /> : <><Check size={16} /> Apply Changes</>}</button>
+                    <button disabled={updateAppModules.isPending} onClick={() => updateAppModules.mutate({ id: currentDeployment.id, modules: currentDeployment.modules ?? [] })} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all">{updateAppModules.isPending ? <Loader2 size={16} className="animate-spin" /> : <><Check size={16} /> Apply Changes</>}</button>
                 </div>
                 {loadingModules ? (
                   <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-slate-600" size={32} /></div>
                 ) : (
                   <div className="grid grid-cols-2 gap-4 overflow-y-auto pr-2 custom-scrollbar">
-                     {availableModules.map((mod: any) => {
+                     {availableModules.map((mod) => {
                        const isEnabled = currentDeployment.modules?.includes(mod.id);
                        return (
                          <button key={mod.id} onClick={() => {
                            const current = currentDeployment.modules || [];
                            const next = isEnabled ? current.filter((id: string) => id !== mod.id) : [...current, mod.id];
-                           queryClient.setQueryData(['deployments'], (prev: any) => prev.map((d: any) => d.id === currentDeployment.id ? { ...d, modules: next } : d));
+                           queryClient.setQueryData(['deployments'], (prev: Deployment[] | undefined) => (prev ?? []).map((d) => d.id === currentDeployment.id ? { ...d, modules: next } : d));
                          }} className={`p-6 rounded-2xl border-2 text-left transition-all ${isEnabled ? 'border-green-500 bg-green-500/5' : 'border-slate-700 bg-slate-900/50 hover:border-slate-500'}`}>
                            <div className="flex justify-between items-start mb-4">
                               <div className={`p-3 rounded-xl ${isEnabled ? 'bg-green-500/20 text-green-500' : 'bg-slate-800 text-slate-400'}`}><Puzzle size={24} /></div>
@@ -324,7 +338,7 @@ export default function AppDashboard({
                        disabled={updateAppConfig.isPending || (currentDeployment.status !== 'running' && currentDeployment.status !== 'failed')}
                        onClick={() => {
                          const appType = currentDeployment.appType || 'odoo';
-                         const patch: Record<string, any> = { storage: storageInputs };
+                         const patch: Record<string, unknown> = { storage: storageInputs };
                          // Only the keys that actually differ from what's stored — the backend deep-merges
                          // appSettings, so sending the whole map would be wasteful and sending a partial one
                          // is safe.
@@ -575,7 +589,7 @@ export default function AppDashboard({
                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
                        <select value={configInputs.openWebuiTargetId} onChange={e => setConfigInputs(prev => ({ ...prev, openWebuiTargetId: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
                          <option value="">No backend (configure manually in Open WebUI)</option>
-                         {deployments.filter((d: any) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === currentDeployment.clusterId).map((d: any) => (
+                         {deployments.filter((d) => (d.appType === 'vllm' || d.appType === 'tabbyapi') && d.status === 'running' && d.clusterId === currentDeployment.clusterId).map((d) => (
                            <option key={d.id} value={d.id}>{d.name} ({d.vllmModel || d.tabbyModel || (d.appType === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')})</option>
                          ))}
                        </select>
@@ -819,7 +833,7 @@ export default function AppDashboard({
                    </p>
                    <div className="flex items-center gap-3">
                      <code className="px-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-blue-300 font-mono text-sm">
-                       {(clusters.find((c: any) => c.id === currentDeployment.clusterId)?.remoteHost) || '<node-ip>'}:8211
+                       {(clusters.find((c) => c.id === currentDeployment.clusterId)?.remoteHost) || '<node-ip>'}:8211
                      </code>
                      <span className="text-[11px] text-slate-500">
                        Enter this under “Join via IP” in Palworld.
