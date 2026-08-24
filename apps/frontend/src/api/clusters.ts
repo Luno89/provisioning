@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { api } from './client'
+import { api, API_BASE } from './client'
 import type { Cluster, ClusterPod, HelmRelease, GpuStatus } from '../types/cluster'
 
 /**
@@ -17,6 +17,7 @@ export const clusterKeys = {
   pods: (id: string | null) => ['cluster-pods', id] as const,
   helm: (id: string | null) => ['cluster-helm', id] as const,
   gpu: (id: string | null) => ['cluster-gpu', id] as const,
+  services: (id: string | undefined) => ['cluster-services', id] as const,
 }
 
 export const listClusters = (): Promise<Cluster[]> =>
@@ -71,3 +72,39 @@ export function useClusterDetail(id: string | null) {
     loadingGpu: gpu.isLoading,
   }
 }
+
+/**
+ * A platform service running inside a cluster — Traefik, Grafana, Prometheus and friends.
+ *
+ * Moved out of `ServicesPanel.tsx`, where it was private. `installed: false` is a real and common
+ * state: the panel lists what COULD be there alongside what is, so the shape describes both.
+ */
+export interface ServiceInfo {
+  name: string
+  installed: boolean
+  status: string
+  chart: string | null
+  appVersion: string | null
+  namespace: string
+  pods: { name: string; status: string; ip: string | null; ready: boolean }[]
+}
+
+/**
+ * The services in one cluster.
+ *
+ * Unwraps `{ services }` here so the panel does not know the envelope.
+ */
+export const listClusterServices = (clusterId: string): Promise<ServiceInfo[]> =>
+  api.get<{ services?: ServiceInfo[] }>(`/clusters/${clusterId}/services`)
+    .then((r) => r.data.services ?? [])
+
+/**
+ * Where the browser navigates to reach a cluster-internal dashboard.
+ *
+ * A real URL rather than a fetch: this goes in an <a href>, and `ClusterProxyService` streams the
+ * dashboard through it. It is the ONE place a component legitimately needs an absolute API URL,
+ * which is why `API_BASE` is exported from `api/client` — building it inline was how a third copy
+ * of that constant ended up in ServicesPanel.
+ */
+export const clusterDashboardUrl = (clusterId: string, serviceName: string): string =>
+  `${API_BASE}/clusters/${clusterId}/proxy/${serviceName}/`

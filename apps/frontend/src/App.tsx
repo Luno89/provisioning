@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { Activity, AlertTriangle, BellRing, Cloud, GitBranch, Key, Loader2, Network, Package, Puzzle, Server, Shield, Timer } from 'lucide-react';
 import TemporalPanel from './components/TemporalPanel';
-import ServicesPanel from './ServicesPanel.js';
+import ServicesPanel from './components/ServicesPanel';
 import Login from './components/Login.js';
 import CloudAccounts from './components/CloudAccounts.js';
 import Projects from './components/Projects.js';

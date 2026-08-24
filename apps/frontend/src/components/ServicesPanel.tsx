@@ -1,21 +1,14 @@
 import { useState } from 'react';
+import {
+  listClusters, listClusterServices, clusterDashboardUrl, clusterKeys, type ServiceInfo,
+} from '../api/clusters';
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
 import { Activity, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp, Server, Cloud, Shield, Zap, ExternalLink, GitBranch, Bell, FileText } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
-const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
 
-interface ServiceInfo {
-  name: string;
-  installed: boolean;
-  status: string;
-  chart: string | null;
-  appVersion: string | null;
-  namespace: string;
-  pods: { name: string; status: string; ip: string | null; ready: boolean }[];
-}
 
-const SERVICE_ICONS: Record<string, any> = {
+const SERVICE_ICONS: Record<string, LucideIcon> = {
   prometheus: Activity,
   grafana: Zap,
   traefik: Shield,
@@ -64,7 +57,7 @@ function ServiceCard({ service, clusterId }: { service: ServiceInfo; clusterId: 
   const color = SERVICE_COLORS[service.name] || 'text-slate-400 bg-slate-500/10';
   const label = SERVICE_LABELS[service.name] || service.name;
   const readyPods = service.pods.filter(p => p.ready).length;
-  const dashboardUrl = `${API_BASE}/clusters/${clusterId}/proxy/${service.name}/`;
+  const dashboardUrl = clusterDashboardUrl(clusterId, service.name);
 
   return (
     <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
@@ -159,25 +152,25 @@ function ServiceCard({ service, clusterId }: { service: ServiceInfo; clusterId: 
 
 export default function ServicesPanel() {
   const { data: clusters = [] } = useQuery({
-    queryKey: ['clusters'],
-    queryFn: () => axios.get(`${API_BASE}/clusters`).then(res => res.data),
+    queryKey: clusterKeys.list(),
+    queryFn: listClusters,
     refetchInterval: 5000,
   });
 
-  const healthyClusters = clusters.filter((c: any) => c.status === 'healthy');
+  const healthyClusters = clusters.filter((c) => c.status === 'healthy');
   const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
 
   const effectiveClusterId = selectedCluster || healthyClusters[0]?.id;
 
   const { data: servicesData, isLoading } = useQuery({
-    queryKey: ['cluster-services', effectiveClusterId],
-    queryFn: () => axios.get(`${API_BASE}/clusters/${effectiveClusterId}/services`).then(r => r.data),
+    queryKey: clusterKeys.services(effectiveClusterId),
+    queryFn: () => listClusterServices(effectiveClusterId!),
     enabled: !!effectiveClusterId,
     refetchInterval: 10000,
   });
 
-  const services: ServiceInfo[] = servicesData?.services || [];
-  const selectedClusterName = healthyClusters.find((c: any) => c.id === effectiveClusterId)?.name || 'Unknown';
+  const services: ServiceInfo[] = servicesData ?? [];
+  const selectedClusterName = healthyClusters.find((c) => c.id === effectiveClusterId)?.name || 'Unknown';
 
   return (
     <section className="animate-in fade-in slide-in-from-bottom-4 duration-300 max-w-6xl">
@@ -193,7 +186,7 @@ export default function ServicesPanel() {
               onChange={e => setSelectedCluster(e.target.value)}
               className="bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-300 focus:border-blue-500 transition-all"
             >
-              {healthyClusters.map((c: any) => (
+              {healthyClusters.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
