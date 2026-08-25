@@ -16,6 +16,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
+import type { ClusterProviderSpec } from './cluster-providers.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
 
 /**
@@ -160,6 +161,13 @@ export interface Database {
   getAppSpecs(): Promise<StoredAppSpec[]>;
   saveAppSpec(spec: StoredAppSpec): Promise<void>;
   deleteAppSpec(id: string): Promise<void>;
+
+  /**
+   * Cluster providers as DATA — see lib/cluster-providers.ts.
+   * Seeded from the repo on boot, then editable; the wizard reads these instead of a literal.
+   */
+  getClusterProviders(): Promise<ClusterProviderSpec[]>;
+  saveClusterProvider(provider: ClusterProviderSpec): Promise<void>;
 
   /** General chat with Koala — threads, not branches. See lib/conversations.ts for why. */
   getConversations(): Promise<Conversation[]>;

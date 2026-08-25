@@ -19,6 +19,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import { TOOL_REPOSITORY, type ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
+import type { ClusterProviderSpec } from './cluster-providers.js';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
 
@@ -115,6 +116,10 @@ export class MongoDB implements Database {
 
   private get appSpecs(): Collection {
     return this.db!.collection('appSpecs');
+  }
+
+  private get clusterProviders(): Collection {
+    return this.db!.collection('clusterProviders');
   }
 
   private get conversations(): Collection {
@@ -529,6 +534,19 @@ export class MongoDB implements Database {
     const id = doc._id;
     const { _id, ...rest } = doc;
     await this.appSpecs.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getClusterProviders(): Promise<ClusterProviderSpec[]> {
+    // `_id` IS the provider's `value`; it is dropped rather than mapped onto `id`.
+    const docs = (await this.clusterProviders.find({}).toArray()) as Array<Record<string, any>>;
+    return docs.map(({ _id, ...rest }) => rest as ClusterProviderSpec);
+  }
+
+  async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
+    // Keyed on `value`, not an `id` field — a provider spec has no other identity, and toDoc/fromDoc
+    // assume one exists.
+    const { value, ...rest } = provider;
+    await this.clusterProviders.replaceOne({ _id: value as any }, { _id: value, ...provider }, { upsert: true });
   }
 
   async deleteAppSpec(id: string): Promise<void> {

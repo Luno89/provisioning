@@ -40,6 +40,8 @@ import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { meshRouter } from './routes/mesh.js';
+import { clusterProvidersRouter } from './routes/cluster-providers.js';
+import { providersToSeed } from './lib/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
 import { adminRouter } from './routes/admin.js';
 import { modelEndpointsRouter } from './routes/model-endpoints.js';
@@ -1007,6 +1009,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
   await seedAppSpecs();
 
+  /**
+   * Cluster providers: the repo carries the built-ins (lib/cluster-providers.ts); the database is
+   * the runtime source. Idempotent and conservative like seedAppSpecs — an edited or retired row is
+   * left alone, only genuinely missing built-ins are added. Failure logged, never fatal.
+   */
+  async function seedClusterProviders(): Promise<void> {
+    try {
+      const stored = await db.getClusterProviders();
+      const pending = providersToSeed(stored);
+      if (!pending.length) return;
+      for (const provider of pending) {
+        await db.saveClusterProvider(provider);
+      }
+      console.log(`[cluster-providers] seeded ${pending.length}: ${pending.map((p) => p.value).join(', ')}`);
+    } catch (err: any) {
+      console.warn(`[cluster-providers] could not seed built-in providers: ${err.message}`);
+    }
+  }
+  await seedClusterProviders();
+
   /** The host nginx config the editor reads and writes. */
   const NGINX_CONF_PATH = path.join(__dirname, '../data/nginx/nginx.conf');
 
@@ -1030,6 +1052,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     giteaService, clusterService, infraService, jwtSecret: JWT_SECRET,
   }));
   app.use('/api/mesh', meshRouter({ headscaleService, db, jwtSecret: JWT_SECRET }));
+  app.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   app.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
   app.use('/api/admin', adminRouter({ db, requireAdmin }));
   app.use('/api/model-endpoints', modelEndpointsRouter({

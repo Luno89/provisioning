@@ -1,6 +1,7 @@
 import type { Persona } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
+import type { ClusterProviderSpec } from './cluster-providers.js';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
@@ -34,6 +35,7 @@ export class MemoryDB implements Database {
   private branches: Branch[] = [];
   private conversations: Conversation[] = [];
   private appSpecs: StoredAppSpec[] = [];
+  private clusterProviders: ClusterProviderSpec[] = [];
   private giteaAccounts: GiteaAccount[] = [];
   private experiments: Experiment[] = [];
   private harnessProfiles: HarnessProfile[] = [];
@@ -393,6 +395,16 @@ private treeTypes: TreeTypeSpec[] = [];
     const i = this.appSpecs.findIndex((s) => s.id === spec.id);
     if (i >= 0) this.appSpecs[i] = spec;
     else this.appSpecs.push(spec);
+  }
+
+  async getClusterProviders(): Promise<ClusterProviderSpec[]> {
+    return this.clusterProviders;
+  }
+
+  async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
+    const i = this.clusterProviders.findIndex((p) => p.value === provider.value);
+    if (i >= 0) this.clusterProviders[i] = provider;
+    else this.clusterProviders.push(provider);
   }
 
   async deleteAppSpec(id: string): Promise<void> {
