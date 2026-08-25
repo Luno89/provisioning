@@ -36,6 +36,7 @@ import { personasRouter } from './routes/personas.js';
 import { personaOptionsRouter } from './routes/persona-options.js';
 import { authRouter } from './routes/auth.js';
 import { koalaRouter } from './routes/koala.js';
+import { personaChatRouter } from './routes/chat-pack.js';
 import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
@@ -1094,6 +1095,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/koala', koalaRouter({
     db, modelService, ensureKoala, ensurePersonas, koalaServers,
     ownedConversations, executeWebSearch, executeFetchWebPage, toolRefused,
+  }));
+
+  /** The generic persona-pack chat: any registered pack -> a lived conversation on the unified wire. */
+  app.use('/api/chat-pack', personaChatRouter({
+    db, modelService,
+    resolvePersona: async (userId, name) => {
+      // 'Koala' resolves to the seeded chat-only persona; anything else by name, seeded on demand.
+      if (name === 'Koala') return ensureKoala(userId);
+      const mine = await ownedPersonas(userId);
+      const found = mine.find((p) => p.name === name);
+      return found ?? ensureKoala(userId);
+    },
+    serversFor: koalaServers,
+    ownedConversations,
+    webSearch: executeWebSearch,
+    fetchWebPage: executeFetchWebPage,
+    toolRefused,
   }));
   app.use('/api/chat', chatRouter({
     db, modelService, temporalBridge, projectRepoService,
