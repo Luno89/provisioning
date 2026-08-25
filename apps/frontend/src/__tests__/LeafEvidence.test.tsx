@@ -36,7 +36,7 @@ const leaf = (over: Partial<Leaf> = {}): Leaf => ({
 
 const show = (l: Leaf) => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <LeafDetail apiBase="/api" leaf={l} subLeaves={[]} />
+    <LeafDetail leaf={l} subLeaves={[]} />
   </QueryClientProvider>,
 );
 
@@ -98,7 +98,6 @@ describe('what a leaf promised and waits on', () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <LeafDetail
-          apiBase="/api"
           leaf={leaf({ status: 'pending', dependsOn: ['a'] })}
           subLeaves={[]}
           all={[leaf({ id: 'a', title: 'Add the transport', status: 'running' })]}

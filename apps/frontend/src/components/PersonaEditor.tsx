@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { X, Loader2, Plus, Trash2, ShieldAlert, Boxes } from 'lucide-react';
+import {
+  getPersonaOptions, updatePersona, createPersona, personaKeys, type PersonaOptions,
+} from '../api/personas';
+import { errorMessage } from '../api/client';
 
 /**
  * Everything a persona is, editable.
@@ -52,21 +55,12 @@ export interface Persona {
   overrides?: Record<string, unknown>;
 }
 
-interface Options {
-  languages: { id: string; image: string; summary: string; available: string[]; absent: string[] }[];
-  tools: { name: string; description?: string }[];
-  /** What is actually deployed, so a grant is a click rather than a remembered name. */
-  mcpServers?: { name: string; tools: number; unreachable?: string }[];
-  defaults: { cpu: string; memory: string; maxSteps: number };
-}
-
 const label = 'text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 block';
 const field = 'w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-lg px-3 py-2 text-[13px] text-slate-200';
 
 export default function PersonaEditor({
-  apiBase, persona, personas, onClose,
+  persona, personas, onClose,
 }: {
-  apiBase: string;
   /** Absent means a new one. */
   persona?: Persona | undefined;
   personas: Persona[];
@@ -77,9 +71,9 @@ export default function PersonaEditor({
   const [overridesText, setOverridesText] = useState(() => JSON.stringify(persona?.overrides ?? {}, null, 2));
   const [error, setError] = useState<string | null>(null);
 
-  const { data: options } = useQuery<Options>({
-    queryKey: ['persona-options'],
-    queryFn: () => axios.get(`${apiBase}/persona-options`, { withCredentials: true }).then((r) => r.data),
+  const { data: options } = useQuery<PersonaOptions>({
+    queryKey: personaKeys.options(),
+    queryFn: getPersonaOptions,
     // The catalogue only changes when the code does.
     staleTime: Infinity,
   });
@@ -105,12 +99,10 @@ export default function PersonaEditor({
         scope,
         overrides,
       };
-      return persona
-        ? axios.put(`${apiBase}/personas/${persona.id}`, body, { withCredentials: true })
-        : axios.post(`${apiBase}/personas`, body, { withCredentials: true });
+      return persona ? updatePersona(persona.id, body) : createPersona(body);
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['personas'] }); onClose(); },
-    onError: (err: any) => setError(err?.response?.data?.error ?? err?.message ?? 'Could not save.'),
+    onError: (err: unknown) => setError(errorMessage(err) || 'Could not save.'),
   });
 
   const egress = scope.egress ?? [];

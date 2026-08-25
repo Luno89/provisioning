@@ -1,6 +1,5 @@
 import { useState, Fragment } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
   GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck,
@@ -11,6 +10,8 @@ import {
 } from './home-summary.js';
 import { STATE_DOT, STATE_LABEL, STATE_STYLE, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
+import { cancelLeaf, recheckLeaf } from '../api/grove';
+import { errorMessage } from '../api/client';
 
 /**
  * Koala's screen — everything you own, or one project.
@@ -34,10 +35,9 @@ import { KoalaSpot } from './Koala.js';
  * Nothing here is stored. Every figure is derived from records the platform already writes.
  */
 export default function Home({
-  apiBase, leaves, branches, trees, tree, lastSeen, personaNames = {},
+  leaves, branches, trees, tree, lastSeen, personaNames = {},
   onStart, onOpenLeaf, onOpenTree, onOpenBranch, starting,
 }: {
-  apiBase: string;
   leaves: Leaf[];
   branches: { id: string; title: string; treeId?: string }[];
   trees: { id: string; name: string }[];
@@ -62,7 +62,7 @@ export default function Home({
    * second field to keep in step.
    */
   const drop = useMutation({
-    mutationFn: (id: string) => axios.post(`${apiBase}/leaves/${id}/cancel`, {}, { withCredentials: true }),
+    mutationFn: (id: string) => cancelLeaf(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['leaves'] }),
   });
 
@@ -74,15 +74,13 @@ export default function Home({
    */
   const [recheck, setRecheck] = useState<Record<string, string>>({});
   const lookAgain = useMutation({
-    mutationFn: (id: string) => axios
-      .post(`${apiBase}/leaves/${id}/recheck`, {}, { withCredentials: true })
-      .then((r) => ({ id, ...(r.data as { outcome: string; reason: string; changed?: boolean }) })),
+    mutationFn: (id: string) => recheckLeaf(id).then((out) => ({ id, ...out })),
     onSuccess: (out) => {
       setRecheck((r) => ({ ...r, [out.id]: out.reason }));
       if (out.changed) qc.invalidateQueries({ queryKey: ['leaves'] });
     },
-    onError: (err: any, id) => setRecheck((r) => ({
-      ...r, [id]: String(err?.response?.data?.error ?? 'Could not read the repository.'),
+    onError: (err: unknown, id) => setRecheck((r) => ({
+      ...r, [id]: errorMessage(err) || 'Could not read the repository.',
     })),
   });
 

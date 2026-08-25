@@ -21,10 +21,13 @@ const read = (p: string) => readFileSync(join(here, p), 'utf8');
 
 describe('picking a service instead of typing its name', () => {
   const editor = read('../components/PersonaEditor.tsx');
+  // The SHAPE moved to api/personas.ts when the editor stopped declaring its own — a test reading
+  // source text has to follow the source, or it passes against a file that no longer holds it.
+  const personasApi = read('../api/personas.ts');
 
   it('offers what is actually deployed', () => {
     expect(editor).toMatch(/options\?\.mcpServers/);
-    expect(editor).toMatch(/mcpServers\?: \{ name: string; tools: number; unreachable\?: string \}\[\]/);
+    expect(personasApi).toMatch(/mcpServers\?: \{ name: string; tools: number; unreachable\?: string \}\[\]/);
   });
 
   it('toggles a name in and out of scope.mcp', () => {

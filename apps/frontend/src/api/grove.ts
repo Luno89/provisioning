@@ -28,7 +28,8 @@ export const groveKeys = {
 }
 
 export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((r) => r.data)
-export const createTree = (body: unknown) => api.post('/trees', body).then((r) => r.data)
+export const createTree = <T,>(body: unknown): Promise<T> =>
+  api.post<T>('/trees', body).then((r) => r.data)
 export const deleteTree = (id: string) => api.delete(`/trees/${id}`).then((r) => r.data)
 
 export const listBranches = (): Promise<Branch[]> =>
@@ -38,6 +39,14 @@ export const deleteBranch = (id: string) => api.delete(`/branches/${id}`).then((
 
 export const listLeaves = (): Promise<Leaf[]> => api.get<Leaf[]>('/leaves').then((r) => r.data)
 export const deleteLeaf = (id: string) => api.delete(`/leaves/${id}`).then((r) => r.data)
+
+/**
+ * Patches a leaf in place. Today only the token budget is raised this way — a leaf that stopped on
+ * `finish_reason: length` did the work and ran out of room, which is a different event from
+ * failing it, and doubling the budget is the one-click answer to it.
+ */
+export const patchLeaf = (id: string, patch: Record<string, unknown>) =>
+  api.patch(`/leaves/${id}`, patch).then((r) => r.data)
 
 /** The full execution trace for one leaf — every step the agent took, fetched on demand. */
 export const getLeafTrace = (id: string) => api.get(`/leaves/${id}/trace`).then((r) => r.data)
@@ -55,9 +64,23 @@ export const acceptLeaf = (id: string, body?: unknown) =>
 export const cancelLeaf = (id: string) => api.post(`/leaves/${id}/cancel`, {}).then((r) => r.data)
 export const retryLeaf = (id: string, body?: unknown) =>
   api.post(`/leaves/${id}/retry`, body ?? {}).then((r) => r.data)
-export const recheckLeaf = (id: string) => api.post(`/leaves/${id}/recheck`, {}).then((r) => r.data)
-export const reviewLeaf = (id: string, body: unknown) =>
-  api.post(`/leaves/${id}/review`, body).then((r) => r.data)
+/**
+ * Re-evaluates an existing result against the acceptance criteria, without running the work again.
+ *
+ * `changed` is the field that matters: a recheck that flips the verdict invalidates the board, and
+ * one that confirms it should not.
+ */
+export const recheckLeaf = (id: string): Promise<{ outcome: string; reason: string; changed?: boolean }> =>
+  api.post<{ outcome: string; reason: string; changed?: boolean }>(`/leaves/${id}/recheck`, {})
+    .then((r) => r.data)
+/**
+ * Opens a review conversation about a failed leaf, and returns where it landed.
+ *
+ * The caller navigates into that branch with the prompt — which is what puts the EVIDENCE in a
+ * transcript rather than only the conclusion.
+ */
+export const reviewLeaf = (id: string): Promise<{ branchId: string; prompt: string }> =>
+  api.post<{ branchId: string; prompt: string }>(`/leaves/${id}/review`, {}).then((r) => r.data)
 
 export const listTreeTypes = (): Promise<TreeType[]> =>
   api.get<TreeType[]>('/tree-types').then((r) => r.data)

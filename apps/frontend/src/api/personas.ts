@@ -7,13 +7,20 @@ import type { Persona } from '../components/PersonaEditor'
 /**
  * What a persona may legally be set to.
  *
- * Deliberately loose: the response is a set of option lists the editor renders itself from, and
- * naming each one here would be a second place that has to learn about a new kind of option.
+ * Promoted from `PersonaEditor.tsx`, which held the real shape. The first draft here invented a
+ * loose `{ models?, roles? }` and the compiler refused to reconcile it with the editor's use —
+ * correctly, since neither field exists.
+ *
+ * Every list in here is DATA the editor renders itself from: which languages a workspace can run,
+ * which tools exist, which MCP servers are actually deployed. Hardcoding any of it would put the
+ * validation rules in two places, and the copy in the UI is the one that silently stops matching.
  */
 export interface PersonaOptions {
-  models?: string[]
-  roles?: string[]
-  [key: string]: unknown
+  languages: { id: string; image: string; summary: string; available: string[]; absent: string[] }[];
+  tools: { name: string; description?: string }[];
+  /** What is actually deployed, so a grant is a click rather than a remembered name. */
+  mcpServers?: { name: string; tools: number; unreachable?: string }[];
+  defaults: { cpu: string; memory: string; maxSteps: number };
 }
 
 /**

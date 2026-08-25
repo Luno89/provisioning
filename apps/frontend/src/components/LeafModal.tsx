@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
 import { X, Loader2 } from 'lucide-react';
 import LeafDetail from './LeafDetail.js';
 import type { Leaf } from './leaf-types.js';
+import { listLeaves } from '../api/grove';
 
 /**
  * A leaf opened from the board.
@@ -19,15 +19,14 @@ import type { Leaf } from './leaf-types.js';
  *
  * The list is already in the cache whenever the workspace is open, so this is usually free.
  */
-export default function LeafModal({ apiBase, leafId, onClose, onReview }: {
-  apiBase: string;
+export default function LeafModal({ leafId, onClose, onReview }: {
   leafId: string;
   onClose: () => void;
   onReview?: (branchId: string, prompt: string) => void;
 }) {
   const { data: leaves, isLoading } = useQuery<Leaf[]>({
     queryKey: ['leaves'],
-    queryFn: () => axios.get(`${apiBase}/leaves`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listLeaves,
   });
 
   // Defensive: a malformed or empty response must not take the panel down with it. Reading `.find`
@@ -55,7 +54,6 @@ export default function LeafModal({ apiBase, leafId, onClose, onReview }: {
           )}
           {leaf && (
             <LeafDetail
-              apiBase={apiBase}
               leaf={leaf}
               subLeaves={all.filter((l) => l.parentLeafId === leaf.id)}
               all={all}

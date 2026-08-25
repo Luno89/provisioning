@@ -1,10 +1,11 @@
 import { useState, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { Plus, Loader2, Trash2, Pencil, ShieldAlert, ShieldOff, CornerDownRight } from 'lucide-react';
 import PersonaEditor, { type Persona } from './PersonaEditor.js';
 import { statsFor, byLineage, type PersonaStats } from './persona-stats.js';
 import type { Leaf } from './leaf-types.js';
+import { listPersonas, deletePersona, personaKeys } from '../api/personas';
+import { listLeaves, groveKeys } from '../api/grove';
 
 /**
  * The personas, side by side.
@@ -41,23 +42,23 @@ function Rate({ stats }: { stats: PersonaStats }) {
 
 const tokens = (n: number) => (n === 0 ? '—' : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
-export default function Personas({ apiBase }: { apiBase: string }) {
+export default function Personas() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Persona | null>(null);
   const [creating, setCreating] = useState(false);
 
   const { data: personas = [], isLoading } = useQuery<Persona[]>({
-    queryKey: ['personas'],
-    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
+    queryKey: personaKeys.list(),
+    queryFn: listPersonas,
   });
   const { data: leaves = [] } = useQuery<Leaf[]>({
-    queryKey: ['leaves'],
-    queryFn: () => axios.get(`${apiBase}/leaves`, { withCredentials: true }).then((r) => r.data),
+    queryKey: groveKeys.leaves(),
+    queryFn: listLeaves,
     staleTime: 30_000,
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/personas/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => deletePersona(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['personas'] }),
   });
 
@@ -182,7 +183,6 @@ export default function Personas({ apiBase }: { apiBase: string }) {
 
       {(editing || creating) && (
         <PersonaEditor
-          apiBase={apiBase}
           {...(editing ? { persona: editing } : {})}
           personas={personas}
           onClose={() => { setEditing(null); setCreating(false); }}

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
 import { ChevronDown, ChevronRight, Search, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
+import { getAppSchema, type AppSetting, type AppSettingsSchema } from '../api/app-schemas';
 
 /**
  * Schema-driven settings editor for game servers.
@@ -13,44 +13,21 @@ import { ChevronDown, ChevronRight, Search, RotateCcw, AlertTriangle, Loader2 } 
  * With ~120 fields the search box, not the accordions, is what actually makes this usable.
  */
 
-interface AppSetting {
-  key: string;
-  env: string;
-  type: 'bool' | 'int' | 'float' | 'string' | 'enum';
-  default: string;
-  category: string;
-  label: string;
-  help?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  options?: string[];
-  secret?: boolean;
-  readonly?: boolean;
-}
-
-interface AppSettingsSchema {
-  appType: string;
-  categories: string[];
-  settings: AppSetting[];
-}
-
 interface Props {
-  apiBase: string;
   appType: string;
   /** Stored settings from the deployment record. */
   value: Record<string, string>;
   onChange: (next: Record<string, string>) => void;
 }
 
-export default function GameServerSettings({ apiBase, appType, value, onChange }: Props) {
+export default function GameServerSettings({ appType, value, onChange }: Props) {
   const [search, setSearch] = useState('');
   const [onlyModified, setOnlyModified] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ Server: true });
 
   const { data: schema, isLoading, error } = useQuery<AppSettingsSchema>({
     queryKey: ['app-schema', appType],
-    queryFn: () => axios.get(`${apiBase}/app-schemas/${appType}`).then((r) => r.data),
+    queryFn: () => getAppSchema(appType),
     staleTime: Infinity,
   });
 

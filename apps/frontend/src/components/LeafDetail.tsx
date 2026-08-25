@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import {
   Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, ShieldCheck,
   ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Stethoscope, Loader2,
@@ -7,6 +6,10 @@ import {
 import Markdown from './Markdown.js';
 import LeafSteps from './LeafSteps.js';
 import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } from './leaf-types.js';
+import {
+  acceptLeaf, cancelLeaf, retryLeaf, reviewLeaf, deleteLeaf, patchLeaf,
+} from '../api/grove';
+import { errorMessage } from '../api/client';
 
 /**
  * Everything about one leaf — the only surface that describes one.
@@ -22,8 +25,7 @@ import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } 
  * anything checked it, what it claims it did, what it was asked to do, how it failed, and then —
  * last, because it is the longest and only sometimes the answer — every turn it took.
  */
-export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onReview }: {
-  apiBase: string;
+export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
   leaf: Leaf;
   subLeaves: Leaf[];
   /**
@@ -43,9 +45,9 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
   };
   const call = (fn: () => Promise<unknown>) => ({ mutationFn: fn, onSuccess: invalidate });
 
-  const accept = useMutation(call(() => axios.post(`${apiBase}/leaves/${leaf.id}/accept`, {}, { withCredentials: true })));
-  const cancel = useMutation(call(() => axios.post(`${apiBase}/leaves/${leaf.id}/cancel`, {}, { withCredentials: true })));
-  const remove = useMutation(call(() => axios.delete(`${apiBase}/leaves/${leaf.id}`, { withCredentials: true })));
+  const accept = useMutation(call(() => acceptLeaf(leaf.id)));
+  const cancel = useMutation(call(() => cancelLeaf(leaf.id)));
+  const remove = useMutation(call(() => deleteLeaf(leaf.id)));
 
   /**
    * Raising the request's token budget.
@@ -58,10 +60,9 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
    * "let it keep going", not "what integer". A precise number is a PATCH away for anyone who wants
    * one.
    */
-  const raiseBudget = useMutation(call(() => axios.patch(
-    `${apiBase}/leaves/${leaf.id}`,
+  const raiseBudget = useMutation(call(() => patchLeaf(
+    leaf.id,
     { maxTokens: (leaf.budget?.maxTokens ?? 0) * 2 },
-    { withCredentials: true },
   )));
 
   /**
@@ -72,7 +73,7 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
    * system so far has been environmental. Offering only retry would make the useless action the
    * obvious one.
    */
-  const retry = useMutation(call(() => axios.post(`${apiBase}/leaves/${leaf.id}/retry`, {}, { withCredentials: true })));
+  const retry = useMutation(call(() => retryLeaf(leaf.id)));
   /**
    * Fetches the evidence and hands it to the conversation.
    *
@@ -80,9 +81,7 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
    * turn, which is what puts the EVIDENCE in the transcript rather than only the conclusion.
    */
   const review = useMutation({
-    mutationFn: () => axios
-      .post(`${apiBase}/leaves/${leaf.id}/review`, {}, { withCredentials: true })
-      .then((r) => r.data as { branchId: string; prompt: string }),
+    mutationFn: () => reviewLeaf(leaf.id),
     onSuccess: (data) => onReview?.(data.branchId, data.prompt),
   });
 
@@ -225,7 +224,7 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
           </button>
           {(review.error || retry.error) && (
             <span className="text-[11px] text-red-400">
-              {String((review.error as any)?.response?.data?.error ?? (retry.error as any)?.response?.data?.error ?? 'That did not work.')}
+              {errorMessage(review.error ?? retry.error) || 'That did not work.'}
             </span>
           )}
           {attemptCount > 1 && (
@@ -362,7 +361,7 @@ export default function LeafDetail({ apiBase, leaf, subLeaves, all = [], onRevie
         <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">What it actually did</h3>
         {/* Rendered for every state, including proposed: "this has not run yet" is a different
             answer from a missing record, and hiding the section made them look the same. */}
-        <LeafSteps apiBase={apiBase} leafId={leaf.id} live={leaf.status === 'running'} />
+        <LeafSteps leafId={leaf.id} live={leaf.status === 'running'} />
       </div>
     </div>
   );

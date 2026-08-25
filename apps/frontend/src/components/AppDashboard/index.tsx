@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Activity, AlertTriangle, Box, Check, Cpu, Database, ExternalLink, FileText, HardDrive, Layers, Loader2, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Trash2, X, Zap } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, API_BASE } from '../../api/client';
+import { api } from '../../api/client';
 import {
   useDeploymentPods, useHelmStatus, useDiagnostics,
   useAvailableModules, useResourcePlan, useInitialLogs, deploymentKeys,
@@ -633,7 +633,6 @@ export default function AppDashboard({
 
                  {NO_WEB_UI_APP_TYPES.has(currentDeployment.appType || '') && (
                    <GameServerSettings
-                     apiBase={API_BASE}
                      appType={currentDeployment.appType!}
                      value={gameSettings}
                      onChange={setGameSettings}

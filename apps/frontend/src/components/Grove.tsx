@@ -496,7 +496,6 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
         {selectedLeaf ? (
           <div className="overflow-y-auto pr-2">
             <LeafDetail
-              apiBase={apiBase}
               leaf={selectedLeaf}
               subLeaves={childrenOf(selectedLeaf.id)}
               all={all}
@@ -551,7 +550,6 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
            * Both are gone: see the header comment in Home.tsx for why the columns went.
            */
           <Home
-            apiBase={apiBase}
             leaves={all}
             branches={branchRecords}
             trees={trees}
@@ -573,7 +571,6 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
 
       {newTree && (
         <NewTreeDialog
-          apiBase={apiBase}
           onClose={() => setNewTree(false)}
           onCreated={(id) => { if (id) { setOpenTree(id); setSelected({ kind: 'tree', id }); } }}
         />

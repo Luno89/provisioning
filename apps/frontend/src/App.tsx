@@ -409,7 +409,7 @@ function App() {
           />
         )}
 
-        {view === 'personas' && <Personas apiBase={API_BASE} />}
+        {view === 'personas' && <Personas />}
 
         {view === 'vps-catalog' && (
           <VpsCatalog

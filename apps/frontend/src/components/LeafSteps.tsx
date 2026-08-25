@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
 import { Loader2, ChevronRight, ChevronDown, Terminal, FileText, Brain } from 'lucide-react';
+import { getLeafTrace } from '../api/grove';
 
 /**
  * What a leaf actually did, turn by turn.
@@ -62,8 +62,7 @@ function callLabel(call: { name: string; arguments: string }): string {
   return call.arguments.slice(0, 120);
 }
 
-export default function LeafSteps({ apiBase, leafId, live }: {
-  apiBase: string;
+export default function LeafSteps({ leafId, live }: {
   leafId: string;
   /** Polls while the leaf is in a sandbox, so turns appear as they are taken. */
   live?: boolean;
@@ -79,7 +78,7 @@ export default function LeafSteps({ apiBase, leafId, live }: {
    */
   const { data, isLoading } = useQuery<Trace>({
     queryKey: ['leaf-trace', leafId],
-    queryFn: () => axios.get(`${apiBase}/leaves/${leafId}/trace`, { withCredentials: true }).then((r) => r.data),
+    queryFn: () => getLeafTrace(leafId),
     ...(live ? { refetchInterval: 2000 } : {}),
   });
 

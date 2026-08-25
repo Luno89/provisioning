@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { Plus, Loader2, X } from 'lucide-react';
+import { listTreeTypes, createTree, groveKeys } from '../api/grove';
 
 /**
  * Starting a tree.
@@ -19,8 +19,7 @@ interface TreeType {
   doneMeans: string;
 }
 
-export default function NewTreeDialog({ apiBase, onClose, onCreated }: {
-  apiBase: string;
+export default function NewTreeDialog({ onClose, onCreated }: {
   onClose: () => void;
   onCreated?: (treeId: string) => void;
 }) {
@@ -28,15 +27,15 @@ export default function NewTreeDialog({ apiBase, onClose, onCreated }: {
   const [pickedType, setPickedType] = useState('');
 
   const { data: types = [] } = useQuery<TreeType[]>({
-    queryKey: ['tree-types'],
-    queryFn: () => axios.get(`${apiBase}/tree-types`, { withCredentials: true }).then((r) => r.data),
+    queryKey: groveKeys.treeTypes(),
+    queryFn: listTreeTypes,
     // The catalogue only changes when the code does.
     staleTime: Infinity,
   });
 
   const create = useMutation({
     mutationFn: (body: { name: string; type: string; goal: string }) =>
-      axios.post(`${apiBase}/trees`, body, { withCredentials: true }).then((r) => r.data),
+      createTree<{ id: string }>(body),
     onSuccess: (tree: { id: string }) => {
       qc.invalidateQueries({ queryKey: ['trees'] });
       onCreated?.(tree?.id ?? '');

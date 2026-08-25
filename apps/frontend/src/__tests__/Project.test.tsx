@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import axios from 'axios';
+import * as groveApi from '../api/grove';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Home from '../components/Home';
 import type { Leaf } from '../components/leaf-types';
@@ -16,8 +16,18 @@ import type { Leaf } from '../components/leaf-types';
  * carried, and spent the whole width doing it.
  */
 
-vi.mock('axios');
-vi.mocked(axios).post = vi.fn().mockResolvedValue({ data: {} }) as never;
+/**
+ * Mocked at the API module, not at axios — `vi.mock('axios')` cannot reach the instance
+ * `api/client` builds with `axios.create()`.
+ *
+ * It also names the two verbs apart. The axios version stubbed `post` for BOTH cancel and recheck,
+ * so a test setting up a recheck response was also silently changing what cancel returned.
+ */
+vi.mock('../api/grove', async (importOriginal) => ({
+  ...(await importOriginal<typeof groveApi>()),
+  cancelLeaf: vi.fn(),
+  recheckLeaf: vi.fn(),
+}));
 
 const leaf = (over: Partial<Leaf>): Leaf => ({
   id: 'l', branchId: 'b1', title: 't', status: 'succeeded',
@@ -34,7 +44,6 @@ const BRANCHES = [
 const show = (leaves: Leaf[], personaNames: Record<string, string> = {}) => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <Home
-      apiBase="/api"
       leaves={leaves}
       branches={BRANCHES}
       trees={[TREE, { id: 'other', name: 'Other' }]}
@@ -166,9 +175,7 @@ describe('dropping outstanding work', () => {
     await waitFor(() => expect(screen.getByText(/Attempted, not delivered/i)).toBeInTheDocument());
 
     fireEvent.click(getByTitle(/Drop this/i));
-    await waitFor(() => expect(vi.mocked(axios).post).toHaveBeenCalledWith(
-      '/api/leaves/gone/cancel', {}, expect.anything(),
-    ));
+    await waitFor(() => expect(groveApi.cancelLeaf).toHaveBeenCalledWith('gone'));
   });
 
   it('shows why it was not delivered, not just that it was not', async () => {
@@ -202,9 +209,9 @@ describe('looking again at a stranded failure', () => {
      * cannot be confirmed by a machine however much work is on its branch. Reporting that plainly
      * is the feature; quietly doing nothing would look broken.
      */
-    vi.mocked(axios).post = vi.fn().mockResolvedValue({
-      data: { outcome: 'needs-a-look', reason: 'There is work on koala/abc, but this leaf promised no files.' },
-    }) as never;
+    vi.mocked(groveApi.recheckLeaf).mockResolvedValue({
+      outcome: 'needs-a-look', reason: 'There is work on koala/abc, but this leaf promised no files.',
+    });
     show([leaf({ id: 'l', title: 'Stranded', branchId: 'b1', status: 'failed', outputBranch: 'koala/abc' })]);
     await waitFor(() => expect(screen.getByTitle(/Look again/i)).toBeInTheDocument());
 
@@ -214,7 +221,7 @@ describe('looking again at a stranded failure', () => {
 
   it('says so when the repository could not be read', async () => {
     // A recheck that failed must not read as a verdict of "still failed".
-    vi.mocked(axios).post = vi.fn().mockRejectedValue({ response: { data: { error: 'Could not read the repository: 502' } } }) as never;
+    vi.mocked(groveApi.recheckLeaf).mockRejectedValue({ response: { data: { error: 'Could not read the repository: 502' } } });
     show([leaf({ id: 'l', title: 'Stranded', branchId: 'b1', status: 'failed', outputBranch: 'koala/abc' })]);
     await waitFor(() => expect(screen.getByTitle(/Look again/i)).toBeInTheDocument());
     fireEvent.click(screen.getByTitle(/Look again/i));

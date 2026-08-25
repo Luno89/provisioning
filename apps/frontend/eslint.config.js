@@ -44,9 +44,6 @@ const LEGACY = [
   // Slice 5 (Grove) and slice 6 (Lab) — mostly `any` on records that want a real shared type.
   'src/components/Grove.tsx',
   'src/components/Chat.tsx',
-  'src/components/LeafDetail.tsx',
-  'src/components/Home.tsx',
-  'src/components/PersonaEditor.tsx',
   'src/components/Projects.tsx',
   // Not yet assigned to a slice: small, and each wants a domain type that does not exist yet.
   'src/components/Login.tsx',
