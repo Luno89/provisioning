@@ -509,7 +509,6 @@ function App() {
           // Remounts when the preset changes, so a second Deploy click from the catalogue seeds
           // fresh initial state instead of reusing the first plan's.
           key={wizardPreset ? `${wizardPreset.provider}:${wizardPreset.serverType}:${wizardPreset.location}` : 'blank'}
-          apiBase={API_BASE}
           configuredProviders={providers}
           submitting={provisionCluster.isPending}
           onCancel={() => { setShowClusterModal(false); setWizardPreset(undefined); }}

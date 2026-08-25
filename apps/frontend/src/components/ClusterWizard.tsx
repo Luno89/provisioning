@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, AlertTriangle, Loader2, ExternalLink, KeyRound } from 'lucide-react';
+import { listMeshDevices } from '../api/mesh';
+import { getVpsCatalog } from '../api/vps-catalog';
+import { validateCredentials, saveCredentials } from '../api/credentials';
 
 /**
  * Multi-step "Provision New Cluster" flow.
@@ -99,7 +102,6 @@ interface CatalogOffer {
 }
 
 interface Props {
-  apiBase: string;
   /** From GET /api/credentials — used to skip the token step when one is already stored. */
   configuredProviders: { provider: string; configured: boolean }[];
   onCancel: () => void;
@@ -116,7 +118,6 @@ interface Props {
 }
 
 export default function ClusterWizard({
-  apiBase,
   configuredProviders,
   onCancel,
   onSubmit,
@@ -160,25 +161,23 @@ export default function ClusterWizard({
   useEffect(() => {
     if (provider !== 'remote') return;
     let cancelled = false;
-    fetch(`${apiBase}/mesh/devices`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    listMeshDevices()
       .then((d) => { if (!cancelled) setMeshDevices(Array.isArray(d) ? d : []); })
       // An unreachable mesh renders as "no machines" plus the pointer to My Machines, which is the
       // same thing the user needs to do either way.
       .catch(() => { if (!cancelled) setMeshDevices([]); });
     return () => { cancelled = true; };
-  }, [provider, apiBase]);
+  }, [provider]);
 
   const hasToken = alreadyConfigured || tokenSaved;
   useEffect(() => {
     if (provider !== 'hetzner' || !hasToken) return;
     let cancelled = false;
-    fetch(`${apiBase}/vps-catalog?${CATALOG_QUERY}`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    getVpsCatalog(CATALOG_QUERY)
       .then((d) => { if (!cancelled) { setOffers(d.offers ?? []); setCatalogFailed((d.offers ?? []).length === 0); } })
       .catch(() => { if (!cancelled) setCatalogFailed(true); });
     return () => { cancelled = true; };
-  }, [provider, hasToken, apiBase]);
+  }, [provider, hasToken]);
 
   /**
    * One entry per plan, cheapest tier as the headline. The catalogue returns a separate offer per
@@ -231,14 +230,8 @@ export default function ClusterWizard({
     setValidating(true);
     setTokenResult(null);
     try {
-      const res = await fetch(`${apiBase}/credentials/validate/${credentialKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ token }),
-      });
-      const data = await res.json();
-      setTokenResult({ valid: data.valid, message: data.message });
+      const data = await validateCredentials(credentialKey!, { token });
+      setTokenResult({ valid: !!data.valid, ...(data.message !== undefined ? { message: data.message } : {}) });
     } catch (err: any) {
       setTokenResult({ valid: false, message: `Validation failed: ${err.message}` });
     } finally {
@@ -249,21 +242,11 @@ export default function ClusterWizard({
   const handleSaveToken = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`${apiBase}/credentials/${credentialKey}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ token }),
-      });
-      if (res.ok) {
-        setTokenSaved(true);
-        setToken('');
-        onCredentialsSaved?.();
-        setStep(needsOptionsStep ? 3 : 1);
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setTokenResult({ valid: false, message: data.error || `Could not save token (HTTP ${res.status}).` });
-      }
+      await saveCredentials(credentialKey!, { token });
+      setTokenSaved(true);
+      setToken('');
+      onCredentialsSaved?.();
+      setStep(needsOptionsStep ? 3 : 1);
     } catch (err: any) {
       setTokenResult({ valid: false, message: `Could not save token: ${err.message}` });
     } finally {
