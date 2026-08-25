@@ -27,7 +27,6 @@
  */
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { X, Play, Award, Loader2 } from 'lucide-react';
 import { Terminal } from './Terminal';
 import { ExpandableText, EditorHost } from './ExpandableText';
@@ -39,6 +38,7 @@ import {
   useExperimentDetail, errorMessage, describeTunable, useEditorSlot, EditorSlot,
   type ExperimentTask, type HarnessConfig, type TaskFile, type VariantResult,
 } from './shared';
+import { updateExperiment, runExperiment, validateAuthored } from '../../api/harness';
 
 /** A knob's value as typed. The registry decides how to read it back. */
 const parseRaw = (raw: string, type: string): unknown => {
@@ -62,10 +62,8 @@ const showRaw = (value: unknown): string => {
   return String(value);
 };
 
-export function Focus({
-  apiBase, experimentId, config, live, onClose, onSaved,
+export function Focus({ experimentId, config, live, onClose, onSaved,
 }: {
-  apiBase: string;
   experimentId: string;
   config: HarnessConfig | undefined;
   /** A run of this experiment in flight, streamed over sockets by the page. */
@@ -73,7 +71,7 @@ export function Focus({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { data: exp } = useExperimentDetail(apiBase, experimentId, true);
+  const { data: exp } = useExperimentDetail(experimentId, true);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [label, setLabel] = useState<string | null>(null);
   const [draft, setDraft] = useState<ExperimentTask[] | null>(null);
@@ -125,14 +123,13 @@ export function Focus({
       t.id === task?.id ? { ...t, [key]: update(t[key] ?? []) } : t)));
 
   const save = useMutation({
-    mutationFn: () => axios.put(
-      `${apiBase}/harness/experiments/${experimentId}`,
+    mutationFn: () => updateExperiment(
+      experimentId,
       {
         tasks,
         variants: (exp?.variants ?? []).map((v) =>
           (v.label === variant?.label ? { label: v.label, overrides: own } : v)),
       },
-      { withCredentials: true },
     ),
     onSuccess: () => { setNote('Saved.'); setDraft(null); setOverrides(null); refresh(); onSaved(); },
     onError: (err: unknown) => setNote(errorMessage(err)),
@@ -148,7 +145,7 @@ export function Focus({
   const start = useMutation({
     mutationFn: async () => {
       if (draft || overrides) await save.mutateAsync();
-      return axios.post(`${apiBase}/harness/experiments/${experimentId}/run`, {}, { withCredentials: true });
+      return runExperiment(experimentId);
     },
     // `isRunning` flips before the route answers, so the refetch this triggers already sees it.
     onSuccess: () => { setNote('Running…'); refresh(); },
@@ -157,9 +154,7 @@ export function Focus({
 
   /** Runs both halves of the gate against this task, without starting the experiment. */
   const check = useMutation({
-    mutationFn: () => axios
-      .post(`${apiBase}/harness/author/validate`, { tasks: task ? [task] : [] }, { withCredentials: true })
-      .then((r) => r.data),
+    mutationFn: () => validateAuthored({ tasks: task ? [task] : [] }),
     onSuccess: (d: { tasks?: { ok: boolean; reason?: string; exitCode: number; solutionExitCode?: number }[] }) => {
       const v = d.tasks?.[0];
       setNote(v
@@ -260,7 +255,6 @@ export function Focus({
       {promoting && variant && (
         <div className="px-4 shrink-0">
           <PromoteConfirm
-            apiBase={apiBase}
             experimentId={experimentId}
             label={variant.label}
             onDone={() => {
@@ -312,7 +306,6 @@ export function Focus({
           />
 
           <Terminal
-            apiBase={apiBase}
             seed={task?.seed ?? []}
             language={task?.language}
             field={field}
@@ -353,7 +346,6 @@ export function Focus({
             <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
             {pane === 'chat' && (
               <TaskChat
-                apiBase={apiBase}
                 task={task}
                 field={field}
                 // Applied to the editors, not saved: the accept is where you read it, and Save is

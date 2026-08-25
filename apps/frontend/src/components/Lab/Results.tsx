@@ -9,10 +9,8 @@ import {
 } from './shared';
 import { PromoteConfirm } from './Promote';
 
-export function Results({
-  apiBase, results, tasks, variants, openResult, setOpenResult, scope, onPromoted,
+export function Results({ results, tasks, variants, openResult, setOpenResult, scope, onPromoted,
 }: {
-  apiBase: string;
   /** Scores only — the matrix needs nothing else, and the list must not carry more. */
   results: ResultSummary[];
   tasks: { id: string; name: string }[];
@@ -28,7 +26,7 @@ export function Results({
   // The evidence arrives only once a cell in THIS experiment is open. Everything above renders
   // from the summary, which is what keeps the polled list small.
   const expanded = openResult?.startsWith(`${scope}:`) ?? false;
-  const { data: detail, isPending: detailPending } = useExperimentDetail(apiBase, scope, expanded);
+  const { data: detail, isPending: detailPending } = useExperimentDetail(scope, expanded);
   const runsOf = (predicate: (r: ResultSummary) => boolean) => results.filter(predicate);
   
   const suite = variants.map((v) => ({ label: v.label, t: tally(runsOf((r) => r.label === v.label)) }));
@@ -99,7 +97,6 @@ export function Results({
                   <tr>
                     <td colSpan={7}>
                       <PromoteConfirm
-                        apiBase={apiBase}
                         experimentId={scope}
                         label={label}
                         onDone={() => { setPromoting(null); onPromoted(); }}

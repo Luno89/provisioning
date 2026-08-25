@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { Brain, Plus, Trash2, Edit3, Save, X, Lightbulb, Pin, ScrollText, Check, Globe, Folder, AlertCircle, ArrowUpRight } from 'lucide-react';
 import { card } from './shared';
+import {
+  listMemories, getConsolidation, createMemory, updateMemory,
+  approveMemory, promoteMemory, deleteMemory,
+} from '../../api/harness';
 
 interface MemoryItem {
   id: string;
@@ -44,7 +47,7 @@ const CATEGORY_META = {
   prompt_guidance: { label: 'Prompt Guidance', icon: ScrollText, color: 'text-emerald-400 border-emerald-800 bg-emerald-950/40' },
 };
 
-export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
+export function MemoryBankPanel() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<string>('all');
   const [adding, setAdding] = useState(false);
@@ -58,18 +61,18 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
 
   const { data: memories, isLoading } = useQuery<MemoryItem[]>({
     queryKey: ['harness-memories'],
-    queryFn: () => axios.get(`${apiBase}/harness/memories`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listMemories,
   });
 
   const { data: consolidation } = useQuery<ConsolidationReport | null>({
     queryKey: ['harness-memory-consolidation'],
-    queryFn: () => axios.get(`${apiBase}/harness/memories/consolidation`, { withCredentials: true }).then((r) => r.data),
+    queryFn: getConsolidation,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['harness-memories'] });
 
   const createMut = useMutation({
-    mutationFn: () => axios.post(`${apiBase}/harness/memories`, { category: cat, scope, title, text, status: 'active' }, { withCredentials: true }),
+    mutationFn: () => createMemory({ category: cat, scope, title, text, status: 'active' }),
     onSuccess: () => {
       setAdding(false);
       setTitle('');
@@ -79,18 +82,18 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
   });
 
   const approveMut = useMutation({
-    mutationFn: (id: string) => axios.put(`${apiBase}/harness/memories/${id}/approve`, {}, { withCredentials: true }),
+    mutationFn: (id: string) => approveMemory(id),
     onSuccess: invalidate,
   });
 
   const promoteMut = useMutation({
-    mutationFn: (id: string) => axios.put(`${apiBase}/harness/memories/${id}/promote`, {}, { withCredentials: true }),
+    mutationFn: (id: string) => promoteMemory(id),
     onSuccess: invalidate,
   });
 
   const updateMut = useMutation({
     mutationFn: (item: { id: string; title: string; text: string; category: string; scope?: string }) =>
-      axios.put(`${apiBase}/harness/memories/${item.id}`, item, { withCredentials: true }),
+      updateMemory(item.id, item),
     onSuccess: () => {
       setEditingId(null);
       invalidate();
@@ -98,7 +101,7 @@ export function MemoryBankPanel({ apiBase }: { apiBase: string }) {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/harness/memories/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => deleteMemory(id),
     onSuccess: invalidate,
   });
 

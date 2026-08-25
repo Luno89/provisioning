@@ -40,7 +40,7 @@ export default function MeshDevices() {
   });
 
   const revoke = useMutation({
-    mutationFn: deleteMeshDevice,
+    mutationFn: (nodeId: string) => deleteMeshDevice(nodeId),
     onSuccess: () => refetch(),
   });
 

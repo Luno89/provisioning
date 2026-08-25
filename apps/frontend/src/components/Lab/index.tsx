@@ -13,7 +13,6 @@
 import { useSocketEvent } from '../../stores/socket';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { FlaskConical, Plus } from 'lucide-react';
 import { KoalaSpot } from '../Koala';
 import { card, type Experiment, type HarnessConfig, type HarnessProfile } from './shared';
@@ -27,13 +26,17 @@ import type { LiveRun } from './Live';
 import type {
   ExperimentRunFinished, ExperimentRunStarted, ExperimentStepEvent,
 } from '@koala/harness-types';
+import {
+  getConfig, getProfile, listExperiments, runExperiment, stopExperiment,
+  duplicateExperiment, deleteExperiment,
+} from '../../api/harness';
 
 /** Steps kept for a run in flight. A window onto work happening, not a record — the trace is that. */
 const MAX_LIVE_STEPS = 12;
 
 type Tab = 'experiments' | 'tool-repo' | 'memories' | 'harness';
 
-export default function Lab({ apiBase }: { apiBase: string }) {
+export default function Lab() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('experiments');
   const [live, setLive] = useState<Record<string, LiveRun>>({});
@@ -43,17 +46,17 @@ export default function Lab({ apiBase }: { apiBase: string }) {
 
   const { data: config } = useQuery<HarnessConfig>({
     queryKey: ['harness-config'],
-    queryFn: () => axios.get(`${apiBase}/harness/config`, { withCredentials: true }).then((r) => r.data),
+    queryFn: getConfig,
   });
 
   const { data: profile } = useQuery<HarnessProfile | null>({
     queryKey: ['harness-profile'],
-    queryFn: () => axios.get(`${apiBase}/harness/profile`, { withCredentials: true }).then((r) => r.data),
+    queryFn: getProfile,
   });
 
   const { data: experiments } = useQuery<Experiment[]>({
     queryKey: ['experiments'],
-    queryFn: () => axios.get(`${apiBase}/harness/experiments`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listExperiments,
     /**
      * Polled only while something is actually running.
      *
@@ -118,20 +121,20 @@ export default function Lab({ apiBase }: { apiBase: string }) {
   });
 
   const run = useMutation({
-    mutationFn: (id: string) => axios.post(`${apiBase}/harness/experiments/${id}/run`, {}, { withCredentials: true }),
+    mutationFn: (id: string) => runExperiment(id),
     onSuccess: invalidate,
   });
   const remove = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/harness/experiments/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => deleteExperiment(id),
     onSuccess: invalidate,
   });
   const duplicate = useMutation({
     mutationFn: (id: string) =>
-      axios.post(`${apiBase}/harness/experiments/${id}/duplicate`, {}, { withCredentials: true }),
+      duplicateExperiment(id),
     onSuccess: invalidate,
   });
   const stop = useMutation({
-    mutationFn: (id: string) => axios.post(`${apiBase}/harness/experiments/${id}/stop`, {}, { withCredentials: true }),
+    mutationFn: (id: string) => stopExperiment(id),
     onSuccess: invalidate,
   });
 
@@ -144,7 +147,6 @@ export default function Lab({ apiBase }: { apiBase: string }) {
   if (focused) {
     return (
       <Focus
-        apiBase={apiBase}
         experimentId={focused}
         config={config}
         live={live[focused]}
@@ -175,12 +177,11 @@ export default function Lab({ apiBase }: { apiBase: string }) {
         <button onClick={() => setTab('harness')} className={tabClass('harness')}>Harness</button>
       </div>
 
-      {tab === 'tool-repo' && <ToolRepoPanel apiBase={apiBase} />}
-      {tab === 'memories' && <MemoryBankPanel apiBase={apiBase} />}
+      {tab === 'tool-repo' && <ToolRepoPanel />}
+      {tab === 'memories' && <MemoryBankPanel />}
 
       {tab === 'harness' && (
         <Harness
-          apiBase={apiBase}
           config={config}
           profile={profile ?? null}
           onProfileChanged={() => qc.invalidateQueries({ queryKey: ['harness-profile'] })}
@@ -201,7 +202,6 @@ export default function Lab({ apiBase }: { apiBase: string }) {
 
           {creating && config && (
             <NewExperiment
-              apiBase={apiBase}
               languages={config.languages}
               limits={config.limits}
               tunables={config.tunables ?? []}
@@ -220,7 +220,6 @@ export default function Lab({ apiBase }: { apiBase: string }) {
             {experiments?.map((e) => (
               <ExperimentCard
                 key={e.id}
-                apiBase={apiBase}
                 experiment={e}
                 config={config}
                 profile={profile ?? null}

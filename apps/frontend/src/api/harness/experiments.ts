@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query'
 import { api } from '../client'
 import type { ExperimentSummary, Experiment as ExperimentDetail } from '@koala/harness-types'
 
@@ -46,28 +45,12 @@ export const createExperiment = (body: unknown) =>
   api.post('/harness/experiments', body).then((r) => r.data)
 
 /**
- * The full record for one experiment, fetched only when it is needed.
+ * One experiment's full record.
  *
- * `enabled` is the whole point: mounting this for every card would restore the payload problem it
- * exists to solve, so it stays idle until a panel is actually opened.
+ * A named function rather than an inline `queryFn`, because `useExperimentDetail` is not the only
+ * thing that needs to be able to say "fetch THIS experiment" — a test asserting the detail was
+ * fetched had to recognise it by URL regex otherwise, which is a second copy of the route shape.
  */
-export function useExperimentDetail(id: string, enabled: boolean) {
-  return useQuery<ExperimentDetail>({
-    queryKey: experimentKeys.detail(id),
-    queryFn: () => api.get<ExperimentDetail>(`/harness/experiments/${id}`).then((r) => r.data),
-    enabled,
-    // Evidence for a finished run never changes, so it is not worth refetching on every focus.
-    staleTime: 30_000,
-    /**
-     * Polled only while work is actually in flight.
-     *
-     * The list polls itself, but this is a different query — so a run started from the full-screen
-     * view used to sit there showing the previous attempt's output until something else forced a
-     * refetch. Watching the run is the reason to start it from there.
-     */
-    refetchInterval: (query) => {
-      const d = query.state.data
-      return d && (d.running || d.status === 'running') ? 5000 : false
-    },
-  })
-}
+export const getExperiment = (id: string): Promise<ExperimentDetail> =>
+  api.get<ExperimentDetail>(`/harness/experiments/${id}`).then((r) => r.data)
+

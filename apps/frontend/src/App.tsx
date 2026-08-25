@@ -398,7 +398,7 @@ function App() {
           <CloudAccounts />
         )}
         {view === 'mesh' && <MeshDevices />}
-        {view === 'lab' && <Lab apiBase={API_BASE} />}
+        {view === 'lab' && <Lab />}
         {view === 'grove' && (
           <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}

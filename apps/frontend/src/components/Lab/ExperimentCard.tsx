@@ -25,11 +25,9 @@ import { Results } from './Results';
 
 type Panel = 'results' | 'variants' | 'tasks' | 'history';
 
-export function ExperimentCard({
-  apiBase, experiment: e, config, profile, live, openResult, setOpenResult,
+export function ExperimentCard({ experiment: e, config, profile, live, openResult, setOpenResult,
   onFocus, onRun, onStop, onDuplicate, onDelete, onChanged, onPromoted,
 }: {
-  apiBase: string;
   experiment: Experiment;
   config: HarnessConfig | undefined;
   profile: HarnessProfile | null;
@@ -144,7 +142,6 @@ export function ExperimentCard({
         {active === 'results' && (
           hasResults ? (
             <Results
-              apiBase={apiBase}
               results={e.results}
               tasks={e.tasks}
               variants={e.variants}
@@ -159,7 +156,6 @@ export function ExperimentCard({
         )}
         {active === 'variants' && (
           <VariantPanel
-            apiBase={apiBase}
             experiment={e}
             tunables={config?.tunables ?? []}
             effective={config?.effective ?? []}
@@ -170,7 +166,7 @@ export function ExperimentCard({
           />
         )}
         {active === 'tasks' && (
-          <TaskPanel apiBase={apiBase} experiment={e} disabled={running} onSaved={onChanged} />
+          <TaskPanel experiment={e} disabled={running} onSaved={onChanged} />
         )}
         {active === 'history' && <RunHistory history={e.history} />}
       </div>

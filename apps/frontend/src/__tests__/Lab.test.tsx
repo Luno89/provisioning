@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent, within, act } from '@testing-librar
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
-import axios from 'axios';
+import * as harnessApi from '../api/harness';
 import Lab from '../components/Lab';
 
 /**
@@ -38,8 +38,49 @@ const agentStep = (over: Record<string, unknown> = {}) => ({
  * while its verify command failed. A table that quietly showed only `succeeded` would present the
  * exact failure the Lab exists to catch as a pass.
  */
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios);
+/**
+ * Mocked at the API modules, not at axios.
+ *
+ * The old version stubbed `axios.get` with a URL-matching implementation and asserted on the URLs
+ * that came back out — which made this file a second, weaker copy of the routing table. It also
+ * could not survive the api layer at all: `vi.mock('axios')` never touches the instance
+ * `api/client` builds with `axios.create()`.
+ *
+ * Asserting on the named calls is strictly better. `expect(getExperiment).toHaveBeenCalledWith
+ * ('exp-1')` says what the UI MEANT; `expect(post).toHaveBeenCalledWith('/api/harness/...')` said
+ * only what it emitted, and passed just as happily if the component asked for the wrong thing at
+ * the right URL.
+ */
+vi.mock('../api/harness', async (importOriginal) => {
+  const actual = await importOriginal<typeof harnessApi>();
+  return {
+    ...actual,
+    getConfig: vi.fn(),
+    getProfile: vi.fn(),
+    previewProfile: vi.fn(),
+    listExperiments: vi.fn(),
+    getExperiment: vi.fn(),
+    updateExperiment: vi.fn(),
+    createExperiment: vi.fn(),
+    runExperiment: vi.fn(),
+    stopExperiment: vi.fn(),
+    duplicateExperiment: vi.fn(),
+    deleteExperiment: vi.fn(),
+    promoteVariant: vi.fn(),
+    resetProfile: vi.fn(),
+    saveProfile: vi.fn(),
+    importHarnessConfig: vi.fn(),
+    listTools: vi.fn(),
+    listMemories: vi.fn(),
+    getConsolidation: vi.fn(),
+    validateAuthored: vi.fn(),
+    authorChat: vi.fn(),
+    openWorkbench: vi.fn(),
+    execInWorkbench: vi.fn(),
+    resetWorkbench: vi.fn(),
+    deleteWorkbench: vi.fn(),
+  };
+});
 
 const config = {
   sections: [{
@@ -128,25 +169,34 @@ const mockApi = (
   experiments: any[] = [],
   over: { profile?: unknown; preview?: unknown; config?: unknown } = {},
 ) => {
-  mockedAxios.get.mockImplementation((url: string) => {
-    if (url.includes('/harness/config')) return Promise.resolve({ data: over.config ?? config });
-    if (url.includes('/harness/profile/preview')) return Promise.resolve({ data: over.preview ?? preview });
-    if (url.includes('/harness/profile')) return Promise.resolve({ data: over.profile ?? null });
-    const detail = /\/harness\/experiments\/(.+)$/.exec(url);
-    if (detail) {
-      return Promise.resolve({ data: experiments.find((e) => e.id === detail[1]) ?? null });
-    }
-    return Promise.resolve({ data: experiments });
-  });
+  vi.mocked(harnessApi.getConfig).mockResolvedValue((over.config ?? config) as never);
+  vi.mocked(harnessApi.previewProfile).mockResolvedValue((over.preview ?? preview) as never);
+  vi.mocked(harnessApi.getProfile).mockResolvedValue((over.profile ?? null) as never);
+  vi.mocked(harnessApi.listExperiments).mockResolvedValue(experiments as never);
+  // The detail call resolves against the same fixtures the list came from, so a test cannot set up
+  // a list and a detail that disagree — which the URL regex allowed.
+  vi.mocked(harnessApi.getExperiment).mockImplementation(
+    async (id: string) => (experiments.find((e) => e.id === id) ?? null) as never,
+  );
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockSocket();
   mockApi();
-  mockedAxios.post.mockResolvedValue({ data: {} });
-  mockedAxios.delete.mockResolvedValue({ data: {} });
-  mockedAxios.put.mockResolvedValue({ data: {} });
+  for (const fn of [
+    harnessApi.updateExperiment, harnessApi.createExperiment, harnessApi.runExperiment,
+    harnessApi.stopExperiment, harnessApi.duplicateExperiment, harnessApi.deleteExperiment,
+    harnessApi.promoteVariant, harnessApi.resetProfile, harnessApi.saveProfile,
+    harnessApi.importHarnessConfig,
+  ]) vi.mocked(fn).mockResolvedValue({} as never);
+  vi.mocked(harnessApi.listTools).mockResolvedValue([] as never);
+  vi.mocked(harnessApi.listMemories).mockResolvedValue([] as never);
+  vi.mocked(harnessApi.getConsolidation).mockResolvedValue({} as never);
+  for (const fn of [
+    harnessApi.validateAuthored, harnessApi.authorChat, harnessApi.openWorkbench,
+    harnessApi.execInWorkbench, harnessApi.resetWorkbench, harnessApi.deleteWorkbench,
+  ]) vi.mocked(fn).mockResolvedValue({} as never);
 });
 
 /**
@@ -162,7 +212,7 @@ const cardTab = async (name: RegExp | string) =>
 const renderLab = () => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={qc}><Lab apiBase="/api" /></QueryClientProvider>,
+    <QueryClientProvider client={qc}><Lab /></QueryClientProvider>,
   );
 };
 
@@ -338,11 +388,8 @@ describe('promoting a winning configuration', () => {
     renderLab();
     fireEvent.click(await screen.findByText('Promote'));
     fireEvent.click(await screen.findByText('Adopt'));
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/profile/promote',
-      { experimentId: 'exp-1', label: 'think=false' },
-      expect.anything(),
-    ));
+    await waitFor(() => expect(harnessApi.promoteVariant)
+      .toHaveBeenCalledWith('exp-1', 'think=false'));
   });
 
   it('will not adopt a configuration that changes nothing', async () => {
@@ -582,16 +629,14 @@ describe('the polled list stays small', () => {
     mockApi([experiment({ results: [run('t1', 'think=false', true)] })]);
     renderLab();
     await waitFor(() => expect(screen.getByText('Verified')).toBeInTheDocument());
-    expect(mockedAxios.get.mock.calls.map(([url]) => url))
-      .not.toContain('/api/harness/experiments/exp-1');
+    expect(harnessApi.getExperiment).not.toHaveBeenCalled();
   });
 
   it('fetches the detail only when a cell is opened', async () => {
     mockApi([experiment({ results: [run('t1', 'think=false', false)] })]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/think=false — 0 of 1 verified/));
-    await waitFor(() => expect(mockedAxios.get.mock.calls.map(([url]) => url))
-      .toContain('/api/harness/experiments/exp-1'));
+    await waitFor(() => expect(harnessApi.getExperiment).toHaveBeenCalledWith('exp-1'));
   });
 
   it('stops polling once nothing is running', async () => {
@@ -599,8 +644,7 @@ describe('the polled list stays small', () => {
     mockApi([experiment({ status: 'complete', results: [result()] })]);
     renderLab();
     await waitFor(() => expect(screen.getByText('Verified')).toBeInTheDocument());
-    const listCalls = () => mockedAxios.get.mock.calls
-      .filter(([url]) => url === '/api/harness/experiments').length;
+    const listCalls = () => vi.mocked(harnessApi.listExperiments).mock.calls.length;
     const before = listCalls();
     await new Promise((r) => setTimeout(r, 150));
     expect(listCalls()).toBe(before);
@@ -676,12 +720,11 @@ describe('what each variant actually changes', () => {
     fireEvent.change(box, { target: { value: 'Reworded prompt.' } });
     fireEvent.click(screen.getByText('Save variants'));
 
-    await waitFor(() => expect(mockedAxios.put).toHaveBeenCalledWith(
-      '/api/harness/experiments/exp-1',
+    await waitFor(() => expect(harnessApi.updateExperiment).toHaveBeenCalledWith(
+      'exp-1',
       { variants: expect.arrayContaining([
         { label: 'terse-prompt', overrides: expect.objectContaining({ systemPrompt: 'Reworded prompt.' }) },
       ]) },
-      expect.anything(),
     ));
   });
 
@@ -762,16 +805,14 @@ describe('full-screen focus mode', () => {
 
   it('runs both halves of the gate without starting the experiment', async () => {
     mockApi([focusable()]);
-    mockedAxios.post.mockResolvedValueOnce({
-      data: { tasks: [{ ok: false, exitCode: 1, solutionExitCode: 1, reason: 'the command is wrong, not the task' }] },
-    });
+    vi.mocked(harnessApi.validateAuthored).mockResolvedValue(
+      { tasks: [{ ok: false, exitCode: 1, solutionExitCode: 1, reason: 'the command is wrong, not the task' }] } as never,
+    );
     await openFocus();
     fireEvent.click(screen.getByText('Check gate'));
 
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/author/validate',
+    await waitFor(() => expect(harnessApi.validateAuthored).toHaveBeenCalledWith(
       { tasks: [expect.objectContaining({ id: 't1', seed: expect.any(Array) })] },
-      expect.anything(),
     ));
     expect(await screen.findByText(/Gate rejected — seed-only exit 1, solution exit 1/)).toBeInTheDocument();
   });
@@ -783,12 +824,11 @@ describe('full-screen focus mode', () => {
     fireEvent.change(screen.getByDisplayValue('node t.js'), { target: { value: 'node other.js' } });
     fireEvent.click(screen.getByText('Save experiment'));
 
-    await waitFor(() => expect(mockedAxios.put).toHaveBeenCalledWith(
-      '/api/harness/experiments/exp-1',
+    await waitFor(() => expect(harnessApi.updateExperiment).toHaveBeenCalledWith(
+      'exp-1',
       expect.objectContaining({
         tasks: [expect.objectContaining({ verifyCommand: 'node other.js' })],
       }),
-      expect.anything(),
     ));
   });
 
@@ -796,27 +836,25 @@ describe('full-screen focus mode', () => {
     // The gate says whether a command failed; only a shell says why. And it must be the same
     // environment the run uses, or the command is being tested against the wrong thing.
     mockApi([focusable()]);
-    mockedAxios.post.mockResolvedValueOnce({ data: { sessionId: 'wb-1' } });
+    vi.mocked(harnessApi.openWorkbench).mockResolvedValue({ sessionId: 'wb-1' } as never);
     await openFocus();
 
     fireEvent.click(screen.getByText('open sandbox'));
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/workbench/open',
+    await waitFor(() => expect(harnessApi.openWorkbench).toHaveBeenCalledWith(
       expect.objectContaining({ seed: [{ path: 'data.txt', content: 'test data' }] }),
-      expect.anything(),
     ));
   });
 
   it('runs a command and shows its exit code', async () => {
     mockApi([focusable()]);
-    mockedAxios.post.mockResolvedValueOnce({ data: { sessionId: 'wb-1' } });
+    vi.mocked(harnessApi.openWorkbench).mockResolvedValue({ sessionId: 'wb-1' } as never);
     await openFocus();
     fireEvent.click(screen.getByText('open sandbox'));
 
     const box = await screen.findByPlaceholderText(/ls -la/);
-    mockedAxios.post.mockResolvedValueOnce({
-      data: { stdout: 'data.txt', stderr: '', exitCode: 0, timedOut: false },
-    });
+    vi.mocked(harnessApi.execInWorkbench).mockResolvedValue(
+      { stdout: 'data.txt', stderr: '', exitCode: 0, timedOut: false } as never,
+    );
     fireEvent.change(box, { target: { value: 'ls' } });
     fireEvent.keyDown(box, { key: 'Enter' });
 
@@ -828,12 +866,13 @@ describe('full-screen focus mode', () => {
     // The idle reaper takes sessions, so a dead one is normal — and the button has to become
     // "open sandbox" again rather than leaving a prompt that cannot work.
     mockApi([focusable()]);
-    mockedAxios.post.mockResolvedValueOnce({ data: { sessionId: 'wb-1' } });
+    vi.mocked(harnessApi.openWorkbench).mockResolvedValue({ sessionId: 'wb-1' } as never);
     await openFocus();
     fireEvent.click(screen.getByText('open sandbox'));
 
     const box = await screen.findByPlaceholderText(/ls -la/);
-    mockedAxios.post.mockRejectedValueOnce({ response: { data: { error: 'No such workbench session' } } });
+    vi.mocked(harnessApi.execInWorkbench)
+      .mockRejectedValueOnce({ response: { data: { error: 'No such workbench session' } } });
     fireEvent.change(box, { target: { value: 'ls' } });
     fireEvent.keyDown(box, { key: 'Enter' });
 
@@ -848,19 +887,17 @@ describe('full-screen focus mode', () => {
     fireEvent.click(screen.getByText('Koala'));
 
     const ask = await screen.findByPlaceholderText(/ask about this task/);
-    mockedAxios.post.mockResolvedValueOnce({
-      data: {
-        reply: 'The agent never sees that file — it needs to be seeded.',
-        revision: { seed: [{ path: 'data.txt', content: 'hello' }] },
-      },
-    });
+    vi.mocked(harnessApi.authorChat).mockResolvedValue({
+      reply: 'The agent never sees that file — it needs to be seeded.',
+      revision: { seed: [{ path: 'data.txt', content: 'hello' }] },
+    } as never);
     fireEvent.change(ask, { target: { value: 'why does this fail?' } });
     fireEvent.keyDown(ask, { key: 'Enter' });
 
     expect(await screen.findByText(/never sees that file/)).toBeInTheDocument();
     expect(screen.getByText(/Proposed change to seed/)).toBeInTheDocument();
     // Nothing saved until it is accepted AND saved — two separate acts.
-    expect(mockedAxios.put).not.toHaveBeenCalled();
+    expect(harnessApi.updateExperiment).not.toHaveBeenCalled();
   });
 
   it('applies an accepted revision to the editors without saving', async () => {
@@ -869,15 +906,13 @@ describe('full-screen focus mode', () => {
     fireEvent.click(screen.getByText('Koala'));
 
     const ask = await screen.findByPlaceholderText(/ask about this task/);
-    mockedAxios.post.mockResolvedValueOnce({
-      data: { reply: 'Try this.', revision: { prompt: 'a reworded prompt' } },
-    });
+    vi.mocked(harnessApi.authorChat).mockResolvedValue({ reply: 'Try this.', revision: { prompt: 'a reworded prompt' } } as never);
     fireEvent.change(ask, { target: { value: 'reword it' } });
     fireEvent.keyDown(ask, { key: 'Enter' });
 
     fireEvent.click(await screen.findByText('apply'));
     expect(await screen.findByDisplayValue('a reworded prompt')).toBeInTheDocument();
-    expect(mockedAxios.put).not.toHaveBeenCalled();
+    expect(harnessApi.updateExperiment).not.toHaveBeenCalled();
   });
 
   it('closes on Escape, so a full-screen overlay is never a trap', async () => {
@@ -1019,9 +1054,7 @@ describe('editing a long value full screen', () => {
 
     fireEvent.click(screen.getByText('Koala'));
     const ask = await screen.findByPlaceholderText(/ask about this task/);
-    mockedAxios.post.mockResolvedValueOnce({
-      data: { reply: 'It needs seeding.', revision: { seed: [{ path: 'data.txt', content: 'hello' }] } },
-    });
+    vi.mocked(harnessApi.authorChat).mockResolvedValue({ reply: 'It needs seeding.', revision: { seed: [{ path: 'data.txt', content: 'hello' }] } } as never);
     fireEvent.change(ask, { target: { value: 'why does this fail?' } });
     fireEvent.keyDown(ask, { key: 'Enter' });
     fireEvent.click(await screen.findByText('apply'));
@@ -1035,9 +1068,13 @@ describe('editing a long value full screen', () => {
   });
 });
 
-/** A GET for one experiment's detail, which is the query the full-screen view actually reads. */
-const detailCall = (call: unknown[]) =>
-  typeof call[0] === 'string' && /\/harness\/experiments\/[^/]+$/.test(call[0]);
+/**
+ * How many times the full-screen view has fetched one experiment's detail.
+ *
+ * Was a regex over recorded axios URLs. Counting calls to the named function says the same thing
+ * without a second copy of the route shape — and cannot drift from it.
+ */
+const detailFetches = () => vi.mocked(harnessApi.getExperiment).mock.calls.length;
 
 describe('running and promoting from full screen', () => {
   const focusable = () => experiment({
@@ -1057,13 +1094,10 @@ describe('running and promoting from full screen', () => {
     // Tuning happens here, so having to close the screen to measure the change is the loop this
     // view exists to shorten.
     await openFocus(focusable());
-    mockedAxios.post.mockResolvedValueOnce({ data: {} });
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
 
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/experiments/exp-1/run', {}, expect.anything(),
-    ));
+    await waitFor(() => expect(harnessApi.runExperiment).toHaveBeenCalledWith('exp-1'));
   });
 
   it('saves before running when there are edits, and says so on the button', async () => {
@@ -1073,21 +1107,16 @@ describe('running and promoting from full screen', () => {
     fireEvent.change(screen.getByDisplayValue('node t.js'), { target: { value: 'node other.js' } });
 
     expect(screen.getByRole('button', { name: 'Save & run' })).toBeInTheDocument();
-    mockedAxios.put.mockResolvedValueOnce({ data: {} });
-    mockedAxios.post.mockResolvedValueOnce({ data: {} });
     fireEvent.click(screen.getByRole('button', { name: 'Save & run' }));
 
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/experiments/exp-1/run', {}, expect.anything(),
-    ));
+    await waitFor(() => expect(harnessApi.runExperiment).toHaveBeenCalledWith('exp-1'));
     // The edit reached the server first — the order is the point, not just that both happened.
-    expect(mockedAxios.put).toHaveBeenCalledWith(
-      '/api/harness/experiments/exp-1',
+    expect(harnessApi.updateExperiment).toHaveBeenCalledWith(
+      'exp-1',
       expect.objectContaining({ tasks: [expect.objectContaining({ verifyCommand: 'node other.js' })] }),
-      expect.anything(),
     );
-    expect(mockedAxios.put.mock.invocationCallOrder[0]!)
-      .toBeLessThan(mockedAxios.post.mock.invocationCallOrder.at(-1)!);
+    expect(vi.mocked(harnessApi.updateExperiment).mock.invocationCallOrder[0]!)
+      .toBeLessThan(vi.mocked(harnessApi.runExperiment).mock.invocationCallOrder.at(-1)!);
   });
 
   it('refetches this experiment after saving, so the edit is not visibly thrown away', async () => {
@@ -1095,29 +1124,23 @@ describe('running and promoting from full screen', () => {
     // refetching it, a save cleared the local draft and re-rendered from the stale cached detail —
     // so a save that worked perfectly looked exactly like a discarded edit.
     await openFocus(focusable());
-    const before = mockedAxios.get.mock.calls.filter((c) => detailCall(c)).length;
+    const before = detailFetches();
 
     fireEvent.change(screen.getByDisplayValue('node t.js'), { target: { value: 'node other.js' } });
-    mockedAxios.put.mockResolvedValueOnce({ data: {} });
     fireEvent.click(screen.getByText('Save experiment'));
 
-    await waitFor(() => expect(
-      mockedAxios.get.mock.calls.filter((c) => detailCall(c)).length,
-    ).toBeGreaterThan(before));
+    await waitFor(() => expect(detailFetches()).toBeGreaterThan(before));
   });
 
   it('refetches after starting, or nothing ever turns the poll on', async () => {
     // The poll interval is evaluated against the data in hand. Left saying nothing is running, it
     // returns false forever and the run is invisible until something else forces a fetch.
     await openFocus(focusable());
-    const before = mockedAxios.get.mock.calls.filter((c) => detailCall(c)).length;
+    const before = detailFetches();
 
-    mockedAxios.post.mockResolvedValueOnce({ data: {} });
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
 
-    await waitFor(() => expect(
-      mockedAxios.get.mock.calls.filter((c) => detailCall(c)).length,
-    ).toBeGreaterThan(before));
+    await waitFor(() => expect(detailFetches()).toBeGreaterThan(before));
   });
 
   it('will not start a suite that is already running', async () => {
@@ -1411,10 +1434,9 @@ describe('the prompts of a past experiment', () => {
     fireEvent.click(await screen.findByText('Edit prompts'));
     fireEvent.change(screen.getByDisplayValue('do t1'), { target: { value: 'reworded' } });
     fireEvent.click(screen.getByText('Save'));
-    await waitFor(() => expect(mockedAxios.put).toHaveBeenCalledWith(
-      '/api/harness/experiments/exp-1',
+    await waitFor(() => expect(harnessApi.updateExperiment).toHaveBeenCalledWith(
+      'exp-1',
       { tasks: [expect.objectContaining({ prompt: 'reworded' })] },
-      expect.anything(),
     ));
   });
 
@@ -1429,9 +1451,7 @@ describe('the prompts of a past experiment', () => {
     mockApi([experiment({ results: [result()] })]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/Duplicate/));
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/experiments/exp-1/duplicate', {}, expect.anything(),
-    ));
+    await waitFor(() => expect(harnessApi.duplicateExperiment).toHaveBeenCalledWith('exp-1'));
   });
 });
 
@@ -1441,8 +1461,7 @@ describe('running an experiment', () => {
     renderLab();
     await waitFor(() => expect(screen.getByTitle(/Run/)).toBeInTheDocument());
     fireEvent.click(screen.getByTitle(/Run/));
-    await waitFor(() =>
-      expect(mockedAxios.post).toHaveBeenCalledWith('/api/harness/experiments/exp-1/run', {}, expect.anything()));
+    await waitFor(() => expect(harnessApi.runExperiment).toHaveBeenCalledWith('exp-1'));
   });
 
   it('shows progress instead of a run button while it is running', async () => {
@@ -1508,10 +1527,8 @@ describe('creating an experiment', () => {
     fireEvent.click(screen.getByRole('button', { name: /Reasoning on dispatch turns/ })); // off — on by default
     fireEvent.click(screen.getByRole('button', { name: /Temperature/ }));
     fireEvent.click(screen.getByText('Create'));
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/experiments',
+    await waitFor(() => expect(harnessApi.createExperiment).toHaveBeenCalledWith(
       expect.objectContaining({ axes: { temperature: [0.2, 0.7] } }),
-      expect.anything(),
     ));
   });
 
@@ -1522,10 +1539,8 @@ describe('creating an experiment', () => {
     fireEvent.change(screen.getByPlaceholderText(/Given to the agent verbatim/), { target: { value: 'do it' } });
     fireEvent.change(screen.getByPlaceholderText(/Verify command/), { target: { value: 'node t.js' } });
     fireEvent.click(screen.getByText('Create'));
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/experiments',
+    await waitFor(() => expect(harnessApi.createExperiment).toHaveBeenCalledWith(
       expect.objectContaining({ axes: { think: [false, true] }, name: 'exp' }),
-      expect.anything(),
     ));
   });
 
@@ -1545,15 +1560,13 @@ describe('creating an experiment', () => {
     fireEvent.change(screen.getAllByPlaceholderText(/Verify command/)[1]!, { target: { value: 'node csv.js' } });
 
     fireEvent.click(screen.getByText('Create'));
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledWith(
-      '/api/harness/experiments',
+    await waitFor(() => expect(harnessApi.createExperiment).toHaveBeenCalledWith(
       expect.objectContaining({
         tasks: [
           { name: 'fib', prompt: 'do fib', verifyCommand: 'node fib.js', language: 'node' },
           { name: 'csv', prompt: 'do csv', verifyCommand: 'node csv.js', language: 'node' },
         ],
       }),
-      expect.anything(),
     ));
   });
 

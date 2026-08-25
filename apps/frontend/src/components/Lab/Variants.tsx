@@ -2,17 +2,16 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ExpandableText } from './ExpandableText';
 import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { ChevronRight, ChevronDown } from 'lucide-react';
 import {
   GROUP_LABEL, describeTunable,
   type EffectiveKnob, type Experiment, type HarnessProfile, type Tunable, errorMessage,
 } from './shared';
+import { updateExperiment } from '../../api/harness';
+import { listPersonas } from '../../api/personas';
 
-export function VariantPanel({
-  apiBase, experiment, tunables, effective, prompts, profile, disabled, onSaved,
+export function VariantPanel({ experiment, tunables, effective, prompts, profile, disabled, onSaved,
 }: {
-  apiBase: string;
   experiment: Experiment;
   tunables: Tunable[];
   /** What a run uses when a variant leaves a knob alone — adopted defaults included. */
@@ -30,14 +29,14 @@ export function VariantPanel({
   const [shown, setShown] = useState<string | null>(null);
   const { data: personas } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['personas'],
-    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listPersonas,
   });
   const [draft, setDraft] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [error, setError] = useState('');
 
   const save = useMutation({
-    mutationFn: () => axios.put(
-      `${apiBase}/harness/experiments/${experiment.id}`,
+    mutationFn: () => updateExperiment(
+      experiment.id,
       {
         variants: experiment.variants.map((v) => ({
           label: v.label,
@@ -45,7 +44,6 @@ export function VariantPanel({
           ...(personaFor(v.label) ? { personaId: personaFor(v.label) } : {}),
         })),
       },
-      { withCredentials: true },
     ),
     onSuccess: () => { setDraft(null); setPersonaDraft(null); setError(''); onSaved(); },
     onError: (err: unknown) => setError(errorMessage(err)),

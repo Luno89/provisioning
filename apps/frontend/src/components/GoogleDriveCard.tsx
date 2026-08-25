@@ -63,7 +63,7 @@ export default function GoogleDriveCard() {
   });
 
   const backup = useMutation({
-    mutationFn: runBackup,
+    mutationFn: () => runBackup(),
     onSuccess: (result) => setBackupOutput(result),
     onError: (err) => setBackupOutput({ success: false, output: errorMessage(err) }),
   });

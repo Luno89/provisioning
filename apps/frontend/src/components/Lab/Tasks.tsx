@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { ExpandableText } from './ExpandableText';
 import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { useExperimentDetail, tasksOf, type Experiment, type ExperimentTask, errorMessage } from './shared';
+import { updateExperiment } from '../../api/harness';
 
-export function TaskPanel({
-  apiBase, experiment, disabled, onSaved,
+export function TaskPanel({ experiment, disabled, onSaved,
 }: {
-  apiBase: string;
   experiment: Experiment;
   disabled: boolean;
   onSaved: () => void;
@@ -18,12 +16,12 @@ export function TaskPanel({
 
   // Prompts are the largest field in a record and the list deliberately omits them, so selecting
   // this tab is what pays for them — nothing fetches until you ask.
-  const { data: detail, isPending } = useExperimentDetail(apiBase, experiment.id, true);
+  const { data: detail, isPending } = useExperimentDetail(experiment.id, true);
   const tasks = detail ? tasksOf(detail) : [];
 
   const save = useMutation({
     mutationFn: () =>
-      axios.put(`${apiBase}/harness/experiments/${experiment.id}`, { tasks: draft }, { withCredentials: true }),
+      updateExperiment(experiment.id, { tasks: draft }),
     onSuccess: () => { setEditing(false); setError(''); onSaved(); },
     onError: (err: unknown) => setError(errorMessage(err)),
   });

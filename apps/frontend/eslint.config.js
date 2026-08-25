@@ -31,6 +31,11 @@ import { defineConfig, globalIgnores } from 'eslint/config'
  * parser, and 3 unused catch bindings) were fixed outright rather than listed.
  */
 const LEGACY = [
+  // Lab/ went through the api layer in slice 9, but these three still carry pre-existing `any`s
+  // that have nothing to do with the transport — a separate, smaller cleanup.
+  'src/components/Lab/Harness.tsx',
+  'src/components/Lab/MemoryBankPanel.tsx',
+  'src/components/Lab/ToolRepoPanel.tsx',
   // Slice 4 (the App.tsx modal extraction) retires this one; it is a third of all debt.
   'src/App.tsx',
   // Slice 3.
@@ -44,9 +49,6 @@ const LEGACY = [
   'src/components/Home.tsx',
   'src/components/PersonaEditor.tsx',
   'src/components/Projects.tsx',
-  'src/components/Lab/ToolRepoPanel.tsx',
-  'src/components/Lab/Harness.tsx',
-  'src/components/Lab/MemoryBankPanel.tsx',
   // Not yet assigned to a slice: small, and each wants a domain type that does not exist yet.
   'src/components/Login.tsx',
 ]

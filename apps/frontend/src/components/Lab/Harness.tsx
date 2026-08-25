@@ -7,16 +7,20 @@
  */
 import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { ChevronRight, ChevronDown, Download, Upload, Save, RefreshCw, CheckCircle2, Sliders } from 'lucide-react';
 import { card, describeValue, describeTunable, type HarnessConfig, type HarnessProfile, errorMessage } from './shared';
 import { ProfileBanner } from './Promote';
 import { Personas } from './Personas';
+// Aliased: this file already has mutations named `saveProfile` and `resetProfile`, and the
+// collision is worth keeping rather than renaming the local ones — those names describe what the
+// COMPONENT does, and the api functions are the transport it does it with.
+import {
+  saveProfile as putProfile, resetProfile as clearProfile, importHarnessConfig,
+  harnessExportUrl,
+} from '../../api/harness';
 
-export function Harness({
-  apiBase, config, profile, onProfileChanged, onImported,
+export function Harness({ config, profile, onProfileChanged, onImported,
 }: {
-  apiBase: string;
   config: HarnessConfig | undefined;
   profile: HarnessProfile | null;
   onProfileChanged: () => void;
@@ -39,7 +43,7 @@ export function Harness({
 
   const saveProfile = useMutation({
     mutationFn: (newOverrides: Record<string, any>) =>
-      axios.put(`${apiBase}/harness/profile`, { overrides: newOverrides }, { withCredentials: true }).then((r) => r.data),
+      putProfile({ overrides: newOverrides }),
     onSuccess: () => {
       setStatusNote('Harness settings saved successfully!');
       onProfileChanged();
@@ -50,7 +54,7 @@ export function Harness({
 
   const resetProfile = useMutation({
     mutationFn: () =>
-      axios.delete(`${apiBase}/harness/profile`, { withCredentials: true }).then((r) => r.data),
+      clearProfile(),
     onSuccess: () => {
       setOverrides({});
       setStatusNote('Harness reset to factory defaults.');
@@ -62,7 +66,7 @@ export function Harness({
 
   const doImport = useMutation({
     mutationFn: (doc: unknown) =>
-      axios.post(`${apiBase}/harness/import`, doc, { withCredentials: true }).then((r) => r.data),
+      importHarnessConfig(doc),
     onSuccess: (d: { created?: string[]; failed?: string[]; rejected?: string[] }) => {
       setImportNote(
         `Imported ${d.created?.length ?? 0}.`
@@ -95,7 +99,7 @@ export function Harness({
 
   return (
     <div className="space-y-6">
-      <ProfileBanner apiBase={apiBase} profile={profile} onChanged={onProfileChanged} />
+      <ProfileBanner profile={profile} onChanged={onProfileChanged} />
 
       {/* ── Interactive Settings Editor ── */}
       <section>
@@ -213,7 +217,7 @@ export function Harness({
       </section>
 
       {/* ── the configurations you can choose between, above the one everybody gets ── */}
-      <Personas apiBase={apiBase} config={config} />
+      <Personas config={config} />
 
       {/* ── built-in settings, each with the failure that set it ── */}
       <section>
@@ -323,7 +327,7 @@ export function Harness({
           </p>
           <div className="flex items-center gap-3">
             <a
-              href={`${apiBase}/harness/export`}
+              href={harnessExportUrl()}
               download="koala-harness.json"
               className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white"
             >

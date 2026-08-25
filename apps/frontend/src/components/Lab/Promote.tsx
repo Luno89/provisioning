@@ -1,17 +1,15 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { Award } from 'lucide-react';
 import { card, type HarnessProfile, type OverrideChange, type PromotionStanding } from './shared';
+import { resetProfile, promoteVariant, previewProfile } from '../../api/harness';
 
-export function ProfileBanner({
-  apiBase, profile, onChanged,
+export function ProfileBanner({ profile, onChanged,
 }: {
-  apiBase: string;
   profile: HarnessProfile | null;
   onChanged: () => void;
 }) {
   const reset = useMutation({
-    mutationFn: () => axios.delete(`${apiBase}/harness/profile`, { withCredentials: true }),
+    mutationFn: () => resetProfile(),
     onSuccess: onChanged,
   });
 
@@ -64,10 +62,8 @@ export function ProfileBanner({
  * has accumulated a few promotions it rarely does — so what would actually change is fetched from
  * the server and shown before anything is applied.
  */
-export function PromoteConfirm({
-  apiBase, experimentId, label, onDone, onCancel,
+export function PromoteConfirm({ experimentId, label, onDone, onCancel,
 }: {
-  apiBase: string;
   experimentId: string;
   label: string;
   onDone: () => void;
@@ -75,17 +71,13 @@ export function PromoteConfirm({
 }) {
   const { data, isPending } = useQuery<{ standing: PromotionStanding; changes: OverrideChange[] }>({
     queryKey: ['promotion-preview', experimentId, label],
-    queryFn: () => axios
-      .get(`${apiBase}/harness/profile/preview`, {
-        params: { experimentId, label }, withCredentials: true,
-      })
-      .then((r) => r.data),
+    queryFn: () => previewProfile({ experimentId, label }) as Promise<
+      { standing: PromotionStanding; changes: OverrideChange[] }
+    >,
   });
 
   const promote = useMutation({
-    mutationFn: () => axios.post(
-      `${apiBase}/harness/profile/promote`, { experimentId, label }, { withCredentials: true },
-    ),
+    mutationFn: () => promoteVariant(experimentId, label),
     onSuccess: onDone,
   });
 

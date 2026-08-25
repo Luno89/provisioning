@@ -12,9 +12,9 @@
  */
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { Loader2, RotateCcw, Power } from 'lucide-react';
 import { errorMessage } from './shared';
+import { openWorkbench, execInWorkbench, resetWorkbench, deleteWorkbench } from '../../api/harness';
 
 interface Line {
   command: string;
@@ -24,10 +24,8 @@ interface Line {
   timedOut?: boolean;
 }
 
-export function Terminal({
-  apiBase, seed, language, field, heading,
+export function Terminal({ seed, language, field, heading,
 }: {
-  apiBase: string;
   seed: { path: string; content: string }[];
   language?: string | undefined;
   field: string;
@@ -39,17 +37,14 @@ export function Terminal({
   const [error, setError] = useState('');
 
   const open = useMutation({
-    mutationFn: () => axios
-      .post(`${apiBase}/harness/workbench/open`, { seed, language }, { withCredentials: true })
-      .then((r) => r.data as { sessionId: string }),
+    mutationFn: () => openWorkbench({ seed, language }) as Promise<{ sessionId: string }>,
     onSuccess: (d) => { setSessionId(d.sessionId); setError(''); },
     onError: (err: unknown) => setError(errorMessage(err)),
   });
 
   const run = useMutation({
-    mutationFn: (cmd: string) => axios
-      .post(`${apiBase}/harness/workbench/exec`, { sessionId, command: cmd }, { withCredentials: true })
-      .then((r) => r.data as Omit<Line, 'command'>),
+    mutationFn: (cmd: string) =>
+      execInWorkbench({ sessionId, command: cmd }) as Promise<Omit<Line, 'command'>>,
     onSuccess: (d, cmd) => { setLines((l) => [...l, { command: cmd, ...d }].slice(-40)); setError(''); },
     onError: (err: unknown) => {
       // The idle reaper takes sessions, so a dead one is expected rather than exceptional — say so
@@ -60,13 +55,13 @@ export function Terminal({
   });
 
   const reset = useMutation({
-    mutationFn: () => axios.post(`${apiBase}/harness/workbench/reset`, { sessionId, seed }, { withCredentials: true }),
+    mutationFn: () => resetWorkbench({ sessionId, seed }),
     onSuccess: () => { setLines([]); setError(''); },
     onError: (err: unknown) => { setError(errorMessage(err)); setSessionId(null); },
   });
 
   const close = useMutation({
-    mutationFn: () => axios.delete(`${apiBase}/harness/workbench/${sessionId}`, { withCredentials: true }),
+    mutationFn: () => deleteWorkbench(sessionId!),
     onSuccess: () => { setSessionId(null); setLines([]); },
   });
 

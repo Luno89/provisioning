@@ -1,18 +1,16 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { Plus, Trash2 } from 'lucide-react';
 import { card, GROUP_LABEL, describeValue, describeTunable, type Tunable, errorMessage } from './shared';
 import { ExpandableText } from './ExpandableText';
+import { createExperiment } from '../../api/harness';
 
 interface DraftTask { name: string; prompt: string; verifyCommand: string; language: string }
 
 const blankTask = (): DraftTask => ({ name: '', prompt: '', verifyCommand: '', language: 'node' });
 
-export function NewExperiment({
-  apiBase, languages, limits, tunables, onDone,
+export function NewExperiment({ languages, limits, tunables, onDone,
 }: {
-  apiBase: string;
   languages: { id: string; summary: string }[];
   limits: { maxVariants: number; maxRepeats: number; maxTasks: number; maxTotalRuns: number };
   tunables: Tunable[];
@@ -26,11 +24,11 @@ export function NewExperiment({
 
   const create = useMutation({
     mutationFn: () =>
-      axios.post(`${apiBase}/harness/experiments`,
+      createExperiment(
         // The suite's first language doubles as the experiment default, so a record always has one
         // even though every task carries its own.
         { name, tasks, language: tasks[0]?.language ?? 'node', axes, repeats },
-        { withCredentials: true }),
+      ),
     onSuccess: onDone,
     onError: (err: unknown) => setError(errorMessage(err)),
   });

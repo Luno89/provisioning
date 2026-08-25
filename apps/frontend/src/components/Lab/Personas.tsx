@@ -10,10 +10,11 @@
  */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { Plus, Trash2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { ExpandableText } from './ExpandableText';
 import { card, describeTunable, errorMessage, type HarnessConfig, type Tunable } from './shared';
+import { listPersonas, createPersona, updatePersona, deletePersona } from '../../api/personas';
+import type { Persona as ApiPersona } from '../PersonaEditor';
 
 export interface Persona {
   id: string;
@@ -45,15 +46,15 @@ const showRaw = (value: unknown): string => {
   return String(value);
 };
 
-export function Personas({ apiBase, config }: { apiBase: string; config: HarnessConfig | undefined }) {
+export function Personas({ config }: { config: HarnessConfig | undefined }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState<Persona | null>(null);
   const [error, setError] = useState('');
 
-  const { data: personas } = useQuery<Persona[]>({
+  const { data: personas } = useQuery<ApiPersona[]>({
     queryKey: ['personas'],
-    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listPersonas,
   });
 
   const done = () => {
@@ -64,14 +65,14 @@ export function Personas({ apiBase, config }: { apiBase: string; config: Harness
 
   const save = useMutation({
     mutationFn: (p: Persona) => (p.id
-      ? axios.put(`${apiBase}/personas/${p.id}`, p, { withCredentials: true })
-      : axios.post(`${apiBase}/personas`, p, { withCredentials: true })),
+      ? updatePersona(p.id, p)
+      : createPersona(p)),
     onSuccess: done,
     onError: (err: unknown) => setError(errorMessage(err)),
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/personas/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => deletePersona(id),
     onSuccess: done,
     onError: (err: unknown) => setError(errorMessage(err)),
   });

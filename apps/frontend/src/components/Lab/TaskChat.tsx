@@ -12,9 +12,9 @@
  */
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
 import { Loader2, Check, X } from 'lucide-react';
 import { errorMessage, type ExperimentTask } from './shared';
+import { authorChat } from '../../api/harness';
 
 interface Turn {
   role: 'user' | 'assistant';
@@ -26,10 +26,8 @@ type Revision = Partial<Pick<ExperimentTask, 'prompt' | 'verifyCommand' | 'seed'
 /** What a revision would change, by name — so accepting is never a surprise. */
 const changedFields = (r: Revision): string[] => Object.keys(r);
 
-export function TaskChat({
-  apiBase, task, field, onAccept,
+export function TaskChat({ task, field, onAccept,
 }: {
-  apiBase: string;
   task: ExperimentTask | undefined;
   field: string;
   onAccept: (revision: Revision) => void;
@@ -43,9 +41,7 @@ export function TaskChat({
     mutationFn: (text: string) => {
       const next: Turn[] = [...turns, { role: 'user', content: text }];
       setTurns(next);
-      return axios
-        .post(`${apiBase}/harness/author/chat`, { task, messages: next }, { withCredentials: true })
-        .then((r) => r.data as { reply: string; revision: Revision | null });
+      return authorChat({ task, messages: next }) as Promise<{ reply: string; revision: Revision | null }>;
     },
     onSuccess: (d) => {
       setError('');

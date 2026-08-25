@@ -66,7 +66,7 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
   });
 
   const refresh = useMutation({
-    mutationFn: refreshVpsCatalog,
+    mutationFn: () => refreshVpsCatalog(),
     onSuccess: () => refetch(),
   });
 

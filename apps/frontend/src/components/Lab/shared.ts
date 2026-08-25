@@ -6,13 +6,12 @@
  * is how a 1,500-line file happens twice.
  */
 import { createContext, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
 import type {
   AgentRequest, AgentStep, ConversationMessage, EffectiveKnob, Experiment as ExperimentDetail, ExperimentSummary, ExperimentTask,
   HarnessConfig, HarnessProfile, OverrideChange, PromotionStanding, ResultSummary, RunSummary, TaskFile,
   Tunable, VariantResult,
 } from '@koala/harness-types';
+
 
 export type {
   AgentRequest, AgentStep, ConversationMessage, EffectiveKnob, ExperimentDetail, ExperimentSummary, ExperimentTask,
@@ -24,33 +23,18 @@ export type {
 export type Experiment = ExperimentSummary;
 
 /**
- * The full record for one experiment, fetched only when it is needed.
+ * Re-exported, not re-declared.
  *
- * `enabled` is the whole point: mounting this for every card would restore the payload problem it
- * exists to solve, so it stays idle until a panel is actually opened.
+ * This hook USED to live here, and that was the wrong home: `shared.ts` is what eight panels
+ * import for the card class and the median helper, so a data-fetching hook here meant every panel
+ * that wanted a CSS string also pulled in axios. It lives in `api/harness/experiments.ts` now,
+ * beside the other experiment calls, with its docblocks intact — the `enabled` gate and the
+ * poll-while-running rule are both measured behaviour, not preference.
+ *
+ * Still exported from here because eight files import it from `./shared`, and pointing them all
+ * at the api module is a separate, mechanical change.
  */
-export function useExperimentDetail(apiBase: string, id: string, enabled: boolean) {
-  return useQuery<ExperimentDetail>({
-    queryKey: ['experiment', id],
-    queryFn: () => axios
-      .get(`${apiBase}/harness/experiments/${id}`, { withCredentials: true })
-      .then((r) => r.data),
-    enabled,
-    // Evidence for a finished run never changes, so it is not worth refetching on every focus.
-    staleTime: 30_000,
-    /**
-     * Polled only while work is actually in flight.
-     *
-     * The list polls itself, but this is a different query — so a run started from the full-screen
-     * view used to sit there showing the previous attempt's output until something else forced a
-     * refetch. Watching the run is the reason to start it from there.
-     */
-    refetchInterval: (query) => {
-      const d = query.state.data;
-      return d && (d.running || d.status === 'running') ? 5000 : false;
-    },
-  });
-}
+export { useExperimentDetail } from '../../hooks/use-experiment-detail';
 
 export const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
 

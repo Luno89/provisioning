@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { Wrench, CheckCircle2, Code2, Plus, Edit3, Trash2, Save, X, Terminal, AlertTriangle, RotateCcw } from 'lucide-react';
 import { card } from './shared';
+import { listTools, createTool, updateTool, deleteTool } from '../../api/harness';
 
 interface ToolRepositoryItem {
   id: string;
@@ -29,7 +29,7 @@ const CATEGORY_BADGES: Record<string, string> = {
   custom: 'bg-orange-950/60 text-orange-300 border-orange-800',
 };
 
-export function ToolRepoPanel({ apiBase }: { apiBase: string }) {
+export function ToolRepoPanel() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<string>('all');
   const [adding, setAdding] = useState(false);
@@ -47,13 +47,13 @@ export function ToolRepoPanel({ apiBase }: { apiBase: string }) {
 
   const { data: tools, isLoading } = useQuery<ToolRepositoryItem[]>({
     queryKey: ['tools-repository'],
-    queryFn: () => axios.get(`${apiBase}/harness/tools`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listTools,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['tools-repository'] });
 
   const createMut = useMutation({
-    mutationFn: (payload: any) => axios.post(`${apiBase}/harness/tools`, payload, { withCredentials: true }),
+    mutationFn: (payload: unknown) => createTool(payload),
     onSuccess: () => {
       setAdding(false);
       resetForm();
@@ -63,7 +63,7 @@ export function ToolRepoPanel({ apiBase }: { apiBase: string }) {
 
   const updateMut = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: any }) =>
-      axios.put(`${apiBase}/harness/tools/${id}`, payload, { withCredentials: true }),
+      updateTool(id, payload),
     onSuccess: () => {
       setEditingId(null);
       resetForm();
@@ -72,7 +72,7 @@ export function ToolRepoPanel({ apiBase }: { apiBase: string }) {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/harness/tools/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => deleteTool(id),
     onSuccess: invalidate,
   });
 
