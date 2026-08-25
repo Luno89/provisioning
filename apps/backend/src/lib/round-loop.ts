@@ -146,6 +146,8 @@ export interface RoundToolCall {
 export interface ToolExecResult {
   /** The text appended to the turn as the tool result. */
   content: string;
+  /** Whether the call succeeded. Defaults true; koala sets it from a refusal check. */
+  ok?: boolean;
   /** A digest recorded in the transcript — defaults to `content` clipped. */
   digest?: string;
   /** Koala: a service enabled mid-turn widens the next round's tools. */
@@ -181,6 +183,8 @@ export interface RoundLoopConfig {
   trimPerRound?: (messages: unknown[]) => unknown[];
   /** When the budget runs dry with no answer: 'wrap-up' forces a final bare answer. */
   onExhausted?: 'wrap-up';
+  /** Called when a tool enabled a service; lets the caller widen next round's tools/system. */
+  onEnabled?: (name: string) => void;
   maxToolCallsPerMessage?: number;
   maxToolCallArgs?: number;
   maxToolCallDigest?: number;
@@ -250,16 +254,26 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
       spoken = acc.answer;
       answer = acc.answer;
     }
+    // A round that called tools must record the assistant's tool_calls message before its tool
+    // results — the API rejects a `tool` message that has no `tool_calls` entry before it.
+    if (acc.calls.length > 0) {
+      turn.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: acc.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
+      });
+    }
     for (const c of acc.calls) {
       cfg.emit({ kind: 'toolCall', id: c.id, name: c.name, args: c.arguments.slice(0, maxToolCallArgs) });
       const out = await executeTool(c);
-      const ok = true;
+      const ok = out.ok ?? true;
       const digest = (out.digest ?? out.content).slice(0, maxToolCallDigest);
       if (toolCalls.length < maxToolCallsPerMessage) {
         toolCalls.push({ id: c.id, name: c.name, ok, digest });
       }
       cfg.emit({ kind: 'toolResult', id: c.id, ok, digest });
       if (out.enabled && !enabledNow.includes(out.enabled)) enabledNow.push(out.enabled);
+      if (out.enabled) cfg.onEnabled?.(out.enabled);
       if (out.proposed) proposedTrees.push(out.proposed);
       if (out.proposedSpec) proposedSpecs.push(out.proposedSpec);
       turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });

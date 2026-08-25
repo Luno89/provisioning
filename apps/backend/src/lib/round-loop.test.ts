@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createStreamParser, type StreamEvent } from './round-loop.js';
+import { createStreamParser, type StreamEvent, type RoundToolCall } from './round-loop.js';
 import { runToolRounds } from './round-loop.js';
 
 /* ═════════════ PARSER (C1) ═════════════ */
@@ -182,5 +182,48 @@ describe('runToolRounds', () => {
     });
     expect(result.answer).toBe('done');
     expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the assistant tool_calls message ahead of the tool result', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, body: toolBody('t1', 'get_logs', '{"pod":"p"}') })
+      .mockResolvedValueOnce({ ok: true, body: contentBody('logs') });
+    const seen: unknown[] = [];
+    let messages: unknown[] = [{ role: 'user', content: 'hi' }];
+    await runToolRounds({
+      maxRounds: 3,
+      messages,
+      call: async (msgs: unknown[]) => {
+        messages = msgs;
+        return call();
+      },
+      emit: vi.fn(),
+      executeTool: async (c: RoundToolCall) => ({ content: 'out', digest: 'dig' }),
+    });
+    // The second call's transcript must contain the assistant tool_calls message and tool result.
+    expect(messages).toContainEqual({
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 't1', type: 'function', function: { name: 'get_logs', arguments: '{"pod":"p"}' } }],
+    });
+    expect(messages).toContainEqual({ role: 'tool', tool_call_id: 't1', name: 'get_logs', content: 'out' });
+  });
+
+  it('calls onEnabled when a tool enables a service', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, body: toolBody('e', 'enable_mcp_server', '{"name":"svc"}') })
+      .mockResolvedValueOnce({ ok: true, body: contentBody('done') });
+    const onEnabled = vi.fn();
+    await runToolRounds({
+      maxRounds: 3,
+      messages: [{ role: 'user', content: 'hi' }],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: 'x', enabled: 'svc' }),
+      onEnabled,
+    });
+    expect(onEnabled).toHaveBeenCalledWith('svc');
   });
 });
