@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, AlertTriangle, Loader2, ExternalLink, KeyRound } from 'lucide-react';
 import { listMeshDevices } from '../api/mesh';
+import { listClusterProviders, type ClusterProviderSpec } from '../api/cluster-providers';
+import { useQuery } from '@tanstack/react-query';
 import { getVpsCatalog } from '../api/vps-catalog';
 import { validateCredentials, saveCredentials } from '../api/credentials';
 
@@ -17,28 +19,7 @@ import { validateCredentials, saveCredentials } from '../api/credentials';
  * entirely when the provider needs no credentials (k3d) or already has them configured.
  */
 
-export interface ProviderOption {
-  value: string;
-  label: string;
-  /** Credential provider key this cluster provider needs, if any. */
-  credentialKey?: string;
-  hint?: string;
-}
 
-const PROVIDER_OPTIONS: ProviderOption[] = [
-  { value: 'k3d', label: 'Local Datacenter (k3d)', hint: 'Runs on this machine. No credentials, no cost.' },
-  {
-    value: 'hetzner',
-    label: 'Hetzner Cloud (VPS)',
-    credentialKey: 'hetzner',
-    hint: 'Creates a real VM, installs k3s on it over SSH, and bills to your Hetzner project.',
-  },
-  {
-    value: 'remote',
-    label: 'One of my machines',
-    hint: 'Use hardware you already own — a GPU workstation, a spare server — once it has joined the mesh under My Machines.',
-  },
-];
 
 /**
  * Plans and prices come from the live catalogue (`/api/vps-catalog`), not a list in this file.
@@ -55,7 +36,11 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
  *    measures at a ~5 GB working set, so a 4 GB plan leaves no usable headroom. See
  *    tests/lib/memory-budget.ts for where that number comes from.
  */
-const CATALOG_QUERY = 'provider=hetzner&provisionableOnly=true&arch=x86&minRamGb=8&sort=price&sortDir=asc&limit=100';
+/**
+ * Shared filter tail for a catalog fetch; the provider segment comes from the selected row.
+ */
+const catalogQueryFor = (providerValue: string) =>
+  `provider=${providerValue}&provisionableOnly=true&arch=x86&minRamGb=8&sort=price&sortDir=asc&limit=100`;
 
 /** The API returns provider-native location codes; these are just for humans. */
 const LOCATION_LABELS: Record<string, string> = {
@@ -145,21 +130,34 @@ export default function ClusterWizard({
   const [remoteHost, setRemoteHost] = useState('');
   const [remoteUsername, setRemoteUsername] = useState('root');
 
-  const selected = PROVIDER_OPTIONS.find((p) => p.value === provider)!;
-  const credentialKey = selected.credentialKey;
+  // The provider list is served data. While it loads the select is empty and Next stays disabled —
+  // the same guarded state a slow credentials fetch already produced.
+  const { data: providers = [] } = useQuery({
+    queryKey: ['cluster-providers', 'list'],
+    queryFn: listClusterProviders,
+    staleTime: Infinity,
+  });
+
+  // Capability flags replace name equality: what the wizard does next depends on WHAT the provider
+  // can do (serve a catalog, join the mesh), not on which string it is called.
+  const selected: ClusterProviderSpec | undefined = providers.find((p) => p.value === provider);
+  const hasCatalog = !!selected?.hasCatalog;
+  const usesMesh = !!selected?.usesMesh;
+  const catalogProviderValue = selected?.value ?? '';
+  const credentialKey = selected?.credentialKey;
   const alreadyConfigured = !!credentialKey && configuredProviders.some((p) => p.provider === credentialKey && p.configured);
 
   // The token step is skipped when there's nothing to ask for — but only *skipped*, never
   // removed: `needsCredentialStep` is recomputed as the provider changes, so going back and
   // switching from k3d to Hetzner re-introduces it.
   const needsCredentialStep = !!credentialKey && !alreadyConfigured && !tokenSaved;
-  const needsOptionsStep = provider === 'hetzner';
-  const needsRemoteStep = provider === 'remote';
+  const needsOptionsStep = hasCatalog;
+  const needsRemoteStep = usesMesh;
 
   // Re-fetched once a token exists: the Hetzner catalogue is credential-gated, so a fetch before
   // the credentials step would come back empty and strand the user on the fallback list.
   useEffect(() => {
-    if (provider !== 'remote') return;
+    if (!usesMesh) return;
     let cancelled = false;
     listMeshDevices()
       .then((d) => { if (!cancelled) setMeshDevices(Array.isArray(d) ? d : []); })
@@ -167,17 +165,17 @@ export default function ClusterWizard({
       // same thing the user needs to do either way.
       .catch(() => { if (!cancelled) setMeshDevices([]); });
     return () => { cancelled = true; };
-  }, [provider]);
+  }, [usesMesh]);
 
   const hasToken = alreadyConfigured || tokenSaved;
   useEffect(() => {
-    if (provider !== 'hetzner' || !hasToken) return;
+    if (!hasCatalog || !hasToken) return;
     let cancelled = false;
-    getVpsCatalog(CATALOG_QUERY)
+    getVpsCatalog(catalogQueryFor(catalogProviderValue))
       .then((d) => { if (!cancelled) { setOffers(d.offers ?? []); setCatalogFailed((d.offers ?? []).length === 0); } })
       .catch(() => { if (!cancelled) setCatalogFailed(true); });
     return () => { cancelled = true; };
-  }, [provider, hasToken]);
+  }, [hasCatalog, catalogProviderValue, hasToken]);
 
   /**
    * One entry per plan, cheapest tier as the headline. The catalogue returns a separate offer per
@@ -258,10 +256,10 @@ export default function ClusterWizard({
     onSubmit({
       name,
       provider,
-      ...(provider === 'hetzner' ? { hetznerServerType: serverType, hetznerLocation: location } : {}),
-      // Field names match what POST /api/clusters expects for provider:'remote' — the same shape
-      // tests/remote-host-integration.ts drives end to end.
-      ...(provider === 'remote' ? {
+      // Payload field names are keyed to capability, not vendor: a catalog-bearing provider carries
+      // its plan/location, a mesh-backed one its host. The backend still validates per provider.
+      ...(hasCatalog ? { hetznerServerType: serverType, hetznerLocation: location } : {}),
+      ...(usesMesh ? {
         remoteHost,
         remoteUsername: remoteUsername.trim() || 'root',
       } : {}),
@@ -357,13 +355,13 @@ export default function ClusterWizard({
                 onChange={(e) => setProvider(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 focus:border-blue-500 text-sm"
               >
-                {PROVIDER_OPTIONS.map((p) => (
+                {providers.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
                   </option>
                 ))}
               </select>
-              {selected.hint && <p className="text-[11px] text-slate-500 mt-2 px-1">{selected.hint}</p>}
+              {selected?.hint && <p className="text-[11px] text-slate-500 mt-2 px-1">{selected.hint}</p>}
               {credentialKey && alreadyConfigured && (
                 <p className="text-[11px] text-green-400 mt-2 px-1 flex items-center gap-1">
                   <Check size={12} /> Credentials already configured
@@ -384,7 +382,7 @@ export default function ClusterWizard({
                 <KeyRound size={20} />
               </span>
               <div>
-                <h4 className="font-bold text-white">{selected.label} API Token</h4>
+                <h4 className="font-bold text-white">{selected?.label} API Token</h4>
                 <p className="text-[11px] text-slate-500">
                   Stored encrypted (AES-256-GCM) and reused for every cluster on this provider.
                 </p>
