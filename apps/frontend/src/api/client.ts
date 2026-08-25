@@ -50,3 +50,46 @@ export const errorMessage = (err: unknown): string => {
   const e = err as { response?: { data?: { error?: string } }; message?: string }
   return e?.response?.data?.error ?? e?.message ?? 'Something went wrong.'
 }
+
+/**
+ * A streaming POST, for the two SSE chat routes.
+ *
+ * ── WHY THIS IS NOT `api.post` ──
+ * Axios resolves once, with the whole body. These routes emit tokens over minutes and the UI
+ * renders each one as it lands, so the caller needs the `ReadableStream` — which means `fetch`.
+ * Wrapping it in the axios instance would look like it worked and stream nothing.
+ *
+ * What it DOES share with the rest of the layer: the base URL, the credentials mode, and one
+ * definition of what an error response means. Those were the parts duplicated at the two call
+ * sites, and the error handling had already drifted — one read `body.error`, the other
+ * `(await res.json()).error` with a different fallback string.
+ *
+ * `signal` is passed through rather than owned here: `/api/chat` aborts mid-stream when the user
+ * stops a turn, and the AbortController belongs to the component that owns the stop button.
+ *
+ * The return type NAMES the non-null body. This function already refuses a response without one,
+ * so `Promise<Response>` would have made every caller re-check something that cannot happen —
+ * which in practice means a `!` at each call site, and a `!` is indistinguishable from a guess.
+ */
+export type StreamResponse = Response & { body: ReadableStream<Uint8Array> }
+
+export async function postStream(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<StreamResponse> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+    ...(signal ? { signal } : {}),
+  })
+  if (!res.ok || !res.body) {
+    // The server's own `{ error }` first, same precedence as `errorMessage` — a route that refuses
+    // a turn explains why, and "Request failed (400)" throws that explanation away.
+    const detail = await res.json().catch(() => ({} as { error?: string }))
+    throw new Error(detail.error || `Request failed (HTTP ${res.status})`)
+  }
+  return res as StreamResponse
+}

@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import {
   MessageSquarePlus, Trash2, Plug, Sprout, Send, Loader2, Terminal, Check, X, Info,
 } from 'lucide-react';
 import SpecProposal from './SpecProposal.js';
 import Markdown from './Markdown.js';
+import {
+  listConversations, getConversation, createConversation, deleteConversation,
+  acceptSpecProposal, acceptTreeProposal, openKoalaStream, koalaKeys,
+} from '../api/koala';
+import { errorMessage } from '../api/client';
 
 /**
  * General chat with Koala — the front door when you have not decided what you are building.
@@ -68,8 +72,7 @@ interface Conversation {
   updatedAt: string;
 }
 
-export default function KoalaChat({ apiBase, onOpenTree }: {
-  apiBase: string;
+export default function KoalaChat({ onOpenTree }: {
   /** Handing off to the Grove once a project exists, so accepting is not a dead end. */
   onOpenTree?: (treeId: string) => void;
 }) {
@@ -88,24 +91,24 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
   const sessionId = useRef(Math.random().toString(36).slice(2));
 
   const { data: threads } = useQuery<(Conversation & { messageCount: number })[]>({
-    queryKey: ['koala-conversations'],
-    queryFn: async () => (await axios.get(`${apiBase}/koala/conversations`, { withCredentials: true })).data,
+    queryKey: koalaKeys.conversations(),
+    queryFn: () => listConversations<Conversation & { messageCount: number }>(),
     refetchInterval: 15000,
   });
 
   const { data: thread } = useQuery<Conversation>({
-    queryKey: ['koala-conversation', selected],
-    queryFn: async () => (await axios.get(`${apiBase}/koala/conversations/${selected}`, { withCredentials: true })).data,
+    queryKey: koalaKeys.conversation(selected ?? ''),
+    queryFn: () => getConversation<Conversation>(selected!),
     enabled: Boolean(selected),
   });
 
   const create = useMutation({
-    mutationFn: async () => (await axios.post(`${apiBase}/koala/conversations`, {}, { withCredentials: true })).data,
+    mutationFn: () => createConversation<Conversation>(),
     onSuccess: (c: Conversation) => { setSelected(c.id); qc.invalidateQueries({ queryKey: ['koala-conversations'] }); },
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/koala/conversations/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => deleteConversation(id),
     onSuccess: (_, id) => {
       if (selected === id) setSelected(null);
       qc.invalidateQueries({ queryKey: ['koala-conversations'] });
@@ -113,25 +116,22 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
   });
 
   const acceptSpec = useMutation({
-    mutationFn: (proposalId: string) => axios.post(
-      `${apiBase}/koala/conversations/${selected}/specs/${proposalId}/accept`, {}, { withCredentials: true },
-    ),
+    mutationFn: (proposalId: string) => acceptSpecProposal(selected!, proposalId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
       // The catalogue changed, so anything showing what can be deployed is now stale.
       qc.invalidateQueries({ queryKey: ['persona-options'] });
     },
-    onError: (err: any) => setError(err?.response?.data?.error ?? 'Could not add that app type.'),
+    onError: (err: unknown) => setError(errorMessage(err) || 'Could not add that app type.'),
   });
 
   const accept = useMutation({
-    mutationFn: (proposalId: string) => axios.post(
-      `${apiBase}/koala/conversations/${selected}/proposals/${proposalId}/accept`, {}, { withCredentials: true },
-    ),
-    onSuccess: (res: any) => {
+    mutationFn: (proposalId: string) =>
+      acceptTreeProposal<{ tree?: { id: string } }>(selected!, proposalId),
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
       qc.invalidateQueries({ queryKey: ['trees'] });
-      if (res?.data?.tree?.id) onOpenTree?.(res.data.tree.id);
+      if (res?.tree?.id) onOpenTree?.(res.tree.id);
     },
   });
 
@@ -156,13 +156,9 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
     setLiveEnabled([]);
     setLiveTools([]);
     try {
-      const res = await fetch(`${apiBase}/koala/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ conversationId: id, message: text, sessionId: sessionId.current }),
+      const res = await openKoalaStream({
+        conversationId: id, message: text, sessionId: sessionId.current,
       });
-      if (!res.ok || !res.body) throw new Error((await res.json().catch(() => ({}))).error ?? `Request failed (${res.status})`);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -210,8 +206,8 @@ export default function KoalaChat({ apiBase, onOpenTree }: {
           } catch { /* a partial frame; the next chunk completes it */ }
         }
       }
-    } catch (err: any) {
-      setError(err.message ?? 'Something went wrong');
+    } catch (err: unknown) {
+      setError(errorMessage(err) || 'Something went wrong');
     } finally {
       setStreaming(false);
       setLive('');

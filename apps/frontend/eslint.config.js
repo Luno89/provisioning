@@ -44,7 +44,6 @@ const LEGACY = [
   // Slice 5 (Grove) and slice 6 (Lab) — mostly `any` on records that want a real shared type.
   'src/components/Grove.tsx',
   'src/components/Chat.tsx',
-  'src/components/KoalaChat.tsx',
   'src/components/LeafDetail.tsx',
   'src/components/Home.tsx',
   'src/components/PersonaEditor.tsx',

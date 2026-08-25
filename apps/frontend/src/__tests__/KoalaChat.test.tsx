@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import axios from 'axios';
+import * as koalaApi from '../api/koala';
 import KoalaChat from '../components/KoalaChat';
 
 /**
@@ -20,8 +20,20 @@ import KoalaChat from '../components/KoalaChat';
  *   who said it.
  */
 
-vi.mock('axios');
-const mocked = vi.mocked(axios, true);
+/**
+ * Mocked at the API module, not at axios — `vi.mock('axios')` cannot reach the instance
+ * `api/client` builds with `axios.create()`, so a URL-matching stub silently never fires.
+ */
+vi.mock('../api/koala', async (importOriginal) => ({
+  ...(await importOriginal<typeof koalaApi>()),
+  listConversations: vi.fn(),
+  getConversation: vi.fn(),
+  createConversation: vi.fn(),
+  deleteConversation: vi.fn(),
+  acceptSpecProposal: vi.fn(),
+  acceptTreeProposal: vi.fn(),
+  openKoalaStream: vi.fn(),
+}));
 
 const thread = (messages: unknown[]) => ({
   id: 'c1', title: 'Chat', messages, proposedTrees: [], proposedSpecs: [],
@@ -32,16 +44,13 @@ const thread = (messages: unknown[]) => ({
  * Doing that here keeps each test about what is rendered rather than about how to get there.
  */
 const mount = async (messages: unknown[]) => {
-  mocked.get.mockImplementation((url: string) => {
-    if (url.endsWith('/koala/conversations')) {
-      return Promise.resolve({ data: [{ id: 'c1', title: 'Chat', updatedAt: 'now' }] } as any);
-    }
-    return Promise.resolve({ data: thread(messages) } as any);
-  });
+  vi.mocked(koalaApi.listConversations)
+    .mockResolvedValue([{ id: 'c1', title: 'Chat', updatedAt: 'now' }] as never);
+  vi.mocked(koalaApi.getConversation).mockResolvedValue(thread(messages) as never);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={qc}>
-      <KoalaChat apiBase="http://localhost:3001/api" onOpenTree={vi.fn()} />
+      <KoalaChat onOpenTree={vi.fn()} />
     </QueryClientProvider>,
   );
   // The row is a clickable div, not a button — click its title text.

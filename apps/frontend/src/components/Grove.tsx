@@ -505,7 +505,6 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
           </div>
         ) : selectedBranch ? (
           <BranchChat
-            apiBase={apiBase}
             branchId={selectedBranch.id}
             record={selectedBranch}
             leaves={all}

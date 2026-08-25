@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import axios from 'axios';
+import * as modelsApi from '../api/models';
 import Chat from '../components/Chat';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LeafDetail from '../components/LeafDetail';
@@ -13,12 +13,21 @@ import type { Leaf } from '../components/leaf-types';
  * which is not a thing a user can do, so the product had no way to show that anything had been
  * checked.
  */
+// LeafDetail and AcceptancePlan still go through axios directly; Chat goes through api/models.
+// Both are mocked until those two components are converted as well.
 vi.mock('axios');
-// Chat blocks on its model list before rendering a transcript at all, so a notice is only
-// reachable once that query has resolved.
-vi.mocked(axios).get = vi.fn().mockResolvedValue({
-  data: [{ id: 'm1', name: 'Model', source: 'deployment', kind: 'tabbyapi' }],
-}) as never;
+
+/**
+ * Chat blocks on its model list before rendering a transcript at all, so a notice is only
+ * reachable once that query has resolved. Mocked at the api module, because `vi.mock('axios')`
+ * cannot reach the instance `api/client` builds with `axios.create()`.
+ */
+vi.mock('../api/models', async (importOriginal) => ({
+  ...(await importOriginal<typeof modelsApi>()),
+  listModels: vi.fn().mockResolvedValue([
+    { id: 'm1', name: 'Model', source: 'deployment', kind: 'tabbyapi', model: 'm' },
+  ]),
+}));
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'l1', branchId: 'b1', title: 'Build the parser',
@@ -150,7 +159,6 @@ describe('system notices in the transcript', () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Chat
-          apiBase="/api"
           messages={[{ role: 'assistant', content: 'Leaf failed and will not be retried.', notice: true }]}
           onMessagesChange={() => {}}
         />

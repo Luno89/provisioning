@@ -164,3 +164,49 @@ export function useHfBranches(repo: string, enabled: boolean) {
     staleTime: 30_000,
   })
 }
+
+/**
+ * A model the platform can talk to — either deployed here or a remote endpoint someone added.
+ *
+ * Moved out of `Chat.tsx`, where it was private, because the composer and the endpoint form both
+ * read it and the two had drifted into describing it slightly differently.
+ */
+export interface ModelProvider {
+  id: string
+  name: string
+  /**
+   * Where it came from. `deployment` is one this platform deployed and can port-forward to;
+   * `endpoint` is a remote address someone registered. The composer treats them differently —
+   * only a deployment has a GPU count to show.
+   */
+  source: 'deployment' | 'endpoint'
+  kind?: 'vllm' | 'tabbyapi'
+  model: string
+  baseUrl?: string
+  /** Reachable over the Headscale mesh rather than the public internet. */
+  isMesh?: boolean
+  hasApiKey?: boolean
+  gpuCount?: number
+}
+
+export const providerKeys = {
+  list: () => ['models'] as const,
+}
+
+export const listModels = (): Promise<ModelProvider[]> =>
+  api.get<ModelProvider[]>('/models').then((r) => r.data)
+
+/**
+ * Registers a remote OpenAI-compatible endpoint.
+ *
+ * The backend refuses some addresses (private ranges, loopback) and its refusal names WHICH range
+ * and why — that text is the only useful guidance a user gets here, so callers surface it rather
+ * than a generic failure. `errorMessage` reads it.
+ */
+export const addModelEndpoint = (form: {
+  name: string; baseUrl: string; model: string; apiKey?: string
+}): Promise<ModelProvider> =>
+  api.post<ModelProvider>('/model-endpoints', form).then((r) => r.data)
+
+export const removeModelEndpoint = (id: string): Promise<void> =>
+  api.delete(`/model-endpoints/${id}`).then(() => undefined)

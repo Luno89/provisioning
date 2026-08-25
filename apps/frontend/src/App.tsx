@@ -405,7 +405,6 @@ function App() {
 
         {view === 'chat' && (
           <KoalaChat
-            apiBase={API_BASE}
             onOpenTree={() => setView('grove')}
           />
         )}

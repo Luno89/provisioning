@@ -34,10 +34,9 @@ export interface BranchRecord {
  * Two navigators now open a conversation. Assembling it twice is how they would start to differ.
  */
 export default function BranchChat({
-  apiBase, branchId, record, leaves, messages, onMessagesChange, onProposals,
+  branchId, record, leaves, messages, onMessagesChange, onProposals,
   onAccept, onReject, onAcceptAll, autoSend, onAutoSent, mode = 'auto', onModeChange, onSetAcceptance,
 }: {
-  apiBase: string;
   branchId: string;
   record?: BranchRecord | undefined;
   /** Every leaf, so this can find the ones awaiting a decision on this branch. */
@@ -137,7 +136,6 @@ export default function BranchChat({
         {/* Not keyed on the branch: remounting is what discarded the transcript. The caller holds
             it per branch instead. */}
         <Chat
-          apiBase={apiBase}
           branchId={branchId}
           mode={mode}
           {...(onModeChange ? { onModeChange } : {})}

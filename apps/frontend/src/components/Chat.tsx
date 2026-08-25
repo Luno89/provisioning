@@ -1,11 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { consumeChunk, splitThinkTags } from '../lib/stream-delta.js';
 import { KoalaSpot } from './Koala.js';
 import { splitProposalBlock } from '../lib/proposal-display.js';
 import Markdown from './Markdown.js';
 import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X, Sliders, Info } from 'lucide-react';
+import { openChatStream } from '../api/chat';
+import {
+  listModels, addModelEndpoint, removeModelEndpoint, providerKeys, type ModelProvider,
+} from '../api/models';
+import { listPersonas, personaKeys } from '../api/personas';
+import { getConfig, profileKeys } from '../api/harness';
+import { errorMessage } from '../api/client';
 
 /**
  * Talk to a model running on your own fleet — Phase A of the agent harness.
@@ -22,18 +28,6 @@ import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network,
  * Phase A is chat, not agency: no tools, no workspace, no task board. Those arrive with the later
  * phases; calling this an "agent" now would oversell it.
  */
-
-interface ModelProvider {
-  id: string;
-  name: string;
-  source: 'deployment' | 'endpoint';
-  kind?: 'vllm' | 'tabbyapi';
-  model: string;
-  baseUrl?: string;
-  isMesh?: boolean;
-  hasApiKey?: boolean;
-  gpuCount?: number;
-}
 
 export interface ProposedLeaf {
   id: string;
@@ -82,11 +76,10 @@ const MODE_HINT: Record<Mode, string> = {
 };
 
 export default function Chat({
-  apiBase, branchId, mode = 'auto', onModeChange, onProposals,
+  branchId, mode = 'auto', onModeChange, onProposals,
   messages, onMessagesChange, proposed = [], onAccept, onReject, onAcceptAll,
   autoSend, onAutoSent,
 }: {
-  apiBase: string;
   /** The branch any proposals land on. */
   branchId?: string;
   /** chat = no side effects; auto = extract after every reply; plan = also ask the model to plan. */
@@ -165,8 +158,8 @@ export default function Chat({
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: models, isLoading } = useQuery<ModelProvider[]>({
-    queryKey: ['models'],
-    queryFn: () => axios.get(`${apiBase}/models`, { withCredentials: true }).then((r) => r.data),
+    queryKey: providerKeys.list(),
+    queryFn: listModels,
     refetchInterval: 30000,
   });
 
@@ -174,8 +167,8 @@ export default function Chat({
   const { data: harness } = useQuery<{
     effective?: { key: string; value: unknown; source?: 'harness' | 'adopted' }[];
   }>({
-    queryKey: ['harness-config'],
-    queryFn: () => axios.get(`${apiBase}/harness/config`, { withCredentials: true }).then((r) => r.data),
+    queryKey: profileKeys.config(),
+    queryFn: getConfig,
     staleTime: 60_000,
   });
   /**
@@ -208,16 +201,15 @@ export default function Chat({
     /** Only `mcp` is read here — the composer says which services this persona can call. */
     scope?: { mcp?: string[] };
   }[]>({
-    queryKey: ['personas'],
-    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
+    queryKey: personaKeys.list(),
+    queryFn: listPersonas,
   });
 
   /** Resolved once so the composer and the request cannot disagree about who is answering. */
   const activePersona = personas?.find((p) => p.id === personaId);
 
   const addEndpoint = useMutation({
-    mutationFn: () =>
-      axios.post(`${apiBase}/model-endpoints`, form, { withCredentials: true }).then((r) => r.data),
+    mutationFn: () => addModelEndpoint(form),
     onSuccess: () => {
       setForm({ name: '', baseUrl: '', model: '', apiKey: '' });
       setFormError(null);
@@ -225,11 +217,11 @@ export default function Chat({
     },
     // The backend's refusal reasons are specific (which address range, why) and are the only useful
     // guidance a user gets here, so surface them rather than a generic failure.
-    onError: (e: any) => setFormError(e?.response?.data?.error ?? e.message),
+    onError: (e: unknown) => setFormError(errorMessage(e)),
   });
 
   const removeEndpoint = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/model-endpoints/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => removeModelEndpoint(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['models'] }),
   });
 
@@ -407,32 +399,24 @@ export default function Chat({
     abortRef.current = controller;
 
     try {
-      const res = await fetch(`${apiBase}/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          modelId,
-          messages: next,
-          stream: true,
-          branchId,
-          mode: activeMode,
-          // Omitted rather than sent empty: the route 404s an unknown persona, and "" is not one.
-          ...(personaId ? { personaId } : {}),
-          // Only knobs the user actually moved. Sending the panel's displayed values would put
-          // them at the request layer and outrank the adopted profile on every turn.
-          ...touched,
-          thoughtMonitorSensitivity: thoughtSensitivity,
-          ngramRepeatThreshold: ngramCap,
-          failurePredictionThreshold: failureThreshold,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok || !res.body) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Request failed (HTTP ${res.status})`);
-      }
+      // `openChatStream` owns the transport and the error shape; the CONTROLLER stays here,
+      // because aborting a turn is this component's stop button and the route aborts the upstream
+      // model when the connection drops.
+      const res = await openChatStream({
+        modelId,
+        messages: next,
+        stream: true,
+        branchId,
+        mode: activeMode,
+        // Omitted rather than sent empty: the route 404s an unknown persona, and "" is not one.
+        ...(personaId ? { personaId } : {}),
+        // Only knobs the user actually moved. Sending the panel's displayed values would put
+        // them at the request layer and outrank the adopted profile on every turn.
+        ...touched,
+        thoughtMonitorSensitivity: thoughtSensitivity,
+        ngramRepeatThreshold: ngramCap,
+        failurePredictionThreshold: failureThreshold,
+      }, controller.signal);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

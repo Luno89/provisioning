@@ -2,6 +2,9 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axios from 'axios';
+import * as modelsApi from '../api/models';
+import * as personasApi from '../api/personas';
+import * as harnessApi from '../api/harness';
 import Grove from '../components/Grove';
 
 /**
@@ -17,7 +20,25 @@ import Grove from '../components/Grove';
  * pinned; only the component holding them moved. What is new here is the tree level: a branch now
  * lives under a tree and is not visible until that tree is open, so every test opens one first.
  */
+// Grove itself still calls axios directly. Its Chat descendant does not — it goes through the api
+// modules, which `vi.mock('axios')` cannot reach (api/client owns its own `axios.create()`
+// instance). Both are mocked until Grove is converted too.
 vi.mock('axios');
+
+vi.mock('../api/models', async (importOriginal) => ({
+  ...(await importOriginal<typeof modelsApi>()),
+  listModels: vi.fn().mockResolvedValue([
+    { id: 'm1', name: 'Model', source: 'deployment', kind: 'tabbyapi', model: 'm' },
+  ]),
+}));
+vi.mock('../api/personas', async (importOriginal) => ({
+  ...(await importOriginal<typeof personasApi>()),
+  listPersonas: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../api/harness', async (importOriginal) => ({
+  ...(await importOriginal<typeof harnessApi>()),
+  getConfig: vi.fn().mockResolvedValue({ effective: [] }),
+}));
 const mockedAxios = vi.mocked(axios);
 
 const leaf = (over: Record<string, unknown> = {}) => ({
