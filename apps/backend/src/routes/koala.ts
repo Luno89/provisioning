@@ -2,12 +2,12 @@ import { Router, type Request } from 'express';
 import { explainSpecProblems, validateSpec } from '../lib/app-spec-validate.js';
 import type { AppSpec } from '../lib/app-spec.js';
 import { MAX_TOOL_CALLS_PER_MESSAGE, MAX_TOOL_CALL_ARGS, MAX_TOOL_CALL_DIGEST, enabledForSession, titleFrom } from '../lib/conversations.js';
-import type { Conversation, ConversationToolCall, ProposedTree } from '../lib/conversations.js';
+import type { Conversation, ProposedTree } from '../lib/conversations.js';
 import { historyForPrompt, needsHandoff, trimKoalaThread, withHandoff } from '../lib/koala-context.js';
 import { buildKoalaPrompt } from '../lib/koala-persona.js';
+import { runToolRounds } from '../lib/round-loop.js';
 import { runKoalaTool } from '../lib/koala-tool-runner.js';
 import { KOALA_TOOLS } from '../lib/koala-tools.js';
-import { ToolCallScanner } from '../lib/leaf-tools.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { routeCall, toLoopTools } from '../lib/mcp-tools.js';
 import { buildModelRequest } from '../lib/model-request.js';
@@ -371,291 +371,122 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
     });
 
     try {
-      const turn: any[] = conversationFor(enabled);
-      const enabledNow: string[] = [];
-      const proposed: ProposedTree[] = [];
-
-      /**
-       * Streamed from the first round, not just the last.
-       *
-       * The rounds used to be non-streamed on the reasoning that a tool round produces no prose
-       * worth watching. That was wrong twice over: a reasoning model produces a great deal of
-       * thinking per round, and a turn that spends eighty seconds deciding what to do showed
-       * "Koala is thinking…" the whole time with nothing behind it. Branch chat has always shown
-       * its deliberation, and this is the same model doing the same kind of work.
-       */
-      /**
-       * `openSse` rather than three hand-written headers — and this route was missing a fourth.
-       *
-       * It had no `X-Accel-Buffering: no`, which `/api/chat` sets with a comment explaining why:
-       * nginx buffers proxied responses by default, so every frame arrives at once when the
-       * response ends. Behind the platform's own proxy this stream was not streaming; it looked
-       * like a model that thought for a long time and then answered instantly.
-       */
       openSse(res);
 
-      let answer = '';
       /**
-       * Prose the model said on a round that ALSO called a tool.
-       *
-       * `answer` is only assigned on the round that stops, so "Let me check the logs first —"
-       * streamed to the reader live and then vanished on reload: the persisted message was whatever
-       * the final round said, or empty. The reader watched Koala say something and then found it
-       * gone, which reads as the app losing their conversation.
-       *
-       * Kept as a fallback rather than concatenated: when the last round DID answer, that answer is
-       * the reply and the running commentary before it is noise.
+       * ── ON THE SHARED ROUND LOOP ──
+       * The hand-written round loop was consolidated into lib/round-loop.ts's `runToolRounds` —
+       * the same machine /api/chat runs. This handler's job is now the callbacks, and the ENVELOPE
+       * stays koala's own: upstream provider frames are re-encoded as {delta}/{reasoning}/
+       * {toolCall}/{toolResult} exactly as before, pinned by routes/chat-wire.test.ts.
        */
-      let spoken = '';
-      /** Whether the last round still wanted tools when the round budget ran out. */
-      let exhaustedRounds = false;
-      /** What this turn did, for the transcript and for the handoff artifact. See ConversationMessage. */
-      const toolCalls: ConversationToolCall[] = [];
 
-      /**
-       * Announced BEFORE the call, which is the whole point.
-       *
-       * `get_logs` shells out to kubectl and an MCP call crosses the network; both were rendering
-       * as "Koala is thinking…" with nothing behind them. The pill appears while the work happens
-       * and flips when the result lands.
-       */
-      const announceCall = (c: { id: string; name: string; arguments: string }) => {
-        sendFrame(res, {
-          toolCall: { id: c.id, name: c.name, args: (c.arguments || '').slice(0, MAX_TOOL_CALL_ARGS) },
-        });
-      };
+      // The session's enabled services, widened as a tool enables one mid-turn. Mirrors the
+      // loop's own toolNames so routeCall stays in step.
+      const enabledNames = [...enabled];
+      const turned = conversationFor(enabledNames);
 
-      /**
-       * The result, digested.
-       *
-       * Never the full payload: a remote result runs to MAX_REMOTE_RESULT and is not persisted, so
-       * streaming it whole would make the live view and the reloaded view disagree about the same
-       * turn. Both sides get the same clipped digest, so they agree by construction.
-       */
-      const recordResult = (c: { id: string; name: string; arguments: string }, result: string) => {
-        const ok = !toolRefused(result);
-        const digest = result.slice(0, MAX_TOOL_CALL_DIGEST);
-        if (toolCalls.length < MAX_TOOL_CALLS_PER_MESSAGE) {
-          toolCalls.push({
-            id: c.id, name: c.name,
-            args: (c.arguments || '').slice(0, MAX_TOOL_CALL_ARGS),
-            ok, digest,
-          });
-        }
-        sendFrame(res, { toolResult: { id: c.id, ok, digest } });
-      };
-      let thinking = '';
+      const loopCall = async (req: { messages: any[]; tools: string[]; toolChoice?: 'none' }) => {
+        // Rebuild the system prompt from the live tool set, so an enabled service's catalogue is
+        // present on the next round — the loop widened `req.tools` via onEnabled.
+        const sysFor = (names: string[]) =>
+          buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, names);
+        const msgs = req.messages.map((m: any, i: number) =>
+          i === 0 && m.role === 'system' ? { ...m, content: sysFor(req.tools) } : m);
 
-      const drain = async (upstream: Response) => {
-        const scanner = new ToolCallScanner();
-        let content = '';
-        const reader = (upstream.body as any)?.getReader?.();
-        if (!reader) return { calls: [], content };
-        const decoder = new TextDecoder();
-        let buffered = '';
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          // Tool calls arrive as fragments keyed by index — the scanner reassembles them, and
-          // reading only the first delta would execute a call with empty arguments.
-          scanner.push(chunk);
-          buffered += chunk;
-          const lines = buffered.split('\n');
-          buffered = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const payload = line.slice(6).trim();
-            if (!payload || payload === '[DONE]') continue;
-            try {
-              const delta = JSON.parse(payload)?.choices?.[0]?.delta;
-              // Two channels, forwarded separately so the UI can collapse one and show the other.
-              if (delta?.reasoning_content) {
-                thinking += delta.reasoning_content;
-                sendFrame(res, { reasoning: delta.reasoning_content });
-              }
-              if (delta?.content) {
-                content += delta.content;
-                sendFrame(res, { delta: delta.content });
-              }
-            } catch { /* a partial frame; the next chunk completes it */ }
-          }
-        }
-        return { calls: scanner.result(), content };
-      };
-
-      for (let round = 0; round < KOALA_TOOL_ROUNDS; round++) {
-        /**
-         * Trimmed per round, because ONE turn can outgrow the window on its own.
-         *
-         * `turn` grows by an assistant message plus a tool result every round, and a remote result
-         * is allowed up to MAX_REMOTE_RESULT characters — twelve rounds of those is ~144KB against
-         * a 32k-token window. The thread being short is no protection: a single question that makes
-         * Koala read three sets of pod logs is enough.
-         *
-         * `trimConversation` is the leaf loop's, unchanged, because this is exactly the shape it
-         * was written for: it blanks over-budget TOOL output rather than deleting it, since
-         * removing a `tool` message orphans the `tool_calls` entry that referenced it and the API
-         * rejects the request outright. PRESERVE_HEAD=2 pins the system prompt and the oldest
-         * message, and it walks newest-first, so the rounds that the next decision depends on stay
-         * intact. Reassigned into a local rather than mutating `turn`, so the untrimmed array is
-         * still what gets appended to and what the next round trims from scratch.
-         */
-        exhaustedRounds = round === KOALA_TOOL_ROUNDS - 1;
-        const sent = trimConversation(turn);
-
-        /**
-         * Refuse before the engine does, with something a reader can act on.
-         *
-         * `fittedMaxTokens` floors at MIN_TURN_TOKENS, so once the prompt exceeds the window it
-         * stops reporting a smaller budget and just asks for 600 tokens on top of a prompt that
-         * already does not fit. The engine allocates the pair up front and returns an opaque 400.
-         * Nothing downstream recovers from that, and the reader sees a chat that stopped working.
-         */
-        if (fittedMaxTokens(KOALA_MAX_TOKENS, promptCharsFor(sent, enabled)) <= MIN_TURN_TOKENS) {
+        // Refuse before the engine does, with something the reader can act on. The same guard the
+        // inline loop ran each round before calling.
+        if (req.toolChoice !== 'none' &&
+            fittedMaxTokens(KOALA_MAX_TOKENS, promptCharsFor(msgs, req.tools)) <= MIN_TURN_TOKENS) {
           sendFrame(res, {
             error: 'This conversation has outgrown the model\'s context window. Start a new one to keep going — '
               + 'the trees and specs you have already accepted are safe.',
           });
-          break;
+          return { ok: false, status: 400 };
         }
 
-        const step = await call(sent, true, enabled);
-        if (!step.ok || !step.body) {
-          sendFrame(res, { error: `Model returned ${step.status}` });
-          break;
+        return call(msgs, true, req.tools, req.toolChoice === 'none' ? { tool_choice: 'none' } : undefined);
+      };
+
+      /** Maps a raw StreamEvent to koala's wire envelope. */
+      const emit = (frame: any) => {
+        if (frame.kind === 'content') sendFrame(res, { delta: frame.text });
+        else if (frame.kind === 'reasoning') sendFrame(res, { reasoning: frame.text });
+        else if (frame.kind === 'toolCall') sendFrame(res, { toolCall: { id: frame.id, name: frame.name, args: frame.args } });
+        else if (frame.kind === 'toolResult') sendFrame(res, { toolResult: { id: frame.id, ok: frame.ok, digest: frame.digest } });
+      };
+
+      /** A service enabled this turn widens the NEXT round's tools, told to the reader now. */
+      const onEnabled = (name: string) => {
+        if (!enabledNames.includes(name)) enabledNames.push(name);
+        sendFrame(res, { enabled: [name] });
+      };
+
+      const executeTool = async (c: { id: string; name: string; arguments: string }) => {
+        // Remote tools route to their service; everything else is Koala's own.
+        const route = routeCall(c.name, enabledNames);
+        if (route) {
+          const server = servers.find((sv) => sv.name === route.server);
+          let text: string;
+          try {
+            const registry = new McpRegistryService(db, userId, (n: string) => resolveMcpProbeUrl(n));
+            const got = server
+              ? await registry.call(server, route.tool, JSON.parse(c.arguments || '{}'))
+              : { text: `"${route.server}" is no longer running.`, isError: true };
+            text = got.text;
+          } catch (err: any) {
+            text = `That call failed: ${String(err?.message ?? err).slice(0, 200)}`;
+          }
+          const trimmed = text.length > MAX_REMOTE_RESULT
+            ? `${text.slice(0, MAX_REMOTE_RESULT)}\n…[trimmed, ${text.length} characters total]`
+            : text;
+          return { content: trimmed, ok: !toolRefused(trimmed) };
         }
-        const { calls, content } = await drain(step as any);
-        console.log(`[koala] round ${round}: calls=${calls.length} content=${content.length} thinking=${thinking.length}`);
-        if (content.trim()) spoken = content;
 
-        if (!calls.length) {
-          /**
-           * The round that stops IS the answer, and it has already been streamed to the reader.
-           *
-           * Asking again for a "final" reply cost an inference and returned nothing: measured, a
-           * round produced 491 characters, was discarded, and the fresh call on an identical
-           * conversation came back empty. The model had said its piece and would not repeat it.
-           */
-          answer = content;
-          exhaustedRounds = false;
-          break;
-        }
+        const out = await runKoalaTool(
+          {
+            db, userId, conversationId: conversation!.id, sessionId,
+            servers, webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage,
+            /** Read-only, arg-array-only — nothing a model writes reaches a shell. */
+            kubectl: (a: string[]) => new InfrastructureService().runKubectl(a).then((r: any) =>
+              typeof r === 'string' ? r : (r?.stdout ?? '')),
+          },
+          { name: c.name, arguments: c.arguments },
+        );
+        return {
+          content: out.content,
+          ok: !toolRefused(out.content),
+          ...(out.enabled ? { enabled: out.enabled } : {}),
+          ...(out.proposed ? { proposed: out.proposed } : {}),
+          ...(out.proposedSpec ? { proposedSpec: out.proposedSpec } : {}),
+        };
+      };
 
-        turn.push({
-          role: 'assistant',
-          content: content || null,
-          tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
-        });
+      const result = await runToolRounds({
+        maxRounds: KOALA_TOOL_ROUNDS,
+        messages: turned,
+        tools: enabledNames,
+        call: loopCall,
+        emit,
+        executeTool,
+        onEnabled,
+        onExhausted: 'wrap-up',
+        trimPerRound: (msgs: any[]) => trimConversation(msgs),
+        maxToolCallsPerMessage: MAX_TOOL_CALLS_PER_MESSAGE,
+        maxToolCallArgs: MAX_TOOL_CALL_ARGS,
+        maxToolCallDigest: MAX_TOOL_CALL_DIGEST,
+      });
 
-        for (const c of calls) {
-          announceCall(c);
-          /**
-           * A tool belonging to an enabled service goes to that service.
-           *
-           * Missing this made the whole mechanism a loop: the model enabled `github-mcp`, was
-           * offered `github-mcp__github-get-repo`, called it, and the runner — which only knows
-           * Koala's own tools — answered "No tool named …". It retried until the budget died with
-           * `finish_reason: length`. 351 seconds, no answer.
-           *
-           * `routeCall` refuses any name that is not `server__tool` for an ENABLED service, so
-           * running it first cannot swallow Koala's own tools.
-           */
-          const route = routeCall(c.name, enabled);
-          if (route) {
-            const server = servers.find((sv) => sv.name === route.server);
-            let text: string;
-            try {
-              const registry = new McpRegistryService(db, userId, (n: string) => resolveMcpProbeUrl(n));
-              const got = server
-                ? await registry.call(server, route.tool, JSON.parse(c.arguments || '{}'))
-                : { text: `"${route.server}" is no longer running.`, isError: true };
-              text = got.text;
-            } catch (err: any) {
-              text = `That call failed: ${String(err?.message ?? err).slice(0, 200)}`;
-            }
-            const trimmed = text.length > MAX_REMOTE_RESULT
-              ? `${text.slice(0, MAX_REMOTE_RESULT)}\n…[trimmed, ${text.length} characters total]`
-              : text;
-            recordResult(c, trimmed);
-            turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: trimmed });
-            continue;
-          }
-
-          const out = await runKoalaTool(
-            {
-              db, userId, conversationId: conversation!.id, sessionId,
-              servers, webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage,
-              /**
-               * Read-only, and only ever the two diagnostic commands the runner builds — it takes
-               * an argument array, never a string, so nothing a model writes reaches a shell.
-               */
-              kubectl: (a: string[]) => new InfrastructureService().runKubectl(a).then((r: any) =>
-                typeof r === 'string' ? r : (r?.stdout ?? '')),
-            },
-            { name: c.name, arguments: c.arguments },
-          );
-          /**
-           * A service enabled mid-turn widens the NEXT round's tools.
-           *
-           * Without this the model enables something and cannot call it until the user sends
-           * another message, which makes the lazy mechanism a two-message ritual.
-           */
-          if (out.enabled && !enabled.includes(out.enabled)) {
-            enabled = [...enabled, out.enabled];
-            enabledNow.push(out.enabled);
-            sendFrame(res, { enabled: [out.enabled] });
-            // The system message carries the catalogue, so it is rewritten with the new state.
-            turn[0] = { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, enabled) };
-          }
-          if (out.proposed) {
-            proposed.push(out.proposed);
-            sendFrame(res, { proposedTree: out.proposed });
-          }
-          if (out.proposedSpec) {
-            sendFrame(res, { proposedSpec: out.proposedSpec });
-          }
-          recordResult(c, out.content);
-          turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });
-        }
-      }
+      // Proposals surface as cards; the original streamed them live, we flush the same frames.
+      for (const pc of result.proposedTrees) sendFrame(res, { proposedTree: pc });
+      for (const pc of result.proposedSpecs) sendFrame(res, { proposedSpec: pc });
 
       /**
-       * ── ONE LAST ROUND, WITH THE TOOLS TAKEN AWAY ──
-       *
-       * Twelve rounds that all called tools leaves `answer` empty, and the turn persisted a blank
-       * assistant message: the reader watched Koala work for a minute and got an empty bubble.
-       *
-       * This does NOT contradict the decision recorded above about not asking for a "final" reply.
-       * That one is about a round which already produced content and then stopped — asking again
-       * there was measured as an inference that returned nothing, because the model had said its
-       * piece. This is the opposite case: a round that produced NO content and was still reaching
-       * for tools. Different situation, different answer. Someone will want to unify these; the
-       * distinguishing fact is whether the loop ended by choice or by running out.
-       *
-       * `tool_choice: 'none'` is what makes it a wrap-up rather than a thirteenth working round —
-       * the model cannot decide to keep going, which is the whole reason the budget was reached.
-       * The same shape as the agent loop's forced `finish` turn.
+       * Still nothing to show? Say so rather than persisting an empty bubble.
        */
-      if (exhaustedRounds && !answer) {
-        try {
-          const last = await call(trimConversation(turn), true, enabled, { tool_choice: 'none' });
-          if (last.ok && last.body) {
-            const { content } = await drain(last as any);
-            if (content.trim()) answer = content;
-          }
-        } catch (err: any) {
-          // A wrap-up that fails must not take down the turn's own record — `spoken` and the tool
-          // list below are still true, and still worth persisting.
-          console.warn(`[koala] forced wrap-up failed: ${err.message}`);
-        }
-      }
-
-      /**
-       * Still nothing to show. Say so as a notice rather than persisting an empty bubble, which
-       * reads as the app breaking rather than as the turn running long.
-       */
-      const ranDry = exhaustedRounds && !answer && !spoken;
+      const ranDry = result.exhaustedRounds && !result.answer && !result.spoken;
+      const fallback = `Koala used all ${KOALA_TOOL_ROUNDS} tool rounds without reaching an answer. `
+        + 'Ask again and it will continue from what it found.';
 
       // Persisted after the stream, so a reader who disconnects mid-answer does not lose what the
       // model already said.
@@ -665,17 +496,11 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
           ...saved,
           messages: [...saved.messages, {
             role: 'assistant' as const,
-            // `spoken` covers the turn that talked while working and then ran out of rounds —
-            // without it that message persists empty and the UI shows a blank bubble.
-            content: answer || spoken
-              || `Koala used all ${KOALA_TOOL_ROUNDS} tool rounds without reaching an answer. `
-                + 'Ask again and it will continue from what it found.',
+            content: result.answer || result.spoken || fallback,
             at: new Date().toISOString(),
-            ...(thinking.trim() ? { reasoning: thinking.slice(-20000) } : {}),
-            ...(enabledNow.length ? { enabled: enabledNow } : {}),
-            ...(toolCalls.length ? { toolCalls } : {}),
-            // A notice, not a boundary: this summarises nothing, so it must not truncate the next
-            // prompt the way a handoff does. See ConversationMessage.handoff.
+            ...(result.thinking.trim() ? { reasoning: result.thinking.slice(-20000) } : {}),
+            ...(result.enabledNow.length ? { enabled: result.enabledNow } : {}),
+            ...(result.toolCalls.length ? { toolCalls: result.toolCalls } : {}),
             ...(ranDry ? { notice: true as const } : {}),
           }],
           updatedAt: new Date().toISOString(),
