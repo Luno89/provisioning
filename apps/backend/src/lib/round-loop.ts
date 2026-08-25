@@ -161,7 +161,7 @@ export interface ToolRoundResult {
   answer: string;
   spoken: string;
   thinking: string;
-  toolCalls: { id: string; name: string; ok: boolean; digest: string }[];
+  toolCalls: { id: string; name: string; args: string; ok: boolean; digest: string }[];
   exhaustedRounds: boolean;
   enabledNow: string[];
   proposedTrees: unknown[];
@@ -280,7 +280,7 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
       const ok = out.ok ?? true;
       const digest = (out.digest ?? out.content).slice(0, maxToolCallDigest);
       if (toolCalls.length < maxToolCallsPerMessage) {
-        toolCalls.push({ id: c.id, name: c.name, ok, digest });
+        toolCalls.push({ id: c.id, name: c.name, args: c.arguments.slice(0, maxToolCallArgs), ok, digest });
       }
       cfg.emit({ kind: 'toolResult', id: c.id, ok, digest });
       if (out.enabled && !enabledNow.includes(out.enabled)) enabledNow.push(out.enabled);

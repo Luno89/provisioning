@@ -133,7 +133,9 @@ describe('runToolRounds', () => {
 
     expect(executeTool).toHaveBeenCalledWith({ id: 't1', name: 'get_logs', arguments: '{"pod":"p"}' });
     expect(result.answer).toBe('Here are the logs.');
-    expect(result.toolCalls).toEqual([{ id: 't1', name: 'get_logs', ok: true, digest: 'log lines' }]);
+    expect(result.toolCalls).toEqual([
+      { id: 't1', name: 'get_logs', args: '{"pod":"p"}', ok: true, digest: 'log lines' },
+    ]);
   });
 
   it('flags exhausted rounds but still delivers a wrap-up answer', async () => {
