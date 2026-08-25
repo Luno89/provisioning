@@ -34,7 +34,16 @@ export const deleteTree = (id: string) => api.delete(`/trees/${id}`).then((r) =>
 
 export const listBranches = (): Promise<Branch[]> =>
   api.get<Branch[]>('/branches').then((r) => r.data)
-export const createBranch = (body: unknown) => api.post('/branches', body).then((r) => r.data)
+export const createBranch = <T,>(body: unknown): Promise<T> =>
+  api.post<T>('/branches', body).then((r) => r.data)
+
+/**
+ * Patches a branch. Only the acceptance checks are edited this way today — they are the criteria a
+ * leaf is judged against, and changing them is a decision about THIS effort rather than a global
+ * setting.
+ */
+export const patchBranch = (id: string, patch: Record<string, unknown>) =>
+  api.patch(`/branches/${id}`, patch).then((r) => r.data)
 export const deleteBranch = (id: string) => api.delete(`/branches/${id}`).then((r) => r.data)
 
 export const listLeaves = (): Promise<Leaf[]> => api.get<Leaf[]>('/leaves').then((r) => r.data)

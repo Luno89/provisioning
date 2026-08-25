@@ -400,7 +400,7 @@ function App() {
         {view === 'mesh' && <MeshDevices />}
         {view === 'lab' && <Lab />}
         {view === 'grove' && (
-          <Grove apiBase={API_BASE} handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
+          <Grove handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}
 
         {view === 'chat' && (
@@ -424,7 +424,7 @@ function App() {
           />
         )}
         {view === 'projects' && (
-          <Projects apiBase={API_BASE} clusters={clusters} />
+          <Projects clusters={clusters} />
         )}
 
         {view === 'settings' && <SettingsView />}

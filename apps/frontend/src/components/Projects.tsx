@@ -1,9 +1,12 @@
 import { useSocketEvent, useLogSocket } from '../stores/socket';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { GitBranch, Plus, X, Loader2, CheckCircle2, XCircle, Clock, Rocket, RefreshCw, AlertTriangle } from 'lucide-react';
 import { AnsiText } from './AnsiText.js';
+import {
+  listProjects, listProjectRuns, getPipelineLog, projectKeys,
+  createProject as createProjectApi, promoteRun as promoteRunApi,
+} from '../api/projects';
 
 interface Project {
   id: string;
@@ -96,7 +99,7 @@ function ProjectStatusBadge({ status, reason }: { status?: string | undefined; r
   );
 }
 
-export default function Projects({ apiBase, clusters }: { apiBase: string; clusters: Cluster[] }) {
+export default function Projects({ clusters }: { clusters: Cluster[] }) {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
@@ -104,32 +107,32 @@ export default function Projects({ apiBase, clusters }: { apiBase: string; clust
   const [socketLogs, setSocketLogs] = useState('');
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
-    queryKey: ['projects'],
-    queryFn: () => axios.get(`${apiBase}/projects`, { withCredentials: true }).then(res => res.data),
+    queryKey: projectKeys.list(),
+    queryFn: () => listProjects<Project>(),
     refetchInterval: 5000,
   });
 
   const { data: runs = [] } = useQuery<PipelineRun[]>({
-    queryKey: ['project-runs', expandedProject],
-    queryFn: () => axios.get(`${apiBase}/projects/${expandedProject}/runs`, { withCredentials: true }).then(res => res.data),
+    queryKey: projectKeys.runs(expandedProject),
+    queryFn: () => listProjectRuns<PipelineRun>(expandedProject!),
     enabled: !!expandedProject,
     refetchInterval: (query) => (query.state.data || []).some(r => r.status === 'queued' || r.status === 'running') ? 3000 : false,
   });
 
   const createProject = useMutation({
-    mutationFn: (payload: any) => axios.post(`${apiBase}/projects`, payload, { withCredentials: true }),
+    mutationFn: (payload: unknown) => createProjectApi(payload),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['projects'] }); setShowCreateModal(false); },
   });
 
   const promoteRun = useMutation({
     mutationFn: ({ projectId, runId }: { projectId: string; runId: string }) =>
-      axios.post(`${apiBase}/projects/${projectId}/runs/${runId}/promote`, {}, { withCredentials: true }),
+      promoteRunApi(projectId, runId),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['deployments'] }); },
   });
 
   const { data: initialLog } = useQuery({
-    queryKey: ['logs', 'pipeline', logRunId],
-    queryFn: () => axios.get(`${apiBase}/logs/pipeline/${logRunId}`, { withCredentials: true }).then(res => res.data),
+    queryKey: projectKeys.log(logRunId),
+    queryFn: () => getPipelineLog(logRunId!),
     enabled: !!logRunId,
   });
 

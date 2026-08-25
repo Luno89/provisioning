@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axios from 'axios';
 import * as modelsApi from '../api/models';
+import * as groveApi from '../api/grove';
 import * as personasApi from '../api/personas';
 import * as harnessApi from '../api/harness';
 import Grove from '../components/Grove';
@@ -25,6 +26,19 @@ import Grove from '../components/Grove';
 // instance). Both are mocked until Grove is converted too.
 vi.mock('axios');
 
+vi.mock('../api/grove', async (importOriginal) => ({
+  ...(await importOriginal<typeof groveApi>()),
+  listTrees: vi.fn(),
+  listBranches: vi.fn(),
+  listLeaves: vi.fn(),
+  createBranch: vi.fn(),
+  patchBranch: vi.fn(),
+  deleteTree: vi.fn(),
+  deleteBranch: vi.fn(),
+  deleteLeaf: vi.fn(),
+  acceptLeaf: vi.fn(),
+  getLeafTrace: vi.fn(),
+}));
 vi.mock('../api/models', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
   listModels: vi.fn().mockResolvedValue([
@@ -76,7 +90,7 @@ const renderGrove = (handoff?: { branchId: string; prompt: string }, onHandoffTa
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <Grove apiBase="/api" {...(handoff ? { handoff } : {})} {...(onHandoffTaken ? { onHandoffTaken } : {})} />
+      <Grove {...(handoff ? { handoff } : {})} {...(onHandoffTaken ? { onHandoffTaken } : {})} />
     </QueryClientProvider>,
   );
 };
@@ -105,22 +119,18 @@ const branch = (over: Record<string, unknown> = {}) => ({
 const TREES = [{ id: 'tree-1', name: 'Gateway', type: 'api-service', branchCount: 1, updatedAt: '2026-08-03T00:00:00Z' }];
 
 /**
- * Routes by URL. There are two collections now — branches carry the titles and transcripts,
- * leaves carry the work — and returning one payload for both made every branch title undefined.
+ * Three collections, named rather than routed by URL substring.
+ *
+ * The old version matched on the path and had to order its checks carefully — `/board` before
+ * `/trees` because one URL contained the other, with a comment explaining that trap. Naming the
+ * calls removes the trap entirely, and the `/board` branch turned out to be DEAD: no component
+ * fetches it any more, and nothing noticed because a URL matcher fails silently into its default.
  */
 const mockApi = ({ branches = [] as unknown[], leaves = [] as unknown[], trees = TREES as unknown[] }) => {
+  vi.mocked(groveApi.listTrees).mockResolvedValue(trees as never);
+  vi.mocked(groveApi.listBranches).mockResolvedValue(branches as never);
+  vi.mocked(groveApi.listLeaves).mockResolvedValue(leaves as never);
   mockedAxios.get.mockImplementation((url: string) => {
-    if (url.includes('/branches')) return Promise.resolve({ data: branches });
-    if (url.includes('/leaves')) return Promise.resolve({ data: leaves });
-    // Before /trees: selecting a tree renders its board, and handing that the tree LIST back
-    // crashed the component. Checked first because the board URL contains /trees too.
-    if (url.includes('/board')) return Promise.resolve({ data: {
-      tree: { id: 'tree-1', name: 'Gateway', type: 'api-service' },
-      rollup: { counts: {}, outstanding: 0, tokens: 0, retried: 0, branches: 1 },
-      changed: 0, repos: [], branches: [], leaves: [],
-    } });
-    if (url.includes('/trees')) return Promise.resolve({ data: trees });
-    if (url.includes('/personas')) return Promise.resolve({ data: [] });
     if (url.includes('/models')) return Promise.resolve({ data: [{ id: 'm1', name: 'Model', source: 'deployment', kind: 'tabbyapi' }] });
     return Promise.resolve({ data: [] });
   });
@@ -136,7 +146,7 @@ beforeEach(() => {
   localStorage.clear();
   window.history.replaceState(null, '', '/');
   mockApi({});
-  mockedAxios.post.mockResolvedValue({ data: {} });
+  vi.mocked(groveApi.acceptLeaf).mockResolvedValue({} as never);
   mockedAxios.delete.mockResolvedValue({ data: {} });
 });
 
@@ -280,7 +290,7 @@ describe('proposals', () => {
 
     fireEvent.click(detail().getByTitle('Accept — starts the work'));
     await waitFor(() =>
-      expect(mockedAxios.post).toHaveBeenCalledWith('/api/leaves/real-id/accept', {}, expect.anything()),
+      expect(groveApi.acceptLeaf).toHaveBeenCalledWith('real-id'),
     );
   });
 
@@ -305,9 +315,9 @@ describe('proposals', () => {
     await waitFor(() => expect(detail().getByText('Accept all')).toBeInTheDocument());
 
     fireEvent.click(detail().getByText('Accept all'));
-    await waitFor(() => expect(mockedAxios.post).toHaveBeenCalledTimes(2));
-    expect(mockedAxios.post).toHaveBeenCalledWith('/api/leaves/leaf-1/accept', {}, expect.anything());
-    expect(mockedAxios.post).toHaveBeenCalledWith('/api/leaves/leaf-2/accept', {}, expect.anything());
+    await waitFor(() => expect(groveApi.acceptLeaf).toHaveBeenCalledTimes(2));
+    expect(groveApi.acceptLeaf).toHaveBeenCalledWith('leaf-1');
+    expect(groveApi.acceptLeaf).toHaveBeenCalledWith('leaf-2');
   });
 
   it('does not show proposed leaves as ordinary work in the tree', async () => {
@@ -456,7 +466,7 @@ describe('an accept the server refuses', () => {
    */
   it('shows why, instead of doing nothing', async () => {
     mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
-    mockedAxios.post.mockRejectedValue({
+    vi.mocked(groveApi.acceptLeaf).mockRejectedValue({
       response: { data: { error: 'Nothing would check the finished result. Ask the planner to call set_acceptance for this request.' } },
     });
     renderGrove();
@@ -473,7 +483,7 @@ describe('an accept the server refuses', () => {
     // A refusal that outlives the problem is its own bug: the next accept works and the banner
     // still says it did not.
     mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
-    mockedAxios.post.mockRejectedValueOnce({ response: { data: { error: 'Assign a persona first.' } } });
+    vi.mocked(groveApi.acceptLeaf).mockRejectedValueOnce({ response: { data: { error: 'Assign a persona first.' } } });
     renderGrove();
     await openTree();
     await openBranch('Rate limiting work');
@@ -482,7 +492,7 @@ describe('an accept the server refuses', () => {
     fireEvent.click(detail().getByTitle('Accept — starts the work'));
     expect(await screen.findByText(/Assign a persona first/)).toBeInTheDocument();
 
-    mockedAxios.post.mockResolvedValue({ data: {} });
+    vi.mocked(groveApi.acceptLeaf).mockResolvedValue({} as never);
     fireEvent.click(detail().getByTitle('Accept — starts the work'));
     await waitFor(() => expect(screen.queryByText(/Assign a persona first/)).not.toBeInTheDocument());
   });

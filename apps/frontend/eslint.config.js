@@ -31,6 +31,10 @@ import { defineConfig, globalIgnores } from 'eslint/config'
  * parser, and 3 unused catch bindings) were fixed outright rather than listed.
  */
 const LEGACY = [
+  // Through the api layer in slice 9; still carry pre-existing `any`s and hook warnings that have
+  // nothing to do with transport.
+  'src/components/Grove.tsx',
+  'src/components/Projects.tsx',
   // Lab/ went through the api layer in slice 9, but these three still carry pre-existing `any`s
   // that have nothing to do with the transport — a separate, smaller cleanup.
   'src/components/Lab/Harness.tsx',
@@ -42,9 +46,7 @@ const LEGACY = [
   'src/components/NginxView.tsx',
   'src/components/ClusterWizard.tsx',
   // Slice 5 (Grove) and slice 6 (Lab) — mostly `any` on records that want a real shared type.
-  'src/components/Grove.tsx',
   'src/components/Chat.tsx',
-  'src/components/Projects.tsx',
   // Not yet assigned to a slice: small, and each wants a domain type that does not exist yet.
   'src/components/Login.tsx',
 ]

@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import {
   ChevronRight, ChevronDown, GitBranch, Plus, Loader2,
   PanelLeftClose, PanelLeftOpen, Trash2, Trees as TreesIcon, Inbox, AlertTriangle } from 'lucide-react';
@@ -12,6 +11,17 @@ import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './le
 import { type Message } from './Chat.js';
 import { parseHash, formatHash, shouldReplace } from '../lib/route.js';
 import { lastSeen, markSeenAfterDwell } from '../lib/seen.js';
+// Aliased: this file names its MUTATIONS `createBranch`, `deleteTree`, `deleteBranch` and
+// `deleteLeaf`, and those names describe what the screen does. The api functions are the transport
+// underneath them, so they get the `api` prefix rather than renaming the local ones.
+import {
+  listTrees, listBranches, listLeaves, patchBranch, acceptLeaf,
+  createBranch as apiCreateBranch,
+  deleteTree as apiDeleteTree,
+  deleteBranch as apiDeleteBranch,
+  deleteLeaf as apiDeleteLeaf,
+} from '../api/grove';
+import { listPersonas } from '../api/personas';
 
 /**
  * The harness, arranged the way its data actually is.
@@ -49,8 +59,7 @@ interface Tree {
 /** Branches with no tree are real and must not be hidden — see the Unfiled group below. */
 const UNFILED = '__unfiled__';
 
-export default function Grove({ apiBase, handoff, onHandoffTaken }: {
-  apiBase: string;
+export default function Grove({ handoff, onHandoffTaken }: {
   handoff?: { branchId: string; prompt: string } | undefined;
   onHandoffTaken?: () => void;
 }) {
@@ -108,21 +117,21 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
 
   const { data: trees = [] } = useQuery<Tree[]>({
     queryKey: ['trees'],
-    queryFn: () => axios.get(`${apiBase}/trees`, { withCredentials: true }).then((r) => r.data),
+    queryFn: () => listTrees() as Promise<Tree[]>,
   });
   const { data: branchRecords = [] } = useQuery<BranchRecord[]>({
     queryKey: ['branches'],
-    queryFn: () => axios.get(`${apiBase}/branches`, { withCredentials: true }).then((r) => r.data),
+    queryFn: () => listBranches() as Promise<BranchRecord[]>,
     refetchInterval: 10000,
   });
   const { data: leaves, isLoading } = useQuery<Leaf[]>({
     queryKey: ['leaves'],
-    queryFn: () => axios.get(`${apiBase}/leaves`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listLeaves,
     refetchInterval: 5000,
   });
   const { data: personas = [] } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['personas'],
-    queryFn: () => axios.get(`${apiBase}/personas`, { withCredentials: true }).then((r) => r.data),
+    queryFn: listPersonas,
     staleTime: 60_000,
   });
 
@@ -172,9 +181,8 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
   const childrenOf = (leafId: string) => all.filter((l) => l.parentLeafId === leafId);
 
   const createBranch = useMutation({
-    mutationFn: (treeId: string) => axios
-      .post(`${apiBase}/branches`, treeId && treeId !== UNFILED ? { treeId } : {}, { withCredentials: true })
-      .then((r) => r.data),
+    mutationFn: (treeId: string) =>
+      apiCreateBranch<BranchRecord>(treeId && treeId !== UNFILED ? { treeId } : {}),
     onSuccess: (branch: BranchRecord) => {
       setSelected({ kind: 'branch', id: branch.id });
       qc.invalidateQueries({ queryKey: ['branches'] });
@@ -182,9 +190,8 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
   });
 
   const startWork = useMutation({
-    mutationFn: ({ treeId }: { treeId: string; prompt: string }) => axios
-      .post(`${apiBase}/branches`, treeId && treeId !== UNFILED ? { treeId } : {}, { withCredentials: true })
-      .then((r) => r.data as BranchRecord),
+    mutationFn: ({ treeId }: { treeId: string; prompt: string }) =>
+      apiCreateBranch<BranchRecord>(treeId && treeId !== UNFILED ? { treeId } : {}),
     onSuccess: (branch, { treeId, prompt }) => {
       setOpenTree(treeId);
       setSelected({ kind: 'branch', id: branch.id });
@@ -193,7 +200,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
     },
   });
   const deleteTree = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/trees/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => apiDeleteTree(id),
     onSuccess: (_, id) => {
       if (openTree === id) { setOpenTree(''); setSelected({ kind: 'tree', id: '' }); }
       qc.invalidateQueries({ queryKey: ['trees'] });
@@ -203,7 +210,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
   });
 
   const deleteBranch = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/branches/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => apiDeleteBranch(id),
     onSuccess: (_, id) => {
       setTranscripts((prev) => { const copy = { ...prev }; delete copy[id]; return copy; });
       if (selected.kind === 'branch' && selected.id === id) setSelected({ kind: 'tree', id: openTree });
@@ -227,12 +234,12 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
     err?.response?.data?.error ?? err?.message ?? 'That could not be accepted.';
 
   const accept = useMutation({
-    mutationFn: (id: string) => axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true }),
+    mutationFn: (id: string) => acceptLeaf(id),
     onSuccess: () => { setAcceptError(null); refresh(); },
     onError: (err) => setAcceptError(refusal(err)),
   });
   const reject = useMutation({
-    mutationFn: (id: string) => axios.delete(`${apiBase}/leaves/${id}`, { withCredentials: true }),
+    mutationFn: (id: string) => apiDeleteLeaf(id),
     onSuccess: refresh,
   });
   const acceptAll = useMutation({
@@ -243,7 +250,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
       for (const id of ids) {
         // The FIRST refusal is kept and the rest of the batch still runs: one leaf missing a
         // persona should not stop its siblings, and reporting the last one would hide the cause.
-        await axios.post(`${apiBase}/leaves/${id}/accept`, {}, { withCredentials: true })
+        await acceptLeaf(id)
           .catch((err) => { if (!failed) failed = refusal(err); });
       }
       setAcceptError(failed);
@@ -523,11 +530,7 @@ export default function Grove({ apiBase, handoff, onHandoffTaken }: {
              * records, and the editor should not know that a query cache exists.
              */
             onSetAcceptance={async (commands) => {
-              await axios.patch(
-                `${apiBase}/branches/${selectedBranch.id}`,
-                { acceptance: commands },
-                { withCredentials: true },
-              );
+              await patchBranch(selectedBranch.id, { acceptance: commands });
               setAcceptError(null);
               refresh();
             }}
