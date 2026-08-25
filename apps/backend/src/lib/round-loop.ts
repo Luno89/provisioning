@@ -132,3 +132,152 @@ export function createStreamParser(): StreamParser {
     },
   };
 }
+
+/* ═════════════════ The shared round loop ═════════════ */
+
+/** A tool call about to be executed. */
+export interface RoundToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+/** What executing a tool produces, over and above the text to feed back. */
+export interface ToolExecResult {
+  /** The text appended to the turn as the tool result. */
+  content: string;
+  /** A digest recorded in the transcript — defaults to `content` clipped. */
+  digest?: string;
+  /** Koala: a service enabled mid-turn widens the next round's tools. */
+  enabled?: string;
+  /** Koala: proposing a project / app spec. */
+  proposed?: unknown;
+  proposedSpec?: unknown;
+}
+
+export interface ToolRoundResult {
+  answer: string;
+  spoken: string;
+  thinking: string;
+  toolCalls: { id: string; name: string; ok: boolean; digest: string }[];
+  exhaustedRounds: boolean;
+  enabledNow: string[];
+  proposedTrees: unknown[];
+  proposedSpecs: unknown[];
+}
+
+export interface RoundLoopConfig {
+  maxRounds: number;
+  /** The transcript so far. The loop appends assistant/tool messages and trims per round. */
+  messages: unknown[];
+  call: (
+    messages: unknown[],
+    opts?: { toolChoice?: 'none' },
+  ) => Promise<{ ok: boolean; status?: number; body?: unknown }>;
+  /** Emits raw StreamEvents plus toolCall/toolResult announcements; the caller maps to its wire. */
+  emit: (frame: StreamEvent | Record<string, unknown>) => void;
+  executeTool: (call: RoundToolCall) => Promise<ToolExecResult>;
+  /** Per-round thread trim. Koala trims every round; the leaf loop effectively doesn't. */
+  trimPerRound?: (messages: unknown[]) => unknown[];
+  /** When the budget runs dry with no answer: 'wrap-up' forces a final bare answer. */
+  onExhausted?: 'wrap-up';
+  maxToolCallsPerMessage?: number;
+  maxToolCallArgs?: number;
+  maxToolCallDigest?: number;
+}
+
+const MAX_TOOL_CALLS = 6;
+const MAX_TOOL_ARGS = 400;
+const MAX_TOOL_DIGEST = 2000;
+
+/** Parses one upstream body into accumulator state via the shared stream parser. */
+async function pump(
+  body: unknown,
+  acc: { answer: string; thinking: string; calls: RoundToolCall[] },
+): Promise<void> {
+  const reader = (body as any)?.getReader?.();
+  if (!reader) return;
+  const parser = createStreamParser();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const ev of parser.push(decoder.decode(value, { stream: true }))) {
+      if (ev.kind === 'content') acc.answer += ev.text;
+      else if (ev.kind === 'reasoning') acc.thinking += ev.text;
+      else if (ev.kind === 'toolCalls') acc.calls.push(...ev.calls);
+    }
+  }
+  for (const ev of parser.flush()) {
+    if (ev.kind === 'content') acc.answer += ev.text;
+    else if (ev.kind === 'reasoning') acc.thinking += ev.text;
+    else if (ev.kind === 'toolCalls') acc.calls.push(...ev.calls);
+  }
+}
+
+export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResult> {
+  const {
+    maxRounds, messages, call, emit, executeTool,
+    trimPerRound, onExhausted,
+    maxToolCallsPerMessage = MAX_TOOL_CALLS, maxToolCallArgs = MAX_TOOL_ARGS, maxToolCallDigest = MAX_TOOL_DIGEST,
+  } = cfg;
+
+  let turn = messages;
+  let answer = '';
+  let thinking = '';
+  let spoken = '';
+  let exhaustedRounds = false;
+  const toolCalls: ToolRoundResult['toolCalls'] = [];
+  const enabledNow: string[] = [];
+  const proposedTrees: unknown[] = [];
+  const proposedSpecs: unknown[] = [];
+
+  for (let round = 0; round < maxRounds; round++) {
+    if (answer) break; // answered on a previous round
+    exhaustedRounds = round === maxRounds - 1;
+    const sent = trimPerRound ? trimPerRound(turn) : turn;
+
+    const step = await call(sent);
+    if (!step.ok || !step.body) break;
+
+    const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
+    await pump(step.body, acc);
+    if (acc.thinking) {
+      cfg.emit({ kind: 'reasoning', text: acc.thinking });
+    }
+    if (acc.answer) {
+      cfg.emit({ kind: 'content', text: acc.answer });
+      spoken = acc.answer;
+      answer = acc.answer;
+    }
+    for (const c of acc.calls) {
+      cfg.emit({ kind: 'toolCall', id: c.id, name: c.name, args: c.arguments.slice(0, maxToolCallArgs) });
+      const out = await executeTool(c);
+      const ok = true;
+      const digest = (out.digest ?? out.content).slice(0, maxToolCallDigest);
+      if (toolCalls.length < maxToolCallsPerMessage) {
+        toolCalls.push({ id: c.id, name: c.name, ok, digest });
+      }
+      cfg.emit({ kind: 'toolResult', id: c.id, ok, digest });
+      if (out.enabled && !enabledNow.includes(out.enabled)) enabledNow.push(out.enabled);
+      if (out.proposed) proposedTrees.push(out.proposed);
+      if (out.proposedSpec) proposedSpecs.push(out.proposedSpec);
+      turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });
+    }
+  }
+
+  // Exhausted with no answer: force a bare wrap-up round.
+  if (exhaustedRounds && !answer && onExhausted === 'wrap-up') {
+    const last = await call(turn, { toolChoice: 'none' });
+    if (last.ok && last.body) {
+      const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
+      await pump(last.body, acc);
+      if (acc.answer) {
+        answer = acc.answer;
+        cfg.emit({ kind: 'content', text: acc.answer });
+      }
+    }
+  }
+
+  return { answer, spoken, thinking, toolCalls, exhaustedRounds, enabledNow, proposedTrees, proposedSpecs };
+}
