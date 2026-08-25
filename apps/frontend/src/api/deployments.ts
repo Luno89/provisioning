@@ -134,3 +134,20 @@ export function useInitialLogs(
     enabled: enabled && !!target,
   })
 }
+
+export const deployApp = <T,>(body: unknown): Promise<T> =>
+  api.post<T>('/deployments', body).then((r) => r.data)
+
+/**
+ * Destroys a cluster or an app.
+ *
+ * One function for both because the SHELL treats them identically — same confirm dialog, same
+ * log modal afterwards. The routes are separate and the ids are not interchangeable, so the kind
+ * is an explicit argument rather than something inferred from the id's shape.
+ *
+ * No separate abort: both DELETE routes detect a still-provisioning resource server-side and abort
+ * it rather than trying to destroy something never fully created. A dedicated abort button called
+ * the same endpoint through a second path, which just meant two buttons for one operation.
+ */
+export const destroyResource = (kind: 'cluster' | 'app', id: string): Promise<void> =>
+  api.delete(`/${kind === 'cluster' ? 'clusters' : 'deployments'}/${id}`).then(() => undefined)

@@ -3,10 +3,23 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
-import axios from 'axios';
+import * as clustersApi from '../api/clusters';
+import * as deploymentsApi from '../api/deployments';
+import * as nginxApi from '../api/nginx';
+import * as authApi from '../api/auth';
+import * as credentialsApi from '../api/credentials';
 
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios);
+/**
+ * Mocked at the API modules, not at axios — `vi.mock('axios')` cannot reach the instance
+ * `api/client` builds with `axios.create()`.
+ */
+vi.mock('../api/clusters', async (o) => ({ ...(await o<typeof clustersApi>()), listClusters: vi.fn() }));
+vi.mock('../api/deployments', async (o) => ({ ...(await o<typeof deploymentsApi>()), listDeployments: vi.fn() }));
+vi.mock('../api/credentials', async (o) => ({ ...(await o<typeof credentialsApi>()), listProviders: vi.fn() }));
+vi.mock('../api/auth', async (o) => ({ ...(await o<typeof authApi>()), getMe: vi.fn(), logout: vi.fn() }));
+vi.mock('../api/nginx', async (o) => ({
+  ...(await o<typeof nginxApi>()), getNginxConfig: vi.fn(), saveNginxConfig: vi.fn(),
+}));
 
 const createTestQueryClient = () => new QueryClient({
   defaultOptions: {
@@ -27,36 +40,25 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 describe('Nginx Ingress Proxy Wizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedAxios.get.mockImplementation((url) => {
-      if (url.includes('/clusters')) {
-        return Promise.resolve({ data: [{ id: 'c1', name: 'Dev-Cluster', status: 'healthy', provider: 'k3d' }] });
-      }
-      if (url.includes('/deployments')) {
-        return Promise.resolve({
-          data: [{
-            id: 'd1',
-            name: 'Odoo-Production',
-            clusterId: 'c1',
-            status: 'running',
-            strategy: 'native',
-            appType: 'odoo',
-            isExposed: false,
-            exposureUrl: ''
-          }]
-        });
-      }
-      if (url.includes('/nginx')) {
-        return Promise.resolve({ data: { content: 'events {}\nhttp {\n    # Initial config\n}' } });
-      }
-      return Promise.reject(new Error('Not found'));
-    });
-
-    mockedAxios.post.mockImplementation((url) => {
-      if (url.includes('/nginx')) {
-        return Promise.resolve({ data: { success: true } });
-      }
-      return Promise.reject(new Error('Not found'));
-    });
+    vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
+    vi.mocked(credentialsApi.listProviders).mockResolvedValue([]);
+    vi.mocked(clustersApi.listClusters).mockResolvedValue(
+      [{ id: 'c1', name: 'Dev-Cluster', status: 'healthy', provider: 'k3d' }] as never,
+    );
+    vi.mocked(deploymentsApi.listDeployments).mockResolvedValue([{
+      id: 'd1',
+      name: 'Odoo-Production',
+      clusterId: 'c1',
+      status: 'running',
+      strategy: 'native',
+      appType: 'odoo',
+      isExposed: false,
+      exposureUrl: '',
+    }] as never);
+    vi.mocked(nginxApi.getNginxConfig).mockResolvedValue(
+      { content: 'events {}\nhttp {\n    # Initial config\n}' },
+    );
+    vi.mocked(nginxApi.saveNginxConfig).mockResolvedValue(undefined);
   });
 
   it('guides the user through Nginx Proxy Wizard and injects config block', async () => {

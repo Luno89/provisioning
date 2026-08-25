@@ -2,10 +2,35 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from '../App';
-import axios from 'axios';
+import * as clustersApi from '../api/clusters';
+import * as deploymentsApi from '../api/deployments';
+import * as authApi from '../api/auth';
+import * as credentialsApi from '../api/credentials';
 
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios);
+/**
+ * Mocked at the API modules, not at axios — `vi.mock('axios')` cannot reach the instance
+ * `api/client` builds with `axios.create()`.
+ *
+ * `getMe` returning a user is what gets past the login gate: App renders Login until the session
+ * query resolves, so an unmocked one leaves every assertion here looking at a form.
+ */
+vi.mock('../api/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof clustersApi>()),
+  listClusters: vi.fn(),
+}));
+vi.mock('../api/deployments', async (importOriginal) => ({
+  ...(await importOriginal<typeof deploymentsApi>()),
+  listDeployments: vi.fn(),
+}));
+vi.mock('../api/credentials', async (importOriginal) => ({
+  ...(await importOriginal<typeof credentialsApi>()),
+  listProviders: vi.fn(),
+}));
+vi.mock('../api/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof authApi>()),
+  getMe: vi.fn(),
+  logout: vi.fn(),
+}));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,11 +49,10 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 describe('App Dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedAxios.get.mockImplementation((url) => {
-      if (url.includes('/clusters')) return Promise.resolve({ data: [] });
-      if (url.includes('/deployments')) return Promise.resolve({ data: [] });
-      return Promise.reject(new Error('Not found'));
-    });
+    vi.mocked(clustersApi.listClusters).mockResolvedValue([]);
+    vi.mocked(deploymentsApi.listDeployments).mockResolvedValue([]);
+    vi.mocked(credentialsApi.listProviders).mockResolvedValue([]);
+    vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
   });
 
   it('renders the sidebar and main header', async () => {

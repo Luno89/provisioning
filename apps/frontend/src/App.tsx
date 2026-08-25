@@ -5,7 +5,6 @@ import NginxView from './components/NginxView';
 import ClustersView from './components/ClustersView';
 import AppsView from './components/AppsView';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import { Activity, AlertTriangle, BellRing, Cloud, GitBranch, Key, Loader2, Network, Package, Puzzle, Server, Shield, Timer } from 'lucide-react';
 import TemporalPanel from './components/TemporalPanel';
 import ServicesPanel from './components/ServicesPanel';
@@ -26,10 +25,31 @@ import { useShellStore, startHistorySync } from './stores/shell';
 import { useSocketEvent } from './stores/socket';
 import MeshDevices from './components/MeshDevices.js';
 import Personas from './components/Personas.js';
+import { API_BASE } from './api/client';
+import { getMe, logout } from './api/auth';
+// Aliased where App already names a MUTATION the same thing — those names describe what the shell
+// does; the api functions are the transport under them.
+import {
+  listClusters, clusterKeys, type ClusterCreated,
+  provisionCluster as provisionClusterApi,
+  startAwaitingCluster as startAwaitingClusterApi,
+} from './api/clusters';
+import {
+  listDeployments, deploymentKeys,
+  deployApp as deployAppApi,
+  destroyResource as destroyResourceApi,
+} from './api/deployments';
+import { listProviders, credentialKeys } from './api/credentials';
+import { getNginxConfig, saveNginxConfig, nginxKeys } from './api/nginx';
 
-const API_BASE = (import.meta.env?.VITE_API_BASE as string) || 'http://localhost:3001/api';
+// Re-exported for the handful of callers that still take an api base as a prop; the value itself
+// is declared once in `api/client.ts`.
+export { API_BASE };
 
-axios.defaults.withCredentials = true;
+// `axios.defaults.withCredentials = true` used to live here, and it was the worst of the three
+// ways credentials were being set: it silently coupled every component to App.tsx having been
+// imported first, so a component rendered in a test without it passed and would have failed in
+// production. `api/client.ts`'s instance carries it now.
 
 /**
  * Everything that is infrastructure rather than the harness.
@@ -116,20 +136,16 @@ function App() {
   const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
   const [showNginxWizard, setShowNginxWizard] = useState(false);
   useEffect(() => {
-    fetch(`${API_BASE}/auth/me`, { credentials: 'include' })
-      .then(async (res) => {
-        if (res.ok) {
-          const data = await res.json();
-          setUser(data);
-        }
-      })
-      .catch(() => {})
+    // `getMe` resolves null rather than rejecting when nobody is signed in — that is the ordinary
+    // state on first load, not an error.
+    getMe()
+      .then((data) => { if (data) setUser(data); })
       .finally(() => setAuthLoading(false));
   }, []);
 
   const handleLogout = async () => {
     try {
-      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+      await logout();
       setUser(null);
       setView('clusters');
     } catch (err) {
@@ -140,9 +156,9 @@ function App() {
 
   // Unified Wizard State
 
-  const { data: clusters = [] } = useQuery({ queryKey: ['clusters'], queryFn: () => axios.get(`${API_BASE}/clusters`).then(res => res.data), refetchInterval: 3000 });
-  const { data: deployments = [] } = useQuery({ queryKey: ['deployments'], queryFn: () => axios.get(`${API_BASE}/deployments`).then(res => res.data), refetchInterval: 3000 });
-  const { data: credentialsData } = useQuery({ queryKey: ['credentials'], queryFn: () => axios.get(`${API_BASE}/credentials`).then(res => res.data) });
+  const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
+  const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000 });
+  const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders });
 
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d: any) => d.id === showLogModal.id) : null;
   const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c: any) => c.id === showLogModal.id) : null;
@@ -243,7 +259,7 @@ function App() {
     pushNotification({ type: 'error', message: `${what}: ${errorMessage(err)}` });
 
   const provisionCluster = useMutation({
-    mutationFn: (newCluster: any) => axios.post(`${API_BASE}/clusters`, newCluster),
+    mutationFn: (newCluster: unknown) => provisionClusterApi<ClusterCreated>(newCluster),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
       setShowClusterModal(false);
@@ -251,33 +267,33 @@ function App() {
       // A bring-your-own machine has not started provisioning: the backend generated a keypair and
       // is holding it until the user authorises the public half. Jumping to the provisioning log
       // here would show an empty log for a workflow that does not exist.
-      if (res.data.status === 'awaiting-key') {
-        setPendingKey({ id: res.data.id, publicKey: res.data.publicKey });
+      if (res.status === 'awaiting-key') {
+        setPendingKey({ id: res.id, publicKey: res.publicKey ?? '' });
         return;
       }
-      setShowLogModal({ type: 'cluster', id: res.data.id });
+      setShowLogModal({ type: 'cluster', id: res.id });
       setLogTab('provision');
     },
     onError: reportFailure('Could not provision the cluster'),
   });
 
   const startAwaitingCluster = useMutation({
-    mutationFn: (id: string) => axios.post(`${API_BASE}/clusters/${id}/start`),
+    mutationFn: (id: string) => startAwaitingClusterApi<ClusterCreated>(id),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
       setPendingKey(null);
-      setShowLogModal({ type: 'cluster', id: res.data.id });
+      setShowLogModal({ type: 'cluster', id: res.id });
       setLogTab('provision');
     },
     onError: reportFailure('Could not start the cluster'),
   });
   
   const deployApp = useMutation({ 
-    mutationFn: (newApp: any) => axios.post(`${API_BASE}/deployments`, newApp), 
+    mutationFn: (newApp: unknown) => deployAppApi<{ id: string }>(newApp),
     onSuccess: (res) => { 
       queryClient.invalidateQueries({ queryKey: ['deployments'] }); 
       setShowAppModal(false); 
-      setShowLogModal({ type: 'app', id: res.data.id }); 
+      setShowLogModal({ type: 'app', id: res.id }); 
       setLogTab('provision'); 
       // The wizard resets itself: it unmounts on close, so its state goes with it.
     },
@@ -289,7 +305,7 @@ function App() {
 
 
   const destroyResource = useMutation({
-    mutationFn: ({ type, id }: any) => axios.delete(`${API_BASE}/${type === 'cluster' ? 'clusters' : 'deployments'}/${id}`),
+    mutationFn: ({ type, id }: { type: 'cluster' | 'app'; id: string }) => destroyResourceApi(type, id),
     onSuccess: (_, variables) => {
         queryClient.invalidateQueries({ queryKey: ['clusters'] });
         queryClient.invalidateQueries({ queryKey: ['deployments'] });
@@ -310,13 +326,13 @@ function App() {
 
 
   const { data: nginxConfig, isLoading: loadingNginxConfig } = useQuery({
-    queryKey: ['nginx-config'],
-    queryFn: () => axios.get(`${API_BASE}/nginx/config`).then(res => res.data),
+    queryKey: nginxKeys.config(),
+    queryFn: getNginxConfig,
     enabled: view === 'nginx'
   });
 
   const updateNginxConfig = useMutation({
-    mutationFn: (newContent: string) => axios.post(`${API_BASE}/nginx/config`, { content: newContent }),
+    mutationFn: saveNginxConfig,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['nginx-config'] });
     },
@@ -469,10 +485,10 @@ function App() {
            */
           key={showLogModal.id}
           target={showLogModal}
-          deployment={currentDeployment}
+          deployment={currentDeployment ?? null}
           deployments={deployments}
           clusters={clusters}
-          cluster={currentCluster}
+          cluster={currentCluster ?? null}
           initialTab={logTab}
           onClose={() => setShowLogModal(null)}
         />
@@ -494,7 +510,7 @@ function App() {
           // fresh initial state instead of reusing the first plan's.
           key={wizardPreset ? `${wizardPreset.provider}:${wizardPreset.serverType}:${wizardPreset.location}` : 'blank'}
           apiBase={API_BASE}
-          configuredProviders={credentialsData?.providers ?? []}
+          configuredProviders={providers}
           submitting={provisionCluster.isPending}
           onCancel={() => { setShowClusterModal(false); setWizardPreset(undefined); }}
           onCredentialsSaved={() => queryClient.invalidateQueries({ queryKey: ['credentials'] })}

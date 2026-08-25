@@ -34,17 +34,14 @@ export const KNOWN_VIEWS = [...FOREST_VIEWS, ...KOALA_VIEWS] as const
 
 export type ViewName = typeof KNOWN_VIEWS[number]
 
-export interface AppUser {
-  id: string
-  email: string
-  createdAt?: string
-  isAdmin?: boolean
-  twoFactorEnabled?: boolean
-  twoFactorPhone?: string
-  twoFactorPreferredMethod?: string
-  /** Anything else the session endpoint returns. Narrowed as screens start reading it. */
-  [key: string]: unknown
-}
+/**
+ * Re-exported from `api/auth`, not re-declared.
+ *
+ * The store HOLDS the user; the route decides what is in one. Two declarations of that is how a
+ * field the endpoint returns ends up unknown to the screen reading it.
+ */
+import type { SessionUser as AppUser } from '../api/auth'
+export type { AppUser }
 
 /** A toast. `nid` is assigned on push so React has a stable key. */
 export interface Notification {

@@ -108,3 +108,30 @@ export const listClusterServices = (clusterId: string): Promise<ServiceInfo[]> =
  */
 export const clusterDashboardUrl = (clusterId: string, serviceName: string): string =>
   `${API_BASE}/clusters/${clusterId}/proxy/${serviceName}/`
+
+/**
+ * Starts a cluster that was waiting on its key.
+ *
+ * A bring-your-own machine is recorded `awaiting-key` the moment it is created — the backend has
+ * generated a keypair and is holding it until the user authorises the public half — so this is the
+ * separate act of saying "it is authorised now, go".
+ */
+/**
+ * What creating (or starting) a cluster answers with.
+ *
+ * `status: 'awaiting-key'` is the case that matters: a bring-your-own machine has NOT started
+ * provisioning, the backend has minted a keypair and is holding it. Jumping to the provisioning
+ * log there would show an empty log for a workflow that does not exist, so the shell shows the
+ * public key for authorising instead.
+ */
+export interface ClusterCreated {
+  id: string
+  status?: string
+  publicKey?: string
+}
+
+export const startAwaitingCluster = <T,>(id: string): Promise<T> =>
+  api.post<T>(`/clusters/${id}/start`, {}).then((r) => r.data)
+
+export const provisionCluster = <T,>(body: unknown): Promise<T> =>
+  api.post<T>('/clusters', body).then((r) => r.data)
