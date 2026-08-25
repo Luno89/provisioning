@@ -194,29 +194,35 @@ const MAX_TOOL_CALLS = 6;
 const MAX_TOOL_ARGS = 400;
 const MAX_TOOL_DIGEST = 2000;
 
-/** Parses one upstream body into accumulator state via the shared stream parser. */
+/**
+ * Parses one upstream body into accumulator state via the shared stream parser.
+ *
+ * Events are handed to `onEvent` AS THEY PARSE, not after the body completes — a reasoning model
+ * produces a great deal of thinking per round, and a turn that spends eighty seconds deciding what
+ * to do must show that thinking live. This is the exact regression the koala route's docblock
+ * records as fixed once already; batching here would reintroduce it through the shared loop.
+ */
 async function pump(
   body: unknown,
   acc: { answer: string; thinking: string; calls: RoundToolCall[] },
+  onEvent?: (ev: StreamEvent) => void,
 ): Promise<void> {
   const reader = (body as any)?.getReader?.();
   if (!reader) return;
   const parser = createStreamParser();
   const decoder = new TextDecoder();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    for (const ev of parser.push(decoder.decode(value, { stream: true }))) {
-      if (ev.kind === 'content') acc.answer += ev.text;
-      else if (ev.kind === 'reasoning') acc.thinking += ev.text;
-      else if (ev.kind === 'toolCalls') acc.calls.push(...ev.calls);
-    }
-  }
-  for (const ev of parser.flush()) {
+  const handle = (ev: StreamEvent) => {
     if (ev.kind === 'content') acc.answer += ev.text;
     else if (ev.kind === 'reasoning') acc.thinking += ev.text;
     else if (ev.kind === 'toolCalls') acc.calls.push(...ev.calls);
+    onEvent?.(ev);
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const ev of parser.push(decoder.decode(value, { stream: true }))) handle(ev);
   }
+  for (const ev of parser.flush()) handle(ev);
 }
 
 export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResult> {
@@ -245,12 +251,9 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     if (!step.ok || !step.body) break;
 
     const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
-    await pump(step.body, acc);
-    if (acc.thinking) {
-      cfg.emit({ kind: 'reasoning', text: acc.thinking });
-    }
+    // Events stream live via cfg.emit inside pump — the reader watches thinking and prose arrive.
+    await pump(step.body, acc, cfg.emit);
     if (acc.answer) {
-      cfg.emit({ kind: 'content', text: acc.answer });
       spoken = acc.answer;
       answer = acc.answer;
     }
@@ -285,11 +288,8 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     const last = await call(turn, { toolChoice: 'none' });
     if (last.ok && last.body) {
       const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
-      await pump(last.body, acc);
-      if (acc.answer) {
-        answer = acc.answer;
-        cfg.emit({ kind: 'content', text: acc.answer });
-      }
+      await pump(last.body, acc, cfg.emit);
+      if (acc.answer) answer = acc.answer;
     }
   }
 

@@ -210,6 +210,39 @@ describe('runToolRounds', () => {
     expect(messages).toContainEqual({ role: 'tool', tool_call_id: 't1', name: 'get_logs', content: 'out' });
   });
 
+  it('streams events live as the body parses, before the round resolves', async () => {
+    const emit = vi.fn();
+    // A stream that resolves slowly, so we can observe emit firing mid-round.
+    const slow = (function makeStream() {
+      const encoder = new TextEncoder();
+      let sent = 0;
+      return {
+        getReader() {
+          return {
+            read: async () => {
+              await new Promise(r => setTimeout(r, 10));
+              if (sent === 0) { sent = 1; return { done: false, value: encoder.encode(delts({ reasoning_content: 'hmm' })) }; }
+              if (sent === 1) { sent = 2; return { done: false, value: encoder.encode(delts({ content: 'alive' })) }; }
+              return { done: true, value: undefined };
+            },
+          };
+        },
+      };
+    })();
+    const call = vi.fn().mockResolvedValue({ ok: true, body: slow });
+    await runToolRounds({
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'hi' }],
+      call,
+      emit,
+      executeTool: async () => ({ content: '' }),
+    });
+    // Events were emitted live, one per chunk, then the loop finished.
+    const kinds = emit.mock.calls.map(c => (c[0] as { kind: string }).kind);
+    expect(kinds).toContain('content');
+    expect(kinds.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('calls onEnabled when a tool enables a service', async () => {
     const call = vi
       .fn()
