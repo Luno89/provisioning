@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, Lock, LogIn, UserPlus, Github, Chrome, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
+import { API_BASE } from '../api/client';
+import { login, verifyTwoFactor, type LoginResult, type SessionUser } from '../api/auth';
 
 interface LoginProps {
-  apiBase: string;
-  onSuccess: (user: any) => void;
+  onSuccess: (user: SessionUser) => void;
 }
 
-export default function Login({ apiBase, onSuccess }: LoginProps) {
+export default function Login({ onSuccess }: LoginProps) {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,18 +43,10 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
     setLoading(true);
 
     try {
-      const endpoint = isRegister ? '/auth/register' : '/auth/login';
-      const res = await fetch(`${apiBase}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(isRegister ? { email, password, inviteCode } : { email, password }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed');
-      }
+      const data: LoginResult = await login(
+        isRegister ? { email, password, inviteCode } : { email, password },
+        { register: isRegister },
+      );
 
       if (isRegister) {
         setMessage('Registration successful! Please sign in.');
@@ -62,8 +55,8 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
       } else {
         if (data.twoFactorRequired) {
           setTwoFactorRequired(true);
-          setUserId(data.userId);
-        } else {
+          setUserId(data.userId ?? '');
+        } else if (data.user) {
           onSuccess(data.user);
         }
       }
@@ -80,19 +73,10 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
     setLoading(true);
 
     try {
-      const res = await fetch(`${apiBase}/auth/2fa/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ userId, code: otpCode }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || '2FA code verification failed');
+      const data: LoginResult = await verifyTwoFactor({ userId, code: otpCode });
+      if (data.user) {
+        onSuccess(data.user);
       }
-
-      onSuccess(data.user);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -102,7 +86,7 @@ export default function Login({ apiBase, onSuccess }: LoginProps) {
 
   const handleSocialLogin = (provider: 'github' | 'google') => {
     const query = isRegister && inviteCode ? `?invite=${encodeURIComponent(inviteCode)}` : '';
-    window.location.href = `${apiBase.replace(/\/api$/, '')}/api/auth/${provider}${query}`;
+    window.location.href = `${API_BASE.replace(/\/api$/, '')}/api/auth/${provider}${query}`;
   };
 
   return (

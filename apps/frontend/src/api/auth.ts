@@ -45,3 +45,30 @@ export const getMe = (): Promise<SessionUser | null> =>
 
 export const logout = (): Promise<void> =>
   api.post('/auth/logout', {}).then(() => undefined)
+
+export interface LoginResult {
+  user?: SessionUser
+  twoFactorRequired?: boolean
+  userId?: string
+  error?: string
+}
+
+/**
+ * Password sign-in — or registration when `register` is set.
+ *
+ * Unlike `getMe`, a failure here THROWS: the caller is mid-interaction, and "wrong password" is
+ * information the user needs. The backend's `{ error }` body is re-thrown as its message so the
+ * form can show exactly what the server said.
+ */
+export const login = (
+  credentials: { email: string; password: string; inviteCode?: string },
+  opts: { register?: boolean } = {},
+): Promise<LoginResult> =>
+  api
+    .post<LoginResult>(opts.register ? '/auth/register' : '/auth/login', credentials)
+    .then((r) => r.data)
+
+/** Second step of an enforced-2FA sign-in. Same throw-on-error contract as `login`. */
+export const verifyTwoFactor = (body: { userId: string; code: string }): Promise<LoginResult> =>
+  api.post<LoginResult>('/auth/2fa/verify', body).then((r) => r.data)
+

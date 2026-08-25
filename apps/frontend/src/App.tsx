@@ -366,7 +366,7 @@ function App() {
   }
 
   if (!user) {
-    return <Login apiBase={API_BASE} onSuccess={setUser} />;
+    return <Login onSuccess={setUser} />;
   }
 
   return (
