@@ -168,14 +168,21 @@ export interface ToolRoundResult {
   proposedSpecs: unknown[];
 }
 
+export interface RoundLoopCall {
+  messages: unknown[];
+  toolChoice?: 'none';
+  /** Currently-enabled tool names. Grows as tools enable services mid-turn; the caller's `call`
+   *  builds the request (and its tool schemas) from this. */
+  tools: string[];
+}
+
 export interface RoundLoopConfig {
   maxRounds: number;
   /** The transcript so far. The loop appends assistant/tool messages and trims per round. */
   messages: unknown[];
-  call: (
-    messages: unknown[],
-    opts?: { toolChoice?: 'none' },
-  ) => Promise<{ ok: boolean; status?: number; body?: unknown }>;
+  /** The tool names offered on the first round. */
+  tools: string[];
+  call: (req: RoundLoopCall) => Promise<{ ok: boolean; status?: number; body?: unknown }>;
   /** Emits raw StreamEvents plus toolCall/toolResult announcements; the caller maps to its wire. */
   emit: (frame: StreamEvent | Record<string, unknown>) => void;
   executeTool: (call: RoundToolCall) => Promise<ToolExecResult>;
@@ -233,6 +240,7 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
   } = cfg;
 
   let turn = messages;
+  let toolNames = [...(cfg.tools ?? [])];
   let answer = '';
   let thinking = '';
   let spoken = '';
@@ -247,7 +255,7 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     exhaustedRounds = round === maxRounds - 1;
     const sent = trimPerRound ? trimPerRound(turn) : turn;
 
-    const step = await call(sent);
+    const step = await call({ messages: sent, tools: toolNames });
     if (!step.ok || !step.body) break;
 
     const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
@@ -276,7 +284,10 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
       }
       cfg.emit({ kind: 'toolResult', id: c.id, ok, digest });
       if (out.enabled && !enabledNow.includes(out.enabled)) enabledNow.push(out.enabled);
-      if (out.enabled) cfg.onEnabled?.(out.enabled);
+      if (out.enabled) {
+        cfg.onEnabled?.(out.enabled);
+        if (!toolNames.includes(out.enabled)) toolNames.push(out.enabled);
+      }
       if (out.proposed) proposedTrees.push(out.proposed);
       if (out.proposedSpec) proposedSpecs.push(out.proposedSpec);
       turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });
@@ -285,7 +296,7 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
 
   // Exhausted with no answer: force a bare wrap-up round.
   if (exhaustedRounds && !answer && onExhausted === 'wrap-up') {
-    const last = await call(turn, { toolChoice: 'none' });
+    const last = await call({ messages: turn, tools: toolNames, toolChoice: 'none' });
     if (last.ok && last.body) {
       const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
       await pump(last.body, acc, cfg.emit);

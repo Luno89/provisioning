@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createStreamParser, type StreamEvent, type RoundToolCall } from './round-loop.js';
+import { createStreamParser, type StreamEvent, type RoundToolCall, type RoundLoopCall } from './round-loop.js';
 import { runToolRounds } from './round-loop.js';
 
 /* ═════════════ PARSER (C1) ═════════════ */
@@ -105,6 +105,7 @@ describe('runToolRounds', () => {
     const result = await runToolRounds({
       maxRounds: 3,
       messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
       call,
       emit: vi.fn(),
       executeTool: async () => ({ content: 'tool out' }),
@@ -124,6 +125,7 @@ describe('runToolRounds', () => {
     const result = await runToolRounds({
       maxRounds: 3,
       messages: [{ role: 'user', content: 'check pod' }],
+      tools: [],
       call,
       emit: vi.fn(),
       executeTool,
@@ -143,6 +145,7 @@ describe('runToolRounds', () => {
     const result = await runToolRounds({
       maxRounds: 2,
       messages: [{ role: 'user', content: 'go' }],
+      tools: [],
       call,
       emit: vi.fn(),
       executeTool: async () => ({ content: 'r' }),
@@ -162,6 +165,7 @@ describe('runToolRounds', () => {
     await runToolRounds({
       maxRounds: 2,
       messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
       call,
       emit,
       executeTool: async () => ({ content: 'x' }),
@@ -176,6 +180,7 @@ describe('runToolRounds', () => {
     const result = await runToolRounds({
       maxRounds: 4,
       messages: [{ role: 'user', content: 'hi' }],
+      tools: ['get_logs'],
       call,
       emit: vi.fn(),
       executeTool: async () => ({ content: '' }),
@@ -194,8 +199,9 @@ describe('runToolRounds', () => {
     await runToolRounds({
       maxRounds: 3,
       messages,
-      call: async (msgs: unknown[]) => {
-        messages = msgs;
+      tools: [],
+      call: async (req: RoundLoopCall) => {
+        messages = req.messages;
         return call();
       },
       emit: vi.fn(),
@@ -233,6 +239,7 @@ describe('runToolRounds', () => {
     await runToolRounds({
       maxRounds: 2,
       messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
       call,
       emit,
       executeTool: async () => ({ content: '' }),
@@ -252,6 +259,7 @@ describe('runToolRounds', () => {
     await runToolRounds({
       maxRounds: 3,
       messages: [{ role: 'user', content: 'hi' }],
+      tools: ['enable_mcp_server'],
       call,
       emit: vi.fn(),
       executeTool: async () => ({ content: 'x', enabled: 'svc' }),
