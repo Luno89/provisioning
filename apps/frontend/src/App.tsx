@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import KoalaChat from './components/KoalaChat';
+import ChatPage from './components/ChatPage';
 import Sidebar from './components/Sidebar';
 import NginxView from './components/NginxView';
 import ClustersView from './components/ClustersView';
@@ -419,11 +419,7 @@ function App() {
           <Grove handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}
 
-        {view === 'chat' && (
-          <KoalaChat
-            onOpenTree={() => setView('grove')}
-          />
-        )}
+        {view === 'chat' && <ChatPage />}
 
         {view === 'personas' && <Personas />}
 
