@@ -5,21 +5,23 @@ import { test, expect } from '@playwright/test';
  *
  * Runs against the existing dev servers (Vite: 5173, Backend: 3001).
  * Does NOT spawn servers — assumes `npm run dev` is already running.
+ *
+ * NOTE: Full auth E2E requires a seeded test user (invite-only DB).
+ * The 3 smoke tests below verify the unified /api/chat-pack/:packId endpoints
+ * are mounted and return 401 (auth required), not 404 (route missing).
  */
 
-const BASE_URL = 'http://localhost:5173';
 const API_BASE = 'http://localhost:3001';
 
 test.describe.configure({ retries: 0 });
 
-test.describe('ChatSurface — unified chat on dev stack', () => {
+test.describe('ChatSurface — unified chat endpoints', () => {
+  // ── Smoke: endpoints exist ──────────────────────────────────────────────
   test('chat-pack endpoint exists and returns 401 without auth', async ({ request }) => {
-    // The unified /api/chat-pack/:packId route should exist (mounted in backend)
     const response = await request.post(`${API_BASE}/api/chat-pack/koala`, {
       data: { conversationId: 'e2e-test', message: 'hi' },
       headers: { 'Content-Type': 'application/json' },
     });
-    // 401 = route exists, auth required; 404 = route missing
     expect(response.status()).toBe(401);
   });
 
@@ -38,4 +40,13 @@ test.describe('ChatSurface — unified chat on dev stack', () => {
     });
     expect(response.status()).toBe(401);
   });
+
+  // TODO: Full auth E2E (register → login → chat → reply) requires a seeded test user
+  // in the DB. Current DB is invite-only with no invite codes available.
+  // To enable: seed a test user via admin/invite API, then uncomment below.
+  //
+  // test('register → sign in → send message → see assistant reply', async ({ page }) => { ... })
+  // test('login existing user → send message → see reply', async ({ page }) => { ... })
+  // test('researcher pack shows thinking pane', async ({ page }) => { ... })
+  // test('tool pill appears for a tool call', async ({ page }) => { ... })
 });
