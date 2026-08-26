@@ -51,7 +51,7 @@ describe('runChatTurn (Koala pack, fake model)', () => {
     expect(types).toContain('toolResult');
     expect(types).toContain('proposedTree');
     const contentFrame = result.frames.find((f) => f.type === 'content');
-    expect((contentFrame as any).delta.content).toBe('Here are the logs.');
+    expect(contentFrame?.delta).toBe('Here are the logs.');
   });
 
   it('streams content live through onEachToolResult as it parses', async () => {

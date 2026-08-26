@@ -29,21 +29,22 @@ export function mapTurnToFrames(turn: TurnOutcome, delivery: DeliverySpec): Unif
   const frames: UnifiedFrame[] = [];
 
   if (delivery.content && turn.answer) {
-    frames.push({ type: 'content', delta: { content: turn.answer } });
+    frames.push({ type: 'content', delta: String(turn.answer) });
   }
   if (delivery.thinking && turn.thinking) {
-    frames.push({ type: 'thinking', text: turn.thinking });
+    frames.push({ type: 'thinking', delta: turn.thinking });
   }
 
   if (delivery.tools === 'semantic') {
     const announces = turn.toolCalls.map((c) => ({
       type: 'toolAnnounce' as const,
-      id: c.id, name: c.name, args: c.args,
+      payload: { id: c.id, name: c.name, args: c.args },
     }));
     frames.push(...announces);
     if (delivery.toolResults) {
       const results = turn.toolCalls.map((c) => ({
-        type: 'toolResult' as const, id: c.id, ok: c.ok, digest: c.digest,
+        type: 'toolResult' as const,
+        payload: { id: c.id, ok: c.ok, digest: c.digest },
       }));
       frames.push(...results);
     }
@@ -51,17 +52,17 @@ export function mapTurnToFrames(turn: TurnOutcome, delivery: DeliverySpec): Unif
 
   if (delivery.proposals) {
     frames.push(
-      ...turn.proposedTrees.map((tree) => ({ type: 'proposedTree' as const, tree })),
-      ...turn.proposedSpecs.map((spec) => ({ type: 'proposedSpec' as const, spec })),
+      ...turn.proposedTrees.map((tree) => ({ type: 'proposedTree' as const, payload: tree })),
+      ...turn.proposedSpecs.map((spec) => ({ type: 'proposedSpec' as const, payload: spec })),
     );
   }
 
   if (delivery.enable && turn.enabledNow.length) {
-    frames.push({ type: 'enabled', services: turn.enabledNow });
+    frames.push({ type: 'enabled', payload: turn.enabledNow });
   }
 
   if (delivery.telemetry && turn.interrupted) {
-    frames.push({ type: 'interrupted', reason: turn.interrupted });
+    frames.push({ type: 'interrupted', payload: turn.interrupted });
   }
 
   return frames;
@@ -134,7 +135,7 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
     emit: ((frame: any) => {
       // Stream content live via the surface callback when present.
       if (frame.kind === 'content' && onEachToolResult) {
-        onEachToolResult({ type: 'content', delta: { content: frame.text } });
+        onEachToolResult({ type: 'content', delta: String(frame.text) });
       }
     }) as unknown as (f: any) => void,
     ...(trimPerRound ? { trimPerRound } : {}),

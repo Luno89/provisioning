@@ -23,16 +23,16 @@ export interface ContentDelta {
 }
 
 export type UnifiedFrame =
-  | { type: 'content'; delta: ContentDelta }
-  | { type: 'thinking'; text: string }
-  | { type: 'toolAnnounce'; id: string; name: string; args: string }
-  | { type: 'toolResult'; id: string; ok: boolean; digest: string }
-  | { type: 'proposedTree'; tree: unknown }
-  | { type: 'proposedSpec'; spec: unknown }
-  | { type: 'enabled'; services: string[] }
-  | { type: 'plan'; content: string }
-  | { type: 'usage'; usage: Record<string, unknown> }
-  | { type: 'interrupted'; reason: string };
+  | { type: 'content'; delta: string }
+  | { type: 'thinking'; delta: string }
+  | { type: 'toolAnnounce'; payload: { id: string; name: string; args: string } }
+  | { type: 'toolResult'; payload: { id: string; ok: boolean; digest?: string } }
+  | { type: 'proposedTree'; payload: unknown }
+  | { type: 'proposedSpec'; payload: unknown }
+  | { type: 'enabled'; payload: string[] }
+  | { type: 'plan'; payload: unknown }
+  | { type: 'usage'; payload: unknown }
+  | { type: 'interrupted'; payload: unknown };
 
 /** All the frame types, so a persona-pack's delivery can be validated against them. */
 export const UNIFIED_FRAME_TYPES = [
@@ -59,7 +59,7 @@ export function toolResultFrame(
   ok: boolean,
   digest: string,
 ): UnifiedFrame {
-  return { type: 'toolResult', id, ok, digest };
+  return { type: 'toolResult', payload: { id, ok, digest } };
 }
 
 /** The complete set a handler may produce in one turn. */

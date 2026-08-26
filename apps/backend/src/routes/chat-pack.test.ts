@@ -97,7 +97,7 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
     expect(frames.length).toBeGreaterThan(0);
     const first = JSON.parse(frames[0]!);
     expect(first.type).toBe('content');
-    expect(first.delta.content).toBe('hello-red-green');
+    expect(first.delta).toBe('hello-red-green');
   });
 
   it('serves a DIFFERENT persona pack with its own system prompt', async () => {
