@@ -10,7 +10,22 @@ export class TraefikApp extends Construct {
                 name: namespaceName,
             },
         });
-        const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "ClusterIP" : "LoadBalancer");
+        // NodePort, not ClusterIP, for self-managed clusters (k3d, hetzner, remote).
+        //
+        // ClusterIP left Traefik unreachable from outside the cluster, which quietly broke app
+        // exposure on every Hetzner and remote cluster: AppExposureService.buildUpstreamTarget() falls
+        // through to a branch that waits on `status.loadBalancer.ingress[0]`, and a ClusterIP Service
+        // never populates that. The error was "Cloud LoadBalancer for Traefik's Service is still
+        // provisioning", forever, on a cluster that has no load balancer and never will.
+        //
+        // A NodePort binds on every node interface — including the WireGuard one — so the root node
+        // reaches it at <meshIp>:<nodePort> and proxies public traffic in over the mesh. Nothing is
+        // opened on the public interface: constructs/hetzner-vm.ts still admits only 22 and WireGuard,
+        // and reachability on the mesh is bounded by headscale/config/acl.hujson.
+        //
+        // LoadBalancer stays the default for real clouds (aws/gcp/azure/do), where a controller exists
+        // to satisfy it.
+        const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
         const configValues = {
             service: {
                 spec: {

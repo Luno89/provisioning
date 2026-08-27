@@ -68,8 +68,8 @@ export function reduceUnifiedFrames(
     const svcs = frame.payload as string[];
     return { ...state, enabled: [...new Set([...state.enabled, ...svcs])] };
   }
-  if ((frame.type === 'proposedTree' || frame.type === 'proposedSpec') && 'payload' in frame) {
-    const kind = frame.type === 'proposedTree' ? 'tree' : 'spec';
+  if ((frame.type === 'proposedTree' || frame.type === 'proposedSpec' || frame.type === 'proposedEscalation' || frame.type === 'proposedSecretRequest') && 'payload' in frame) {
+    const kind = frame.type === 'proposedTree' ? 'tree' : frame.type === 'proposedSpec' ? 'spec' : frame.type === 'proposedEscalation' ? 'escalation' : 'secretRequest';
     const proposals = [...state.proposals, { kind, payload: frame.payload }];
     return { ...state, proposals };
   }
@@ -85,6 +85,8 @@ export type UnifiedFrame =
   | { type: 'enabled'; payload: string[] }
   | { type: 'proposedTree'; payload: any }
   | { type: 'proposedSpec'; payload: any }
+  | { type: 'proposedEscalation'; payload: any }
+  | { type: 'proposedSecretRequest'; payload: any }
   | { type: 'plan'; payload: any }
   | { type: 'usage'; payload: any }
   | { type: 'interrupted'; payload: any }

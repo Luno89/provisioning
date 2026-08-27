@@ -293,3 +293,42 @@ describe('the two lists reaching the model', () => {
     expect(String(out[0]!.content)).not.toContain('Finished runs');
   });
 });
+
+/**
+ * The planner is given the project type's file conventions for the same reason it is given
+ * `doneMeans`: both are standards the template states and the plan is held to. Without this, a
+ * planner on a node type shipping plain JavaScript asked for `src/tools.ts`, and the leaf that
+ * correctly produced `src/tools.js` was failed three times over the extension.
+ */
+describe('buildOutboundMessages — file conventions', () => {
+  const turns = [{ role: 'user', content: 'plan the work' }];
+  const build = (over: Record<string, unknown> = {}) => buildOutboundMessages({
+    messages: turns as never, lastIndex: 0, leaves: [], ...over,
+  } as never);
+
+  it('puts the conventions in the system message where the planner will read them', () => {
+    const out = build({ fileConventions: 'This is a node project. Source files end in .js.' });
+    expect(out[0]?.role).toBe('system');
+    expect(String(out[0]?.content)).toContain('Source files end in .js');
+  });
+
+  it('composes them alongside doneMeans rather than replacing it', () => {
+    const out = build({
+      doneMeans: 'service whose tests pass',
+      fileConventions: 'This is a node project. Source files end in .js.',
+    });
+    const system = String(out[0]?.content);
+    expect(system).toContain('service whose tests pass');
+    expect(system).toContain('.js');
+  });
+
+  it('brings a system message into being on its own, so a bare planning turn still gets them', () => {
+    const out = build({ fileConventions: 'This is a python project. Source files end in .py.' });
+    expect(out[0]?.role).toBe('system');
+  });
+
+  it('adds nothing when the tree type ships no scaffold and states no language', () => {
+    const out = build({});
+    expect(out[0]?.role).not.toBe('system');
+  });
+});

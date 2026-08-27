@@ -1,9 +1,5 @@
 const { defineConfig, devices } = require('@playwright/test');
 
-/**
- * Lightweight Playwright config for ChatSurface E2E against EXISTING dev stack.
- * No server spawning — assumes `npm run dev` is running on 5173/3001.
- */
 module.exports = defineConfig({
   testDir: './tests',
   testMatch: 'chat-surface-e2e.spec.ts',
@@ -12,7 +8,7 @@ module.exports = defineConfig({
   workers: 1,
   reporter: 'line',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:5174',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',
@@ -23,5 +19,22 @@ module.exports = defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // NO webServer — use existing dev stack
+  webServer: [
+    {
+      command: 'PORT=3002 IS_E2E=true USE_MEMORY_DB=true NODE_ENV=test npm run dev -w apps/backend',
+      port: 3002,
+      reuseExistingServer: false,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60000,
+    },
+    {
+      command: 'VITE_IS_E2E=true VITE_API_BASE=http://localhost:3002/api VITE_SOCKET_URL=http://localhost:3002 npm run dev -w apps/frontend -- --port 5174',
+      port: 5174,
+      reuseExistingServer: false,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60000,
+    }
+  ],
 });

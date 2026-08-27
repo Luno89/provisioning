@@ -23,6 +23,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
+import {
+  LIVE_LEAF_STATUSES, reconcileLeaf, reconcileMissingLeafWorkflow, type LeafReconcileAction,
+} from '../lib/leaf-reconcile.js'
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
 import { deploymentIdFor } from '../lib/deployment-id.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
@@ -916,12 +919,82 @@ export class TemporalBridge {
       }
     }
 
+
+    /**
+     * ── LEAVES ──
+     *
+     * The only resource in this loop that had no reconciler, and the one that needed it most: a
+     * leaf's OTHER backstop (`readyToStart`) requires `!workflowId`, and LeafWorkflow claims the id
+     * immediately — so once a leaf has a workflow, that workflow is the only thing that can ever
+     * move it. Measured: two leaves sat `pending` for four and a half days holding ids for
+     * workflows Temporal no longer had, and because `requestFinished` is false while any leaf is
+     * live, their branch could never land its work or run its acceptance either.
+     *
+     * The decision rules are pure and tested in lib/leaf-reconcile.ts.
+     */
+    const reconcileLeaves = async () => {
+      if (!this.client) return
+      try {
+        const leaves = await this.db.getLeaves()
+        for (const leaf of leaves) {
+          if (!(LIVE_LEAF_STATUSES as readonly string[]).includes(leaf.status)) continue
+          if (!leaf.workflowId) continue   // the readyToStart backstop already owns this case
+
+          const attempts = (leaf.attempts ?? []).length
+          let decision: LeafReconcileAction | undefined
+          try {
+            const described = await pollWorkflowRun(leaf.workflowId)
+            decision = reconcileLeaf(leaf.status, described?.status?.name, attempts)
+          } catch (err: any) {
+            // A workflow Temporal has never heard of is an ANSWER. Anything else is Temporal being
+            // unreachable, where saying nothing is the only safe move.
+            if (!/not\s*found/i.test(String(err?.message ?? err))) continue
+            decision = reconcileMissingLeafWorkflow(leaf.status, leaf.updatedAt, attempts)
+          }
+          if (!decision) continue
+
+          /**
+           * Re-read before writing. `saveLeaf` is a full replace with no merge, so writing the
+           * object this pass read at the top would drop anything the leaf gained since.
+           */
+          const fresh = (await this.db.getLeaves()).find((l) => l.id === leaf.id)
+          if (!fresh || fresh.status !== leaf.status) continue
+
+          if (decision.action === 'restart') {
+            // saveLeaf is a full replace, so OMITTING workflowId is what clears it — which is the
+            // whole point: `readyToStart` requires `!workflowId` before it will start a leaf.
+            const { workflowId: _dead, ...withoutWorkflow } = fresh
+            await this.db.saveLeaf({ ...withoutWorkflow, updatedAt: new Date().toISOString() })
+            console.warn(`[Reconcile] leaf ${leaf.id.slice(0, 8)}: ${decision.reason}`)
+          } else {
+            await this.db.saveLeaf({
+              ...fresh,
+              status: 'failed',
+              attempts: [...(fresh.attempts ?? []), {
+                attempt: attempts,
+                error: decision.reason,
+                failedAt: new Date().toISOString(),
+                produced: false,
+              }],
+              updatedAt: new Date().toISOString(),
+            })
+            console.warn(`[Reconcile] leaf ${leaf.id.slice(0, 8)} -> failed: ${decision.reason}`)
+          }
+          if (this.io) this.io.emit('leaves-updated')
+        }
+      } catch (err: any) {
+        console.warn(`[Reconcile] Could not reconcile leaves: ${err.message}`)
+      }
+    }
+
     reconcile()
     setInterval(reconcile, RECONCILE_INTERVAL)
     consolidate()
     setInterval(consolidate, CONSOLIDATE_INTERVAL)
     reconcileRuns()
     setInterval(reconcileRuns, RECONCILE_INTERVAL)
+    reconcileLeaves()
+    setInterval(reconcileLeaves, RECONCILE_INTERVAL)
     releaseBackstop()
     setInterval(releaseBackstop, DEPENDENCY_BACKSTOP_INTERVAL)
   }

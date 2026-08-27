@@ -80,6 +80,58 @@ interface DeploymentLike {
   healthReason?: string | undefined;
 }
 
+/** Cluster-level platform infrastructure services exposed to administrators and escalated sessions. */
+export const CLUSTER_PLATFORM_SERVICES: readonly RunningService[] = [
+  {
+    name: 'prometheus',
+    type: 'prometheus',
+    is: 'cluster metrics database and alerting engine',
+    provides: ['PromQL query endpoint and telemetry metrics'],
+    namespace: 'monitoring',
+    address: 'http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090',
+  },
+  {
+    name: 'grafana',
+    type: 'grafana',
+    is: 'cluster metrics and logs visualization dashboard',
+    provides: ['Grafana UI and visual observability dashboards'],
+    namespace: 'monitoring',
+    address: 'http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80',
+  },
+  {
+    name: 'loki',
+    type: 'loki',
+    is: 'log aggregation engine',
+    provides: ['LogQL query endpoint for cluster and container logs'],
+    namespace: 'monitoring',
+    address: 'http://loki.monitoring.svc.cluster.local:3100',
+  },
+  {
+    name: 'alertmanager',
+    type: 'alertmanager',
+    is: 'cluster alert routing and notification manager',
+    provides: ['Alert dispatch and webhook notifications'],
+    namespace: 'monitoring',
+    address: 'http://alertmanager-kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093',
+  },
+  {
+    name: 'gitea',
+    type: 'gitea',
+    is: 'self-hosted git server and container registry',
+    provides: ['Git repositories, code hosting, and container registry'],
+    namespace: 'gitea',
+    address: 'http://gitea-http.gitea.svc.cluster.local:3000',
+  },
+  {
+    name: 'infisical',
+    type: 'infisical',
+    is: 'secret and token management vault (AES-256-GCM encrypted, Kubernetes operator synced)',
+    provides: ['Secret vault, API tokens, credentials management, pod secret injection'],
+    namespace: 'infisical',
+    address: 'http://infisical-standalone.infisical.svc.cluster.local:8080',
+  },
+];
+
 /**
  * The services a build could actually reach, and the catalogue it could add to.
  *
@@ -97,24 +149,29 @@ export function describeInfrastructure(
    * That is the honest degradation — fewer facts, never invented ones.
    */
   specs: readonly { id: string; spec: { ports?: { port: number }[] } }[] = [],
+  options?: { isAdmin?: boolean | undefined; isEscalated?: boolean | undefined } | undefined,
 ): Infrastructure {
   const byType = new Map(specs.map((s) => [s.id, s.spec]));
+  const userServices = deployments
+    .filter((d) => d.ownerId === ownerId && d.status === 'running')
+    .map((d) => ({
+      name: d.name,
+      type: d.appType ?? 'unknown',
+      ...(d.appType && d.appType in APP_FACTS
+        ? {
+            is: APP_FACTS[d.appType as AppType].is,
+            provides: APP_FACTS[d.appType as AppType].provides,
+          }
+        : {}),
+      // Namespaces are the deployment name, sanitised the same way the deploy path does it.
+      namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+      ...addressOf(d, byType),
+    }));
+
+  const platformServices = options?.isAdmin || options?.isEscalated ? CLUSTER_PLATFORM_SERVICES : [];
+
   return {
-    running: deployments
-      .filter((d) => d.ownerId === ownerId && d.status === 'running')
-      .map((d) => ({
-        name: d.name,
-        type: d.appType ?? 'unknown',
-        ...(d.appType && d.appType in APP_FACTS
-          ? {
-              is: APP_FACTS[d.appType as AppType].is,
-              provides: APP_FACTS[d.appType as AppType].provides,
-            }
-          : {}),
-        // Namespaces are the deployment name, sanitised the same way the deploy path does it.
-        namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-        ...addressOf(d, byType),
-      })),
+    running: [...userServices, ...platformServices],
     /**
      * `unhealthy` and `failed` both mean "deployed and not working" to somebody trying to fix it.
      * `deploying` is excluded: it is not broken, it is not finished.

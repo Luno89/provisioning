@@ -320,7 +320,7 @@ export default function Chat({
    */
   const pin = useCallback(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight });
+    if (el && typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight });
   }, []);
 
   const attachScroll = useCallback((el: HTMLDivElement | null) => {

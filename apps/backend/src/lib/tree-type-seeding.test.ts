@@ -76,4 +76,27 @@ describe('seeding an owner\'s tree types', () => {
 
     expect(await owned(db, 'u2')).toEqual([]);
   });
+
+  it('backfills validationRecipe when missing on legacy records while preserving user edits', async () => {
+    const db = new MemoryDB();
+    await db.init();
+
+    // Legacy record without validationRecipe or files
+    await db.saveTreeType({
+      id: 'api-service',
+      ownerId: 'u1',
+      label: 'Custom Service Name',
+      summary: 'Custom summary',
+      language: 'node',
+      produces: 'service',
+    } as any);
+
+    await seedTreeTypes(db, 'u1');
+
+    const updated = (await owned(db)).find((t) => t.id === 'api-service')!;
+    expect(updated.label).toBe('Custom Service Name'); // User customization preserved
+    expect(updated.validationRecipe).toBeDefined(); // Validation recipe backfilled!
+    expect(updated.validationRecipe?.checks.length).toBeGreaterThan(0);
+    expect(updated.files?.length).toBeGreaterThan(0);
+  });
 });

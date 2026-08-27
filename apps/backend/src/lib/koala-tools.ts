@@ -4,7 +4,10 @@ import {
   handleListMcpServers, handleEnableMcpServer, handleAddProjectDependency, handleListInfrastructure,
   handleProposeSpec, handleGetLogs, handleListTrees, handleProposeTree, handleWebSearch,
   handleInspectResources, handleClusterCapacity,
-  handleFetchWebPage, type KoalaToolHandler,
+  handleGetProjectPipeline, handleDeployProject, handleGetProjectUrl,
+  handleFetchWebPage, handleRequestEscalatedPrivileges, handleGetProjectEnv, handleSetProjectEnv,
+  handleRequestSecret, handleInjectSecretToPod, handleGetProjectSecret, handleSetProjectSecret, handleListProjectSecrets,
+  type KoalaToolHandler,
 } from './koala-tool-handlers.js';
 
 /** The ids a proposal may use, taken from the definitions rather than restated. */
@@ -354,6 +357,196 @@ const KOALA_OWN_TOOLS = [
       parameters: { type: 'object', properties: {} },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'get_project_pipeline',
+      description:
+        'Check the CI/CD pipeline runs, latest commit SHA, built container image tag, and Kaniko '
+        + 'build status for a project. Answers whether an image has been built from the project\'s code.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID to inspect.' },
+          name: { type: 'string', description: 'Project name to inspect, if ID is not known.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'deploy_project',
+      description:
+        'Promote and deploy a project\'s built container image to its target Kubernetes cluster. '
+        + 'Use this when the project has built successfully and needs to be deployed as a running service.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID to deploy.' },
+          name: { type: 'string', description: 'Project name to deploy, if ID is not known.' },
+          runId: { type: 'string', description: 'Specific pipeline run ID to promote, if not latest.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_project_url',
+      description:
+        'Get the live reachable URL, listening port, cluster namespace, and health status for a '
+        + 'deployed project.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID.' },
+          name: { type: 'string', description: 'Project name.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_escalated_privileges',
+      description:
+        'Request elevated access to cluster-wide system namespaces (monitoring, gitea, kube-system) or administrator '
+        + 'privileges when diagnosing platform infrastructure. State a clear, honest reason.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string', description: 'Clear explanation of why elevated access is required.' },
+          scope: { type: 'string', description: 'Requested privilege scope.', enum: ['cluster-read', 'cluster-admin'] },
+          namespaces: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific system namespaces requested (e.g. ["monitoring", "gitea"]).',
+          },
+        },
+        required: ['reason', 'scope'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_project_env',
+      description:
+        'View the currently configured runtime environment variables (deployEnv) for an existing project.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID to inspect.' },
+          name: { type: 'string', description: 'Project name to inspect, if ID is not known.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_project_env',
+      description:
+        'Set or update runtime environment variables (e.g. GITEA_URL, GITEA_TOKEN, API keys) on an existing project.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID to configure.' },
+          name: { type: 'string', description: 'Project name to configure, if ID is not known.' },
+          env: {
+            type: 'object',
+            description: 'Key-value mapping of environment variables to set or merge (e.g. {"GITEA_URL": "http://...", "GITEA_TOKEN": "..."}).',
+          },
+        },
+        required: ['env'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_secret',
+      description:
+        'Request a sensitive credential, token, or API key from the user via a secure interactive UI card. '
+        + 'The secret is encrypted and vaulted directly in Infisical without appearing in chat logs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'The environment variable or secret key name (e.g. GITHUB_TOKEN, STRIPE_SECRET_KEY, OPENAI_API_KEY).' },
+          label: { type: 'string', description: 'Human-friendly title for the card (e.g. "GitHub Personal Access Token").' },
+          description: { type: 'string', description: 'Detailed explanation of why this secret is needed, required scopes, and where to obtain it.' },
+          projectId: { type: 'string', description: 'Optional target project ID to associate this secret with.' },
+        },
+        required: ['key', 'description'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'inject_secret_to_pod',
+      description:
+        'Inject a vaulted secret into a deployed project pod via Kubernetes Secret (<app>-secrets) as an environment variable or file, and trigger a rolling restart.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Target project ID.' },
+          key: { type: 'string', description: 'Secret key name to inject (e.g. GITHUB_TOKEN).' },
+          secretReference: { type: 'string', description: 'Optional Infisical vault reference URI (e.g. secret://project/GITHUB_TOKEN).' },
+          mountAs: { type: 'string', enum: ['env', 'file'], description: 'How to mount the secret in the pod ("env" for environment variable, "file" for file mount, defaults to "env").' },
+          restart: { type: 'boolean', description: 'Whether to trigger a zero-downtime rolling pod restart immediately (defaults to true).' },
+        },
+        required: ['projectId', 'key'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_project_secret',
+      description: 'Retrieve metadata and vault reference for a project secret in Infisical.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID.' },
+          key: { type: 'string', description: 'Secret key name.' },
+        },
+        required: ['projectId', 'key'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_project_secret',
+      description: 'Set or update a secret in a project\'s Infisical vault.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID.' },
+          key: { type: 'string', description: 'Secret key name.' },
+          value: { type: 'string', description: 'Secret plaintext value to encrypt and vault.' },
+          comment: { type: 'string', description: 'Optional explanation of secret usage.' },
+        },
+        required: ['projectId', 'key', 'value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_project_secrets',
+      description: 'List configured secret keys in Infisical for a project with masked previews (never raw plaintext).',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project ID.' },
+        },
+        required: ['projectId'],
+      },
+    },
+  },
 ] as const;
 
 /**
@@ -371,17 +564,6 @@ export type KoalaToolName = typeof KOALA_OWN_TOOLS[number]['function']['name'] |
 
 /**
  * Schema ↔ handler, joined so that neither can exist alone.
- *
- * ── WHY THIS TABLE IS THE POINT ──
- * The schemas lived here and the implementations lived in a flat if-chain in another file, and
- * nothing connected them. A handler with no schema is invisible to the model; a schema with no
- * handler answers `No tool named "…"` to a call the model was invited to make. The first happened
- * — `web_search` and `fetch_web_page` were dead for exactly this reason — and it happened silently,
- * because there was no place where the two facts had to agree.
- *
- * `satisfies Record<KoalaToolName, …>` is what makes them agree, at compile time: a missing key is
- * an error, and an extra key is an error. Adding a tool now means adding a schema and a handler in
- * the same edit, or the build fails.
  */
 export const KOALA_TOOL_HANDLERS = {
   list_mcp_servers: handleListMcpServers,
@@ -396,27 +578,23 @@ export const KOALA_TOOL_HANDLERS = {
   cluster_capacity: handleClusterCapacity,
   list_trees: handleListTrees,
   propose_tree: handleProposeTree,
+  get_project_pipeline: handleGetProjectPipeline,
+  deploy_project: handleDeployProject,
+  get_project_url: handleGetProjectUrl,
+  request_escalated_privileges: handleRequestEscalatedPrivileges,
+  get_project_env: handleGetProjectEnv,
+  set_project_env: handleSetProjectEnv,
+  request_secret: handleRequestSecret,
+  inject_secret_to_pod: handleInjectSecretToPod,
+  get_project_secret: handleGetProjectSecret,
+  set_project_secret: handleSetProjectSecret,
+  list_project_secrets: handleListProjectSecrets,
   web_search: handleWebSearch,
   fetch_web_page: handleFetchWebPage,
 } satisfies Record<KoalaToolName, KoalaToolHandler>;
 
 /**
- * What each tool DOES, for the Action Gate. See `lib/action-gate.ts` for why an undeclared tool is
- * refused rather than allowed.
- *
- * ── WHY A SEPARATE TABLE AND NOT A FIELD ON THE SCHEMA ──
- * The schemas above go to the model provider verbatim as OpenAI function definitions. An extra key
- * inside `function` is a nonstandard field on a wire format, and providers vary between ignoring it
- * and rejecting the request. Keeping it beside the schemas costs one `satisfies` — which is the
- * same mechanism that already forces every schema to have a handler, and it fails at compile time
- * for exactly the same reason: a missing key is an error and an extra key is an error.
- *
- * The classifications, and the one that is arguable:
- * · `enable_mcp_server` is a WRITE. It looks like a read — it fetches a server's schemas — but it
- *   changes what tools the rest of the conversation is offered, which is state a later turn acts on.
- * · `add_project_dependency` writes a record AND opens network egress for a future deploy.
- * · `propose_*` create pending things that a later, separate step accepts. That is the distinction
- *   `propose` exists to name.
+ * What each tool DOES, for the Action Gate.
  */
 export const KOALA_TOOL_EFFECTS = {
   list_mcp_servers: 'read',
@@ -430,6 +608,17 @@ export const KOALA_TOOL_EFFECTS = {
   cluster_capacity: 'read',
   list_trees: 'read',
   propose_tree: 'propose',
+  get_project_pipeline: 'read',
+  deploy_project: 'write',
+  get_project_url: 'read',
+  request_escalated_privileges: 'propose',
+  get_project_env: 'read',
+  set_project_env: 'write',
+  request_secret: 'propose',
+  inject_secret_to_pod: 'write',
+  get_project_secret: 'read',
+  set_project_secret: 'write',
+  list_project_secrets: 'read',
   web_search: 'read',
   fetch_web_page: 'read',
 } satisfies Record<KoalaToolName, ToolEffect>;

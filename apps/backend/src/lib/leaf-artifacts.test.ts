@@ -4,9 +4,15 @@
  * original failure live for exactly the work that cannot be tested.
  */
 import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
 import {
   usablePaths, buildArtifactCheckScript, parseArtifactResult, combineVerification,
 } from './leaf-artifacts.js';
+import { conventionsOf } from './tree-type-conventions.js';
+import type { TreeTypeSpec } from './tree-types.js';
 
 describe('which paths are acted on', () => {
   it('accepts ordinary repository paths', () => {
@@ -183,5 +189,104 @@ describe('the two ways this check failed correct work', () => {
     // must not hide it.
     const s = buildArtifactCheckScript(['a.js', 'b.js'], 'main');
     expect(s.indexOf('=missing')).toBeLessThan(s.indexOf('=stale'));
+  });
+});
+
+/**
+ * ── THE REAL CASE, EXECUTED ──
+ *
+ * Every test above asserts on the TEXT of the generated script, which cannot show whether the shell
+ * actually finds the file. This block builds a real git repository and runs the script against it.
+ *
+ * It reproduces the failure that cost a whole tree: on a `language: 'node'` type whose scaffold is
+ * plain JavaScript, the planner declared `expects: ['src/tools.ts']`. The agent wrote, committed and
+ * pushed `src/tools.js`, all 34 tests passed, and the leaf was failed three times because the
+ * checker looked for a `.ts` file that a JavaScript project was never going to have.
+ *
+ * The script's first line is `cd /work/repo || cd /work || exit 0`, which only resolves inside a
+ * workspace pod, so it is dropped here and the script is run in the temp repo instead. Everything
+ * below that line — the git plumbing this is actually testing — runs verbatim.
+ */
+describe('executed against a real repository', () => {
+  const runScript = (script: string, cwd: string): string => {
+    const withoutCd = script.split('\n').slice(1).join('\n');
+    return execFileSync('bash', ['-c', withoutCd], { cwd, encoding: 'utf8' });
+  };
+
+  /** A repo with a committed default branch, then a leaf branch that adds `added`. */
+  const makeRepo = (base: Record<string, string>, added: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'artifacts-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t.dev');
+    git('config', 'user.name', 'T');
+    const write = (files: Record<string, string>) => {
+      for (const [p, content] of Object.entries(files)) {
+        mkdirSync(dirname(join(dir, p)), { recursive: true });
+        writeFileSync(join(dir, p), content);
+      }
+    };
+    write(base);
+    git('add', '-A');
+    git('commit', '-qm', 'base');
+    // The check diffs against origin/main, so give it one that does not include the leaf's work.
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    if (Object.keys(added).length > 0) {
+      write(added);
+      git('add', '-A');
+      git('commit', '-qm', 'leaf work');
+    }
+    return dir;
+  };
+
+  const nodeConventions = conventionsOf({
+    id: 'api-service', ownerId: 'u1', label: 'l', summary: 's',
+    language: 'node', produces: 'service', doneMeans: 'd',
+    files: [{ path: 'src/server.js', content: '' }, { path: 'test/server.test.js', content: '' }],
+  } as TreeTypeSpec);
+
+  it('fails a .ts expectation in a .js project when given no conventions — the bug', () => {
+    const dir = makeRepo({ 'README.md': 'x' }, { 'src/tools.js': 'export const a = 1;\n' });
+    const out = runScript(buildArtifactCheckScript(['src/tools.ts'], 'main'), dir);
+    const result = parseArtifactResult(out);
+    expect(result.outcome).toBe('missing');
+    // …and a missing artifact hard-fails the leaf even though its suite is green.
+    expect(combineVerification('passed', result.outcome)).toBe('failed');
+  });
+
+  it('finds the sibling extension when the template says the project is JavaScript', () => {
+    const dir = makeRepo({ 'README.md': 'x' }, { 'src/tools.js': 'export const a = 1;\n' });
+    const out = runScript(buildArtifactCheckScript(['src/tools.ts'], 'main', nodeConventions), dir);
+    const result = parseArtifactResult(out);
+    expect(result.outcome).toBe('present');
+    expect(result.moved.join(' ')).toContain('src/tools.js');
+    expect(combineVerification('passed', result.outcome)).toBe('passed');
+  });
+
+  it('still finds a file the agent moved to another directory', () => {
+    // The case the basename fallback was originally added for; it must keep working.
+    const dir = makeRepo({ 'README.md': 'x' }, { 'test/version.test.js': 'ok\n' });
+    const out = runScript(
+      buildArtifactCheckScript(['src/util/version.test.js'], 'main', nodeConventions), dir);
+    expect(parseArtifactResult(out).outcome).toBe('present');
+  });
+
+  it('still reports genuinely absent work as missing', () => {
+    // The failure this check exists for must survive the fix.
+    const dir = makeRepo({ 'README.md': 'x' }, { 'src/other.js': 'x\n' });
+    const out = runScript(buildArtifactCheckScript(['src/tools.ts'], 'main', nodeConventions), dir);
+    expect(parseArtifactResult(out).outcome).toBe('missing');
+  });
+
+  it('does not accept an empty file as the artifact', () => {
+    const dir = makeRepo({ 'README.md': 'x' }, { 'src/tools.js': '' });
+    const out = runScript(buildArtifactCheckScript(['src/tools.ts'], 'main', nodeConventions), dir);
+    expect(parseArtifactResult(out).outcome).toBe('missing');
+  });
+
+  it('does not rewrite a markdown expectation into source', () => {
+    const dir = makeRepo({ 'README.md': 'x' }, { 'NOTES.js': 'not the notes\n' });
+    const out = runScript(buildArtifactCheckScript(['NOTES.md'], 'main', nodeConventions), dir);
+    expect(parseArtifactResult(out).outcome).toBe('missing');
   });
 });

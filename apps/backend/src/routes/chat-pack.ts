@@ -6,30 +6,48 @@ import type { Database } from '../lib/db-interface.js';
 import type { Persona } from '@koala/harness-types';
 import type { ModelService } from '../services/ModelService.js';
 import type { McpServer } from '../lib/mcp-registry.js';
-import type { Conversation } from '../lib/conversations.js';
+import type { Conversation, ProposedTree, ProposedSpec } from '../lib/conversations.js';
 import type { SearchOutcome } from '../lib/web-tools.js';
 import { historyForPrompt } from '../lib/koala-context.js';
-import { enabledForSession } from '../lib/conversations.js';
+import { enabledForSession, titleFrom } from '../lib/conversations.js';
 import { resolveConfig } from '../lib/personas.js';
 import { trimConversation } from '../lib/sandbox-tools.js';
 import { openSse, sendFrame, endSse } from '../lib/sse.js';
 import { v4 as uuidv4 } from 'uuid';
-import { appendUserTurn, buildKoalaPrompt } from '../lib/chat-pack-context.js';
+import { appendUserTurn } from '../lib/chat-pack-context.js';
+import { composePersonaPrompt } from '../lib/persona-prompt.js';
 import { buildChatCompletionRequest } from '../lib/chat-pack-model-call.js';
 import { makePackToolExecutor } from '../lib/chat-pack-tools.js';
+import { KOALA_TOOLS } from '../lib/koala-tools.js';
+import { toLoopTools } from '../lib/mcp-tools.js';
+import { validateSpec, explainSpecProblems } from '../lib/app-spec-validate.js';
+import type { AppSpec } from '../lib/app-spec.js';
+import { normaliseTreeInput } from '../lib/trees.js';
+import type { Tree } from '../lib/trees.js';
+
+import { bootstrapAcceptedTree } from '../lib/tree-bootstrap.js';
+import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { InfrastructureService } from '../services/InfrastructureService.js';
+import type { InfisicalService } from '../services/InfisicalService.js';
 
 /**
- * Persona-pack chat router — `POST /api/chat-pack/:packId`.
+ * Persona-pack chat router — `POST /api/chat-pack/:packId` plus conversation vault management.
  *
- * Thin shell: the concerns it used to inline now live in testable submodules —
- *   - vault + context reset            → lib/chat-pack-context.ts
- *   - the provider request             → lib/chat-pack-model-call.ts
- *   - dispatching tools (MCP+koala)    → lib/chat-pack-tools.ts
- * The router resolves the pack/persona/model, opens SSE, and drives lib/chat-runtime.ts.
+ * Provides:
+ *   - Live streaming chat turn via runChatTurn with instant onFrame SSE emission.
+ *   - Complete database persistence of assistant replies, reasoning traces, tool executions, and proposals.
+ *   - Vault thread lifecycle (list, get, create, delete).
+ *   - Proposal acceptance for project trees and app specifications.
  */
 export interface PersonaChatRouterDeps {
   db: Database;
   modelService: ModelService;
+  projectRepoService?: ProjectRepoService;
+  temporalBridge?: TemporalBridge;
+  infraService?: InfrastructureService;
+  infisicalService?: InfisicalService;
+  jwtSecret?: string;
   resolvePersona: (userId: string, personaName: string) => Promise<Persona>;
   serversFor: (userId: string) => Promise<McpServer[]>;
   ownedConversations: (userId: string) => Promise<Conversation[]>;
@@ -44,6 +62,219 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
   const packFor = deps.pack ?? getPersonaPack;
   const router = Router();
 
+  // ── Conversation Vault Management ──
+
+  router.get('/conversations', asyncRoute(async (req, res) => {
+    const mine = await deps.ownedConversations((req as any).user.id);
+    res.json(mine
+      .map(({ messages, ...rest }) => ({ ...rest, messageCount: messages.length }))
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')));
+  }));
+
+  router.get('/conversations/:id', asyncRoute(async (req, res) => {
+    const found = (await deps.ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
+    if (!found) return res.status(404).json({ error: 'No such conversation' });
+    res.json(found);
+  }));
+
+  router.post('/conversations', asyncRoute(async (req, res) => {
+    const now = new Date().toISOString();
+    const conversation: Conversation = {
+      id: uuidv4(),
+      ownerId: (req as any).user.id,
+      title: titleFrom(String(req.body?.title ?? '')),
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.saveConversation(conversation);
+    res.json(conversation);
+  }));
+
+  router.delete('/conversations/:id', asyncRoute(async (req, res) => {
+    const found = (await deps.ownedConversations((req as any).user.id)).find((c) => c.id === req.params.id);
+    if (!found) return res.status(404).json({ error: 'No such conversation' });
+    await db.deleteConversation(found.id);
+    res.json({ success: true });
+  }));
+
+  // ── Proposal Acceptance Endpoints ──
+
+  const acceptTree = async (req: any, res: any) => {
+    const userId = req.user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedTrees ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+    if (proposal.treeId) return res.status(409).json({ error: 'That project has already been created' });
+
+    let nodeIp: string | undefined;
+    if (deps.infraService) {
+      try {
+        nodeIp = (await deps.infraService.runKubectl(
+          ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
+          '/tmp/kubeconfig-provisioning-lunorica',
+        )).trim();
+      } catch {}
+    }
+
+    const bootstrapped = await bootstrapAcceptedTree({
+      db,
+      projectRepoService: deps.projectRepoService,
+      temporalBridge: deps.temporalBridge,
+      nodeIp,
+      jwtSecret: deps.jwtSecret,
+    }, {
+      userId,
+      proposal,
+    });
+
+    const now = new Date().toISOString();
+    await db.saveConversation({
+      ...conversation,
+      proposedTrees: (conversation.proposedTrees ?? [])
+        .map((p) => (p.id === proposal.id ? { ...p, treeId: bootstrapped.tree.id } : p)),
+      updatedAt: now,
+    });
+    res.json({
+      tree: bootstrapped.tree,
+      branch: bootstrapped.branch,
+      leaf: bootstrapped.leaf,
+      project: bootstrapped.project,
+    });
+  };
+
+  router.post('/conversations/:id/trees/:proposalId/accept', asyncRoute(acceptTree));
+  router.post('/conversations/:id/proposals/:proposalId/accept', asyncRoute(acceptTree));
+
+  router.post('/conversations/:id/specs/:proposalId/accept', asyncRoute(async (req, res) => {
+    const userId = (req as any).user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedSpecs ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+    if (proposal.acceptedAt) return res.status(409).json({ error: 'That app type already exists' });
+
+    const problems = validateSpec(proposal.spec);
+    if (problems.length) return res.status(400).json({ error: explainSpecProblems(problems) });
+
+    const existing = (await db.getAppSpecs()).find((s) => s.id === proposal.id);
+    if (existing?.builtIn) {
+      return res.status(409).json({ error: `"${proposal.id}" ships with the platform and cannot be replaced.` });
+    }
+
+    const now = new Date().toISOString();
+    await db.saveAppSpec({
+      id: proposal.id,
+      spec: proposal.spec as AppSpec,
+      builtIn: false,
+      ownerId: userId,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+    await db.saveConversation({
+      ...conversation,
+      proposedSpecs: (conversation.proposedSpecs ?? [])
+        .map((p) => (p.id === proposal.id ? { ...p, acceptedAt: now } : p)),
+      updatedAt: now,
+    });
+    res.json({ id: proposal.id });
+  }));
+
+  const acceptEscalation = async (req: any, res: any) => {
+    const userId = req.user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedEscalations ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+
+    const now = new Date().toISOString();
+    proposal.status = 'accepted';
+    proposal.acceptedAt = now;
+    conversation.isEscalated = true;
+    conversation.escalatedScope = proposal.scope;
+    if (proposal.namespaces) {
+      conversation.escalatedNamespaces = proposal.namespaces;
+    }
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, conversation });
+  };
+
+  const denyEscalation = async (req: any, res: any) => {
+    const userId = req.user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedEscalations ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+
+    const now = new Date().toISOString();
+    proposal.status = 'denied';
+    proposal.deniedAt = now;
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, conversation });
+  };
+
+  router.post('/conversations/:id/escalations/:proposalId/accept', asyncRoute(acceptEscalation));
+  router.post('/conversations/:id/proposals/escalations/:proposalId/accept', asyncRoute(acceptEscalation));
+  router.post('/conversations/:id/escalations/:proposalId/deny', asyncRoute(denyEscalation));
+  router.post('/conversations/:id/proposals/escalations/:proposalId/deny', asyncRoute(denyEscalation));
+
+  const submitSecret = async (req: any, res: any) => {
+    const userId = req.user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const request = (conversation.proposedSecretRequests ?? []).find((r) => r.id === req.params.requestId);
+    if (!request) return res.status(404).json({ error: 'No such secret request' });
+
+    const { value } = req.body ?? {};
+    if (typeof value !== 'string' || !value.trim()) {
+      return res.status(400).json({ error: 'Secret value is required.' });
+    }
+
+    const projectId = request.projectId || conversation.id;
+    const secretReference = `secret://${projectId}/${request.key}`;
+
+    if (deps.infisicalService) {
+      await deps.infisicalService.setSecret(projectId, request.key, value.trim());
+    }
+
+    const now = new Date().toISOString();
+    request.status = 'fulfilled';
+    request.secretReference = secretReference;
+    request.fulfilledAt = now;
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, request, secretReference, conversation });
+  };
+
+  const dismissSecret = async (req: any, res: any) => {
+    const userId = req.user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const request = (conversation.proposedSecretRequests ?? []).find((r) => r.id === req.params.requestId);
+    if (!request) return res.status(404).json({ error: 'No such secret request' });
+
+    const now = new Date().toISOString();
+    request.status = 'dismissed';
+    request.dismissedAt = now;
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, request, conversation });
+  };
+
+  router.post('/conversations/:id/secrets/:requestId/submit', asyncRoute(submitSecret));
+  router.post('/conversations/:id/proposals/secrets/:requestId/submit', asyncRoute(submitSecret));
+  router.post('/conversations/:id/secrets/:requestId/dismiss', asyncRoute(dismissSecret));
+  router.post('/conversations/:id/proposals/secrets/:requestId/dismiss', asyncRoute(dismissSecret));
+
+  // ── Streaming Chat Turn ──
+
   router.post('/:packId', asyncRoute(async (req, res) => {
     const userId = (req as any).user.id;
     const pack = packFor(String(req.params.packId));
@@ -53,7 +284,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       return res.status(400).json({ error: 'message is required' });
     }
 
-    // Resolve the persona this pack is about, and the model endpoint.
+    // Resolve persona & model endpoint
     const personaName = typeof pack.persona === 'string' ? pack.persona : pack.persona.name;
     const persona = await deps.resolvePersona(userId, personaName);
     const servers = await deps.serversFor(userId);
@@ -64,7 +295,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       return res.status(404).json({ error: err.message });
     }
 
-    // Vault: find or create the conversation; append the user turn (context policy submodule).
+    // Vault: find or create conversation, append user turn
     const now = new Date().toISOString();
     let conversation = (await deps.ownedConversations(userId)).find((c) => c.id === String(conversationId));
     if (!conversation) {
@@ -84,16 +315,27 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     const thread = appendUserTurn(conversation, message, now);
     await db.saveConversation(thread);
 
-    // SSE + the engine, wired to the extracted submodules.
+    // Open SSE connection
     openSse(res);
 
+    const toolsFor = (enabledNames: string[]) => {
+      const remote = servers
+        .filter((s) => enabledNames.includes(s.name))
+        .flatMap((s) => toLoopTools(s.name, s.tools));
+      if (pack.env.toolset === 'assistant') {
+        return [...KOALA_TOOLS, ...remote];
+      }
+      return remote;
+    };
+
     const call = async (reqBody: { messages: unknown[]; tools: string[]; toolChoice?: 'none' }) => {
+      const toolSchemas = toolsFor(reqBody.tools);
       const body = buildChatCompletionRequest({
         baseUrl,
         ...(apiKey ? { apiKey } : {}),
         ...(provider ? { provider } : {}),
         messages: reqBody.messages as any[],
-        tools: reqBody.tools,
+        tools: toolSchemas as any,
         overrides: resolved.overrides,
         ...(reqBody.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),
       });
@@ -104,28 +346,94 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       });
     };
 
+    const user = (req as any).user ?? { id: userId, isAdmin: false };
+    const toolRegistry = await db.getTools();
+    const activeToolNames = pack.env.toolset === 'assistant'
+      ? KOALA_TOOLS.map((t) => t.function.name)
+      : (persona.scope?.tools ?? []);
+
     const executeTool = makePackToolExecutor({
       db, userId, conversationId: conversation.id, sessionId,
       enabledNames: enabled, servers,
       webSearch: deps.webSearch, fetchWebPage: deps.fetchWebPage,
       toolRefused: deps.toolRefused,
+      isAdmin: Boolean(user.isAdmin),
+      isEscalated: Boolean(conversation.isEscalated),
+      ...(conversation.escalatedNamespaces ? { escalatedNamespaces: conversation.escalatedNamespaces } : {}),
+      ...(deps.temporalBridge ? { temporalBridge: deps.temporalBridge } : {}),
+      ...(deps.infisicalService ? { infisicalService: deps.infisicalService } : {}),
     });
 
     const historyMsgs: Array<{ role: string; content: string }> = historyForPrompt(thread.messages as any)
       .map((m: any) => ({ role: String(m.role), content: String(m.content) }));
+
+    const historyChars = historyMsgs.reduce((sum, m) => sum + m.content.length, 0);
+    const systemPromptContent = composePersonaPrompt(systemPrompt, {
+      toolRegistry,
+      activeTools: activeToolNames,
+      servers,
+      enabledServers: enabled,
+      historyChars,
+      isAdmin: Boolean(user.isAdmin),
+      isEscalated: Boolean(conversation.isEscalated),
+      ...(conversation.escalatedNamespaces ? { escalatedNamespaces: conversation.escalatedNamespaces } : {}),
+    });
+
     const result = await runChatTurn({
       pack,
       messages: [
-        { role: 'system', content: buildKoalaPrompt(systemPrompt, servers, enabled) },
+        { role: 'system', content: systemPromptContent },
         ...historyMsgs,
       ],
       tools: enabled,
       call,
       executeTool,
       trimPerRound: (m: unknown[]) => trimConversation(m as any),
+      onFrame: (frame) => sendFrame(res, frame as any),
     });
 
-    for (const frame of result.frames) sendFrame(res, frame as any);
+    // Post-turn persistence: save assistant message, reasoning, tool calls, and proposals
+    const ranDry = result.exhaustedRounds && !result.answer && !result.spoken;
+    const fallback = `Used all tool rounds without reaching an answer. Ask again to continue.`;
+    const assistantContent = result.answer || result.spoken || (ranDry ? fallback : '');
+
+    const latestConv = (await db.getConversations()).find((c) => c.id === conversation.id) ?? thread;
+    const assistantMsg: any = {
+      role: 'assistant',
+      content: assistantContent,
+      at: new Date().toISOString(),
+      ...(result.outcome.thinking?.trim() ? { reasoning: result.outcome.thinking.slice(-20000) } : {}),
+      ...(result.outcome.enabledNow?.length ? { enabled: result.outcome.enabledNow } : {}),
+      ...(result.outcome.toolCalls?.length ? { toolCalls: result.outcome.toolCalls } : {}),
+      ...(ranDry ? { notice: true } : {}),
+    };
+
+    const nextProposedTrees = [...(latestConv.proposedTrees ?? [])];
+    for (const p of result.outcome.proposedTrees ?? []) {
+      if (p && typeof p === 'object' && 'id' in (p as any)) {
+        if (!nextProposedTrees.some((x: any) => x.id === (p as any).id)) {
+          nextProposedTrees.push(p as ProposedTree);
+        }
+      }
+    }
+
+    const nextProposedSpecs = [...(latestConv.proposedSpecs ?? [])];
+    for (const s of result.outcome.proposedSpecs ?? []) {
+      if (s && typeof s === 'object' && 'id' in (s as any)) {
+        if (!nextProposedSpecs.some((x: any) => x.id === (s as any).id)) {
+          nextProposedSpecs.push(s as ProposedSpec);
+        }
+      }
+    }
+
+    await db.saveConversation({
+      ...latestConv,
+      messages: [...latestConv.messages, assistantMsg],
+      ...(nextProposedTrees.length ? { proposedTrees: nextProposedTrees } : {}),
+      ...(nextProposedSpecs.length ? { proposedSpecs: nextProposedSpecs } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+
     endSse(res);
   }));
 

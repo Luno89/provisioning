@@ -56,3 +56,19 @@ export const acceptSpecProposal = <T,>(conversationId: string, proposalId: strin
 export const acceptTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
   api.post<T>(`/koala/conversations/${conversationId}/proposals/${proposalId}/accept`, {})
     .then((r) => r.data)
+
+export const acceptEscalationProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
+  api.post<T>(`/koala/conversations/${conversationId}/escalations/${proposalId}/accept`, {})
+    .then((r) => r.data)
+
+export const denyEscalationProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
+  api.post<T>(`/koala/conversations/${conversationId}/escalations/${proposalId}/deny`, {})
+    .then((r) => r.data)
+
+export const submitSecretRequest = <T,>(conversationId: string, requestId: string, value: string): Promise<T> =>
+  api.post<T>(`/koala/conversations/${conversationId}/secrets/${requestId}/submit`, { value })
+    .then((r) => r.data)
+
+export const dismissSecretRequest = <T,>(conversationId: string, requestId: string): Promise<T> =>
+  api.post<T>(`/koala/conversations/${conversationId}/secrets/${requestId}/dismiss`, {})
+    .then((r) => r.data)

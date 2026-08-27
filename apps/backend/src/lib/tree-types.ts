@@ -22,6 +22,30 @@ import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 export interface TreeTypeFile {
   path: string;
   content: string;
+  executable?: boolean | undefined;
+}
+
+/** A single assertion in a validation recipe. */
+export interface ValidationCheckDefinition {
+  id: string;
+  name: string;
+  description?: string | undefined;
+  type: 'file-exists' | 'content-matches' | 'run-command' | 'http-probe' | 'mcp-probe';
+  target?: string | undefined;
+  command?: string | undefined;
+  pattern?: string | undefined;
+  expectedStatus?: number | undefined;
+  timeoutMs?: number | undefined;
+}
+
+/**
+ * An executable validation recipe describing how candidate branches of this tree type
+ * are proved correct end-to-end.
+ */
+export interface ValidationRecipe {
+  type: 'document' | 'command' | 'runtime-service';
+  checks: ValidationCheckDefinition[];
+  timeoutMs?: number | undefined;
 }
 
 export interface TreeTypeSpec {
@@ -51,10 +75,14 @@ export interface TreeTypeSpec {
   doneMeans: string;
   /** The skeleton a fresh repository starts from. Empty is normal. */
   files: TreeTypeFile[];
+  /** Standard executable validation recipe for this project type. */
+  validationRecipe?: ValidationRecipe | undefined;
+  /** Backing service bindings this project template automatically wires by default (e.g. ['gitea']). */
+  defaultBindings?: string[] | undefined;
 }
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-export const MAX_STARTER_FILES = 12;
+export const MAX_STARTER_FILES = 20;
 
 /**
  * Refuses a record that would fail later, in a place further from the mistake.
@@ -96,6 +124,24 @@ export function validateTreeType(candidate: Partial<TreeTypeSpec>): string | nul
       return `Starter file path ${JSON.stringify(file?.path ?? '')} must be relative and stay inside the repository.`;
     }
   }
+
+  if (candidate.validationRecipe) {
+    const r = candidate.validationRecipe;
+    if (!['document', 'command', 'runtime-service'].includes(r.type)) {
+      return 'validationRecipe.type must be "document", "command", or "runtime-service".';
+    }
+    if (!Array.isArray(r.checks)) {
+      return 'validationRecipe.checks must be an array.';
+    }
+    for (const c of r.checks) {
+      if (!c.id || typeof c.id !== 'string') return 'Each check must have a string id.';
+      if (!c.name || typeof c.name !== 'string') return 'Each check must have a string name.';
+      if (!['file-exists', 'content-matches', 'run-command', 'http-probe', 'mcp-probe'].includes(c.type)) {
+        return `Unknown check type "${c.type}" in validationRecipe.`;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -144,7 +190,20 @@ export async function resolveTreeType(
 ): Promise<TreeTypeSpec | undefined> {
   if (!id) return undefined;
   const all = await store.getTreeTypes(ownerId).catch(() => [] as TreeTypeSpec[]);
-  return all.find((t) => t.id === id && t.ownerId === ownerId);
+  const found = all.find((t) => t.id === id && t.ownerId === ownerId);
+  const seed = TREE_TYPE_SEEDS_VALUE.find((s) => s.id === id);
+  if (found) {
+    if (seed && (!found.validationRecipe || !found.files?.length)) {
+      return {
+        ...found,
+        validationRecipe: found.validationRecipe ?? seed.validationRecipe,
+        files: found.files?.length ? found.files : seed.files,
+      };
+    }
+    return found;
+  }
+  if (seed) return { ...seed, ownerId };
+  return undefined;
 }
 
 /** Seeds, in the relationship `PERSONA_SEEDS` has to personas: a starting point, not the source. */
@@ -158,26 +217,28 @@ export interface TreeTypeSeedStore extends TreeTypeStore {
 }
 
 /**
- * Gives an owner the shipped types, once.
- *
- * ── ADD ONLY, AND THAT IS THE FEATURE ──
- * Mirrors `ensurePersonas`. A type edited in the Lab has to survive the next boot or "editable" is
- * a lie, so an id the owner already has is skipped whatever it now contains — `ensureKoala` states
- * the rule and the reason: "a migration that overwrites a deliberate setting is worse than one that
- * never ran."
- *
- * Skipping per-ID rather than "do nothing if they have any" so a type shipped later still arrives
- * for someone who has been here since before it existed.
+ * Gives an owner the shipped types, once, and backfills new capability fields (validationRecipe)
+ * without overwriting user customizations (label, summary, language).
  */
 export async function seedTreeTypes(store: TreeTypeSeedStore, ownerId: string): Promise<number> {
   const mine = await store.getTreeTypes(ownerId).catch(() => [] as TreeTypeSpec[]);
-  const have = new Set(mine.map((t) => t.id));
+  const have = new Map(mine.map((t) => [t.id, t]));
 
-  let added = 0;
+  let updated = 0;
   for (const seed of TREE_TYPE_SEEDS_VALUE) {
-    if (have.has(seed.id)) continue;
-    await store.saveTreeType({ ...seed, ownerId });
-    added++;
+    const existing = have.get(seed.id);
+    if (!existing) {
+      await store.saveTreeType({ ...seed, ownerId });
+      updated++;
+    } else if (!existing.validationRecipe && seed.validationRecipe) {
+      // Backfill missing validation recipe so existing tree types gain validation capability
+      await store.saveTreeType({
+        ...existing,
+        validationRecipe: seed.validationRecipe,
+        files: existing.files?.length ? existing.files : seed.files,
+      });
+      updated++;
+    }
   }
-  return added;
+  return updated;
 }

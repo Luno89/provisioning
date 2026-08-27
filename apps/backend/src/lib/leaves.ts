@@ -21,6 +21,7 @@
  */
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { AcceptanceCheck } from './acceptance.js';
+import type { ValidationRecipe } from './tree-types.js';
 
 export type LeafColumn = 'todo' | 'in-progress' | 'review';
 
@@ -145,6 +146,9 @@ export interface Leaf {
   mcp?: string[];
 
   verifyCommand?: string;
+
+  /** Executable validation contract specialized for this leaf. */
+  validationContract?: ValidationRecipe | undefined;
 
 
   /**

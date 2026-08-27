@@ -26,6 +26,8 @@
  * one, so the two belong to the same decision rather than being a second thing to pick.
  */
 
+import type { ValidationRecipe } from './tree-types.js';
+
 export interface TemplateFile {
   path: string;
   content: string;
@@ -340,3 +342,400 @@ export const LIBRARY_FILES = [
   { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
   { path: 'README.md', content: README('{{projectName}}', 'library') },
 ];
+
+/** UI application template: Vite + React 19 single-page application. */
+export const UI_APP_FILES = [
+  {
+    path: 'package.json',
+    content: JSON.stringify({
+      name: '{{projectName}}',
+      private: true,
+      version: '0.1.0',
+      type: 'module',
+      scripts: {
+        dev: 'vite',
+        build: 'vite build',
+        preview: 'vite preview',
+      },
+      dependencies: {
+        react: '^19.0.0',
+        'react-dom': '^19.0.0',
+      },
+      devDependencies: {
+        '@vitejs/plugin-react': '^4.3.4',
+        typescript: '^5.7.2',
+        vite: '^6.0.7',
+      },
+    }, null, 2),
+  },
+  {
+    path: 'vite.config.ts',
+    content: `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 8080,
+  },
+});
+`,
+  },
+  {
+    path: 'index.html',
+    content: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{projectName}}</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+`,
+  },
+  {
+    path: 'src/main.tsx',
+    content: `import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { App } from './App';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+`,
+  },
+  {
+    path: 'src/App.tsx',
+    content: `import React, { useState } from 'react';
+
+export function App() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <main style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
+      <h1>{{projectName}}</h1>
+      <p>Frontend user interface application.</p>
+      <button
+        type="button"
+        onClick={() => setCount((c) => c + 1)}
+        style={{ padding: '0.5rem 1rem', fontSize: '1rem', cursor: 'pointer' }}
+      >
+        Count: {count}
+      </button>
+    </main>
+  );
+}
+`,
+  },
+  {
+    path: 'src/index.css',
+    content: `body {
+  margin: 0;
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+`,
+  },
+  {
+    path: 'Dockerfile',
+    content: `FROM {{registryHost}}/provisioning-bot/node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+`,
+  },
+  {
+    path: 'README.md',
+    content: `# {{projectName}}\n\nInteractive Vite + React user interface application.\n`,
+  },
+];
+
+/** Structured research paper template. */
+export const RESEARCH_PAPER_FILES = [
+  {
+    path: 'paper.md',
+    content: `# {{projectName}}
+
+## Abstract
+Brief overview summarizing the background, methodology, experimental findings, and conclusions.
+
+## Introduction
+Problem statement, operational context, and core research objectives.
+
+## Methodology
+Investigation tooling, experimental setup, datasets, and execution environment.
+
+## Analysis & Findings
+Detailed experimental results, verified empirical data, comparative metrics, and trade-offs.
+
+## Limitations & Non-Goals
+Operational bounds and constraints of this work.
+
+## Conclusion
+Key takeaways and recommended future directions.
+
+## References
+Cited academic publications, repositories, cluster documentation, and benchmark traces.
+`,
+  },
+  {
+    path: 'metadata.json',
+    content: JSON.stringify({
+      title: '{{projectName}}',
+      kind: 'research-paper',
+      status: 'draft',
+      citations: [],
+    }, null, 2),
+  },
+  {
+    path: 'README.md',
+    content: `# {{projectName}}\n\nResearch paper and technical synthesis document.\n`,
+  },
+];
+
+/** Decision brief template. */
+export const DECISION_BRIEF_FILES = [
+  {
+    path: 'brief.md',
+    content: `# Decision Brief: {{projectName}}
+
+## Context & Problem Statement
+The operational problem or technical architecture change requiring an explicit decision.
+
+## Decision Drivers & Constraints
+Evaluation criteria, non-functional requirements, latency/budget bounds, and prerequisites.
+
+## Options Considered
+Detailed breakdown of candidate approaches evaluated.
+
+## Tradeoff Matrix
+Multi-variable comparative analysis (see matrix.csv for scored criteria).
+
+## Recommendation
+Unambiguous recommendation backed by empirical evidence and comparative analysis.
+
+## Implementation Plan & Risks
+Execution milestones, backward compatibility guarantees, and fallback procedures.
+`,
+  },
+  {
+    path: 'matrix.csv',
+    content: `Option,Feasibility,Impact,Cost,Risk,Confidence,Recommendation
+Option A (Recommended),High,High,Low,Low,High,Selected
+Option B,Medium,Medium,Medium,Medium,Medium,Alternative
+`,
+  },
+  {
+    path: 'README.md',
+    content: `# Decision Brief: {{projectName}}\n\nEvaluates architectural options and documents rationale.\n`,
+  },
+];
+
+/** Structured dataset template. */
+export const DATASET_FILES = [
+  {
+    path: 'schema.json',
+    content: JSON.stringify({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      title: '{{projectName}}Record',
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        timestamp: { type: 'string' },
+        source: { type: 'string' },
+        data: { type: 'object' },
+      },
+      required: ['id', 'timestamp', 'source', 'data'],
+    }, null, 2),
+  },
+  {
+    path: 'dataset.jsonl',
+    content: `{"id":"sample-001","timestamp":"2026-01-01T00:00:00Z","source":"bootstrap","data":{"verified":true}}\n`,
+  },
+  {
+    path: 'README.md',
+    content: `# {{projectName}} Dataset\n\nCurated and validated data records with schema provenance.\n`,
+  },
+];
+
+/** Performance benchmark template. */
+export const BENCHMARK_FILES = [
+  {
+    path: 'benchmark.js',
+    content: `import { performance } from 'node:perf_hooks';
+
+console.log('Running benchmark suite for {{projectName}}...');
+const start = performance.now();
+// Simulated workload
+let accum = 0;
+for (let i = 0; i < 100_000; i++) {
+  accum += Math.sqrt(i);
+}
+const elapsed = performance.now() - start;
+console.log(\`Benchmark completed in \${elapsed.toFixed(2)}ms (checksum: \${accum.toFixed(0)})\`);
+`,
+  },
+  {
+    path: 'package.json',
+    content: JSON.stringify({
+      name: '{{projectName}}',
+      version: '1.0.0',
+      type: 'module',
+      scripts: {
+        test: 'node benchmark.js',
+        bench: 'node benchmark.js',
+      },
+    }, null, 2),
+  },
+  {
+    path: 'README.md',
+    content: `# Benchmark: {{projectName}}\n\nReproducible performance benchmarks and metrics suite.\n`,
+  },
+];
+
+/** Investigation / incident analysis template. */
+export const INVESTIGATION_FILES = [
+  {
+    path: 'report.md',
+    content: `# Root Cause Investigation: {{projectName}}
+
+## Executive Summary
+Concise statement of the observed failure, performance regression, or unexpected behavior.
+
+## Timeline of Events
+Chronological sequence of logs, alerts, and state mutations.
+
+## Symptoms & Diagnostic Evidence
+Full log extracts, network captures, stack traces, and pod failure statuses.
+
+## Root Cause Analysis
+Technical explanation of the defect mechanism and five-whys analysis.
+
+## Remediation & Preventative Action
+Immediate fix applied and systemic guardrails established to prevent recurrence.
+`,
+  },
+  {
+    path: 'reproduction.sh',
+    content: `#!/usr/bin/env bash
+set -euo pipefail
+echo "Reproducing failure case for {{projectName}}..."
+`,
+  },
+  {
+    path: 'README.md',
+    content: `# Investigation: {{projectName}}\n\nRoot cause analysis and diagnostic evidence.\n`,
+  },
+];
+
+/* ── Validation Recipes ────────────────────────────────────────── */
+
+export const MCP_SERVER_RECIPE: ValidationRecipe = {
+  type: 'runtime-service',
+  checks: [
+    { id: 'pkg-json', name: 'package.json exists', type: 'file-exists', target: 'package.json' },
+    { id: 'src-server', name: 'Server entrypoint exists', type: 'file-exists', target: 'src/server.js' },
+    { id: 'dockerfile', name: 'Dockerfile exists', type: 'file-exists', target: 'Dockerfile' },
+    { id: 'unit-tests', name: 'Unit tests pass', type: 'run-command', command: 'npm test' },
+    { id: 'mcp-probe', name: 'MCP initialize probe', type: 'mcp-probe', target: 'http://127.0.0.1:8080/mcp' },
+  ],
+};
+
+export const NODE_SERVICE_RECIPE: ValidationRecipe = {
+  type: 'runtime-service',
+  checks: [
+    { id: 'pkg-json', name: 'package.json exists', type: 'file-exists', target: 'package.json' },
+    { id: 'src-server', name: 'Server entrypoint exists', type: 'file-exists', target: 'src/server.js' },
+    { id: 'unit-tests', name: 'Unit tests pass', type: 'run-command', command: 'npm test' },
+    { id: 'health-probe', name: 'Health check responds 200', type: 'http-probe', target: 'http://127.0.0.1:8080/health', expectedStatus: 200 },
+  ],
+};
+
+export const UI_APP_RECIPE: ValidationRecipe = {
+  type: 'command',
+  checks: [
+    { id: 'pkg-json', name: 'package.json exists', type: 'file-exists', target: 'package.json' },
+    { id: 'index-html', name: 'index.html exists', type: 'file-exists', target: 'index.html' },
+    { id: 'src-app', name: 'App root component exists', type: 'file-exists', target: 'src/App.tsx' },
+    { id: 'build', name: 'Frontend builds successfully', type: 'run-command', command: 'npm run build' },
+    { id: 'dist-html', name: 'dist/index.html generated', type: 'file-exists', target: 'dist/index.html' },
+  ],
+};
+
+export const RESEARCH_PAPER_RECIPE: ValidationRecipe = {
+  type: 'document',
+  checks: [
+    { id: 'paper-exists', name: 'paper.md exists', type: 'file-exists', target: 'paper.md' },
+    { id: 'abstract', name: 'Contains Abstract', type: 'content-matches', target: 'paper.md', pattern: '## Abstract' },
+    { id: 'findings', name: 'Contains Findings', type: 'content-matches', target: 'paper.md', pattern: '## Analysis & Findings' },
+    { id: 'references', name: 'Contains References', type: 'content-matches', target: 'paper.md', pattern: '## References' },
+  ],
+};
+
+export const DECISION_BRIEF_RECIPE: ValidationRecipe = {
+  type: 'document',
+  checks: [
+    { id: 'brief-exists', name: 'brief.md exists', type: 'file-exists', target: 'brief.md' },
+    { id: 'matrix-exists', name: 'matrix.csv exists', type: 'file-exists', target: 'matrix.csv' },
+    { id: 'recommendation', name: 'Contains Recommendation', type: 'content-matches', target: 'brief.md', pattern: '## Recommendation' },
+  ],
+};
+
+export const DATASET_RECIPE: ValidationRecipe = {
+  type: 'document',
+  checks: [
+    { id: 'schema-exists', name: 'schema.json exists', type: 'file-exists', target: 'schema.json' },
+    { id: 'dataset-exists', name: 'dataset.jsonl exists', type: 'file-exists', target: 'dataset.jsonl' },
+  ],
+};
+
+export const LIBRARY_RECIPE: ValidationRecipe = {
+  type: 'command',
+  checks: [
+    { id: 'pkg-json', name: 'package.json exists', type: 'file-exists', target: 'package.json' },
+  ],
+};
+
+export const BENCHMARK_RECIPE: ValidationRecipe = {
+  type: 'command',
+  checks: [
+    { id: 'bench-exists', name: 'benchmark.js exists', type: 'file-exists', target: 'benchmark.js' },
+    { id: 'bench-run', name: 'Benchmark runs to completion', type: 'run-command', command: 'node benchmark.js' },
+  ],
+};
+
+export const INVESTIGATION_RECIPE: ValidationRecipe = {
+  type: 'document',
+  checks: [
+    { id: 'report-exists', name: 'report.md exists', type: 'file-exists', target: 'report.md' },
+    { id: 'root-cause', name: 'Root cause section present', type: 'content-matches', target: 'report.md', pattern: '## Root Cause Analysis' },
+  ],
+};
+
+export const MIGRATION_RECIPE: ValidationRecipe = {
+  type: 'command',
+  checks: [
+    { id: 'unit-tests', name: 'Existing test suite passes', type: 'run-command', command: 'npm test' },
+  ],
+};
+
+

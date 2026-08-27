@@ -122,4 +122,120 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('persists the assistant message to the conversation in the database', async () => {
+    const convId = 'persist-test-1';
+    const res = await fetch(harness.url('/api/chat-pack/koala'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conversationId: convId, message: 'tell me a joke' }),
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+
+    const conv = (await harness.db.getConversations()).find((c: any) => c.id === convId);
+    expect(conv).toBeDefined();
+    expect(conv?.messages.length).toBe(2);
+    expect(conv?.messages[0]?.role).toBe('user');
+    expect(conv?.messages[0]?.content).toBe('tell me a joke');
+    expect(conv?.messages[1]?.role).toBe('assistant');
+    expect(conv?.messages[1]?.content).toBe('hello-red-green');
+  });
+
+  it('provides conversation CRUD endpoints', async () => {
+    // Create
+    const createRes = await fetch(harness.url('/api/chat-pack/conversations'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'My Custom Thread' }),
+    });
+    expect(createRes.status).toBe(200);
+    const created = (await createRes.json()) as { id: string };
+    expect(created.id).toBeDefined();
+
+    // List
+    const listRes = await fetch(harness.url('/api/chat-pack/conversations'));
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as any[];
+    expect(list.some((c: any) => c.id === created.id)).toBe(true);
+
+    // Get
+    const getRes = await fetch(harness.url(`/api/chat-pack/conversations/${created.id}`));
+    expect(getRes.status).toBe(200);
+    const got = (await getRes.json()) as { id: string };
+    expect(got.id).toBe(created.id);
+
+    // Delete
+    const delRes = await fetch(harness.url(`/api/chat-pack/conversations/${created.id}`), { method: 'DELETE' });
+    expect(delRes.status).toBe(200);
+    const afterDel = (await harness.db.getConversations()).find((c: any) => c.id === created.id);
+    expect(afterDel).toBeUndefined();
+  });
+
+  it('accepts project tree and app spec proposals', async () => {
+    const convId = 'proposal-test-conv';
+    const now = new Date().toISOString();
+    await harness.db.saveConversation({
+      id: convId,
+      ownerId: 'test-user',
+      title: 'Proposal Conv',
+      messages: [],
+      proposedTrees: [{ id: 'prop-tree-1', name: 'New Project', type: 'web', goal: 'Build web app', proposedAt: now }],
+      proposedSpecs: [{
+        id: 'my-custom-app',
+        proposedAt: now,
+        spec: {
+          id: 'my-custom-app',
+          image: 'nginx:alpine',
+          ports: [{ name: 'http', port: 80 }],
+          resources: { limits: { memory: '512Mi', cpu: '500m' } },
+        },
+      }],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Accept Tree Proposal
+    const treeRes = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/trees/prop-tree-1/accept`), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(treeRes.status).toBe(200);
+    const treeBody = (await treeRes.json()) as { tree?: { id: string } };
+    expect(treeBody.tree?.id).toBeDefined();
+
+    // Accept Spec Proposal
+    const specRes = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/specs/my-custom-app/accept`), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(specRes.status).toBe(200);
+    const specBody = (await specRes.json()) as { id: string };
+    expect(specBody.id).toBe('my-custom-app');
+  });
+
+  it('supplies full KOALA_TOOLS function schemas to upstream provider for assistant packs', async () => {
+    const res = await fetch(harness.url('/api/chat-pack/koala'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conversationId: 'tools-check-conv', message: 'check tools' }),
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+
+    const tools = lastRequestBody?.tools as Array<{ type: string; function: { name: string; description: string } }>;
+    expect(Array.isArray(tools)).toBe(true);
+    expect(tools.length).toBeGreaterThanOrEqual(10);
+    const toolNames = tools.map((t) => t.function?.name);
+    expect(toolNames).toContain('propose_tree');
+    expect(toolNames).toContain('propose_spec');
+    expect(toolNames).toContain('list_infrastructure');
+    expect(toolNames).toContain('get_logs');
+    expect(toolNames).toContain('get_events');
+    expect(toolNames).toContain('inspect_resources');
+    expect(toolNames).toContain('cluster_capacity');
+    expect(toolNames).toContain('list_trees');
+    expect(toolNames).toContain('enable_mcp_server');
+    expect(toolNames).toContain('web_search');
+  });
 });

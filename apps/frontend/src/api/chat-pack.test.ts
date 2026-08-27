@@ -12,6 +12,11 @@ import * as client from '../api/client.js';
 vi.mock('../api/client', async (orig) => ({
   ...(await orig<typeof client>()),
   postStream: vi.fn(),
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+    delete: vi.fn(),
+  },
 }));
 
 describe('openChatPackStream — unified persona-pack turn', () => {
@@ -66,5 +71,44 @@ describe('openChatPackStream — unified persona-pack turn', () => {
       { conversationId: 'c1', message: 'hi' },
       signal,
     );
+  });
+});
+
+describe('chat-pack conversation & proposal helpers', () => {
+  it('calls conversation endpoints correctly', async () => {
+    const { listChatConversations, getChatConversation, createChatConversation, deleteChatConversation } = await import('../api/chat-pack.js');
+    
+    vi.mocked(client.api.get).mockResolvedValueOnce({ data: [{ id: 'conv-1' }] });
+    const list = await listChatConversations();
+    expect(client.api.get).toHaveBeenCalledWith('/chat-pack/conversations');
+    expect(list).toEqual([{ id: 'conv-1' }]);
+
+    vi.mocked(client.api.get).mockResolvedValueOnce({ data: { id: 'conv-1', title: 'Hello' } });
+    const conv = await getChatConversation('conv-1');
+    expect(client.api.get).toHaveBeenCalledWith('/chat-pack/conversations/conv-1');
+    expect(conv).toEqual({ id: 'conv-1', title: 'Hello' });
+
+    vi.mocked(client.api.post).mockResolvedValueOnce({ data: { id: 'conv-2' } });
+    const created = await createChatConversation('New Title');
+    expect(client.api.post).toHaveBeenCalledWith('/chat-pack/conversations', { title: 'New Title' });
+    expect(created).toEqual({ id: 'conv-2' });
+
+    vi.mocked(client.api.delete).mockResolvedValueOnce({ data: { success: true } });
+    await deleteChatConversation('conv-2');
+    expect(client.api.delete).toHaveBeenCalledWith('/chat-pack/conversations/conv-2');
+  });
+
+  it('calls proposal acceptance endpoints', async () => {
+    const { acceptTreeProposal, acceptSpecProposal } = await import('../api/chat-pack.js');
+
+    vi.mocked(client.api.post).mockResolvedValueOnce({ data: { tree: { id: 'tree-1' } } });
+    const treeRes = await acceptTreeProposal('conv-1', 'prop-1');
+    expect(client.api.post).toHaveBeenCalledWith('/chat-pack/conversations/conv-1/trees/prop-1/accept', {});
+    expect(treeRes).toEqual({ tree: { id: 'tree-1' } });
+
+    vi.mocked(client.api.post).mockResolvedValueOnce({ data: { id: 'spec-1' } });
+    const specRes = await acceptSpecProposal('conv-1', 'spec-1');
+    expect(client.api.post).toHaveBeenCalledWith('/chat-pack/conversations/conv-1/specs/spec-1/accept', {});
+    expect(specRes).toEqual({ id: 'spec-1' });
   });
 });

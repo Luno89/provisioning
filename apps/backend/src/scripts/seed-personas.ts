@@ -75,6 +75,20 @@ async function main() {
     await mongo.savePersona(persona);
     console.log(`${prior ? 'updated' : 'created'}  ${persona.name.padEnd(12)} tools=${persona.scope?.tools?.join(',') ?? '(all)'}`);
   }
+
+  // Also sync the Koala persona
+  const { koalaSeed, KOALA_NAME } = await import('../lib/koala-persona.js');
+  const priorKoala = existing.find((p) => p.name === KOALA_NAME);
+  const koala: Persona = {
+    id: priorKoala?.id ?? uuidv4(),
+    ownerId: OWNER,
+    ...koalaSeed(),
+    createdAt: priorKoala?.createdAt ?? now,
+    updatedAt: now,
+  } as Persona;
+  await mongo.savePersona(koala);
+  console.log(`${priorKoala ? 'updated' : 'created'}  ${koala.name.padEnd(12)} (chat-only)`);
+
   process.exit(0);
 }
 

@@ -28,6 +28,7 @@ import { backupRouter } from './routes/backup.js';
 import { clustersRouter } from './routes/clusters.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { treeTypesRouter } from './routes/tree-types.js';
+import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
 import { branchesRouter } from './routes/branches.js';
 import { leavesRouter } from './routes/leaves.js';
@@ -84,6 +85,7 @@ import { signJWT, verifyJWT, hashPassword, verifyPassword } from './lib/auth.js'
 import { AuthService } from './services/AuthService.js';
 import { CredentialService } from './services/CredentialService.js';
 import { GiteaService } from './services/GiteaService.js';
+import { InfisicalService } from './services/InfisicalService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { HeadscaleService } from './services/HeadscaleService.js';
 import { ModelService } from './services/ModelService.js';
@@ -128,7 +130,9 @@ import {
   titleFrom, enabledForSession, MAX_TOOL_CALL_ARGS, MAX_TOOL_CALL_DIGEST, MAX_TOOL_CALLS_PER_MESSAGE,
   type Conversation, type ProposedTree, type ConversationToolCall,
 } from './lib/conversations.js';
-import { koalaSeed, isChatOnly, buildKoalaPrompt, KOALA_TEMPERATURE } from './lib/koala-persona.js';
+import { koalaSeed, isChatOnly, buildKoalaPrompt, KOALA_TEMPERATURE, KOALA_PROMPT } from './lib/koala-persona.js';
+import { seedTools } from './lib/tool-seeds.js';
+import { seedBindingTypes } from './lib/binding-type-seeds.js';
 import { KOALA_TOOLS } from './lib/koala-tools.js';
 import { runKoalaTool } from './lib/koala-tool-runner.js';
 import { toLoopTools, routeCall } from './lib/mcp-tools.js';
@@ -193,6 +197,10 @@ function startHostTunnel(port = 8000) {
   });
 
   server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`ℹ️  Host tunnel port ${port} is already bound — reusing existing tunnel.`);
+      return;
+    }
     console.error(`Host tunnel server error: ${err.message}`);
   });
 
@@ -259,6 +267,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const db = createDatabase();
   await db.init();
   await migrateLegacyOwnership(db);
+  await seedTools(db);
+  await seedBindingTypes(db);
 
   const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
   const infraService = new InfrastructureService();
@@ -270,6 +280,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const appExposureService = new AppExposureService(db, infraService, clusterService, io);
   const clusterProxyService = new ClusterProxyService();
   const giteaService = new GiteaService(infraService, JWT_SECRET, '/tmp/kubeconfig-provisioning-lunorica');
+  await giteaService.ensureClusterSecret().catch((err: Error) =>
+    console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
+  );
+  const infisicalService = new InfisicalService(
+    infraService,
+    JWT_SECRET,
+    '/tmp/kubeconfig-provisioning-lunorica',
+  );
   const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
@@ -1093,13 +1111,24 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * agreeing about what a refusal is.
    */
   app.use('/api/koala', koalaRouter({
-    db, modelService, ensureKoala, ensurePersonas, koalaServers,
+    db, modelService,
+    projectRepoService,
+    temporalBridge,
+    infraService,
+    infisicalService,
+    jwtSecret: JWT_SECRET,
+    ensureKoala, ensurePersonas, koalaServers,
     ownedConversations, executeWebSearch, executeFetchWebPage, toolRefused,
   }));
 
   /** The generic persona-pack chat: any registered pack -> a lived conversation on the unified wire. */
   app.use('/api/chat-pack', personaChatRouter({
     db, modelService,
+    projectRepoService,
+    temporalBridge,
+    infraService,
+    infisicalService,
+    jwtSecret: JWT_SECRET,
     resolvePersona: async (userId, name) => {
       // 'Koala' resolves to the seeded chat-only persona; anything else by name, seeded on demand.
       if (name === 'Koala') return ensureKoala(userId);
@@ -1134,6 +1163,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    * lib/ownership.ts — which is what the `ownedTrees`/`ownedBranches` closures here became.
    */
   app.use('/api/tree-types', treeTypesRouter({ db }));
+  app.use('/api/binding-types', bindingTypesRouter({ db }));
   app.use('/api/trees', treesRouter({ db, temporalBridge }));
   app.use('/api/branches', branchesRouter({ db, temporalBridge }));
   /** ── GENERAL CHAT — Koala outside the tree structure (see lib/conversations.ts) ── */
@@ -1179,38 +1209,28 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const mine = await ownedPersonas(userId);
     const found = mine.find((p) => isChatOnly(p));
     if (found) {
-      /**
-       * Backfill the warmth onto a Koala that predates it.
-       *
-       * `koalaSeed()` only runs for a user who has no Koala at all, so a change to it reaches
-       * nobody who already had one — which is everybody. The chat turn moved to `'tool-turn'` to
-       * drop the penalties that were killing tool calls, and that pins temperature at 0.3; without
-       * this, every existing Koala would quietly get the colder sampler and none of the warmth
-       * meant to replace it.
-       *
-       * Written only when the key is ABSENT, never over a value: a user who set their own
-       * temperature in the Lab chose it, and a migration that overwrites a deliberate setting is
-       * worse than one that never ran.
-       */
+      let needsSave = false;
       if (found.overrides?.temperature === undefined) {
-        const patched: Persona = {
-          ...found,
-          overrides: { ...(found.overrides ?? {}), temperature: KOALA_TEMPERATURE },
-          updatedAt: new Date().toISOString(),
-        };
-        await db.savePersona(patched);
-        console.log(`[koala] backfilled temperature for ${userId.slice(0, 8)}`);
-        return patched;
+        found.overrides = { ...(found.overrides ?? {}), temperature: KOALA_TEMPERATURE };
+        needsSave = true;
+      }
+      if (!found.systemPrompt || !found.systemPrompt.includes('Projects & Execution:')) {
+        found.systemPrompt = KOALA_PROMPT;
+        needsSave = true;
+      }
+      if (needsSave) {
+        found.updatedAt = new Date().toISOString();
+        await db.savePersona(found);
       }
       return found;
     }
     const now = new Date().toISOString();
-    const persona: Persona = {
+    const created = {
       ...koalaSeed(), id: uuidv4(), ownerId: userId, createdAt: now, updatedAt: now,
     } as Persona;
-    await db.savePersona(persona);
-    console.log(`[koala] created the Koala persona for ${userId.slice(0, 8)}`);
-    return persona;
+    await db.savePersona(created);
+    console.log(`[personas] created Koala persona for ${userId.slice(0, 8)}`);
+    return created;
   }
 
   /** Everything deployed for this user, healthiest copy per name. Never throws: chat works without it. */
@@ -1315,6 +1335,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
     const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
     startHostTunnel(hostTunnelPort);
+    httpServer.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);
+        process.exit(1);
+      }
+      console.error(`Provisioning Server Error: ${err.message}`);
+      process.exit(1);
+    });
     httpServer.listen(port, () => console.log(`🚀 Provisioning Server Active on http://localhost:${port}`));
   }
 

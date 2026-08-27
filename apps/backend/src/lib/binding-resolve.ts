@@ -1,5 +1,11 @@
 import { clusterHost } from './cluster-dns.js';
-import { bindingTypeFor, type Binding } from './service-binding.js';
+import {
+  bindingTypeFor,
+  type Binding,
+  type ServiceBindingContract,
+  PLATFORM_SERVICE_CONTRACTS,
+} from './service-binding.js';
+import type { BindingTypeRecord } from './db-interface.js';
 import type { AppSpec } from './app-spec.js';
 
 /**
@@ -47,6 +53,7 @@ export interface ResolvedBinding {
   type: string;
   host: string;
   port: number;
+  protocol?: string | undefined;
   source: CredentialSource;
 }
 
@@ -61,6 +68,7 @@ interface DeploymentLike {
   appType?: string | undefined;
   status?: string | undefined;
   ownerId?: string | undefined;
+  bindingContract?: ServiceBindingContract | undefined;
 }
 
 interface StoredSpecLike {
@@ -74,17 +82,21 @@ const namespaceOf = (name: string) => String(name).toLowerCase().replace(/[^a-z0
  * What a project's `needs` resolve to, for a given owner.
  *
  * `ownerId` is the caller's, and the filter is applied FIRST. Everything after that operates on a
- * list that contains only their deployments, so there is no path where a later condition could let
- * one through.
+ * list that contains only their deployments or shared platform services, so there is no path where
+ * a later condition could let an unauthorised private deployment through.
  */
 export function resolveBindings(
   needs: readonly BindingRequest[],
   deployments: readonly DeploymentLike[],
   specs: readonly StoredSpecLike[],
   ownerId: string,
+  options?: {
+    dynamicTypes?: readonly BindingTypeRecord[];
+    contracts?: Record<string, ServiceBindingContract>;
+  },
 ): Resolution {
-  // Applied before anything is matched. A narrower list cannot be widened by a later mistake.
-  const mine = deployments.filter((d) => d.ownerId === ownerId);
+  // Applied before anything is matched. Tenant isolation: only own deployments or platform services (no ownerId).
+  const mine = deployments.filter((d) => !d.ownerId || d.ownerId === ownerId);
   const byId = new Map(specs.map((s) => [s.id, s.spec]));
 
   const bindings: ResolvedBinding[] = [];
@@ -96,7 +108,11 @@ export function resolveBindings(
     if (!wanted) continue;
 
     const found = mine.find((d) => d.name === wanted || namespaceOf(d.name) === namespaceOf(wanted));
-    if (!found) {
+    const platformContract = options?.contracts?.[wanted]
+      ?? PLATFORM_SERVICE_CONTRACTS[wanted]
+      ?? (found?.appType ? PLATFORM_SERVICE_CONTRACTS[found.appType] : undefined);
+
+    if (!found && !platformContract) {
       /**
        * Deliberately the same message whether it belongs to someone else or does not exist. A
        * distinct "that is not yours" would confirm the name is real, which is a probe.
@@ -104,15 +120,41 @@ export function resolveBindings(
       problems.push(`No service named "${wanted}".`);
       continue;
     }
-    if (found.status !== 'running') {
+    if (found && found.status && found.status !== 'running') {
       // Binding to something not running would hand an app an address that answers nothing, and the
       // failure would look like a network problem rather than a missing dependency.
       problems.push(`"${wanted}" is not running (${found.status ?? 'unknown'}).`);
       continue;
     }
 
-    const appType = String(found.appType ?? '');
-    const type = bindingTypeFor(appType);
+    const contract = found?.bindingContract ?? platformContract;
+    if (contract) {
+      const type = contract.bindingType;
+      const name = String(need.as ?? wanted).trim() || wanted;
+      if (taken.has(name)) {
+        // Two bindings in one directory would overwrite each other's files.
+        problems.push(`Two bindings are both named "${name}" — give one an "as" name.`);
+        continue;
+      }
+      taken.add(name);
+
+      bindings.push({
+        name,
+        type,
+        host: clusterHost(contract.serviceName, contract.namespace),
+        port: contract.port,
+        ...(contract.protocol ? { protocol: contract.protocol } : {}),
+        source: {
+          secretName: contract.secretName ?? `${contract.serviceName}-secret`,
+          namespace: contract.namespace,
+          keys: contract.keyMapping ?? {},
+        },
+      });
+      continue;
+    }
+
+    const appType = String(found?.appType ?? '');
+    const type = bindingTypeFor(appType, options?.dynamicTypes);
     if (!type) {
       problems.push(`"${wanted}" is a ${appType || 'unknown'}, which is not a service another app binds to.`);
       continue;
@@ -122,9 +164,7 @@ export function resolveBindings(
     const port = spec?.ports?.[0]?.port;
     if (!spec || port === undefined) {
       /**
-       * Only spec-deployed services can be bound. A construct names its Service and its Secret its
-       * own way, and guessing either would produce a binding pointing at nothing — the same reason
-       * `list_infrastructure` reports no address for one.
+       * Only spec-deployed services or contract-declared services can be bound.
        */
       problems.push(`"${wanted}" was not created from an app spec, so its connection details are not known.`);
       continue;
@@ -138,13 +178,15 @@ export function resolveBindings(
     }
     taken.add(name);
 
-    const namespace = namespaceOf(found.name);
+    const namespace = namespaceOf(found!.name);
+    const matchedRecord = options?.dynamicTypes?.find((dt) => dt.appType === appType || dt.id === appType);
     bindings.push({
       name,
       type,
       // Derived, never invented — see cluster-dns.ts.
       host: clusterHost(appType, namespace),
       port,
+      ...(matchedRecord?.protocol ? { protocol: matchedRecord.protocol } : {}),
       source: {
         // renderApp names it `<specId>-secret`; this must agree with it or the read finds nothing.
         secretName: `${spec.id}-secret`,
@@ -180,6 +222,7 @@ export function describable(binding: ResolvedBinding): Binding {
     type: binding.type,
     host: binding.host,
     port: binding.port,
+    ...(binding.protocol ? { protocol: binding.protocol } : {}),
     keys: Object.keys(binding.source.keys),
   };
 }
@@ -199,6 +242,7 @@ export function bindingFiles(
     type: binding.type,
     host: binding.host,
     port: String(binding.port),
+    ...(binding.protocol ? { protocol: binding.protocol } : {}),
     // Only the keys the binding declared. Anything else in the source Secret stays there — a
     // binding is not a copy of a service's secrets, it is the subset needed to connect.
     ...Object.fromEntries(

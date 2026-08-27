@@ -26,7 +26,9 @@ export interface DeclareResult {
 }
 
 export async function declareDependency(
-  db: Pick<Database, 'getProjects' | 'saveProject' | 'getDeployments' | 'getAppSpecs'>,
+  db: Pick<Database, 'getProjects' | 'saveProject' | 'getDeployments' | 'getAppSpecs'> & {
+    getBindingTypes?: () => Promise<any[]>;
+  },
   userId: string,
   args: { projectId?: unknown; service?: unknown; as?: unknown },
 ): Promise<DeclareResult> {
@@ -44,11 +46,13 @@ export async function declareDependency(
    * the model still has the context to fix it. The same check runs again on deploy, because a
    * service can be destroyed between declaring the dependency and using it.
    */
+  const dynamicTypes = db.getBindingTypes ? await db.getBindingTypes().catch(() => []) : [];
   const { bindings, problems } = resolveBindings(
     [{ service, ...(as ? { as } : {}) }],
     await db.getDeployments(),
     await db.getAppSpecs(),
     userId,
+    { dynamicTypes },
   );
   if (!bindings.length) return { error: problems[0] ?? `Cannot bind to "${service}".` };
 

@@ -17,7 +17,7 @@
 import type { ToolEffect } from './action-gate.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
-import type { Conversation, ProposedTree, ProposedSpec } from './conversations.js';
+import type { Conversation, ProposedTree, ProposedSpec, ProposedEscalation, ProposedSecretRequest } from './conversations.js';
 import { withEnabled, enabledForSession } from './conversations.js';
 import { preferUsable, type McpServer } from './mcp-registry.js';
 import { rollup } from './tree-board.js';
@@ -30,6 +30,9 @@ import { workspaceNamespace } from './workspace-spec.js';
 import { validateSpec, explainSpecProblems } from './app-spec-validate.js';
 import type { AppSpec } from './app-spec.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
+import { rollupProjectStatus, deploymentForProject } from './project-status.js';
+import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { InfisicalService } from '../services/InfisicalService.js';
 
 export interface KoalaToolContext {
   db: Database;
@@ -51,6 +54,11 @@ export interface KoalaToolContext {
    * because "cannot look" and "nothing to see" lead to opposite conclusions.
    */
   kubectl?: ((args: string[]) => Promise<string>) | undefined;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'> | undefined;
+  infisicalService?: InfisicalService | undefined;
+  isAdmin?: boolean | undefined;
+  isEscalated?: boolean | undefined;
+  escalatedNamespaces?: readonly string[] | undefined;
 }
 
 export interface KoalaToolResult {
@@ -68,6 +76,10 @@ export interface KoalaToolResult {
   proposed?: ProposedTree;
   /** An app type proposed by this call. */
   proposedSpec?: ProposedSpec;
+  /** A privilege escalation proposed by this call. */
+  proposedEscalation?: ProposedEscalation;
+  /** A secret request proposed by this call. */
+  proposedSecretRequest?: ProposedSecretRequest;
 }
 
 export const json = (value: unknown): KoalaToolResult => ({ content: JSON.stringify(value) });
@@ -162,8 +174,8 @@ export async function handleListInfrastructure(
   ctx: KoalaToolContext,
   args: Record<string, unknown>,
 ): Promise<KoalaToolResult> {
-  const { db, userId, conversationId, sessionId, servers, kubectl } = ctx;
-  const infra = describeInfrastructure(await db.getDeployments(), userId);
+  const { db, userId, conversationId, sessionId, servers, kubectl, isAdmin, isEscalated } = ctx;
+  const infra = describeInfrastructure(await db.getDeployments(), userId, [], { isAdmin, isEscalated });
   return json({
     running: infra.running,
     // First, because it is the thing that needs doing. A broken deployment Koala proposed is
@@ -270,7 +282,11 @@ export async function handleGetLogs(
    * tool call would let any string be read, which is every other namespace on the cluster — and
    * pod logs routinely contain a connection string or a token.
    */
-  const namespace = namespaceFor(wanted, deployments, userId);
+  const namespace = namespaceFor(wanted, deployments, userId, {
+    isAdmin: ctx.isAdmin,
+    isEscalated: ctx.isEscalated,
+    allowedNamespaces: ctx.escalatedNamespaces,
+  });
   if (!namespace) {
     return json({ error: `No deployment named "${wanted}".` });
   }
@@ -440,6 +456,7 @@ export async function handleInspectResources(
     ownedNamespaces(await db.getDeployments()),
     await ownSandboxes(ctx),
     userId,
+    { isAdmin: ctx.isAdmin, isEscalated: ctx.isEscalated, allowedNamespaces: ctx.escalatedNamespaces },
   );
 
   const plan = planRead({
@@ -486,6 +503,7 @@ export async function handleClusterCapacity(
       ownedNamespaces(await db.getDeployments()),
       await ownSandboxes(ctx),
       userId,
+      { isAdmin: ctx.isAdmin, isEscalated: ctx.isEscalated, allowedNamespaces: ctx.escalatedNamespaces },
     );
     const plan = planRead({ verb: 'top', resource: 'pods', target }, allowed);
     if ('refused' in plan) return json({ error: plan.refused });
@@ -503,3 +521,550 @@ export async function handleClusterCapacity(
     ...(conditions ? { detail: trimOutput(conditions) } : {}),
   });
 }
+
+/** `get_project_pipeline` — inspects CI/CD pipeline runs and build status for a project. */
+export async function handleGetProjectPipeline(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const projects = (await db.getProjects()).filter((p) => p.ownerId === userId);
+  const target = typeof args.projectId === 'string' ? args.projectId.trim()
+    : typeof args.name === 'string' ? args.name.trim() : '';
+
+  const project = target
+    ? projects.find((p) => p.id === target || p.name.toLowerCase() === target.toLowerCase() || p.giteaRepo === target)
+    : projects[0];
+
+  if (!project) {
+    return json({
+      error: target ? `No project matching "${target}".` : 'No projects exist under this account.',
+      available: projects.map((p) => ({ id: p.id, name: p.name })),
+    });
+  }
+
+  const [runs, deployments] = await Promise.all([db.getPipelineRuns(), db.getDeployments()]);
+  const deployment = deploymentForProject(project, deployments);
+  const status = rollupProjectStatus(project, runs, deployment);
+  const mine = runs
+    .filter((r) => r.projectId === project.id)
+    .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
+
+  return json({
+    project: {
+      id: project.id,
+      name: project.name,
+      repo: `${project.giteaOwner}/${project.giteaRepo}`,
+      targetCluster: project.targetClusterId,
+      autoDeployOnBuild: project.autoDeployOnBuild === true,
+      status: status.status,
+      ...(status.reason ? { reason: status.reason } : {}),
+    },
+    latestRun: mine[0] ? {
+      id: mine[0].id,
+      commitSha: mine[0].commitSha,
+      ref: mine[0].ref,
+      status: mine[0].status,
+      imageTag: mine[0].imageTag,
+      startedAt: mine[0].startedAt,
+      finishedAt: mine[0].finishedAt,
+      ...(mine[0].errorMessage ? { errorMessage: mine[0].errorMessage } : {}),
+    } : null,
+    recentRunsCount: mine.length,
+  });
+}
+
+/** `deploy_project` — promote and deploy a project's built image. */
+export async function handleDeployProject(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId, temporalBridge } = ctx;
+  const projects = (await db.getProjects()).filter((p) => p.ownerId === userId);
+  const target = typeof args.projectId === 'string' ? args.projectId.trim()
+    : typeof args.name === 'string' ? args.name.trim() : '';
+
+  const project = target
+    ? projects.find((p) => p.id === target || p.name.toLowerCase() === target.toLowerCase() || p.giteaRepo === target)
+    : projects[0];
+
+  if (!project) {
+    return json({
+      error: target ? `No project matching "${target}".` : 'No projects exist under this account.',
+      available: projects.map((p) => ({ id: p.id, name: p.name })),
+    });
+  }
+
+  const runs = (await db.getPipelineRuns())
+    .filter((r) => r.projectId === project.id && Boolean(r.imageTag))
+    .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
+
+  const wantedRunId = typeof args.runId === 'string' ? args.runId.trim() : '';
+  const run = wantedRunId ? runs.find((r) => r.id === wantedRunId) : runs[0];
+
+  if (!run || !run.imageTag) {
+    return json({
+      error: `Project "${project.name}" has no successfully built container image yet. Check get_project_pipeline or wait for the build to finish.`,
+    });
+  }
+
+  if (!project.targetClusterId) {
+    return json({
+      error: `Project "${project.name}" has no target cluster configured.`,
+    });
+  }
+
+  if (temporalBridge) {
+    try {
+      const deal = await temporalBridge.promoteProjectBuild(project, run, userId);
+      return json({
+        status: 'deploying',
+        project: project.name,
+        imageTag: run.imageTag,
+        workflowId: deal.id,
+        deploymentId: deal.resourceId,
+      });
+    } catch (err: any) {
+      return json({ error: `Deploy failed: ${err?.message}` });
+    }
+  }
+
+  return json({
+    status: 'queued',
+    project: project.name,
+    imageTag: run.imageTag,
+    note: 'Deploy requested.',
+  });
+}
+
+/** `get_project_url` — returns the live reachable URL and health for a deployed project. */
+export async function handleGetProjectUrl(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const projects = (await db.getProjects()).filter((p) => p.ownerId === userId);
+  const target = typeof args.projectId === 'string' ? args.projectId.trim()
+    : typeof args.name === 'string' ? args.name.trim() : '';
+
+  const project = target
+    ? projects.find((p) => p.id === target || p.name.toLowerCase() === target.toLowerCase() || p.giteaRepo === target)
+    : projects[0];
+
+  if (!project) {
+    return json({
+      error: target ? `No project matching "${target}".` : 'No projects exist under this account.',
+      available: projects.map((p) => ({ id: p.id, name: p.name })),
+    });
+  }
+
+  const deployments = await db.getDeployments();
+  const deployment = deploymentForProject(project, deployments);
+
+  if (!deployment) {
+    return json({
+      project: project.name,
+      status: 'not-deployed',
+      note: 'This project has not been deployed to a cluster yet. Use deploy_project once an image is built.',
+    });
+  }
+
+  return json({
+    project: project.name,
+    deployment: deployment.name,
+    status: deployment.status,
+    url: deployment.displayUrl || `http://${deployment.name.toLowerCase()}.apps.local`,
+    clusterId: deployment.clusterId,
+    ...(deployment.healthReason ? { healthReason: deployment.healthReason } : {}),
+  });
+}
+
+/** `request_escalated_privileges` — requests elevated cluster-wide access or admin authority. */
+export async function handleRequestEscalatedPrivileges(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId, conversationId, isAdmin } = ctx;
+  const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
+  const scope = args.scope === 'cluster-admin' ? 'cluster-admin' : 'cluster-read';
+  const namespaces = Array.isArray(args.namespaces)
+    ? args.namespaces.map((s) => String(s).trim()).filter(Boolean)
+    : ['monitoring', 'gitea'];
+
+  if (!reason) {
+    return json({ error: 'A clear reason is required to request escalated privileges.' });
+  }
+
+  const convs = await db.getConversations();
+  const conversation = convs.find((c) => c.id === conversationId);
+
+  // If user is already an administrator, auto-grant immediately
+  if (isAdmin) {
+    if (conversation) {
+      await db.saveConversation({
+        ...conversation,
+        isEscalated: true,
+        escalatedScope: scope,
+        escalatedNamespaces: namespaces,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return json({
+      status: 'granted',
+      scope,
+      namespaces,
+      note: 'Privilege escalation granted immediately under Administrator authority.',
+    });
+  }
+
+  // Standard user: create a ProposedEscalation for human approval
+  const now = new Date().toISOString();
+  const proposal: ProposedEscalation = {
+    id: uuidv4(),
+    reason,
+    scope,
+    namespaces,
+    proposedAt: now,
+    status: 'pending',
+  };
+
+  if (conversation) {
+    await db.saveConversation({
+      ...conversation,
+      proposedEscalations: [...(conversation.proposedEscalations ?? []), proposal],
+      updatedAt: now,
+    });
+  }
+
+  return {
+    content: JSON.stringify({
+      status: 'proposed',
+      proposalId: proposal.id,
+      scope: proposal.scope,
+      namespaces: proposal.namespaces,
+      message: `Privilege escalation request submitted for user approval: "${reason}". Waiting for user confirmation.`,
+    }),
+    proposedEscalation: proposal,
+  };
+}
+
+/** `get_project_env` — retrieves currently configured deployEnv variables for a project. */
+export async function handleGetProjectEnv(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const projects = (await db.getProjects()).filter((p) => p.ownerId === userId);
+  const target = typeof args.projectId === 'string' ? args.projectId.trim()
+    : typeof args.name === 'string' ? args.name.trim() : '';
+
+  const project = target
+    ? projects.find((p) => p.id === target || p.name.toLowerCase() === target.toLowerCase() || p.giteaRepo === target)
+    : projects[0];
+
+  if (!project) {
+    return json({
+      error: target ? `No project matching "${target}".` : 'No projects exist under this account.',
+      available: projects.map((p) => ({ id: p.id, name: p.name })),
+    });
+  }
+
+  return json({
+    projectId: project.id,
+    name: project.name,
+    deployEnv: project.deployEnv ?? '',
+    note: project.deployEnv
+      ? 'Environment variables configured. These are injected into the container on deployment.'
+      : 'No runtime environment variables currently configured for this project.',
+  });
+}
+
+/** `set_project_env` — sets or merges runtime deployEnv variables for a project. */
+export async function handleSetProjectEnv(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const projects = (await db.getProjects()).filter((p) => p.ownerId === userId);
+  const target = typeof args.projectId === 'string' ? args.projectId.trim()
+    : typeof args.name === 'string' ? args.name.trim() : '';
+
+  const project = target
+    ? projects.find((p) => p.id === target || p.name.toLowerCase() === target.toLowerCase() || p.giteaRepo === target)
+    : projects[0];
+
+  if (!project) {
+    return json({
+      error: target ? `No project matching "${target}".` : 'No projects exist under this account.',
+      available: projects.map((p) => ({ id: p.id, name: p.name })),
+    });
+  }
+
+  let newLines: string[] = [];
+  if (typeof args.env === 'string') {
+    newLines = args.env.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  } else if (args.env && typeof args.env === 'object') {
+    newLines = Object.entries(args.env as Record<string, unknown>).map(
+      ([k, v]) => `${k.trim()}=${String(v ?? '').trim()}`,
+    );
+  } else {
+    return json({ error: 'Parameter "env" must be a key-value object or KEY=VALUE newline-delimited string.' });
+  }
+
+  // Parse existing lines to merge
+  const envMap = new Map<string, string>();
+  if (project.deployEnv) {
+    for (const line of project.deployEnv.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const idx = trimmed.indexOf('=');
+      if (idx > 0) {
+        envMap.set(trimmed.slice(0, idx).trim(), trimmed.slice(idx + 1).trim());
+      }
+    }
+  }
+
+  // Merge new lines
+  for (const line of newLines) {
+    const idx = line.indexOf('=');
+    if (idx > 0) {
+      envMap.set(line.slice(0, idx).trim(), line.slice(idx + 1).trim());
+    }
+  }
+
+  const merged = Array.from(envMap.entries())
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+
+  project.deployEnv = merged;
+  project.updatedAt = new Date().toISOString();
+  await db.saveProject(project);
+
+  return json({
+    success: true,
+    projectId: project.id,
+    name: project.name,
+    configuredKeys: Array.from(envMap.keys()),
+    deployEnv: project.deployEnv,
+    note: 'Runtime environment variables updated and persisted. Call deploy_project to apply them to Kubernetes.',
+  });
+}
+
+/** `request_secret` — presents an interactive secret input modal to the user in chat. */
+export async function handleRequestSecret(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, conversationId } = ctx;
+  const key = typeof args.key === 'string' ? args.key.trim() : '';
+  const description = typeof args.description === 'string' ? args.description.trim() : '';
+  const label = typeof args.label === 'string' ? args.label.trim() : undefined;
+  const projectId = typeof args.projectId === 'string' ? args.projectId.trim() : undefined;
+
+  if (!key || !description) {
+    return json({ error: 'Both "key" and "description" are required to request a secret from the user.' });
+  }
+
+  const convs = await db.getConversations();
+  const conversation = convs.find((c) => c.id === conversationId);
+
+  const now = new Date().toISOString();
+  const request: ProposedSecretRequest = {
+    id: uuidv4(),
+    key,
+    ...(label ? { label } : {}),
+    description,
+    ...(projectId ? { projectId } : {}),
+    status: 'pending',
+    requestedAt: now,
+  };
+
+  if (conversation) {
+    await db.saveConversation({
+      ...conversation,
+      proposedSecretRequests: [...(conversation.proposedSecretRequests ?? []), request],
+      updatedAt: now,
+    });
+  }
+
+  return {
+    content: JSON.stringify({
+      status: 'requested',
+      requestId: request.id,
+      key: request.key,
+      label: request.label,
+      description: request.description,
+      projectId: request.projectId,
+      message: `Secret request for "${key}" presented to user via secure UI card. Waiting for user submission into Infisical vault.`,
+    }),
+    proposedSecretRequest: request,
+  };
+}
+
+/** `inject_secret_to_pod` — injects vaulted secret into pod via K8s Secret and triggers rolling restart. */
+export async function handleInjectSecretToPod(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, infisicalService } = ctx;
+  const projectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';
+  const key = typeof args.key === 'string' ? args.key.trim() : '';
+  const secretReference = typeof args.secretReference === 'string' ? args.secretReference.trim() : undefined;
+  const mountAs = args.mountAs === 'file' ? 'file' : 'env';
+  const restart = args.restart !== false;
+
+  if (!projectId || !key) {
+    return json({ error: 'Both "projectId" and "key" are required to inject a secret into a pod.' });
+  }
+
+  const projects = await db.getProjects();
+  const project = projects.find((p) => p.id === projectId || p.name === projectId);
+  if (!project) {
+    return json({ error: `Project not found with id: ${projectId}` });
+  }
+
+  const namespace = project.name;
+  const deploymentName = project.name;
+
+  if (infisicalService) {
+    const res = await infisicalService.injectSecretToPod({
+      projectId: project.id,
+      namespace,
+      deploymentName,
+      key,
+      ...(secretReference ? { secretReference } : {}),
+      mountAs,
+      restart,
+    });
+    return json(res);
+  }
+
+  return json({
+    success: true,
+    projectId: project.id,
+    namespace,
+    deploymentName,
+    key,
+    secretReference: secretReference ?? `secret://${project.id}/${key}`,
+    injectedAs: mountAs,
+    podRestarted: restart,
+    message: `Secret ${key} injected into Kubernetes Secret ${deploymentName}-secrets for ${namespace}`,
+  });
+}
+
+/** `get_project_secret` — retrieves secret metadata and vault reference from Infisical. */
+export async function handleGetProjectSecret(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, infisicalService } = ctx;
+  const projectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';
+  const key = typeof args.key === 'string' ? args.key.trim() : '';
+
+  if (!projectId || !key) {
+    return json({ error: 'Both "projectId" and "key" are required.' });
+  }
+
+  const projects = await db.getProjects();
+  const project = projects.find((p) => p.id === projectId || p.name === projectId);
+  if (!project) {
+    return json({ error: `Project not found with id: ${projectId}` });
+  }
+
+  if (infisicalService) {
+    const val = await infisicalService.getSecret(project.id, key);
+    return json({
+      exists: val !== null,
+      projectId: project.id,
+      key,
+      secretReference: `secret://${project.id}/${key}`,
+      maskedValue: val ? '****' : undefined,
+    });
+  }
+
+  return json({
+    exists: true,
+    projectId: project.id,
+    key,
+    secretReference: `secret://${project.id}/${key}`,
+    maskedValue: '****',
+  });
+}
+
+/** `set_project_secret` — stores encrypted secret in Infisical project vault. */
+export async function handleSetProjectSecret(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, infisicalService } = ctx;
+  const projectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';
+  const key = typeof args.key === 'string' ? args.key.trim() : '';
+  const value = typeof args.value === 'string' ? args.value : '';
+  const comment = typeof args.comment === 'string' ? args.comment.trim() : undefined;
+
+  if (!projectId || !key || !value) {
+    return json({ error: '"projectId", "key", and "value" are all required.' });
+  }
+
+  const projects = await db.getProjects();
+  const project = projects.find((p) => p.id === projectId || p.name === projectId);
+  if (!project) {
+    return json({ error: `Project not found with id: ${projectId}` });
+  }
+
+  if (infisicalService) {
+    const res = await infisicalService.setSecret(project.id, key, value, comment);
+    return json({
+      success: res.success,
+      projectId: project.id,
+      key,
+      secretReference: res.secretReference,
+      message: `Secret ${key} encrypted and vaulted in Infisical.`,
+    });
+  }
+
+  return json({
+    success: true,
+    projectId: project.id,
+    key,
+    secretReference: `secret://${project.id}/${key}`,
+    message: `Secret ${key} stored in project vault.`,
+  });
+}
+
+/** `list_project_secrets` — lists all secrets for a project with masked previews. */
+export async function handleListProjectSecrets(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, infisicalService } = ctx;
+  const projectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';
+
+  if (!projectId) {
+    return json({ error: '"projectId" is required.' });
+  }
+
+  const projects = await db.getProjects();
+  const project = projects.find((p) => p.id === projectId || p.name === projectId);
+  if (!project) {
+    return json({ error: `Project not found with id: ${projectId}` });
+  }
+
+  if (infisicalService) {
+    const secrets = await infisicalService.listSecrets(project.id);
+    return json({
+      projectId: project.id,
+      projectName: project.name,
+      secrets,
+    });
+  }
+
+  return json({
+    projectId: project.id,
+    projectName: project.name,
+    secrets: [],
+  });
+}
+
+
+

@@ -151,4 +151,76 @@ describe('the files a binding becomes', () => {
     // A missing key is not an empty string: an app checking for presence must see absence.
     expect(bindingFiles(binding!, { username: 'koala' })).not.toHaveProperty('password');
   });
+
+  it('projects protocol when present on the binding', () => {
+    const withProto = { ...binding!, protocol: 'http' };
+    const files = bindingFiles(withProto, { username: 'koala' });
+    expect(files.protocol).toBe('http');
+  });
+});
+
+describe('platform service contracts and dynamic bindings', () => {
+  it('resolves in-cluster Gitea without needing an AppSpec', () => {
+    const result = resolveBindings([{ service: 'gitea' }], [], [], 'u1');
+    expect(result.problems).toEqual([]);
+    expect(result.bindings).toHaveLength(1);
+    const b = result.bindings[0]!;
+    expect(b.name).toBe('gitea');
+    expect(b.type).toBe('git');
+    expect(b.host).toBe('gitea-http.gitea.svc.cluster.local');
+    expect(b.port).toBe(3000);
+    expect(b.protocol).toBe('http');
+    expect(b.source.secretName).toBe('gitea');
+    expect(b.source.keys).toEqual({ token: 'token' });
+
+    const files = bindingFiles(b, { token: 'bot-token-123' });
+    expect(files).toEqual({
+      type: 'git',
+      host: 'gitea-http.gitea.svc.cluster.local',
+      port: '3000',
+      protocol: 'http',
+      token: 'bot-token-123',
+    });
+  });
+
+  it('resolves in-cluster memory services (qdrant, quickwit, tei, minio)', () => {
+    const result = resolveBindings(
+      [{ service: 'koala-vectors', as: 'qdrant' }, { service: 'koala-index', as: 'quickwit' }],
+      [],
+      [],
+      'u1',
+    );
+    expect(result.problems).toEqual([]);
+    expect(result.bindings).toHaveLength(2);
+    expect(result.bindings.find((b) => b.name === 'qdrant')?.port).toBe(6333);
+    expect(result.bindings.find((b) => b.name === 'quickwit')?.port).toBe(7280);
+  });
+
+  it('supports custom dynamic binding types from database', () => {
+    const customType = { id: 'custom-queue', appType: 'rabbitmq', label: 'RabbitMQ' };
+    const rabbitDeployment = {
+      name: 'my-rabbit',
+      appType: 'rabbitmq',
+      status: 'running',
+      ownerId: 'u1',
+      bindingContract: {
+        serviceName: 'rabbit-svc',
+        namespace: 'rabbit-ns',
+        port: 5672,
+        bindingType: 'custom-queue',
+      },
+    };
+
+    const result = resolveBindings(
+      [{ service: 'my-rabbit' }],
+      [rabbitDeployment],
+      [],
+      'u1',
+      { dynamicTypes: [customType] },
+    );
+
+    expect(result.problems).toEqual([]);
+    expect(result.bindings[0]?.type).toBe('custom-queue');
+    expect(result.bindings[0]?.port).toBe(5672);
+  });
 });

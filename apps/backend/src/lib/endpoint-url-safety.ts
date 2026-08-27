@@ -97,6 +97,42 @@ export interface UrlCheck {
  * time by the caller — see ModelService, which only accepts literal mesh IPs for mesh endpoints
  * and requires https for named hosts.
  */
+/**
+ * A registered endpoint's base URL, in the shape every caller assumes.
+ *
+ * ── WHY THIS EXISTS ──
+ * The stored field is documented as "Base URL through /v1" and the form's placeholder shows
+ * `http://100.64.0.7:11434/v1`, but nothing enforced it — `checkEndpointUrl` validates the scheme,
+ * the host and the address, and never looks at the path. Meanwhile every one of the ~20 call sites
+ * in this codebase appends the operation itself:
+ *
+ *   POST `${baseUrl}/chat/completions`
+ *
+ * So an OpenRouter endpoint entered as `https://openrouter.ai/api/v1/chat/completions` — the URL
+ * their documentation shows, and the obvious thing to paste — produced
+ * `…/v1/chat/completions/chat/completions`. Verified against the live API: the intended path
+ * answers 401, the doubled one 404. The endpoint could not have worked at any point.
+ *
+ * Normalised rather than rejected, and applied on READ as well as on write, because a row stored
+ * before this existed must start working rather than start erroring.
+ *
+ * Deliberately does NOT add a missing `/v1`: some engines serve the OpenAI API at the root, and
+ * guessing would break them the same way this fixes the other case.
+ */
+const OPERATION_SUFFIX = /\/(?:chat\/)?completions\/?$/;
+
+export function normaliseBaseUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    // Not parseable: hand it back untouched and let checkEndpointUrl deliver the verdict.
+    return raw;
+  }
+  url.pathname = url.pathname.replace(OPERATION_SUFFIX, '');
+  return url.toString().replace(/\/$/, '');
+}
+
 export function checkEndpointUrl(raw: string): UrlCheck {
   let url: URL;
   try {

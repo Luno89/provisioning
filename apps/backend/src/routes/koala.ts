@@ -4,7 +4,7 @@ import type { AppSpec } from '../lib/app-spec.js';
 import { MAX_TOOL_CALLS_PER_MESSAGE, MAX_TOOL_CALL_ARGS, MAX_TOOL_CALL_DIGEST, enabledForSession, titleFrom } from '../lib/conversations.js';
 import type { Conversation, ProposedTree } from '../lib/conversations.js';
 import { historyForPrompt, needsHandoff, trimKoalaThread, withHandoff } from '../lib/koala-context.js';
-import { buildKoalaPrompt } from '../lib/koala-persona.js';
+import { composePersonaPrompt } from '../lib/persona-prompt.js';
 import { runToolRounds } from '../lib/round-loop.js';
 import { runKoalaTool } from '../lib/koala-tool-runner.js';
 import { KOALA_TOOLS } from '../lib/koala-tools.js';
@@ -26,6 +26,13 @@ import type { McpServer } from '../lib/mcp-registry.js';
 import type { Database } from '../lib/db-interface.js';
 import type { ModelService } from '../services/ModelService.js';
 import type { SearchOutcome } from '../lib/web-tools.js';
+import type { InfisicalService } from '../services/InfisicalService.js';
+
+import { bootstrapAcceptedTree } from '../lib/tree-bootstrap.js';
+import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import type { TemporalBridge } from '../services/TemporalBridge.js';
+import { recallMemories, markUsed } from '../lib/memory-recall.js';
+import { corpusEndpoints } from '../lib/web-tools-resolver.js';
 
 /**
  * Koala — the assistant that lives beside the platform, and the conversations it holds.
@@ -87,6 +94,11 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
 export interface KoalaRouterDeps {
   db: Database;
   modelService: ModelService;
+  projectRepoService?: ProjectRepoService;
+  temporalBridge?: TemporalBridge;
+  infraService?: InfrastructureService;
+  infisicalService?: InfisicalService;
+  jwtSecret?: string;
   ensureKoala: (userId: string) => Promise<Persona>;
   ensurePersonas: (userId: string) => Promise<void>;
   /** The user's MCP services with their tools, already deduped by `preferUsable`. */
@@ -157,22 +169,40 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
     if (!proposal) return res.status(404).json({ error: 'No such proposal' });
     if (proposal.treeId) return res.status(409).json({ error: 'That project has already been created' });
 
+    let nodeIp: string | undefined;
+    if (deps.infraService) {
+      try {
+        nodeIp = (await deps.infraService.runKubectl(
+          ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
+          '/tmp/kubeconfig-provisioning-lunorica',
+        )).trim();
+      } catch {}
+    }
+
+    const bootstrapped = await bootstrapAcceptedTree({
+      db,
+      projectRepoService: deps.projectRepoService,
+      temporalBridge: deps.temporalBridge,
+      nodeIp,
+      jwtSecret: deps.jwtSecret,
+    }, {
+      userId,
+      proposal,
+    });
+
     const now = new Date().toISOString();
-    const tree: Tree = {
-      ...normaliseTreeInput({ name: proposal.name, type: proposal.type, goal: proposal.goal }),
-      id: uuidv4(),
-      ownerId: userId,
-      createdAt: now,
-      updatedAt: now,
-    } as Tree;
-    await db.saveTree(tree);
     await db.saveConversation({
       ...conversation,
       proposedTrees: (conversation.proposedTrees ?? [])
-        .map((p) => (p.id === proposal.id ? { ...p, treeId: tree.id } : p)),
+        .map((p) => (p.id === proposal.id ? { ...p, treeId: bootstrapped.tree.id } : p)),
       updatedAt: now,
     });
-    res.json({ tree });
+    res.json({
+      tree: bootstrapped.tree,
+      branch: bootstrapped.branch,
+      leaf: bootstrapped.leaf,
+      project: bootstrapped.project,
+    });
   });
 
   /**
@@ -227,6 +257,106 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
     res.json({ id: proposal.id });
   });
 
+  const acceptKoalaEscalation = async (req: any, res: any) => {
+    const userId = userOf(req).id;
+    const conversation = (await db.getConversations()).find(
+      (c) => c.id === req.params.id && c.ownerId === userId,
+    );
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedEscalations ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+
+    const now = new Date().toISOString();
+    proposal.status = 'accepted';
+    proposal.acceptedAt = now;
+    conversation.isEscalated = true;
+    conversation.escalatedScope = proposal.scope;
+    if (proposal.namespaces) {
+      conversation.escalatedNamespaces = proposal.namespaces;
+    }
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, conversation });
+  };
+
+  const denyKoalaEscalation = async (req: any, res: any) => {
+    const userId = userOf(req).id;
+    const conversation = (await db.getConversations()).find(
+      (c) => c.id === req.params.id && c.ownerId === userId,
+    );
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedEscalations ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+
+    const now = new Date().toISOString();
+    proposal.status = 'denied';
+    proposal.deniedAt = now;
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, conversation });
+  };
+
+  router.post('/conversations/:id/escalations/:proposalId/accept', acceptKoalaEscalation);
+  router.post('/conversations/:id/proposals/escalations/:proposalId/accept', acceptKoalaEscalation);
+  router.post('/conversations/:id/escalations/:proposalId/deny', denyKoalaEscalation);
+  router.post('/conversations/:id/proposals/escalations/:proposalId/deny', denyKoalaEscalation);
+
+  const submitKoalaSecret = async (req: any, res: any) => {
+    const userId = userOf(req).id;
+    const conversation = (await db.getConversations()).find(
+      (c) => c.id === req.params.id && c.ownerId === userId,
+    );
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const request = (conversation.proposedSecretRequests ?? []).find((r) => r.id === req.params.requestId);
+    if (!request) return res.status(404).json({ error: 'No such secret request' });
+
+    const { value } = req.body ?? {};
+    if (typeof value !== 'string' || !value.trim()) {
+      return res.status(400).json({ error: 'Secret value is required.' });
+    }
+
+    const projectId = request.projectId || conversation.id;
+    const secretReference = `secret://${projectId}/${request.key}`;
+
+    if (deps.infisicalService) {
+      await deps.infisicalService.setSecret(projectId, request.key, value.trim());
+    }
+
+    const now = new Date().toISOString();
+    request.status = 'fulfilled';
+    request.secretReference = secretReference;
+    request.fulfilledAt = now;
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, request, secretReference, conversation });
+  };
+
+  const denyKoalaSecret = async (req: any, res: any) => {
+    const userId = userOf(req).id;
+    const conversation = (await db.getConversations()).find(
+      (c) => c.id === req.params.id && c.ownerId === userId,
+    );
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const request = (conversation.proposedSecretRequests ?? []).find((r) => r.id === req.params.requestId);
+    if (!request) return res.status(404).json({ error: 'No such secret request' });
+
+    const now = new Date().toISOString();
+    request.status = 'dismissed';
+    request.dismissedAt = now;
+    conversation.updatedAt = now;
+
+    await db.saveConversation(conversation);
+    res.json({ ok: true, request, conversation });
+  };
+
+  router.post('/conversations/:id/secrets/:requestId/submit', submitKoalaSecret);
+  router.post('/conversations/:id/proposals/secrets/:requestId/submit', submitKoalaSecret);
+  router.post('/conversations/:id/secrets/:requestId/dismiss', denyKoalaSecret);
+  router.post('/conversations/:id/proposals/secrets/:requestId/dismiss', denyKoalaSecret);
+
   /**
    * One general-chat turn.
    *
@@ -236,7 +366,8 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
    * part of the branch route. The visible result is the same and the failure modes are far fewer.
    */
   router.post('/chat', async (req, res) => {
-    const userId = (req as any).user.id;
+    const user = (req as any).user;
+    const userId = user.id;
     const { conversationId, message, sessionId, modelId } = req.body ?? {};
     if (typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'message is required' });
@@ -287,10 +418,32 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
      * See lib/koala-context.ts for why the artifact is assembled rather than summarised, and why
      * the threshold is 0.55 rather than something closer to full.
      */
+    const userMemories = await db.getMemories(user.id).catch(() => []);
+    const recalled = await recallMemories({
+      memories: userMemories,
+      ownerId: user.id,
+      query: message,
+      endpoints: () => corpusEndpoints(db, user.id).catch(() => undefined),
+    }).catch(() => ({ context: '', selected: [], via: 'recency' as const }));
+
+    if (recalled.selected.length) {
+      void markUsed(db, recalled.selected);
+    }
+
     {
       const enabledNow = enabledForSession(conversation, sessionId);
       const promptNow = JSON.stringify([
-        { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, enabledNow) },
+        {
+          role: 'system',
+          content: composePersonaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', {
+            servers,
+            enabledServers: enabledNow,
+            isAdmin: Boolean(user.isAdmin),
+            isEscalated: Boolean(conversation!.isEscalated),
+            ...(conversation!.escalatedNamespaces ? { escalatedNamespaces: conversation!.escalatedNamespaces } : {}),
+            ...(recalled.context ? { memoryContext: recalled.context } : {}),
+          }),
+        },
         ...historyForPrompt(conversation.messages).map((m) => ({ role: m.role, content: m.content })),
       ]).length + JSON.stringify(toolsFor(enabledNow)).length;
 
@@ -309,13 +462,30 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
     };
     await db.saveConversation(conversation);
 
+    const toolRegistry = await db.getTools();
+    const historyMsgs = historyForPrompt(conversation!.messages).map((m) => ({ role: m.role, content: m.content }));
+    const historyChars = historyMsgs.reduce((sum, m) => sum + m.content.length, 0);
+
     /**
      * Sliced at the last handoff, so a reset thread does not silently keep paying for the messages
      * it just summarised. With no handoff this is the whole conversation, unchanged.
      */
     const conversationFor = (list: string[]) => [
-      { role: 'system', content: buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, list) },
-      ...historyForPrompt(conversation!.messages).map((m) => ({ role: m.role, content: m.content })),
+      {
+        role: 'system',
+        content: composePersonaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', {
+          toolRegistry,
+          activeTools: KOALA_TOOLS.map((t) => t.function.name),
+          servers,
+          enabledServers: list,
+          historyChars,
+          isAdmin: Boolean(user.isAdmin),
+          isEscalated: Boolean(conversation!.isEscalated),
+          ...(conversation!.escalatedNamespaces ? { escalatedNamespaces: conversation!.escalatedNamespaces } : {}),
+          ...(recalled.context ? { memoryContext: recalled.context } : {}),
+        }),
+      },
+      ...historyMsgs,
     ];
 
     const upstreamAbort = new AbortController();
@@ -390,7 +560,16 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
         // Rebuild the system prompt from the live tool set, so an enabled service's catalogue is
         // present on the next round — the loop widened `req.tools` via onEnabled.
         const sysFor = (names: string[]) =>
-          buildKoalaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', servers, names);
+          composePersonaPrompt(resolved.systemPrompt ?? persona.systemPrompt ?? '', {
+            toolRegistry,
+            activeTools: KOALA_TOOLS.map((t) => t.function.name),
+            servers,
+            enabledServers: names,
+            historyChars,
+            isAdmin: Boolean(user.isAdmin),
+            isEscalated: Boolean(conversation!.isEscalated),
+            ...(conversation!.escalatedNamespaces ? { escalatedNamespaces: conversation!.escalatedNamespaces } : {}),
+          });
         const msgs = req.messages.map((m: any, i: number) =>
           i === 0 && m.role === 'system' ? { ...m, content: sysFor(req.tools) } : m);
 
@@ -450,6 +629,11 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
             /** Read-only, arg-array-only — nothing a model writes reaches a shell. */
             kubectl: (a: string[]) => new InfrastructureService().runKubectl(a).then((r: any) =>
               typeof r === 'string' ? r : (r?.stdout ?? '')),
+            temporalBridge: deps.temporalBridge,
+            infisicalService: deps.infisicalService,
+            isAdmin: Boolean(user.isAdmin),
+            isEscalated: Boolean(conversation!.isEscalated),
+            ...(conversation!.escalatedNamespaces ? { escalatedNamespaces: conversation!.escalatedNamespaces } : {}),
           },
           { name: c.name, arguments: c.arguments },
         );
@@ -459,6 +643,8 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
           ...(out.enabled ? { enabled: out.enabled } : {}),
           ...(out.proposed ? { proposed: out.proposed } : {}),
           ...(out.proposedSpec ? { proposedSpec: out.proposedSpec } : {}),
+          ...(out.proposedEscalation ? { proposedEscalation: out.proposedEscalation } : {}),
+          ...(out.proposedSecretRequest ? { proposedSecretRequest: out.proposedSecretRequest } : {}),
         };
       };
 
@@ -480,6 +666,8 @@ export function koalaRouter(deps: KoalaRouterDeps): Router {
       // Proposals surface as cards; the original streamed them live, we flush the same frames.
       for (const pc of result.proposedTrees) sendFrame(res, { proposedTree: pc });
       for (const pc of result.proposedSpecs) sendFrame(res, { proposedSpec: pc });
+      for (const pc of result.proposedEscalations) sendFrame(res, { proposedEscalation: pc });
+      for (const ps of result.proposedSecretRequests) sendFrame(res, { proposedSecretRequest: ps });
 
       /**
        * Still nothing to show? Say so rather than persisting an empty bubble.

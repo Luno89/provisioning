@@ -38,6 +38,8 @@ import {
 } from './leaf-checkpoint.js';
 import { extensionNotice } from './budget-extension.js';
 import { isProductive, thrashAction, nudgeMessage, thrashSummary } from './thrash.js';
+import { UniversalValidatorService } from '../services/UniversalValidatorService.js';
+import type { ValidationRecipe } from './tree-types.js';
 import { detectThoughtLoop, type Turn as ThoughtTurn } from './thought-loop.js';
 import { TOOL_REPOSITORY, formatToolRepoForOpenAI } from './tool-repository.js';
 import { renderSearchOutcome } from './web-tools.js';
@@ -353,6 +355,8 @@ export interface AgentRunOptions {
    * registered endpoint — and the conservative fallback applies.
    */
   contextTokens?: number;
+  /** Executable validation recipe / contract for this leaf. */
+  validationRecipe?: ValidationRecipe | undefined;
 }
 
 /**
@@ -1013,7 +1017,16 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
           transcript.push(`${name} -> ${remote.isError ? 'error' : 'ok'}`);
           result = remote.text;
         } else {
-          result = await runSandboxTool(opts.sandbox, name, args, transcript, opts.web, opts.saveMemory);
+          result = await runSandboxTool(
+            opts.sandbox,
+            name,
+            args,
+            transcript,
+            opts.web,
+            opts.saveMemory,
+            opts.validationRecipe,
+            opts.fetchImpl,
+          );
         }
       } catch (err: any) {
         // Returned to the model, not thrown: a tool that fails is information the agent can act
@@ -1227,7 +1240,43 @@ async function runSandboxTool(
   transcript: string[],
   web?: WebTools | undefined,
   saveMemory?: AgentRunOptions['saveMemory'],
+  validationRecipe?: ValidationRecipe | undefined,
+  fetchImpl?: typeof fetch,
 ): Promise<string> {
+  if (name === 'validate_progress') {
+    transcript.push('validate_progress');
+    const validator = new UniversalValidatorService();
+    const env = {
+      exec: async (cmd: string) => sandbox.exec(cmd),
+      readFile: async (p: string) => sandbox.readFile(p),
+      fetch: fetchImpl ?? fetch,
+    };
+
+    let activeRecipe = validationRecipe;
+    if (!activeRecipe || !activeRecipe.checks?.length) {
+      activeRecipe = await validator.inferRecipe(env);
+    }
+
+    if (!activeRecipe || !activeRecipe.checks?.length) {
+      return JSON.stringify({
+        passed: true,
+        message: 'No specific validation recipe configured for this leaf. Verify manually using test commands or artifact inspection.',
+      });
+    }
+
+    const focusCheck = args.focusCheck ? String(args.focusCheck) : undefined;
+    const summary = await validator.validate(activeRecipe, env, focusCheck);
+    return JSON.stringify({
+      passed: summary.passed,
+      type: summary.type,
+      totalChecks: summary.totalChecks,
+      passedChecks: summary.passedChecks,
+      failedChecks: summary.failedChecks,
+      diagnosticReport: summary.diagnosticReport,
+      checks: summary.checks,
+    });
+  }
+
   if (name === 'run_command') {
     const command = String(args.command ?? '');
     if (!command.trim()) return JSON.stringify({ error: 'command is required' });

@@ -24,6 +24,8 @@
  * to satisfy "produce NOTES.md" is to produce NOTES.md, and producing it is the work.
  */
 
+import { extensionVariants, type FileConventions } from './tree-type-conventions.js';
+
 /** Marks the end of the check so the verdict survives interleaved git output. */
 const SENTINEL = 'KOALA_ARTIFACTS';
 
@@ -62,7 +64,11 @@ export function usablePaths(paths: string[]): string[] {
  * first attempt already did; and a file that only exists on the default branch is, by definition,
  * not something this leaf produced.
  */
-export function buildArtifactCheckScript(paths: string[], defaultBranch = 'main'): string {
+export function buildArtifactCheckScript(
+  paths: string[],
+  defaultBranch = 'main',
+  conventions?: FileConventions | undefined,
+): string {
   const safe = usablePaths(paths);
   if (safe.length === 0) return `echo "${SENTINEL}=none"`;
   const base = /^[A-Za-z0-9._/-]+$/.test(defaultBranch) ? defaultBranch : 'main';
@@ -75,6 +81,22 @@ export function buildArtifactCheckScript(paths: string[], defaultBranch = 'main'
     `BASE=""; git rev-parse --verify --quiet "origin/${base}" >/dev/null 2>&1 && BASE="origin/${base}"`,
     ...safe.flatMap((p) => {
       const bn = p.split('/').pop() ?? p;
+      /**
+       * Basenames to search for, including the same stem under the extensions THIS TEMPLATE uses.
+       *
+       * A planner names paths before reading the repository, so it guesses the extension as well as
+       * the directory. Measured: on a `language: 'node'` type scaffolding plain JavaScript, it asked
+       * for `src/tools.ts`; the agent wrote `src/tools.js`, committed it, passed 34 tests, and the
+       * leaf was failed three times for the letter. The scaffold already says which extension the
+       * project uses — see lib/tree-type-conventions.ts — so use it rather than fail correct work.
+       *
+       * Re-validated through `usablePaths` because these are interpolated into a shell script, even
+       * though they are derived from an already-validated path plus a fixed extension list.
+       */
+      const variants = usablePaths(conventions ? extensionVariants(p, conventions) : [])
+        .map((v) => v.split('/').pop() ?? v);
+      const names = [bn, ...variants.filter((v) => v !== bn)];
+      const globs = names.flatMap((n) => [`"*/${n}"`, `"${n}"`]).join(' ');
       return [
         `if [ -n "$(git ls-files -- "${p}" 2>/dev/null)" ]; then`,
         // -s is "exists and has size greater than zero". A file created and never written to is
@@ -95,7 +117,7 @@ export function buildArtifactCheckScript(paths: string[], defaultBranch = 'main'
          * turning into "some file with this name exists somewhere".
          */
         `  BN_FOUND=""`,
-        `  for CAND in $(git ls-files -- "*/${bn}" "${bn}" 2>/dev/null | head -20); do`,
+        `  for CAND in $(git ls-files -- ${globs} 2>/dev/null | head -20); do`,
         '    if [ -s "$CAND" ] && { [ -z "$BASE" ] || ! git diff --quiet "$BASE" -- "$CAND" 2>/dev/null; }; then',
         '      BN_FOUND="$CAND"; break',
         '    fi',

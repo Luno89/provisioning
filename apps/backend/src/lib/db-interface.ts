@@ -29,6 +29,16 @@ import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata
  */
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
+export interface BindingTypeRecord {
+  id: string;
+  label: string;
+  appType?: string | undefined;
+  protocol?: 'http' | 'https' | 'tcp' | 'grpc' | undefined;
+  defaultPort?: number | undefined;
+  description?: string | undefined;
+  requiredKeys?: string[] | undefined;
+}
+
 export interface Database {
   init(): Promise<void>;
   close(): Promise<void>;
@@ -186,6 +196,10 @@ export interface Database {
   saveMemory(memory: MemoryItem): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
+  getBindingTypes(): Promise<BindingTypeRecord[]>;
+  saveBindingType(record: BindingTypeRecord): Promise<void>;
+  deleteBindingType(id: string): Promise<void>;
+
   getTools(): Promise<ToolRepositoryItem[]>;
   saveTool(tool: ToolRepositoryItem): Promise<void>;
   deleteTool(id: string): Promise<void>;
@@ -195,7 +209,7 @@ export interface Database {
 }
 
 export function createDatabase(): Database {
-  if (process.env.NODE_ENV === 'test' && !process.env.IS_E2E) {
+  if (process.env.USE_MEMORY_DB === 'true' || (process.env.NODE_ENV === 'test' && !process.env.IS_E2E)) {
     return new MemoryDB();
   }
   return new MongoDB();

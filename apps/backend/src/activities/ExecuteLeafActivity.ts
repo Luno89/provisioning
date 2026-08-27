@@ -50,6 +50,7 @@ import { resolveLeafProject } from '../lib/leaf-project.js';
 import { primaryProjectId, withProject } from '../lib/trees.js';
 import { nodeBaseImage } from '../lib/project-templates.js';
 import { resolveTreeType, renderStarterFiles } from '../lib/tree-types.js';
+import { conventionsOf } from '../lib/tree-type-conventions.js';
 import { trimTrace } from '../lib/leaf-trace.js';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch,
@@ -78,6 +79,11 @@ import type { MemoryItem } from '../lib/memory-store.js';
 import { buildModelRequest } from '../lib/model-request.js';
 import { readStreamedReply } from '../lib/agent-loop.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
+import { UniversalValidatorService, type ValidationSummary } from '../services/UniversalValidatorService.js';
+import {
+  assessLoopProgress, recordFromSummary, writeValidationArtifacts,
+  VALIDATION_FEEDBACK_FILE, DEFAULT_MAX_VALIDATION_ROUNDS, type ValidationRoundRecord,
+} from '../lib/worker-validator-loop.js';
 import {
   MAX_LEAF_ATTEMPTS, statusAfterFailure, rootLeaf, aggregateUsage, barrenStreak,
 } from '../lib/leaves.js';
@@ -357,6 +363,14 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         ? (await db.getTrees()).find((t) => t.id === branchOfLeaf.treeId)
         : undefined;
       const treeType = await resolveTreeType(db, leaf.ownerId, treeOf?.type);
+      /**
+       * What this project type says its files look like, derived from its scaffold.
+       *
+       * Used by the artifact check so a planner's guessed extension does not fail correct work, and
+       * composed into the planning turn so the guess is right in the first place. See
+       * lib/tree-type-conventions.ts for the leaf this cost.
+       */
+      const conventions = conventionsOf(treeType);
 
       /**
        * Whether the work is CODE — a test run and a Dockerfile check — or a document that is read.
@@ -365,7 +379,14 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * report on another. Absent when a leaf has no tree (a bare leaf created by hand), in which
        * case the old signal stands — a persona that names an output produces a document.
        */
-      const producesCode = treeType ? treeType.produces === 'service' : !persona?.scope?.output;
+      const producesCode = Boolean(
+        (treeType && (treeType.produces === 'service' || treeType.validationRecipe || (treeType.files?.length ?? 0) > 0)) ||
+        (!treeType && !persona?.scope?.output) ||
+        leaf.validationContract ||
+        leaf.projectId ||
+        (treeOf?.projectIds?.length ?? 0) > 0 ||
+        usesRepo(persona)
+      );
 
       /**
        * The language this work is in, resolved ONCE.
@@ -603,7 +624,14 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       try {
         const needs = project?.needs ?? [];
         if (needs.length && project) {
-          const resolution = resolveBindings(needs, await db.getDeployments(), await db.getAppSpecs(), leaf.ownerId);
+          const dynamicTypes = await db.getBindingTypes().catch(() => []);
+          const resolution = resolveBindings(
+            needs,
+            await db.getDeployments(),
+            await db.getAppSpecs(),
+            leaf.ownerId,
+            { dynamicTypes },
+          );
           bindings = resolution.bindings;
           for (const problem of resolution.problems) {
             console.warn(`[ExecuteLeafActivity] ${leaf.id}: binding not available — ${problem}`);
@@ -712,6 +740,16 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
               : []),
             'Work there. Commit your changes with git as you go. Do NOT change the git remote or credentials —',
             'they are already configured. When you are done, push with `git push -u origin HEAD`.',
+            'Runtime Environment & Secrets: Your application runs in a container where configuration and credentials are provided as standard environment variables (e.g. process.env.<NAME>, os.environ[\'<NAME>\']). Read all secrets from environment variables with sensible defaults or clean error handling on missing values. Never hardcode sensitive tokens.',
+            ...(leaf.validationContract || treeType?.validationRecipe
+              ? [
+                  '',
+                  '## Validation & Quality Gate',
+                  'The Validator will independently evaluate your work using the project ValidationRecipe.',
+                  'You can call the `validate_progress` tool at any time during execution to test your changes against these checks.',
+                  'When you finish, the Validator will test your work. If any checks fail, you will be handed back the exact diagnostic errors for another refinement iteration.',
+                ]
+              : []),
           ].join('\n');
 
           /**
@@ -1034,213 +1072,111 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           void markUsed(db, recalled.selected);
         }
 
-        const run = await runAgentLoop({
-          baseUrl,
-          apiKey,
-          model: provider.model,
-          ...(provider.kind ? { kind: provider.kind } : {}),
-          /**
-           * What the container ACTUALLY is.
-           *
-           * Drives the prompt's description of the available toolchain, and comes from the same
-           * field that chose the image — so the agent cannot be told it has Go while sitting in the
-           * base image, which it would otherwise discover only when a command failed.
-           */
-          ...(persona?.scope?.language ? { language: persona.scope.language as WorkspaceLanguage } : {}),
-          /**
-           * Kept, so a finished run can be replayed.
-           *
-           * The loop has always been able to produce this and only the Lab ever asked. A leaf kept
-           * a one-line summary, so every diagnosis of a failing leaf so far has meant re-running it
-           * by hand with a probe — which only works while the cause is still reproducible.
-           *
-           * It does NOT go on the leaf; see lib/leaf-trace.ts.
-           */
-          captureTrace: true,
-          /**
-           * Each turn written as it happens, so a running leaf can be watched.
-           *
-           * Two things this buys beyond the live view. A leaf whose activity is killed mid-run
-           * keeps what it had already done — the end-of-run write alone lost the trace for exactly
-           * the crashes worth reading. And the board can show progress without the worker needing
-           * a socket: it runs in a different process from the one holding the connections, so the
-           * database is the only channel both ends already share.
-           *
-           * Never fatal. A step that cannot be recorded must not end the work it is recording.
-           */
-          onStep: (step) => {
-            /**
-             * ── THE HEARTBEAT, AND THE THIRTY-MINUTE WALL IT REPLACES ──
-             *
-             * This activity had no heartbeat and a 30-minute startToCloseTimeout, while the sandbox
-             * it works in lives for 60 (MAX_WORKSPACE_SECONDS) and the prompt TELLS the agent it
-             * has 60. So a leaf working steadily past half an hour was killed by Temporal, its pod
-             * torn down by the `finally`, and restarted at step zero — losing the tokens and every
-             * file it had written. That is a likelier cause of a lost run on this instance than any
-             * crash, and it looked exactly like one.
-             *
-             * Heartbeating turns the ceiling into "how long may it go SILENT" rather than "how long
-             * may it work", which is the question the timeout should have been asking. It also
-             * makes cancellation real: a cancelled leaf used to keep burning tokens until the
-             * activity's own timeout, because nothing was polling for the cancel.
-             *
-             * See `beat` above for why this cannot throw.
-             */
-            beat({ phase: 'agent', step: step.step, tokensUsed: step.tokens });
+        let currentTaskContext = taskContext;
+        let validationRound = 1;
+        const maxValidationRounds = (leaf.validationContract || treeType?.validationRecipe || producesCode)
+          ? DEFAULT_MAX_VALIDATION_ROUNDS
+          : 1;
+        let previousRoundRecord: ValidationRoundRecord | undefined;
+        let loopSuccess = false;
+        let finalValidationSummary: ValidationSummary | undefined;
+        let loopHaltReason = '';
 
-            void db.appendLeafStep({
-              id: leaf.id,
-              ownerId: leaf.ownerId,
-              branchId: leaf.branchId,
-              // Redacted HERE rather than at the end: this write is what a running leaf shows live,
-              // so a credential echoed on turn three would otherwise be readable for the whole run.
-              step: redactDeep(step, secretsInPlay()),
-              totalSteps: step.step,
-              tokensUsed: step.tokens,
-              createdAt: new Date().toISOString(),
-            }).catch((err) => {
-              console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not record step ${step.step}: ${err?.message}`);
-            });
-          },
-          // Everything the persona decides — toolset, budget, pacing, withdrawal — plus the parts
-          // only this caller knows. One assembly, shared with the Lab and the landing resolver,
-          // because three hand-maintained copies of it drifted in three different directions.
-          ...agentRunOptions(persona, {
-            taskContext,
-            overrides: adopted,
-            /**
-           * The sandbox as it was actually built, so the prompt describes the real network.
-           *
-           * Without this the prompt is generated from defaults and tells every agent it has no
-           * outbound network — which was merely wrong before, and is actively harmful now that a
-           * declared dependency opens egress to a service the agent is expected to use.
-           */
-          sandboxSpec,
-          /**
-           * The window of the model this persona resolved to, not a constant.
-           *
-           * Without it every budget here was computed against 32,768 while the engine served
-           * 131,072 — a leaf at 29,450 prompt tokens got 2,806 to generate with 101,110 free.
-           */
-          ...(provider.contextTokens ? { contextTokens: provider.contextTokens } : {}),
-          ...(memoryContext ? { memoryContext } : {}),
-          /**
-           * Said even when nothing is bound, whenever the leaf has a project.
-           *
-           * `describeBindings([])` is the convention on its own, and `service-binding.ts` explains
-           * why that is worth the lines: "an agent that does not know the mechanism exists will
-           * hard-code a connection string instead of asking for one." Two projects proved it —
-           * one hard-coded an address wrong in both host and port after failing to find the
-           * directory. A leaf with no project has nothing to bind and is told nothing.
-           */
-            ...(project || bindings.length ? { bindingsContext: describeBindings(bindings.map(describable)) } : {}),
-            ...(wantsWeb(persona) ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
-            /**
-             * The services this harness has already built and deployed.
-             *
-             * The loop Koala exists to close: it can build an MCP server, and until this line no
-             * agent could call it. Resolved here for the same reason `web` is — knowing which
-             * servers exist and what they expose needs a database and a cluster.
-             */
-            ...(await resolveMcpForLeaf(db, persona, leaf)),
-            /**
-             * ── THE TOOL THAT USED TO LIE ──
-             *
-             * `save_harness_memory` answered "Memory recorded and sent to Memory Bank review queue"
-             * and never wrote anything, so `source: 'agent_tool'` was a dead enum value and a
-             * benchmark task that scores an agent on CALLING it was scoring a no-op. This is the
-             * writer that makes the claim true.
-             *
-             * Always `pending_review`, whatever the agent suggested. leaf-memory.ts sets the rule:
-             * facts it can read off the repository go in active, and anything a model CONCLUDED
-             * waits for a human — "nothing a model concluded reaches a future prompt without
-             * somebody agreeing to it". A lesson an agent drew mid-run is the second kind, and the
-             * tool's own reply now says so rather than implying it is already in effect.
-             *
-             * Redacted on the way in: this text is written by a model that has been reading a
-             * repository, and it lands in a store whose whole purpose is to be replayed into future
-             * prompts.
-             */
-            saveMemory: async ({ category, title, text, suggestedScope }) => {
-              const at = new Date().toISOString();
-              const decision = await admit({
-                id: uuidv4(),
+        let lastRunResult: any = { succeeded: false, tokensUsed: 0, completionTokensUsed: 0, trace: [] };
+        let totalTokensUsed = 0;
+        let totalCompletionTokensUsed = 0;
+        const combinedTrace: any[] = [];
+
+        while (validationRound <= maxValidationRounds) {
+          beat({ phase: 'agent', round: validationRound });
+          const singleRun = await runAgentLoop({
+            baseUrl,
+            apiKey,
+            model: provider.model,
+            ...(provider.kind ? { kind: provider.kind } : {}),
+            ...(persona?.scope?.language ? { language: persona.scope.language as WorkspaceLanguage } : {}),
+            captureTrace: true,
+            onStep: (step) => {
+              beat({ phase: 'agent', step: step.step, tokensUsed: step.tokens, round: validationRound });
+              void db.appendLeafStep({
+                id: leaf.id,
                 ownerId: leaf.ownerId,
-                ...(leaf.projectId ? { projectId: leaf.projectId } : {}),
-                category: category as 'lessons_learned' | 'environment_facts' | 'prompt_guidance',
-                /**
-                 * Project scope, whatever the agent suggested.
-                 *
-                 * `suggestedScope` is kept as a recommendation for a human to act on and is
-                 * deliberately not applied: a wrong project lesson misleads one project, a wrong
-                 * global one misleads everything, and nothing in the run can tell the difference.
-                 */
-                scope: 'project',
-                recommendedScope: suggestedScope,
-                status: 'active',
-                title: redactSecrets(title.slice(0, 200), secretsInPlay()),
-                text: redactSecrets(text.slice(0, 4000), secretsInPlay()),
-                source: 'agent_tool',
-                provenance: { taskId: leaf.id },
-                createdAt: at,
-                updatedAt: at,
+                branchId: leaf.branchId,
+                step: redactDeep(step, secretsInPlay()),
+                totalSteps: step.step,
+                tokensUsed: step.tokens,
+                createdAt: new Date().toISOString(),
+              }).catch((err) => {
+                console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not record step ${step.step}: ${err?.message}`);
               });
-              return { action: decision.action };
             },
-            sandbox: {
-              exec: (command) => workspaces.exec(leaf.id, command),
-              readFile: (path) => workspaces.readFile(leaf.id, path),
-              writeFile: (path, content) => workspaces.writeFile(leaf.id, path, content),
-            },
-            /**
-             * ── DECIDING WHETHER A RUN THAT RAN OUT HAS EARNED MORE ──
-             *
-             * The loop cannot answer this: it needs the repository, the deliverable, and the ROOT's
-             * remaining budget. It contributes the one thing only it knows — whether the run is
-             * thrashing, circling or gone quiet — and every one of those is an absolute veto.
-             *
-             * Two failures on record justify the whole mechanism. A leaf wrote 30 passing tests,
-             * pushed them, and hit its ceiling before calling `finish`; it was recorded as a failure
-             * and the branch was never merged. A different leaf failed three times having written
-             * nothing at all, forty turns each of `ls` and `cat`. The same ceiling, opposite right
-             * answers — so the question is not "how much budget" but "is this still producing".
-             *
-             * Never throws: a probe that cannot run means no extension, not a dead run.
-             */
-            extendBudget: async (req) => {
-              try {
-                beat({ phase: 'extend-probe', step: req.step });
+            ...agentRunOptions(persona, {
+              taskContext: currentTaskContext,
+              overrides: adopted,
+              sandboxSpec,
+              ...(provider.contextTokens ? { contextTokens: provider.contextTokens } : {}),
+              ...(memoryContext ? { memoryContext } : {}),
+              ...(project || bindings.length ? { bindingsContext: describeBindings(bindings.map(describable)) } : {}),
+              ...(wantsWeb(persona) ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
+              ...(await resolveMcpForLeaf(db, persona, leaf)),
+              ...(leaf.validationContract || treeType?.validationRecipe
+                ? { validationRecipe: leaf.validationContract ?? treeType?.validationRecipe }
+                : {}),
+              saveMemory: async ({ category, title, text, suggestedScope }) => {
+                const at = new Date().toISOString();
+                const decision = await admit({
+                  id: uuidv4(),
+                  ownerId: leaf.ownerId,
+                  ...(leaf.projectId ? { projectId: leaf.projectId } : {}),
+                  category: category as 'lessons_learned' | 'environment_facts' | 'prompt_guidance',
+                  scope: 'project',
+                  recommendedScope: suggestedScope,
+                  status: 'active',
+                  title: redactSecrets(title.slice(0, 200), secretsInPlay()),
+                  text: redactSecrets(text.slice(0, 4000), secretsInPlay()),
+                  source: 'agent_tool',
+                  provenance: { taskId: leaf.id },
+                  createdAt: at,
+                  updatedAt: at,
+                });
+                return { action: decision.action };
+              },
+              sandbox: {
+                exec: (command) => workspaces.exec(leaf.id, command),
+                readFile: (path) => workspaces.readFile(leaf.id, path),
+                writeFile: (path, content) => workspaces.writeFile(leaf.id, path, content),
+              },
+              extendBudget: async (req) => {
+                try {
+                  beat({ phase: 'extend-probe', step: req.step, round: validationRound });
 
-                const current: ProgressSample = { at: { step: req.step, tokens: req.tokensUsed } };
+                  const current: ProgressSample = { at: { step: req.step, tokens: req.tokensUsed } };
 
-                // Every signal is read from the REPOSITORY or the DELIVERABLE, never from the
-                // agent's account of itself — the same reason `decideStatus` exists.
-                if (checkout && branchName) {
-                  const base = project?.defaultBranch || 'main';
-                  const progress = await workspaces
-                    .exec(leaf.id, buildProgressScript(), 60_000, [base])
-                    .then((r) => parseProgress(r.stdout))
-                    .catch(() => ({ commits: '', changed: '' }));
-                  current.commits = progress.commits ? progress.commits.split('\n').filter(Boolean).length : 0;
-                  // The summary line of `git diff --stat` ends with the insertion/deletion counts.
-                  const changed = /(\d+) insertions?\(\+\)/.exec(progress.changed);
-                  current.changedLines = changed?.[1] ? Number(changed[1]) : 0;
+                  if (checkout && branchName) {
+                    const base = project?.defaultBranch || 'main';
+                    const progress = await workspaces
+                      .exec(leaf.id, buildProgressScript(), 60_000, [base])
+                      .then((r) => parseProgress(r.stdout))
+                      .catch(() => ({ commits: '', changed: '' }));
+                    current.commits = progress.commits ? progress.commits.split('\n').filter(Boolean).length : 0;
+                    const changed = /(\d+) insertions?\(\+\)/.exec(progress.changed);
+                    current.changedLines = changed?.[1] ? Number(changed[1]) : 0;
 
-                  if (leaf.expects?.length) {
-                    const artifacts = await workspaces
-                      .exec(leaf.id, buildArtifactCheckScript(leaf.expects, base), 60_000)
-                      .then((r) => parseArtifactResult(r.stdout))
-                      .catch(() => undefined);
-                    if (artifacts) current.missingArtifacts = artifacts.missing.length;
+                    if (leaf.expects?.length) {
+                      const artifacts = await workspaces
+                        .exec(leaf.id, buildArtifactCheckScript(leaf.expects, base, conventions), 60_000)
+                        .then((r) => parseArtifactResult(r.stdout))
+                        .catch(() => undefined);
+                      if (artifacts) current.missingArtifacts = artifacts.missing.length;
+                    }
+                  } else if (outputPath) {
+                    const text = await workspaces.readFile(leaf.id, outputPath).catch(() => '');
+                    const verdict = assessFindings(text, outputPath, persona?.scope?.requireSources !== false);
+                    current.findingsChars = text.length;
+                    current.findingsOutcome = verdict.outcome;
                   }
-                } else if (outputPath) {
-                  const text = await workspaces.readFile(leaf.id, outputPath).catch(() => '');
-                  const verdict = assessFindings(text, outputPath, persona?.scope?.requireSources !== false);
-                  current.findingsChars = text.length;
-                  current.findingsOutcome = verdict.outcome;
-                }
 
-                const evidence = compareProgress(lastProgress, current);
+                  const evidence = compareProgress(lastProgress, current);
                 lastProgress = current;
 
                 /**
@@ -1450,6 +1386,98 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           }),
         });
 
+        lastRunResult = singleRun;
+        totalTokensUsed += (singleRun.tokensUsed ?? 0);
+        totalCompletionTokensUsed += (singleRun.completionTokensUsed ?? 0);
+        if (singleRun.trace?.length) combinedTrace.push(...singleRun.trace);
+
+        if (maxValidationRounds === 1) {
+          loopSuccess = singleRun.succeeded;
+          break;
+        }
+
+        // ── VALIDATOR TURN ──
+        beat({ phase: 'validating', round: validationRound });
+        const validator = new UniversalValidatorService();
+        const valEnv = {
+          exec: async (cmd: string) => {
+            const cdCmd = checkout && branchName ? `cd /work/repo && ${cmd}` : cmd;
+            const res = await workspaces.exec(leaf.id, cdCmd, 180_000);
+            return { exitCode: res.exitCode, stdout: res.stdout, stderr: res.stderr };
+          },
+          readFile: async (p: string) => workspaces.readFile(leaf.id, `/work/repo/${p}`)
+            .catch(() => workspaces.readFile(leaf.id, `/work/${p}`))
+            .catch(() => workspaces.readFile(leaf.id, p)),
+          fetch,
+        };
+
+        const isDocumentLeaf = Boolean(outputPath || !wantsRepo);
+        let activeRecipe = leaf.validationContract
+          ?? (isDocumentLeaf
+            ? (treeType?.validationRecipe?.type === 'document' ? treeType.validationRecipe : undefined)
+            : treeType?.validationRecipe);
+        if (!isDocumentLeaf && (!activeRecipe || !activeRecipe.checks?.length)) {
+          activeRecipe = await validator.inferRecipe(valEnv);
+        }
+
+        if (!activeRecipe || !activeRecipe.checks?.length) {
+          loopSuccess = singleRun.succeeded;
+          break;
+        }
+
+        finalValidationSummary = await validator.validate(activeRecipe, valEnv);
+        if (finalValidationSummary.passed) {
+          loopSuccess = true;
+          console.log(`[WorkerValidatorLoop] leaf ${leaf.id}: Round ${validationRound} passed all ${finalValidationSummary.totalChecks} checks!`);
+          break;
+        }
+
+        let repoDetails: { commits?: number; changedFiles?: string[] } | undefined;
+        const statusOut = await workspaces.exec(leaf.id, 'git -C /work/repo status --porcelain 2>/dev/null', 30_000).catch(() => undefined);
+        const logOut = await workspaces.exec(leaf.id, 'git -C /work/repo rev-list --count HEAD 2>/dev/null', 30_000).catch(() => undefined);
+        const dirtyFiles = statusOut && statusOut.exitCode === 0 ? statusOut.stdout.split('\n').filter(Boolean).map((l) => l.trim().slice(2).trim()) : [];
+        const commits = logOut && logOut.exitCode === 0 ? Number(logOut.stdout.trim()) || 0 : undefined;
+        const changedFiles = dirtyFiles.length ? dirtyFiles : undefined;
+        if (commits !== undefined || changedFiles !== undefined) {
+          repoDetails = {
+            ...(commits !== undefined ? { commits } : {}),
+            ...(changedFiles !== undefined ? { changedFiles } : {}),
+          };
+        }
+
+        const currentRoundRecord = recordFromSummary(validationRound, finalValidationSummary, repoDetails);
+        await writeValidationArtifacts(workspaces, leaf.id, finalValidationSummary, currentRoundRecord);
+
+        const assessment = assessLoopProgress(previousRoundRecord, currentRoundRecord, maxValidationRounds, singleRun.stoppedBecause);
+
+        if (assessment.shouldContinue && assessment.feedbackPrompt) {
+          console.log(`[WorkerValidatorLoop] leaf ${leaf.id}: Round ${validationRound} failed (${finalValidationSummary.failedChecks} failures), handing back to worker: ${assessment.reason}`);
+          previousRoundRecord = currentRoundRecord;
+          currentTaskContext = [
+            taskContext,
+            '',
+            `The project Validator tested your work. Detailed test results and logs have been recorded in \`${VALIDATION_FEEDBACK_FILE}\` in your workspace.`,
+            `Fix the failing checks and verify they pass before calling finish:`,
+            '',
+            assessment.feedbackPrompt,
+          ].join('\n');
+          validationRound++;
+        } else {
+          loopSuccess = false;
+          loopHaltReason = assessment.reason;
+          console.warn(`[WorkerValidatorLoop] leaf ${leaf.id}: Loop halted at round ${validationRound}: ${assessment.reason}`);
+          break;
+        }
+      }
+
+      const run = {
+        ...lastRunResult,
+        tokensUsed: totalTokensUsed,
+        completionTokensUsed: totalCompletionTokensUsed,
+        trace: combinedTrace,
+        succeeded: loopSuccess,
+      };
+
         /**
          * The run's own verdict, kept where the catch can reach it.
          *
@@ -1578,11 +1606,46 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         let verify: VerifyResult = { outcome: 'unverified', output: '' };
         // Whether the leaf chose this check or inherited the fallback. Decides, further down,
         // whether a pass on an unchanged repository counts as evidence — see `evidenceOf`.
-        const declaredVerify = Boolean(producesCode && leaf.verifyCommand?.trim());
+        const isDocumentLeaf = Boolean(outputPath || !wantsRepo);
+        const activeRecipe = leaf.validationContract
+          ?? (isDocumentLeaf
+            ? (treeType?.validationRecipe?.type === 'document' ? treeType.validationRecipe : undefined)
+            : treeType?.validationRecipe);
+        const declaredVerify = Boolean((producesCode && leaf.verifyCommand?.trim()) || activeRecipe || finalValidationSummary);
         const verifyCommand = producesCode ? (leaf.verifyCommand?.trim() || defaultVerifyCommand(workLanguage)) : '';
+
         if (outputPath) {
           const verdict = assessFindings(findings, outputPath, persona?.scope?.requireSources !== false);
           verify = { outcome: verdict.outcome, output: verdict.reason };
+        } else if (finalValidationSummary) {
+          verify = {
+            outcome: finalValidationSummary.passed ? 'passed' : 'failed',
+            output: finalValidationSummary.diagnosticReport,
+          };
+        } else if (activeRecipe && activeRecipe.checks?.length) {
+          beat({ phase: 'verify' });
+          const validator = new UniversalValidatorService();
+          const summary = await validator.validate(activeRecipe, {
+            exec: async (cmd) => {
+              const cdCmd = checkout && branchName ? `cd /work/repo && ${cmd}` : cmd;
+              const res = await workspaces.exec(leaf.id, cdCmd, 180_000);
+              return { exitCode: res.exitCode, stdout: res.stdout, stderr: res.stderr };
+            },
+            readFile: async (p) => {
+              return workspaces.readFile(leaf.id, `/work/repo/${p}`).catch(() =>
+                workspaces.readFile(leaf.id, `/work/${p}`).catch(() =>
+                  workspaces.readFile(leaf.id, p)
+                )
+              );
+            },
+          }).catch(() => undefined);
+
+          if (summary) {
+            verify = {
+              outcome: summary.passed ? 'passed' : 'failed',
+              output: summary.diagnosticReport,
+            };
+          }
         } else if (verifyCommand) {
           beat({ phase: 'verify' });
           verify = await workspaces
@@ -1616,7 +1679,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         if (wantsRepo && leaf.expects?.length) beat({ phase: 'artifacts' });
         const artifacts = wantsRepo && leaf.expects?.length
           ? await workspaces
-              .exec(leaf.id, buildArtifactCheckScript(leaf.expects, project?.defaultBranch || 'main'), 60_000)
+              .exec(leaf.id, buildArtifactCheckScript(leaf.expects, project?.defaultBranch || 'main', conventions), 60_000)
               .then((r) => parseArtifactResult(r.stdout))
               .catch(() => ({ outcome: 'unknown' as const, missing: [], moved: [] }))
           : { outcome: 'none' as const, missing: [], moved: [] };

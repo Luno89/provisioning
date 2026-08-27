@@ -380,6 +380,26 @@ export const SANDBOX_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'validate_progress',
+      description:
+        'Run the project validation recipe/contract against the current workspace/branch. ' +
+        'Executes all required verification checks (build, test, file assertions, content patterns, ' +
+        'or runtime probes) and returns detailed diagnostic results. Call this tool during development ' +
+        'to confirm your changes before calling finish.',
+      parameters: {
+        type: 'object',
+        properties: {
+          focusCheck: {
+            type: 'string',
+            description: 'Optional ID of a specific check to run (runs all checks if omitted).',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'finish',
       description:
         'Call this when the task is complete, or when you are certain you cannot complete it. ' +

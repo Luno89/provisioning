@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
+import { CommandFailedError, CommandTimedOutError } from '../lib/command-error.js';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -590,7 +591,7 @@ export class InfrastructureService {
           setTimeout(() => {
             if (!child.killed) child.kill('SIGKILL');
           }, 5000);
-          reject({ message: `Command timed out: ${cmd} after ${options.timeout}ms`, stdout, stderr, logFile });
+          reject(new CommandTimedOutError(cmd, options.timeout!, stdout, stderr, logFile));
         }, options.timeout);
 
         child.on('close', () => clearTimeout(timer));
@@ -619,7 +620,10 @@ export class InfrastructureService {
             const errorMsg = `\n--- EXECUTION FAILED (Exit Code ${code}) ---\n`;
             broadcast(errorMsg);
             fs.appendFile(logFile, errorMsg).catch(console.error);
-            reject({ message: `Command failed: ${cmd}`, stdout, stderr, logFile });
+            // A real Error, not an object literal: Temporal keeps only `message` and records a
+            // plain object as type "Object" with no stack, which is how a webhook rejection once
+            // reached workflow history as the four words "Command failed: npx". See lib/command-error.ts.
+            reject(new CommandFailedError(cmd, code, stdout, stderr, logFile));
         }
       });
       child.on('error', (err) => {

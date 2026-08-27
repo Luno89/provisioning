@@ -12,6 +12,7 @@ import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
  */
 
 let h: Harness | undefined;
+axios.defaults.proxy = false;
 afterEach(async () => { await h?.close(); h = undefined; });
 
 /** Exercises the request user, the database, a thrown error and a non-GET verb. */

@@ -22,6 +22,14 @@ import * as client from '../api/client.js';
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
   openChatPackStream: vi.fn(),
+  listChatConversations: vi.fn().mockResolvedValue([]),
+  getChatConversation: vi.fn().mockImplementation(async (id: string) => ({
+    id,
+    title: 'Test Conversation',
+    messages: [],
+  })),
+  acceptEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
+  denyEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock('../api/client', async (orig) => ({
@@ -50,7 +58,10 @@ function makeSseStream(frames: string[]) {
   });
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  queryClient.clear();
+});
 
 describe('ChatSurface — unified persona-pack chat surface', () => {
   it('renders the input and sends the message to the pack route', async () => {
@@ -66,11 +77,11 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     fireEvent.change(input, { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
-    await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
     expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
-      { packId: 'koala', conversationId: 'c1', message: 'hi' },
+      expect.objectContaining({ packId: 'koala', conversationId: 'c1', message: 'hi' }),
       expect.any(AbortSignal),
     );
+    await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
   });
 
   it('renders a thinking pane when thinking frames arrive', async () => {
@@ -102,6 +113,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
     await waitFor(() => expect(screen.getByText('get_logs')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('get_logs'));
     await waitFor(() => expect(screen.getByText('log lines...')).toBeInTheDocument());
   });
 
@@ -118,5 +130,103 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
     await waitFor(() => expect(screen.getByText((c) => c.includes('github-mcp'))).toBeInTheDocument());
+  });
+
+  it('renders initial messages and handles markdown formatting', () => {
+    renderWithProviders(
+      <ChatSurface
+        packId="koala"
+        initialMessages={[
+          { role: 'user', content: 'hello from user' },
+          { role: 'assistant', content: '**Bold reply** and `code`' },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('hello from user')).toBeInTheDocument();
+    expect(screen.getByText('Bold reply')).toBeInTheDocument();
+    expect(screen.getByText('code')).toBeInTheDocument();
+  });
+
+  it('renders starter prompt chips in empty state and sends when clicked', async () => {
+    const mockRes = new Response(makeSseStream([
+      '{"type":"content","delta":"Generated project spec"}',
+    ]), { status: 200 });
+    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
+
+    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+
+    expect(screen.getByText('Propose Project Tree')).toBeInTheDocument();
+    expect(screen.getByText('Inspect Infrastructure')).toBeInTheDocument();
+    expect(screen.getByText('Propose App Spec')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Propose Project Tree'));
+
+    expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packId: 'koala',
+        message: expect.stringContaining('Propose a new project architecture'),
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('renders avatars for user and assistant messages in conversation stream', () => {
+    renderWithProviders(
+      <ChatSurface
+        packId="koala"
+        initialMessages={[
+          { role: 'user', content: 'What is the cluster status?' },
+          { role: 'assistant', content: 'All 3 nodes are ready.' },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('You')).toBeInTheDocument();
+    expect(screen.getAllByText('KOALA').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('What is the cluster status?')).toBeInTheDocument();
+    expect(screen.getByText('All 3 nodes are ready.')).toBeInTheDocument();
+  });
+
+  it('renders EscalationProposalCard and handles approval', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValueOnce({
+      id: 'c1',
+      title: 'Test Conversation',
+      messages: [{ role: 'user', content: 'diagnose prometheus' }],
+      proposedEscalations: [{
+        id: 'esc-1',
+        reason: 'Need access to Prometheus',
+        scope: 'cluster-admin',
+        namespaces: ['monitoring'],
+        status: 'pending',
+        proposedAt: '2026-08-26T12:00:00Z',
+      }],
+    });
+
+    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+
+    await waitFor(() => expect(screen.getByText('Privilege Escalation Requested')).toBeInTheDocument());
+    expect(screen.getByText('Need access to Prometheus')).toBeInTheDocument();
+    expect(screen.getByText('cluster-admin')).toBeInTheDocument();
+    expect(screen.getByText('monitoring')).toBeInTheDocument();
+
+    const approveBtn = screen.getByRole('button', { name: /approve escalation/i });
+    fireEvent.click(approveBtn);
+
+    await waitFor(() => expect(chatPackApi.acceptEscalationProposal).toHaveBeenCalledWith('c1', 'esc-1'));
+  });
+
+  it('displays ELEVATED badge in header bar when conversation is escalated', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValueOnce({
+      id: 'c-elevated',
+      title: 'Admin Ops',
+      isEscalated: true,
+      escalatedScope: 'cluster-admin',
+      messages: [{ role: 'user', content: 'Cluster check' }],
+    });
+
+    renderWithProviders(<ChatSurface packId="koala" conversationId="c-elevated" />);
+
+    await waitFor(() => expect(screen.getByText(/ELEVATED \(cluster-admin\)/i)).toBeInTheDocument());
   });
 });

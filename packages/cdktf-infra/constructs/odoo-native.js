@@ -5,6 +5,8 @@ import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { VpnService } from "../lib/vpn-service.js";
+import { createAppIngress } from "../lib/app-ingress.js";
+import { createAppProbe } from "../lib/app-probe.js";
 export class OdooNativeApp extends Construct {
     constructor(scope, id, config = {}) {
         super(scope, id);
@@ -12,6 +14,7 @@ export class OdooNativeApp extends Construct {
         const odooImage = `${config.odooRepo || "library/odoo"}:${config.odooTag || "18.0"}`;
         const pgImage = `${config.pgRepo || "library/postgres"}:${config.pgTag || "16.4"}`;
         const dbSize = config.dbStorage || "2Gi";
+        const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
         const ns = new Namespace(this, "ns", {
             metadata: {
                 name: namespaceName,
@@ -157,11 +160,21 @@ export class OdooNativeApp extends Construct {
                 namespace: ns.metadata.name,
             },
             spec: {
-                type: "LoadBalancer",
+                type: serviceType,
                 selector: { app: `odoo-${id}` },
                 port: [{ port: 8069, targetPort: "8069" }],
             },
-            waitForLoadBalancer: false,
+        });
+        createAppIngress(this, "ingress", {
+            namespace: namespaceName,
+            serviceName: "odoo",
+            servicePort: 8069,
+            hostname: `${namespaceName}.apps.local`,
+        });
+        createAppProbe(this, "probe", {
+            namespace: namespaceName,
+            serviceName: "odoo",
+            servicePort: 8069,
         });
     }
 }

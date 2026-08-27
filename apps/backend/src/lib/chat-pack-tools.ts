@@ -17,6 +17,9 @@ import type { Database } from './db-interface.js';
 import type { McpServer } from './mcp-registry.js';
 import type { SearchOutcome } from './web-tools.js';
 
+import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { InfisicalService } from '../services/InfisicalService.js';
+
 export interface PackToolContext {
   db: Database;
   userId: string;
@@ -30,6 +33,11 @@ export interface PackToolContext {
   /** Injected so a test can substitute a stub rather than a real registry. */
   registry?: Pick<McpRegistryService, 'call'>;
   kubectl?: (args: string[]) => Promise<string>;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'>;
+  infisicalService?: InfisicalService | undefined;
+  isAdmin?: boolean | undefined;
+  isEscalated?: boolean | undefined;
+  escalatedNamespaces?: readonly string[] | undefined;
 }
 
 export interface ToolCall {
@@ -44,6 +52,8 @@ export interface ToolExecResult {
   enabled?: string;
   proposed?: unknown;
   proposedSpec?: unknown;
+  proposedEscalation?: unknown;
+  proposedSecretRequest?: unknown;
 }
 
 /** Builds the dispatcher for one turn. Injects nothing global; all deps come from ctx. */
@@ -73,6 +83,11 @@ export function makePackToolExecutor(ctx: PackToolContext) {
         db: ctx.db, userId: ctx.userId, conversationId: ctx.conversationId, sessionId: ctx.sessionId,
         servers: ctx.servers, webSearch: ctx.webSearch, fetchWebPage: ctx.fetchWebPage,
         kubectl,
+        temporalBridge: ctx.temporalBridge,
+        infisicalService: ctx.infisicalService,
+        isAdmin: ctx.isAdmin,
+        isEscalated: ctx.isEscalated,
+        escalatedNamespaces: ctx.escalatedNamespaces,
       },
       { name: c.name, arguments: c.arguments },
     );
@@ -82,6 +97,8 @@ export function makePackToolExecutor(ctx: PackToolContext) {
       ...(out.enabled ? { enabled: out.enabled } : {}),
       ...(out.proposed ? { proposed: out.proposed } : {}),
       ...(out.proposedSpec ? { proposedSpec: out.proposedSpec } : {}),
+      ...(out.proposedEscalation ? { proposedEscalation: out.proposedEscalation } : {}),
+      ...(out.proposedSecretRequest ? { proposedSecretRequest: out.proposedSecretRequest } : {}),
     };
   };
 }

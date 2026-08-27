@@ -691,3 +691,173 @@ describe('the verify command follows the same language as the workspace', () => 
     expect(await verifyOn('python', { repo: true, language: 'node' })).toMatch(/node --test/);
   });
 });
+
+describe('validationRecipe evaluates during post-run verification and enables merge', () => {
+  it('runs validation recipe checks during post-run verification', async () => {
+    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
+    await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
+    await db.savePersona({ id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: { repo: true } } as never);
+    await db.saveTreeType({
+      id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
+      language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
+      validationRecipe: {
+        recipeId: 'test-recipe',
+        checks: [{ id: 'build-check', name: 'Build', type: 'run-command', command: 'npm run build' }],
+      },
+    } as never);
+
+    workspace.exec.mockResolvedValue({ exitCode: 0, stdout: 'Build success', stderr: '' });
+    await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
+    const ran = (workspace.exec.mock.calls as unknown[][]).map((c) => String(c[1] ?? ''));
+    expect(ran.some((c) => c.includes('npm run build'))).toBe(true);
+  });
+});
+
+describe('worker <-> validator iterative loop', () => {
+  it('hands failing validation back to worker and succeeds when resolved on next round', async () => {
+    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
+    await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
+    await db.savePersona({ id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: { repo: true } } as never);
+    await db.saveTreeType({
+      id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
+      language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
+      validationRecipe: {
+        recipeId: 'test-recipe',
+        checks: [{ id: 'build-check', name: 'Build', type: 'run-command', command: 'npm run build' }],
+      },
+    } as never);
+
+    let roundCount = 0;
+    const receivedPrompts: string[] = [];
+    runAgentLoop.mockImplementation(async (opts: any) => {
+      roundCount++;
+      receivedPrompts.push(opts.taskContext);
+      return { succeeded: true, summary: `Completed round ${roundCount}`, tokensUsed: 100, trace: [] };
+    });
+
+    (workspace.exec as any).mockImplementation(async (_id: string, cmd: string) => {
+      if (cmd.includes('npm run build')) {
+        if (roundCount === 1) {
+          return { exitCode: 1, stdout: '', stderr: 'TS2307: Cannot find module zod' };
+        }
+        return { exitCode: 0, stdout: 'Build completed cleanly', stderr: '' };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    });
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
+
+    // Assert that the worker ran two rounds
+    expect(roundCount).toBe(2);
+    // Round 2 must have received the Validator's diagnostic feedback
+    expect(receivedPrompts[1]).toContain('Validation Feedback (Round 1 of 4)');
+    expect(receivedPrompts[1]).toContain('TS2307: Cannot find module zod');
+
+    // And the leaf must have settled as verified: true
+    const saved = (await db.getLeaves()).find((l) => l.id === 'leaf-1');
+    expect(saved?.verified).toBe(true);
+    expect(saved?.checks?.verify?.outcome).toBe('passed');
+  });
+
+  it('recovers when worker circles in round 1 after making changes and fixes in round 2', async () => {
+    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
+    await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
+    await db.savePersona({ id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: { repo: true } } as never);
+    await db.saveTreeType({
+      id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
+      language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
+      validationRecipe: {
+        recipeId: 'test-recipe',
+        checks: [{ id: 'build-check', name: 'Build', type: 'run-command', command: 'npm run build' }],
+      },
+    } as never);
+
+    let roundCount = 0;
+    const receivedPrompts: string[] = [];
+    runAgentLoop.mockImplementation(async (opts: any) => {
+      roundCount++;
+      receivedPrompts.push(opts.taskContext);
+      if (roundCount === 1) {
+        return { succeeded: false, stoppedBecause: 'circling', summary: 'circling on grep', tokensUsed: 100, trace: [] };
+      }
+      return { succeeded: true, summary: 'Fixed in round 2', tokensUsed: 100, trace: [] };
+    });
+
+    (workspace.exec as any).mockImplementation(async (_id: string, cmd: string) => {
+      if (cmd.includes('rev-list --count')) {
+        return { exitCode: 0, stdout: '1\n', stderr: '' };
+      }
+      if (cmd.includes('diff --name-only') || cmd.includes('status --porcelain')) {
+        return { exitCode: 0, stdout: ' M index.js\n', stderr: '' };
+      }
+      if (cmd.includes('npm run build')) {
+        if (roundCount === 1) {
+          return { exitCode: 1, stdout: '', stderr: 'Tool gitea-list-repos expected a Zod schema' };
+        }
+        return { exitCode: 0, stdout: 'Build completed cleanly', stderr: '' };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    });
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
+
+    expect(roundCount).toBe(2);
+    expect(receivedPrompts[1]).toContain('Validation Feedback (Round 1 of 4)');
+    expect(receivedPrompts[1]).toContain('Tool gitea-list-repos expected a Zod schema');
+
+    const saved = (await db.getLeaves()).find((l) => l.id === 'leaf-1');
+    expect(saved?.verified).toBe(true);
+    expect(saved?.checks?.verify?.outcome).toBe('passed');
+  });
+
+  it('does not run tree code validation recipe on document/framing personas', async () => {
+    db = await seeded([leaf({ branchId: 'b1', personaId: 'p-framer' } as never)]);
+    await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
+    await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'api-service', projectIds: [] } as never);
+    await db.savePersona({
+      id: 'p-framer',
+      ownerId: 'u1',
+      name: 'Framer',
+      systemPrompt: '',
+      scope: { repo: false, output: '/work/questions.md', requireSources: false },
+    } as never);
+    await db.saveTreeType({
+      id: 'api-service', ownerId: 'u1', label: 'API Service', summary: 's',
+      language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
+      validationRecipe: {
+        recipeId: 'node-service',
+        checks: [{ id: 'jest-tests', name: 'Unit tests', type: 'run-command', command: 'npm test' }],
+      },
+    } as never);
+
+    runAgentLoop.mockResolvedValue({
+      succeeded: true,
+      summary: 'Wrote architecture and questions',
+      tokensUsed: 100,
+      trace: [],
+    });
+
+    const goodDoc = '# Questions\n\n' + 'The following questions must be answered for implementation, as confirmed by the team. '.repeat(10);
+    workspace.readFile.mockResolvedValue(goodDoc);
+
+    const ranCommands: string[] = [];
+    (workspace.exec as any).mockImplementation(async (_id: string, cmd: string) => {
+      ranCommands.push(cmd);
+      return { exitCode: 0, stdout: '', stderr: '' };
+    });
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
+    const saved = (await db.getLeaves()).find((l) => l.id === 'leaf-1');
+
+    // npm test from node-service recipe must NEVER have run against the Framer
+    expect(ranCommands.some((c) => c.includes('npm test'))).toBe(false);
+
+    // The leaf must be verified by assessFindings on questions.md
+    expect(saved?.verified).toBe(true);
+    expect(saved?.checks?.verify?.outcome).toBe('passed');
+  });
+});
+

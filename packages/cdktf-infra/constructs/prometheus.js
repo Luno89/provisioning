@@ -10,7 +10,7 @@ export class PrometheusApp extends Construct {
                 name: namespaceName,
             },
         });
-        const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
+        const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
         const helmValues = [
             { name: "grafana.enabled", value: "true" },
             { name: "prometheus.prometheusSpec.service.type", value: serviceType }

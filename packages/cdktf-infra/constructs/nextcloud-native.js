@@ -5,6 +5,8 @@ import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { VpnService } from "../lib/vpn-service.js";
+import { createAppIngress } from "../lib/app-ingress.js";
+import { createAppProbe } from "../lib/app-probe.js";
 export class NextcloudNativeApp extends Construct {
     constructor(scope, id, config = {}) {
         super(scope, id);
@@ -12,6 +14,7 @@ export class NextcloudNativeApp extends Construct {
         const webImage = `${config.webRepo || "library/nextcloud"}:${config.webTag || "30.0-apache"}`;
         const dbImage = `${config.dbRepo || "library/mariadb"}:${config.dbTag || "11.4"}`;
         const dbSize = config.dbStorage || "2Gi";
+        const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
         const ns = new Namespace(this, "ns", {
             metadata: {
                 name: namespaceName,
@@ -168,11 +171,21 @@ export class NextcloudNativeApp extends Construct {
                 namespace: ns.metadata.name,
             },
             spec: {
-                type: "LoadBalancer",
+                type: serviceType,
                 selector: { app: `nextcloud-web-${id}` },
                 port: [{ port: 80, targetPort: "80" }],
             },
-            waitForLoadBalancer: false,
+        });
+        createAppIngress(this, "ingress", {
+            namespace: namespaceName,
+            serviceName: "nextcloud",
+            servicePort: 80,
+            hostname: `${namespaceName}.apps.local`,
+        });
+        createAppProbe(this, "probe", {
+            namespace: namespaceName,
+            serviceName: "nextcloud",
+            servicePort: 80,
         });
     }
 }

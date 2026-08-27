@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkEndpointUrl, isAllowedIp, isMeshAddress } from './endpoint-url-safety.js';
+import { checkEndpointUrl, isAllowedIp, isMeshAddress, normaliseBaseUrl } from './endpoint-url-safety.js';
 
 /**
  * These are security tests, not validation tests. A user-registered endpoint URL is a URL the
@@ -127,5 +127,56 @@ describe('malformed and hostile input', () => {
     expect(isAllowedIp('::1')).toBe(false);
     expect(isAllowedIp('::ffff:127.0.0.1')).toBe(false);
     expect(isAllowedIp('fc00::1')).toBe(false);
+  });
+});
+
+/**
+ * ── THE FIELD SAYS "BASE URL" AND NOTHING ENFORCED IT ──
+ *
+ * Every call site in the codebase does `POST ${baseUrl}/chat/completions`, and the registration
+ * form's placeholder shows `…/v1` — but nothing checked the shape. An OpenRouter endpoint was
+ * stored as `https://openrouter.ai/api/v1/chat/completions`, so requests went to
+ * `…/v1/chat/completions/chat/completions`. Verified against the live API: the correct path
+ * answers 401, the doubled one 404. That endpoint could never have worked.
+ */
+describe('normaliseBaseUrl', () => {
+  it('strips a completions path the user pasted in full', () => {
+    expect(normaliseBaseUrl('https://openrouter.ai/api/v1/chat/completions'))
+      .toBe('https://openrouter.ai/api/v1');
+  });
+
+  it('leaves a correct base url alone', () => {
+    expect(normaliseBaseUrl('https://openrouter.ai/api/v1')).toBe('https://openrouter.ai/api/v1');
+  });
+
+  it('strips a trailing slash, which callers already relied on', () => {
+    expect(normaliseBaseUrl('http://100.64.0.7:11434/v1/')).toBe('http://100.64.0.7:11434/v1');
+  });
+
+  it('handles a trailing slash after the completions path too', () => {
+    expect(normaliseBaseUrl('https://openrouter.ai/api/v1/chat/completions/'))
+      .toBe('https://openrouter.ai/api/v1');
+  });
+
+  it('strips a bare /completions as well', () => {
+    expect(normaliseBaseUrl('https://example.com/v1/completions')).toBe('https://example.com/v1');
+  });
+
+  it('does not mangle a host whose path legitimately ends in something else', () => {
+    expect(normaliseBaseUrl('https://example.com/openai/v1')).toBe('https://example.com/openai/v1');
+  });
+
+  it('leaves a bare origin alone rather than inventing a path', () => {
+    // Some engines serve the OpenAI API at the root; guessing /v1 would break them.
+    expect(normaliseBaseUrl('http://100.64.0.7:11434')).toBe('http://100.64.0.7:11434');
+  });
+
+  it('returns unparseable input unchanged, leaving the verdict to checkEndpointUrl', () => {
+    expect(normaliseBaseUrl('not a url')).toBe('not a url');
+  });
+
+  it('is idempotent', () => {
+    const once = normaliseBaseUrl('https://openrouter.ai/api/v1/chat/completions');
+    expect(normaliseBaseUrl(once)).toBe(once);
   });
 });

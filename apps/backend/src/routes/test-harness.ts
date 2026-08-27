@@ -1,5 +1,6 @@
 import express, { type Router, type Request, type Response, type NextFunction } from 'express';
 import http from 'http';
+import axios from 'axios';
 import { createDatabase } from '../lib/db-interface.js';
 import type { Database } from '../lib/db-interface.js';
 
@@ -55,6 +56,7 @@ export interface Harness {
 }
 
 export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
+  axios.defaults.proxy = false;
   const db = createDatabase();
   await db.init();
 
@@ -88,7 +90,7 @@ export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
   const { port } = server.address() as { port: number };
 
   return {
-    url: (path: string) => `http://127.0.0.1:${port}${path}`,
+    url: (path: string) => `http://localhost:${port}${path}`,
     db,
     setUser: (user) => { current = user; },
     close: async () => {

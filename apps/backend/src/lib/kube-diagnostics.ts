@@ -37,18 +37,30 @@ export const LOG_TAIL = 60;
 /** Longest output kept, so one screaming container cannot fill a turn's whole context. */
 const MAX_OUTPUT = 6000;
 
+export const SYSTEM_NAMESPACES = ['monitoring', 'gitea', 'kube-system', 'pipeline-builds'] as const;
+
 /**
  * The namespace a caller may read for this deployment name, or undefined.
  *
  * Resolved from THEIR deployments rather than from the argument: a namespace taken straight from a
  * tool call would let any string be read, which is every other namespace on the cluster.
+ * Administrators and sessions with active privilege escalation may also read system namespaces.
  */
 export function namespaceFor(
   wanted: string,
   deployments: readonly OwnedNamespace[],
   ownerId: string,
+  options?: { isAdmin?: boolean | undefined; isEscalated?: boolean | undefined; allowedNamespaces?: readonly string[] | undefined } | undefined,
 ): string | undefined {
   const needle = wanted.trim().toLowerCase();
+  if (options?.isAdmin || options?.isEscalated) {
+    if (SYSTEM_NAMESPACES.some((s) => s.toLowerCase() === needle)) {
+      return needle;
+    }
+    if (options?.allowedNamespaces?.some((s) => s.toLowerCase() === needle)) {
+      return needle;
+    }
+  }
   const mine = deployments.filter((d) => d.ownerId === ownerId);
   const found = mine.find(
     (d) => d.name.toLowerCase() === needle || d.namespace.toLowerCase() === needle,
@@ -58,13 +70,16 @@ export function namespaceFor(
 
 /** kubectl arguments for a deployment's logs. Built here so the shape is testable without a cluster. */
 export function logsCommand(namespace: string): string[] {
-  return [
+  const cmd = [
     'logs', '-n', namespace,
     // Every pod of the deployment, and the PREVIOUS container when one has restarted — a
     // crash-looping pod's current container is usually still starting and says nothing useful.
     '--all-containers', '--prefix', '--tail', String(LOG_TAIL), '--previous=false',
-    '-l', 'app',
   ];
+  if (!SYSTEM_NAMESPACES.includes(namespace as any)) {
+    cmd.push('-l', 'app');
+  }
+  return cmd;
 }
 
 /** kubectl arguments for a namespace's recent events, newest last. */
@@ -155,11 +170,16 @@ export function readableNamespaces(
   deployments: readonly OwnedNamespace[],
   sandboxNamespaces: readonly string[],
   ownerId: string,
+  options?: { isAdmin?: boolean | undefined; isEscalated?: boolean | undefined; allowedNamespaces?: readonly string[] | undefined } | undefined,
 ): string[] {
-  return [
+  const system = (options?.isAdmin || options?.isEscalated)
+    ? [...SYSTEM_NAMESPACES, ...(options?.allowedNamespaces ?? [])]
+    : [];
+  return Array.from(new Set([
     ...deployments.filter((d) => d.ownerId === ownerId).map((d) => d.namespace),
     ...sandboxNamespaces,
-  ];
+    ...system,
+  ]));
 }
 
 /**

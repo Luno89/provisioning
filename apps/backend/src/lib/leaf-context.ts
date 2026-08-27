@@ -215,12 +215,20 @@ export function buildOutboundMessages(opts: {
    * turns a description into a standard the plan is held to.
    */
   doneMeans?: string | undefined;
+  /**
+   * What this project type's files look like, derived from its scaffold.
+   *
+   * Sits beside `doneMeans` because it is the same kind of fact: a standard the plan is held to,
+   * stated by the template rather than invented per turn. Without it a planner guesses extensions,
+   * and a wrong guess used to fail a leaf whose work was complete and whose suite was green.
+   */
+  fileConventions?: string | undefined;
 }): OutboundMessage[] {
   const {
     messages, lastIndex, prompt, personaPrompt, leaves, siblingLeaves, siblingBranches, planText, toolPrompt,
-    doneMeans,
+    doneMeans, fileConventions,
   } = opts;
-  if (!prompt && !toolPrompt && !personaPrompt && !doneMeans) return messages;
+  if (!prompt && !toolPrompt && !personaPrompt && !doneMeans && !fileConventions) return messages;
 
   const context = buildLeafContext(leaves);
   const siblings = buildSiblingContext(siblingBranches ?? [], siblingLeaves ?? []);
@@ -232,6 +240,7 @@ export function buildOutboundMessages(opts: {
       // Before the board, because it is the standard the work is judged against rather than a
       // detail about it.
       doneMeans ? `This project is a ${doneMeans}` : undefined,
+      fileConventions,
       context,
       siblings,
       toolPrompt,

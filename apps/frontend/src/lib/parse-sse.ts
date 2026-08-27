@@ -49,6 +49,8 @@ export type UnifiedFrame =
   | { type: 'enabled'; payload: string[] }
   | { type: 'proposedTree'; payload: any }
   | { type: 'proposedSpec'; payload: any }
+  | { type: 'proposedEscalation'; payload: any }
+  | { type: 'proposedSecretRequest'; payload: any }
   | { type: 'plan'; payload: any }
   | { type: 'usage'; payload: any }
   | { type: 'interrupted'; payload: any }

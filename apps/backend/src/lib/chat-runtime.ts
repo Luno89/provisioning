@@ -100,7 +100,9 @@ export interface ChatRuntimeDeps {
   /** Per-round trim, e.g. koala's trimConversation. */
   trimPerRound?: (messages: unknown[]) => unknown[];
   maxRounds?: number;
-  /** How to surface tool results live (the loop emits toolResult frames; we map). */
+  /** Live frame callback: emits UnifiedFrames as they arrive / execute in real time. */
+  onFrame?: (frame: UnifiedFrame) => void;
+  /** Backwards compatibility alias for onFrame. */
   onEachToolResult?: (frame: UnifiedFrame) => void;
 }
 
@@ -116,26 +118,51 @@ export interface ChatTurnResult {
  * Runs one turn and returns both the raw outcome and the delivery-filtered frames for the surface.
  *
  * The round-loop (`runToolRounds`) drives the machine; the pack's `delivery` maps the result to the
- * frames the UI renders. Live streamed events (content/thinking) are forwarded through `onLive`.
+ * frames the UI renders. Live streamed events (content/thinking/tools/etc.) are forwarded through `onFrame`.
  */
 export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult> {
   const {
     pack, call, executeTool, messages, tools: initialTools = [],
-    trimPerRound, maxRounds = 12, onEachToolResult,
+    trimPerRound, maxRounds = 12, onFrame: onFrameProp, onEachToolResult,
   } = deps;
 
+  const emitFrame = onFrameProp ?? onEachToolResult;
+
   const round = await import('./round-loop.js').then((m) => m.runToolRounds);
+
+  const wrappedExecuteTool = async (callArg: { id: string; name: string; arguments: string }) => {
+    const out = await executeTool(callArg);
+    if (pack.delivery.proposals && emitFrame) {
+      if (out.proposed) emitFrame({ type: 'proposedTree', payload: out.proposed });
+      if (out.proposedSpec) emitFrame({ type: 'proposedSpec', payload: out.proposedSpec });
+      if ((out as any).proposedEscalation) emitFrame({ type: 'proposedEscalation', payload: (out as any).proposedEscalation });
+      if ((out as any).proposedSecretRequest) emitFrame({ type: 'proposedSecretRequest', payload: (out as any).proposedSecretRequest });
+    }
+    return out;
+  };
 
   const result = await round({
     maxRounds,
     messages,
     tools: initialTools,
     call: call as any,
-    executeTool: executeTool as any,
+    executeTool: wrappedExecuteTool as any,
+    onEnabled: (name: string) => {
+      if (pack.delivery.enable && emitFrame) {
+        emitFrame({ type: 'enabled', payload: [name] });
+      }
+    },
+    onExhausted: 'wrap-up',
     emit: ((frame: any) => {
-      // Stream content live via the surface callback when present.
-      if (frame.kind === 'content' && onEachToolResult) {
-        onEachToolResult({ type: 'content', delta: String(frame.text) });
+      if (!emitFrame) return;
+      if (frame.kind === 'content' && pack.delivery.content) {
+        emitFrame({ type: 'content', delta: String(frame.text) });
+      } else if (frame.kind === 'reasoning' && pack.delivery.thinking) {
+        emitFrame({ type: 'thinking', delta: String(frame.text) });
+      } else if (frame.kind === 'toolCall' && pack.delivery.tools === 'semantic') {
+        emitFrame({ type: 'toolAnnounce', payload: { id: frame.id, name: frame.name, args: frame.args } });
+      } else if (frame.kind === 'toolResult' && pack.delivery.tools === 'semantic' && pack.delivery.toolResults) {
+        emitFrame({ type: 'toolResult', payload: { id: frame.id, ok: frame.ok, digest: frame.digest } });
       }
     }) as unknown as (f: any) => void,
     ...(trimPerRound ? { trimPerRound } : {}),

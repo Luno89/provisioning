@@ -664,3 +664,96 @@ describe('Koala can wire up what it discovers', () => {
     expect(tool.function.description).toMatch(/Nothing is deployed by\s*\n?\s*this/);
   });
 });
+
+describe('Project CI/CD and deployment tools', () => {
+  it('get_project_pipeline returns project status and latest run', async () => {
+    const db = await seeded();
+    await db.saveProject({
+      id: 'proj-1',
+      ownerId: 'u1',
+      name: 'metrics-api',
+      giteaOwner: 'u1',
+      giteaRepo: 'metrics-api',
+      targetClusterId: 'cluster-1',
+      autoDeployOnBuild: true,
+      createdAt: 'now',
+    });
+    await db.savePipelineRun({
+      id: 'run-1',
+      projectId: 'proj-1',
+      commitSha: 'abcdef123456',
+      ref: 'main',
+      status: 'succeeded',
+      imageTag: 'gitea-registry.gitea.svc.cluster.local:5000/u1/metrics-api:abcdef123456',
+      startedAt: '2026-08-26T10:00:00Z',
+      finishedAt: '2026-08-26T10:01:00Z',
+    });
+
+    const out = await run(db, 'get_project_pipeline', { name: 'metrics-api' });
+    expect(out.body.project.name).toBe('metrics-api');
+    expect(out.body.project.targetCluster).toBe('cluster-1');
+    expect(out.body.project.autoDeployOnBuild).toBe(true);
+    expect(out.body.latestRun.commitSha).toBe('abcdef123456');
+    expect(out.body.latestRun.status).toBe('succeeded');
+  });
+
+  it('deploy_project triggers promotion of built image', async () => {
+    const db = await seeded();
+    await db.saveProject({
+      id: 'proj-1',
+      ownerId: 'u1',
+      name: 'metrics-api',
+      giteaOwner: 'u1',
+      giteaRepo: 'metrics-api',
+      targetClusterId: 'cluster-1',
+      autoDeployOnBuild: true,
+      createdAt: 'now',
+    });
+    await db.savePipelineRun({
+      id: 'run-1',
+      projectId: 'proj-1',
+      commitSha: 'abcdef123456',
+      ref: 'main',
+      status: 'succeeded',
+      imageTag: 'gitea-registry.gitea.svc.cluster.local:5000/u1/metrics-api:abcdef123456',
+      startedAt: '2026-08-26T10:00:00Z',
+    });
+
+    const mockPromote = async (_proj: any, _run: any, _user: string) => ({ id: 'wf-promote-1', resourceId: 'dep-1' });
+
+    const out = await run(db, 'deploy_project', { name: 'metrics-api' }, {
+      temporalBridge: { promoteProjectBuild: mockPromote } as any,
+    });
+    expect(out.body.status).toBe('deploying');
+    expect(out.body.imageTag).toContain('metrics-api:abcdef123456');
+    expect(out.body.workflowId).toBe('wf-promote-1');
+  });
+
+  it('get_project_url returns reachable url when deployed', async () => {
+    const db = await seeded();
+    await db.saveProject({
+      id: 'proj-1',
+      ownerId: 'u1',
+      name: 'metrics-api',
+      giteaOwner: 'u1',
+      giteaRepo: 'metrics-api',
+      createdAt: 'now',
+    });
+    await db.saveDeployment({
+      id: 'dep-1',
+      ownerId: 'u1',
+      name: 'metrics-api',
+      appType: 'gitapp',
+      gitappProjectId: 'proj-1',
+      status: 'running',
+      displayUrl: 'http://metrics-api.apps.local',
+      clusterId: 'cluster-1',
+    });
+
+    const out = await run(db, 'get_project_url', { name: 'metrics-api' });
+    expect(out.body.project).toBe('metrics-api');
+    expect(out.body.status).toBe('running');
+    expect(out.body.url).toBe('http://metrics-api.apps.local');
+  });
+});
+

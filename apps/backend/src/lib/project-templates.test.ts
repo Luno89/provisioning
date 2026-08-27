@@ -40,7 +40,7 @@ describe('the api-service skeleton', () => {
     // somewhere else looks like a broken application rather than a misconfigured one.
     const dir = materialise(NODE_SERVICE_FILES);
     const out = execSync(
-      'PORT=45231 node src/server.js & sleep 1; curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:45231/health; kill %1',
+      'PORT=45231 node src/server.js & sleep 1; curl --noproxy "*" -s -o /dev/null -w "%{http_code}" http://127.0.0.1:45231/health; kill %1',
       { cwd: dir, shell: '/bin/bash' },
     ).toString();
     expect(out).toContain('200');

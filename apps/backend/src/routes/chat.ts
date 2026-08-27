@@ -22,12 +22,14 @@ import type { ChatMode, LeafProposal } from '../lib/plan-mode.js';
 import { planNotice, reviewPlan } from '../lib/plan-review.js';
 import { duplicateNotice, newProposals, resolvePersonaNamed, suspectedDuplicates } from '../lib/proposal-merge.js';
 import { TOOL_DISCIPLINE_PROMPT, fittedMaxTokens } from '../lib/sampling.js';
+import { composePersonaPrompt } from '../lib/persona-prompt.js';
 import { claimNotice, claimService } from '../lib/service-claim.js';
 import { FinishReasonScanner, estimatePromptComplexity } from '../lib/smart-token-controller.js';
 import { forwardChunk, sendFrame } from '../lib/sse.js';
 import { ReasoningScanner, ThoughtFeatureExtractor, predictFailure, updateModelProfile } from '../lib/thinking-classifier.js';
 import { ContentScanner, UsageScanner } from '../lib/token-usage.js';
 import { resolveTreeType } from '../lib/tree-types.js';
+import { conventionsOf, describeConventions } from '../lib/tree-type-conventions.js';
 import { withProject } from '../lib/trees.js';
 import type { Tree } from '../lib/trees.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
@@ -249,13 +251,36 @@ export function chatRouter(deps: ChatRouterDeps): Router {
             : undefined;
         })()
       : undefined;
-    // Resolved from the owner's records rather than a constant table — see lib/tree-types.ts.
-    const doneMeans = planTree
-      ? (await resolveTreeType(db, planTree.ownerId, planTree.type))?.doneMeans
+    const planTreeType = planTree
+      ? await resolveTreeType(db, planTree.ownerId, planTree.type)
+      : undefined;
+    const doneMeans = planTreeType?.doneMeans;
+    /**
+     * And what its files look like, derived from the same type's scaffold.
+     *
+     * A planner names the paths it `expects` before anyone has read the repository, so it guesses
+     * the extension too. On a node type shipping plain JavaScript it asked for `src/tools.ts`; the
+     * agent wrote `src/tools.js`, passed 34 tests, and the leaf was failed three times for the
+     * letter. The template already knows — telling the planner is the half that stops the guess,
+     * and lib/leaf-artifacts.ts resolving it is the half that survives a guess made anyway.
+     */
+    const conventions = conventionsOf(planTreeType);
+    const fileConventions = conventions ? describeConventions(conventions) : undefined;
+    const toolRegistry = await db.getTools();
+    const activeToolNames = offerTools ? (chatPersona?.scope?.tools ?? LEAF_TOOLS.map((t) => t.function.name)) : [];
+    const historyChars = JSON.stringify(messages).length;
+    const personaPrompt = resolved.systemPrompt
+      ? composePersonaPrompt(resolved.systemPrompt, {
+          toolRegistry,
+          activeTools: activeToolNames,
+          historyChars,
+          isAdmin: Boolean((req as any).user?.isAdmin),
+        })
       : undefined;
 
     const outboundMessages = buildOutboundMessages({
       ...(doneMeans ? { doneMeans } : {}),
+      ...(fileConventions ? { fileConventions } : {}),
       messages,
       lastIndex,
       prompt: explicitPlan ? PLAN_SYSTEM_PROMPT : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
@@ -266,7 +291,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       // model does not have this turn.
       ...(offerTools ? { toolPrompt: TOOL_DISCIPLINE_PROMPT } : {}),
       ...(explicitPlan ? { planText: command.text } : {}),
-      ...(resolved.systemPrompt ? { personaPrompt: resolved.systemPrompt } : {}),
+      ...(personaPrompt ? { personaPrompt } : {}),
     });
 
     let provider, baseUrl, apiKey;

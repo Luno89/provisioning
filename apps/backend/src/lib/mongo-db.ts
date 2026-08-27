@@ -5,7 +5,7 @@ import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
-import type { Database, PartialInfo } from './db-interface.js';
+import type { Database, PartialInfo, BindingTypeRecord } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
@@ -148,6 +148,10 @@ export class MongoDB implements Database {
 
   private get thinkingProfiles(): Collection {
     return this.db!.collection('model_thinking_profiles');
+  }
+
+  private get bindingTypes(): Collection {
+    return this.db!.collection('bindingTypes');
   }
 
   async init(): Promise<void> {
@@ -749,6 +753,21 @@ export class MongoDB implements Database {
 
   async deleteMemory(id: string): Promise<void> {
     await this.memories.deleteOne({ _id: id as any });
+  }
+
+  async getBindingTypes(): Promise<BindingTypeRecord[]> {
+    return (await this.bindingTypes.find({}).toArray()).map((doc) => fromDoc<BindingTypeRecord>(doc));
+  }
+
+  async saveBindingType(record: BindingTypeRecord): Promise<void> {
+    const doc = toDoc(record);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.bindingTypes.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteBindingType(id: string): Promise<void> {
+    await this.bindingTypes.deleteOne({ _id: id as any });
   }
 
   async getTools(): Promise<ToolRepositoryItem[]> {

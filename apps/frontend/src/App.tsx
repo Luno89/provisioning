@@ -370,10 +370,10 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bark-900)] canopy text-slate-100 flex font-sans overflow-hidden">
+    <div className="h-screen max-h-screen bg-[var(--bark-900)] canopy text-slate-100 flex font-sans overflow-hidden">
       <Sidebar forestTabs={FOREST_TABS} onLogout={handleLogout} />
 
-      <main className="flex-1 p-10 overflow-y-auto relative">
+      <main className={`flex-1 h-full min-h-0 ${view === 'chat' ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>
         <div className="fixed top-6 right-6 z-[60] space-y-3">
           {notifications.map(n => (<div key={n.nid} className={`bg-slate-800 border-l-4 ${n.outOfBand ? 'border-yellow-500' : 'border-green-500'} p-4 rounded-lg shadow-2xl flex items-center gap-4 min-w-[300px] animate-in slide-in-from-right`}><BellRing className={n.outOfBand ? 'text-yellow-500' : 'text-green-500'} size={20} /><div><div className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">{n.outOfBand ? 'External Event' : 'System Event'}</div><div className="text-sm font-bold">{n.name} {n.outOfBand ? 'Deleted Externally' : 'Destroyed'}</div></div></div>))}
         </div>

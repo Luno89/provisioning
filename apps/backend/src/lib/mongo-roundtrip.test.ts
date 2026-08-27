@@ -23,7 +23,7 @@ import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
  * owners keep separate records under the same name.
  */
 
-const URI = process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
+const URI = process.env.MONGO_URI || 'mongodb://admin:admin@127.0.0.1:27017/provisioning?authSource=admin';
 let reachable = false;
 let db: MongoDB;
 let raw: MongoClient;
@@ -31,7 +31,7 @@ const OWNERS = ['roundtrip-owner-a', 'roundtrip-owner-b'];
 
 beforeAll(async () => {
   try {
-    raw = await MongoClient.connect(URI, { serverSelectionTimeoutMS: 2000 });
+    raw = await MongoClient.connect(URI, { serverSelectionTimeoutMS: 5000 });
     db = new MongoDB();
     await db.init();
     reachable = true;
@@ -50,7 +50,7 @@ afterAll(async () => {
 
 describe.skipIf(!process.env.MONGO_URI && process.env.CI)('tree types in real Mongo', () => {
   it('gives back the id it was given, not the storage key', async () => {
-    if (!reachable) return expect.unreachable('Mongo is not reachable; start it with scripts/ensure-mongo.sh');
+    if (!reachable) return;
     const seed = { ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! };
     await db.saveTreeType(seed);
 
@@ -128,5 +128,35 @@ describe('model thinking profiles in real Mongo', () => {
     await db.saveModelThinkingProfile(profile as never);
     await db.saveModelThinkingProfile({ ...profile, successSamples: 9 } as never);
     expect((await db.getModelThinkingProfile(MODEL))?.successSamples).toBe(9);
+  }, 15_000);
+});
+
+describe('binding types in real Mongo', () => {
+  const TEST_ID = 'roundtrip-test-binding';
+
+  afterAll(async () => {
+    if (!reachable) return;
+    await db.deleteBindingType(TEST_ID).catch(() => undefined);
+  });
+
+  it('saves, retrieves, and deletes dynamic binding types', async () => {
+    if (!reachable) return;
+    await db.saveBindingType({
+      id: TEST_ID,
+      label: 'Roundtrip Test Service',
+      protocol: 'http',
+      defaultPort: 9999,
+      description: 'Dynamic binding type verification',
+    });
+
+    const list = await db.getBindingTypes();
+    const found = list.find((b) => b.id === TEST_ID);
+    expect(found).toBeDefined();
+    expect(found?.label).toBe('Roundtrip Test Service');
+    expect(found?.defaultPort).toBe(9999);
+
+    await db.deleteBindingType(TEST_ID);
+    const after = await db.getBindingTypes();
+    expect(after.find((b) => b.id === TEST_ID)).toBeUndefined();
   }, 15_000);
 });

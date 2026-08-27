@@ -55,6 +55,33 @@ export const executeLeafActivityMeta = {
   startToCloseTimeout: '55 minutes',
   heartbeatTimeout: '10 minutes',
 } as const;
+
+export const setupLeafWorkspaceActivityMeta = {
+  name: 'SetupLeafWorkspaceActivity',
+  startToCloseTimeout: '15 minutes',
+} as const;
+
+export const executeLeafWorkerRoundActivityMeta = {
+  name: 'ExecuteLeafWorkerRoundActivity',
+  startToCloseTimeout: '30 minutes',
+  heartbeatTimeout: '5 minutes',
+} as const;
+
+export const validateLeafRoundActivityMeta = {
+  name: 'ValidateLeafRoundActivity',
+  startToCloseTimeout: '10 minutes',
+  heartbeatTimeout: '3 minutes',
+} as const;
+
+export const finalizeLeafActivityMeta = {
+  name: 'FinalizeLeafActivity',
+  startToCloseTimeout: '10 minutes',
+} as const;
+
+export const teardownLeafWorkspaceActivityMeta = {
+  name: 'TeardownLeafWorkspaceActivity',
+  startToCloseTimeout: '5 minutes',
+} as const;
 // Both are a database read plus, for the release, a handful of signalWithStart calls. Short for the
 // same reason as UpdateLeafActivity: a long timeout here only delays noticing a stuck worker.
 export const checkLeafGateActivityMeta = { name: 'CheckLeafGateActivity', startToCloseTimeout: '1 minute' } as const;

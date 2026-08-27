@@ -152,9 +152,11 @@ export interface ToolExecResult {
   digest?: string;
   /** Koala: a service enabled mid-turn widens the next round's tools. */
   enabled?: string;
-  /** Koala: proposing a project / app spec. */
+  /** Koala: proposing a project / app spec / escalation / secret request. */
   proposed?: unknown;
   proposedSpec?: unknown;
+  proposedEscalation?: unknown;
+  proposedSecretRequest?: unknown;
 }
 
 export interface ToolRoundResult {
@@ -166,6 +168,8 @@ export interface ToolRoundResult {
   enabledNow: string[];
   proposedTrees: unknown[];
   proposedSpecs: unknown[];
+  proposedEscalations: unknown[];
+  proposedSecretRequests: unknown[];
 }
 
 export interface RoundLoopCall {
@@ -249,6 +253,8 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
   const enabledNow: string[] = [];
   const proposedTrees: unknown[] = [];
   const proposedSpecs: unknown[] = [];
+  const proposedEscalations: unknown[] = [];
+  const proposedSecretRequests: unknown[] = [];
 
   for (let round = 0; round < maxRounds; round++) {
     if (answer) break; // answered on a previous round
@@ -261,18 +267,27 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
     // Events stream live via cfg.emit inside pump — the reader watches thinking and prose arrive.
     await pump(step.body, acc, cfg.emit);
-    if (acc.answer) {
-      spoken = acc.answer;
-      answer = acc.answer;
+    if (acc.thinking) {
+      thinking += acc.thinking;
     }
+
     // A round that called tools must record the assistant's tool_calls message before its tool
     // results — the API rejects a `tool` message that has no `tool_calls` entry before it.
     if (acc.calls.length > 0) {
       turn.push({
         role: 'assistant',
-        content: null,
+        content: acc.answer || null,
         tool_calls: acc.calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.arguments } })),
       });
+      if (acc.answer) {
+        spoken += (spoken ? '\n' : '') + acc.answer;
+      }
+    } else if (acc.answer) {
+      spoken += (spoken ? '\n' : '') + acc.answer;
+      answer = acc.answer;
+      break;
+    } else if (!acc.thinking) {
+      break;
     }
     for (const c of acc.calls) {
       cfg.emit({ kind: 'toolCall', id: c.id, name: c.name, args: c.arguments.slice(0, maxToolCallArgs) });
@@ -290,6 +305,8 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
       }
       if (out.proposed) proposedTrees.push(out.proposed);
       if (out.proposedSpec) proposedSpecs.push(out.proposedSpec);
+      if (out.proposedEscalation) proposedEscalations.push(out.proposedEscalation);
+      if (out.proposedSecretRequest) proposedSecretRequests.push(out.proposedSecretRequest);
       turn.push({ role: 'tool', tool_call_id: c.id, name: c.name, content: out.content });
     }
   }
@@ -304,5 +321,5 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     }
   }
 
-  return { answer, spoken, thinking, toolCalls, exhaustedRounds, enabledNow, proposedTrees, proposedSpecs };
+  return { answer, spoken, thinking, toolCalls, exhaustedRounds, enabledNow, proposedTrees, proposedSpecs, proposedEscalations, proposedSecretRequests };
 }

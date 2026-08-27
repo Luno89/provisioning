@@ -12,6 +12,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   let session = '';
 
   beforeAll(async () => {
+    axios.defaults.proxy = false;
     // Bootstrap backend
     const res = await bootstrap();
     app = res.app;
@@ -25,7 +26,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
         resolve();
       });
     });
-  });
+  }, 30_000);
 
   afterAll(() => {
     if (server) {

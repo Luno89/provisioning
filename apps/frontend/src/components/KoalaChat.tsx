@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  MessageSquarePlus, Trash2, Plug, Sprout, Send, Loader2, Terminal, Check, X, Info,
+  MessageSquarePlus, Trash2, Plug, Sprout, Send, Loader2, Terminal, Check, X, Info, ShieldAlert,
 } from 'lucide-react';
 import SpecProposal from './SpecProposal.js';
 import Markdown from './Markdown.js';
 import {
   listConversations, getConversation, createConversation, deleteConversation,
-  acceptSpecProposal, acceptTreeProposal, openKoalaStream, koalaKeys,
+  acceptSpecProposal, acceptTreeProposal, acceptEscalationProposal, denyEscalationProposal,
+  submitSecretRequest, dismissSecretRequest,
+  openKoalaStream, koalaKeys,
 } from '../api/koala';
+import { type ProposedSecretRequestRecord } from '../api/chat-pack.js';
+import { SecretRequestCard } from './ChatSurface.js';
 import { errorMessage } from '../api/client';
 
 /**
@@ -63,12 +67,28 @@ interface ProposedSpec {
   acceptedAt?: string;
 }
 
+interface ProposedEscalation {
+  id: string;
+  reason: string;
+  scope: 'cluster-read' | 'cluster-admin';
+  namespaces?: string[];
+  proposedAt: string;
+  status: 'pending' | 'accepted' | 'denied';
+  acceptedAt?: string;
+  deniedAt?: string;
+}
+
 interface Conversation {
   id: string;
   title: string;
   messages: Message[];
   proposedTrees?: ProposedTree[];
   proposedSpecs?: ProposedSpec[];
+  isEscalated?: boolean;
+  escalatedScope?: 'cluster-read' | 'cluster-admin';
+  escalatedNamespaces?: string[];
+  proposedEscalations?: ProposedEscalation[];
+  proposedSecretRequests?: ProposedSecretRequestRecord[];
   updatedAt: string;
 }
 
@@ -132,6 +152,40 @@ export default function KoalaChat({ onOpenTree }: {
       qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
       qc.invalidateQueries({ queryKey: ['trees'] });
       if (res?.tree?.id) onOpenTree?.(res.tree.id);
+    },
+  });
+
+  const acceptEscalation = useMutation({
+    mutationFn: (proposalId: string) =>
+      acceptEscalationProposal(selected!, proposalId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
+      qc.invalidateQueries({ queryKey: ['koala-conversations'] });
+    },
+  });
+
+  const denyEscalation = useMutation({
+    mutationFn: (proposalId: string) =>
+      denyEscalationProposal(selected!, proposalId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
+      qc.invalidateQueries({ queryKey: ['koala-conversations'] });
+    },
+  });
+
+  const submitSecret = useMutation({
+    mutationFn: ({ requestId, value }: { requestId: string; value: string }) =>
+      submitSecretRequest(selected!, requestId, value),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
+    },
+  });
+
+  const dismissSecret = useMutation({
+    mutationFn: (requestId: string) =>
+      dismissSecretRequest(selected!, requestId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['koala-conversation', selected] });
     },
   });
 
@@ -200,7 +254,7 @@ export default function KoalaChat({ onOpenTree }: {
             }
             // Both refetch the thread rather than being appended locally: the server already wrote
             // them, and a second copy in state is a second source of truth.
-            if (frame.proposedTree || frame.proposedSpec) {
+            if (frame.proposedTree || frame.proposedSpec || frame.proposedEscalation || frame.proposedSecretRequest) {
               qc.invalidateQueries({ queryKey: ['koala-conversation', id] });
             }
           } catch { /* a partial frame; the next chunk completes it */ }
@@ -221,6 +275,8 @@ export default function KoalaChat({ onOpenTree }: {
 
   const proposals = (thread?.proposedTrees ?? []);
   const specs = (thread?.proposedSpecs ?? []);
+  const escalations = (thread?.proposedEscalations ?? []);
+  const secretRequests = (thread?.proposedSecretRequests ?? []);
 
   return (
     <div className="flex gap-4 h-[calc(100vh-8rem)]">
@@ -332,6 +388,73 @@ export default function KoalaChat({ onOpenTree }: {
                   Create this project
                 </button>
               )}
+            </div>
+          ))}
+
+          {escalations.map((esc) => (
+            <div
+              key={esc.id}
+              className="max-w-[85%] rounded-2xl border border-amber-500/40 bg-amber-950/20 px-4 py-3 text-slate-200 text-[13px] flex flex-col gap-2 font-sans"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert size={14} className="text-amber-400" />
+                  <span className="font-bold text-amber-200">Privilege Escalation Requested</span>
+                </div>
+                <span className="text-[10px] uppercase font-mono tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {esc.scope}
+                </span>
+              </div>
+              <p className="text-[13px] text-slate-300 leading-relaxed">{esc.reason}</p>
+              {esc.namespaces && esc.namespaces.length > 0 && (
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                  <span>Target Namespaces:</span>
+                  <div className="flex gap-1 flex-wrap font-mono">
+                    {esc.namespaces.map((ns) => (
+                      <span key={ns} className="px-1.5 py-0.5 bg-black/40 rounded border border-slate-700 text-slate-300 text-[10px]">
+                        {ns}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {esc.status === 'accepted' ? (
+                <div className="text-[12px] text-emerald-400 font-medium mt-1 flex items-center gap-1">
+                  ✓ Granted at {new Date(esc.acceptedAt || esc.proposedAt).toLocaleTimeString()}
+                </div>
+              ) : esc.status === 'denied' ? (
+                <div className="text-[12px] text-red-400 font-medium mt-1">
+                  ✕ Request Denied
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <button
+                    onClick={() => acceptEscalation.mutate(esc.id)}
+                    disabled={acceptEscalation.isPending}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[12px] font-semibold transition-colors disabled:opacity-50"
+                  >
+                    Approve Escalation
+                  </button>
+                  <button
+                    onClick={() => denyEscalation.mutate(esc.id)}
+                    disabled={denyEscalation.isPending}
+                    className="px-3 py-1.5 rounded-lg bg-[var(--bark-800)] hover:bg-[var(--bark-700)] text-slate-300 text-[12px] transition-colors disabled:opacity-50"
+                  >
+                    Deny
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {secretRequests.map((req) => (
+            <div key={req.id} className="max-w-[85%]">
+              <SecretRequestCard
+                request={req}
+                onSubmit={(id, value) => submitSecret.mutate({ requestId: id, value })}
+                onDismiss={(id) => dismissSecret.mutate(id)}
+                isPending={submitSecret.isPending || dismissSecret.isPending}
+              />
             </div>
           ))}
         </div>

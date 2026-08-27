@@ -67,4 +67,39 @@ describe('runChatTurn (Koala pack, fake model)', () => {
     expect(result.answer).toBe('live-answer');
     expect(live.some((f) => f.type === 'content')).toBe(true);
   });
+
+  it('streams thinking, tools, proposals, and enabled services live through onFrame', async () => {
+    const reasoning = (r: string) => fakeStream([delts({ reasoning_content: r })]);
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, body: reasoning('I should check logs.') })
+      .mockResolvedValueOnce({ ok: true, body: tool('c2', 'get_logs', '{}') })
+      .mockResolvedValueOnce({ ok: true, body: content('Done.') });
+
+    const liveFrames: UnifiedFrame[] = [];
+    const executeTool = vi.fn().mockResolvedValue({
+      content: 'ok logs',
+      ok: true,
+      enabled: 'k8s',
+      proposed: { id: 'tree-1', name: 'App' },
+    });
+
+    const result = await runChatTurn({
+      pack: KOALA_PACK,
+      messages: [{ role: 'user', content: 'test' }],
+      tools: ['get_logs'],
+      call,
+      executeTool,
+      onFrame: (f) => liveFrames.push(f),
+    });
+
+    expect(result.answer).toBe('Done.');
+    const types = liveFrames.map((f) => f.type);
+    expect(types).toContain('thinking');
+    expect(types).toContain('toolAnnounce');
+    expect(types).toContain('toolResult');
+    expect(types).toContain('proposedTree');
+    expect(types).toContain('enabled');
+    expect(types).toContain('content');
+  });
 });

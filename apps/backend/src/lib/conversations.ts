@@ -120,6 +120,30 @@ export interface ProposedSpec {
   acceptedAt?: string;
 }
 
+export interface ProposedEscalation {
+  id: string;
+  reason: string;
+  scope: 'cluster-read' | 'cluster-admin';
+  namespaces?: string[] | undefined;
+  proposedAt: string;
+  status: 'pending' | 'accepted' | 'denied';
+  acceptedAt?: string | undefined;
+  deniedAt?: string | undefined;
+}
+
+export interface ProposedSecretRequest {
+  id: string;
+  key: string;
+  label?: string | undefined;
+  description: string;
+  projectId?: string | undefined;
+  status: 'pending' | 'fulfilled' | 'dismissed';
+  secretReference?: string | undefined;
+  requestedAt: string;
+  fulfilledAt?: string | undefined;
+  dismissedAt?: string | undefined;
+}
+
 export interface Conversation {
   id: string;
   ownerId: string;
@@ -134,6 +158,11 @@ export interface Conversation {
   enabledMcp?: string[];
   proposedTrees?: ProposedTree[];
   proposedSpecs?: ProposedSpec[];
+  isEscalated?: boolean | undefined;
+  escalatedScope?: 'cluster-read' | 'cluster-admin' | undefined;
+  escalatedNamespaces?: string[] | undefined;
+  proposedEscalations?: ProposedEscalation[] | undefined;
+  proposedSecretRequests?: ProposedSecretRequest[] | undefined;
   createdAt: string;
   updatedAt: string;
 }

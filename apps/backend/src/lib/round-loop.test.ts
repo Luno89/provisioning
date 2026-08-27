@@ -138,6 +138,31 @@ describe('runToolRounds', () => {
     ]);
   });
 
+  it('continues to next round even if model emits prelude text alongside tool calls on round 0', async () => {
+    const mixedStream = fakeStream([
+      delts({ content: 'Let me check that.' }),
+      delts({ tool_calls: [{ index: 0, id: 't1', function: { name: 'list_trees', arguments: '{}' } }] }),
+    ]);
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, body: mixedStream })
+      .mockResolvedValueOnce({ ok: true, body: contentBody('Found 2 project trees.') });
+    const executeTool = vi.fn().mockResolvedValue({ content: 'tree1, tree2' });
+
+    const result = await runToolRounds({
+      maxRounds: 3,
+      messages: [{ role: 'user', content: 'list trees' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool,
+    });
+
+    expect(call).toHaveBeenCalledTimes(2);
+    expect(executeTool).toHaveBeenCalledTimes(1);
+    expect(result.answer).toBe('Found 2 project trees.');
+  });
+
   it('flags exhausted rounds but still delivers a wrap-up answer', async () => {
     const call = vi
       .fn()

@@ -140,6 +140,14 @@ export class GitappApp extends Construct {
                 image: `${config.webRepo}:${config.webTag}`,
                 port: [{ containerPort }],
                 ...((envVars.length || binding.env.length) ? { env: [...envVars, ...binding.env] } : {}),
+                envFrom: [
+                  {
+                    secretRef: {
+                      name: `${namespaceName}-secrets`,
+                      optional: true,
+                    },
+                  },
+                ],
                 resources: {
                   limits: { cpu: "1", memory: "1G" },
                   requests: { cpu: "100m", memory: "128M" },

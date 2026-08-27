@@ -123,7 +123,43 @@ export class GiteaService {
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(TOKEN_FILE, encryptValue(this.tokenCache, this.masterKey), { mode: 0o600 });
 
+    await this.ensureClusterSecret(this.tokenCache).catch(() => undefined);
+
     return this.tokenCache;
+  }
+
+  /**
+   * Syncs the Gitea API credentials into Kubernetes Secret `gitea-credentials` in namespace `gitea`.
+   * This allows workload service bindings to dynamically bind to Gitea and authenticate without manual token injection.
+   */
+  async ensureClusterSecret(explicitToken?: string): Promise<void> {
+    try {
+      const token = explicitToken ?? (await this.getToken());
+      const manifest = {
+        apiVersion: 'v1',
+        kind: 'Secret',
+        metadata: {
+          name: 'gitea-credentials',
+          namespace: NAMESPACE,
+        },
+        type: 'Opaque',
+        stringData: {
+          token,
+          host: 'gitea-http.gitea.svc.cluster.local',
+          port: '3000',
+          protocol: 'http',
+        },
+      };
+      const tmpPath = path.join('/tmp', `gitea-secret-${crypto.randomBytes(4).toString('hex')}.json`);
+      await fs.writeFile(tmpPath, JSON.stringify(manifest), 'utf8');
+      try {
+        await this.infra.runKubectl(['apply', '-f', tmpPath], this.kubeconfigPath);
+      } finally {
+        await fs.unlink(tmpPath).catch(() => undefined);
+      }
+    } catch (err: any) {
+      console.warn(`[GiteaService] could not sync gitea-credentials secret: ${err.message}`);
+    }
   }
 
   private async apiFetch(pathSuffix: string, init: RequestInit = {}): Promise<Response> {

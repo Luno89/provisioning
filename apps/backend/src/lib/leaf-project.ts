@@ -19,6 +19,7 @@
 import type { Database } from './db-interface.js';
 import type { Leaf } from './leaves.js';
 import type { ProjectMetadata } from './types.js';
+import { DEFAULT_TARGET_CLUSTER } from './project-shipping.js';
 
 /** Gitea repository names allow a narrow set; a title never reaches this unfiltered. */
 export function autoRepoNameFor(branchId: string): string {
@@ -110,7 +111,9 @@ export async function resolveLeafProject(deps: LeafProjectDeps, leaf: Leaf): Pro
     ownerId: leaf.ownerId,
     giteaOwner: account.username,
     giteaRepo: repo,
-    appType: 'generic',
+    appType: 'gitapp',
+    targetClusterId: DEFAULT_TARGET_CLUSTER,
+    autoDeployOnBuild: true,
     createdAt: new Date().toISOString(),
   };
   try {

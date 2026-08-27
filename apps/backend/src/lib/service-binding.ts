@@ -37,9 +37,13 @@ import { clusterHost } from './cluster-dns.js';
  * The spec says a value is assigned when the variable is absent, and names `/bindings` as the
  * conventional one. Setting it explicitly means an application never has to guess.
  */
+import type { BindingTypeRecord } from './db-interface.js';
+
 export const SERVICE_BINDING_ROOT = '/bindings';
 
-/** The binding type for an app type, as the spec's `type` file. Absent when it is not a backing service. */
+/**
+ * Built-in fallback binding types, used when dynamic database records are absent.
+ */
 const BINDING_TYPES: Record<string, string> = {
   mongo: 'mongodb',
   minio: 's3',
@@ -47,11 +51,90 @@ const BINDING_TYPES: Record<string, string> = {
   quickwit: 'quickwit',
   tei: 'embeddings',
   verdaccio: 'npm',
+  gitea: 'git',
 };
 
-export function bindingTypeFor(appType: string): string | undefined {
-  return BINDING_TYPES[appType.trim().toLowerCase()];
+/**
+ * Resolves the spec binding type for an appType, consulting dynamic types first.
+ */
+export function bindingTypeFor(
+  appType: string,
+  dynamicTypes?: readonly BindingTypeRecord[],
+): string | undefined {
+  const norm = appType.trim().toLowerCase();
+  if (dynamicTypes?.length) {
+    const matched = dynamicTypes.find(
+      (t) => (t.appType && t.appType.toLowerCase() === norm) || t.id.toLowerCase() === norm,
+    );
+    if (matched) return matched.id;
+  }
+  return BINDING_TYPES[norm];
 }
+
+/**
+ * A self-describing contract that any deployment or in-cluster platform service can expose
+ * so workloads can bind to it without needing a synthetic AppSpec.
+ */
+export interface ServiceBindingContract {
+  serviceName: string;
+  namespace: string;
+  port: number;
+  bindingType: string;
+  protocol?: 'http' | 'https' | 'tcp' | 'grpc' | undefined;
+  secretName?: string | undefined;
+  keyMapping?: Record<string, string> | undefined;
+  isPlatformService?: boolean | undefined;
+}
+
+/**
+ * Standard contracts for platform services deployed directly into the cluster.
+ */
+export const PLATFORM_SERVICE_CONTRACTS: Record<string, ServiceBindingContract> = {
+  gitea: {
+    serviceName: 'gitea-http',
+    namespace: 'gitea',
+    port: 3000,
+    bindingType: 'git',
+    protocol: 'http',
+    secretName: 'gitea',
+    keyMapping: { token: 'token' },
+    isPlatformService: true,
+  },
+  'koala-vectors': {
+    serviceName: 'qdrant',
+    namespace: 'koala-vectors',
+    port: 6333,
+    bindingType: 'qdrant',
+    protocol: 'http',
+    isPlatformService: true,
+  },
+  'koala-index': {
+    serviceName: 'quickwit',
+    namespace: 'koala-index',
+    port: 7280,
+    bindingType: 'quickwit',
+    protocol: 'http',
+    isPlatformService: true,
+  },
+  'koala-embed': {
+    serviceName: 'tei',
+    namespace: 'koala-embed',
+    port: 80,
+    bindingType: 'embeddings',
+    protocol: 'http',
+    isPlatformService: true,
+  },
+  'koala-store': {
+    serviceName: 'minio',
+    namespace: 'koala-store',
+    port: 9000,
+    bindingType: 's3',
+    protocol: 'http',
+    secretName: 'minio',
+    keyMapping: { rootUser: 'rootUser', rootPassword: 'rootPassword' },
+    isPlatformService: true,
+  },
+};
 
 /** One service a workload has been bound to. */
 export interface Binding {
@@ -61,6 +144,7 @@ export interface Binding {
   type: string;
   host: string;
   port: number;
+  protocol?: string | undefined;
   /** Which credential keys will be present. Never the values — those exist only in the cluster. */
   keys: string[];
 }
@@ -77,9 +161,11 @@ export function bindingFor(args: {
   service: string;
   namespace: string;
   port: number;
+  protocol?: string | undefined;
   keys?: string[];
+  dynamicTypes?: readonly BindingTypeRecord[];
 }): Binding | undefined {
-  const type = bindingTypeFor(args.appType);
+  const type = bindingTypeFor(args.appType, args.dynamicTypes);
   // A binding with no type is not projectable: `type` is the one required file, and an app uses it
   // to tell what it has been handed.
   if (!type) return undefined;
@@ -88,6 +174,7 @@ export function bindingFor(args: {
     type,
     host: clusterHost(args.service, args.namespace),
     port: args.port,
+    ...(args.protocol ? { protocol: args.protocol } : {}),
     keys: args.keys ?? [],
   };
 }

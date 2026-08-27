@@ -4,6 +4,8 @@ import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { VpnService } from "../lib/vpn-service.js";
+import { createAppIngress } from "../lib/app-ingress.js";
+import { createAppProbe } from "../lib/app-probe.js";
 export class AudiobookshelfNativeApp extends Construct {
     constructor(scope, id, config = {}) {
         super(scope, id);
@@ -12,6 +14,7 @@ export class AudiobookshelfNativeApp extends Construct {
         const metadataSize = config.metadataStorage || "2Gi";
         const configSize = config.configStorage || "1Gi";
         const librarySize = config.libraryStorage || "5Gi";
+        const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
         const ns = new Namespace(this, "ns", {
             metadata: {
                 name: namespaceName,
@@ -137,11 +140,21 @@ export class AudiobookshelfNativeApp extends Construct {
                 namespace: ns.metadata.name,
             },
             spec: {
-                type: "LoadBalancer",
+                type: serviceType,
                 selector: { app: `audiobookshelf-${id}` },
                 port: [{ port: 80, targetPort: "80" }],
             },
-            waitForLoadBalancer: false,
+        });
+        createAppIngress(this, "ingress", {
+            namespace: namespaceName,
+            serviceName: "audiobookshelf",
+            servicePort: 80,
+            hostname: `${namespaceName}.apps.local`,
+        });
+        createAppProbe(this, "probe", {
+            namespace: namespaceName,
+            serviceName: "audiobookshelf",
+            servicePort: 80,
         });
     }
 }

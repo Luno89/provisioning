@@ -1,6 +1,8 @@
 import { Construct } from "constructs";
 import { Release } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { createAppIngress } from "../lib/app-ingress.js";
+import { createAppProbe } from "../lib/app-probe.js";
 /**
  * Resolves an image into the format Bitnami charts expect.
  * Ensures the registry and repository are split correctly.
@@ -31,7 +33,7 @@ export class OdooApp extends Construct {
                 name: namespaceName,
             },
         });
-        const serviceType = config.serviceType || (process.env.KUBECONFIG_CONTEXT?.startsWith("k3d-") ? "NodePort" : "LoadBalancer");
+        const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
         const helmValues = [
             { name: "service.type", value: serviceType },
             { name: "global.security.allowInsecureImages", value: true },
@@ -56,6 +58,20 @@ export class OdooApp extends Construct {
             namespace: ns.metadata.name,
             timeout: 600,
             set: helmValues,
+        });
+        // Chart's web Service is named after the release ("odoo"), port 80 — confirmed via
+        // `helm template` against the real chart (there's also odoo-postgresql/-hl, correctly
+        // not routed here).
+        createAppIngress(this, "ingress", {
+            namespace: namespaceName,
+            serviceName: "odoo",
+            servicePort: 80,
+            hostname: `${namespaceName}.apps.local`,
+        });
+        createAppProbe(this, "probe", {
+            namespace: namespaceName,
+            serviceName: "odoo",
+            servicePort: 80,
         });
     }
 }

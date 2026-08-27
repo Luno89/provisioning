@@ -5,7 +5,7 @@ import type { ClusterProviderSpec } from './cluster-providers.js';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
-import type { Database, PartialInfo } from './db-interface.js';
+import type { Database, PartialInfo, BindingTypeRecord } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
@@ -39,9 +39,10 @@ export class MemoryDB implements Database {
   private giteaAccounts: GiteaAccount[] = [];
   private experiments: Experiment[] = [];
   private harnessProfiles: HarnessProfile[] = [];
-private treeTypes: TreeTypeSpec[] = [];
+  private treeTypes: TreeTypeSpec[] = [];
   private personas: Persona[] = [];
   private memories: MemoryItem[] = [];
+  private bindingTypes: BindingTypeRecord[] = [];
   private customTools: ToolRepositoryItem[] = [];
 
   async init(): Promise<void> {
@@ -533,6 +534,20 @@ private treeTypes: TreeTypeSpec[] = [];
 
   async deleteMemory(id: string): Promise<void> {
     this.memories = this.memories.filter((m) => m.id !== id);
+  }
+
+  async getBindingTypes(): Promise<BindingTypeRecord[]> {
+    return [...this.bindingTypes];
+  }
+
+  async saveBindingType(record: BindingTypeRecord): Promise<void> {
+    const idx = this.bindingTypes.findIndex((b) => b.id === record.id);
+    if (idx >= 0) this.bindingTypes[idx] = record;
+    else this.bindingTypes.push(record);
+  }
+
+  async deleteBindingType(id: string): Promise<void> {
+    this.bindingTypes = this.bindingTypes.filter((b) => b.id !== id);
   }
 
   async getTools(): Promise<ToolRepositoryItem[]> {

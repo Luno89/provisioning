@@ -93,7 +93,12 @@ export const LEAF_TOOLS = [
               + '["src/client.js","test/client.test.js"]. Checked after the leaf runs: each must be '
               + 'committed and non-empty, or the leaf is marked failed. Give these for work that has '
               + 'no tests to run (research, documentation, configuration) — without them nothing can '
-              + 'check that the work was actually produced.',
+              + 'check that the work was actually produced. '
+              // A wrong extension here failed a leaf three times whose work was complete and whose
+              // suite was green, so say plainly which one to use. The system message for this turn
+              // carries the project's conventions; this is the reminder at the point of writing.
+              + 'Use the file extension and directory layout this project actually uses — they are '
+              + 'stated above. Do not guess .ts for a JavaScript project.',
           },
           /**
            * Titles rather than ids, because the model is proposing several leaves in one turn and

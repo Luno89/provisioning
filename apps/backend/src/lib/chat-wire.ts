@@ -29,6 +29,8 @@ export type UnifiedFrame =
   | { type: 'toolResult'; payload: { id: string; ok: boolean; digest?: string } }
   | { type: 'proposedTree'; payload: unknown }
   | { type: 'proposedSpec'; payload: unknown }
+  | { type: 'proposedEscalation'; payload: unknown }
+  | { type: 'proposedSecretRequest'; payload: unknown }
   | { type: 'enabled'; payload: string[] }
   | { type: 'plan'; payload: unknown }
   | { type: 'usage'; payload: unknown }
@@ -37,7 +39,7 @@ export type UnifiedFrame =
 /** All the frame types, so a persona-pack's delivery can be validated against them. */
 export const UNIFIED_FRAME_TYPES = [
   'content', 'thinking', 'toolAnnounce', 'toolResult',
-  'proposedTree', 'proposedSpec', 'enabled', 'plan', 'usage', 'interrupted',
+  'proposedTree', 'proposedSpec', 'proposedEscalation', 'proposedSecretRequest', 'enabled', 'plan', 'usage', 'interrupted',
 ] as const;
 
 export function isUnifiedFrame(v: unknown): v is UnifiedFrame {

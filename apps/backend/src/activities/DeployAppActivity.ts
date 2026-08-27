@@ -475,10 +475,11 @@ export async function DeployAppActivity(
       : undefined;
     const needs = project?.needs ?? [];
     const specs = needs.length ? await bindDb.getAppSpecs() : [];
+    const dynamicTypes = needs.length ? await bindDb.getBindingTypes().catch(() => []) : [];
     await bindDb.close().catch(() => undefined);
 
     if (needs.length && project?.ownerId) {
-      const { bindings, problems } = resolveBindings(needs, deployments, specs, project.ownerId);
+      const { bindings, problems } = resolveBindings(needs, deployments, specs, project.ownerId, { dynamicTypes });
       for (const p of problems) console.warn(`[bindings] ${physicalName}: ${p}`);
 
       const projected: ProjectedBinding[] = [];
