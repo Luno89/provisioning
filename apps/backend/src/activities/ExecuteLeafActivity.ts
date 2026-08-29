@@ -33,7 +33,8 @@ import { resolveForPersona, mcpGaps } from '../lib/mcp-registry.js';
 import { toLoopTools, routeCall } from '../lib/mcp-tools.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { resolveConfig } from '../lib/personas.js';
-import { flattenPersona, usesRepo, personaWorkspace, allowedTools } from '../lib/persona-scope.js';
+import { packForLeaf } from '../lib/packs.js';
+import { flattenPersona, usesRepo, personaWorkspace, allowedTools, withPack } from '../lib/persona-scope.js';
 import {
   prepareInputs, buildInputIndex, buildInlineInputs, REQUIRED_TOOL,
 } from '../lib/dependency-inputs.js';
@@ -341,10 +342,30 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
        * decision. A leaf that reaches here with neither is a planning failure and says so.
        */
       const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId);
-      const wanted = leaf.personaId ?? profile?.personaId;
+
+      /**
+       * ── THE PACK: HOW THIS LEAF RUNS ──
+       *
+       * A leaf run is the model being run, so it runs under a pack like any other — the same record
+       * that decides a conversation's engine, tools and permissions. That is what makes a leaf
+       * tunable from the Lab rather than configured by whichever constants its code path happened
+       * to read.
+       *
+       * A leaf that names no pack still gets one, resolved through the persona it was assigned.
+       * Leaves predate packs entirely — that is the only reason they carry a persona directly — and
+       * every seeded persona now ships with a pack derived from its own scope, so the lookup
+       * succeeds for work planned before any of this existed. No migration, no dangling rows.
+       *
+       * `personaId` stays on the record either way: `routes/personas.ts` gives the reason on its
+       * delete handler — a leaf keeps the record of what it actually ran under.
+       */
+      const ownPacks = (await db.getPersonaPacks()).filter((p) => p.ownerId === leaf.ownerId);
+      const pack = packForLeaf(ownPacks, leaf, profile?.personaId);
+      const wanted = pack?.personaId ?? leaf.personaId ?? profile?.personaId;
       const assigned = wanted ? ownPersonas.find((p) => p.id === wanted) : undefined;
-      // Flattened, so a persona defined as "that one, but ..." runs with everything it inherits.
-      const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
+      // Flattened, so a persona defined as "that one, but ..." runs with everything it inherits;
+      // then the pack's grant applied over it, so ONE record answers "what may this run use".
+      const persona = withPack(assigned ? flattenPersona(assigned, ownPersonas) : null, pack);
       const wantsRepo = usesRepo(persona);
 
       /**
@@ -417,7 +438,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       const declaredOutput = persona?.scope?.output;
       const outputPath = declaredOutput;
 
-      const resolved = resolveConfig(profile, persona);
+      // The pack layer sits between the persona and the request — see lib/personas.ts. A leaf with
+      // no pack resolves exactly as before, which is what every leaf predating this does.
+      const resolved = resolveConfig(profile, persona, {}, pack ?? null);
       /**
        * The prompt goes back into the bag here, unlike in chat.
        *

@@ -50,6 +50,29 @@ export function allowedTools(persona: Pick<Persona, 'scope'> | null | undefined,
  * `Judge` declare `tools: []` deliberately and still qualify, because they set `language` — an
  * empty toolset is a decision about tools, not an absence of environment.
  */
+/**
+ * The persona a leaf actually runs as, with its pack's decisions applied over it.
+ *
+ * ── WHY A MERGE AND NOT A SECOND PARAMETER EVERYWHERE ──
+ * `personaWorkspace`, `agentRunOptions`, `allowedTools`, `usesRepo` and `wantsMcp` all read the
+ * persona's scope, in five places across three files. Threading a pack through each is five chances
+ * to thread it through four of them — which is the shape of every bug in this area so far: the chat
+ * route consulted a tool grant the prompt builder did not, and the two disagreed silently.
+ *
+ * So the pack is folded in ONCE, here, and everything downstream keeps reading one record. An
+ * absent pack returns the persona untouched, which is what every leaf predating packs does.
+ *
+ * Only `tools` is overridden today, because that is the grant a pack owns outright. Sampling and
+ * budgets travel through `resolveConfig`'s pack layer instead, where their provenance is recorded.
+ */
+export function withPack<T extends Pick<Persona, 'scope'>>(
+  persona: T | null,
+  pack: { tools?: string[] } | null | undefined,
+): T | null {
+  if (!persona || !pack?.tools?.length) return persona;
+  return { ...persona, scope: { ...(persona.scope ?? {}), tools: [...pack.tools] } };
+}
+
 export function canRunLeaf(persona: Pick<Persona, 'scope'> | null | undefined): boolean {
   const scope = persona?.scope;
   if (!scope) return false;

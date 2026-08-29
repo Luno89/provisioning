@@ -74,8 +74,28 @@ describe('GET /api/packs', () => {
      * The behaviour this replaces: `resolvePersona` resolved ANY unknown name to Koala, so the
      * Harness pack silently ran as Koala and nothing anywhere said so. A miss must be a miss.
      */
-    const { status } = await get('/researcher');
+    const { status } = await get('/no-such-pack');
     expect(status).toBe(404);
+  });
+
+  it('serves a pack for every seeded persona, so a leaf always has one to run as', async () => {
+    /**
+     * `researcher` was the pack the old UI offered and the old registry had never had — selecting
+     * it threw a 500. It exists now because every work persona ships with a pack derived from its
+     * own scope; leaves carried their environment on the persona only because packs did not exist
+     * when leaves were built.
+     */
+    const { body } = await get();
+    const slugs = body.map((p: any) => p.slug);
+    expect(slugs).toContain('koala');
+    expect(slugs).toContain('researcher');
+    expect(slugs).toContain('builder');
+
+    // A work pack runs the sandbox agent loop, which is neither chat executor.
+    const researcher = body.find((p: any) => p.slug === 'researcher');
+    expect(researcher.toolset).toBe('sandbox');
+    // And starts as what its persona already declared, rather than a second hand-written copy.
+    expect(researcher.tools).toContain('web_search');
   });
 });
 

@@ -19,6 +19,7 @@
  */
 import type { PersonaPack, PersonaScope, ToolEffect } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
+import { PERSONA_SEEDS } from './persona-seeds.js';
 
 /** A pack seed: everything but the identity fields the seeder fills in. */
 export interface PackSeed {
@@ -53,6 +54,38 @@ const KOALA_TOOLS_GRANTED = [
   'web_search', 'fetch_web_page',
 ];
 
+/**
+ * A pack for every WORK persona, derived from that persona's own scope.
+ *
+ * ── WHY THESE ARE DERIVED AND NOT WRITTEN OUT ──
+ * The reason leaves had no pack is only that packs did not exist when leaves were built; the
+ * environment they run in was already on the persona. So each work persona gets a pack that starts
+ * as what that persona already declares, rather than a second hand-written copy of it which would
+ * be wrong the first time either was edited.
+ *
+ * From here the two diverge on purpose: the PACK is what you edit and what the Lab varies, and the
+ * persona keeps the prompt. That is the point of the split — "Builder, but with half the steps and
+ * a different engine" becomes a second pack over one persona instead of a copied persona that
+ * drifts.
+ */
+const WORK_PACKS: PackSeed[] = PERSONA_SEEDS
+  .filter((p) => p.name !== KOALA_NAME)
+  .map((p) => ({
+    slug: p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    name: p.name,
+    description: p.description ?? '',
+    personaName: p.name,
+    // The agent loop in a pod, not either chat executor. See `PackToolset`.
+    toolset: 'sandbox' as const,
+    tools: [...(p.scope?.tools ?? [])],
+    /**
+     * A leaf writes: it commits, pushes, and creates records. `propose` is included because the
+     * planning personas propose leaves, and `read` because everything reads.
+     */
+    permitted: ['read', 'write', 'propose'] as ToolEffect[],
+    overrides: { ...(p.overrides ?? {}) },
+  }));
+
 export const PACK_SEEDS: PackSeed[] = [
   {
     slug: 'koala',
@@ -72,6 +105,7 @@ export const PACK_SEEDS: PackSeed[] = [
     permitted: ['read', 'write', 'propose'],
     overrides: { temperature: 0.7 },
   },
+  ...WORK_PACKS,
 ];
 
 /** The store, narrowed to what seeding needs — same shape as `TreeTypeSeedStore`. */

@@ -18,7 +18,7 @@ export const MAX_PACK_NAME = 60;
 /** Same shape a URL segment can carry without escaping, which is what a slug is for. */
 const SLUG = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
-const TOOLSETS = ['assistant', 'workbench', 'none'];
+const TOOLSETS = ['assistant', 'workbench', 'sandbox', 'none'];
 
 export interface PackCandidate {
   slug?: unknown;
@@ -87,6 +87,33 @@ export function validatePack(
   }
 
   return undefined;
+}
+
+/**
+ * The pack a leaf runs under.
+ *
+ * ── WHY THERE ARE TWO WAYS IN ──
+ * Leaves predate packs. A leaf carries `personaId` because, when the board was built, a persona WAS
+ * the whole environment; the pack is the record that environment moved to. So a leaf that names a
+ * pack gets that one, and a leaf that names only a persona gets the pack built for that persona —
+ * which every seeded persona now has, so work planned before any of this resolves without a
+ * migration and without a dangling row.
+ *
+ * Returns undefined rather than guessing when neither matches. `ExecuteLeafActivity` runs the leaf
+ * with no pack in that case, which is exactly what it did before packs existed.
+ */
+export function packForLeaf(
+  packs: readonly PersonaPack[],
+  leaf: { packId?: string | undefined; personaId?: string | undefined },
+  fallbackPersonaId?: string | undefined,
+): PersonaPack | undefined {
+  if (leaf.packId) {
+    const named = packs.find((p) => p.id === leaf.packId || p.slug === leaf.packId);
+    if (named) return named;
+  }
+  const personaId = leaf.personaId ?? fallbackPersonaId;
+  if (!personaId) return undefined;
+  return packs.find((p) => p.personaId === personaId);
 }
 
 /** Narrowed for callers that have validated already. */

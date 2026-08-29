@@ -878,12 +878,16 @@ export interface Persona {
  * "the two share no vocabulary". Which tools a pack may call is a separate list, resolved against
  * the tool registry, because those are separate questions: one is dispatch, the other is grant.
  *
- * `sandbox` was a fourth value and is deliberately absent. A sandbox is the LEAF runtime — a pod
- * with a NetworkPolicy, created by `personaWorkspace` and run under Temporal over minutes. A chat
- * turn is one HTTP request holding a stream open. A conversation reaches sandboxed work by
- * proposing a leaf, never by becoming one.
+ * `sandbox` is the LEAF executor — the agent loop inside a pod with a NetworkPolicy, created by
+ * `personaWorkspace` and run under Temporal over minutes. It is not a chat toolset and a
+ * conversation can never select it: a chat turn is one HTTP request holding a stream open, and it
+ * reaches sandboxed work by proposing a leaf rather than by becoming one.
+ *
+ * It is here because a leaf run is also the model being run, so it runs under a pack too — which is
+ * what makes a leaf's tools, budgets and sampling editable and comparable in the Lab instead of
+ * being fixed by whichever constants its code path happened to read.
  */
-export type PackToolset = 'assistant' | 'workbench' | 'none';
+export type PackToolset = 'assistant' | 'workbench' | 'sandbox' | 'none';
 
 /**
  * Everything about HOW something runs, as one editable record.

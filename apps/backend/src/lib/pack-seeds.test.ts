@@ -77,6 +77,37 @@ describe('the seeds themselves', () => {
   });
 });
 
+describe('every persona has a pack to run as', () => {
+  /**
+   * The reason leaves carried their environment on the persona is only that packs did not exist
+   * when leaves were built. A leaf run is the model being run, so it runs under a pack too — and
+   * that is what makes its tools, budgets and sampling editable and comparable in the Lab rather
+   * than fixed by whichever constants its code path happened to read.
+   */
+  it('ships one pack per seeded persona', () => {
+    const packed = new Set(PACK_SEEDS.map((p) => p.personaName));
+    for (const persona of PERSONA_SEEDS) {
+      expect(packed, persona.name).toContain(persona.name);
+    }
+  });
+
+  it('gives work packs the sandbox executor, and Koala the assistant one', () => {
+    // Different executors, not different tool lists: a leaf runs the agent loop inside a pod, a
+    // conversation runs `runKoalaTool` in the backend process. See `PackToolset`.
+    expect(PACK_SEEDS.find((p) => p.slug === 'koala')!.toolset).toBe('assistant');
+    expect(PACK_SEEDS.find((p) => p.slug === 'builder')!.toolset).toBe('sandbox');
+  });
+
+  it('starts each work pack as what its persona already declared', () => {
+    // Derived, not restated. A hand-written second copy would be wrong the first time either was
+    // edited — the failure this codebase keeps hitting with parallel lists.
+    for (const seed of PERSONA_SEEDS.filter((p) => p.name !== 'Koala')) {
+      const pack = PACK_SEEDS.find((p) => p.personaName === seed.name)!;
+      expect(pack.tools, seed.name).toEqual(seed.scope?.tools ?? []);
+    }
+  });
+});
+
 describe('seeding', () => {
   it('gives a new owner the shipped packs, resolved to their own persona ids', async () => {
     const personas = personasFor('u1');

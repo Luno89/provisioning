@@ -221,6 +221,21 @@ export interface Leaf {
    */
   summary?: string;
 
+  /**
+   * How this leaf runs: its engine, its tool grant, its permissions, its budgets.
+   *
+   * ── WHY THIS IS BESIDE `personaId` AND NOT INSTEAD OF IT ──
+   * A leaf run is the model being run, so it runs under a pack like a conversation does — which is
+   * what makes every knob it uses editable and comparable in the Lab, rather than fixed by whichever
+   * constants its code path happened to read.
+   *
+   * `personaId` stays. `routes/personas.ts` gives the reason on its delete handler: a leaf keeps
+   * the record of what it ACTUALLY ran under, and rewriting that is the one thing history must
+   * never do. So this is the runtime pointer, and `personaId` remains both the historical record
+   * and the resolution path for every leaf created before packs existed.
+   */
+  packId?: string;
+
   personaId?: string;
   /**
    * The persona that will do this work, and therefore the whole environment it runs in.
