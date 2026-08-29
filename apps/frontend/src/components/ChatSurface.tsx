@@ -40,6 +40,7 @@ import ChatHero from './Chat/ChatHero.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
 import ChatMessageRow, { type ChatMessageData, ProposedTreeCard } from './Chat/ChatMessageRow.js';
 import { errorMessage } from '../api/client.js';
+import { listPacks, packKeys, type PersonaPack } from '../api/packs';
 
 export interface ProposedTreeRecord {
   id: string;
@@ -122,6 +123,12 @@ export default function ChatSurface({
       setCurrentPackId(initialPackId);
     }
   }, [initialPackId]);
+
+  // The pack catalogue — what the picker offers and what the server will actually accept.
+  const { data: packs = [] } = useQuery<PersonaPack[]>({
+    queryKey: packKeys.list(),
+    queryFn: listPacks,
+  });
 
   // Fetch conversation list
   const { data: conversations = [] } = useQuery<ChatConversation[]>({
@@ -438,13 +445,31 @@ export default function ChatSurface({
     return [...persisted, ...localMessages];
   }, [activeConversation, initialMessages, localMessages]);
 
-  const personaPacks: PersonaPackOption[] = [
-    { id: 'koala', name: 'Koala', label: 'KOALA', desc: 'General Builder' },
-    { id: 'researcher', name: 'Researcher', label: 'RESEARCHER', desc: 'Deep Analysis' },
-    { id: 'harness', name: 'Harness', label: 'HARNESS', desc: 'Workbench System' },
-  ];
+  /**
+   * The packs, from the server.
+   *
+   * This was a literal array of three while the server's registry held two, and the third —
+   * `researcher` — existed in neither. Selecting it posted to a pack the server had never heard of.
+   * The list is a catalogue now, so what the picker offers and what exists are the same set.
+   */
+  const personaPacks: PersonaPackOption[] = useMemo(
+    () => packs.map((p) => ({
+      id: p.slug,
+      name: p.name,
+      label: p.name.toUpperCase(),
+      desc: p.description ?? '',
+    })),
+    [packs],
+  );
 
-  const activePack = personaPacks.find((p) => p.id === currentPackId) ?? personaPacks[0]!;
+  /**
+   * Undefined while the catalogue is still loading, or when the URL names a pack that is gone.
+   *
+   * Deliberately NOT `?? personaPacks[0]`. That fallback is what made the config drawer offer
+   * Framer's settings under Koala's name: asked for something it could not find, it silently
+   * showed the first record it had. A surface that cannot say what it is showing should say so.
+   */
+  const activePack = personaPacks.find((p) => p.id === currentPackId);
 
   const liveTrees = useMemo(
     () => liveState.proposals.filter((p) => p.kind === 'tree').map((p) => p.payload),
@@ -501,7 +526,7 @@ export default function ChatSurface({
               title="Configure persona directives and capability tools"
             >
               <Sparkles size={13} className="text-emerald-400" />
-              <span className="font-medium">{activePack.name}</span>
+              <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
               <Sliders size={11} className="text-slate-400 ml-0.5" />
             </button>
           </div>
@@ -597,7 +622,7 @@ export default function ChatSurface({
             <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 flex flex-col justify-center items-center">
               <div className="w-full max-w-3xl space-y-6">
                 <ChatHero
-                  packName={activePack.name}
+                  packName={activePack?.name ?? 'Koala'}
                   onSelectPrompt={(p) => handleSend(p)}
                   onOpenPersona={() => setShowPersonaDrawer(true)}
                 />
@@ -630,7 +655,7 @@ export default function ChatSurface({
                     <ChatMessageRow
                       key={idx}
                       message={msg}
-                      packLabel={activePack.label}
+                      packLabel={activePack?.label ?? ''}
                     />
                   ))}
 
@@ -644,7 +669,7 @@ export default function ChatSurface({
                         enabled: liveState.enabled,
                         toolCalls: liveState.tools,
                       }}
-                      packLabel={activePack.label}
+                      packLabel={activePack?.label ?? ''}
                       isStreaming={true}
                     />
                   )}

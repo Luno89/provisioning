@@ -8,8 +8,21 @@ import {
   listPersonas, getPersonaOptions, updatePersona,
   personaKeys
 } from '../api/personas.js';
+import { listPacks, updatePack, packKeys, type PersonaPack } from '../api/packs';
 import type { Persona } from './PersonaEditor.js';
 import { errorMessage } from '../api/client.js';
+
+/**
+ * ── WHAT THIS DRAWER EDITS, AND WHY IT CHANGED ──
+ * It listed PERSONAS and called `onSelectPack(persona.id)` — a persona uuid handed to something
+ * expecting a pack. `ChatSurface` put it straight into the `:packId` path segment, so clicking any
+ * persona posted to a pack that did not exist while the header still read "Koala".
+ *
+ * The two are different things and the drawer now says so. A pack is what you SWITCH between and
+ * what carries the runtime — its tools, its permissions, its sampling. The persona it points at
+ * carries the prompt, which is edited here too because a prompt and the tools it talks about are
+ * the same act of configuration.
+ */
 
 export function PersonaConfigDrawer({
   isOpen,
@@ -26,6 +39,12 @@ export function PersonaConfigDrawer({
   const [selectedId, setSelectedId] = useState<string>(activePackId);
 
   // Queries
+  const { data: packs = [] } = useQuery<PersonaPack[]>({
+    queryKey: packKeys.list(),
+    queryFn: listPacks,
+    enabled: isOpen,
+  });
+
   const { data: personas = [] } = useQuery<Persona[]>({
     queryKey: personaKeys.list(),
     queryFn: listPersonas,
@@ -38,9 +57,15 @@ export function PersonaConfigDrawer({
     enabled: isOpen,
   });
 
-  const currentPersona = personas.find(
-    (p) => p.id === selectedId || p.name.toLowerCase() === selectedId.toLowerCase(),
-  ) ?? personas[0];
+  /**
+   * The selected pack, and the persona it names.
+   *
+   * No `?? packs[0]` fallback. That is precisely what made this drawer offer Framer's prompt under
+   * Koala's name: asked for `koala`, finding no persona by that name because Koala was not seeded,
+   * it silently showed the first record it had.
+   */
+  const currentPack = packs.find((p) => p.id === selectedId || p.slug === selectedId);
+  const currentPersona = personas.find((p) => p.id === currentPack?.personaId);
 
   // Local Draft State
   const [draftName, setDraftName] = useState('');
@@ -54,47 +79,50 @@ export function PersonaConfigDrawer({
 
   // Hydrate draft state when selected persona changes
   useEffect(() => {
-    if (currentPersona) {
-      setDraftName(currentPersona.name);
-      setDraftDesc(currentPersona.description ?? '');
-      setDraftPrompt(currentPersona.systemPrompt ?? '');
-      setDraftTemperature(typeof currentPersona.overrides?.temperature === 'number' ? currentPersona.overrides.temperature : 0.7);
-      setDraftTools(currentPersona.scope?.tools ?? []);
-      setDraftMcp(currentPersona.scope?.mcp ?? []);
-      setDraftMaxSteps(currentPersona.scope?.run?.maxSteps ?? 20);
-      setStatusMsg(null);
-    }
-  }, [currentPersona]);
+    if (!currentPack) return;
+    setDraftName(currentPack.name);
+    setDraftDesc(currentPack.description ?? '');
+    // The prompt belongs to the persona; everything else on this form belongs to the pack.
+    setDraftPrompt(currentPersona?.systemPrompt ?? '');
+    setDraftTemperature(
+      typeof currentPack.overrides?.temperature === 'number' ? currentPack.overrides.temperature : 0.7,
+    );
+    setDraftTools(currentPack.tools ?? []);
+    setDraftMcp(currentPersona?.scope?.mcp ?? []);
+    setDraftMaxSteps(
+      typeof currentPack.overrides?.maxSteps === 'number' ? currentPack.overrides.maxSteps : 20,
+    );
+    setStatusMsg(null);
+  }, [currentPack, currentPersona]);
 
-  // Mutation to save persona
+  /**
+   * Two writes, because two records are being edited.
+   *
+   * The pack takes the runtime — its name, its tool grant, its sampling. The persona takes the
+   * prompt. Sending the tools to the persona is what this form used to do, and it is why the
+   * switches did nothing: a chat turn read its tools from the pack and never looked at the persona.
+   */
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!currentPersona) return;
-      const updatedOverrides = {
-        ...(currentPersona.overrides ?? {}),
-        temperature: draftTemperature,
-      };
-      const updatedScope = {
-        ...(currentPersona.scope ?? {}),
-        tools: draftTools,
-        mcp: draftMcp,
-        run: {
-          ...(currentPersona.scope?.run ?? {}),
-          maxSteps: draftMaxSteps,
-        },
-      };
-
-      await updatePersona(currentPersona.id, {
+      if (!currentPack) return;
+      await updatePack(currentPack.id, {
         name: draftName,
         description: draftDesc,
-        systemPrompt: draftPrompt,
-        scope: updatedScope,
-        overrides: updatedOverrides,
+        tools: draftTools,
+        overrides: {
+          ...(currentPack.overrides ?? {}),
+          temperature: draftTemperature,
+          maxSteps: draftMaxSteps,
+        },
       });
+      if (currentPersona && draftPrompt !== (currentPersona.systemPrompt ?? '')) {
+        await updatePersona(currentPersona.id, { systemPrompt: draftPrompt });
+      }
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: packKeys.list() });
       qc.invalidateQueries({ queryKey: personaKeys.list() });
-      setStatusMsg({ type: 'ok', text: 'Persona configuration saved successfully.' });
+      setStatusMsg({ type: 'ok', text: 'Saved.' });
       setTimeout(() => setStatusMsg(null), 3000);
     },
     onError: (err) => {
@@ -172,21 +200,23 @@ export function PersonaConfigDrawer({
           {/* Left Column: Persona Selector */}
           <div className="md:col-span-4 p-3 bg-[var(--bark-950,#090d0b)]/40 space-y-2">
             <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-1">
-              Personas ({personas.length})
+              Packs ({packs.length})
             </div>
 
             <div className="space-y-1">
-              {personas.map((p) => {
-                const isSelected = p.id === selectedId || p.name.toLowerCase() === selectedId.toLowerCase();
-                const isCurrentPack = p.id === activePackId || p.name.toLowerCase() === activePackId.toLowerCase();
+              {packs.map((p) => {
+                const isSelected = p.id === selectedId || p.slug === selectedId;
+                const isCurrentPack = p.id === activePackId || p.slug === activePackId;
 
                 return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => {
-                      setSelectedId(p.id);
-                      onSelectPack(p.id);
+                      setSelectedId(p.slug);
+                      // The SLUG, which is what the route carries. This passed `p.id` — a persona
+                      // uuid — straight into the `:packId` path segment.
+                      onSelectPack(p.slug);
                     }}
                     className={`w-full text-left p-2.5 rounded-md border transition-colors text-xs flex items-center justify-between cursor-pointer ${
                       isSelected
@@ -218,7 +248,7 @@ export function PersonaConfigDrawer({
 
           {/* Right Column: Editor & Tool Config */}
           <div className="md:col-span-8 p-5 space-y-5 bg-[var(--bark-900,#111814)]">
-            {currentPersona ? (
+            {currentPack ? (
               <>
                 {/* Identity & Prompt */}
                 <div className="space-y-3.5">
@@ -355,7 +385,7 @@ export function PersonaConfigDrawer({
               </>
             ) : (
               <div className="text-center py-12 text-slate-500 text-xs font-sans">
-                Select a persona from the list to view and configure its parameters.
+                Select a pack from the list to view and configure how it runs.
               </div>
             )}
           </div>
@@ -387,7 +417,7 @@ export function PersonaConfigDrawer({
 
             <button
               type="button"
-              disabled={saveMutation.isPending || !currentPersona}
+              disabled={saveMutation.isPending || !currentPack}
               onClick={() => saveMutation.mutate()}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors cursor-pointer"
             >

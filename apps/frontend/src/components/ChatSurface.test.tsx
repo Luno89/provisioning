@@ -19,6 +19,20 @@ import * as client from '../api/client.js';
  * same pattern as KoalaChat.test.
  */
 
+/**
+ * The pack catalogue is fetched now, not hardcoded — see `api/packs.ts` for why. A surface with no
+ * catalogue renders "Loading…" rather than guessing, so a test that asserts on a pack's label has
+ * to supply one.
+ */
+vi.mock('../api/packs', async (orig) => ({
+  ...(await orig<typeof import('../api/packs')>()),
+  listPacks: vi.fn(async () => ([{
+    id: 'pack-koala', slug: 'koala', name: 'Koala', description: 'General Builder',
+    personaId: 'p-koala', toolset: 'assistant' as const,
+    tools: [], permitted: ['read', 'write', 'propose'] as const, overrides: {},
+  }])),
+}));
+
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
   openChatPackStream: vi.fn(),
@@ -171,7 +185,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     );
   });
 
-  it('renders avatars for user and assistant messages in conversation stream', () => {
+  it('renders avatars for user and assistant messages in conversation stream', async () => {
     renderWithProviders(
       <ChatSurface
         packId="koala"
@@ -183,7 +197,9 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     );
 
     expect(screen.getByText('You')).toBeInTheDocument();
-    expect(screen.getAllByText('KOALA').length).toBeGreaterThanOrEqual(1);
+    // The pack's label arrives with the catalogue rather than from a hardcoded array, so it appears
+    // on the next tick. The surface shows no name at all until it knows one — see `activePack`.
+    await waitFor(() => expect(screen.getAllByText('KOALA').length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText('What is the cluster status?')).toBeInTheDocument();
     expect(screen.getByText('All 3 nodes are ready.')).toBeInTheDocument();
   });

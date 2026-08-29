@@ -14,7 +14,14 @@ export interface ChatComposerProps {
   onSend: (text?: string) => void;
   onStop: () => void;
   isStreaming: boolean;
-  activePack: PersonaPackOption;
+  /**
+   * The pack this conversation runs as, or undefined while the catalogue is loading.
+   *
+   * Optional because the list is fetched now rather than hardcoded, and the honest answer during
+   * that gap is "not known yet". The alternative — falling back to the first pack in the list —
+   * is what made the config drawer show Framer's settings under Koala's name.
+   */
+  activePack?: PersonaPackOption | undefined;
   personaPacks: PersonaPackOption[];
   onSelectPack: (packId: string) => void;
   onOpenPersonaDrawer: () => void;
@@ -80,7 +87,7 @@ export function ChatComposer({
         value={input}
         onChange={handleTextareaChange}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder ?? `Message ${activePack.name}...`}
+        placeholder={placeholder ?? (activePack ? `Message ${activePack.name}...` : 'Message…')}
         className="w-full bg-transparent border-0 resize-none px-1.5 py-1 text-xs text-slate-100 placeholder-slate-500 focus:outline-none max-h-52 overflow-y-auto leading-relaxed font-sans"
       />
 
@@ -96,7 +103,7 @@ export function ChatComposer({
               title="Select persona pack"
             >
               <Sparkles size={11} className="text-emerald-400" />
-              <span className="font-medium">{activePack.name}</span>
+              <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
               <ChevronDown size={11} className="text-slate-500" />
             </button>
 
@@ -114,7 +121,7 @@ export function ChatComposer({
                       setShowPackMenu(false);
                     }}
                     className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between cursor-pointer transition-colors ${
-                      p.id === activePack.id
+                      p.id === activePack?.id
                         ? 'bg-emerald-950/70 text-emerald-300 font-medium'
                         : 'text-slate-300 hover:bg-[var(--bark-800,#1b2620)]'
                     }`}
