@@ -4,7 +4,9 @@ import { seedTreeTypes } from './tree-types.js';
 import { runKoalaTool, KOALA_TOOL_NAMES, type KoalaToolContext } from './koala-tool-runner.js';
 import { KOALA_TOOLS } from './koala-tools.js';
 import { titleFrom, enabledForSession, withEnabled, type Conversation } from './conversations.js';
-import { buildKoalaPrompt, isChatOnly, koalaSeed, KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
+import { buildKoalaPrompt, KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
+import { PERSONA_SEEDS } from './persona-seeds.js';
+import { canRunLeaf } from './persona-scope.js';
 import { LEAF_TOOLS } from './leaf-tools.js';
 import { acceptLeaf } from './accept-leaf.js';
 
@@ -319,18 +321,18 @@ describe('the prompt Koala is given', () => {
 });
 
 describe('Koala is chat-only', () => {
-  it('is recognised by name, which survives the user editing it', () => {
-    expect(isChatOnly({ name: KOALA_NAME })).toBe(true);
-    expect(isChatOnly({ name: 'koala' })).toBe(true);
-    expect(isChatOnly({ name: 'Builder' })).toBe(false);
-    expect(isChatOnly(null)).toBe(false);
-  });
-
-  it('seeds with no execution settings at all', () => {
-    // language, repo and egress are execution settings, and "anything" is not a toolchain.
-    const seed: any = koalaSeed();
+  it('seeds with no execution settings at all, which is what makes it chat-only', () => {
+    /**
+     * language, repo and egress are execution settings, and "anything" is not a toolchain.
+     *
+     * This used to be asserted through `isChatOnly`, which compared the name to "Koala". The name
+     * was never the reason and the check failed in both directions — rename Koala and it became
+     * assignable to leaves, while every new chat persona was assignable from the day it was
+     * written. `canRunLeaf` reads the absence itself; see persona-seeds.test.ts.
+     */
+    const seed = PERSONA_SEEDS.find((p) => p.name === KOALA_NAME)!;
     expect(seed.scope).toEqual({});
-    expect(seed.name).toBe(KOALA_NAME);
+    expect(canRunLeaf(seed)).toBe(false);
   });
 });
 

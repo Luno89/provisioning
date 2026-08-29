@@ -37,7 +37,6 @@ import { personasRouter } from './routes/personas.js';
 import { personaOptionsRouter } from './routes/persona-options.js';
 import { packsRouter } from './routes/packs.js';
 import { authRouter } from './routes/auth.js';
-import { koalaRouter } from './routes/koala.js';
 import { personaChatRouter } from './routes/chat-pack.js';
 import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
@@ -131,7 +130,7 @@ import {
   titleFrom, enabledForSession, MAX_TOOL_CALL_ARGS, MAX_TOOL_CALL_DIGEST, MAX_TOOL_CALLS_PER_MESSAGE,
   type Conversation, type ProposedTree, type ConversationToolCall,
 } from './lib/conversations.js';
-import { koalaSeed, isChatOnly, buildKoalaPrompt, KOALA_TEMPERATURE, KOALA_PROMPT } from './lib/koala-persona.js';
+import { buildKoalaPrompt } from './lib/koala-persona.js';
 import { seedTools } from './lib/tool-seeds.js';
 import { seedBindingTypes } from './lib/binding-type-seeds.js';
 import { KOALA_TOOLS } from './lib/koala-tools.js';
@@ -1103,25 +1102,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   /**
    * ── THE TWO CHAT ROUTES ──
    *
-   * Separate routers because they speak DIFFERENT wire formats on purpose: `/api/chat` forwards the
-   * provider's raw OpenAI frames byte-for-byte, `/api/koala/chat` uses its own
-   * `{delta}`/`{reasoning}`/`{toolResult}` envelope. Merging them is a later, tested change.
+   * `/api/chat-pack` is the conversation engine: any pack, on the unified frame wire.
+   * `/api/chat` is the branch chat, which still forwards the provider's raw OpenAI frames
+   * byte-for-byte and carries plan mode, ambient extraction and the thinking classifier.
    *
-   * The shared helpers below are passed to both rather than duplicated — `toolRefused` in
-   * particular decides when a round loop stops, and two copies is how the two loops quietly stop
-   * agreeing about what a refusal is.
+   * There used to be a third, `/api/koala`, with a third envelope. It became unreachable when the
+   * frontend moved to the pack surface and is gone; `chat-wire.test.ts` kept passing against it for
+   * a while, which is the shape of a test outliving the thing it guarded.
    */
-  app.use('/api/koala', koalaRouter({
-    db, modelService,
-    projectRepoService,
-    temporalBridge,
-    infraService,
-    infisicalService,
-    jwtSecret: JWT_SECRET,
-    ensureKoala, ensurePersonas, koalaServers,
-    ownedConversations, executeWebSearch, executeFetchWebPage, toolRefused,
-  }));
-
   /** The generic persona-pack chat: any registered pack -> a lived conversation on the unified wire. */
   app.use('/api/chat-pack', personaChatRouter({
     db, modelService,
@@ -1208,34 +1196,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     } catch (err: any) {
       console.warn(`[personas] could not seed: ${err.message}`);
     }
-  }
-
-  async function ensureKoala(userId: string): Promise<Persona> {
-    const mine = await ownedPersonas(userId);
-    const found = mine.find((p) => isChatOnly(p));
-    if (found) {
-      let needsSave = false;
-      if (found.overrides?.temperature === undefined) {
-        found.overrides = { ...(found.overrides ?? {}), temperature: KOALA_TEMPERATURE };
-        needsSave = true;
-      }
-      if (!found.systemPrompt || !found.systemPrompt.includes('Projects & Execution:')) {
-        found.systemPrompt = KOALA_PROMPT;
-        needsSave = true;
-      }
-      if (needsSave) {
-        found.updatedAt = new Date().toISOString();
-        await db.savePersona(found);
-      }
-      return found;
-    }
-    const now = new Date().toISOString();
-    const created = {
-      ...koalaSeed(), id: uuidv4(), ownerId: userId, createdAt: now, updatedAt: now,
-    } as Persona;
-    await db.savePersona(created);
-    console.log(`[personas] created Koala persona for ${userId.slice(0, 8)}`);
-    return created;
   }
 
   /** Everything deployed for this user, healthiest copy per name. Never throws: chat works without it. */

@@ -36,20 +36,6 @@ export const KOALA_PROMPT = [
 
 export const KOALA_TEMPERATURE = 0.7;
 
-export function koalaSeed(): Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'> {
-  return {
-    name: KOALA_NAME,
-    description: 'General chat. Talks things through, operates projects, and proposes new builds.',
-    systemPrompt: KOALA_PROMPT,
-    scope: {},
-    overrides: { temperature: KOALA_TEMPERATURE },
-  } as Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'>;
-}
-
-export function isChatOnly(persona: Pick<Persona, 'name'> | null | undefined): boolean {
-  return (persona?.name ?? '').trim().toLowerCase() === KOALA_NAME.toLowerCase();
-}
-
 /**
  * Universal prompt composer, aliased for backward compatibility.
  */
