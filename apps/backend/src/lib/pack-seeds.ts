@@ -1,6 +1,10 @@
-import type { PersonaPack, PersonaScope, ToolEffect } from '@koala/harness-types';
+import type { PersonaPack, ToolEffect, WorkspaceScope } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
-import { PERSONA_SEEDS } from './persona-seeds.js';
+import { MERGER_PERSONA } from './well-known-personas.js';
+import { RESEARCH_AGENT_STEPS, researchPacing } from './sandbox-tools.js';
+import { WEB_TOOL_NAMES } from './leaf-tools.js';
+
+const TUNED_FOR = 'Tabbyapi-Production';
 
 export interface PackSeed {
   slug: string;
@@ -9,54 +13,177 @@ export interface PackSeed {
   personaName: string;
   toolset: PersonaPack['toolset'];
   tools: string[];
+  mcp?: string[];
   permitted: ToolEffect[];
+  workspace?: WorkspaceScope;
   overrides: PersonaPack['overrides'];
 }
-
-const KOALA_TOOLS_GRANTED = [
-  'propose_tree', 'propose_spec', 'add_project_dependency', 'list_trees',
-  'get_project_pipeline', 'get_project_env', 'set_project_env', 'deploy_project', 'get_project_url',
-  'get_logs', 'get_events', 'inspect_resources', 'cluster_capacity', 'list_infrastructure',
-  'list_mcp_servers', 'enable_mcp_server',
-  'request_escalated_privileges', 'request_secret', 'inject_secret_to_pod',
-  'get_project_secret', 'set_project_secret', 'list_project_secrets',
-  'web_search', 'fetch_web_page',
-];
-
-const WORK_PACKS: PackSeed[] = PERSONA_SEEDS
-  .filter((p) => p.name !== KOALA_NAME)
-  .map((p) => ({
-    slug: p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-    name: p.name,
-    description: p.description ?? '',
-    personaName: p.name,
-    toolset: 'sandbox' as const,
-    tools: [...(p.scope?.tools ?? [])],
-    permitted: ['read', 'write', 'propose'] as ToolEffect[],
-    overrides: { ...(p.overrides ?? {}) },
-  }));
 
 export const PACK_SEEDS: PackSeed[] = [
   {
     slug: 'koala',
-    name: 'Koala',
+    name: KOALA_NAME,
     description: 'General chat. Talks things through, operates projects, and proposes new builds.',
     personaName: KOALA_NAME,
     toolset: 'assistant',
-    tools: KOALA_TOOLS_GRANTED,
+    tools: [
+      'propose_tree', 'propose_spec', 'add_project_dependency', 'list_trees',
+      'get_project_pipeline', 'get_project_env', 'set_project_env', 'deploy_project', 'get_project_url',
+      'get_logs', 'get_events', 'inspect_resources', 'cluster_capacity', 'list_infrastructure',
+      'list_mcp_servers', 'enable_mcp_server',
+      'request_escalated_privileges', 'request_secret', 'inject_secret_to_pod',
+      'get_project_secret', 'set_project_secret', 'list_project_secrets',
+      'web_search', 'fetch_web_page',
+    ],
     permitted: ['read', 'write', 'propose'],
-    overrides: { temperature: 0.7 },
+    overrides: {},
   },
-  ...WORK_PACKS,
+  {
+    slug: 'framer',
+    name: 'Framer',
+    description: 'Breaks a large question into small ones that can each be answered on their own.',
+    personaName: 'Framer',
+    toolset: 'sandbox',
+    tools: ['read_file', 'write_file', 'finish'],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    egress: [],
+    repo: false,
+    language: 'base',
+    output: '/work/questions.md',
+    requireSources: false,
+    tunedFor: TUNED_FOR,
+    run: { maxSteps: 20 },
+    },
+    overrides: { temperature: 0.3 },
+  },
+  {
+    slug: 'researcher',
+    name: 'Researcher',
+    description: 'Answers one narrow question from sources, and cites them.',
+    personaName: 'Researcher',
+    toolset: 'sandbox',
+    tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    repo: false,
+    language: 'base',
+    output: '/work/findings.md',
+    egress: [],
+    tunedFor: TUNED_FOR,
+    run: {
+    maxSteps: RESEARCH_AGENT_STEPS,
+    withdraw: { afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2), tools: [...WEB_TOOL_NAMES] },
+    pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
+    },
+    },
+    overrides: { temperature: 0.4 },
+  },
+  {
+    slug: 'synthesist',
+    name: 'Synthesist',
+    description: 'Turns a pile of separate answers into one piece of writing.',
+    personaName: 'Synthesist',
+    toolset: 'sandbox',
+    tools: ['read_file', 'write_file', 'finish'],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    repo: false,
+    language: 'base',
+    output: '/work/findings.md',
+    requireSources: false,
+    egress: [],
+    tunedFor: TUNED_FOR,
+    run: { maxSteps: 30 },
+    },
+    overrides: { temperature: 0.5 },
+  },
+  {
+    slug: 'merger',
+    name: MERGER_PERSONA,
+    description: 'Resolves merge conflicts when leaves land on the default branch.',
+    personaName: MERGER_PERSONA,
+    toolset: 'sandbox',
+    tools: ['run_command', 'read_file', 'write_file', 'finish'],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    repo: true,
+    egress: [{ namespace: 'gitea', ports: [3000] }],
+    tunedFor: TUNED_FOR,
+    run: { maxSteps: 30 },
+    },
+    overrides: { temperature: 0.2 },
+  },
+  {
+    slug: 'ingestor',
+    name: 'Ingestor',
+    description: 'Crawls sites into the corpus, and answers from it.',
+    personaName: 'Ingestor',
+    toolset: 'sandbox',
+    tools: ['start_ingest', 'ingest_status', 'search_corpus', 'read_file', 'write_file', 'finish'],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    repo: false,
+    language: 'base',
+    output: '/work/findings.md',
+    egress: [],
+    tunedFor: TUNED_FOR,
+    run: { maxSteps: 40 },
+    },
+    overrides: { temperature: 0.3 },
+  },
+  {
+    slug: 'reviewer',
+    name: 'Reviewer',
+    description: 'Reads a failed leaf and says why it failed.',
+    personaName: 'Reviewer',
+    toolset: 'sandbox',
+    tools: [],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    repo: false,
+    language: 'base',
+    },
+    overrides: {},
+  },
+  {
+    slug: 'judge',
+    name: 'Judge',
+    description: 'Reads what a leaf produced and says whether the claim holds up.',
+    personaName: 'Judge',
+    toolset: 'sandbox',
+    tools: [],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    repo: false,
+    language: 'base',
+    },
+    overrides: { temperature: 0.1 },
+  },
+  {
+    slug: 'builder',
+    name: 'Builder',
+    description: 'Writes code in a repository, with tests, and commits it.',
+    personaName: 'Builder',
+    toolset: 'sandbox',
+    tools: ['run_command', 'read_file', 'write_file', 'finish'],
+    permitted: ['read', 'write', 'propose'],
+    workspace: {
+    repo: true,
+    egress: [{ namespace: 'gitea', ports: [3000] }],
+    tunedFor: TUNED_FOR,
+    },
+    overrides: {},
+  },
 ];
+
+export const builtInPackId = (slug: string) => `builtin-pack-${slug}`;
 
 export interface PackSeedStore {
   getPersonaPacks(): Promise<PersonaPack[]>;
   savePersonaPack(pack: PersonaPack): Promise<void>;
-  getPersonas(): Promise<{ id: string; ownerId?: string | undefined; name: string; scope?: PersonaScope }[]>;
+  getPersonas(): Promise<{ id: string; ownerId?: string | undefined; name: string }[]>;
 }
-
-export const builtInPackId = (slug: string) => `builtin-pack-${slug}`;
 
 export async function seedPacks(store: PackSeedStore): Promise<number> {
   const stored = await store.getPersonaPacks();
@@ -77,7 +204,9 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       personaId: persona.id,
       toolset: seed.toolset,
       tools: [...seed.tools],
+      ...(seed.mcp ? { mcp: [...seed.mcp] } : {}),
       permitted: [...seed.permitted],
+      ...(seed.workspace ? { workspace: seed.workspace } : {}),
       overrides: { ...seed.overrides },
       builtIn: true,
       createdAt: prior?.createdAt ?? new Date().toISOString(),
@@ -88,4 +217,14 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
     written++;
   }
   return written;
+}
+
+export function packForLeaf(
+  packs: readonly PersonaPack[],
+  leaf: { packId?: string | undefined },
+  fallbackPackId?: string | undefined,
+): PersonaPack | undefined {
+  const wanted = leaf.packId ?? fallbackPackId;
+  if (!wanted) return undefined;
+  return packs.find((p) => p.id === wanted || p.slug === wanted);
 }

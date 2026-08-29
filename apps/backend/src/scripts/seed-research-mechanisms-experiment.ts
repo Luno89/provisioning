@@ -59,9 +59,9 @@ async function main() {
     updatedAt: now,
     variants: [
       { label: 'no-persona', overrides: { temperature: 0.4 } },
-      { label: 'researcher', overrides: {}, personaId: researcher.id },
-      { label: 'short-budget', overrides: {}, personaId: shortBudget.id },
-      { label: 'search-kept', overrides: {}, personaId: noWithdrawal.id },
+      { label: 'researcher', overrides: {}, packId: researcher.id },
+      { label: 'short-budget', overrides: {}, packId: shortBudget.id },
+      { label: 'search-kept', overrides: {}, packId: noWithdrawal.id },
     ],
     tasks: [
       {

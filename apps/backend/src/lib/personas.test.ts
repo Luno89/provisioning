@@ -7,16 +7,18 @@ const profile = (overrides: Record<string, unknown>): HarnessProfile =>
   ({ ownerId: 'u1', overrides, updatedAt: '2026-08-07T00:00:00.000Z' } as HarnessProfile);
 
 const persona = (over: Partial<Persona> = {}): Persona => ({
-  id: 'p1', ownerId: 'u1', name: 'Reviewer', overrides: {},
+  id: 'p1', ownerId: 'u1', name: 'Reviewer',
   createdAt: '2026-08-07T00:00:00.000Z', updatedAt: '2026-08-07T00:00:00.000Z',
   ...over,
 });
 
+const pack = (overrides: Record<string, unknown> = {}) => ({ overrides });
+
 describe('resolveConfig', () => {
-  it('narrows scope at each step: profile, then persona, then request', () => {
+  it('narrows scope at each step: profile, then pack, then request', () => {
     const resolved = resolveConfig(
       profile({ temperature: 0, think: false }),
-      persona({ overrides: { temperature: 0.4 } }),
+      pack({ temperature: 0.4 }),
       { temperature: 0.9 },
     );
 
@@ -27,30 +29,28 @@ describe('resolveConfig', () => {
   it('records which layer supplied each key', () => {
     const resolved = resolveConfig(
       profile({ temperature: 0, think: false, maxSteps: 12 }),
-      persona({ overrides: { temperature: 0.4 } }),
+      pack({ temperature: 0.4 }),
       { maxSteps: 30 },
     );
 
     expect(resolved.from).toEqual({
-      pack: [], profile: ['think'],
-      persona: ['temperature'],
-      request: ['maxSteps'],
+      pack: ['temperature'], profile: ['think'], request: ['maxSteps'],
     });
   });
 
   it('lets a later layer opt out of an adopted default without knowing its value', () => {
     const resolved = resolveConfig(
       profile({ temperature: 0, think: true }),
-      persona({ overrides: { think: null } }),
+      pack({ think: null }),
     );
 
     expect('think' in resolved.overrides).toBe(false);
-    expect(resolved.from.persona).toEqual([]);
+    expect(resolved.from.pack).toEqual([]);
     expect(resolved.from.profile).toEqual(['temperature']);
   });
 
   it('carries the persona prompt separately from the sampler bag', () => {
-    const resolved = resolveConfig(null, persona({ systemPrompt: 'You review code.' }));
+    const resolved = resolveConfig(null, null, {}, persona({ systemPrompt: 'You review code.' }));
 
     expect(resolved.systemPrompt).toBe('You review code.');
     expect(resolved.overrides.systemPrompt).toBeUndefined();
@@ -59,7 +59,9 @@ describe('resolveConfig', () => {
   it('prefers the persona’s own prompt over one left in its overrides bag', () => {
     const resolved = resolveConfig(
       null,
-      persona({ systemPrompt: 'current', overrides: { systemPrompt: 'stale' } }),
+      pack({ systemPrompt: 'stale' }),
+      {},
+      persona({ systemPrompt: 'current' }),
     );
 
     expect(resolved.systemPrompt).toBe('current');
@@ -69,12 +71,12 @@ describe('resolveConfig', () => {
     const resolved = resolveConfig(null, null, { temperature: 0.5 });
 
     expect(resolved.overrides).toEqual({ temperature: 0.5 });
-    expect(resolved.from).toEqual({ pack: [], profile: [], persona: [], request: ['temperature'] });
+    expect(resolved.from).toEqual({ pack: [], profile: [], request: ['temperature'] });
     expect(resolved.systemPrompt).toBeUndefined();
   });
 
   it('treats a blank persona prompt as no prompt rather than an empty system message', () => {
-    const resolved = resolveConfig(null, persona({ systemPrompt: '   ' }));
+    const resolved = resolveConfig(null, null, {}, persona({ systemPrompt: '   ' }));
     expect(resolved.systemPrompt).toBeUndefined();
   });
 });
@@ -101,58 +103,52 @@ describe('validatePersona', () => {
 });
 
 describe('the pack layer', () => {
-  it('beats the persona, because it says how that persona is being run', () => {
+  it('supplies the runtime, and the persona supplies only the prompt', () => {
     const resolved = resolveConfig(
       null,
-      { id: 'p', name: 'Koala', overrides: { temperature: 0.7 } } as never,
+      pack({ temperature: 0.1 }),
       {},
-      { overrides: { temperature: 0.1 } },
+      persona({ systemPrompt: 'Terse.' }),
     );
     expect(resolved.overrides.temperature).toBe(0.1);
+    expect(resolved.systemPrompt).toBe('Terse.');
     expect(resolved.from.pack).toEqual(['temperature']);
-    expect(resolved.from.persona).toEqual([]);
   });
 
-  it('still loses to the request, which is this one turn', () => {
-    const resolved = resolveConfig(null, null, { temperature: 0.9 }, { overrides: { temperature: 0.1 } });
+  it('loses to the request, which is this one turn', () => {
+    const resolved = resolveConfig(null, pack({ temperature: 0.1 }), { temperature: 0.9 });
     expect(resolved.overrides.temperature).toBe(0.9);
     expect(resolved.from.request).toEqual(['temperature']);
   });
 
-  it('is absent for every caller that has not moved yet', () => {
-    const without = resolveConfig(null, { id: 'p', name: 'K', overrides: { temperature: 0.7 } } as never);
-    expect(without.overrides.temperature).toBe(0.7);
-    expect(without.from.persona).toEqual(['temperature']);
-    expect(without.from.pack).toEqual([]);
+  it('beats the profile, which is a standing default', () => {
+    const resolved = resolveConfig(profile({ temperature: 0.5 }), pack({ temperature: 0.1 }));
+    expect(resolved.overrides.temperature).toBe(0.1);
+    expect(resolved.from.pack).toEqual(['temperature']);
+    expect(resolved.from.profile).toEqual([]);
   });
 });
 
-describe('personas as experiment arms', () => {
-  const reviewer = persona({ id: 'p-rev', name: 'Reviewer', systemPrompt: 'Terse.', overrides: { temperature: 0.1 } });
-  const explorer = persona({ id: 'p-exp', name: 'Explorer', systemPrompt: 'Curious.', overrides: { temperature: 0.9, think: true } });
+describe('packs as experiment arms', () => {
+  const terse = pack({ temperature: 0.1 });
+  const curious = pack({ temperature: 0.9, think: true });
 
-  it('gives each arm its own persona’s configuration', () => {
-    const a = resolveConfig(null, reviewer, {});
-    const b = resolveConfig(null, explorer, {});
-
-    expect(a.overrides.temperature).toBe(0.1);
-    expect(a.systemPrompt).toBe('Terse.');
-    expect(b.overrides.temperature).toBe(0.9);
-    expect(b.systemPrompt).toBe('Curious.');
+  it('gives each arm its own complete runtime', () => {
+    expect(resolveConfig(null, terse).overrides.temperature).toBe(0.1);
+    expect(resolveConfig(null, curious).overrides.temperature).toBe(0.9);
+    expect(resolveConfig(null, curious).overrides.think).toBe(true);
   });
 
-  it('lets an arm borrow a persona and change one knob', () => {
-    const hotter = resolveConfig(null, reviewer, { temperature: 0.8 });
-
+  it('lets an arm borrow a pack and change one knob', () => {
+    const hotter = resolveConfig(null, terse, { temperature: 0.8 }, persona({ systemPrompt: 'Terse.' }));
     expect(hotter.overrides.temperature).toBe(0.8);
     expect(hotter.systemPrompt).toBe('Terse.');
-    expect(hotter.from).toEqual({ pack: [], profile: [], persona: [], request: ['temperature'] });
+    expect(hotter.from).toEqual({ pack: [], profile: [], request: ['temperature'] });
   });
 
-  it('keeps persona and profile provenance apart in the record', () => {
-    const resolved = resolveConfig(profile({ maxSteps: 20 }), explorer, {});
-
+  it('keeps pack and profile provenance apart in the record', () => {
+    const resolved = resolveConfig(profile({ maxSteps: 20 }), curious, {});
     expect(resolved.from.profile).toEqual(['maxSteps']);
-    expect(resolved.from.persona).toEqual(['temperature', 'think']);
+    expect(resolved.from.pack).toEqual(['temperature', 'think']);
   });
 });

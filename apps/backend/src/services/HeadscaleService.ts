@@ -40,8 +40,7 @@ export class HeadscaleService {
         this.apiKeyCache = candidate;
         return candidate;
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     const { stdout } = await execFileAsync('docker', [
       'exec', CONTAINER_NAME, 'headscale', 'apikeys', 'create', '--expiration', '87600h',

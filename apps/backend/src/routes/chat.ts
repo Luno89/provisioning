@@ -127,7 +127,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
   }
 
   router.post('/', async (req, res) => {
-    const { modelId, messages, stream = true, leafId, branchId, mode: rawMode, personaId, ...rest } = req.body ?? {};
+    const { modelId, messages, stream = true, leafId, branchId, mode: rawMode, packId, ...rest } = req.body ?? {};
     const mode: ChatMode = isChatMode(rawMode) ? rawMode : 'auto';
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'messages is required' });
@@ -150,16 +150,22 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       }
     }
 
-    const chatPersona = personaId
-      ? (await db.getPersonas()).find((p) => p.id === String(personaId) && p.ownerId === (req as any).user.id) ?? null
+    const uid = (req as any).user.id;
+    const chatPack = packId
+      ? (await db.getPersonaPacks()).find((p) => (p.id === String(packId) || p.slug === String(packId))
+          && (p.ownerId === undefined || p.ownerId === uid)) ?? null
       : null;
-    if (personaId && !chatPersona) {
-      return res.status(404).json({ error: 'No such persona' });
+    if (packId && !chatPack) {
+      return res.status(404).json({ error: 'No such pack' });
     }
+    const chatPersona = chatPack
+      ? (await db.getPersonas()).find((p) => p.id === chatPack.personaId) ?? null
+      : null;
     const resolved = resolveConfig(
-      await db.getHarnessProfile((req as any).user.id),
-      chatPersona,
+      await db.getHarnessProfile(uid),
+      chatPack,
       rest,
+      chatPersona,
     );
 
     const planning = command.command === 'plan' || mode === 'plan';
@@ -182,7 +188,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const conventions = conventionsOf(planTreeType);
     const fileConventions = conventions ? describeConventions(conventions) : undefined;
     const toolRegistry = await db.getTools();
-    const activeToolNames = offerTools ? (chatPersona?.scope?.tools ?? LEAF_TOOLS.map((t) => t.function.name)) : [];
+    const activeToolNames = offerTools ? (chatPack?.tools?.length ? chatPack.tools : LEAF_TOOLS.map((t) => t.function.name)) : [];
     const historyChars = JSON.stringify(messages).length;
     const personaPrompt = resolved.systemPrompt
       ? composePersonaPrompt(resolved.systemPrompt, {
@@ -236,9 +242,9 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     try {
     let chatMcp = NO_CHAT_MCP;
     try {
-      if (wantsMcp(chatPersona).length) {
+      if (wantsMcp(chatPack).length) {
         const reg = new McpRegistryService(db, (req as any).user.id, (n: string) => resolveMcpProbeUrl(n));
-        chatMcp = chatMcpFor(chatPersona, await reg.listWithTools(), (srv, tool, a) => reg.call(srv, tool, a));
+        chatMcp = chatMcpFor(chatPack, await reg.listWithTools(), (srv, tool, a) => reg.call(srv, tool, a));
         if (chatMcp.missing.length) {
           console.warn(`[chat] persona named MCP servers that are not usable — ${chatMcp.missing.join(', ')}`);
         }
@@ -544,8 +550,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
         const outcome = wasInterrupted ? 'failure' : 'success';
         const updatedProfile = updateModelProfile(globalProfile, targetModelId, finalFeatures, outcome);
         await db.saveModelThinkingProfile?.(updatedProfile);
-      } catch {
-      }
+      } catch { /* ignored */ }
 
       if (content && branchId) {
         try {

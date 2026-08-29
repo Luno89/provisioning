@@ -178,8 +178,7 @@ function findTaskObject(
             const payload = parsed?.[key];
             const usable = key === 'tasks' ? Array.isArray(payload) : Boolean(payload) && typeof payload === 'object';
             if (usable) return { start: i, end: j + 1, json };
-          } catch {
-          }
+          } catch { /* ignored */ }
           break;
         }
       }

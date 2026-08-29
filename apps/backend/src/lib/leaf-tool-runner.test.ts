@@ -17,8 +17,9 @@ const ctx = (over: Partial<LeafToolContext> = {}): LeafToolContext => ({
 const call = (name: string, args: Record<string, unknown> = {}) =>
   ({ name, arguments: JSON.stringify(args) });
 
-const persona = (over: Partial<Persona> = {}): Persona => ({
-  id: 'p-coder', ownerId: 'u1', name: 'Coder', description: 'Writes code.', overrides: {},
+const persona = (over: Record<string, unknown> = {}): any => ({
+  id: 'p-coder', ownerId: 'u1', name: 'Coder', description: 'Writes code.', slug: 'coder',
+  personaId: 'p1', toolset: 'sandbox', tools: [], permitted: ['read'], 
   createdAt: '2026-08-07T00:00:00.000Z', updatedAt: '2026-08-07T00:00:00.000Z',
   ...over,
 });
@@ -48,17 +49,17 @@ describe('propose_leaf', () => {
 
 describe('assigning a persona', () => {
   it('resolves a persona by the name the model was shown', async () => {
-    await db.savePersona(persona());
+    await db.savePersonaPack(persona() as never);
     await runLeafTool(ctx(), call('propose_leaf', { title: 'Write the client', persona: 'Coder' }));
 
     const [leaf] = await leavesOnBranch();
-    expect(leaf!.personaId).toBe('p-coder');
+    expect(leaf!.packId).toBe('p-coder');
   });
 
   it('matches case-insensitively, since the model retypes the name', async () => {
-    await db.savePersona(persona());
+    await db.savePersonaPack(persona() as never);
     await runLeafTool(ctx(), call('propose_leaf', { title: 'x', persona: '  coder ' }));
-    expect((await leavesOnBranch())[0]!.personaId).toBe('p-coder');
+    expect((await leavesOnBranch())[0]!.packId).toBe('p-coder');
   });
 
   it('keeps the leaf when the persona name matches nothing', async () => {
@@ -67,18 +68,18 @@ describe('assigning a persona', () => {
     expect(out.error).toBeUndefined();
     const [leaf] = await leavesOnBranch();
     expect(leaf!.title).toBe('x');
-    expect(leaf!.personaId).toBeUndefined();
+    expect(leaf!.packId).toBeUndefined();
   });
 
   it('will not assign another user’s persona', async () => {
-    await db.savePersona(persona({ ownerId: 'someone-else' }));
+    await db.savePersonaPack(persona({ ownerId: 'someone-else' }) as never);
     await runLeafTool(ctx(), call('propose_leaf', { title: 'x', persona: 'Coder' }));
 
-    expect((await leavesOnBranch())[0]!.personaId).toBeUndefined();
+    expect((await leavesOnBranch())[0]!.packId).toBeUndefined();
   });
 
   it('lists personas by name and purpose, and nothing else', async () => {
-    await db.savePersona(persona({ overrides: { temperature: 0.1 }, systemPrompt: 'secret-ish' }));
+    await db.savePersonaPack(persona({ systemPrompt: 'secret-ish' }) as never);
     const out = JSON.parse(await runLeafTool(ctx(), call('list_personas')));
 
     expect(out.personas).toEqual([{ name: 'Coder', description: 'Writes code.' }]);

@@ -4,7 +4,7 @@ import { RESET_TO_DEFAULT } from './harness-profile.js';
 
 export type { Persona };
 
-export type OverrideSource = 'profile' | 'persona' | 'pack' | 'request';
+export type OverrideSource = 'profile' | 'pack' | 'request';
 
 export interface ResolvedConfig {
   overrides: Overrides;
@@ -14,13 +14,12 @@ export interface ResolvedConfig {
 
 export function resolveConfig(
   profile: HarnessProfile | null,
-  persona: Persona | null,
+  pack: { overrides?: Overrides } | null,
   request: Overrides = {},
-  pack: { overrides?: Overrides; systemPrompt?: string } | null = null,
+  persona?: { systemPrompt?: string } | null,
 ): ResolvedConfig {
   const layers: [OverrideSource, Overrides][] = [
     ['profile', profile?.overrides ?? {}],
-    ['persona', persona?.overrides ?? {}],
     ['pack', pack?.overrides ?? {}],
     ['request', request],
   ];
@@ -41,7 +40,7 @@ export function resolveConfig(
     }
   }
 
-  const from: Record<OverrideSource, string[]> = { profile: [], persona: [], pack: [], request: [] };
+  const from: Record<OverrideSource, string[]> = { profile: [], pack: [], request: [] };
   for (const [key, source] of owner) from[source].push(key);
   for (const source of Object.keys(from) as OverrideSource[]) from[source].sort();
 

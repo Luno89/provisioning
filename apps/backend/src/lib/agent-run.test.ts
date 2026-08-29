@@ -8,8 +8,8 @@ const web = { search: async () => [], fetchPage: async () => '', sources: {} } a
 const inputs = (over = {}) => ({ taskContext: 'do the thing', sandbox, overrides: {}, ...over });
 
 const researcher = {
-  scope: {
-    tools: ['web_search', 'fetch_web_page', 'write_file', 'finish'],
+  tools: ['web_search', 'fetch_web_page', 'write_file', 'finish'],
+  workspace: {
     run: {
       maxSteps: 100,
       withdraw: { afterStep: 50, tools: ['web_search'] },
@@ -29,14 +29,14 @@ describe('assembling an agent run from a persona', () => {
 
   it('reads the whole environment off the persona', () => {
     const o = agentRunOptions(researcher, inputs({ web }));
-    expect(o.allowTools).toEqual(researcher.scope.tools);
+    expect(o.allowTools).toEqual(researcher.tools);
     expect(o.maxSteps).toBe(100);
     expect(o.pacing).toEqual([{ atRemaining: 50, message: 'write it now' }]);
     expect(o.withdrawTools).toEqual({ afterStep: 50, names: ['web_search'] });
   });
 
   it('leaves the loop defaults alone for a persona that declares nothing', () => {
-    const o = agentRunOptions({ scope: {} }, inputs({ web }));
+    const o = agentRunOptions({ tools: [], workspace: {} }, inputs({ web }));
     expect(o.allowTools).toBeUndefined();
     expect(o.maxSteps).toBeUndefined();
     expect(o.pacing).toBeUndefined();
@@ -46,7 +46,7 @@ describe('assembling an agent run from a persona', () => {
   it('offers the web only when the persona asked AND the caller could build it', () => {
     expect(agentRunOptions(researcher, inputs({ web })).web).toBe(web);
     expect(agentRunOptions(researcher, inputs()).web).toBeUndefined();
-    expect(agentRunOptions({ scope: { tools: ['write_file'] } }, inputs({ web })).web).toBeUndefined();
+    expect(agentRunOptions({ tools: ['write_file'] }, inputs({ web })).web).toBeUndefined();
   });
 
   it('omits provenance rather than sending empty lists', () => {
@@ -62,9 +62,9 @@ describe('assembling an agent run from a persona', () => {
 describe('whether a persona needs the web', () => {
   it('is read from the toolset, not a second flag', () => {
     expect(wantsWeb(researcher)).toBe(true);
-    expect(wantsWeb({ scope: { tools: ['fetch_web_page'] } })).toBe(true);
-    expect(wantsWeb({ scope: { tools: ['run_command', 'finish'] } })).toBe(false);
-    expect(wantsWeb({ scope: {} })).toBe(false);
+    expect(wantsWeb({ tools: ['fetch_web_page'] })).toBe(true);
+    expect(wantsWeb({ tools: ['run_command', 'finish'] })).toBe(false);
+    expect(wantsWeb({ tools: [] })).toBe(false);
     expect(wantsWeb(null)).toBe(false);
   });
 });
@@ -77,8 +77,8 @@ describe('a persona reaching the services this harness built', () => {
 
   it('asks for nothing unless the persona named something', () => {
     expect(wantsMcp(null)).toEqual([]);
-    expect(wantsMcp({ scope: {} } as never)).toEqual([]);
-    expect(wantsMcp({ scope: { mcp: ['weather'] } } as never)).toEqual(['weather']);
+    expect(wantsMcp({ workspace: {} } as never)).toEqual([]);
+    expect(wantsMcp({ mcp: ['weather'] } as never)).toEqual(['weather']);
   });
 
   it('lets an allowlisting persona still reach a remote tool', () => {
@@ -92,7 +92,7 @@ describe('a persona reaching the services this harness built', () => {
 
   it('passes the tools and the handler through to the loop', () => {
     const callRemote = async () => undefined;
-    const opts = agentRunOptions({ scope: { mcp: ['weather'], tools: ['run_command'] } } as never, {
+    const opts = agentRunOptions({ tools: ['run_command'], workspace: { mcp: ['weather'],} } as never, {
       taskContext: 'x', overrides: {}, sandbox: {} as never,
       remoteTools: [remote('weather__get-forecast')],
       remoteToolNames: ['weather__get-forecast'],
@@ -104,7 +104,7 @@ describe('a persona reaching the services this harness built', () => {
   });
 
   it('offers nothing when the caller resolved nothing', () => {
-    const opts = agentRunOptions({ scope: { mcp: ['weather'] } } as never, {
+    const opts = agentRunOptions({ mcp: ['weather'] } as never, {
       taskContext: 'x', overrides: {}, sandbox: {} as never,
     });
     expect(opts.remoteTools).toBeUndefined();

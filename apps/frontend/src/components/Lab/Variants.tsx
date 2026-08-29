@@ -8,7 +8,7 @@ import {
   type EffectiveKnob, type Experiment, type HarnessProfile, type Tunable, errorMessage,
 } from './shared';
 import { updateExperiment } from '../../api/harness';
-import { listPersonas } from '../../api/personas';
+import { listPacks } from '../../api/packs';
 
 export function VariantPanel({ experiment, tunables, effective, prompts, profile, disabled, onSaved,
 }: {
@@ -22,8 +22,8 @@ export function VariantPanel({ experiment, tunables, effective, prompts, profile
 }) {
   const [shown, setShown] = useState<string | null>(null);
   const { data: personas } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ['personas'],
-    queryFn: listPersonas,
+    queryKey: ['packs'],
+    queryFn: listPacks,
   });
   const [draft, setDraft] = useState<Record<string, Record<string, unknown>> | null>(null);
   const [error, setError] = useState('');
@@ -35,7 +35,7 @@ export function VariantPanel({ experiment, tunables, effective, prompts, profile
         variants: experiment.variants.map((v) => ({
           label: v.label,
           overrides: draft?.[v.label] ?? v.overrides,
-          ...(personaFor(v.label) ? { personaId: personaFor(v.label) } : {}),
+          ...(personaFor(v.label) ? { packId: personaFor(v.label) } : {}),
         })),
       },
     ),
@@ -45,12 +45,12 @@ export function VariantPanel({ experiment, tunables, effective, prompts, profile
 
   const [personaDraft, setPersonaDraft] = useState<Record<string, string> | null>(null);
   const personaFor = (label: string) =>
-    personaDraft?.[label] ?? experiment.variants.find((v) => v.label === label)?.personaId ?? '';
+    personaDraft?.[label] ?? experiment.variants.find((v) => v.label === label)?.packId ?? '';
 
   const editing = draft !== null;
   const beginEdit = () => {
     setDraft(Object.fromEntries(experiment.variants.map((v) => [v.label, { ...v.overrides }])));
-    setPersonaDraft(Object.fromEntries(experiment.variants.map((v) => [v.label, v.personaId ?? ''])));
+    setPersonaDraft(Object.fromEntries(experiment.variants.map((v) => [v.label, v.packId ?? ''])));
     setError('');
   };
   const overridesFor = (label: string) =>

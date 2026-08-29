@@ -202,21 +202,28 @@ describe('what a leaf leaves behind', () => {
 });
 
 describe('personas on a leaf', () => {
-  const withPersona = async (leafOver: Partial<Leaf>, personas: any[], profile?: Record<string, unknown>) => {
+  const withPersona = async (leafOver: Partial<Leaf>, packs: any[], profile?: Record<string, unknown>) => {
     const fresh = await seeded([leaf(leafOver)], profile);
-    for (const p of personas) await fresh.savePersona(p);
+    for (const p of packs) {
+      await fresh.savePersonaPack(p);
+      await fresh.savePersona({
+        id: p.personaId, ownerId: p.ownerId, name: p.name, systemPrompt: p.systemPrompt,
+        createdAt: p.createdAt, updatedAt: p.updatedAt,
+      } as never);
+    }
     return fresh;
   };
 
   const reviewer = {
-    id: 'persona-1', ownerId: 'u1', name: 'Reviewer',
+    id: 'persona-1', ownerId: 'u1', slug: 'reviewer', name: 'Reviewer',
+    personaId: 'rev-persona', toolset: 'sandbox', tools: [], permitted: ['read'],
     systemPrompt: 'You are terse and you review.',
     overrides: { temperature: 0.1 },
     createdAt: '2026-08-07T00:00:00.000Z', updatedAt: '2026-08-07T00:00:00.000Z',
   };
 
   it('runs a leaf under its assigned persona', async () => {
-    db = await withPersona({ personaId: 'persona-1' }, [reviewer]);
+    db = await withPersona({ packId: 'persona-1' }, [reviewer]);
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
@@ -225,7 +232,7 @@ describe('personas on a leaf', () => {
   });
 
   it('lets the persona beat the adopted default, since assigning one is the more specific act', async () => {
-    db = await withPersona({ personaId: 'persona-1' }, [reviewer], { temperature: 0.9, think: true });
+    db = await withPersona({ packId: 'persona-1' }, [reviewer], { temperature: 0.9, think: true });
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
@@ -235,7 +242,7 @@ describe('personas on a leaf', () => {
   });
 
   it('runs with no persona when the id dangles, rather than failing', async () => {
-    db = await withPersona({ personaId: 'deleted' }, [], { temperature: 0.9 });
+    db = await withPersona({ packId: 'deleted' }, [], { temperature: 0.9 });
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
@@ -243,7 +250,7 @@ describe('personas on a leaf', () => {
   });
 
   it('will not run a leaf under another user’s persona', async () => {
-    db = await withPersona({ personaId: 'persona-1' }, [{ ...reviewer, ownerId: 'someone-else' }]);
+    db = await withPersona({ packId: 'persona-1' }, [{ ...reviewer, ownerId: 'someone-else' }]);
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
@@ -275,8 +282,9 @@ describe('what a finished leaf leaves to read', () => {
 
 describe('saving a leaf partway through', () => {
   const researcher = {
-    id: 'p-res', ownerId: 'u1', name: 'Researcher',
-    scope: { output: '/work/findings.md', requireSources: false },
+    id: 'p-res', ownerId: 'u1', slug: 'researcher', name: 'Researcher',
+    personaId: 'res-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+    workspace: { output: '/work/findings.md', requireSources: false },
     createdAt: 'x', updatedAt: 'x',
   };
 
@@ -289,8 +297,8 @@ describe('saving a leaf partway through', () => {
       saved = await o.checkpoint?.({ number: 1, handoff: { done: 'd', next: 'n' }, tokensUsed: 100, maxTokens: 300 });
       return { succeeded: true, summary: 'done', tokensUsed: 120, completionTokensUsed: 30, transcript: [] };
     });
-    db = await seeded([leaf({ personaId: 'p-res' })]);
-    await db.savePersona(researcher as any);
+    db = await seeded([leaf({ packId: 'p-res' })]);
+    await db.savePersonaPack(researcher as any);
     await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
     return { saved, record: (await db.getLeaves()).find((l) => l.id === 'leaf-1')! };
   };
@@ -312,7 +320,7 @@ describe('saving a leaf partway through', () => {
 
   it('reports which check the deliverable currently fails', async () => {
     const { saved } = await withOneCheckpoint('too short');
-    expect(saved.artifact).toContain(researcher.scope.output);
+    expect(saved.artifact).toContain(researcher.workspace.output);
     expect(saved.artifact).toMatch(/unverified|failed/);
   });
 
@@ -325,8 +333,8 @@ describe('saving a leaf partway through', () => {
         .catch(() => { threw = true; return undefined; });
       return { succeeded: true, summary: 'done', tokensUsed: 120, completionTokensUsed: 30, transcript: [] };
     });
-    db = await seeded([leaf({ personaId: 'p-res' })]);
-    await db.savePersona(researcher as any);
+    db = await seeded([leaf({ packId: 'p-res' })]);
+    await db.savePersonaPack(researcher as any);
     await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
 
     expect(threw).toBe(false);
@@ -449,11 +457,13 @@ describe('when the run diagnoses itself', () => {
 
 describe('what the tree type decides', () => {
   const onTree = async (type: string, personaScope: Record<string, unknown> = {}) => {
-    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type, projectIds: [] } as never);
-    await db.savePersona({
-      id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: personaScope,
+    await db.savePersonaPack({
+      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona',
+      toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+      workspace: personaScope, createdAt: 'x', updatedAt: 'x',
     } as never);
     await seedTreeTypes(db, 'u1');
     await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
@@ -478,10 +488,14 @@ describe('what the tree type decides', () => {
 
 describe('the verify command follows the same language as the workspace', () => {
   const verifyOn = async (language: string, personaScope: Record<string, unknown> = { repo: true }) => {
-    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersona({ id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: personaScope } as never);
+    await db.savePersonaPack({
+      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona',
+      toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+      workspace: personaScope, createdAt: 'x', updatedAt: 'x',
+    } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language, produces: 'service', doneMeans: 'it runs', files: [],
@@ -506,10 +520,10 @@ describe('the verify command follows the same language as the workspace', () => 
 
 describe('validationRecipe evaluates during post-run verification and enables merge', () => {
   it('runs validation recipe checks during post-run verification', async () => {
-    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersona({ id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: { repo: true } } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -528,10 +542,10 @@ describe('validationRecipe evaluates during post-run verification and enables me
 
 describe('worker <-> validator iterative loop', () => {
   it('hands failing validation back to worker and succeeds when resolved on next round', async () => {
-    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersona({ id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: { repo: true } } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -571,10 +585,10 @@ describe('worker <-> validator iterative loop', () => {
   });
 
   it('recovers when worker circles in round 1 after making changes and fixes in round 2', async () => {
-    db = await seeded([leaf({ branchId: 'b1', personaId: 'p1' } as never)]);
+    db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersona({ id: 'p1', ownerId: 'u1', name: 'Worker', systemPrompt: '', scope: { repo: true } } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -622,16 +636,15 @@ describe('worker <-> validator iterative loop', () => {
     expect(saved?.checks?.verify?.outcome).toBe('passed');
   });
 
-  it('does not run tree code validation recipe on document/framing personas', async () => {
-    db = await seeded([leaf({ branchId: 'b1', personaId: 'p-framer' } as never)]);
+  it('does not run tree code validation recipe on document/framing packs', async () => {
+    db = await seeded([leaf({ branchId: 'b1', packId: 'p-framer' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'api-service', projectIds: [] } as never);
-    await db.savePersona({
-      id: 'p-framer',
-      ownerId: 'u1',
-      name: 'Framer',
-      systemPrompt: '',
-      scope: { repo: false, output: '/work/questions.md', requireSources: false },
+    await db.savePersonaPack({
+      id: 'p-framer', ownerId: 'u1', slug: 'framer', name: 'Framer', personaId: 'framer-persona',
+      toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+      workspace: { repo: false, output: '/work/questions.md', requireSources: false },
+      createdAt: 'x', updatedAt: 'x',
     } as never);
     await db.saveTreeType({
       id: 'api-service', ownerId: 'u1', label: 'API Service', summary: 's',

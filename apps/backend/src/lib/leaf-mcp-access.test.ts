@@ -45,7 +45,7 @@ describe('the leaf\'s servers reach the executor', () => {
   const activity = readFileSync(join(here, '../activities/ExecuteLeafActivity.ts'), 'utf8');
 
   it('merges the leaf\'s names with the persona\'s instead of replacing them', () => {
-    expect(activity).toMatch(/new Set\(\[\.\.\.wantsMcp\(persona\), \.\.\.\(leaf\?\.mcp \?\? \[\]\)\]\)/);
+    expect(activity).toMatch(/new Set\(\[\.\.\.wantsMcp\(pack\), \.\.\.\(leaf\?\.mcp \?\? \[\]\)\]\)/);
   });
 
   it('still short-circuits when neither named anything', () => {
@@ -53,7 +53,7 @@ describe('the leaf\'s servers reach the executor', () => {
   });
 
   it('leaves the persona reader itself alone', () => {
-    expect(wantsMcp({ scope: { mcp: ['a'] } } as any)).toEqual(['a']);
+    expect(wantsMcp({ mcp: ['a'] } as any)).toEqual(['a']);
     expect(wantsMcp({ scope: {} } as any)).toEqual([]);
     expect(wantsMcp(null)).toEqual([]);
   });

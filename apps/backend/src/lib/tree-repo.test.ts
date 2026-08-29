@@ -3,12 +3,11 @@ import { usesRepo, personaWorkspace } from './persona-scope.js';
 import { primaryProjectId, withProject } from './trees.js';
 import { inRepo, REPO_MOUNT } from './leaf-checkout.js';
 import { WORKSPACE_IMAGES } from './workspace-spec.js';
-import type { Persona } from '@koala/harness-types';
+import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
 import type { Tree } from './trees.js';
 
-const persona = (scope: Partial<NonNullable<Persona['scope']>> = {}): Persona => ({
-  id: 'p1', ownerId: 'u1', name: 'P', systemPrompt: '', scope: { ...scope },
-} as Persona);
+const persona = (workspace: WorkspaceScope = {}) =>
+  ({ id: 'p1', name: 'P', tools: [], workspace }) as unknown as PersonaPack;
 
 describe('what the record decides', () => {
   it('gives a checkout to whatever declares one, document or code', () => {
@@ -25,8 +24,8 @@ describe('what the record decides', () => {
     const document = persona({ repo: true, output: '/work/repo/findings.md' });
     const code = persona({ repo: true });
 
-    expect(Boolean(document.scope?.output)).toBe(true);
-    expect(Boolean(code.scope?.output)).toBe(false);
+    expect(Boolean(document.workspace?.output)).toBe(true);
+    expect(Boolean(code.workspace?.output)).toBe(false);
   });
 });
 
@@ -78,7 +77,7 @@ describe('the image a cloning persona needs', () => {
 });
 
 describe('the image a checkout needs', () => {
-  const prose = { id: 'p', ownerId: 'u1', name: 'Researcher', systemPrompt: '', scope: { language: 'base' } } as never;
+  const prose = { id: 'p', ownerId: 'u1', name: 'Researcher', systemPrompt: '', workspace: { language: 'base' } } as never;
   const ids = { leafId: 'l1', ownerId: 'u1' };
 
   it('gives a prose leaf with a checkout an image that can clone', () => {

@@ -61,8 +61,7 @@ export class ExperimentService {
   ): void {
     try {
       this.io?.emit(event, payload);
-    } catch {
-    }
+    } catch { /* ignored */ }
   }
 
   isRunning(id: string): boolean {
@@ -294,8 +293,7 @@ export class ExperimentService {
           parameters: turn.request.parameters,
           overrides: resolved.overrides,
           fromProfile: resolved.from.profile,
-          ...(resolved.from.persona.length ? { fromPersona: resolved.from.persona } : {}),
-          ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
+                    ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
         },
         expected: {
           verifyCommand: task.verifyCommand,
@@ -318,13 +316,13 @@ export class ExperimentService {
     packs: PersonaPack[],
     signal?: AbortSignal,
   ): Promise<VariantResult> {
-    const variantPersona = variant.personaId
-      ? (() => { const found = personas.find((p) => p.id === variant.personaId); return found ? flattenPersona(found, personas) : null; })()
-      : null;
     const variantPack = variant.packId
       ? packs.find((p) => p.id === variant.packId || p.slug === variant.packId) ?? null
       : null;
-    const resolvedForVariant = resolveConfig(profile, variantPersona, variant.overrides, variantPack);
+    const variantPersona = variantPack
+      ? (() => { const found = personas.find((p) => p.id === variantPack.personaId); return found ? flattenPersona(found, personas) : null; })()
+      : null;
+    const resolvedForVariant = resolveConfig(profile, variantPack, variant.overrides, variantPersona);
     if (resolvedForVariant.systemPrompt) {
       resolvedForVariant.overrides.systemPrompt = resolvedForVariant.systemPrompt;
     }
@@ -360,8 +358,7 @@ export class ExperimentService {
         );
       }
 
-      await this.workspaces.create(personaWorkspace(
-        variantPersona,
+      await this.workspaces.create(personaWorkspace(variantPack,
         { leafId: runId, ownerId: experiment.ownerId },
         { language },
       ));
@@ -381,14 +378,13 @@ export class ExperimentService {
             model: provider.model,
             ...(provider.kind ? { kind: provider.kind } : {}),
             language,
-            ...agentRunOptions(variantPersona, {
+            ...agentRunOptions(variantPack, {
               taskContext: task.prompt,
               overrides: resolvedForVariant.overrides,
               memoryContext,
               fromProfile: resolvedForVariant.from.profile,
-              fromPersona: resolvedForVariant.from.persona,
-              fromPack: resolvedForVariant.from.pack,
-              ...(wantsWeb(variantPersona) ? { web: await buildWebTools(this.db, experiment.ownerId) } : {}),
+                            fromPack: resolvedForVariant.from.pack,
+              ...(wantsWeb(variantPack) ? { web: await buildWebTools(this.db, experiment.ownerId) } : {}),
               sandbox: {
                 exec: (command) => this.workspaces.exec(runId, command),
                 readFile: (path) => this.workspaces.readFile(runId, path),

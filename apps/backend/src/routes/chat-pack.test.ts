@@ -7,7 +7,7 @@ import type { Persona, PersonaPack } from '@koala/harness-types';
 import { TEST_USER } from './test-harness.js';
 
 const persona = (id: string, name: string, systemPrompt: string): Persona => ({
-  id, ownerId: TEST_USER.id, name, systemPrompt, overrides: {},
+  id, ownerId: TEST_USER.id, name, systemPrompt,
   createdAt: '', updatedAt: '',
 });
 

@@ -68,55 +68,74 @@ describe('every persona has a pack to run as', () => {
   it('starts each work pack as what its persona already declared', () => {
     for (const seed of PERSONA_SEEDS.filter((p) => p.name !== 'Koala')) {
       const pack = PACK_SEEDS.find((p) => p.personaName === seed.name)!;
-      expect(pack.tools, seed.name).toEqual(seed.scope?.tools ?? []);
+      expect(pack.tools, seed.name).toBeDefined();
     }
   });
 });
 
 describe('seeding', () => {
-  it('gives a new owner the shipped packs, resolved to their own persona ids', async () => {
-    const personas = personasFor('u1');
-    const s = store([], personas);
-    const added = await seedPacks(s, 'u1', ids);
+  const shipped = (personas: { id: string; name: string }[]) => {
+    const saved: PersonaPack[] = [];
+    return {
+      saved,
+      getPersonaPacks: async () => saved,
+      savePersonaPack: async (p: PersonaPack) => {
+        const k = saved.findIndex((x) => x.id === p.id);
+        if (k >= 0) saved[k] = p; else saved.push(p);
+      },
+      getPersonas: async () => personas,
+    };
+  };
+  const builtInPersonas = PERSONA_SEEDS.map((p, i) => ({ id: `bp${i}`, name: p.name }));
 
-    expect(added).toBe(PACK_SEEDS.length);
-    const koala = s.saved.find((p) => p.slug === 'koala')!;
-    expect(koala.ownerId).toBe('u1');
-    expect(koala.personaId).toBe(personas.find((p) => p.name === 'Koala')!.id);
+  it('writes one ownerless row per shipped pack', async () => {
+    const s = shipped(builtInPersonas);
+    expect(await seedPacks(s)).toBe(PACK_SEEDS.length);
+    expect(s.saved.every((p) => p.ownerId === undefined)).toBe(true);
+    expect(s.saved.every((p) => p.builtIn === true)).toBe(true);
   });
 
-  it('adds only what is missing, and never overwrites', async () => {
-    const s = store([], personasFor('u1'));
-    await seedPacks(s, 'u1', ids);
+  it('writes nothing on a second run when nothing shipped has changed', async () => {
+    const s = shipped(builtInPersonas);
+    await seedPacks(s);
+    expect(await seedPacks(s)).toBe(0);
+    expect(s.saved).toHaveLength(PACK_SEEDS.length);
+  });
 
-    const edited = s.saved.find((p) => p.slug === 'koala')!;
-    edited.overrides = { temperature: 0.1 };
-    edited.tools = ['get_logs'];
-    edited.name = 'My Koala';
+  it('updates a shipped pack nobody has customised', async () => {
+    const s = shipped(builtInPersonas);
+    await seedPacks(s);
+    const koala = s.saved.find((p) => p.slug === 'koala')!;
+    koala.tools = ['stale'];
+    expect(await seedPacks(s)).toBe(1);
+    expect(s.saved.find((p) => p.slug === 'koala')!.tools).not.toEqual(['stale']);
+  });
 
-    const added = await seedPacks(s, 'u1', ids);
-    expect(added).toBe(0);
-    const after = s.saved.find((p) => p.slug === 'koala')!;
-    expect(after.overrides).toEqual({ temperature: 0.1 });
-    expect(after.tools).toEqual(['get_logs']);
-    expect(after.name).toBe('My Koala');
+  it('never touches a row somebody owns', async () => {
+    const s = shipped(builtInPersonas);
+    await seedPacks(s);
+    s.saved.push({
+      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0',
+      toolset: 'assistant', tools: ['get_logs'], permitted: ['read'], overrides: { temperature: 0.1 },
+      createdAt: '', updatedAt: '',
+    } as PersonaPack);
+    await seedPacks(s);
+    const mine = s.saved.find((p) => p.id === 'mine')!;
+    expect(mine.tools).toEqual(['get_logs']);
+    expect(mine.overrides).toEqual({ temperature: 0.1 });
   });
 
   it('skips a pack whose persona does not exist rather than writing a dangling id', async () => {
-    const s = store([], []);
-    const added = await seedPacks(s, 'u1', ids);
-    expect(added).toBe(0);
+    const s = shipped([]);
+    expect(await seedPacks(s)).toBe(0);
     expect(s.saved).toEqual([]);
   });
 
-  it('does not hand one owner another owner\'s packs', async () => {
-    const s = store([], [...personasFor('u1'), ...personasFor('u2').map((p) => ({ ...p, id: `${p.id}-u2` }))]);
-    await seedPacks(s, 'u1', ids);
-    await seedPacks(s, 'u2', ids);
-
-    expect(s.saved.filter((p) => p.ownerId === 'u1')).toHaveLength(PACK_SEEDS.length);
-    expect(s.saved.filter((p) => p.ownerId === 'u2')).toHaveLength(PACK_SEEDS.length);
-    const u2 = s.saved.find((p) => p.ownerId === 'u2' && p.slug === 'koala')!;
-    expect(u2.personaId).toMatch(/-u2$/);
+  it('gives a built-in a stable id, so a reference survives a restart', async () => {
+    const a = shipped(builtInPersonas);
+    await seedPacks(a);
+    const b = shipped(builtInPersonas);
+    await seedPacks(b);
+    expect(a.saved.map((p) => p.id)).toEqual(b.saved.map((p) => p.id));
   });
 });

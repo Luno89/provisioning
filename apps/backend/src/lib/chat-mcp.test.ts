@@ -15,7 +15,7 @@ const invoke = async () => ({ text: 'ok', isError: false });
 
 describe('what the persona is granted', () => {
   it('offers the tools of a server it named', () => {
-    const got = chatMcpFor({ scope: { mcp: ['github-mcp'] } } as any, [server()], invoke);
+    const got = chatMcpFor({ mcp: ['github-mcp'] } as any, [server()], invoke);
     expect(got.tools).toHaveLength(1);
     expect(got.tools[0]!.function.name).toContain('get-repo');
   });
@@ -27,7 +27,7 @@ describe('what the persona is granted', () => {
 
   it('grants only what was named, not every server running', () => {
     const got = chatMcpFor(
-      { scope: { mcp: ['github-mcp'] } } as any,
+      { mcp: ['github-mcp'] } as any,
       [server(), server({ id: 'd2', name: 'weather', tools: [{ name: 'forecast' }] })],
       invoke,
     );
@@ -39,7 +39,7 @@ describe('what the persona is granted', () => {
 describe('servers that cannot answer', () => {
   it('drops an unreachable one and reports it', () => {
     const got = chatMcpFor(
-      { scope: { mcp: ['github-mcp'] } } as any,
+      { mcp: ['github-mcp'] } as any,
       [server({ unreachable: 'connection refused' })],
       invoke,
     );
@@ -48,9 +48,9 @@ describe('servers that cannot answer', () => {
   });
 
   it('drops one with no tools, and one that is not running at all', () => {
-    expect(chatMcpFor({ scope: { mcp: ['github-mcp'] } } as any, [server({ tools: [] })], invoke).missing)
+    expect(chatMcpFor({ mcp: ['github-mcp'] } as any, [server({ tools: [] })], invoke).missing)
       .toEqual(['github-mcp']);
-    expect(chatMcpFor({ scope: { mcp: ['gone'] } } as any, [server()], invoke).missing).toEqual(['gone']);
+    expect(chatMcpFor({ mcp: ['gone'] } as any, [server()], invoke).missing).toEqual(['gone']);
   });
 });
 
@@ -58,7 +58,7 @@ describe('two deployments answering to one name', () => {
   it('uses the copy that answers, whichever order they arrive in', () => {
     const broken = server({ id: 'd2', tools: [], unreachable: 'HTTP 404 from initialize' });
     for (const list of [[server(), broken], [broken, server()]]) {
-      const got = chatMcpFor({ scope: { mcp: ['github-mcp'] } } as any, list, invoke);
+      const got = chatMcpFor({ mcp: ['github-mcp'] } as any, list, invoke);
       expect(got.tools).toHaveLength(1);
       expect(got.missing).toEqual([]);
     }
@@ -66,7 +66,7 @@ describe('two deployments answering to one name', () => {
 
   it('still reports missing when EVERY copy is broken', () => {
     const got = chatMcpFor(
-      { scope: { mcp: ['github-mcp'] } } as any,
+      { mcp: ['github-mcp'] } as any,
       [server({ tools: [], unreachable: 'a' }), server({ id: 'd2', tools: [], unreachable: 'b' })],
       invoke,
     );
@@ -97,7 +97,7 @@ describe('collapsing two deployments with one name', () => {
 });
 
 describe('routing a call', () => {
-  const got = () => chatMcpFor({ scope: { mcp: ['github-mcp'] } } as any, [server()], invoke);
+  const got = () => chatMcpFor({ mcp: ['github-mcp'] } as any, [server()], invoke);
 
   it('runs a qualified remote name', async () => {
     const name = got().tools[0]!.function.name;

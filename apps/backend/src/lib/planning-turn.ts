@@ -73,6 +73,7 @@ export interface PlanningTurnOptions {
   tools: LeafToolContext;
   profile?: HarnessProfile | null;
   persona?: Persona | null;
+  pack?: { overrides?: Record<string, unknown> } | null;
   overrides?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
@@ -89,7 +90,7 @@ interface WireToolCall {
 
 export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<PlanningTurn> {
   const doFetch = opts.fetchImpl ?? fetch;
-  const resolved = resolveConfig(opts.profile ?? null, opts.persona ?? null, opts.overrides ?? {});
+  const resolved = resolveConfig(opts.profile ?? null, opts.pack ?? null, opts.overrides ?? {}, opts.persona ?? null);
 
   const messages = buildOutboundMessages({
     messages: [{ role: 'user', content: opts.prompt }],
@@ -163,8 +164,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
         const delta = frame.choices?.[0]?.delta?.content;
         if (typeof delta === 'string') content += delta;
         if (frame.usage?.total_tokens) tokensUsed = frame.usage.total_tokens;
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
 
     if (content) reply = reply ? `${reply}\n${content}` : content;

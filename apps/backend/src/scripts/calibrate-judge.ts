@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     if (!assigned) console.warn(`No "${JUDGE_PERSONA}" persona — scoring with harness defaults.`);
 
     const profile = await db.getHarnessProfile(ownerId).catch(() => null);
-    const resolved = resolveConfig(profile, persona);
+    const resolved = resolveConfig(profile, null, {}, persona);
     const chosenModel = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosenModel);

@@ -49,13 +49,15 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
       return { leafId: args.leafId, verdict: 'unavailable' };
     }
 
-    const ownPersonas = (await db.getPersonas()).filter((p: any) => p.ownerId === leaf.ownerId);
-    const assigned = ownPersonas.find((p: any) => p.name === JUDGE_PERSONA);
+    const ownPersonas = (await db.getPersonas()).filter((p: any) => p.ownerId === undefined || p.ownerId === leaf.ownerId);
+    const packs = (await db.getPersonaPacks()).filter((p: any) => p.ownerId === undefined || p.ownerId === leaf.ownerId);
+    const pack = packs.find((p: any) => p.name === JUDGE_PERSONA) ?? null;
+    const assigned = pack ? ownPersonas.find((p: any) => p.id === pack.personaId) : undefined;
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-    if (!assigned) console.warn(`[JudgeLeaf] no "${JUDGE_PERSONA}" persona — running with harness defaults`);
+    if (!pack) console.warn(`[JudgeLeaf] no "${JUDGE_PERSONA}" pack — running with harness defaults`);
 
     const profile = await db.getHarnessProfile(leaf.ownerId).catch(() => null);
-    const resolved = resolveConfig(profile, persona);
+    const resolved = resolveConfig(profile, pack, {}, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');

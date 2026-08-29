@@ -69,8 +69,7 @@ export async function ProvisionRemoteHostActivity(
           ready = true;
           break;
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
       await new Promise((r) => setTimeout(r, 3000));
     }
     if (!ready) {

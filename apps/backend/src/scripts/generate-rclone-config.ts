@@ -67,8 +67,7 @@ async function main() {
         'filename_encryption = standard',
         '',
       );
-    } catch {
-    }
+    } catch { /* ignored */ }
   }
 
   const outPath = path.join(ROOT, '.rclone-runtime.conf');

@@ -47,7 +47,7 @@ export function summariseOutcomes(
       title: l.title,
       status: l.status,
       verified: Boolean(l.verified),
-      persona: (l.personaId && personaName(l.personaId)) || null,
+      persona: (l.packId && personaName(l.packId)) || null,
       ...(l.findings?.trim() ? { findings: l.findings.slice(0, MAX_OUTCOME_CHARS) } : {}),
       ...(l.summary?.trim() ? { summary: l.summary.slice(0, MAX_OUTCOME_CHARS) } : {}),
       ...(l.outputBranch ? { branch: l.outputBranch } : {}),

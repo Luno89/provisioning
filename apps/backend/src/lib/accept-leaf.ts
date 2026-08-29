@@ -3,14 +3,14 @@ import { usableAcceptancePlan } from './acceptance.js';
 import { canRunLeaf } from './persona-scope.js';
 import { hollowChecks, explainHollow } from './acceptance-validation.js';
 import type { Database } from './db-interface.js';
-import type { PersonaScope } from '@koala/harness-types';
+import type { PersonaPack } from '@koala/harness-types';
 
 export interface AcceptDeps {
   db: Pick<Database, 'saveLeaf' | 'getBranches'>;
   startLeaf?: ((leaf: Leaf) => Promise<string | undefined>) | undefined;
   signalLeaf?: ((leafId: string, signal: 'addChild', payload: unknown) => Promise<unknown>) | undefined;
   now?: () => number;
-  personaOf?: (id: string | undefined) => Promise<{ name: string; scope?: PersonaScope } | null | undefined>;
+  packOf?: (id: string | undefined) => Promise<Pick<PersonaPack, 'name' | 'tools' | 'workspace'> | null | undefined>;
 }
 
 export type AcceptResult =
@@ -22,11 +22,11 @@ export async function acceptLeaf(deps: AcceptDeps, leaf: Leaf, leaves: Leaf[]): 
     return { ok: false, status: 409, error: 'This leaf has already been accepted' };
   }
 
-  if (!leaf.personaId) {
+  if (!leaf.packId) {
     return {
       ok: false,
       status: 409,
-      error: 'This leaf has no persona, so it would run with no repository and its work would be '
+      error: 'This leaf has no pack, so it would run with no repository and its work would be '
         + 'discarded when the sandbox is destroyed. Assign one first.',
     };
   }
@@ -48,14 +48,14 @@ export async function acceptLeaf(deps: AcceptDeps, leaf: Leaf, leaves: Leaf[]): 
     return { ok: false, status: 409, error: explainHollow(hollow) };
   }
 
-  if (deps.personaOf) {
-    const persona = await deps.personaOf(leaf.personaId);
-    if (!canRunLeaf(persona)) {
+  if (deps.packOf) {
+    const pack = await deps.packOf(leaf.packId);
+    if (!canRunLeaf(pack)) {
       return {
         ok: false,
         status: 409,
-        error: `${persona?.name ?? 'That persona'} is for chat only and has no sandbox to work in — `
-          + 'no toolchain, no repository, no network policy. Assign a persona that builds.',
+        error: `${pack?.name ?? 'That pack'} is for chat only and has no sandbox to work in — `
+          + 'no toolchain, no repository, no network policy. Assign a pack that builds.',
       };
     }
   }

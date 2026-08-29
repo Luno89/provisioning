@@ -118,8 +118,7 @@ export class ReasoningScanner {
           added += reasoning;
           this.text += reasoning;
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
     return added;
   }

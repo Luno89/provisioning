@@ -29,7 +29,7 @@ async function main() {
       updatedAt: now,
     };
     await mongo.savePersona(persona);
-    console.log(`${prior ? 'updated' : 'created'}  ${persona.name.padEnd(12)} tools=${persona.scope?.tools?.join(',') ?? '(all)'}`);
+    console.log(`${prior ? 'updated' : 'created'}  ${persona.name.padEnd(12)} `);
   }
 
   process.exit(0);

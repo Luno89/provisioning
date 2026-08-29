@@ -45,9 +45,11 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     const request = branch.messages.find((m) => m.role === 'user')?.content ?? branch.title;
 
     const profile = await db.getHarnessProfile(leaf.ownerId);
-    const adopted = profile?.personaId ? personas.find((p) => p.id === profile.personaId) : undefined;
+    const packs = (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === leaf.ownerId);
+    const pack = profile?.packId ? packs.find((p) => p.id === profile.packId || p.slug === profile.packId) ?? null : null;
+    const adopted = pack ? personas.find((p) => p.id === pack.personaId) : undefined;
     const persona = adopted ? flattenPersona(adopted, personas) : null;
-    const resolved = resolveConfig(profile, persona);
+    const resolved = resolveConfig(profile, pack, {}, persona);
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen);

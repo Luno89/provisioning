@@ -66,8 +66,7 @@ export class GiteaService {
         headers: { Authorization: `token ${this.tokenCache}` },
       });
       if (res.ok) return this.tokenCache;
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     const baseUrl = await this.resolveBaseUrl();
     const password = await this.readAdminPassword();

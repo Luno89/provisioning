@@ -235,8 +235,7 @@ export class TemporalBridge {
   async stop(): Promise<void> {
     try {
       await this.client.connection.close()
-    } catch {
-    }
+    } catch { /* ignored */ }
   }
 
   private async appliedOutcome(
@@ -525,8 +524,7 @@ export class TemporalBridge {
           try {
             const cluster = await this.clusterService?.getByIdUnscoped(clusterId)
             if (cluster) path = await this.clusterService!.getKubeconfigPath(cluster)
-          } catch {
-          }
+          } catch { /* ignored */ }
           kubeconfigForCluster.set(clusterId, path)
           return path
         }
@@ -547,8 +545,7 @@ export class TemporalBridge {
                 const found = (await registry.listWithTools()).find((s) => s.id === dep.id)
                 const verdict = healthFromProbe(found ? { unreachable: found.unreachable, tools: found.tools.length } : undefined)
                 if (verdict) serviceReason = verdict.reason
-              } catch {
-              }
+              } catch { /* ignored */ }
             }
 
             const effective = serviceReason ? 'unhealthy' as const : health
@@ -558,8 +555,7 @@ export class TemporalBridge {
               await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: serviceReason || reason }, next, dep.storage)
               if (this.io) this.io.emit('deployment-updated')
             }
-          } catch {
-          }
+          } catch { /* ignored */ }
         }
 
         for (const dep of deployments) {
@@ -751,8 +747,7 @@ export class TemporalBridge {
       if (enc) {
         try {
           userCreds = { hetzner: { token: decryptValue(enc, this.masterKey) } }
-        } catch {
-        }
+        } catch { /* ignored */ }
       }
     }
     return resolveCloudCredentials('hetzner', userCreds).env.HCLOUD_TOKEN
@@ -766,8 +761,7 @@ export class TemporalBridge {
       if (enc) {
         try {
           userCreds = { do: { token: decryptValue(enc, this.masterKey) } }
-        } catch {
-        }
+        } catch { /* ignored */ }
       }
     }
     return resolveCloudCredentials('do', userCreds).env.DIGITALOCEAN_TOKEN
@@ -1060,8 +1054,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         if (encryptedToken) {
           try {
             userCreds = { huggingface: { hfToken: decryptValue(encryptedToken, this.masterKey) } };
-          } catch {
-          }
+          } catch { /* ignored */ }
         }
       }
       const resolved = resolveCloudCredentials('huggingface', userCreds);

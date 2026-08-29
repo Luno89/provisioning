@@ -61,12 +61,14 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     repos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
     checkout = await repos.checkoutCredential(ownerId, project);
 
-    const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === ownerId);
-    const assigned = ownPersonas.find((p) => p.name === MERGER_PERSONA);
+    const packs = (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === ownerId);
+    const pack = packs.find((p) => p.name === MERGER_PERSONA) ?? null;
+    const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === undefined || p.ownerId === ownerId);
+    const assigned = pack ? ownPersonas.find((p) => p.id === pack.personaId) : undefined;
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-    if (!assigned) console.warn(`[ResolveLanding] no "${MERGER_PERSONA}" persona — running with harness defaults`);
+    if (!pack) console.warn(`[ResolveLanding] no "${MERGER_PERSONA}" pack — running with harness defaults`);
     await workspaces.destroy(workspaceId).catch(() => undefined);
-    await workspaces.create(personaWorkspace(persona, { leafId: workspaceId, ownerId }, { language: project.language }));
+    await workspaces.create(personaWorkspace(pack, { leafId: workspaceId, ownerId }, { language: project.language }));
     await countWorkspace(db, args.leafId);
 
     const cleanUrl = `${gitea.internalBaseUrl}/${project.giteaOwner}/${project.giteaRepo}.git`;
@@ -94,8 +96,8 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const profile = await db.getHarnessProfile(ownerId);
-    const language = (project.language ?? persona?.scope?.language) as WorkspaceLanguage | undefined;
-    const resolved = resolveConfig(profile, persona);
+    const language = (project.language ?? pack?.workspace?.language) as WorkspaceLanguage | undefined;
+    const resolved = resolveConfig(profile, pack, {}, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen);
 
@@ -116,7 +118,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
           model: provider.model,
           ...(provider.kind ? { kind: provider.kind } : {}),
           ...(language ? { language } : {}),
-          ...agentRunOptions(persona, {
+          ...agentRunOptions(pack, {
             taskContext: buildMergeTask(branch, state.files),
             overrides: resolved.overrides,
             sandbox: {

@@ -58,8 +58,7 @@ export class FinishReasonScanner {
         if (typeof reason === 'string' && reason) {
           this.finishReason = reason;
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
   }
 

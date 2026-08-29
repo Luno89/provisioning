@@ -29,8 +29,7 @@ export function consumeChunk(buffer: string, chunk: string): { buffer: string; d
 
       if (reasoningText) delta.reasoning += reasoningText;
       if (typeof d.content === 'string') delta.content += d.content;
-    } catch {
-    }
+    } catch { /* ignored */ }
   }
   return { buffer: remainder, delta };
 }

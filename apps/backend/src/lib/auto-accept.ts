@@ -38,7 +38,7 @@ export function review(
   if (body.length < MIN_BODY) {
     return { accept: false, reason: 'there is no description of what to do' };
   }
-  if (policy.requirePersona && !leaf.personaId) {
+  if (policy.requirePersona && !leaf.packId) {
     return { accept: false, reason: 'no persona was assigned, so the environment it would run in is undecided' };
   }
 

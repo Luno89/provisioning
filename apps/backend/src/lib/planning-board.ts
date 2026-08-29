@@ -21,7 +21,7 @@ export function serialiseBoard(leaves: Leaf[], personas: Persona[] = []): BoardL
       dependsOn: (leaf.dependsOn ?? [])
         .map((id) => titleById.get(id))
         .filter((t): t is string => t !== undefined),
-      persona: (leaf.personaId && personaById.get(leaf.personaId)) || null,
+      persona: (leaf.packId && personaById.get(leaf.packId)) || null,
       parent: (leaf.parentLeafId && titleById.get(leaf.parentLeafId)) || null,
     }));
 }

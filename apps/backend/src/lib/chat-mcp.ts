@@ -1,7 +1,7 @@
 import { toLoopTools, routeCall } from './mcp-tools.js';
 import { wantsMcp } from './agent-run.js';
 import type { McpServer } from './mcp-registry.js';
-import type { Persona } from './personas.js';
+import type { PersonaPack } from '@koala/harness-types';
 
 export interface ChatMcp {
   tools: { type: 'function'; function: { name: string; description?: string; parameters?: unknown } }[];
@@ -12,11 +12,11 @@ export interface ChatMcp {
 export const NO_CHAT_MCP: ChatMcp = { tools: [], call: async () => undefined, missing: [] };
 
 export function chatMcpFor(
-  persona: Pick<Persona, 'scope'> | null | undefined,
+  pack: Pick<PersonaPack, 'mcp'> | null | undefined,
   servers: readonly McpServer[],
   invoke: (server: McpServer, tool: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean }>,
 ): ChatMcp {
-  const wanted = wantsMcp(persona);
+  const wanted = wantsMcp(pack);
   if (!wanted.length) return NO_CHAT_MCP;
 
   const pick = (name: string): McpServer | undefined => {

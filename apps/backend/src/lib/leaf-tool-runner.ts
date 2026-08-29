@@ -113,7 +113,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     }
 
     if (call.name === 'list_personas') {
-      const mine = (await db.getPersonas()).filter((p) => p.ownerId === userId);
+      const mine = (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === userId);
       return JSON.stringify({
         personas: mine.map((p) => ({ name: p.name, description: p.description ?? '' })),
       });
@@ -141,7 +141,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
       const persona = resolvePersonaNamed(
         wantedPersona,
-        (await db.getPersonas()).filter((p) => p.ownerId === userId),
+        (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === userId),
       );
 
       const wantedProjectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';
@@ -160,7 +160,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         ...normaliseLeafInput(args),
         title: title.slice(0, 200),
         ...(dependsOn.length ? { dependsOn } : {}),
-        ...(persona ? { personaId: persona.id } : {}),
+        ...(persona ? { packId: persona.id } : {}),
         ...(wantedProject ? { projectId: wantedProject.id } : {}),
         column: 'todo',
         status: 'proposed',
@@ -366,7 +366,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         ...leaf,
         ...(title ? { title: title.slice(0, 200) } : {}),
         ...(body ? { body: body.slice(0, 4000) } : {}),
-        ...(persona ? { personaId: persona.id } : {}),
+        ...(persona ? { packId: persona.id } : {}),
         updatedAt: new Date().toISOString(),
       };
       await db.saveLeaf(updated);

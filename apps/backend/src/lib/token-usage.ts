@@ -28,8 +28,7 @@ export function extractUsage(sse: string): TokenUsage | undefined {
         promptTokens: Number.isFinite(prompt) ? prompt : 0,
         completionTokens: Number.isFinite(completion) ? completion : 0,
       };
-    } catch {
-    }
+    } catch { /* ignored */ }
   }
 
   return found;
@@ -69,8 +68,7 @@ export class ContentScanner {
       try {
         const delta = JSON.parse(payload)?.choices?.[0]?.delta;
         if (typeof delta?.content === 'string') this.text += delta.content;
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
   }
 

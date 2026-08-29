@@ -23,8 +23,7 @@ export function* parseSseStream(chunks: Iterable<string>): Generator<UnifiedFram
     if (payload && payload !== '[DONE]') {
       try {
         yield JSON.parse(payload) as UnifiedFrame;
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
   }
 }

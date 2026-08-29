@@ -11,10 +11,10 @@ export function allowedTools(pack: Pick<PersonaPack, 'tools'> | null | undefined
   return available.filter((t) => declared.includes(t));
 }
 
-export function canRunLeaf(pack: Pick<PersonaPack, 'tools' | 'workspace'> | null | undefined): boolean {
-  if (!pack) return false;
-  const w = pack.workspace;
-  return Boolean(pack.tools?.length || w?.language || w?.repo || w?.egress?.length);
+export function canRunLeaf(pack: Pick<PersonaPack, 'workspace'> | null | undefined): boolean {
+  const w = pack?.workspace;
+  if (!w) return false;
+  return Object.keys(w).length > 0;
 }
 
 export function usesRepo(pack: Pick<PersonaPack, 'workspace'> | null | undefined): boolean {
@@ -93,4 +93,35 @@ function dedupeEgress(rules: EgressRule[]): EgressRule[] {
     existing.ports = [...new Set([...(existing.ports ?? []), ...(rule.ports ?? [])])];
   }
   return out;
+}
+
+export function flattenPack<T extends { id: string; slug?: string | undefined; basedOn?: string | undefined }>(
+  pack: T,
+  all: readonly T[],
+): T {
+  const chain: T[] = [];
+  const seen = new Set<string>();
+  let node: T | undefined = pack;
+  while (node && !seen.has(node.id)) {
+    seen.add(node.id);
+    chain.push(node);
+    node = node.basedOn ? all.find((p) => p.id === node!.basedOn || p.slug === node!.basedOn) : undefined;
+  }
+
+  return chain.reduceRight((base, layer) => {
+    const b = base as Record<string, unknown>;
+    const l = layer as Record<string, unknown>;
+    const merged: Record<string, unknown> = { ...b, ...l };
+    merged.overrides = { ...(b.overrides as object ?? {}), ...(l.overrides as object ?? {}) };
+    if (b.workspace || l.workspace) {
+      const bw = (b.workspace ?? {}) as Record<string, unknown>;
+      const lw = (l.workspace ?? {}) as Record<string, unknown>;
+      merged.workspace = {
+        ...bw,
+        ...lw,
+        ...(bw.run || lw.run ? { run: { ...(bw.run as object ?? {}), ...(lw.run as object ?? {}) } } : {}),
+      };
+    }
+    return merged as T;
+  }, chain[chain.length - 1]!);
 }

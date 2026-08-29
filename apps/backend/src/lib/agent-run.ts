@@ -58,7 +58,7 @@ export function agentRunOptions(
     ...(inputs.fromProfile?.length ? { fromProfile: inputs.fromProfile } : {}),
     ...(inputs.fromPersona?.length ? { fromPersona: inputs.fromPersona } : {}),
     ...(inputs.fromPack?.length ? { fromPack: inputs.fromPack } : {}),
-    ...(inputs.web && wantsWeb(persona) ? { web: inputs.web } : {}),
+    ...(inputs.web && wantsWeb(pack) ? { web: inputs.web } : {}),
     ...(tools.length ? { allowTools: allowWithMcp(tools, inputs.remoteToolNames ?? []) } : {}),
     ...(inputs.remoteTools?.length ? { remoteTools: inputs.remoteTools } : {}),
     ...(inputs.callRemote ? { callRemote: inputs.callRemote } : {}),

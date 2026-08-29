@@ -283,7 +283,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
     const servers = await deps.serversFor(userId);
 
-    const resolved = resolveConfig(await db.getHarnessProfile(userId), persona, {}, pack);
+    const resolved = resolveConfig(await db.getHarnessProfile(userId), pack, {}, persona);
     const chosenModel = modelId ?? resolved.overrides.model;
 
     let provider, baseUrl, apiKey;

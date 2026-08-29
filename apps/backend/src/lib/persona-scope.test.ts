@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { allowedTools, usesRepo, flattenPersona, personaWorkspace } from './persona-scope.js';
-import type { Persona } from '@koala/harness-types';
+import { allowedTools, usesRepo, flattenPack, personaWorkspace } from './persona-scope.js';
+import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
 
-const p = (name: string, scope?: Persona['scope']) => ({ name, ...(scope ? { scope } : {}) });
+const p = (name: string, over?: { tools?: string[]; workspace?: WorkspaceScope }) =>
+  ({ name, tools: over?.tools ?? [], ...(over?.workspace ? { workspace: over.workspace } : {}) }) as
+    Pick<PersonaPack, 'name' | 'tools' | 'workspace'>;
 
 describe('the tools a persona actually gets', () => {
   const ALL = ['run_command', 'write_file', 'read_file', 'finish', 'web_search', 'fetch_web_page'];
@@ -35,21 +37,20 @@ describe('whether a persona works in the repository', () => {
   });
 
   it('gives one to a persona that asks', () => {
-    expect(usesRepo(p('Builder', { repo: true }))).toBe(true);
+    expect(usesRepo(p('Builder', { workspace: { repo: true }}))).toBe(true);
   });
 
   it('treats an explicit false the same as saying nothing', () => {
-    expect(usesRepo(p('Researcher', { repo: false }))).toBe(false);
+    expect(usesRepo(p('Researcher', { workspace: { repo: false }}))).toBe(false);
   });
 });
 
 describe('a persona defined as "that one, but ..."', () => {
-  type Flat = Pick<Persona, 'id' | 'name' | 'basedOn' | 'systemPrompt' | 'overrides' | 'scope'>;
+  type Flat = { id: string; slug?: string; basedOn?: string; name?: string; systemPrompt?: string; overrides?: Record<string, unknown>; tools?: string[]; workspace?: Record<string, unknown> };
   const parent: Flat = {
     id: 'researcher', name: 'Researcher', systemPrompt: 'answer one question',
     overrides: { temperature: 0.4 },
-    scope: {
-      tools: ['web_search', 'write_file', 'finish'],
+    tools: ['web_search', 'write_file', 'finish'], workspace: {
       repo: false,
       output: '/work/findings.md',
       run: { maxSteps: 100, withdraw: { afterStep: 50, tools: ['web_search'] } },
@@ -58,33 +59,33 @@ describe('a persona defined as "that one, but ..."', () => {
 
   it('inherits everything it does not change', () => {
     const child: Flat = { id: 'short', name: 'Researcher (short)', overrides: {}, basedOn: 'researcher',
-      scope: { run: { maxSteps: 40 } } };
-    const flat = flattenPersona(child, [parent, child]);
-    expect(flat.scope!.run!.maxSteps).toBe(40);
+      workspace: { run: { maxSteps: 40 } } };
+    const flat = flattenPack(child, [parent, child]);
+    expect((flat.workspace!.run as any).maxSteps).toBe(40);
     expect(flat.systemPrompt).toBe('answer one question');
-    expect(flat.scope!.tools).toEqual(['web_search', 'write_file', 'finish']);
-    expect(flat.scope!.repo).toBe(false);
-    expect(flat.scope!.output).toBe('/work/findings.md');
-    expect(flat.scope!.run!.withdraw).toEqual({ afterStep: 50, tools: ['web_search'] });
+    expect(flat.tools).toEqual(['web_search', 'write_file', 'finish']);
+    expect(flat.workspace!.repo).toBe(false);
+    expect(flat.workspace!.output).toBe('/work/findings.md');
+    expect((flat.workspace!.run as any).withdraw).toEqual({ afterStep: 50, tools: ['web_search'] });
     expect(flat.overrides).toEqual({ temperature: 0.4 });
   });
 
   it('lets the child win field by field', () => {
     const child: Flat = { id: 'cold', name: 'Researcher (cold)', overrides: { temperature: 0.1 }, basedOn: 'researcher' };
-    const flat = flattenPersona(child, [parent, child]);
+    const flat = flattenPack(child, [parent, child]);
     expect(flat.overrides).toEqual({ temperature: 0.1 });
-    expect(flat.scope!.run!.maxSteps).toBe(100);
+    expect((flat.workspace!.run as any).maxSteps).toBe(100);
   });
 
   it('ignores a parent that no longer exists rather than failing the work', () => {
     const orphan: Flat = { id: 'x', name: 'Orphan', overrides: {}, basedOn: 'deleted' };
-    expect(flattenPersona(orphan, [orphan]).name).toBe('Orphan');
+    expect(flattenPack(orphan, [orphan]).name).toBe('Orphan');
   });
 
   it('stops at a cycle instead of looping forever', () => {
     const a: Flat = { id: 'a', name: 'A', overrides: {}, basedOn: 'b' };
     const b: Flat = { id: 'b', name: 'B', overrides: {}, basedOn: 'a' };
-    expect(flattenPersona(a, [a, b]).name).toBe('A');
+    expect(flattenPack(a, [a, b]).name).toBe('A');
   });
 });
 
@@ -93,7 +94,7 @@ describe('the container a persona runs in', () => {
 
   it('takes everything it can from the record', () => {
     const spec = personaWorkspace(
-      p('Heavy', { language: 'go', cpu: '4', memory: '8Gi', egress: [{ namespace: 'gitea', ports: [3000] }], env: [{ name: 'TOKEN', value: 'x' }] }),
+      p('Heavy', { workspace: { language: 'go', cpu: '4', memory: '8Gi', egress: [{ namespace: 'gitea', ports: [3000] }], env: [{ name: 'TOKEN', value: 'x' }] }}),
       ids,
     );
     expect(spec).toMatchObject({ leafId: 'leaf-1', ownerId: 'u1', cpu: '4', memory: '8Gi' });
@@ -103,12 +104,12 @@ describe('the container a persona runs in', () => {
   });
 
   it("lets the project's toolchain win over the persona's own", () => {
-    const spec = personaWorkspace(p('Builder', { language: 'node' }), ids, { language: 'go' });
+    const spec = personaWorkspace(p('Builder', { workspace: { language: 'node' }}), ids, { language: 'go' });
     expect(spec.image).toContain('go-toolset');
   });
 
   it("uses the persona's own toolchain when there is no project", () => {
-    expect(personaWorkspace(p('Researcher', { language: 'base' }), ids).image).toContain('ubi');
+    expect(personaWorkspace(p('Researcher', { workspace: { language: 'base' }}), ids).image).toContain('ubi');
   });
 
   it('carries no image at all when neither says', () => {
@@ -117,7 +118,7 @@ describe('the container a persona runs in', () => {
 
   it('distinguishes an unstated network from a deliberately closed one', () => {
     expect(personaWorkspace(p('Unstated'), ids).egress).toBeUndefined();
-    expect(personaWorkspace(p('Closed', { egress: [] }), ids).egress).toEqual([]);
+    expect(personaWorkspace(p('Closed', { workspace: { egress: [] }}), ids).egress).toEqual([]);
   });
 
   it('carries nothing extra for a persona that declares nothing', () => {
@@ -132,7 +133,7 @@ describe('the network a checkout needs', () => {
 
   it('opens Gitea for a persona that works in a repository but never said so', () => {
     const spec = personaWorkspace(
-      { id: 'p', ownerId: 'u', name: 'Researcher', systemPrompt: '', scope: { repo: true } } as never,
+      { id: 'p', ownerId: 'u', name: 'Researcher', systemPrompt: '', workspace: { repo: true } } as never,
       ids,
       { checkout: true },
     );
@@ -141,7 +142,7 @@ describe('the network a checkout needs', () => {
 
   it('leaves a persona with no checkout unable to reach it', () => {
     const spec = personaWorkspace(
-      { id: 'p', ownerId: 'u', name: 'Reviewer', systemPrompt: '', scope: {} } as never,
+      { id: 'p', ownerId: 'u', name: 'Reviewer', systemPrompt: '', workspace: {} } as never,
       ids,
       {},
     );
@@ -152,7 +153,7 @@ describe('the network a checkout needs', () => {
     const spec = personaWorkspace(
       {
         id: 'p', ownerId: 'u', name: 'Builder', systemPrompt: '',
-        scope: { repo: true, egress: [{ namespace: 'gitea', ports: [3000] }] },
+        workspace: { repo: true, egress: [{ namespace: 'gitea', ports: [3000] }] },
       } as never,
       ids,
       { checkout: true },
@@ -164,7 +165,7 @@ describe('the network a checkout needs', () => {
 describe('what a workspace can install', () => {
   const spec = (language: string | undefined, scope: Record<string, unknown> = {}) =>
     personaWorkspace(
-      { id: 'p', ownerId: 'u', name: 'Worker', systemPrompt: '', scope } as never,
+      { id: 'p', name: 'Worker', tools: [], workspace: scope } as never,
       { leafId: 'leaf-1', ownerId: 'u' },
       { language },
     );

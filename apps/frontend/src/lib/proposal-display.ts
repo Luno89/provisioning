@@ -30,8 +30,7 @@ export function splitProposalBlock(text: string): SplitReply {
             ...(typeof l?.body === 'string' && l.body.trim() ? { body: String(l.body).trim() } : {}),
           }));
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
     return { prose: text.replace(complete[0], '').trim(), proposals, pending: false };
   }
 

@@ -10,7 +10,7 @@ const leaf = (over: Partial<Leaf>): Leaf => ({
 } as Leaf);
 
 const persona = (id: string, name: string): Persona =>
-  ({ id, ownerId: 'u1', name, overrides: {}, createdAt: 'x', updatedAt: 'x' });
+  ({ id, ownerId: 'u1', name, createdAt: 'x', updatedAt: 'x' });
 
 describe('serialiseBoard', () => {
   it('resolves dependencies back to titles, so a predicate never joins a uuid', () => {
@@ -21,7 +21,7 @@ describe('serialiseBoard', () => {
   });
 
   it('resolves the persona to the name the model assigned it by', () => {
-    const assigned = leaf({ personaId: 'p1' });
+    const assigned = leaf({ packId: 'p1' });
     expect(serialiseBoard([assigned], [persona('p1', 'Coder')])[0]!.persona).toBe('Coder');
   });
 
@@ -41,7 +41,7 @@ describe('serialiseBoard', () => {
   });
 
   it('carries none of the record keeping a predicate has no business reading', () => {
-    const rich = leaf({ workflowId: 'wf-1', personaId: 'p1' });
+    const rich = leaf({ workflowId: 'wf-1', packId: 'p1' });
     const [entry] = serialiseBoard([rich], [persona('p1', 'Coder')]);
 
     expect(Object.keys(entry!).sort()).toEqual(

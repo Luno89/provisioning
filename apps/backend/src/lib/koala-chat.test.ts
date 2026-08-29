@@ -5,7 +5,7 @@ import { runKoalaTool, KOALA_TOOL_NAMES, type KoalaToolContext } from './koala-t
 import { KOALA_TOOLS } from './koala-tools.js';
 import { titleFrom, enabledForSession, withEnabled, type Conversation } from './conversations.js';
 import { buildKoalaPrompt, KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
-import { PERSONA_SEEDS } from './persona-seeds.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 import { canRunLeaf } from './persona-scope.js';
 import { LEAF_TOOLS } from './leaf-tools.js';
 import { acceptLeaf } from './accept-leaf.js';
@@ -248,9 +248,9 @@ describe('the prompt Koala is given', () => {
 
 describe('Koala is chat-only', () => {
   it('seeds with no execution settings at all, which is what makes it chat-only', () => {
-    const seed = PERSONA_SEEDS.find((p) => p.name === KOALA_NAME)!;
-    expect(seed.scope).toEqual({});
-    expect(canRunLeaf(seed)).toBe(false);
+    const pack = PACK_SEEDS.find((p) => p.slug === 'koala')!;
+    expect(pack.workspace).toBeUndefined();
+    expect(canRunLeaf({ tools: [], ...(pack.workspace ? { workspace: pack.workspace } : {}) } as never)).toBe(false);
   });
 });
 
@@ -270,39 +270,40 @@ describe('naming a thread', () => {
 });
 
 describe('a leaf must never be assigned to a persona with no environment', () => {
-  const leaf = { id: 'l1', ownerId: 'u1', branchId: 'b1', status: 'proposed', personaId: 'k1' } as any;
+  const leaf = { id: 'l1', ownerId: 'u1', branchId: 'b1', status: 'proposed', packId: 'k1' } as any;
   const withPlan = async () => [{ id: 'b1', acceptance: [{ name: 'runs', command: 'node cli.js' }] } as any];
   const accept = (persona: any) => acceptLeaf(
-    { db: { saveLeaf: async () => {}, getBranches: withPlan }, personaOf: async () => persona },
+    { db: { saveLeaf: async () => {}, getBranches: withPlan }, packOf: async () => persona },
     leaf,
     [],
   );
 
   it('refuses, and says to pick one that builds', async () => {
-    const result = await accept({ name: KOALA_NAME, scope: {} });
+    const result = await accept({ name: KOALA_NAME, tools: ['propose_tree'] });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(409);
       expect(result.error).toMatch(/chat only/);
-      expect(result.error).toMatch(/Assign a persona that builds/);
+      expect(result.error).toMatch(/Assign a pack that builds/);
     }
   });
 
   it('accepts a leaf assigned to one that does build', async () => {
     const result = await accept({
       name: 'Builder',
-      scope: { tools: ['run_command', 'read_file', 'write_file', 'finish'], repo: true },
+      tools: ['run_command', 'read_file', 'write_file', 'finish'],
+      workspace: { repo: true },
     });
     expect(result.ok).toBe(true);
   });
 
   it('accepts a tool-less reviewer, whose empty toolset is a decision and not an absence', async () => {
-    const result = await accept({ name: 'Reviewer', scope: { tools: [], language: 'base' } });
+    const result = await accept({ name: 'Reviewer', tools: [], workspace: { language: 'base' } });
     expect(result.ok).toBe(true);
   });
 
-  it('still refuses a chat persona that has been renamed', async () => {
-    const result = await accept({ name: 'Talky', scope: {} });
+  it('still refuses a chat pack that has been renamed', async () => {
+    const result = await accept({ name: 'Talky', tools: ['propose_tree'] });
     expect(result.ok).toBe(false);
   });
 

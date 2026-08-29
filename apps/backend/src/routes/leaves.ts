@@ -147,7 +147,7 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
         db,
         startLeaf: (l) => temporalBridge!.startLeaf(l),
         signalLeaf: (id, sig, payload) => temporalBridge!.signalLeaf(id, sig, payload),
-        personaOf: async (id) => (id ? (await db.getPersonas()).find((p) => p.id === id) ?? null : null),
+        packOf: async (id: string | undefined) => (id ? (await db.getPersonaPacks()).find((p) => p.id === id || p.slug === id) ?? null : null),
       },
       leaf,
       leaves,
@@ -203,12 +203,13 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
 
     const trace = await db.getLeafTrace(leaf.id);
-    const ranAs = leaf.personaId
-      ? (await db.getPersonas()).find((p) => p.id === leaf.personaId && p.ownerId === user.id)
+    const ranAs = leaf.packId
+      ? (await db.getPersonaPacks()).find((p) => (p.id === leaf.packId || p.slug === leaf.packId)
+          && (p.ownerId === undefined || p.ownerId === user.id))
       : undefined;
     const sandbox = ranAs
       ? describeSandbox(personaWorkspace(ranAs, { leafId: leaf.id, ownerId: user.id }, {}))
-      : 'The persona this leaf ran as is no longer available, so its environment is unknown.';
+      : 'The pack this leaf ran as is no longer available, so its environment is unknown.';
 
     res.json({
       branchId: leaf.branchId,
@@ -234,7 +235,7 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
         db,
         startLeaf: (l) => temporalBridge!.startLeaf(l),
         signalLeaf: (id, sig, payload) => temporalBridge!.signalLeaf(id, sig, payload),
-        personaOf: async (id) => (id ? (await db.getPersonas()).find((p) => p.id === id) ?? null : null),
+        packOf: async (id: string | undefined) => (id ? (await db.getPersonaPacks()).find((p) => p.id === id || p.slug === id) ?? null : null),
       },
       reset,
       leaves.map((l) => (l.id === reset.id ? reset : l)),

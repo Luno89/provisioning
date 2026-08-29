@@ -12,7 +12,7 @@ import { toLoopTools, routeCall } from '../lib/mcp-tools.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { resolveConfig } from '../lib/personas.js';
 import { packForLeaf } from '../lib/packs.js';
-import { flattenPersona, usesRepo, personaWorkspace, allowedTools, withPack } from '../lib/persona-scope.js';
+import { flattenPersona, usesRepo, personaWorkspace, allowedTools } from '../lib/persona-scope.js';
 import {
   prepareInputs, buildInputIndex, buildInlineInputs, REQUIRED_TOOL,
 } from '../lib/dependency-inputs.js';
@@ -83,8 +83,7 @@ export const MAX_FINDINGS_CHARS = 20000;
 function beat(note: Record<string, unknown>): void {
   try {
     Context.current().heartbeat(note);
-  } catch {
-  }
+  } catch { /* ignored */ }
 }
 
 export interface ExecuteLeafResult {
@@ -103,8 +102,8 @@ export function buildLeafContext(leaf: Leaf, priorFailures: LeafAttempt[]): stri
   return parts.join('\n\n');
 }
 
-async function resolveMcpForLeaf(db: any, persona: any, leaf: any): Promise<Record<string, unknown>> {
-  const wanted = [...new Set([...wantsMcp(persona), ...(leaf?.mcp ?? [])])];
+async function resolveMcpForLeaf(db: any, pack: any, leaf: any): Promise<Record<string, unknown>> {
+  const wanted = [...new Set([...wantsMcp(pack), ...(leaf?.mcp ?? [])])];
   if (!wanted.length) return {};
 
   try {
@@ -112,9 +111,9 @@ async function resolveMcpForLeaf(db: any, persona: any, leaf: any): Promise<Reco
     const { servers, missing } = resolveForPersona(wanted, await registry.listWithTools());
 
     if (missing.length) {
-      console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: persona named MCP servers that are not running — ${missing.join(', ')}`);
+      console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: pack named MCP servers that are not running — ${missing.join(', ')}`);
     }
-    for (const gap of mcpGaps(servers, persona?.scope?.egress, (s: any) => s.deploymentName ?? s.name)) {
+    for (const gap of mcpGaps(servers, pack?.workspace?.egress, (s: any) => s.deploymentName ?? s.name)) {
       console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: ${gap}`);
     }
 
@@ -145,8 +144,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
   const secretsInPlay = () => runSecrets;
   try {
     attemptNumber = Context.current().info.attempt;
-  } catch {
-  }
+  } catch { /* ignored */ }
 
   const db = createDatabase();
   await db.init();
@@ -171,11 +169,11 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId);
 
       const ownPacks = (await db.getPersonaPacks()).filter((p) => p.ownerId === leaf.ownerId);
-      const pack = packForLeaf(ownPacks, leaf, profile?.personaId);
-      const wanted = pack?.personaId ?? leaf.personaId ?? profile?.personaId;
+      const pack = packForLeaf(ownPacks, leaf, profile?.packId);
+      const wanted = pack?.personaId;
       const assigned = wanted ? ownPersonas.find((p) => p.id === wanted) : undefined;
-      const persona = withPack(assigned ? flattenPersona(assigned, ownPersonas) : null, pack);
-      const wantsRepo = usesRepo(persona);
+      const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
+      const wantsRepo = usesRepo(pack);
 
       const branchOfLeaf = (await db.getBranches()).find((b) => b.id === leaf.branchId);
       const treeOf = branchOfLeaf?.treeId
@@ -186,18 +184,18 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
 
       const producesCode = Boolean(
         (treeType && (treeType.produces === 'service' || treeType.validationRecipe || (treeType.files?.length ?? 0) > 0)) ||
-        (!treeType && !persona?.scope?.output) ||
+        (!treeType && !pack?.workspace?.output) ||
         leaf.validationContract ||
         leaf.projectId ||
         (treeOf?.projectIds?.length ?? 0) > 0 ||
-        usesRepo(persona)
+        usesRepo(pack)
       );
 
-      const workLanguage = (persona?.scope?.language ?? treeType?.language) as WorkspaceLanguage | undefined;
-      const declaredOutput = persona?.scope?.output;
+      const workLanguage = (pack?.workspace?.language ?? treeType?.language) as WorkspaceLanguage | undefined;
+      const declaredOutput = pack?.workspace?.output;
       const outputPath = declaredOutput;
 
-      const resolved = resolveConfig(profile, persona, {}, pack ?? null);
+      const resolved = resolveConfig(profile, pack ?? null, {}, persona);
       const adopted = resolved.systemPrompt
         ? { ...resolved.overrides, systemPrompt: resolved.systemPrompt }
         : resolved.overrides;
@@ -306,8 +304,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         })
         : [];
 
-      const sandboxSpec = personaWorkspace(
-        persona,
+      const sandboxSpec = personaWorkspace(pack,
         { leafId: leaf.id, ownerId: leaf.ownerId },
         {
           language: project?.language ?? treeType?.language,
@@ -388,7 +385,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
               .map((l) => ({ leafId: l.id, title: l.title, findings: l.findings! })),
           );
 
-          const canReadFiles = allowedTools(persona, [REQUIRED_TOOL]).includes(REQUIRED_TOOL);
+          const canReadFiles = allowedTools(pack, [REQUIRED_TOOL]).includes(REQUIRED_TOOL);
           let inputsBlock = '';
           if (preparedInputs.length && canReadFiles) {
             const written = await Promise.all(preparedInputs.map((input) =>
@@ -554,7 +551,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             apiKey,
             model: provider.model,
             ...(provider.kind ? { kind: provider.kind } : {}),
-            ...(persona?.scope?.language ? { language: persona.scope.language as WorkspaceLanguage } : {}),
+            ...(pack?.workspace?.language ? { language: pack.workspace.language as WorkspaceLanguage } : {}),
             captureTrace: true,
             onStep: (step) => {
               beat({ phase: 'agent', step: step.step, tokensUsed: step.tokens, round: validationRound });
@@ -570,18 +567,17 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                 console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not record step ${step.step}: ${err?.message}`);
               });
             },
-            ...agentRunOptions(persona, {
+            ...agentRunOptions(pack, {
               taskContext: currentTaskContext,
               overrides: adopted,
               sandboxSpec,
               ...(resolved.from.profile.length ? { fromProfile: resolved.from.profile } : {}),
-              ...(resolved.from.persona.length ? { fromPersona: resolved.from.persona } : {}),
-              ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
+                            ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
               ...(provider.contextTokens ? { contextTokens: provider.contextTokens } : {}),
               ...(memoryContext ? { memoryContext } : {}),
               ...(project || bindings.length ? { bindingsContext: describeBindings(bindings.map(describable)) } : {}),
-              ...(wantsWeb(persona) ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
-              ...(await resolveMcpForLeaf(db, persona, leaf)),
+              ...(wantsWeb(pack) ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
+              ...(await resolveMcpForLeaf(db, pack, leaf)),
               ...(leaf.validationContract || treeType?.validationRecipe
                 ? { validationRecipe: leaf.validationContract ?? treeType?.validationRecipe }
                 : {}),
@@ -634,7 +630,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                     }
                   } else if (outputPath) {
                     const text = await workspaces.readFile(leaf.id, outputPath).catch(() => '');
-                    const verdict = assessFindings(text, outputPath, persona?.scope?.requireSources !== false);
+                    const verdict = assessFindings(text, outputPath, pack?.workspace?.requireSources !== false);
                     current.findingsChars = text.length;
                     current.findingsOutcome = verdict.outcome;
                   }
@@ -692,7 +688,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                 if (!checkout || !branchName) {
                   if (!outputPath) return undefined;
                   const text = await workspaces.readFile(leaf.id, outputPath).catch(() => '');
-                  const verdict = assessFindings(text, outputPath, persona?.scope?.requireSources !== false);
+                  const verdict = assessFindings(text, outputPath, pack?.workspace?.requireSources !== false);
 
                   const artifact = buildCheckpointArtifact({
                     ...common,
@@ -924,7 +920,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         const verifyCommand = producesCode ? (leaf.verifyCommand?.trim() || defaultVerifyCommand(workLanguage)) : '';
 
         if (outputPath) {
-          const verdict = assessFindings(findings, outputPath, persona?.scope?.requireSources !== false);
+          const verdict = assessFindings(findings, outputPath, pack?.workspace?.requireSources !== false);
           verify = { outcome: verdict.outcome, output: verdict.reason };
         } else if (finalValidationSummary) {
           verify = {

@@ -51,8 +51,7 @@ export class UniversalValidatorService {
           command: 'npm run build',
         });
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     try {
       const pyproject = await env.readFile('pyproject.toml').catch(() => '');
@@ -66,8 +65,7 @@ export class UniversalValidatorService {
           command: 'pytest || python -m unittest discover',
         });
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     try {
       const gomod = await env.readFile('go.mod');
@@ -80,8 +78,7 @@ export class UniversalValidatorService {
           command: 'go test ./...',
         });
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     try {
       const cargo = await env.readFile('Cargo.toml');
@@ -94,8 +91,7 @@ export class UniversalValidatorService {
           command: 'cargo test',
         });
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     if (!checks.length) {
       try {
@@ -109,8 +105,7 @@ export class UniversalValidatorService {
             target: 'README.md',
           });
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
 
     if (checks.length > 0) {

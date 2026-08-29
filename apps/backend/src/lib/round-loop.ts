@@ -44,8 +44,7 @@ export function createStreamParser(): StreamParser {
       if (parsed?.usage) {
         events.push({ kind: 'usage', usage: parsed.usage });
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
     return events;
   };
 

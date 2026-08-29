@@ -129,8 +129,7 @@ export class AppService extends BaseService {
       if (context) args.push('--kube-context', context);
       const helmOutput = await this.infra.runHelm(args, kubeconfigPath);
       helmReleases = JSON.parse(helmOutput);
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     const discovered: DeploymentMetadata[] = [];
 
@@ -156,8 +155,7 @@ export class AppService extends BaseService {
           const podsData = JSON.parse(podsOutput);
           const podNames = podsData.items.map((p: any) => p.metadata.name ?? '').map((n: string) => n.split('-')[0]);
           appType = podNames.map((p: string) => appTypeFromName(p)).find(Boolean);
-        } catch {
-        }
+        } catch { /* ignored */ }
       }
 
       const entry: DeploymentMetadata = {
@@ -535,8 +533,7 @@ export class AppService extends BaseService {
         
         try {
             await this.infra.waitForNamespaceDeletion(this.sanitize(dep.name), kubeconfigPath);
-        } catch {
-        }
+        } catch { /* ignored */ }
 
         await this.db.deleteDeployment(id);
         if (io) io.emit('resource-destroyed', { id, type: 'deployment', name: dep.name });

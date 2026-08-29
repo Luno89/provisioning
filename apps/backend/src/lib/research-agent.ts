@@ -116,8 +116,7 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         };
         if (typeof frame.choices?.[0]?.delta?.content === 'string') content += frame.choices[0].delta.content;
         if (frame.usage?.total_tokens) tokensUsed += frame.usage.total_tokens;
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
     if (content) findings = content;
 

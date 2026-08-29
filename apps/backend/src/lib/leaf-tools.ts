@@ -505,8 +505,7 @@ export class ToolCallScanner {
             args: existing.args + (call?.function?.arguments ?? ''),
           });
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
   }
 

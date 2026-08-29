@@ -247,14 +247,14 @@ describe('changing only the overrides', () => {
   const promoted: HarnessProfile = {
     ownerId: 'u1',
     overrides: { temperature: 0.2 } as never,
-    personaId: 'persona-that-won',
+    packId: 'persona-that-won',
     from: { experimentId: 'e1', variantId: 'v1', promotedAt: '2026-01-01T00:00:00.000Z' } as never,
     updatedAt: '2026-01-01T00:00:00.000Z',
   };
 
   it('keeps the persona the promotion adopted', () => {
     const next = withOverrides(promoted, { temperature: 0.9 } as never);
-    expect(next.personaId).toBe('persona-that-won');
+    expect(next.packId).toBe('persona-that-won');
   });
 
   it('keeps where the promotion came from', () => {

@@ -67,8 +67,8 @@ describe('what the planner is shown', () => {
 
   it('carries what a leaf produced, which the board never did', () => {
     const outcomes = summariseOutcomes([
-      leaf({ id: 'a', title: 'Find the licence', personaId: 'p1', verified: true, findings: 'BSL 1.1' }),
-      leaf({ id: 'b', title: 'Build the client', personaId: 'p2', outputBranch: 'koala/b', summary: 'wrote it' }),
+      leaf({ id: 'a', title: 'Find the licence', packId: 'p1', verified: true, findings: 'BSL 1.1' }),
+      leaf({ id: 'b', title: 'Build the client', packId: 'p2', outputBranch: 'koala/b', summary: 'wrote it' }),
     ], 'b1', named);
     expect(outcomes[0]).toMatchObject({ title: 'Find the licence', verified: true, persona: 'Researcher', findings: 'BSL 1.1' });
     expect(outcomes[1]).toMatchObject({ persona: 'Builder', branch: 'koala/b', summary: 'wrote it' });

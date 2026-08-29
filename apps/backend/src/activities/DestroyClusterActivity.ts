@@ -58,8 +58,7 @@ export async function DestroyClusterActivity(
   };
   try {
     await infra.destroy(`${physicalName}-observability`, { logFile, env: clusterEnv });
-  } catch {
-  }
+  } catch { /* ignored */ }
   try {
     await infra.destroy(physicalName, { logFile, env: clusterEnv });
   } catch (err: any) {

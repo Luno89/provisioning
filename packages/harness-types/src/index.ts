@@ -252,7 +252,7 @@ export interface ProfileVersion {
 export interface HarnessProfile {
   ownerId: string;
   overrides: Overrides;
-  personaId?: string;
+  packId?: string;
   from?: PromotionProvenance;
   history?: ProfileVersion[];
   updatedAt: string;
@@ -351,6 +351,7 @@ export interface PersonaPack {
   name: string;
   description?: string;
   personaId: string;
+  basedOn?: string;
   toolset: PackToolset;
   tools: string[];
   mcp?: string[];

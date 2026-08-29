@@ -30,8 +30,7 @@ function callLabel(call: { name: string; arguments: string }): string {
     if (typeof args.path === 'string') return `${call.name} ${args.path}`;
     if (typeof args.query === 'string') return `${call.name} "${args.query}"`;
     if (typeof args.summary === 'string') return args.summary;
-  } catch {
-  }
+  } catch { /* ignored */ }
   return call.arguments.slice(0, 120);
 }
 

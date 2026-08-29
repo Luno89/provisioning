@@ -1,25 +1,20 @@
 import type { Persona } from './personas.js';
-import { MERGER_PERSONA } from '../lib/well-known-personas.js';
-import { KOALA_NAME, KOALA_PROMPT } from '../lib/koala-persona.js';
-import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
-import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
+import { MERGER_PERSONA } from './well-known-personas.js';
+import { KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
 
-const TUNED_FOR = 'Tabbyapi-Production';
 
 export const RETIRED_PERSONAS = [
   'Coder', 'Orchestrator', 'Debugger', 'Designer',
   'Builder (python)', 'Builder (go)',
 ];
 
-type Seed = Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'>;
+type Seed = Pick<Persona, 'name' | 'description' | 'systemPrompt'>;
 
 export const PERSONA_SEEDS: Seed[] = [
   {
     name: KOALA_NAME,
     description: 'General chat. Talks things through, operates projects, and proposes new builds.',
     systemPrompt: KOALA_PROMPT,
-    scope: {},
-    overrides: {},
   },
   {
     name: 'Framer',
@@ -39,17 +34,6 @@ export const PERSONA_SEEDS: Seed[] = [
       '',
       'You do not answer the questions. You only produce the list.',
     ].join('\n'),
-    scope: {
-      tools: ['read_file', 'write_file', 'finish'],
-      egress: [],
-      repo: false,
-      language: 'base',
-      output: '/work/questions.md',
-      requireSources: false,
-      tunedFor: TUNED_FOR,
-      run: { maxSteps: 20 },
-    },
-    overrides: { temperature: 0.3 },
   },
   {
     name: 'Researcher',
@@ -66,20 +50,6 @@ export const PERSONA_SEEDS: Seed[] = [
       'Be brief. Two or three paragraphs is plenty. If the honest answer is that the sources disagree,',
       'say so and cite both.',
     ].join('\n'),
-    scope: {
-      repo: false,
-      language: 'base',
-      output: '/work/findings.md',
-      tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
-      egress: [],
-      tunedFor: TUNED_FOR,
-      run: {
-        maxSteps: RESEARCH_AGENT_STEPS,
-        withdraw: { afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2), tools: [...WEB_TOOL_NAMES] },
-        pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
-      },
-    },
-    overrides: { temperature: 0.4 },
   },
   {
     name: 'Synthesist',
@@ -95,17 +65,6 @@ export const PERSONA_SEEDS: Seed[] = [
       '- Where the answers leave a gap, name the gap. Do not fill it from memory.',
       '- Write it as one piece, not as a list of the answers you were handed.',
     ].join('\n'),
-    scope: {
-      repo: false,
-      language: 'base',
-      output: '/work/findings.md',
-      requireSources: false,
-      tools: ['read_file', 'write_file', 'finish'],
-      egress: [],
-      tunedFor: TUNED_FOR,
-      run: { maxSteps: 30 },
-    },
-    overrides: { temperature: 0.5 },
   },
   {
     name: MERGER_PERSONA,
@@ -118,14 +77,6 @@ export const PERSONA_SEEDS: Seed[] = [
       '',
       'Leave no conflict markers. Commit when the tree is clean.',
     ].join('\n'),
-    scope: {
-      tools: ['run_command', 'read_file', 'write_file', 'finish'],
-      repo: true,
-      egress: [{ namespace: 'gitea', ports: [3000] }],
-      tunedFor: TUNED_FOR,
-      run: { maxSteps: 30 },
-    },
-    overrides: { temperature: 0.2 },
   },
   {
     name: 'Ingestor',
@@ -143,16 +94,6 @@ export const PERSONA_SEEDS: Seed[] = [
       'documentation site is usually tens of thousands of pages. Give keywords when the budget will',
       'not cover the whole site, so it is spent on what was asked for.',
     ].join('\n'),
-    scope: {
-      tools: ['start_ingest', 'ingest_status', 'search_corpus', 'read_file', 'write_file', 'finish'],
-      repo: false,
-      language: 'base',
-      output: '/work/findings.md',
-      egress: [],
-      tunedFor: TUNED_FOR,
-      run: { maxSteps: 40 },
-    },
-    overrides: { temperature: 0.3 },
   },
   {
     name: 'Reviewer',
@@ -173,12 +114,6 @@ export const PERSONA_SEEDS: Seed[] = [
       '  explanation" is a useful answer; a confident guess is worse than none.',
       '- Be brief. This is read by someone deciding what to do next.',
     ].join('\n'),
-    scope: {
-      repo: false,
-      language: 'base',
-      tools: [],
-    },
-    overrides: {},
   },
   {
     name: 'Judge',
@@ -200,12 +135,6 @@ export const PERSONA_SEEDS: Seed[] = [
       '- Judge what is there, not what you would have written. A different approach is not a fault.',
       '- Say "the tests do not exercise this" only if you can point at the test.',
     ].join('\n'),
-    scope: {
-      repo: false,
-      language: 'base',
-      tools: [],
-    },
-    overrides: { temperature: 0.1 },
   },
   {
     name: 'Builder',
@@ -226,13 +155,6 @@ export const PERSONA_SEEDS: Seed[] = [
       'repository root. Pushing builds it into an image and deploys it; without one there is nothing to',
       'build and the pipeline refuses.',
     ].join('\n'),
-    scope: {
-      tools: ['run_command', 'read_file', 'write_file', 'finish'],
-      repo: true,
-      egress: [{ namespace: 'gitea', ports: [3000] }],
-      tunedFor: TUNED_FOR,
-    },
-    overrides: {},
   },
 ];
 

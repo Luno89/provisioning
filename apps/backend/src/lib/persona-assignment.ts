@@ -3,7 +3,7 @@ import type { Leaf } from './leaves.js';
 export const MAX_ASSIGNMENT_ROUNDS = 2;
 
 export function unassignedLeaves(leaves: Leaf[], branchId: string): Leaf[] {
-  return leaves.filter((l) => l.branchId === branchId && l.status === 'proposed' && !l.personaId);
+  return leaves.filter((l) => l.branchId === branchId && l.status === 'proposed' && !l.packId);
 }
 
 export function buildAssignmentPrompt(

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { PERSONA_SEEDS, RETIRED_PERSONAS } from './persona-seeds.js';
+import { PERSONA_SEEDS, RETIRED_PERSONAS, seedPersonas } from './persona-seeds.js';
 import { KOALA_NAME } from './koala-persona.js';
 import { canRunLeaf } from './persona-scope.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 import { validateScope } from './personas.js';
 
 describe('the seeds themselves', () => {
@@ -21,20 +22,20 @@ describe('the seeds themselves', () => {
     expect(PERSONA_SEEDS.map((s) => s.name)).toContain(KOALA_NAME);
   });
 
-  it('gives every chat-only seed an empty scope, which is what makes it chat-only', () => {
-    const koala = PERSONA_SEEDS.find((s) => s.name === KOALA_NAME)!;
-    expect(canRunLeaf(koala)).toBe(false);
+  it('gives the chat pack no workspace, which is what makes it chat-only', () => {
+    const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
+    expect(canRunLeaf(koala as never)).toBe(false);
   });
 
-  it('gives every other seed an environment it can actually run in', () => {
-    for (const seed of PERSONA_SEEDS.filter((s) => s.name !== KOALA_NAME)) {
-      expect(canRunLeaf(seed), seed.name).toBe(true);
+  it('gives every work pack an environment it can actually run in', () => {
+    for (const pack of PACK_SEEDS.filter((p) => p.slug !== 'koala')) {
+      expect(canRunLeaf(pack as never), pack.slug).toBe(true);
     }
   });
 
-  it('has scopes that validate', () => {
-    for (const seed of PERSONA_SEEDS) {
-      expect(validateScope(seed.scope), seed.name).toBeUndefined();
+  it('has workspaces that validate', () => {
+    for (const pack of PACK_SEEDS) {
+      expect(validateScope(pack.workspace), pack.slug).toBeUndefined();
     }
   });
 
@@ -45,14 +46,29 @@ describe('the seeds themselves', () => {
   });
 });
 
-describe('how the runtime seeder differs from the script', () => {
-  const here = new URL('../index.ts', import.meta.url);
+describe('seeding never destroys a customisation', () => {
+  it('leaves a row somebody owns alone, and refreshes one nobody has touched', async () => {
+    const saved: any[] = [];
+    const store = {
+      getPersonas: async () => saved,
+      savePersona: async (p: any) => {
+        const k = saved.findIndex((x) => x.id === p.id);
+        if (k >= 0) saved[k] = p; else saved.push(p);
+      },
+    };
 
-  it('adds only what is missing, and never overwrites', async () => {
-    const src = await import('node:fs').then((fs) => fs.readFileSync(here, 'utf8'));
-    const at = src.indexOf('async function ensurePersonas');
-    const body = src.slice(at, at + 900);
-    expect(body).toMatch(/!mine\.some\(\(p\) => p\.name === seed\.name\)/);
-    expect(body).toMatch(/if \(!missing\.length\) return;/);
+    await seedPersonas(store);
+    const shipped = saved.length;
+    expect(shipped).toBe(PERSONA_SEEDS.length);
+    expect(saved.every((p) => p.ownerId === undefined)).toBe(true);
+
+    saved.push({ id: 'mine', ownerId: 'u1', name: 'Koala', systemPrompt: 'my own', createdAt: '', updatedAt: '' });
+    const builtIn = saved.find((p) => p.ownerId === undefined && p.name === 'Koala')!;
+    builtIn.systemPrompt = 'stale';
+
+    await seedPersonas(store);
+    expect(saved.find((p) => p.id === 'mine')!.systemPrompt).toBe('my own');
+    expect(saved.find((p) => p.ownerId === undefined && p.name === 'Koala')!.systemPrompt).not.toBe('stale');
+    expect(saved.filter((p) => p.ownerId === undefined)).toHaveLength(shipped);
   });
 });

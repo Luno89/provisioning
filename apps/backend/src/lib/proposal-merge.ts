@@ -55,10 +55,10 @@ export function duplicateNotice(pairs: readonly SuspectedDuplicate[]): string {
   );
 }
 
-export function resolvePersonaNamed(
+export function resolvePersonaNamed<T extends { name: string }>(
   wanted: string | undefined,
-  personas: readonly Persona[],
-): Persona | undefined {
+  personas: readonly T[],
+): T | undefined {
   const loosen = (s: string) => norm(s).replace(/^the\b/, '').replace(/\bpersona$/, '').trim();
   const target = loosen(String(wanted ?? ''));
   if (!target) return undefined;

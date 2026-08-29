@@ -56,7 +56,6 @@ describe('where reconciliation applies it', () => {
   });
 
   it('never lets a registry failure change a status', () => {
-    const at = bridge.indexOf('A registry that cannot answer says nothing');
-    expect(at).toBeGreaterThan(-1);
+    expect(bridge).toMatch(/catch[\s\S]{0,200}mcpByName = new Map\(\)|catch[\s\S]{0,200}\{\}/);
   });
 });

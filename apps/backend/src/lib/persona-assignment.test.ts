@@ -13,7 +13,7 @@ describe('finding work with nobody assigned to it', () => {
   it('finds proposed leaves on this branch with no persona', () => {
     const found = unassignedLeaves([
       leaf({ id: 'a' }),
-      leaf({ id: 'b', personaId: 'someone' }),
+      leaf({ id: 'b', packId: 'someone' }),
     ], 'b1');
     expect(found.map((l) => l.id)).toEqual(['a']);
   });

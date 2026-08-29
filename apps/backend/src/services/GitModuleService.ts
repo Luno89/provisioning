@@ -109,8 +109,7 @@ export class GitModuleService extends BaseService {
                 version: this.extractManifestValue(content, 'version') || '1.0',
                 depends: this.extractManifestList(content, 'depends') || []
               });
-            } catch {
-            }
+            } catch { /* ignored */ }
           } else {
             const metaPath = path.join(repoPath, item.name, 'manifest.json');
             try {

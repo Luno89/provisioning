@@ -194,8 +194,7 @@ export class AppExposureService extends BaseService {
   private async removeCaddyConf(namespace: string) {
     try {
       await fs.unlink(this.caddyConfPathFor(namespace));
-    } catch {
-    }
+    } catch { /* ignored */ }
     try {
       await this.reloadCaddy();
     } catch (err: any) {
@@ -218,8 +217,7 @@ export class AppExposureService extends BaseService {
   private async removeNginxConf(namespace: string) {
     try {
       await fs.unlink(this.confPathFor(namespace));
-    } catch {
-    }
+    } catch { /* ignored */ }
     try {
       await execAsync('docker exec provisioner-nginx nginx -s reload');
     } catch (err: any) {

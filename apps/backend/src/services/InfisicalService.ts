@@ -102,8 +102,7 @@ export class InfisicalService {
     try {
       const read = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8');
       if (read.trim()) adminPassword = read.trim();
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     try {
       const bootstrapRes = await axios.post(
@@ -134,8 +133,7 @@ export class InfisicalService {
         this.tokenCache = loginRes.data.token;
         return this.tokenCache!;
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     this.tokenCache = 'infisical-local-fallback-token';
     return this.tokenCache;
@@ -167,8 +165,7 @@ export class InfisicalService {
       if (res.data?.secret?.secretValue) {
         return res.data.secret.secretValue;
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     return null;
   }
@@ -205,8 +202,7 @@ export class InfisicalService {
           proxy: false,
         },
       );
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     return { success: true, secretReference };
   }
@@ -229,8 +225,7 @@ export class InfisicalService {
           proxy: false,
         },
       );
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     return true;
   }
@@ -283,8 +278,7 @@ export class InfisicalService {
           });
         }
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     return results;
   }
@@ -380,8 +374,7 @@ export class InfisicalService {
           ).catch(() => null);
         }
       }
-    } catch {
-    }
+    } catch { /* ignored */ }
 
     let podRestarted = false;
     if (restart) {

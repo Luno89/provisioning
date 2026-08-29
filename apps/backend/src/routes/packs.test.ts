@@ -9,18 +9,16 @@ let harness: Harness;
 const build = (db: Database) => packsRouter({
   db,
   modelIdsFor: async () => ['dep-1'],
-  ensurePersonas: async (userId: string) => {
-    const { PERSONA_SEEDS } = await import('../lib/persona-seeds.js');
-    const mine = (await db.getPersonas()).filter((p) => p.ownerId === userId);
-    const now = new Date().toISOString();
-    for (const seed of PERSONA_SEEDS) {
-      if (mine.some((p) => p.name === seed.name)) continue;
-      await db.savePersona({ id: `persona-${seed.name}`, ownerId: userId, ...seed, createdAt: now, updatedAt: now } as never);
-    }
-  },
 });
 
-beforeAll(async () => { harness = await mountRouter({ prefix: '/api/packs', router: build }); });
+beforeAll(async () => {
+  harness = await mountRouter({ prefix: '/api/packs', router: build });
+  const { PERSONA_SEEDS, seedPersonas } = await import('../lib/persona-seeds.js');
+  const { seedPacks } = await import('../lib/pack-seeds.js');
+  void PERSONA_SEEDS;
+  await seedPersonas(harness.db);
+  await seedPacks(harness.db);
+});
 afterAll(async () => { await harness.close(); });
 
 const get = (path = ''): Promise<{ status: number; body: any }> =>
@@ -39,8 +37,9 @@ describe('GET /api/packs', () => {
     expect(body).toHaveLength(PACK_SEEDS.length);
     const koala = body.find((p: any) => p.slug === 'koala');
     expect(koala.name).toBe('Koala');
-    expect(koala.personaId).toBe('persona-Koala');
-    expect(koala.ownerId).toBe(TEST_USER.id);
+    expect(koala.personaId).toBe('builtin-persona-koala');
+    expect(koala.ownerId, 'a shipped pack belongs to the platform, not a person').toBeUndefined();
+    expect(koala.builtIn).toBe(true);
   });
 
   it('is idempotent — reading twice does not duplicate or revert', async () => {
@@ -86,7 +85,7 @@ describe('writing a pack', () => {
 
   it('refuses a duplicate slug, which is a route that cannot resolve', async () => {
     const { status, body } = await send('POST', '', {
-      slug: 'koala', name: 'Another', personaId: 'persona-Koala', toolset: 'assistant',
+      slug: 'koala', name: 'Another', personaId: 'builtin-persona-koala', toolset: 'assistant',
     });
     expect(status).toBe(400);
     expect(body.error).toMatch(/already have a pack/i);
@@ -94,7 +93,7 @@ describe('writing a pack', () => {
 
   it('refuses an effect the action gate would not recognise', async () => {
     const { status, body } = await send('POST', '', {
-      slug: 'typo', name: 'Typo', personaId: 'persona-Koala', toolset: 'assistant',
+      slug: 'typo', name: 'Typo', personaId: 'builtin-persona-koala', toolset: 'assistant',
       permitted: ['read', 'wrtie'],
     });
     expect(status).toBe(400);
@@ -103,7 +102,7 @@ describe('writing a pack', () => {
 
   it('refuses an override the registry does not know', async () => {
     const { status, body } = await send('POST', '', {
-      slug: 'bad-knob', name: 'Bad', personaId: 'persona-Koala', toolset: 'assistant',
+      slug: 'bad-knob', name: 'Bad', personaId: 'builtin-persona-koala', toolset: 'assistant',
       overrides: { temprature: 0.5 },
     });
     expect(status).toBe(400);
@@ -112,7 +111,7 @@ describe('writing a pack', () => {
 
   it('refuses an override outside its declared range', async () => {
     const { status } = await send('POST', '', {
-      slug: 'too-hot', name: 'Hot', personaId: 'persona-Koala', toolset: 'assistant',
+      slug: 'too-hot', name: 'Hot', personaId: 'builtin-persona-koala', toolset: 'assistant',
       overrides: { temperature: 5 },
     });
     expect(status).toBe(400);
@@ -132,13 +131,26 @@ describe('writing a pack', () => {
     expect(no.body.error).toMatch(/must be one of your models/i);
   });
 
-  it('re-seeds a deleted built-in, so deleting one means resetting it', async () => {
-    await send('DELETE', '/koala', {});
-    const gone = await get('/koala');
-    expect(gone.status).toBe(404);
-    const { body } = await get();
-    const koala = body.find((p: any) => p.slug === 'koala');
-    expect(koala).toBeDefined();
-    expect(koala.overrides).toEqual({ temperature: 0.7 });
+  it('refuses to delete a built-in, since it is shared by everyone', async () => {
+    const res = await send('DELETE', '/judge', {});
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/ships with the platform/i);
+  });
+
+  it('editing a built-in copies it to you and leaves the shipped row alone', async () => {
+    const shipped = await get('/synthesist');
+    expect(shipped.body.ownerId).toBeUndefined();
+
+    await send('PUT', '/synthesist', { overrides: { temperature: 0.42 } });
+    const mine = await get('/synthesist');
+    expect(mine.body.ownerId).toBe(TEST_USER.id);
+    expect(mine.body.id).not.toBe(shipped.body.id);
+    expect(mine.body.overrides.temperature).toBe(0.42);
+
+    const res = await send('DELETE', `/${mine.body.id}`, {});
+    expect(res.status).toBe(200);
+    const after = await get('/synthesist');
+    expect(after.body.ownerId).toBeUndefined();
+    expect(after.body.overrides).toEqual(shipped.body.overrides);
   });
 });

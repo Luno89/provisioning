@@ -75,7 +75,7 @@ export function treesRouter(deps: TreesRouterDeps): Router {
         title: l.title,
         status: l.status,
         column: columnFor(l, isBlocked(l)),
-        personaId: l.personaId,
+        packId: l.packId,
         verified: l.verified,
         merged: l.merged,
         tokens: l.usage?.tokens ?? 0,

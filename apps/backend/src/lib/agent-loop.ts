@@ -411,8 +411,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
       if (!record || !opts.onStep) return;
       try {
         opts.onStep(record);
-      } catch {
-      }
+      } catch { /* ignored */ }
     };
 
     messages.push({
@@ -890,8 +889,7 @@ export async function readStreamedReply(
         if (frame?.usage?.total_tokens) tokens = Number(frame.usage.total_tokens);
         if (frame?.usage?.completion_tokens) completionTokens = Number(frame.usage.completion_tokens);
         if (frame?.choices?.[0]?.finish_reason) finishReason = String(frame.choices[0].finish_reason);
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
   };
 

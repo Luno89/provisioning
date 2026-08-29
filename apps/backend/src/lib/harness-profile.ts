@@ -39,7 +39,7 @@ export function withOverrides(
   return {
     ownerId: ownerId ?? current?.ownerId ?? '',
     overrides,
-    ...(current?.personaId ? { personaId: current.personaId } : {}),
+    ...(current?.packId ? { packId: current.packId } : {}),
     ...(current?.from ? { from: current.from } : {}),
     updatedAt: new Date().toISOString(),
   };
@@ -124,7 +124,7 @@ export function buildPromotion(
     profile: {
       ownerId,
       overrides,
-      ...(variant.personaId ? { personaId: variant.personaId } : {}),
+      ...(variant.packId ? { packId: variant.packId } : {}),
       from: {
         experimentId: experiment.id,
         experimentName: experiment.name,

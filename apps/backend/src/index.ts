@@ -111,7 +111,7 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';
 import { specsToSeed, type AppSpec } from './lib/app-spec.js';
-import { PERSONA_SEEDS } from './lib/persona-seeds.js';
+import { seedPersonas } from './lib/persona-seeds.js';
 import { validateSpec, explainSpecProblems } from './lib/app-spec-validate.js';
 import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
 import type { AcceptanceCheck } from './lib/acceptance.js';
@@ -122,6 +122,7 @@ import {
 } from './lib/conversations.js';
 import { buildKoalaPrompt } from './lib/koala-persona.js';
 import { seedTools } from './lib/tool-seeds.js';
+import { seedPacks } from './lib/pack-seeds.js';
 import { seedBindingTypes } from './lib/binding-type-seeds.js';
 import { KOALA_TOOLS } from './lib/koala-tools.js';
 import { runKoalaTool } from './lib/koala-tool-runner.js';
@@ -226,6 +227,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await migrateLegacyOwnership(db);
   await seedTools(db);
   await seedBindingTypes(db);
+  await seedPersonas(db).then(
+    (n) => n && console.log(`[personas] seeded ${n} built-in persona(s)`),
+    (err: Error) => console.warn(`[personas] could not seed: ${err.message}`),
+  );
+  await seedPacks(db).then(
+    (n) => n && console.log(`[packs] seeded ${n} built-in pack(s)`),
+    (err: Error) => console.warn(`[packs] could not seed: ${err.message}`),
+  );
 
   const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
   const infraService = new InfrastructureService();
@@ -698,7 +707,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     db, modelIdsFor, temporalBridge, experimentService, authoringService, workbenchService,
     modelService,
   }));
-  app.use('/api/personas', personasRouter({ db, modelIdsFor, ensurePersonas }));
+  app.use('/api/personas', personasRouter({ db, modelIdsFor }));
   app.use('/api/persona-options', personaOptionsRouter({ db, modelIdsFor }));
   app.use('/api/packs', packsRouter({ db, modelIdsFor }));
 
@@ -706,21 +715,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/binding-types', bindingTypesRouter({ db }));
   app.use('/api/trees', treesRouter({ db, temporalBridge }));
   app.use('/api/branches', branchesRouter({ db, temporalBridge }));
-
-  async function ensurePersonas(userId: string): Promise<void> {
-    try {
-      const mine = await ownedPersonas(userId);
-      const missing = PERSONA_SEEDS.filter((seed) => !mine.some((p) => p.name === seed.name));
-      if (!missing.length) return;
-      const now = new Date().toISOString();
-      for (const seed of missing) {
-        await db.savePersona({ id: uuidv4(), ownerId: userId, ...seed, createdAt: now, updatedAt: now } as Persona);
-      }
-      console.log(`[personas] seeded ${missing.length} for ${userId.slice(0, 8)}: ${missing.map((s) => s.name).join(', ')}`);
-    } catch (err: any) {
-      console.warn(`[personas] could not seed: ${err.message}`);
-    }
-  }
 
   async function koalaServers(userId: string) {
     try {

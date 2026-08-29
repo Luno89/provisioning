@@ -75,7 +75,7 @@ describe('what the model is asked', () => {
 
   it('composes a persona prompt into the same single system message', async () => {
     const { sent } = await run([{ content: 'done' }], {
-      persona: { id: 'p1', ownerId: 'u1', name: 'Planner', overrides: {}, systemPrompt: 'YOU DECOMPOSE.',
+      persona: { id: 'p1', ownerId: 'u1', name: 'Planner', systemPrompt: 'YOU DECOMPOSE.',
         createdAt: 'x', updatedAt: 'x' },
     });
 
@@ -85,8 +85,7 @@ describe('what the model is asked', () => {
 
   it('nests a template_vars knob rather than sending it flat', async () => {
     const { sent } = await run([{ content: 'done' }], {
-      persona: { id: 'p1', ownerId: 'u1', name: 'P', overrides: { think: true },
-        createdAt: 'x', updatedAt: 'x' },
+      pack: { overrides: { think: true } },
     });
 
     expect(sent[0].think).toBeUndefined();
@@ -95,17 +94,15 @@ describe('what the model is asked', () => {
 
   it('lets the resolved chain beat the built-in sampling', async () => {
     const { sent } = await run([{ content: 'done' }], {
-      persona: { id: 'p1', ownerId: 'u1', name: 'P', overrides: { frequency_penalty: 0 },
-        createdAt: 'x', updatedAt: 'x' },
+      pack: { overrides: { frequency_penalty: 0 } },
     });
 
     expect(sent[0].frequency_penalty).toBe(0);
   });
 
-  it('applies the persona’s samplers but never sends a knob the loop only reads', async () => {
+  it('applies the pack’s samplers but never sends a knob the loop only reads', async () => {
     const { sent } = await run([{ content: 'done' }], {
-      persona: { id: 'p1', ownerId: 'u1', name: 'P', overrides: { temperature: 0.2, maxSteps: 30 },
-        createdAt: 'x', updatedAt: 'x' },
+      pack: { overrides: { temperature: 0.2, maxSteps: 30 } },
     });
 
     expect(sent[0].temperature).toBe(0.2);
@@ -128,15 +125,16 @@ describe('what the turn produces', () => {
     expect(result.leaves.find((l) => l.title === 'Test it')!.dependsOn).toEqual([first.id]);
   });
 
-  it('assigns a persona the model named', async () => {
-    await db.savePersona({ id: 'p-coder', ownerId: 'u1', name: 'Coder', overrides: {},
+  it('assigns a pack the model named', async () => {
+    await db.savePersonaPack({ id: 'p-coder', ownerId: 'u1', slug: 'coder', name: 'Coder',
+      personaId: 'x', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
       createdAt: 'x', updatedAt: 'x' } as any);
     const { result } = await run([
       { calls: [{ name: 'propose_leaf', args: { title: 'Write it', persona: 'Coder' } }] },
       { content: 'assigned' },
     ]);
 
-    expect(result.leaves[0]!.personaId).toBe('p-coder');
+    expect(result.leaves[0]!.packId).toBe('p-coder');
   });
 
   it('keeps every tool call, so HOW it decomposed is readable, not just what it left', async () => {

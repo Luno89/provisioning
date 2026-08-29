@@ -257,20 +257,16 @@ export async function ProvisionClusterActivity(
 
   try {
     await infra.runHelm(['uninstall', 'traefik', '-n', 'traefik', '--wait', '--timeout', '5m'], kubeconfigPath);
-  } catch {
-  }
+  } catch { /* ignored */ }
   try {
     await infra.runHelm(['uninstall', 'traefik', '-n', 'kube-system', '--wait', '--timeout', '5m'], kubeconfigPath);
-  } catch {
-  }
+  } catch { /* ignored */ }
   try {
     await infra.runHelm(['uninstall', 'kube-prometheus-stack', '-n', 'monitoring', '--wait', '--timeout', '5m'], kubeconfigPath);
-  } catch {
-  }
+  } catch { /* ignored */ }
   try {
     await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath);
-  } catch {
-  }
+  } catch { /* ignored */ }
   try {
     await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath);
   } catch {}
@@ -280,8 +276,7 @@ export async function ProvisionClusterActivity(
     await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath);
     await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath);
     await new Promise((r) => setTimeout(r, 2000));
-  } catch {
-  }
+  } catch { /* ignored */ }
   const clusterEnv: Record<string, string> = {
     STACK_TYPE: 'cluster',
     ENV: isMock ? 'local' : args.provider,
@@ -290,12 +285,10 @@ export async function ProvisionClusterActivity(
   };
   try {
     await infra.destroy(`${physicalName}-observability`, { logFile, env: clusterEnv });
-  } catch {
-  }
+  } catch { /* ignored */ }
   try {
     await infra.destroy(physicalName, { logFile, env: clusterEnv });
-  } catch {
-  }
+  } catch { /* ignored */ }
 
   const deployTimeout = (args.provider === 'k3d' || isMock) ? 10 * 60 * 1000 : 25 * 60 * 1000;
   await infra.deploy(physicalName, { logFile, env: clusterEnv, timeout: deployTimeout });

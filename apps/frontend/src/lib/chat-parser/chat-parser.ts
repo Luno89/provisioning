@@ -92,8 +92,7 @@ export class ChatParser {
             args: typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments || {}),
           });
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
 
     const cleanContent = text.replace(toolCallRegex, '').trim();

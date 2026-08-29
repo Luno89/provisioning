@@ -77,7 +77,7 @@ async function main(): Promise<void> {
         const reset = { ...failed, status: 'proposed' as const, updatedAt: now() };
         await db.saveLeaf(reset);
         const result = await acceptLeaf(
-          { db, startLeaf: (x) => bridge.startLeaf(x), personaOf: async (id) => (id ? personas.find((p: any) => p.id === id) ?? null : null) },
+          { db, startLeaf: (x) => bridge.startLeaf(x), packOf: async (id: string | undefined) => (id ? (await db.getPersonaPacks()).find((p: any) => p.id === id) ?? null : null) },
           reset,
           leaves.map((l: any) => (l.id === reset.id ? reset : l)),
         );
@@ -133,11 +133,11 @@ async function main(): Promise<void> {
     } as Leaf);
 
     const researchLeaves = RESEARCH.map((r) => leaf({
-      title: r.title, body: r.body, personaId: researcher.id,
+      title: r.title, body: r.body, packId: researcher.id,
       expects: ['findings.md'],
     }));
     const synthesisLeaf = leaf({
-      title: SYNTHESIS.title, body: SYNTHESIS.body, personaId: synthesist.id,
+      title: SYNTHESIS.title, body: SYNTHESIS.body, packId: synthesist.id,
       expects: ['findings.md'],
       dependsOn: researchLeaves.map((l) => l.id),
     });
@@ -154,7 +154,7 @@ async function main(): Promise<void> {
         {
           db,
           startLeaf: (x) => bridge.startLeaf(x),
-          personaOf: async (id) => (id ? personas.find((p: any) => p.id === id) ?? null : null),
+          packOf: async (id: string | undefined) => (id ? (await db.getPersonaPacks()).find((p: any) => p.id === id) ?? null : null),
         },
         l,
         all,

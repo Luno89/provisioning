@@ -340,8 +340,7 @@ export default function ChatSurface({
               const nextState = reduceUnifiedFrames(liveStateRef.current, frame);
               liveStateRef.current = nextState;
               setLiveState({ ...nextState });
-            } catch {
-            }
+            } catch { /* ignored */ }
           }
         }
       }
@@ -375,8 +374,7 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     } catch (err: any) {
-      if (err?.name === 'AbortError') {
-      } else {
+      if (!(err?.name === 'AbortError')) {
         setError(`Turn failed: ${errorMessage(err)}`);
       }
     } finally {

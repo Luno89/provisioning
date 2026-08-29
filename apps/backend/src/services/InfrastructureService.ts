@@ -469,8 +469,7 @@ export class InfrastructureService {
           ready = true;
           break;
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
       await new Promise((r) => setTimeout(r, 2000));
     }
 

@@ -22,8 +22,7 @@ export function isProductive(calls: { name: string; arguments: string }[]): bool
     let command = call.arguments;
     try {
       command = String(JSON.parse(call.arguments)?.command ?? call.arguments);
-    } catch {
-    }
+    } catch { /* ignored */ }
     if (MUTATING.some((pattern) => pattern.test(command))) return true;
   }
   return false;

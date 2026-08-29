@@ -94,8 +94,7 @@ export class ClusterService extends BaseService {
         if (nameservers.length > 0) {
           return nameservers;
         }
-      } catch {
-      }
+      } catch { /* ignored */ }
     }
     
     return ['8.8.8.8', '1.1.1.1'];
@@ -186,8 +185,7 @@ export class ClusterService extends BaseService {
       const { stdout } = await execAsync('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits');
       const mib = parseNvidiaSmiVram(stdout);
       if (mib) capacity = { ...capacity, gpuVramMib: mib };
-    } catch {
-    }
+    } catch { /* ignored */ }
     return capacity;
   }
 
@@ -394,8 +392,7 @@ export class ClusterService extends BaseService {
 
           try {
             await this.infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
-          } catch {
-          }
+          } catch { /* ignored */ }
 
           await this.infra.createLocalCluster(physicalName, { logFile, io, resourceId: id });
 
@@ -551,8 +548,7 @@ export class ClusterService extends BaseService {
         if (cluster.gpuEnabled) {
           try {
             await fs.rm(kubeconfigPath, { force: true });
-          } catch {
-          }
+          } catch { /* ignored */ }
           const clusters = await this.db.getClusters();
           await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
           if (io) io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
@@ -574,8 +570,7 @@ export class ClusterService extends BaseService {
             await this.infra.disconnectNginxFromNetwork(physicalName);
             try {
                 await fs.rm(kubeconfigPath, { force: true });
-            } catch {
-            }
+            } catch { /* ignored */ }
         }
 
         const clusters = await this.db.getClusters();

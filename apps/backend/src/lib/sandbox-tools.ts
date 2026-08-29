@@ -93,8 +93,7 @@ function elideWrites(m: { tool_calls?: unknown }): unknown | undefined {
       if (typeof args?.path === 'string') path = args.path;
       if (typeof args?.content === 'string') bytes = args.content.length;
       if (bytes < 400) return c;
-    } catch {
-    }
+    } catch { /* ignored */ }
     changed = true;
     return { ...c, function: { ...c.function, arguments: WRITTEN(path, bytes) } };
   });

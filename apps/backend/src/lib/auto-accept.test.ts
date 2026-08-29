@@ -15,7 +15,7 @@ const leaf = (over: Record<string, unknown> = {}): Leaf => ({
   body: 'Expose gh_list_repos, gh_get_issue and gh_create_issue as MCP tools with JSON schemas.',
   status: 'proposed',
   column: 'todo',
-  personaId: 'p-builder',
+  packId: 'p-builder',
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   ...over,
@@ -23,7 +23,7 @@ const leaf = (over: Record<string, unknown> = {}): Leaf => ({
 
 const ON = { ...DEFAULT_POLICY, enabled: true };
 
-const unassigned = (): Leaf => { const { personaId, ...rest } = leaf(); return rest as Leaf; };
+const unassigned = (): Leaf => { const { packId, ...rest } = leaf(); return rest as Leaf; };
 
 describe('whether one proposal is routine', () => {
   it('accepts a well-formed, assigned leaf', () => {
@@ -89,11 +89,11 @@ describe('reviewing a batch', () => {
 });
 
 describe('accepting by hand', () => {
-  it('refuses a leaf with no persona, the same as the automatic path', async () => {
-    const { personaId, ...unassignedLeaf } = leaf();
+  it('refuses a leaf with no pack, the same as the automatic path', async () => {
+    const { packId, ...unassignedLeaf } = leaf();
     const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: withPlan } }, unassignedLeaf as Leaf, []);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/no persona/i);
+    if (!result.ok) expect(result.error).toMatch(/no pack/i);
   });
 
   it('accepts an assigned one', async () => {

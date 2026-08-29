@@ -66,8 +66,7 @@ export function modelsRouter(deps: Record<string, any>): Router {
           const config = await getHfModelConfig(repo, revision, resolved.env.HF_TOKEN);
           kvCacheBytesPerGpu = estimateKvCacheBytes(config, maxSeqLen, req.query.cacheMode as string | undefined) / gpuCount;
           weightBytesPerGpu = size.totalBytes / gpuCount;
-        } catch {
-        }
+        } catch { /* ignored */ }
       }
 
       res.json({ ...size, kvCacheBytesPerGpu, weightBytesPerGpu });
