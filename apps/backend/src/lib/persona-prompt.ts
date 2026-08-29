@@ -14,7 +14,7 @@
  */
 
 import { contextPressure, FALLBACK_CONTEXT_TOKENS } from './sampling.js';
-import { TOOL_SEEDS, type ToolRepositoryItem } from './tool-seeds.js';
+import { ALL_TOOL_SEEDS, type ToolRepositoryItem } from './tool-seeds.js';
 
 export interface McpServerItem {
   name: string;
@@ -83,7 +83,9 @@ export function composePersonaPrompt(
 
   // 2. Dynamic Tool Context
   const activeTools = options?.activeTools ?? [];
-  const registry = options?.toolRegistry ?? TOOL_SEEDS;
+  // The COMPLETE catalogue when the caller passes none: a tool absent from it reaches the model
+  // with no guidance at all, which is what happened to the Ingestor's three corpus tools.
+  const registry = options?.toolRegistry ?? ALL_TOOL_SEEDS;
   const toolMap = new Map(registry.map((t) => [t.name, t]));
 
   // Also collect tools from enabled MCP servers

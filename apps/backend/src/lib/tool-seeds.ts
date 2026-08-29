@@ -1,7 +1,17 @@
 /**
  * tool-seeds.ts — Complete catalogue of built-in platform tools with schema definitions,
  * operational workflow guidance, and database seeding utilities.
+ *
+ * ── WHAT "COMPLETE" HAS TO MEAN ──
+ * This catalogue is what the persona editor offers as grantable and what `composePersonaPrompt`
+ * reads to describe a tool to a model. A dispatchable tool absent from it is therefore invisible in
+ * two directions at once: it cannot be granted through the UI, and if it is granted anyway it
+ * arrives at the model with no guidance. Eight were missing, three of them the whole toolset of the
+ * seeded Ingestor persona. Export `ALL_TOOL_SEEDS`, not `TOOL_SEEDS`, for anything that needs the
+ * real set — `tool-seeds.test.ts` holds the two in step.
  */
+import { LEAF_TOOLS } from './leaf-tools.js';
+import { SANDBOX_TOOLS } from './sandbox-tools.js';
 
 export interface ToolRepositoryItem {
   id: string;
@@ -794,6 +804,52 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
   },
 ];
 
+/**
+ * The tools that exist as schemas but had no registry row.
+ *
+ * ── WHY DERIVED AND NOT WRITTEN OUT ──
+ * Eight tools were dispatchable and offerable in the persona editor while being absent from this
+ * catalogue, so they reached a model with no usage guidance attached and could not be described by
+ * `composePersonaPrompt` at all. Three of them — `start_ingest`, `ingest_status`, `search_corpus` —
+ * are the entire toolset of the seeded Ingestor persona.
+ *
+ * Their name, description and parameters are taken from the live declaration rather than retyped.
+ * A hand-copied schema here would be a second copy of a contract the dispatcher already owns, and
+ * the copy that drifts is the one nothing executes — see this file's own `TOOL_SEEDS` entries,
+ * which do restate them and are exactly what has to be kept in step by hand.
+ */
+const DERIVED_CATEGORY: Record<string, ToolRepositoryItem['category']> = {
+  start_ingest: 'web', ingest_status: 'web', search_corpus: 'web',
+  set_acceptance: 'planning', validate_progress: 'planning', replace_leaf: 'planning',
+  list_personas: 'planning', update_leaf_memory: 'planning',
+};
+
+function derivedSeeds(declared: readonly { function: { name: string; description?: string; parameters?: unknown } }[]): ToolRepositoryItem[] {
+  const already = new Set(TOOL_SEEDS.map((t) => t.name));
+  return declared
+    .filter((t) => !already.has(t.function.name) && DERIVED_CATEGORY[t.function.name])
+    .map((t) => ({
+      id: `tool_${t.function.name}`,
+      name: t.function.name,
+      category: DERIVED_CATEGORY[t.function.name]!,
+      description: t.function.description ?? t.function.name,
+      requiresBinaries: [],
+      parameters: (t.function.parameters ?? { type: 'object', properties: {} }) as ToolRepositoryItem['parameters'],
+      isBuiltIn: true,
+    }));
+}
+
+/**
+ * Every built-in tool: the hand-written catalogue plus anything dispatchable it did not mention.
+ *
+ * This is what `seedTools` writes and what the persona editor offers, so a tool missing from here
+ * is a tool nobody can grant and nothing can describe.
+ */
+export const ALL_TOOL_SEEDS: ToolRepositoryItem[] = [
+  ...TOOL_SEEDS,
+  ...derivedSeeds([...LEAF_TOOLS, ...SANDBOX_TOOLS]),
+];
+
 /** Minimal database interface needed for seeding tools. */
 export interface ToolSeedStore {
   getTools(): Promise<ToolRepositoryItem[]>;
@@ -810,7 +866,7 @@ export async function seedTools(store: ToolSeedStore): Promise<number> {
   const existingMap = new Map(existing.map((t) => [t.name, t]));
   let seededCount = 0;
 
-  for (const seed of TOOL_SEEDS) {
+  for (const seed of ALL_TOOL_SEEDS) {
     const prev = existingMap.get(seed.name);
     // If tool does not exist, or exists as built-in, upsert with latest schema and guidance
     if (!prev || prev.isBuiltIn !== false) {

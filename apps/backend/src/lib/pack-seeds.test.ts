@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { PACK_SEEDS, seedPacks, type PackSeedStore } from './pack-seeds.js';
 import { PERSONA_SEEDS } from './persona-seeds.js';
 import type { PersonaPack } from '@koala/harness-types';
+import { KOALA_TOOLS } from './koala-tools.js';
 
 /**
  * Packs are rows, not a `const REGISTRY`.
@@ -60,10 +61,19 @@ describe('the seeds themselves', () => {
     expect(koala.permitted).toContain('write');
   });
 
-  it('grants the web tools, which had handlers and no schema for two releases', () => {
+  it('grants every tool the assistant executor can actually dispatch', () => {
+    /**
+     * A grant naming a tool that does not exist is silently nothing — it neither appears in the
+     * schema list nor raises anything, so the pack simply lacks a capability its record claims.
+     * Checked against the real dispatch table, which `KoalaToolName` already ties to the schemas.
+     */
     const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
+    const dispatchable = new Set(KOALA_TOOLS.map((t) => t.function.name as string));
+    for (const name of koala.tools) {
+      expect(dispatchable, name).toContain(name);
+    }
+    // Including the web tools, which reach the network through the backend rather than the sandbox.
     expect(koala.tools).toContain('web_search');
-    expect(koala.tools).toContain('fetch_web_page');
   });
 });
 

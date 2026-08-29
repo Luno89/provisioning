@@ -67,12 +67,22 @@ export function personaOptionsRouter(deps: PersonaOptionsRouterDeps): Router {
         available: spec.available,
         absent: spec.absent,
       })),
-      // Every tool a persona could be allowed. The intersection with what the environment actually
-      // offers happens at run time — naming one here does not conjure it.
-      tools: [
-        ...SANDBOX_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description })),
-        ...LEAF_TOOLS.map((t) => ({ name: t.function.name, description: t.function.description })),
-      ].filter((t, i, all) => t.name && all.findIndex((x) => x.name === t.name) === i),
+      /**
+       * Every tool a persona or pack could be allowed, FROM THE REGISTRY.
+       *
+       * It used to be `SANDBOX_TOOLS` + `LEAF_TOOLS`, which is a third list beside the registry and
+       * the chat schemas — and it disagreed with both. Twenty-six registry tools could not be
+       * granted through this editor at all (`get_logs`, `deploy_project`, every project and secret
+       * tool), while eight it did offer had no registry row and so reached a model undescribed.
+       *
+       * Serving the registry means the things you can grant and the things that exist are one list.
+       * The intersection with what an environment actually offers still happens at run time —
+       * naming a tool here does not conjure it.
+       */
+      tools: (await db.getTools())
+        .map((t) => ({ name: t.name, description: t.description }))
+        .filter((t, i, all) => t.name && all.findIndex((x) => x.name === t.name) === i)
+        .sort((a, b) => a.name.localeCompare(b.name)),
       defaults: { cpu: DEFAULT_WORKSPACE_CPU, memory: DEFAULT_WORKSPACE_MEMORY, maxSteps: MAX_AGENT_STEPS },
     });
   });

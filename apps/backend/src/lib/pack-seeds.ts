@@ -48,8 +48,8 @@ const KOALA_TOOLS_GRANTED = [
   'list_mcp_servers', 'enable_mcp_server',
   'request_escalated_privileges', 'request_secret', 'inject_secret_to_pod',
   'get_project_secret', 'set_project_secret', 'list_project_secrets',
-  // Restored to the grant list because they are restored to the schema list. Both had working
-  // handlers and no schema, so no model was ever offered them — twice.
+  // Imported into KOALA_TOOLS from LEAF_TOOLS rather than restated — see koala-tools.ts:552 for
+  // why, and for the one release in which they had handlers and no schema at all.
   'web_search', 'fetch_web_page',
 ];
 
