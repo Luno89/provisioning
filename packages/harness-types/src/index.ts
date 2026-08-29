@@ -166,7 +166,7 @@ export interface Tunable {
    * and, since budgets follow the model's window, silently resizing every leaf's context — is not
    * something a single setting should be able to do.
    */
-  settableAt?: ('profile' | 'persona' | 'request')[];
+  settableAt?: ('profile' | 'persona' | 'pack' | 'request')[];
   /** Filled in by `buildHarnessConfig` for knobs with `choicesFrom`. Never authored by hand. */
   choices?: { value: string; label: string; note?: string }[];
   /** What the harness runs at today, read from the defining module rather than restated. */

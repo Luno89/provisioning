@@ -18,7 +18,7 @@ describe('which layer may set a model', () => {
     const refusal = validateOverrides({ model: 'dep-1' }, { layer: 'profile', models: ['dep-1'] });
 
     expect(refusal).toMatch(/cannot be set on the profile/i);
-    expect(refusal).toMatch(/persona or request/);
+    expect(refusal).toMatch(/persona, pack or request/);
     // The reason, not just the rule — a refusal that does not explain gets worked around.
     expect(refusal).toMatch(/every persona in every project/i);
   });

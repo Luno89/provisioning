@@ -35,6 +35,7 @@ import { leavesRouter } from './routes/leaves.js';
 import { harnessRouter } from './routes/harness/index.js';
 import { personasRouter } from './routes/personas.js';
 import { personaOptionsRouter } from './routes/persona-options.js';
+import { packsRouter } from './routes/packs.js';
 import { authRouter } from './routes/auth.js';
 import { koalaRouter } from './routes/koala.js';
 import { personaChatRouter } from './routes/chat-pack.js';
@@ -1153,6 +1154,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   app.use('/api/personas', personasRouter({ db, modelIdsFor, ensurePersonas }));
   app.use('/api/persona-options', personaOptionsRouter({ db, modelIdsFor }));
+  /** How things run, as editable records — see routes/packs.ts and lib/pack-seeds.ts. */
+  app.use('/api/packs', packsRouter({ db, modelIdsFor, ensurePersonas }));
 
   /**
    * ── THE GROVE: TREE TYPES, TREES, BRANCHES ──

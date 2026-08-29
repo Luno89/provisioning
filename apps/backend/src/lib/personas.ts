@@ -12,12 +12,17 @@
  *
  *   built-in constants  — what the harness does when nobody has said otherwise
  *   adopted profile     — what THIS INSTALL decided, from an experiment
- *   persona             — what THIS CONVERSATION is for
+ *   persona             — who THIS CONVERSATION is with
+ *   pack                — HOW that persona is being run this time
  *   request             — what THIS TURN asked for
  *
  * A persona beats the profile because choosing one is an explicit act about the work in front of
- * you, while the profile is a standing default. The request beats the persona for the same reason
- * one step further in.
+ * you, while the profile is a standing default. The request beats them all for the same reason one
+ * step further in.
+ *
+ * The pack sits between because one persona can be run several ways — the same prompt with a
+ * different engine, a different toolset, a tighter budget — and which of those you picked is a
+ * narrower statement than who you picked.
  *
  * ── PROVENANCE IS NOT OPTIONAL ──
  * Every layer records which keys it supplied. A run that cannot say where its temperature came from
@@ -30,8 +35,15 @@ import { RESET_TO_DEFAULT } from './harness-profile.js';
 
 export type { Persona };
 
-/** Where a knob's value came from, for the run record and the UI. */
-export type OverrideSource = 'profile' | 'persona' | 'request';
+/**
+ * Where a knob's value came from, for the run record and the UI.
+ *
+ * `pack` was ADDED rather than replacing `persona`, though runtime configuration is moving from
+ * one to the other. Run records persist this provenance, and renaming the layer would change what
+ * every stored record claims about a run that already happened — the precise failure this file's
+ * header is about. Old records keep saying `persona` and keep being right; new ones say `pack`.
+ */
+export type OverrideSource = 'profile' | 'persona' | 'pack' | 'request';
 
 export interface ResolvedConfig {
   /** The bag to send. Built-in defaults are applied downstream by `applyOverrides`. */
@@ -58,10 +70,21 @@ export function resolveConfig(
   profile: HarnessProfile | null,
   persona: Persona | null,
   request: Overrides = {},
+  /**
+   * The pack, between the persona and the request.
+   *
+   * It beats the persona because it is the narrower statement: a persona is who you are talking to,
+   * a pack is the runtime that particular conversation or leaf uses — and one persona can be run
+   * several ways. It loses to the request for the reason every layer here loses to it.
+   *
+   * Optional so the existing callers are unchanged while the migration lands.
+   */
+  pack: { overrides?: Overrides; systemPrompt?: string } | null = null,
 ): ResolvedConfig {
   const layers: [OverrideSource, Overrides][] = [
     ['profile', profile?.overrides ?? {}],
     ['persona', persona?.overrides ?? {}],
+    ['pack', pack?.overrides ?? {}],
     ['request', request],
   ];
 
@@ -81,7 +104,7 @@ export function resolveConfig(
     }
   }
 
-  const from: Record<OverrideSource, string[]> = { profile: [], persona: [], request: [] };
+  const from: Record<OverrideSource, string[]> = { profile: [], persona: [], pack: [], request: [] };
   for (const [key, source] of owner) from[source].push(key);
   for (const source of Object.keys(from) as OverrideSource[]) from[source].sort();
 

@@ -36,7 +36,7 @@ describe('resolveConfig', () => {
     );
 
     expect(resolved.from).toEqual({
-      profile: ['think'],
+      pack: [], profile: ['think'],
       persona: ['temperature'],
       request: ['maxSteps'],
     });
@@ -77,7 +77,7 @@ describe('resolveConfig', () => {
     const resolved = resolveConfig(null, null, { temperature: 0.5 });
 
     expect(resolved.overrides).toEqual({ temperature: 0.5 });
-    expect(resolved.from).toEqual({ profile: [], persona: [], request: ['temperature'] });
+    expect(resolved.from).toEqual({ pack: [], profile: [], persona: [], request: ['temperature'] });
     expect(resolved.systemPrompt).toBeUndefined();
   });
 
@@ -110,6 +110,40 @@ describe('validatePersona', () => {
   });
 });
 
+describe('the pack layer', () => {
+  /**
+   * A pack sits between the persona and the request because it is the narrower statement: one
+   * persona can be run several ways — same prompt, different engine or budget — and which way you
+   * picked says more about this run than who you picked.
+   */
+  it('beats the persona, because it says how that persona is being run', () => {
+    const resolved = resolveConfig(
+      null,
+      { id: 'p', name: 'Koala', overrides: { temperature: 0.7 } } as never,
+      {},
+      { overrides: { temperature: 0.1 } },
+    );
+    expect(resolved.overrides.temperature).toBe(0.1);
+    expect(resolved.from.pack).toEqual(['temperature']);
+    expect(resolved.from.persona).toEqual([]);
+  });
+
+  it('still loses to the request, which is this one turn', () => {
+    const resolved = resolveConfig(null, null, { temperature: 0.9 }, { overrides: { temperature: 0.1 } });
+    expect(resolved.overrides.temperature).toBe(0.9);
+    expect(resolved.from.request).toEqual(['temperature']);
+  });
+
+  it('is absent for every caller that has not moved yet', () => {
+    // The parameter is optional so the migration can land route by route. An absent pack must
+    // resolve exactly as before, or every unmigrated caller changes behaviour silently.
+    const without = resolveConfig(null, { id: 'p', name: 'K', overrides: { temperature: 0.7 } } as never);
+    expect(without.overrides.temperature).toBe(0.7);
+    expect(without.from.persona).toEqual(['temperature']);
+    expect(without.from.pack).toEqual([]);
+  });
+});
+
 describe('personas as experiment arms', () => {
   // A variant is already a named override bag, so pointing arms at personas runs them head to
   // head on one suite — the only way to answer "which is better" rather than preferring whichever
@@ -133,7 +167,7 @@ describe('personas as experiment arms', () => {
 
     expect(hotter.overrides.temperature).toBe(0.8);
     expect(hotter.systemPrompt).toBe('Terse.');
-    expect(hotter.from).toEqual({ profile: [], persona: [], request: ['temperature'] });
+    expect(hotter.from).toEqual({ pack: [], profile: [], persona: [], request: ['temperature'] });
   });
 
   it('keeps persona and profile provenance apart in the record', () => {

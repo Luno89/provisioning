@@ -388,7 +388,15 @@ export const TUNABLES: Tunable[] = [
      * persona choosing its own model is the intended way to use several at once. What is refused is
      * the one field that repoints an entire project.
      */
-    settableAt: ['persona', 'request'],
+    /**
+     * `pack` is where this belongs now; `persona` remains during the move.
+     *
+     * Runtime configuration is migrating from the persona onto the pack — a persona is who, a pack
+     * is how — and personas still carry an `overrides` bag until that migration lands. Both layers
+     * are genuinely settable in the meantime, so both are listed; dropping `persona` early would
+     * refuse an override that is still in force on existing records.
+     */
+    settableAt: ['persona', 'pack', 'request'],
     note: 'Which of your model APIs to run against — a deployed engine or a registered endpoint. '
       + 'Resolved to a base URL before the call, so two engines can be compared on the same suite.',
     source: 'services/ModelService.ts',
@@ -487,7 +495,7 @@ export function applyOverrides(
 /** Rejects an override before it reaches a model call. */
 export interface OverrideContext {
   /** Which layer is being written. Omitted means "not a layered write", and layer rules are skipped. */
-  layer?: 'profile' | 'persona' | 'request';
+  layer?: 'profile' | 'persona' | 'pack' | 'request';
   /**
    * The values a `choicesFrom` knob may take, resolved by the caller.
    *
@@ -497,6 +505,12 @@ export interface OverrideContext {
    */
   models?: string[];
 }
+
+/** "a", "a or b", "a, b or c" — a refusal naming three layers should still read as a sentence. */
+const orList = (items: readonly string[]): string =>
+  items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
 
 export function validateOverrides(overrides: Overrides, context: OverrideContext = {}): string | null {
   for (const [key, value] of Object.entries(overrides)) {
@@ -521,7 +535,7 @@ export function validateOverrides(overrides: Overrides, context: OverrideContext
      */
     if (context.layer && spec.settableAt && !spec.settableAt.includes(context.layer)) {
       return `${spec.label} cannot be set on the ${context.layer}. `
-        + `Set it on ${spec.settableAt.join(' or ')} instead — `
+        + `Set it on ${orList(spec.settableAt)} instead — `
         + 'a profile-wide value would repoint every persona in every project at once.';
     }
 
