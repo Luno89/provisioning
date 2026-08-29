@@ -95,6 +95,57 @@ describe('Auth Endpoints & Route Protection Integration', () => {
    * not mention. Here it ate `acceptance` on every chat turn — the tool wrote it and the transcript
    * save immediately removed it.
    */
+  /**
+   * The pack catalogue, through the real application.
+   *
+   * Every router in this area passes in isolation, and that is not the same as the app assembling
+   * and serving them — a router that works alone while `bootstrap()` throws is a green suite and a
+   * dead server. This walks what a new account actually gets: personas seeded, packs seeded on top
+   * of them (which only works if the seeders run in that order), and a Koala that exists in BOTH
+   * lists rather than being conjured on the chat path.
+   */
+  it('gives a brand-new account a Koala persona AND a Koala pack', async () => {
+    expect(session).toBeTruthy();
+    const auth = { headers: { Cookie: session } };
+
+    const personas = await axios.get(getUrl('/api/personas'), auth);
+    expect(personas.status).toBe(200);
+    const koalaPersona = personas.data.find((p: any) => p.name === 'Koala');
+    // It used to be created only by `ensureKoala`, on the chat path, so this list had eight
+    // personas and no Koala until the user happened to open a conversation.
+    expect(koalaPersona, 'Koala missing from the personas list').toBeTruthy();
+
+    const packs = await axios.get(getUrl('/api/packs'), auth);
+    expect(packs.status).toBe(200);
+    const koalaPack = packs.data.find((p: any) => p.slug === 'koala');
+    expect(koalaPack, 'Koala missing from the pack catalogue').toBeTruthy();
+    // Resolved to this user's own persona id, not a name and not another tenant's record.
+    expect(koalaPack.personaId).toBe(koalaPersona.id);
+    expect(koalaPack.ownerId).toBe(personas.data[0].ownerId);
+  });
+
+  it('serves the catalogue idempotently, and keeps an edit', async () => {
+    const auth = { headers: { Cookie: session } };
+    const before = await axios.get(getUrl('/api/packs'), auth);
+    const koala = before.data.find((p: any) => p.slug === 'koala');
+
+    await axios.put(getUrl(`/api/packs/${koala.id}`), { overrides: { temperature: 0.11 } }, auth);
+
+    // Seeding ADDS what is missing and never overwrites — the rule `ensurePersonas` states, and the
+    // one that matters most here, since a pack is where the tuning lives.
+    const after = await axios.get(getUrl('/api/packs'), auth);
+    expect(after.data).toHaveLength(before.data.length);
+    expect(after.data.find((p: any) => p.slug === 'koala').overrides.temperature).toBe(0.11);
+  });
+
+  it('refuses a chat turn for a pack that does not exist', async () => {
+    const auth = { headers: { Cookie: session } };
+    // Used to throw out of a two-entry constant and return a 500 naming neither list.
+    await expect(
+      axios.post(getUrl('/api/chat-pack/researcher'), { message: 'hi' }, auth),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+  });
+
   it('keeps branch fields the chat turn does not own', async () => {
     expect(session).toBeTruthy();
     const auth = { headers: { Cookie: session } };
