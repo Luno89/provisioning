@@ -69,7 +69,6 @@ describe('GET /api/packs', () => {
     expect(slugs).toContain('builder');
 
     const researcher = body.find((p: any) => p.slug === 'researcher');
-    expect(researcher.toolset).toBe('sandbox');
     expect(researcher.tools).toContain('web_search');
   });
 });
@@ -77,7 +76,7 @@ describe('GET /api/packs', () => {
 describe('writing a pack', () => {
   it('refuses a persona that does not exist', async () => {
     const { status, body } = await send('POST', '', {
-      slug: 'ghost', name: 'Ghost', personaId: 'nope', toolset: 'assistant',
+      slug: 'ghost', name: 'Ghost', personaId: 'nope',
     });
     expect(status).toBe(400);
     expect(body.error).toMatch(/persona does not exist/i);
@@ -85,24 +84,16 @@ describe('writing a pack', () => {
 
   it('refuses a duplicate slug, which is a route that cannot resolve', async () => {
     const { status, body } = await send('POST', '', {
-      slug: 'koala', name: 'Another', personaId: 'builtin-persona-koala', toolset: 'assistant',
+      slug: 'koala', name: 'Another', personaId: 'builtin-persona-koala',
     });
     expect(status).toBe(400);
     expect(body.error).toMatch(/already have a pack/i);
   });
 
-  it('refuses an effect the action gate would not recognise', async () => {
-    const { status, body } = await send('POST', '', {
-      slug: 'typo', name: 'Typo', personaId: 'builtin-persona-koala', toolset: 'assistant',
-      permitted: ['read', 'wrtie'],
-    });
-    expect(status).toBe(400);
-    expect(body.error).toMatch(/not an effect/i);
-  });
 
   it('refuses an override the registry does not know', async () => {
     const { status, body } = await send('POST', '', {
-      slug: 'bad-knob', name: 'Bad', personaId: 'builtin-persona-koala', toolset: 'assistant',
+      slug: 'bad-knob', name: 'Bad', personaId: 'builtin-persona-koala',
       overrides: { temprature: 0.5 },
     });
     expect(status).toBe(400);
@@ -111,7 +102,7 @@ describe('writing a pack', () => {
 
   it('refuses an override outside its declared range', async () => {
     const { status } = await send('POST', '', {
-      slug: 'too-hot', name: 'Hot', personaId: 'builtin-persona-koala', toolset: 'assistant',
+      slug: 'too-hot', name: 'Hot', personaId: 'builtin-persona-koala',
       overrides: { temperature: 5 },
     });
     expect(status).toBe(400);

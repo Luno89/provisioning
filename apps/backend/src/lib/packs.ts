@@ -1,19 +1,14 @@
-import { ALL_EFFECTS, type ToolEffect } from './action-gate.js';
 import type { PersonaPack } from '@koala/harness-types';
 
 export const MAX_PACK_NAME = 60;
 
 const SLUG = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
-const TOOLSETS = ['assistant', 'workbench', 'sandbox', 'none'];
-
 export interface PackCandidate {
   slug?: unknown;
   name?: unknown;
   personaId?: unknown;
-  toolset?: unknown;
   tools?: unknown;
-  permitted?: unknown;
 }
 
 export function validatePack(
@@ -41,21 +36,9 @@ export function validatePack(
     return 'That persona does not exist. Pick one from your personas.';
   }
 
-  if (!TOOLSETS.includes(String(candidate.toolset))) {
-    return `Toolset must be one of ${TOOLSETS.join(', ')}.`;
-  }
-
   if (candidate.tools !== undefined) {
     if (!Array.isArray(candidate.tools) || candidate.tools.some((t) => typeof t !== 'string')) {
       return 'Tools must be a list of tool names.';
-    }
-  }
-
-  if (candidate.permitted !== undefined) {
-    if (!Array.isArray(candidate.permitted)) return 'Permitted must be a list of effects.';
-    const bad = candidate.permitted.find((e) => !(ALL_EFFECTS as readonly string[]).includes(String(e)));
-    if (bad !== undefined) {
-      return `"${String(bad)}" is not an effect. Use ${ALL_EFFECTS.join(', ')}.`;
     }
   }
 
@@ -76,5 +59,3 @@ export function packForLeaf(
   return packs.find((p) => p.personaId === personaId);
 }
 
-export const asEffects = (v: unknown): ToolEffect[] =>
-  Array.isArray(v) ? (v.filter((e) => (ALL_EFFECTS as readonly string[]).includes(String(e))) as ToolEffect[]) : [];

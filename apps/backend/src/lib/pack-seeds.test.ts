@@ -36,11 +36,6 @@ describe('the seeds themselves', () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-  it('declares permissions honestly against the tools it grants', () => {
-    const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
-    expect(koala.tools).toContain('deploy_project');
-    expect(koala.permitted).toContain('write');
-  });
 
   it('grants every tool the assistant executor can actually dispatch', () => {
     const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
@@ -60,10 +55,6 @@ describe('every persona has a pack to run as', () => {
     }
   });
 
-  it('gives work packs the sandbox executor, and Koala the assistant one', () => {
-    expect(PACK_SEEDS.find((p) => p.slug === 'koala')!.toolset).toBe('assistant');
-    expect(PACK_SEEDS.find((p) => p.slug === 'builder')!.toolset).toBe('sandbox');
-  });
 
   it('starts each work pack as what its persona already declared', () => {
     for (const seed of PERSONA_SEEDS.filter((p) => p.name !== 'Koala')) {
@@ -115,8 +106,7 @@ describe('seeding', () => {
     const s = shipped(builtInPersonas);
     await seedPacks(s);
     s.saved.push({
-      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0',
-      toolset: 'assistant', tools: ['get_logs'], permitted: ['read'], overrides: { temperature: 0.1 },
+      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0', tools: ['get_logs'], overrides: { temperature: 0.1 },
       createdAt: '', updatedAt: '',
     } as PersonaPack);
     await seedPacks(s);

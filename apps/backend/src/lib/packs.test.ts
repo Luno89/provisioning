@@ -4,7 +4,7 @@ import type { PersonaPack } from '@koala/harness-types';
 
 const pack = (over: Partial<PersonaPack> = {}): PersonaPack => ({
   id: 'pk1', ownerId: 'u1', slug: 'koala', name: 'Koala',
-  personaId: 'p1', toolset: 'assistant', tools: [], permitted: ['read'],
+  personaId: 'p1', tools: [],
   overrides: {}, createdAt: '', updatedAt: '', ...over,
 });
 
@@ -12,50 +12,40 @@ describe('validatePack', () => {
   const personas = [{ id: 'p1' }, { id: 'p2' }];
 
   it('refuses a persona that does not exist', () => {
-    expect(validatePack({ slug: 'a', name: 'A', personaId: 'gone', toolset: 'assistant' }, [], personas))
+    expect(validatePack({ slug: 'a', name: 'A', personaId: 'gone',  }, [], personas))
       .toMatch(/does not exist/i);
   });
 
   it('refuses a persona belonging to somebody else the same way as a missing one', () => {
-    expect(validatePack({ slug: 'a', name: 'A', personaId: 'p9', toolset: 'assistant' }, [], personas))
+    expect(validatePack({ slug: 'a', name: 'A', personaId: 'p9',  }, [], personas))
       .toMatch(/does not exist/i);
   });
 
   it('refuses a slug that could not survive a URL', () => {
     for (const slug of ['Has Spaces', 'UPPER', 'trailing-', 'sym$bol']) {
-      expect(validatePack({ slug, name: 'A', personaId: 'p1', toolset: 'assistant' }, [], personas), slug)
+      expect(validatePack({ slug, name: 'A', personaId: 'p1',  }, [], personas), slug)
         .toMatch(/not a valid slug/i);
     }
   });
 
   it('refuses a duplicate slug, which is a route that cannot resolve', () => {
     const existing = [pack({ id: 'other', slug: 'koala' })];
-    expect(validatePack({ slug: 'koala', name: 'A', personaId: 'p1', toolset: 'assistant' }, existing, personas))
+    expect(validatePack({ slug: 'koala', name: 'A', personaId: 'p1',  }, existing, personas))
       .toMatch(/already have a pack/i);
   });
 
   it('lets a pack keep its own slug when edited', () => {
     const existing = [pack({ id: 'pk1', slug: 'koala' })];
-    expect(validatePack({ slug: 'koala', name: 'A', personaId: 'p1', toolset: 'assistant' }, existing, personas, 'pk1'))
+    expect(validatePack({ slug: 'koala', name: 'A', personaId: 'p1',  }, existing, personas, 'pk1'))
       .toBeUndefined();
   });
 
-  it('refuses an effect the gate would not recognise', () => {
-    expect(validatePack(
-      { slug: 'a', name: 'A', personaId: 'p1', toolset: 'assistant', permitted: ['read', 'wrtie'] },
-      [], personas,
-    )).toMatch(/not an effect/i);
-  });
 
-  it('accepts the sandbox toolset, which is what a leaf pack runs as', () => {
-    expect(validatePack({ slug: 'builder', name: 'Builder', personaId: 'p1', toolset: 'sandbox' }, [], personas))
-      .toBeUndefined();
-  });
 });
 
 describe('packForLeaf', () => {
   const koala = pack({ id: 'pk-koala', slug: 'koala', personaId: 'p1' });
-  const builder = pack({ id: 'pk-builder', slug: 'builder', personaId: 'p2', toolset: 'sandbox' });
+  const builder = pack({ id: 'pk-builder', slug: 'builder', personaId: 'p2',  });
   const packs = [koala, builder];
 
   it('uses the pack a leaf names, by id or by slug', () => {

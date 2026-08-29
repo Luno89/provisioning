@@ -42,11 +42,11 @@ export function packsRouter(deps: PacksRouterDeps): Router {
 
   router.post('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const { slug, name, description, personaId, toolset, tools, permitted, overrides } = req.body ?? {};
+    const { slug, name, description, personaId, tools, overrides } = req.body ?? {};
 
     const existing = await visiblePacks(userId);
     const personas = await visiblePersonas(userId);
-    const refusal = validatePack({ slug, name, personaId, toolset, tools, permitted }, existing, personas);
+    const refusal = validatePack({ slug, name, personaId, tools }, existing, personas);
     if (refusal) return res.status(400).json({ error: refusal });
 
     const models = await modelIdsFor(userId);
@@ -61,9 +61,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
       name: String(name).trim(),
       ...(description ? { description: String(description).slice(0, 200) } : {}),
       personaId: String(personaId),
-      toolset,
       tools: tools ?? [],
-      permitted: permitted ?? ['read', 'propose'],
       overrides: overrides ?? {},
       createdAt: now,
       updatedAt: now,
@@ -78,15 +76,13 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const pack = existing.find((p) => p.id === idOf(req) || p.slug === idOf(req));
     if (!pack) return res.status(404).json({ error: 'No such pack' });
 
-    const { slug, name, description, personaId, toolset, tools, permitted, overrides } = req.body ?? {};
+    const { slug, name, description, personaId, tools, overrides } = req.body ?? {};
     const personas = await visiblePersonas(userId);
     const candidate = {
       slug: slug === undefined ? pack.slug : String(slug),
       name: name === undefined ? pack.name : String(name),
       personaId: personaId === undefined ? pack.personaId : String(personaId),
-      toolset: toolset === undefined ? pack.toolset : toolset,
       tools: tools === undefined ? pack.tools : tools,
-      permitted: permitted === undefined ? pack.permitted : permitted,
     };
     const refusal = validatePack(candidate, existing, personas, pack.id);
     if (refusal) return res.status(400).json({ error: refusal });

@@ -342,7 +342,6 @@ export interface Persona {
   updatedAt: string;
 }
 
-export type PackToolset = 'assistant' | 'workbench' | 'sandbox' | 'none';
 
 export interface PersonaPack {
   id: string;
@@ -352,13 +351,10 @@ export interface PersonaPack {
   description?: string;
   personaId: string;
   basedOn?: string;
-  toolset: PackToolset;
   tools: string[];
   mcp?: string[];
-  permitted: ToolEffect[];
   workspace?: WorkspaceScope;
 
-  runsOn?: string;
 
   overrides: Overrides;
   builtIn?: boolean;

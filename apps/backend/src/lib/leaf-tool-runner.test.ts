@@ -19,7 +19,7 @@ const call = (name: string, args: Record<string, unknown> = {}) =>
 
 const persona = (over: Record<string, unknown> = {}): any => ({
   id: 'p-coder', ownerId: 'u1', name: 'Coder', description: 'Writes code.', slug: 'coder',
-  personaId: 'p1', toolset: 'sandbox', tools: [], permitted: ['read'], 
+  personaId: 'p1', tools: [], 
   createdAt: '2026-08-07T00:00:00.000Z', updatedAt: '2026-08-07T00:00:00.000Z',
   ...over,
 });

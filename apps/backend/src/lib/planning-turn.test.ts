@@ -127,7 +127,7 @@ describe('what the turn produces', () => {
 
   it('assigns a pack the model named', async () => {
     await db.savePersonaPack({ id: 'p-coder', ownerId: 'u1', slug: 'coder', name: 'Coder',
-      personaId: 'x', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+      personaId: 'x', tools: [], overrides: {},
       createdAt: 'x', updatedAt: 'x' } as any);
     const { result } = await run([
       { calls: [{ name: 'propose_leaf', args: { title: 'Write it', persona: 'Coder' } }] },

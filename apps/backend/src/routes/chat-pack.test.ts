@@ -13,7 +13,10 @@ const persona = (id: string, name: string, systemPrompt: string): Persona => ({
 
 const pack = (slug: string, personaId: string, over: Partial<PersonaPack> = {}): PersonaPack => ({
   id: `pack-${slug}`, ownerId: TEST_USER.id, slug, name: slug,
-  personaId, toolset: 'assistant', tools: [], permitted: ['read', 'write', 'propose'],
+  personaId,
+  tools: ['propose_tree', 'propose_spec', 'list_infrastructure', 'get_logs', 'get_events',
+    'inspect_resources', 'cluster_capacity', 'list_trees', 'deploy_project', 'get_project_url',
+    'list_mcp_servers', 'enable_mcp_server', 'web_search', 'fetch_web_page'],
   overrides: {}, createdAt: '', updatedAt: '', ...over,
 });
 
@@ -213,7 +216,7 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
     expect(specBody.id).toBe('my-custom-app');
   });
 
-  it('supplies full KOALA_TOOLS function schemas to upstream provider for assistant packs', async () => {
+  it('supplies the granted tools as function schemas to the provider', async () => {
     const res = await fetch(harness.url('/api/chat-pack/koala'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -264,7 +267,7 @@ describe('a pack that cannot run', () => {
   it('does not serve another user\'s pack', async () => {
     await harness.db.savePersonaPack({
       id: 'pack-theirs', ownerId: 'someone-else', slug: 'theirs', name: 'Theirs',
-      personaId: 'p1', toolset: 'assistant', tools: [], permitted: ['read'],
+      personaId: 'p1', tools: [],
       overrides: {}, createdAt: '', updatedAt: '',
     });
     const res = await fetch(harness.url('/api/chat-pack/theirs'), {
@@ -290,11 +293,17 @@ describe('the pack decides the turn', () => {
     expect(names).toEqual(['get_logs']);
   });
 
-  it('an empty grant list means every tool its executor has', async () => {
-    await turn('koala', 'c-all');
+  it('offers nothing when the pack grants nothing', async () => {
+    await harness.db.savePersonaPack(pack('empty', 'p1', { tools: [] }));
+    await turn('empty', 'c-none');
+    expect(lastRequestBody?.tools ?? []).toEqual([]);
+  });
+
+  it('ignores a granted name that is not a real tool', async () => {
+    await harness.db.savePersonaPack(pack('typo', 'p1', { tools: ['get_logs', 'gte_logs'] }));
+    await turn('typo', 'c-typo');
     const names = (lastRequestBody?.tools ?? []).map((t: any) => t.function.name);
-    expect(names.length).toBeGreaterThan(1);
-    expect(names).toContain('get_logs');
+    expect(names).toEqual(['get_logs']);
   });
 
   it('puts the granted tools in the prompt, and only those', async () => {
@@ -311,37 +320,3 @@ describe('the pack decides the turn', () => {
   });
 });
 
-describe('the action gate, finally wired', () => {
-  const callTool = async (slug: string, id: string, tool: string) => {
-    upstreamToolCall = { name: tool, args: '{}' };
-    roundsSeen = 0;
-    try {
-      await fetch(harness.url(`/api/chat-pack/${slug}`), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ conversationId: id, message: 'go' }),
-      }).then((r) => r.text());
-      const conv = (await harness.db.getConversations()).find((c) => c.id === id);
-      const last = conv?.messages?.[conv.messages.length - 1] as any;
-      return last?.toolCalls?.[0];
-    } finally {
-      upstreamToolCall = null;
-    }
-  };
-
-  it('refuses a write tool to a read-only pack, and lets a read tool through', async () => {
-    await harness.db.savePersonaPack(pack('readonly', 'p1', { permitted: ['read'] }));
-
-    const write = await callTool('readonly', 'c-ro-w', 'deploy_project');
-    expect(write?.digest ?? '').toMatch(/limited to read/i);
-    expect(write?.digest ?? '').toMatch(/Nothing was changed/i);
-
-    const read = await callTool('readonly', 'c-ro-r', 'get_logs');
-    expect(read?.digest ?? '').not.toMatch(/limited to/i);
-  });
-
-  it('lets a write tool through when the pack permits writing', async () => {
-    const write = await callTool('koala', 'c-rw', 'deploy_project');
-    expect(write?.digest ?? '').not.toMatch(/limited to/i);
-  });
-});

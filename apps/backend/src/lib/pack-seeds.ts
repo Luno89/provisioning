@@ -1,4 +1,4 @@
-import type { PersonaPack, ToolEffect, WorkspaceScope } from '@koala/harness-types';
+import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
 import { MERGER_PERSONA } from './well-known-personas.js';
 import { RESEARCH_AGENT_STEPS, researchPacing } from './sandbox-tools.js';
@@ -11,10 +11,8 @@ export interface PackSeed {
   name: string;
   description: string;
   personaName: string;
-  toolset: PersonaPack['toolset'];
   tools: string[];
   mcp?: string[];
-  permitted: ToolEffect[];
   workspace?: WorkspaceScope;
   overrides: PersonaPack['overrides'];
 }
@@ -25,7 +23,6 @@ export const PACK_SEEDS: PackSeed[] = [
     name: KOALA_NAME,
     description: 'General chat. Talks things through, operates projects, and proposes new builds.',
     personaName: KOALA_NAME,
-    toolset: 'assistant',
     tools: [
       'propose_tree', 'propose_spec', 'add_project_dependency', 'list_trees',
       'get_project_pipeline', 'get_project_env', 'set_project_env', 'deploy_project', 'get_project_url',
@@ -35,7 +32,6 @@ export const PACK_SEEDS: PackSeed[] = [
       'get_project_secret', 'set_project_secret', 'list_project_secrets',
       'web_search', 'fetch_web_page',
     ],
-    permitted: ['read', 'write', 'propose'],
     overrides: {},
   },
   {
@@ -43,9 +39,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: 'Framer',
     description: 'Breaks a large question into small ones that can each be answered on their own.',
     personaName: 'Framer',
-    toolset: 'sandbox',
     tools: ['read_file', 'write_file', 'finish'],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     egress: [],
     repo: false,
@@ -62,9 +56,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: 'Researcher',
     description: 'Answers one narrow question from sources, and cites them.',
     personaName: 'Researcher',
-    toolset: 'sandbox',
     tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     repo: false,
     language: 'base',
@@ -84,9 +76,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: 'Synthesist',
     description: 'Turns a pile of separate answers into one piece of writing.',
     personaName: 'Synthesist',
-    toolset: 'sandbox',
     tools: ['read_file', 'write_file', 'finish'],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     repo: false,
     language: 'base',
@@ -103,9 +93,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: MERGER_PERSONA,
     description: 'Resolves merge conflicts when leaves land on the default branch.',
     personaName: MERGER_PERSONA,
-    toolset: 'sandbox',
     tools: ['run_command', 'read_file', 'write_file', 'finish'],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     repo: true,
     egress: [{ namespace: 'gitea', ports: [3000] }],
@@ -119,9 +107,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: 'Ingestor',
     description: 'Crawls sites into the corpus, and answers from it.',
     personaName: 'Ingestor',
-    toolset: 'sandbox',
     tools: ['start_ingest', 'ingest_status', 'search_corpus', 'read_file', 'write_file', 'finish'],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     repo: false,
     language: 'base',
@@ -137,9 +123,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: 'Reviewer',
     description: 'Reads a failed leaf and says why it failed.',
     personaName: 'Reviewer',
-    toolset: 'sandbox',
     tools: [],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     repo: false,
     language: 'base',
@@ -151,9 +135,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: 'Judge',
     description: 'Reads what a leaf produced and says whether the claim holds up.',
     personaName: 'Judge',
-    toolset: 'sandbox',
     tools: [],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     repo: false,
     language: 'base',
@@ -165,9 +147,7 @@ export const PACK_SEEDS: PackSeed[] = [
     name: 'Builder',
     description: 'Writes code in a repository, with tests, and commits it.',
     personaName: 'Builder',
-    toolset: 'sandbox',
     tools: ['run_command', 'read_file', 'write_file', 'finish'],
-    permitted: ['read', 'write', 'propose'],
     workspace: {
     repo: true,
     egress: [{ namespace: 'gitea', ports: [3000] }],
@@ -202,10 +182,8 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       name: seed.name,
       description: seed.description,
       personaId: persona.id,
-      toolset: seed.toolset,
       tools: [...seed.tools],
       ...(seed.mcp ? { mcp: [...seed.mcp] } : {}),
-      permitted: [...seed.permitted],
       ...(seed.workspace ? { workspace: seed.workspace } : {}),
       overrides: { ...seed.overrides },
       builtIn: true,

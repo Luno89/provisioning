@@ -216,7 +216,7 @@ describe('personas on a leaf', () => {
 
   const reviewer = {
     id: 'persona-1', ownerId: 'u1', slug: 'reviewer', name: 'Reviewer',
-    personaId: 'rev-persona', toolset: 'sandbox', tools: [], permitted: ['read'],
+    personaId: 'rev-persona', tools: [],
     systemPrompt: 'You are terse and you review.',
     overrides: { temperature: 0.1 },
     createdAt: '2026-08-07T00:00:00.000Z', updatedAt: '2026-08-07T00:00:00.000Z',
@@ -283,7 +283,7 @@ describe('what a finished leaf leaves to read', () => {
 describe('saving a leaf partway through', () => {
   const researcher = {
     id: 'p-res', ownerId: 'u1', slug: 'researcher', name: 'Researcher',
-    personaId: 'res-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+    personaId: 'res-persona', tools: [], overrides: {},
     workspace: { output: '/work/findings.md', requireSources: false },
     createdAt: 'x', updatedAt: 'x',
   };
@@ -461,8 +461,7 @@ describe('what the tree type decides', () => {
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type, projectIds: [] } as never);
     await db.savePersonaPack({
-      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona',
-      toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {},
       workspace: personaScope, createdAt: 'x', updatedAt: 'x',
     } as never);
     await seedTreeTypes(db, 'u1');
@@ -492,8 +491,7 @@ describe('the verify command follows the same language as the workspace', () => 
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
     await db.savePersonaPack({
-      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona',
-      toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {},
       workspace: personaScope, createdAt: 'x', updatedAt: 'x',
     } as never);
     await db.saveTreeType({
@@ -523,7 +521,7 @@ describe('validationRecipe evaluates during post-run verification and enables me
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -545,7 +543,7 @@ describe('worker <-> validator iterative loop', () => {
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -588,7 +586,7 @@ describe('worker <-> validator iterative loop', () => {
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -641,8 +639,7 @@ describe('worker <-> validator iterative loop', () => {
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'api-service', projectIds: [] } as never);
     await db.savePersonaPack({
-      id: 'p-framer', ownerId: 'u1', slug: 'framer', name: 'Framer', personaId: 'framer-persona',
-      toolset: 'sandbox', tools: [], permitted: ['read'], overrides: {},
+      id: 'p-framer', ownerId: 'u1', slug: 'framer', name: 'Framer', personaId: 'framer-persona', tools: [], overrides: {},
       workspace: { repo: false, output: '/work/questions.md', requireSources: false },
       createdAt: 'x', updatedAt: 'x',
     } as never);

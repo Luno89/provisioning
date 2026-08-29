@@ -19,7 +19,7 @@ import { appendUserTurn } from '../lib/chat-pack-context.js';
 import { composePersonaPrompt } from '../lib/persona-prompt.js';
 import { buildChatCompletionRequest } from '../lib/chat-pack-model-call.js';
 import { makePackToolExecutor } from '../lib/chat-pack-tools.js';
-import { KOALA_TOOLS } from '../lib/koala-tools.js';
+import { schemasFor } from '../lib/tool-schemas.js';
 import { toLoopTools } from '../lib/mcp-tools.js';
 import { validateSpec, explainSpecProblems } from '../lib/app-spec-validate.js';
 import type { AppSpec } from '../lib/app-spec.js';
@@ -316,11 +316,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
     openSse(res);
 
-    const granted = (name: string) => pack.tools.length === 0 || pack.tools.includes(name);
-
-    const ownTools = pack.toolset === 'assistant'
-      ? KOALA_TOOLS.filter((t) => granted(t.function.name))
-      : [];
+    const ownTools = schemasFor(pack.tools);
 
     const toolsFor = (enabledNames: string[]) => {
       const remote = servers
@@ -358,7 +354,6 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       toolRefused: deps.toolRefused,
       isAdmin: Boolean(user.isAdmin),
       isEscalated: Boolean(conversation.isEscalated),
-      permitted: pack.permitted,
       ...(conversation.escalatedNamespaces ? { escalatedNamespaces: conversation.escalatedNamespaces } : {}),
       ...(deps.temporalBridge ? { temporalBridge: deps.temporalBridge } : {}),
       ...(deps.infisicalService ? { infisicalService: deps.infisicalService } : {}),
