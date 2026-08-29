@@ -1,27 +1,11 @@
-/**
- * One-time startup migration, run from bootstrap() before any request is served — see
- * types.ts's UserMetadata.isAdmin / ClusterMetadata.ownerId / DeploymentMetadata.ownerId for the
- * fields this backfills.
- *
- * This platform started single-user with no ownership tracking at all; per-user isolation
- * (ClusterService.getAll/getById filtering by ownerId) was added later. Without this migration,
- * every cluster/deployment created before that point would silently vanish from its actual
- * owner's view the moment isolation went live — filtered out because ownerId is unset, not
- * because it doesn't belong to them. Idempotent: safe to run on every startup, a no-op once
- * everything already has an owner.
- */
 import type { Database } from './db-interface.js';
 
 export async function migrateLegacyOwnership(db: Database): Promise<void> {
   const users = await db.getUsers();
-  if (users.length === 0) return; // fresh install — nothing to backfill yet
+  if (users.length === 0) return;
 
   let admin = users.find((u) => u.isAdmin);
   if (!admin) {
-    // Oldest account by createdAt — on an existing single-user install this is, definitionally,
-    // the person who's been using it. On a fresh multi-user install the very first registration
-    // becomes admin at registration time instead (see index.ts's /api/auth/register) and this
-    // branch never fires.
     admin = [...users].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
     if (admin) {
       admin.isAdmin = true;

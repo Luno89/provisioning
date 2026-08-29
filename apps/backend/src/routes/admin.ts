@@ -4,16 +4,11 @@ import { asyncRoute } from '../middleware/async-route.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { InviteMetadata } from '../lib/types.js';
 
-/** The `:id` from the path, narrowed once — Express types `req.params` loosely inside asyncRoute. */
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-/** The user `requireAuth` put on the request. */
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-/**
- * Invite codes. Admin-only — `requireAdmin` is applied per route in bootstrap, not here.
- */
 export function adminRouter(deps: Record<string, any>): Router {
   const { db, requireAdmin } = deps;
   const router = Router();

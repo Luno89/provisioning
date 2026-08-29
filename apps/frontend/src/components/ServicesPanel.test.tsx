@@ -4,24 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ServicesPanel from './ServicesPanel';
 import * as clustersApi from '../api/clusters';
 
-/**
- * Mocked at the API module, not at axios.
- *
- * Nine blocks here matched on URL substrings — and two of them had to disambiguate `/clusters`
- * from `/clusters/:id/services` by hand, which is the tell that the test was reimplementing
- * routing. `vi.mock('axios')` also cannot reach the instance `api/client` builds with
- * `axios.create()`, so all of it would have silently stopped firing anyway.
- *
- * Two named functions replace the string matching: what the cluster list returns, and what the
- * services call returns. No test in this file knows a URL.
- */
 vi.mock('../api/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof clustersApi>()),
   listClusters: vi.fn(),
   listClusterServices: vi.fn(),
 }));
 
-/** Stands in for the two calls the panel makes. `services` unwraps to an array now. */
 const serving = (clusters: unknown[], services: unknown[]) => {
   vi.mocked(clustersApi.listClusters).mockResolvedValue(clusters as never);
   vi.mocked(clustersApi.listClusterServices).mockResolvedValue(services as never);
@@ -158,10 +146,6 @@ describe('ServicesPanel', () => {
   });
 
   it('shows "Open Dashboard" links for deployed services', async () => {
-    // Needs the Traefik variant: this asserts THREE links, and the base fixture has Traefik
-    // uninstalled. The URL-matching mock this replaced picked the right fixture by which
-    // `mockedAxios` block the test happened to define, which is how the distinction stayed
-    // invisible.
     serving(mockClusters, mockServicesWithTraefik.services);
 
     render(<ServicesPanel />, {
@@ -204,7 +188,6 @@ describe('ServicesPanel', () => {
       expect(screen.getByText('Prometheus Monitoring')).toBeInTheDocument();
     });
 
-    // Only prometheus and grafana have Open Dashboard, traefik does not
     const links = screen.getAllByText('Open Dashboard');
     expect(links).toHaveLength(2);
   });

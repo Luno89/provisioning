@@ -1,55 +1,29 @@
-/**
- * credential-resolver.ts
- *
- * Centralised credential resolution that replaces the 6+ duplicated
- * `hasCloudCredentials()` functions scattered across activities and services.
- *
- * Resolution chain:  user-stored credentials → process.env → mock mode.
- */
 import type { CloudCredentials } from './types.js';
 
 export interface ResolvedCredentials {
-  /** Where the credentials came from */
   mode: 'user' | 'env' | 'mock';
-  /** Environment variable key-value pairs to inject into subprocess env */
   env: Record<string, string>;
 }
 
-/**
- * Resolve cloud credentials for a given provider.
- *
- * @param provider  - one of 'aws' | 'gcp' | 'azure' | 'do'
- * @param userCreds - the user's decrypted CloudCredentials object (or undefined)
- * @returns ResolvedCredentials with mode and env vars
- */
 export function resolveCloudCredentials(
   provider: string,
   userCreds: CloudCredentials | undefined,
 ): ResolvedCredentials {
-  // 1. Try user-stored credentials
   const fromUser = resolveFromUser(provider, userCreds);
   if (fromUser) return { mode: 'user', env: fromUser };
 
-  // 2. Try process.env
   const fromEnv = resolveFromEnv(provider);
   if (fromEnv) return { mode: 'env', env: fromEnv };
 
-  // 3. No credentials → mock cloud mode
   return { mode: 'mock', env: {} };
 }
 
-/**
- * Quick check: does this provider have any credentials available
- * (either from the user store or process.env)?
- */
 export function hasCloudCredentials(
   provider: string,
   userCreds?: CloudCredentials,
 ): boolean {
   return resolveCloudCredentials(provider, userCreds).mode !== 'mock';
 }
-
-// ── Internal helpers ──────────────────────────────────────────────────────
 
 function resolveFromUser(
   provider: string,
@@ -96,12 +70,8 @@ function resolveFromUser(
     case 'hetzner': {
       const hz = creds.hetzner;
       if (!hz?.token) return null;
-      // HCLOUD_TOKEN is what the hetznercloud/hcloud Terraform provider reads by default, so the
-      // hetzner-vm construct needs no explicit `token` argument.
       return { HCLOUD_TOKEN: hz.token };
     }
-    // Env var names below match each provider's own official Terraform provider / CLI, so a
-    // credential resolved here works unmodified in a CDKTF subprocess.
     case 'cloudflare': {
       const cf = creds.cloudflare;
       if (!cf?.token) return null;
@@ -202,7 +172,6 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
       return { HCLOUD_TOKEN: token };
     }
     case 'cloudflare': {
-      // CLOUDFLARE_API_TOKEN is the name Cloudflare's own tooling and the Terraform provider read.
       const token = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
       if (!token) return null;
       return { CLOUDFLARE_API_TOKEN: token, ...(process.env.CLOUDFLARE_ZONE ? { CLOUDFLARE_ZONE: process.env.CLOUDFLARE_ZONE } : {}) };

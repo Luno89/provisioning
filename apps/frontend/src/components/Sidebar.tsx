@@ -24,11 +24,9 @@ export default function Sidebar({ forestTabs, onLogout }: {
   const forestOpen = useShellStore((s) => s.forestOpen);
   const setForestOpen = useShellStore((s) => s.setForestOpen);
 
-  // Read current active conversation ID from URL hash if present
   const route = parseHash(typeof window !== 'undefined' ? window.location.hash : '');
   const activeConvId = route?.path[1];
 
-  // Fetch recent conversations (cached with staleTime so navigation is instant)
   const { data: conversations = [] } = useQuery<ChatConversation[]>({
     queryKey: chatPackKeys.conversations(),
     queryFn: listChatConversations,
@@ -44,19 +42,16 @@ export default function Sidebar({ forestTabs, onLogout }: {
     });
   };
 
-  /** Top-level entry */
   const primary = (active: boolean) =>
     `w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-colors cursor-pointer ${
       active ? 'bg-[var(--leaf-stem)] text-white' : 'text-slate-300 hover:bg-[var(--bark-700)]'}`;
 
-  /** Indented entry */
   const nested = (active: boolean) =>
     `w-full flex items-center gap-2.5 pl-10 pr-3 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
       active ? 'bg-[var(--bark-600)] text-slate-100' : 'text-slate-400 hover:bg-[var(--bark-700)]'}`;
 
   return (
     <aside className="w-60 bg-[var(--bark-800)] border-r border-[var(--bark-600)] p-4 flex flex-col z-20 font-sans select-none">
-      {/* Brand Header */}
       <div className="flex items-center gap-2.5 mb-6">
         <Koala size={34} mood="idle" />
         <div className="leading-none">
@@ -65,7 +60,6 @@ export default function Sidebar({ forestTabs, onLogout }: {
         </div>
       </div>
 
-      {/* Nav Hierarchy */}
       <nav className="space-y-1 flex-1 overflow-y-auto">
         <div>
           <button
@@ -91,7 +85,6 @@ export default function Sidebar({ forestTabs, onLogout }: {
             )}
           </button>
 
-          {/* Recent conversation threads in the sidebar */}
           {conversations.length > 0 && (
             <div className="ml-4 pl-3 border-l border-[var(--bark-600)] space-y-0.5 my-1.5 animate-in fade-in duration-200">
               <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
@@ -188,7 +181,6 @@ export default function Sidebar({ forestTabs, onLogout }: {
         )}
       </nav>
 
-      {/* Footer */}
       <div className="pt-3 border-t border-[var(--bark-600)] space-y-2">
         <button
           type="button"

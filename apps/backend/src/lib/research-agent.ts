@@ -1,39 +1,16 @@
-/**
- * A sub-agent that answers one question with the web, so the planner does not have to.
- *
- * ── WHY THE PLANNER DOES NOT SEARCH ──
- * Giving the planning turn live search makes the same task give different answers on different
- * days, so repeats stop being comparable and a benchmark grows a network dependency mid-run. Taking
- * search away entirely measures a crippled planner — the real one has it, and whether it looks
- * something up before decomposing is exactly the behaviour worth measuring.
- *
- * So research becomes work that gets decomposed like any other: the planner names what it needs to
- * know, this answers it, and the findings come back as a tool result. The planning turn stays
- * offline and reproducible; the information still arrives.
- *
- * ── THE FIRST VERSION WAS WORSE THAN EITHER ──
- * Search was stubbed to return nothing while still being OFFERED. The model called it, got an empty
- * result, concluded there was no information, and planned around that — an artifact of the stub
- * rather than anything about the planner. If a capability is absent the model must be told, not
- * handed a tool that silently fails.
- */
 import type { ModelKind } from '@koala/harness-types';
 import { ToolCallScanner } from './leaf-tools.js';
 import { buildModelRequest } from './model-request.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
 
-/** Findings for one question, with what they were drawn from. */
 export interface ResearchFinding {
   question: string;
-  /** Prose the planner can act on. Empty when nothing was found — which is itself an answer. */
   findings: string;
-  /** URLs consulted, so a plan built on bad information can be traced to it. */
   sources: string[];
   rounds: number;
   tokensUsed: number;
 }
 
-/** How many search/fetch rounds one question gets before it has to answer with what it has. */
 export const MAX_RESEARCH_ROUNDS = 3;
 
 const RESEARCH_PROMPT = [
@@ -79,16 +56,6 @@ export interface ResearchOptions {
   apiKey?: string | undefined;
   model?: string | undefined;
   kind?: ModelKind | undefined;
-  /**
-   * The resolved chain the CALLER is running under — adopted profile, then persona.
-   *
-   * Inherited because this sub-agent works on that persona's behalf, and a persona that was tuned
-   * for a model (samplers, penalties, a served model name) should not have half its turn run under
-   * different settings. It reached here as nothing at all, so the one agent spawned INSIDE a
-   * persona's turn was the one agent that ignored it.
-   *
-   * Reasoning stays off regardless — see the floor applied below.
-   */
   overrides?: Record<string, unknown> | undefined;
   webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
@@ -115,14 +82,6 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         'content-type': 'application/json',
         ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
       },
-      /**
-       * A dispatch turn: its only useful output is a tool call, so it gets the tool-turn profile —
-       * no repetition penalties, which eliminate tool calling on this harness.
-       *
-       * Reasoning off through the registry rather than by writing `template_vars` here: the knob
-       * knows where it belongs, and hand-written placement is what sent `think` to a field the
-       * engine ignores elsewhere.
-       */
       body: JSON.stringify(buildModelRequest({
         turn: 'tool-turn',
         ...(opts.kind ? { kind: opts.kind } : {}),
@@ -131,21 +90,11 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         stream: true,
         maxTokens: 1500,
         ...(opts.model ? { model: opts.model } : {}),
-        /**
-         * The caller's configuration, with reasoning forced off on top.
-         *
-         * A FLOOR, not a default: `think: false` is applied after the inherited bag so a persona
-         * cannot turn it back on. This is a dispatch loop whose only useful output is a tool call,
-         * and reasoning here talks the model out of emitting one — the same failure measured on the
-         * authoring route, where it produced 16,664 characters of deliberation and no answer.
-         */
         overrides: { ...(opts.overrides ?? {}), think: false },
         extra: { stream_options: { include_usage: true } },
       }).body),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
-    // A failed search is not a failed plan. The planner gets "I could not find out", which is a
-    // usable answer, rather than the whole run dying on a rate limit.
     if (!response.ok) {
       return { question: opts.question, findings: '', sources, rounds, tokensUsed };
     }
@@ -168,7 +117,6 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         if (typeof frame.choices?.[0]?.delta?.content === 'string') content += frame.choices[0].delta.content;
         if (frame.usage?.total_tokens) tokensUsed += frame.usage.total_tokens;
       } catch {
-        // Partial frames are normal mid-stream.
       }
     }
     if (content) findings = content;
@@ -195,8 +143,6 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         if (name === 'web_search') {
           const outcome = await opts.webSearch(String(args.query ?? ''));
           for (const h of outcome.hits) sources.push(h.url);
-          // Same wording as every other caller, including when nothing looked — a research agent
-          // told "no results" by an outage is the exact loop this whole change is about.
           result = JSON.stringify(renderSearchOutcome(String(args.query ?? ''), outcome));
         } else if (name === 'fetch_web_page') {
           const url = String(args.url ?? '');

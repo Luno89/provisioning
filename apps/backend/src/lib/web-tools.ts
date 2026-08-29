@@ -1,25 +1,3 @@
-/**
- * How the agent reaches the web — through a deployed service when there is one, by scraping when
- * there is not.
- *
- * ── WHY THIS EXISTS ──
- * The built-in versions do not work well enough to be useful, and the failure is silent. Measured
- * on a real conversation: the model searched, fetched two pages, searched again, and never answered
- * — because `fetch_web_page` strips tags from raw HTML, and every page it reached was
- * JavaScript-rendered. `weather.com` returned 200 with no air-quality figure anywhere in the markup.
- * The same URL through Crawl4AI returns 3,618 characters of markdown with the figure in it.
- *
- * Search has the same shape of problem one step earlier: parsing DuckDuckGo's HTML with a regex
- * works until DuckDuckGo changes its markup, and hands back redirect URLs rather than destinations.
- *
- * ── RESOLUTION, NOT REPLACEMENT ──
- * Deployed service → environment variable → the built-in scrape. The same chain
- * `credential-resolver.ts` uses, and for the same reason: a platform that only works once you have
- * deployed two extra services is a platform nobody can start using. The scrape stays as the floor.
- *
- * Every path degrades rather than throws. A search that fails returns no results, which the model
- * can act on; an exception would fail the whole turn and lose a reply that had already streamed.
- */
 
 export interface SearchHit {
   title: string;
@@ -28,56 +6,20 @@ export interface SearchHit {
 }
 
 export interface WebToolsConfig {
-  /** SearXNG base URL, e.g. `http://searxng.searxng.svc.cluster.local:8080`. */
   searxngUrl?: string | undefined;
-  /** Crawl4AI base URL, e.g. `http://crawl4ai.crawl4ai.svc.cluster.local:11235`. */
   crawl4aiUrl?: string | undefined;
-  /**
-   * The `api_token` the Crawl4AI deployment was configured with, sent as a bearer token.
-   *
-   * Not optional: every route 401s without it, and `security.enabled: false` does NOT open it up
-   * (verified against 0.9.2). It also decides the service's bind address — see
-   * constructs/crawl4ai-native.ts.
-   */
   crawl4aiToken?: string | undefined;
   fetchImpl?: typeof fetch;
 }
 
-/**
- * A search, and whether anything actually looked.
- *
- * ── WHY THIS IS NOT JUST AN ARRAY ──
- * It was an array, and the two states it cannot express cost a project its budget. A Researcher
- * received `{"results":[{"snippet":"No results found"}]}` nineteen times, broadened its queries from
- * "OpenUI open-source UI generation framework LLM" down to bare `HTML`, `CSS`, `LLM`, and then
- * looped two terms for fifteen steps. SearXNG answers those same queries with ten results each —
- * the backend was fine; the path to it was not, and the fallback was rate-limited.
- *
- * "Nothing matched" and "nothing looked" call for opposite responses: rephrase, versus stop. An
- * empty array says the first while meaning the second, and an agent told confidently that the
- * internet holds nothing on its topic will rationally try harder until its budget is gone.
- */
 export interface SearchOutcome {
   hits: SearchHit[];
-  /** Which backend answered. Absent when none could. */
   answeredBy?: 'searxng' | 'duckduckgo';
-  /** No backend could be reached. Distinct from a backend that answered with nothing. */
   unavailable: boolean;
 }
 
-/** The search callback as every agent-facing caller declares it. One type, so it cannot drift. */
 export type WebSearchFn = (query: string) => Promise<SearchOutcome>;
 
-/**
- * What a search turns into for a model, said once.
- *
- * ── WHY THE WORDING IS CENTRAL ──
- * Three call sites render search results to an agent, and the sentence they choose is the entire
- * difference between a run that stops and a run that loops. The old wording — "No results found" —
- * was produced for an outage, and a Researcher answered it by broadening its query nineteen times
- * and then repeating two terms for fifteen steps. Keeping the phrasing in one place is what stops
- * two of the three from quietly reverting to a friendlier lie.
- */
 export function renderSearchOutcome(query: string, outcome: SearchOutcome): Record<string, unknown> {
   if (outcome.unavailable) {
     return {
@@ -102,16 +44,13 @@ export function renderSearchOutcome(query: string, outcome: SearchOutcome): Reco
 export interface WebTools {
   search: (query: string) => Promise<SearchOutcome>;
   fetchPage: (url: string) => Promise<string>;
-  /** Which implementation each side resolved to, so a run can say how it reached the web. */
   sources: { search: 'searxng' | 'duckduckgo'; fetch: 'crawl4ai' | 'strip-tags' };
 }
 
 const SEARCH_TIMEOUT_MS = 15_000;
 const FETCH_TIMEOUT_MS = 60_000;
-/** Enough for a model to work with; far beyond what a turn can afford to carry. */
 const MAX_PAGE_CHARS = 8000;
 
-/** Fetch with a deadline, returning undefined rather than throwing. A dead service is not an error here. */
 async function tryFetch(
   doFetch: typeof fetch,
   url: string,
@@ -129,33 +68,15 @@ async function tryFetch(
   }
 }
 
-/**
- * DuckDuckGo's HTML, parsed.
- *
- * Kept as the floor rather than deleted: it needs no deployment, and something is better than a
- * platform that cannot search until two services are running. Its results still go through the
- * `uddg` unwrapping, because the raw hrefs are redirects and handing one to a fetcher wastes a
- * round trip at best.
- */
 async function duckduckgo(doFetch: typeof fetch, query: string): Promise<SearchHit[] | undefined> {
   const res = await tryFetch(doFetch, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     },
   }, SEARCH_TIMEOUT_MS);
-  // Undefined, not empty: the caller has to be able to tell "the request failed" from "there is
-  // nothing about this", and returning `[]` for both is what made the whole tool untrustworthy.
   if (!res?.ok) return undefined;
 
   const html = await res.text().catch(() => '');
-  /**
-   * The block page, which arrives as a 200.
-   *
-   * DuckDuckGo rate-limits datacenter addresses and serves an anomaly notice rather than an error
-   * status, so the parse below finds no results and the honest-looking answer is "nothing matched".
-   * This is the most likely thing that actually happened to the Researcher that looped: SearXNG was
-   * unreachable, the fallback was blocked, and the agent was told the topic was empty.
-   */
   if (/anomaly|unusual traffic|blocked/i.test(html) && !html.includes('result__url')) return undefined;
 
   const hits: SearchHit[] = [];
@@ -173,12 +94,9 @@ async function duckduckgo(doFetch: typeof fetch, query: string): Promise<SearchH
   return hits;
 }
 
-/** SearXNG's JSON API. Needs `json` in its `search.formats` — it is off by default. */
 async function searxng(doFetch: typeof fetch, base: string, query: string): Promise<SearchHit[] | undefined> {
   const url = `${base.replace(/\/$/, '')}/search?q=${encodeURIComponent(query)}&format=json`;
   const res = await tryFetch(doFetch, url, { headers: { accept: 'application/json' } }, SEARCH_TIMEOUT_MS);
-  // Undefined, not an empty list: the caller falls back to scraping, where an empty list would
-  // read as "nothing on the internet matches" and end the search there.
   if (!res?.ok) return undefined;
 
   const body = await res.json().catch(() => undefined) as { results?: unknown[] } | undefined;
@@ -188,19 +106,12 @@ async function searxng(doFetch: typeof fetch, base: string, query: string): Prom
     const hit = r as { title?: unknown; content?: unknown; url?: unknown };
     return {
       title: String(hit.title ?? ''),
-      // SearXNG calls the snippet `content`.
       snippet: String(hit.content ?? ''),
       url: String(hit.url ?? ''),
     };
   }).filter((h) => h.url);
 }
 
-/**
- * Strips tags from raw HTML — the built-in fetcher, kept as the floor.
- *
- * Adequate for a static page and useless for anything rendered client-side, which is most of the
- * web now. That is the whole reason Crawl4AI is worth deploying.
- */
 async function stripTags(doFetch: typeof fetch, url: string): Promise<string> {
   const res = await tryFetch(doFetch, url, {
     headers: {
@@ -220,19 +131,6 @@ async function stripTags(doFetch: typeof fetch, url: string): Promise<string> {
     .slice(0, MAX_PAGE_CHARS);
 }
 
-/**
- * Crawl4AI, which renders the page first and returns markdown.
- *
- * ── AUTHENTICATION, VERIFIED AGAINST A DEPLOYED 0.9.2 ──
- * The `api_token` goes straight into `Authorization: Bearer`. There is no token exchange.
- *
- * This is worth stating because the service also exposes `POST /token`, which looks like the way
- * in and is not: it reads `config.security.api_token` from the config FILE and has no environment
- * fallback, so on an env-var-configured deployment it answers `403 no api_token is configured`
- * forever — while the auth gate, which does read the environment, is happily enforcing on every
- * other route. An implementation built around `/token` therefore fails against a service that is
- * running perfectly. `X-API-Token` is not accepted either.
- */
 function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
   const root = base.replace(/\/$/, '');
 
@@ -246,7 +144,6 @@ function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
 
     const body = await res.json().catch(() => undefined) as { markdown?: unknown } | undefined;
     const markdown = typeof body?.markdown === 'string' ? body.markdown : undefined;
-    // An empty render is a failure worth falling back from, not a page with nothing on it.
     return markdown?.trim() ? markdown.slice(0, MAX_PAGE_CHARS) : undefined;
   };
 }
@@ -264,20 +161,16 @@ export function createWebTools(config: WebToolsConfig = {}): WebTools {
     },
 
     async search(query: string): Promise<SearchOutcome> {
-      // An empty query is the caller's mistake, not an outage.
       if (!query.trim()) return { hits: [], unavailable: false };
 
       if (config.searxngUrl) {
         const hits = await searxng(doFetch, config.searxngUrl, query);
-        // Falls back only when the service could not answer. A service that answered with nothing
-        // has answered, and re-asking DuckDuckGo would present its results as the same search.
         if (hits) return { hits, answeredBy: 'searxng', unavailable: false };
       }
 
       const hits = await duckduckgo(doFetch, query);
       if (hits) return { hits, answeredBy: 'duckduckgo', unavailable: false };
 
-      // Every configured backend failed. Saying so is the whole point of this type.
       return { hits: [], unavailable: true };
     },
 

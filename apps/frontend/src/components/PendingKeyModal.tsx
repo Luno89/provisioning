@@ -1,28 +1,10 @@
 import { Loader2, Shield } from 'lucide-react';
 
-/**
- * The public key a bring-your-own machine has to authorise before it can be provisioned.
- *
- * ── WHY IT BLOCKS ──
- * A `remote` cluster is a machine the user already owns, sitting behind their own NAT. Nothing can
- * SSH inward, so provisioning generates a keypair and waits: the cluster sits in `awaiting-key`
- * until this key is in the machine's `authorized_keys` and the user says go. That state is terminal
- * until then, which is why the reconciliation loop leaves it alone rather than treating it as a
- * stalled provision.
- */
 export interface PendingKeyModalProps {
-  /** The cluster waiting, and the key it generated. */
   pending: { id: string; publicKey: string };
   onDismiss: () => void;
-  /**
-   * Starts provisioning once the key is installed.
-   *
-   * App owns the mutation rather than this modal, because succeeding means opening the log modal on
-   * the new cluster — which is App's to open. This stays presentational.
-   */
   onStart: (id: string) => void;
   starting: boolean;
-  /** Why starting failed, if it did. Read through `errorMessage` by the caller. */
   startError?: string | null;
 }
 

@@ -1,13 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-/**
- * Mocked at the API MODULE, not at fetch or axios.
- *
- * The component used to take `apiBase` and stub `globalThis.fetch` — which matched on URL
- * substrings and silently kept passing after the transport changed shape. It now goes through
- * `api/auth`, so the two functions it calls are replaced here and no test knows a URL.
- */
 vi.mock('../api/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/auth')>()),
   login: vi.fn(),

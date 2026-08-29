@@ -4,12 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import TemporalPanel from './TemporalPanel';
 import * as temporalApi from '../api/temporal';
 
-/**
- * The panel had no test at all — it was one of nine extracted screens with none (R25).
- *
- * Mocked at the api module rather than at axios: `vi.mock('axios')` cannot reach the instance
- * `api/client` builds with `axios.create()`, so a URL-matching stub silently never fires.
- */
 vi.mock('../api/temporal', async (importOriginal) => ({
   ...(await importOriginal<typeof temporalApi>()),
   getTemporalStatus: vi.fn(),
@@ -47,14 +41,9 @@ describe('TemporalPanel', () => {
     expect(screen.getByText(/cluster-provision-dev-456/)).toBeDefined();
   });
 
-  /**
-   * Temporal is OPTIONAL — the backend starts and falls back to DB polling when it is unreachable.
-   * So "not connected" is an ordinary state this panel has to render, not an error case.
-   */
   it('renders when Temporal is not connected', async () => {
     renderPanel([], { connected: false });
     await waitFor(() => expect(vi.mocked(temporalApi.getTemporalStatus)).toHaveBeenCalled());
-    // The point is that it does not throw on a missing serverVersion.
     expect(screen.queryByText(/app-deploy/)).toBeNull();
   });
 
@@ -63,7 +52,6 @@ describe('TemporalPanel', () => {
     await waitFor(() => expect(screen.getByText(/w1/)).toBeDefined());
   });
 
-  /** An unknown status must not blank the row — the map is keyed by string, not exhaustive. */
   it('renders a workflow whose status is not in the colour map', async () => {
     renderPanel([{ workflowId: 'odd-one', status: 'CONTINUED_AS_NEW' }]);
     await waitFor(() => expect(screen.getByText(/odd-one/)).toBeDefined());

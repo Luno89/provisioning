@@ -3,14 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, X } from 'lucide-react';
 import { listTreeTypes, createTree, groveKeys } from '../api/grove';
 
-/**
- * Starting a tree.
- *
- * Extracted from the Trees tab when that tab was retired into Grove. It is a dialog rather than a
- * page because making a tree is a thirty-second act you perform on the way to doing something else,
- * and it was previously the only reason the tab needed to exist.
- */
-
 interface TreeType {
   id: string;
   label: string;
@@ -29,7 +21,6 @@ export default function NewTreeDialog({ onClose, onCreated }: {
   const { data: types = [] } = useQuery<TreeType[]>({
     queryKey: groveKeys.treeTypes(),
     queryFn: listTreeTypes,
-    // The catalogue only changes when the code does.
     staleTime: Infinity,
   });
 
@@ -95,8 +86,6 @@ export default function NewTreeDialog({ onClose, onCreated }: {
                 </button>
               ))}
             </div>
-            {/* Shown before creating, not after: the definition of done is the thing worth
-                disagreeing with, and it is useless once the choice is already made. */}
             {chosen && (
               <p className="mt-3 text-[11px] text-slate-400 leading-relaxed border-l-2 border-[var(--leaf)] pl-3">
                 <strong className="text-slate-300">Done means:</strong> {chosen.doneMeans}

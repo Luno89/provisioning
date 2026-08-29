@@ -1,17 +1,3 @@
-/**
- * Executing the tools a planning turn calls.
- *
- * ── WHY THIS LEFT THE ROUTE ──
- * This is where proposals are actually created, so anything measuring how well a model decomposes
- * work has to run THIS code — not a reimplementation of it. The Lab could previously only drive the
- * sandbox loop, and the first experiment written against the planning cycle asked the model to plan
- * and then checked a sandbox for a file the sandbox loop has no tool to produce. Scoring a
- * reimplementation would repeat that failure with more steps.
- *
- * Dependencies are passed rather than closed over so the same function serves an HTTP request and a
- * headless experiment run. Ownership still comes from `ctx.userId`, never from a tool argument —
- * see the schema tests: no tool takes an owner, because a prompt could then reach across tenants.
- */
 import { gate, ALL_EFFECTS, type ToolEffect } from './action-gate.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolvePersonaNamed } from './proposal-merge.js';
@@ -38,32 +24,17 @@ export interface LeafToolCall {
 
 export interface LeafToolContext {
   db: Database;
-  /**
-   * Starting and inspecting a crawl.
-   *
-   * Optional because the chat path has a Temporal client and a worker-side caller may not. Absent
-   * means the ingest tools report that ingestion is unavailable rather than appearing to work.
-   */
   ingest?: {
     start: (args: { ownerId: string; url: string; maxDepth?: number; maxPages?: number; domains?: string[]; keywords?: string[] }) => Promise<{ workflowId: string }>;
     status: (workflowId: string) => Promise<{ state: string; receipt?: unknown; error?: string }>;
     search: (args: { ownerId: string; query: string; ingestId?: string }) => Promise<{ hits: { url: string; snippet: string }[] }>;
   };
-  /** The session's user. Never a tool argument. */
   userId: string;
   branchId: string;
   webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
   projects: ProjectRepoService;
-  /**
-   * What MCP servers this user has running, for planning against.
-   *
-   * Optional for the same reason `ingest` is: a worker-side caller may have no way to reach the
-   * cluster for a NodePort. Absent makes `list_mcp_servers` say so — never report an empty list,
-   * which a planner reads as "none exist" and plans to rebuild something already running.
-   */
   mcpRegistry?: Pick<McpRegistryService, 'listWithTools'>;
-  /** Which effects this planning turn may take. Absent means all — see the gate call below. */
   permitted?: readonly ToolEffect[] | undefined;
 }
 
@@ -71,23 +42,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
   const { db, userId, branchId, webSearch, fetchWebPage, projects, ingest, mcpRegistry } = ctx;
   const args = parseToolArguments(call.arguments);
 
-  /**
-   * ── LAYER 2 ──
-   *
-   * Before the leaf query, not merely before the branch that handles the call: this file is an
-   * if-chain rather than a dispatch table, so a gate placed anywhere further down is one `return`
-   * away from being skipped by the next tool somebody adds. Here there is only one path past it.
-   *
-   * See `lib/action-gate.ts`. `permitted` absent means everything; an undeclared tool is refused.
-   */
-  /**
-   * A name that is in no registry is the MODEL's mistake, and it already had a sentence that says
-   * so. Letting it reach the gate instead answered "this is a defect in the tool" to a tool the
-   * model invented — which is both untrue and unactionable, since there is nothing to report.
-   *
-   * So: unknown name first, then the gate. The gate's refusal now only ever means what it says —
-   * a real tool whose author did not declare what it does.
-   */
   if (!LEAF_TOOLS.some((t) => t.function.name === call.name)) {
     return JSON.stringify({ error: `Unknown tool ${call.name}` });
   }
@@ -127,8 +81,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         const started = await ingest.start({
           ownerId: userId,
           url,
-          // Bounded here as well as in the crawl config: these arrive as untrusted JSON, and a
-          // depth of 12 is not a crawl, it is an outage.
           ...(num(args.maxDepth) !== undefined ? { maxDepth: Math.min(Math.max(0, num(args.maxDepth)!), 4) } : {}),
           ...(num(args.maxPages) !== undefined ? { maxPages: Math.min(Math.max(1, num(args.maxPages)!), 2000) } : {}),
           ...(list(args.domains)?.length ? { domains: list(args.domains)! } : {}),
@@ -136,7 +88,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         });
         return JSON.stringify({
           started: { id: started.workflowId, url },
-          // Said explicitly: the model will otherwise wait for pages that are never coming.
           note: 'The crawl is running in the background. No pages will be returned to you — check ingest_status, then use search_corpus.',
         });
       }
@@ -162,8 +113,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     }
 
     if (call.name === 'list_personas') {
-      // Name and description only: the model assigns by name, and its prompt and knobs are not
-      // its business.
       const mine = (await db.getPersonas()).filter((p) => p.ownerId === userId);
       return JSON.stringify({
         personas: mine.map((p) => ({ name: p.name, description: p.description ?? '' })),
@@ -174,7 +123,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       if (!title) return JSON.stringify({ error: 'title is required' });
 
-      // The same caps the HTTP route enforces. A tool is not a way around them.
       const parent = args.parentLeafId ? leaves.find((l) => l.id === String(args.parentLeafId)) : undefined;
       if (args.parentLeafId && !parent) return JSON.stringify({ error: 'No leaf with that parentLeafId.' });
       if (parent) {
@@ -182,27 +130,14 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         if (refusal) return JSON.stringify({ error: refusal });
       }
 
-      /**
-       * Dependencies arrive as TITLES and are resolved here — see `resolveDependencyTitles` for
-       * why titles, why a miss is not fatal, and why the misses come back rather than vanishing.
-       */
       const id = uuidv4();
       const wanted = Array.isArray(args.dependsOn) ? args.dependsOn.map(String) : [];
       const { ids: dependsOn, unresolved } = resolveDependencyTitles(wanted, leaves);
       const expects = usablePaths(Array.isArray(args.expects) ? args.expects.map(String) : []);
       if (wouldCycle(id, dependsOn, leaves)) {
-        // Refused rather than dropped: a cycle does not fail, it waits forever, and every leaf
-        // in it looks like work that is merely slow.
         return JSON.stringify({ error: 'Those dependencies would form a cycle — nothing in it could ever start.' });
       }
 
-      /**
-       * Resolved by name, and dropped when it matches nothing.
-       *
-       * A name the model invented is not a reason to refuse the leaf — the work is still valid
-       * and still gets done, just by the default configuration. Refusing would trade a real
-       * proposal for a spelling mistake.
-       */
       const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
       const persona = resolvePersonaNamed(
         wantedPersona,
@@ -222,20 +157,12 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         id,
         ownerId: userId,
         branchId,
-        // Shared with the HTTP route — see lib/leaf-input.ts for why these are not named twice.
         ...normaliseLeafInput(args),
         title: title.slice(0, 200),
         ...(dependsOn.length ? { dependsOn } : {}),
         ...(persona ? { personaId: persona.id } : {}),
-        /**
-         * Resolved through the owner-filtered list, exactly as `set_leaf_project` does: a project
-         * id is a repository, and naming another user's would attach their code to this leaf.
-         * An id that resolves to nothing is dropped rather than refused — the work is still valid,
-         * and it falls back to the branch's repository the way it always did.
-         */
         ...(wantedProject ? { projectId: wantedProject.id } : {}),
         column: 'todo',
-        // Proposed, always. A tool call is still the model suggesting, not deciding.
         status: 'proposed',
         depth: parent ? parent.depth + 1 : 0,
         blocking: true,
@@ -244,30 +171,10 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         updatedAt: now,
       };
       await db.saveLeaf(leaf);
-      /**
-       * The result states what was actually recorded, not just that something was.
-       *
-       * `dependsOn` is echoed back by TITLE because that is what the model wrote and what it can
-       * check against its own plan — an id it has never seen tells it nothing. When something
-       * matched nothing, the existing titles come with it, so the next call can name one correctly
-       * instead of guessing again.
-       */
       const recorded = dependsOn
         .map((depId) => leaves.find((l) => l.id === depId)?.title)
         .filter((t): t is string => Boolean(t));
 
-      /**
-       * Whether anyone is actually going to do this.
-       *
-       * Reported in the same breath as the proposal, because a persona now carries the entire
-       * environment — image, network, tools, budget, where the output goes — so a leaf without one
-       * cannot run at all. The old behaviour was to drop an unmatched name silently and let the
-       * work fall back to a default configuration; there is no such default now, and saying nothing
-       * would hand back a proposal that looks accepted and is not runnable.
-       *
-       * The available names travel with the warning, since the usual cause is a model that never
-       * had them.
-       */
       const personaWarning = persona
         ? undefined
         : wantedPersona
@@ -283,14 +190,10 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
                 .map((p) => ({ name: p.name, description: p.description ?? '' })),
             }
           : { persona: persona!.name }),
-        // Echoed so a path that was dropped for looking unsafe does not silently become a promise
-        // nothing will check.
         ...(expects.length ? { expects } : {}),
         ...(wanted.length ? { dependsOn: recorded } : {}),
         ...(unresolved.length
           ? {
-              // Named `warning` rather than buried in a field the model may not read: this leaf
-              // will start immediately alongside the work it was supposed to follow.
               warning: `These dependencies matched no leaf and were NOT recorded, so this leaf will start immediately instead of waiting: ${unresolved.map((t) => `"${t}"`).join(', ')}. Use a title exactly as it appears in existingTitles, or propose the missing leaf first.`,
               unresolvedDependencies: unresolved,
               existingTitles: leaves.map((l) => l.title),
@@ -300,27 +203,13 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     }
 
     if (call.name === 'set_acceptance') {
-      // `checks` is the plan; a bare `command` is what the first version took, and accepting it
-      // still costs nothing.
       const plan = usableAcceptancePlan(args.checks ?? args.command);
       if (plan.length === 0) {
-        // Refused rather than stored: the value of showing this to a human before they accept
-        // depends on what they read being all of what runs.
         return JSON.stringify({
           error: 'No usable checks. Each needs a name and a single-line command, with no command '
             + 'substitution, backgrounding, or chaining beyond `&&`.',
         });
       }
-      /**
-       * A check that cannot fail is refused here, in the turn that wrote it.
-       *
-       * Blocking acceptance on "is there a plan?" bought one turn of honesty: the next planning
-       * turn called set_acceptance with `echo 'Verification done via MCP tool calls in leaf'`,
-       * which exits 0 always. It satisfied the gate and proved nothing.
-       *
-       * Refusing rather than storing-and-warning, for the reason the malformed-check refusal above
-       * gives: what a human reads before accepting has to be all of what runs.
-       */
       const hollow = hollowChecks(plan);
       if (hollow.length) {
         return JSON.stringify({ error: explainHollow(hollow) });
@@ -330,14 +219,10 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const branch = branches.find((b) => b.id === branchId && b.ownerId === userId);
       if (!branch) return JSON.stringify({ error: 'No such branch.' });
       await db.saveBranch({ ...branch, acceptance: plan, updatedAt: new Date().toISOString() });
-      // Echoed back so a check dropped for being malformed does not silently become a promise
-      // nothing will run.
       return JSON.stringify({ acceptance: plan });
     }
 
     if (call.name === 'list_projects') {
-      // ownerId comes from the SESSION, never from the model. A projectId argument could name
-      // anyone's repository; the user it belongs to is not the model's to choose.
       const mine = await projects.listForOwner(userId);
       return JSON.stringify({
         projects: mine.map((p) => ({ id: p.id, name: p.name, repo: `${p.giteaOwner}/${p.giteaRepo}` })),
@@ -351,34 +236,12 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         ...(typeof args.description === 'string' && args.description.trim()
           ? { description: args.description.trim().slice(0, 300) }
           : {}),
-        // Validated rather than trusted: it arrives as untrusted JSON, and an unrecognised
-        // toolchain would resolve to no image at all.
         ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
       });
-      /**
-       * The tree learns about it NOW, not when a leaf happens to finish.
-       *
-       * ── THE RUN THIS SPLIT ──
-       * Creating a project used to attach it to nothing: it returned an id and relied on the model
-       * calling `set_leaf_project` for every leaf. A real planning turn created `github-mcp` and
-       * then did not, so each leaf resolved no project, fell through to the per-branch fallback,
-       * and built in `koala-request-30b2d228` — while `github-mcp` sat empty and unused.
-       *
-       * Worse, it could not be recovered afterwards: the first leaf to FINISH calls `withProject`
-       * with whatever it resolved, so the fallback became the tree's primary repository
-       * permanently, and every later branch of the same effort joined it too.
-       *
-       * Attaching here makes the named project `projectIds[0]`, which is what `resolveLeafProject`
-       * reads as `treeProjectId` — so every leaf of the branch lands in it without the model
-       * needing a second step it demonstrably does not take. The executor's own attach then finds
-       * the id already present and does nothing.
-       */
       let attachedTo: string | undefined;
       const branch = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === userId);
       if (branch?.treeId) {
         const tree = (await db.getTrees()).find((t) => t.id === branch.treeId && t.ownerId === userId);
-        // Re-read and append; saveTree is a full replace, and `withProject` keeps the first
-        // repository primary so this never hijacks a tree that already has one.
         if (tree) {
           await db.saveTree(withProject(tree, project.id));
           attachedTo = tree.name;
@@ -388,10 +251,8 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       return JSON.stringify({
         created: {
           id: project.id, name: project.name, repo: `${project.giteaOwner}/${project.giteaRepo}`,
-          // Echoed, so a dropped language is visible rather than silently becoming the default.
           language: project.language ?? DEFAULT_WORKSPACE_LANGUAGE,
         },
-        // Said explicitly so the model does not also try to point each leaf at it by hand.
         ...(attachedTo
           ? { note: `Leaves on this branch will use this repository by default — no need to set it per leaf.` }
           : {}),
@@ -401,8 +262,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     if (call.name === 'set_leaf_project') {
       const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
       if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-      // Resolved through the owner-filtered list, so naming another user's project id reads as
-      // "no such project" rather than attaching their repo to this leaf.
       const project = (await projects.listForOwner(userId))
         .find((p) => p.id === String(args.projectId ?? ''));
       if (!project) return JSON.stringify({ error: 'No project with that id.' });
@@ -411,15 +270,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       }
       await db.saveLeaf({ ...leaf, projectId: project.id, updatedAt: new Date().toISOString() });
 
-      /**
-       * The tree adopts it too, but ONLY when it has no repository of its own.
-       *
-       * Pointing one leaf somewhere is a per-leaf decision and must not repoint a branch whose work
-       * is already landing. But when the tree has nothing — the case where a planner found an
-       * existing service and pointed its verify leaf at that project — the alternative is that
-       * every OTHER leaf on the branch falls through to a per-branch repository, which is how one
-       * service ended up with two.
-       */
       let adopted = false;
       const branchOf = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === userId);
       if (branchOf?.treeId) {
@@ -438,9 +288,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-// Both editing verbs stop at 'proposed'. Once a human has accepted a leaf there may be a
-    // workflow running against its text, and the model rewriting or deleting it underneath would
-    // change what the work means after the person agreed to it.
     if (call.name === 'replace_leaf') {
       const old = leaves.find((l) => l.id === String(args.id ?? ''));
       if (!old) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
@@ -465,20 +312,12 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       };
       await db.saveLeaf(replacement);
 
-      /**
-       * Dependents move BEFORE the old leaf goes.
-       *
-       * `dependenciesMet` treats an id that resolves to nothing as met, so between the delete and
-       * the rewire a dependent is a leaf whose ordering has silently evaporated. Doing it in this
-       * order means that window does not exist.
-       */
       const moved = rewireDependents(leaves, old.id, replacement.id);
       for (const l of moved) await db.saveLeaf({ ...l, updatedAt: now });
       await db.deleteLeaf(old.id);
 
       return JSON.stringify({
         replaced: { was: old.title, now: replacement.title, id: replacement.id },
-        // Reported so the model can see the ordering survived rather than assuming it.
         ...(moved.length ? { movedDependents: moved.map((l) => l.title) } : {}),
       });
     }
@@ -493,16 +332,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       }
 
       if (call.name === 'withdraw_leaf') {
-        // Children would be orphaned into an unreachable subtree, so they go too — safe here
-        // because everything below a proposal is itself still a proposal.
         const doomed = [leaf, ...childrenOf(leaves, leaf.id)];
-        /**
-         * Anything that named it loses the ordering, silently.
-         *
-         * A deleted dependency resolves to nothing, and `dependenciesMet` counts that as met — so
-         * the dependent does not wait, it starts early with no trace of why. Reported rather than
-         * prevented, and `replace_leaf` is the way to avoid it.
-         */
         const orphaned = doomed.flatMap((d) => dependentsOf(d.id, leaves))
           .filter((l) => !doomed.some((d) => d.id === l.id));
         for (const l of doomed) await db.deleteLeaf(l.id);
@@ -519,13 +349,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
 
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       const body = typeof args.body === 'string' ? args.body.trim() : '';
-      /**
-       * Assigning somebody is a revision like any other.
-       *
-       * Without this the re-ask loop asked the model to do something no tool could do: the prompt
-       * said "call revise_leaf setting persona" and the parameter did not exist, so every attempt
-       * to repair an unassigned leaf would have failed silently and gone to the user as unassignable.
-       */
       const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
       const mine = (await db.getPersonas()).filter((p) => p.ownerId === userId);
       const persona = resolvePersonaNamed(wantedPersona, mine);
@@ -560,7 +383,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const infra = describeInfrastructure(await db.getDeployments(), userId, await db.getAppSpecs());
       return JSON.stringify({
         running: infra.running,
-        // First, because it is what needs doing before anything else is planned on top of it.
         ...(infra.broken.length ? { broken: infra.broken } : {}),
         deployable: infra.deployable,
         note: 'Anything not in `running` and not in `deployable` does not exist here and cannot be '
@@ -571,12 +393,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     }
 
     if (call.name === 'list_mcp_servers') {
-      /**
-       * The same registry the executor uses, so what a plan is told exists is what a leaf will
-       * actually find. Absent when the caller could not supply one — reported as unavailable rather
-       * than as an empty list, because "no servers" and "cannot see servers" lead a planner to
-       * opposite decisions.
-       */
       if (!mcpRegistry) {
         return JSON.stringify({
           error: 'The MCP registry is not available here, so it is not known which servers exist. Do not conclude there are none.',
@@ -589,13 +405,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
           note: 'No MCP servers are deployed under this account yet. Building and deploying one makes its tools callable from a leaf.',
         });
       }
-      /**
-       * Same owner-scoped listing `list_projects` uses; the session decides, never the model.
-       *
-       * Wrapped because the NAME is a convenience and the id is the part that works: a project
-       * lookup that fails must not take the server list down with it. `try` rather than `.catch`
-       * — a missing dependency throws synchronously, which a promise catch never sees.
-       */
       let mine: { id: string; name: string }[] = [];
       try { mine = (await projects.listForOwner(userId)) as any[]; } catch { mine = []; }
       const editable = servers.filter((s) => s.projectId);
@@ -603,15 +412,8 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         servers: servers.map((s) => ({
           name: s.name,
           status: s.unreachable ? 'unreachable' : 'running',
-          // Kept: a server that is deployed but not answering is a fixable problem, and hiding the
-          // reason turns it into a server that silently has no tools.
           ...(s.unreachable ? { unreachable: s.unreachable } : {}),
           tools: (s.tools ?? []).map((t) => ({ name: t.name, description: t.description ?? '' })),
-          /**
-           * What turns a server from something to CALL into something to CHANGE. Given as a
-           * project id because that is what `set_leaf_project` takes — a name would have to be
-           * matched back, and two projects can share one.
-           */
           ...(s.projectId
             ? {
                 projectId: s.projectId,
@@ -641,8 +443,6 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     if (call.name === 'web_search') {
       const query = String(args.query ?? '').trim();
       if (!query) return JSON.stringify({ error: 'query parameter is required' });
-      // "No results found or request failed" — this line knew it could not tell the two apart and
-      // merged them anyway. `renderSearchOutcome` keeps them apart, in one place for all callers.
       return JSON.stringify(renderSearchOutcome(query, await webSearch(query)));
     }
 

@@ -1,14 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseHash, formatHash, shouldReplace, resolveView } from './route.js';
 
-/**
- * The URL meaning something.
- *
- * Aimed at the ways a hand-rolled hash router goes wrong quietly: a stray slash producing an empty
- * id that matches nothing, a round trip that loses a segment, and a history that either records
- * nothing or records so much that Back becomes useless.
- */
-
 describe('reading a hash', () => {
   it('reads a view and its ids', () => {
     expect(parseHash('#/grove/t1/b2/l3')).toEqual({ view: 'grove', path: ['t1', 'b2', 'l3'] });
@@ -19,17 +11,10 @@ describe('reading a hash', () => {
   });
 
   it('treats nothing as nothing, rather than as a view named empty', () => {
-    // The first load has no hash at all, and a route of `{view: ''}` would match no view and render
-    // a blank page instead of the default.
     for (const empty of ['', '#', '#/', '   ']) expect(parseHash(empty)).toBeUndefined();
   });
 
   it('drops empty segments instead of passing them on as ids', () => {
-    /**
-     * `#/grove//l3` is what a formatter produces if a middle id is missing. Keeping the empty
-     * string would hand Grove a tree id of '' — which matches no tree, so the pane renders nothing
-     * and the navigator looks broken rather than empty.
-     */
     expect(parseHash('#/grove//l3')).toEqual({ view: 'grove', path: ['l3'] });
     expect(parseHash('#/grove/t1/')).toEqual({ view: 'grove', path: ['t1'] });
   });
@@ -40,8 +25,6 @@ describe('reading a hash', () => {
   });
 
   it('round-trips an id containing a slash', () => {
-    // No id looks like this today, but an unencoded one would silently split into two segments and
-    // shift every id after it by one position.
     const hash = formatHash('grove', ['koala/deadbeef']);
     expect(parseHash(hash)).toEqual({ view: 'grove', path: ['koala/deadbeef'] });
   });
@@ -61,18 +44,12 @@ describe('what belongs in browser history', () => {
   });
 
   it('does not record every leaf you click inside one tree', () => {
-    /**
-     * The point. Clicking six cards on a board and then wanting out should be one Back press, not
-     * six — a selection within a scope is the same place with a different thing focused.
-     */
     const from = { view: 'grove', path: ['t1', 'b1'] };
     expect(shouldReplace(from, { view: 'grove', path: ['t1', 'b1', 'l9'] })).toBe(true);
     expect(shouldReplace(from, { view: 'grove', path: ['t1', 'b2'] })).toBe(true);
   });
 
   it('replaces on the very first navigation', () => {
-    // There is nothing to go back TO on load, and pushing would make the first Back a no-op that
-    // looks like the button is broken.
     expect(shouldReplace(undefined, { view: 'grove', path: [] })).toBe(true);
   });
 });
@@ -81,10 +58,6 @@ describe('links that outlived their view', () => {
   const known = ['grove', 'personas', 'lab', 'clusters'];
 
   it('sends a retired view to whatever replaced it', () => {
-    /**
-     * Grove subsumed the old workspace and tree list. A bookmark to either resolved to a view
-     * nothing renders — a blank page, which reads as a broken application rather than a moved one.
-     */
     for (const gone of ['chat', 'board', 'trees']) {
       expect(resolveView(gone, known, 'clusters')).toBe('grove');
     }

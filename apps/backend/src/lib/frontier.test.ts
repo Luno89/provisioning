@@ -4,15 +4,12 @@ import { MemoryDB } from './memory-db.js';
 
 describe('queueing a URL', () => {
   it('derives the id from the ingest and the URL, so a duplicate cannot be stored', () => {
-    // This is the whole deduplication mechanism. It used to be a Set held in the workflow, which
-    // meant `seen` was replayed from event history on every batch.
     const a = frontierRow('i1', 'https://a.example/x', 0, []);
     const b = frontierRow('i1', 'https://a.example/x', 3, ['other']);
     expect(a.id).toBe(b.id);
   });
 
   it('scores the URL once, at enqueue', () => {
-    // An index cannot sort by a function, so the ordering has to be a stored number.
     expect(keywordScore('https://a.example/licence-and-pricing', ['pricing', 'licence'])).toBe(2);
     expect(keywordScore('https://a.example/BLOG', ['blog'])).toBe(1);
     expect(keywordScore('https://a.example/blog', [])).toBe(0);
@@ -28,11 +25,6 @@ describe('the order pages come out in', () => {
   });
 
   it('breaks a tie on the URL, so a retried batch is the same batch', () => {
-    /**
-     * Not cosmetic. `claimFrontier` does not mutate, so an activity Temporal retries re-reads the
-     * frontier — and if two equal-ranked pages could come back in either order, the retry would
-     * fetch one and silently drop the other.
-     */
     const rows = [row('https://a/z', 1, 1), row('https://a/a', 1, 1)];
     expect(rows.sort(frontierOrder).map((r) => r.url)).toEqual(['https://a/a', 'https://a/z']);
     expect([...rows].reverse().sort(frontierOrder).map((r) => r.url)).toEqual(['https://a/a', 'https://a/z']);
@@ -41,7 +33,6 @@ describe('the order pages come out in', () => {
 
 describe('spending the depth budget', () => {
   it('stops collecting links at the last permitted depth', () => {
-    // Otherwise the final level queues thousands of pages the crawl will never fetch.
     expect(followsLinks(0, 1)).toBe(true);
     expect(followsLinks(1, 1)).toBe(false);
     expect(followsLinks(0, 0)).toBe(false);
@@ -53,7 +44,6 @@ describe('the frontier as a queue', () => {
   beforeEach(async () => { db = new MemoryDB(); await db.init(); });
 
   it('counts only what was genuinely new', async () => {
-    // Every page in a crawl is linked from somewhere, so re-offering is the common path.
     const first = await db.enqueueFrontier([frontierRow('i1', 'https://a/x', 0, [])]);
     const again = await db.enqueueFrontier([
       frontierRow('i1', 'https://a/x', 1, []),

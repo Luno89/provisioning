@@ -7,16 +7,6 @@ import { errorMessage } from '../api/client';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Network, Loader2, AlertTriangle, Copy, Check, Trash2, Circle, RefreshCw } from 'lucide-react';
 
-/**
- * Attach your own machine to the platform's mesh.
- *
- * This is how bring-your-own hardware works at all: a machine at home sits behind NAT, so the
- * platform can never reach inward to it. The machine dials out and joins the mesh, and from then
- * on it is addressable at a stable 100.64.x.x address — the same mechanism provisioned VPS
- * instances use, so both end up looking identical to the rest of the platform.
- */
-
-
 export default function MeshDevices() {
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -33,8 +23,6 @@ export default function MeshDevices() {
   });
 
   const mintKey = useMutation({
-    // Single-use and short-lived on purpose: this key is about to be pasted into a terminal, and
-    // anything longer-lived than the enrolment it authorises is a credential lying around.
     mutationFn: () => createPreauthKey({ reusable: false, expirySeconds: 3600 }),
     onSuccess: (data) => { setIssuedKey(data.key); setCopied(false); },
   });

@@ -1,102 +1,33 @@
-/**
- * Koala writing the experiments.
- *
- * ── WHY THIS MIRRORS PLAN MODE RATHER THAN INVENTING A FORMAT ──
- * `plan-mode.ts` already solved "model proposes structured work, human accepts": ask for a fenced
- * JSON block, read it defensively, render the results as proposals. That shape was chosen because
- * a fenced block is the one structure small local models reliably produce, and because it survives
- * the prose they wrap around it. Both facts are as true here, so this deliberately copies the
- * approach — including returning nothing rather than guessing.
- *
- * ── THE VERIFY COMMAND IS THE DANGEROUS FIELD ──
- * Everything else a model gets wrong here is visible: a vague prompt reads as vague. A verify
- * command that always exits zero is invisible, and it makes every variant pass — which is the exact
- * failure the whole Lab exists to catch, now generated automatically and at scale.
- *
- * So there are two gates, and only the second one is real:
- *
- *   1. The static check below rejects the laziest degenerate commands (`true`, `echo ok`, `exit 0`).
- *      It is a filter, not a guarantee — shell is not statically analysable and pretending
- *      otherwise would be worse than having no check at all.
- *   2. Running the command in a FRESH, EMPTY sandbox and requiring it to FAIL. A verify command
- *      that passes with no work done is not checking anything. That gate is Phase 2 and lives with
- *      the sandbox; nothing here should be read as making a task safe to trust.
- *
- * The prompt teaches the property anyway, because a model told what will be checked writes better
- * commands than one filtered afterwards.
- *
- * Pure, so the extraction can be tested without a model.
- */
 import type { TaskFile, WorkspaceLanguage  } from '@koala/harness-types';
 import { describeSandbox, WORKSPACE_IMAGES, isWorkspaceLanguage } from './workspace-spec.js';
 import { MAX_TASKS, MAX_TASK_CHARS, MAX_TASK_FILES, MAX_TASK_FILE_CHARS } from './experiments.js';
 import type { ExperimentTask } from '@koala/harness-types';
 import type { Database } from './db-interface.js';
 
-/**
- * Sampling for an authoring turn: reasoning OFF.
- *
- * Not the choice plan mode makes, and the difference is the point. A planning conversation keeps
- * reasoning on because that is what makes it worth talking to; authoring is one-shot structured
- * output, which is the case `sampling.ts` measured reasoning actively hurting — "structured output
- * went from about one reply in eight to three out of three".
- *
- * Measured again here, on this prompt: with reasoning on, the model produced 16,664 characters of
- * deliberation, hit `finish_reason: length` at a 4,000-token budget and emitted NO answer at all.
- * With it off the same request returned a clean block in 322 characters. Raising the budget is the
- * wrong fix — it buys more deliberation, not an answer.
- *
- * Spread over `conversationSampling(kind)` by the caller, which supplies the loop guards.
- */
 export const AUTHORING_SAMPLING = { template_vars: { enable_thinking: false } } as const;
 
-/** Budget for one authoring turn. Ample with reasoning off — a full suite lands in well under this. */
 export const AUTHORING_MAX_TOKENS = 3000;
 
-/** A task as proposed. No id — the server assigns those when the experiment is created. */
 export interface DraftTask {
   name: string;
   prompt: string;
   verifyCommand: string;
-  /** Present before the agent starts — the given state a task can describe work ON. */
   seed?: TaskFile[];
-  /** A correct answer, used only to prove the verify command can pass. Never given to the agent. */
   solution?: TaskFile[];
   language?: WorkspaceLanguage;
-  /**
-   * Which cycle the task exercises. Carried through the gate because the two are seeded
-   * differently: a planning task's baseline is an empty board, not an absent one.
-   */
-  /** Whether the task runs the planning turn instead of the execution loop. */
   planning?: boolean;
 }
 
-/**
- * What a reply yielded.
- *
- * Rejections are returned rather than silently dropped. A batch where half the proposals had no
- * verify command is a fact about how the model is coping with the hardest field, and hiding it
- * would leave someone wondering why they asked for six tasks and got three.
- */
 export interface AuthoredTasks {
   tasks: DraftTask[];
   rejected: { name: string; reason: string }[];
 }
 
-/** Matches the caps the create route enforces, so nothing proposed here is rejected there. */
 const MAX_NAME = 80;
 const MAX_VERIFY = 2000;
 
-/**
- * Commands that pass whatever the agent did.
- *
- * Narrow on purpose. These are the cases a model reaches for when it cannot think of a real check,
- * and they are recognisable without parsing shell. Anything subtler is Phase 2's job — a regex that
- * tried to be clever here would reject working commands and still miss the interesting failures.
- */
 const ALWAYS_PASSES = /^(true|:|exit\s+0|echo(\s|$)[^|&;]*)$/i;
 
-/** File lists, read defensively — anything without a path is unusable and is dropped. */
 const files = (raw: unknown): TaskFile[] =>
   (Array.isArray(raw) ? raw : [])
     .map((f: any) => ({ path: String(f?.path ?? '').trim(), content: String(f?.content ?? '') }))
@@ -106,18 +37,10 @@ const files = (raw: unknown): TaskFile[] =>
 const degenerate = (command: string): string | null => {
   const trimmed = command.trim();
   if (!trimmed) return 'has no verify command';
-  // Only when the WHOLE command is degenerate: `echo x && node t.js` is a real check.
   if (ALWAYS_PASSES.test(trimmed)) return `verify command "${trimmed}" passes whatever the agent did`;
   return null;
 };
 
-/**
- * What Koala is told when asked to write a suite.
- *
- * Carries the real sandbox description for the same reason `PLAN_SYSTEM_PROMPT` does: the model
- * deciding what the work IS needs the constraints more than the executor does, because an executor
- * handed an impossible task can only fail it. A task proposing `npm install` cannot be rescued.
- */
 export function buildTaskAuthorPrompt(opts: { existing?: string[] } = {}): string {
   const languages = (Object.keys(WORKSPACE_IMAGES) as WorkspaceLanguage[])
     .map((id) => `${id} (${WORKSPACE_IMAGES[id].summary})`)
@@ -169,24 +92,10 @@ export function buildTaskAuthorPrompt(opts: { existing?: string[] } = {}): strin
           '',
         ]
       : []),
-    // The executor's constraints, verbatim from the pod spec — so a proposal cannot depend on
-    // something the sandbox does not have.
     describeSandbox(),
   ].join('\n');
 }
 
-/**
- * Talking to Koala about ONE task.
- *
- * ── WHY A CONVERSATION AND NOT ANOTHER ONE-SHOT ──
- * The four parts of a task are interdependent, and generating them in one pass produced exactly the
- * incoherence you would expect: a prompt saying "read data.txt" beside a verify command that
- * created data.txt itself, because nothing forced the two to be considered together. Iterating is
- * how that gets resolved — you say "the agent never sees that file", and the seed appears.
- *
- * The current task travels in the system prompt rather than being restated each turn, so the model
- * is always revising something concrete rather than inventing from the last thing it said.
- */
 export function buildTaskChatPrompt(task: DraftTask): string {
   return [
     'You are helping write ONE task for an evaluation suite. Discuss it naturally.',
@@ -220,13 +129,6 @@ export function buildTaskChatPrompt(task: DraftTask): string {
   ].join('\n');
 }
 
-/**
- * Reads a task revision out of a reply.
- *
- * Returns only the fields the model actually set, so accepting a revision changes exactly what was
- * discussed — a merge that filled in omitted fields with defaults would quietly undo edits the
- * conversation never mentioned.
- */
 export function extractTaskRevision(reply: string): Partial<DraftTask> | null {
   const found = findTaskObject(reply, 'task');
   if (!found) return null;
@@ -251,18 +153,6 @@ export function extractTaskRevision(reply: string): Partial<DraftTask> | null {
   return Object.keys(out).length ? out : null;
 }
 
-/**
- * Locates the proposal object in a reply, by matching braces rather than by regex.
- *
- * The single source of truth for "where is the payload", used by both extraction and stripping so
- * the two cannot disagree about what counted as a proposal — a disagreement that showed up as the
- * whole JSON blob landing in the transcript after a successful parse.
- *
- * Brace counting rather than `\{[\s\S]*\}` because the payload legitimately contains braces inside
- * strings, and a task prompt legitimately contains fenced code samples. A greedy regex swallows a
- * following code block; a lazy one stops inside the first nested fence. Neither survives contact
- * with what the model actually writes.
- */
 function findTaskObject(
   reply: string,
   key: 'tasks' | 'task' = 'tasks',
@@ -283,16 +173,12 @@ function findTaskObject(
         depth--;
         if (depth === 0) {
           const json = reply.slice(i, j + 1);
-          // Only an object that actually parses AND carries tasks. Anything else is a brace in
-          // prose, and scanning continues from the next one.
           try {
             const parsed = JSON.parse(json) as Record<string, unknown>;
             const payload = parsed?.[key];
-            // `tasks` must be a list; `task` is a single object. Anything else is a brace in prose.
             const usable = key === 'tasks' ? Array.isArray(payload) : Boolean(payload) && typeof payload === 'object';
             if (usable) return { start: i, end: j + 1, json };
           } catch {
-            // Not JSON — keep looking.
           }
           break;
         }
@@ -302,39 +188,14 @@ function findTaskObject(
   return null;
 }
 
-/**
- * Reads task proposals out of a model reply.
- *
- * Returns nothing it cannot confidently read. No proposals is always a valid outcome, so there is
- * never a reason to guess — the same rule `extractProposals` follows, and for the same reason: a
- * half-understood task costs a sandbox to discover it was nonsense.
- */
 export function extractTaskProposals(reply: string): AuthoredTasks {
   const out: AuthoredTasks = { tasks: [], rejected: [] };
   if (!reply) return out;
 
-  // Every fenced block, not just the last: models emit an illustrative block mid-reply and the
-  // real one at the end about as often as the reverse.
   const blocks = [...reply.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((m) => m[1] ?? '');
-  /**
-   * The brace-matched object, tried last whatever the fences did.
-   *
-   * This used to run only when there were NO fenced blocks, which fails on the case that actually
-   * occurs: a task whose PROMPT contains a fenced code sample. The inner fences then match first,
-   * the outer JSON is sliced into fragments that parse as nothing, and because `blocks` was
-   * non-empty the fallback never ran — so a perfectly good suite extracted as zero tasks and zero
-   * rejections, which reads as the model having proposed nothing.
-   */
   const found = findTaskObject(reply);
   if (found) blocks.push(found.json);
 
-  /**
-   * First occurrence of a name wins.
-   *
-   * Needed because the fallback above deliberately re-reads the whole reply, so a well-formed
-   * fenced block is now parsed twice — and worth having anyway, since a model that repeats a task
-   * would otherwise produce two identical rows the matrix could not tell apart.
-   */
   const seen = new Set<string>();
 
   for (const block of blocks) {
@@ -354,7 +215,6 @@ export function extractTaskProposals(reply: string): AuthoredTasks {
       const verifyCommand = String((raw as any)?.verifyCommand ?? '').trim().slice(0, MAX_VERIFY);
       const language = (raw as any)?.language;
 
-      // Unnamed and unusable are different: an unnamed proposal cannot even be reported on.
       if (!name) continue;
       if (seen.has(name)) continue;
       seen.add(name);
@@ -377,8 +237,6 @@ export function extractTaskProposals(reply: string): AuthoredTasks {
         ...(isWorkspaceLanguage(language) ? { language } : {}),
       });
 
-      // The ceiling counts ACCEPTED tasks. Rejections keep accumulating so the caller can still
-      // say what happened to the rest of the batch.
       if (out.tasks.length >= MAX_TASKS) return out;
     }
   }
@@ -386,34 +244,11 @@ export function extractTaskProposals(reply: string): AuthoredTasks {
   return out;
 }
 
-/**
- * What running a verify command against an EMPTY workspace proved.
- *
- * The real gate. A verify command exists to distinguish work-done from work-not-done, so running
- * it where nothing has been done must FAIL — and a command that passes there passes always, making
- * every variant in every experiment score a win. That is the precise failure the Lab exists to
- * catch, so generating tasks without this check would automate producing it.
- *
- * Pure, so the rules are testable without a cluster; the sandbox half lives in AuthoringService.
- */
 export interface EmptyRunOutcome {
-  /** True when the command correctly failed, and the task can be offered. */
   ok: boolean;
   reason?: string;
 }
 
-/**
- * What running the verify command against a CORRECT answer proved.
- *
- * ── THE HALF THAT WAS MISSING ──
- * `judgeEmptyRun` proves a verify command is not vacuous. Nothing proved it could ever pass. A
- * command with a typo — `grep -q 'Hello Wolrd'` — fails on the seed AND fails on a perfect
- * solution, and those two look identical from one side. Every variant then fails a task nothing
- * could win, at a sandbox per variant per repeat, and the matrix reports it as a hard question
- * rather than a broken one.
- *
- * Running it against seed + solution is what turns "achievable" from an assumption into a fact.
- */
 export function judgeSolutionRun(result: { exitCode: number; timedOut: boolean }): EmptyRunOutcome {
   if (result.timedOut) return { ok: false, reason: 'hung on a correct solution' };
   if (result.exitCode !== 0) {
@@ -428,126 +263,46 @@ export function judgeSolutionRun(result: { exitCode: number; timedOut: boolean }
 
 export function judgeEmptyRun(result: { exitCode: number; timedOut: boolean }): EmptyRunOutcome {
   if (result.timedOut) {
-    // It will hang on every real run too, burning the variant timeout for nothing.
     return { ok: false, reason: 'hung on an empty workspace instead of failing' };
   }
   if (result.exitCode === 0) {
     return { ok: false, reason: 'passes on an empty workspace, so it is not checking anything' };
   }
   if (result.exitCode === 127) {
-    /**
-     * Failed, but for the wrong reason.
-     *
-     * 127 is the shell's "command not found", so this command would fail identically on a run
-     * where the agent did everything right — the task could never pass. The images genuinely lack
-     * common tools (`jq` is absent from all four), which is exactly how this happens.
-     */
     return { ok: false, reason: 'exited 127 (command not found) — the sandbox has no such tool' };
   }
   return { ok: true };
 }
 
-/**
- * Files a verify command creates for itself, which the agent will never have seen.
- *
- * ── THE SECOND WAY A TASK IS UNANSWERABLE ──
- * `judgeEmptyRun` proves a verify command is not vacuous. It cannot prove the task is answerable,
- * and those are different questions. Observed on a real authored suite:
- *
- *     prompt: "read /work/data.txt and print its contents"
- *     verify: cd /work && echo 'test data' > data.txt && node read.js | grep -q 'test data'
- *
- * That verify fails correctly on an empty workspace, so the gate passed it. But `data.txt` is
- * created BY THE VERIFY COMMAND — during the run there is nothing to read. The agent burned all 24
- * steps trying to invent the input, and the task could never have passed however well it worked.
- *
- * A file the verify command creates is a file the agent does not get. When the prompt names one, it
- * is describing a world the agent never sees.
- */
 export function selfProvisionedInputs(prompt: string, createdByVerify: string[]): string[] {
   return createdByVerify.filter((file) => {
     const base = file.replace(/^.*\//, '');
     if (!base) return false;
-    // Word-boundary match on the bare filename: a prompt saying "read data.txt" is describing an
-    // input, while one that never mentions it is probably just letting verify build scaffolding.
     return new RegExp(`\\b${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(prompt);
   });
 }
 
-/**
- * Strips the proposal block out of the reply shown to the user.
- *
- * The tasks are rendered as cards in their own right, so leaving the raw JSON in the transcript
- * shows the same thing twice — once as machinery nobody asked to see.
- *
- * ── THE FENCE IS OFTEN NOT CLOSED ──
- * Measured against the live deployment: the model opens ```json, emits the object, and stops —
- * `finish_reason: stop`, no closing fence, nothing truncated. Extraction already tolerated that
- * through its bare-object fallback, so the block parsed fine and then survived stripping intact,
- * putting the whole payload in the transcript. Stripping has to be exactly as forgiving as
- * extraction, or the two disagree about what counted as a proposal.
- */
 export function stripTaskBlock(reply: string): string {
   const found = findTaskObject(reply);
-  // No payload means nothing to hide — an ordinary reply is returned untouched.
   if (!found) return reply.trim();
 
-  // The fence markers around it, when there are any. Both are optional and independently so: this
-  // model routinely opens ```json and never closes it.
   const head = reply.slice(0, found.start).replace(/```(?:json)?[ \t]*\r?\n?$/i, '');
   const tail = reply.slice(found.end).replace(/^\s*```/, '');
   return (head + tail).trim();
 }
 
-/**
- * ── MOVED OUT OF index.ts ──
- *
- * These three were closures inside `bootstrap()`, used by the authoring and experiment routes.
- * They are pure — client shapes in, stored shapes out — and the only reason they lived in a
- * 5,900-line file is that both callers happened to be there.
- */
-
-/**
- * Client task shapes → stored tasks.
- *
- * Ids are generated here rather than trusted. The client's copy only has to be unique within its
- * own form, while these become part of a Kubernetes namespace and are what results are attributed
- * by — so position decides identity, and editing a task in place keeps its results attached.
- */
 export const normaliseTasks = (tasks: any[]): ExperimentTask[] =>
   tasks.slice(0, MAX_TASKS).map((t: any, i: number) => ({
     id: `t${i + 1}`,
     name: String(t?.name ?? '').trim().slice(0, 80) || `Task ${i + 1}`,
     prompt: String(t?.prompt ?? '').slice(0, MAX_TASK_CHARS),
     verifyCommand: String(t?.verifyCommand ?? '').trim().slice(0, 2000),
-    // The world the agent wakes up in, and a reference answer used only by the gate. Both
-    // optional; a task that starts from nothing carries neither.
     ...(Array.isArray(t?.seed) && t.seed.length ? { seed: taskFiles(t.seed) } : {}),
     ...(Array.isArray(t?.solution) && t.solution.length ? { solution: taskFiles(t.solution) } : {}),
     ...(isWorkspaceLanguage(t?.language) ? { language: t.language } : {}),
-    /**
-     * Which loop the task runs. Dropped here until recently.
-     *
-     * `kind` was added to ExperimentTask precisely because a planning experiment written as an
-     * execution task checked for a file that loop has no tool to produce — and this normaliser,
-     * the one path every authored task goes through, silently discarded it. So the field that
-     * exists to make that mistake unrepresentable was itself unreachable over the API.
-     *
-     * Through `asWorkKind` rather than compared against literals: it arrives as untrusted JSON, an
-     * unrecognised kind would select no loop at all, and the old `sandbox` spelling still has to
-     * be readable.
-     */
-    /**
-     * Whether this task runs the planning turn. Dropped by this normaliser until recently, which
-     * made the field that exists to prevent a planning experiment being written as an execution
-     * one unreachable over the API.
-     *
-     * The old `kind: 'planning'` spelling is still accepted: experiments are stored documents.
-     */
     ...(t?.planning === true || t?.kind === 'planning' ? { planning: true } : {}),
   }));
 
-/** File lists from a client, bounded and stripped of anything that could escape /work. */
 export const taskFiles = (raw: any[]): { path: string; content: string }[] =>
   raw
     .slice(0, MAX_TASK_FILES)
@@ -557,13 +312,6 @@ export const taskFiles = (raw: any[]): { path: string; content: string }[] =>
     }))
     .filter((f) => f.path && !f.path.startsWith('/') && !f.path.includes('..'));
 
-/**
- * Refuses an arm pointing at a persona that is not yours or no longer exists.
- *
- * Checked at save rather than at run: an arm labelled "runs as Reviewer" that silently resolves
- * to nobody produces numbers filed under a configuration nothing used, which is the single
- * failure this whole surface is built to prevent.
- */
 export const unknownPersona = async (db: Pick<Database, 'getPersonas'>, userId: string, variants: unknown): Promise<string | undefined> => {
   if (!Array.isArray(variants)) return undefined;
   const wanted = variants

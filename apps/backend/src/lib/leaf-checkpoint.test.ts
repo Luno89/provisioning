@@ -13,7 +13,6 @@ describe('when a run stops to write itself down', () => {
   });
 
   it('fires once budget crosses each slice', () => {
-    // Two checkpoints means thirds: at 100 and at 200 of 300.
     expect(at(99)).toBe(false);
     expect(at(100)).toBe(true);
     expect(at(150, 1)).toBe(false);
@@ -24,11 +23,6 @@ describe('when a run stops to write itself down', () => {
     expect(at(299, CHECKPOINTS)).toBe(false);
   });
 
-  /**
-   * The forced wrap-up at the end of the loop already asks the agent for an account of itself,
-   * through the same one-tool mechanism. Firing here would pay for two near-identical turns and
-   * reset a context that is about to be abandoned.
-   */
   it('does not fire when the budget is nearly gone', () => {
     expect(shouldCheckpoint({ tokensUsed: 290, maxTokens: 300, taken: 1 })).toBe(false);
   });
@@ -38,11 +32,6 @@ describe('when a run stops to write itself down', () => {
     expect(shouldCheckpoint({ tokensUsed: 10, maxTokens: Number.NaN, taken: 0 })).toBe(false);
   });
 
-  /**
-   * The abandoned harness-v2 branch computed its trigger as `turnIndex % 15` against a threshold of
-   * 15, so the condition could never be true. It reads like it counts something, which is what made
-   * it survive review. Asserted here so this one is measurably reachable.
-   */
   it('is actually reachable across a whole run, unlike a modulo against its own period', () => {
     let taken = 0;
     for (let used = 0; used <= 300; used += 10) {
@@ -54,7 +43,6 @@ describe('when a run stops to write itself down', () => {
 
 describe('the agent’s half of the artifact', () => {
   it('offers exactly one tool, and it is not finish', () => {
-    // Withholding every other tool is what makes this a pause rather than another working turn.
     expect(HANDOFF_TOOL.function.name).toBe('handoff');
     expect(HANDOFF_TOOL.function.parameters.required).toEqual(['done', 'next']);
   });
@@ -65,7 +53,6 @@ describe('the agent’s half of the artifact', () => {
   });
 
   it('accepts a partial one rather than throwing it away', () => {
-    // Half an account is far better than none at the moment a context is about to be discarded.
     expect(parseHandoff({ done: 'wrote the parser' })).toMatchObject({ done: 'wrote the parser', next: '(not stated)' });
   });
 
@@ -99,12 +86,10 @@ describe('the artifact itself', () => {
     expect(out).toContain('token bucket written');
     expect(out).toContain('What is actually committed');
     expect(out).toContain('a1b2c3 add bucket');
-    // A reader must be able to tell a claim from a check, which is the whole point of the split.
     expect(out.indexOf('What the agent says')).toBeLessThan(out.indexOf('What is actually committed'));
   });
 
   it('says the handoff turn failed rather than omitting the section', () => {
-    // A missing section reads as "nothing to report", which is a different and wrong claim.
     const out = buildCheckpointArtifact({ ...base, repo: { branch: 'b', commits: '', changed: '' } });
     expect(out).toContain('did not produce an answer');
   });
@@ -117,7 +102,6 @@ describe('the artifact itself', () => {
 
     expect(out).toContain('/work/findings.md');
     expect(out).toContain('unverified');
-    // This is more useful than a git summary would be: it names which check currently fails.
     expect(out).toContain('No sources cited yet.');
     expect(out).not.toContain('What is actually committed');
   });
@@ -139,10 +123,6 @@ describe('the artifact itself', () => {
 
 describe('what the agent is told after a reset', () => {
   it('explains that it happened, and carries the artifact in full', () => {
-    /**
-     * An agent that finds its context inexplicably shorter spends turns re-establishing things it
-     * already knew. Saying so is cheaper than letting it work that out.
-     */
     const out = assembleResetPrompt('Add a rate limiter', '# Checkpoint 1\nthe artifact body');
     expect(out).toContain('was reset');
     expect(out).toContain('Nothing you did was');

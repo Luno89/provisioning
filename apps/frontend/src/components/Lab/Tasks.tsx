@@ -14,8 +14,6 @@ export function TaskPanel({ experiment, disabled, onSaved,
   const [draft, setDraft] = useState<ExperimentTask[]>([]);
   const [error, setError] = useState('');
 
-  // Prompts are the largest field in a record and the list deliberately omits them, so selecting
-  // this tab is what pays for them — nothing fetches until you ask.
   const { data: detail, isPending } = useExperimentDetail(experiment.id, true);
   const tasks = detail ? tasksOf(detail) : [];
 
@@ -30,8 +28,6 @@ export function TaskPanel({ experiment, disabled, onSaved,
   const patch = (i: number, p: Partial<ExperimentTask>) =>
     setDraft((ts) => ts.map((t, j) => (j === i ? { ...t, ...p } : t)));
 
-  // Counted per task, since only the ones actually reworded lose their history. Uses the summary's
-  // results, which carry taskId — the field this needs and the only one it needs.
   const atRisk = editing
     ? experiment.results.filter((r) => {
         const i = tasks.findIndex((t) => t.id === r.taskId);
@@ -100,8 +96,6 @@ export function TaskPanel({ experiment, disabled, onSaved,
           ) : (
             <button
               onClick={beginEdit}
-              // Also blocked until the prompts have arrived: editing a draft built from an
-              // unloaded suite would open empty fields and save them over the real ones.
               disabled={disabled || !tasks.length}
               title={disabled ? 'Wait for the run to finish' : 'Edit the prompts'}
               className="text-[12px] text-[var(--leaf-light)] hover:text-white disabled:opacity-40"

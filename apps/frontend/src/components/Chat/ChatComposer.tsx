@@ -14,13 +14,6 @@ export interface ChatComposerProps {
   onSend: (text?: string) => void;
   onStop: () => void;
   isStreaming: boolean;
-  /**
-   * The pack this conversation runs as, or undefined while the catalogue is loading.
-   *
-   * Optional because the list is fetched now rather than hardcoded, and the honest answer during
-   * that gap is "not known yet". The alternative — falling back to the first pack in the list —
-   * is what made the config drawer show Framer's settings under Koala's name.
-   */
   activePack?: PersonaPackOption | undefined;
   personaPacks: PersonaPackOption[];
   onSelectPack: (packId: string) => void;
@@ -53,7 +46,6 @@ export function ChatComposer({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [showPackMenu, setShowPackMenu] = useState(false);
 
-  // Dynamic auto-growth for textarea
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChangeInput(e.target.value);
     if (textareaRef.current) {
@@ -62,7 +54,6 @@ export function ChatComposer({
     }
   };
 
-  // Reset textarea height when input is cleared externally
   useEffect(() => {
     if (!input && textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -80,7 +71,6 @@ export function ChatComposer({
     <div
       className={`w-full bg-[var(--bark-900,#111814)] border border-[var(--bark-700,#24332b)] focus-within:border-emerald-500/70 rounded-lg p-2.5 shadow-sm transition-colors flex flex-col gap-2 font-sans ${className}`}
     >
-      {/* Multiline auto-growing Textarea */}
       <textarea
         ref={textareaRef}
         rows={1}
@@ -91,10 +81,8 @@ export function ChatComposer({
         className="w-full bg-transparent border-0 resize-none px-1.5 py-1 text-xs text-slate-100 placeholder-slate-500 focus:outline-none max-h-52 overflow-y-auto leading-relaxed font-sans"
       />
 
-      {/* Docked Toolbar */}
       <div className="flex items-center justify-between pt-1 border-t border-[var(--bark-800,#1b2620)] px-0.5 select-none">
         <div className="flex items-center gap-1.5 relative">
-          {/* Persona Selector */}
           <div className="relative">
             <button
               type="button"
@@ -134,7 +122,6 @@ export function ChatComposer({
             )}
           </div>
 
-          {/* Persona Tuning Drawer Button */}
           <button
             type="button"
             onClick={onOpenPersonaDrawer}
@@ -145,7 +132,6 @@ export function ChatComposer({
             <span className="text-[11px] text-slate-400">({toolCount} tools)</span>
           </button>
 
-          {/* Model selector if models provided */}
           {models.length > 0 && onSelectModel && (
             <select
               value={selectedModel}
@@ -161,7 +147,6 @@ export function ChatComposer({
           )}
         </div>
 
-        {/* Right Controls: Keyboard hint & Send / Stop Button */}
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline text-[11px] text-slate-500 font-sans">
             ↵ send · shift+↵ newline

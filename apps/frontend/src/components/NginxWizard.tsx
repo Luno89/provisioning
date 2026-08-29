@@ -4,23 +4,10 @@ import { insertServerBlock } from '../lib/nginx-config';
 import type { Cluster } from '../types/cluster';
 import type { Deployment } from '../types/deployment';
 
-/**
- * The three-step wizard that appends a route to the nginx config.
- *
- * ── WHY IT OWNS ITS STEP AND FORM ──
- * `nginxWizardStep` and `nginxWizardData` were App's, and `NginxView` was handed
- * `setNginxWizardStep`/`setNginxWizardData` so its "Add Route" button could reset them — three raw
- * setters crossing two component boundaries for state only this markup reads.
- *
- * It appends to the editor buffer rather than writing the config itself, because the editor is what
- * the user reviews and saves. `onAppend` takes a function updater for that reason: the wizard adds
- * to whatever is currently in the buffer, including unsaved edits.
- */
 export interface NginxWizardProps {
   clusters: Cluster[];
   deployments: Deployment[];
   onClose: () => void;
-  /** Appends the generated server block to the editor buffer. */
   onAppend: (update: (current: string) => string) => void;
 }
 
@@ -143,11 +130,6 @@ server {
     }
 }`;
 
-            /**
-             * The splice lives in `lib/nginx-config.ts`: a `server` block appended AFTER the
-             * closing brace of `http` is a syntax error, and nginx then rejects the whole config
-             * rather than just the new route.
-             */
             const handleInjectAndClose = () => {
               onAppend((current) => insertServerBlock(current, generatedConfig));
               onClose();

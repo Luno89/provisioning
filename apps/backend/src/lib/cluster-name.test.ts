@@ -3,8 +3,6 @@ import { validateClusterName, suggestClusterName, CLUSTER_NAME_MAX_LENGTH } from
 
 describe('validateClusterName', () => {
   it('rejects the name that actually broke a provision, with a usable suggestion', () => {
-    // "VPS -test" reached CDKTF and failed with "Cannot create TerraformStack with id 'VPS -test'.
-    // It contains a whitespace character" — deep inside a subprocess, minutes in.
     const r = validateClusterName('VPS -test');
     expect(r.ok).toBe(false);
     expect(r.error).toContain('spaces');
@@ -18,8 +16,6 @@ describe('validateClusterName', () => {
   });
 
   it('rejects anything that is not a valid RFC 1123 label', () => {
-    // Each of these breaks a different downstream consumer: uppercase and underscores break
-    // Kubernetes object names, leading/trailing hyphens break DNS labels.
     for (const n of ['MyCluster', 'my_cluster', '-leading', 'trailing-', 'has.dots', 'emoji🎉']) {
       expect(validateClusterName(n).ok, n).toBe(false);
     }
@@ -35,7 +31,6 @@ describe('validateClusterName', () => {
   it('reserves the management cluster name', () => {
     const r = validateClusterName('provisioning-lunorica');
     expect(r.ok).toBe(false);
-    // No suggestion here — every sanitisation of it is still the reserved name.
     expect(r.suggestion).toBeUndefined();
   });
 

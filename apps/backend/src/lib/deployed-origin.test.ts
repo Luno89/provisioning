@@ -1,18 +1,5 @@
 import { describe, it, expect } from 'vitest';
 
-/**
- * Invariants for the three origin-derived values in index.ts's auth path.
- *
- * All three were hardcoded to a developer's laptop — OAuth redirect_uris to localhost:3001, nine
- * post-login redirects to localhost:5173, and `secure: false` on the session cookie. None of that
- * fails at build time or in dev; it fails the first time a real user signs in on the deployed host,
- * which is the worst possible moment to find out.
- *
- * The derivations are duplicated here rather than imported because they are `const`s inside
- * bootstrap(). Their behaviour is verified end-to-end against the real routes; what these tests
- * pin down is the intent, so a later "simplification" back to a literal is a failing test rather
- * than a silent regression.
- */
 const deriveAppUrl = (env: Record<string, string | undefined>) =>
   (env.APP_URL || env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, '');
 

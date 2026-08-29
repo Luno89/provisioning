@@ -45,7 +45,6 @@ export const CollapsibleHistoryList: React.FC<CollapsibleHistoryListProps> = ({
       data-testid="history-list-panel"
       className={`w-72 sm:w-80 h-full flex-none flex flex-col bg-[var(--bark-950,#060908)] border-r border-[var(--bark-800,#1b2620)] select-none font-sans text-slate-300 z-20 transition-all ${className}`}
     >
-      {/* Header Bar */}
       <div className="flex items-center justify-between px-3.5 py-3 border-b border-[var(--bark-800,#1b2620)] bg-[var(--bark-900,#0f1713)]">
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
           <History size={14} className="text-emerald-400" />
@@ -78,7 +77,6 @@ export const CollapsibleHistoryList: React.FC<CollapsibleHistoryListProps> = ({
         </div>
       </div>
 
-      {/* Search Input */}
       <div className="p-2 border-b border-[var(--bark-800,#1b2620)] bg-[var(--bark-900,#0f1713)]/40">
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -92,7 +90,6 @@ export const CollapsibleHistoryList: React.FC<CollapsibleHistoryListProps> = ({
         </div>
       </div>
 
-      {/* Conversation Scrollable List */}
       <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
         {filtered.length === 0 ? (
           <div className="text-center py-8 text-xs text-slate-500">
@@ -121,7 +118,6 @@ export const CollapsibleHistoryList: React.FC<CollapsibleHistoryListProps> = ({
                     : 'bg-[var(--bark-900,#0f1713)]/40 border-[var(--bark-800,#1b2620)] hover:border-slate-600 text-slate-300'
                 }`}
               >
-                {/* Top Row: Title + Delete */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="text-xs font-medium leading-snug truncate pr-1 text-slate-200">
                     {c.title || 'Untitled conversation'}
@@ -140,7 +136,6 @@ export const CollapsibleHistoryList: React.FC<CollapsibleHistoryListProps> = ({
                   </button>
                 </div>
 
-                {/* Bottom Row: Metadata & Badges */}
                 <div className="flex items-center justify-between mt-2 text-[11px] text-slate-400">
                   <div className="flex items-center gap-2 font-sans">
                     <span className="flex items-center gap-1">

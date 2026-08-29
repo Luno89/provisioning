@@ -1,19 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { checkEndpointUrl, isAllowedIp, isMeshAddress, normaliseBaseUrl } from './endpoint-url-safety.js';
 
-/**
- * These are security tests, not validation tests. A user-registered endpoint URL is a URL the
- * BACKEND will fetch, from the root node, which runs Headscale's admin API, Mongo, Temporal and
- * the Gitea registry on loopback. Every case below is a way to turn "chat with my model" into a
- * request against the platform's own control plane.
- */
-
 describe('loopback and the platform control plane', () => {
   it('refuses localhost in every spelling', () => {
     for (const url of [
       'http://localhost:8080/v1',
       'http://127.0.0.1:8080/v1',
-      'http://127.1/v1',            // still 127.0.0.0/8 — but not a dotted quad, so must not parse as one
+      'http://127.1/v1',
       'http://[::1]:8080/v1',
       'http://LOCALHOST:8080/v1',
     ]) {
@@ -22,10 +15,6 @@ describe('loopback and the platform control plane', () => {
   });
 
   it('refuses every IPv4 shorthand encoding of loopback', () => {
-    // The classic SSRF bypass set. These are refused because Node's WHATWG URL parser normalizes
-    // all of them to 127.0.0.1 before the range check runs — verified against the running Node,
-    // not assumed. Pinned here because the guard silently depends on that normalization: if it
-    // ever stopped, "0x7f000001" would sail through as a public hostname.
     for (const url of [
       'http://127.1/v1',
       'http://2130706433/v1',
@@ -39,12 +28,10 @@ describe('loopback and the platform control plane', () => {
   });
 
   it('refuses the Headscale admin API specifically', () => {
-    // The concrete attack: HEADSCALE_URL defaults to http://localhost:8080.
     expect(checkEndpointUrl('http://localhost:8080/api/v1/preauthkey').ok).toBe(false);
   });
 
   it('refuses cloud instance metadata', () => {
-    // Hands out instance credentials to anything asking from the host.
     expect(checkEndpointUrl('http://169.254.169.254/latest/meta-data/').ok).toBe(false);
   });
 
@@ -77,8 +64,6 @@ describe('the mesh range is allowed — it is the whole point', () => {
   it('recognises the boundaries of 100.64.0.0/10', () => {
     expect(isMeshAddress('100.64.0.0')).toBe(true);
     expect(isMeshAddress('100.127.255.255')).toBe(true);
-    // Just outside, both sides — these are public space and must not be mistaken for mesh, or the
-    // ownership check that follows would be skipped for a real internet host.
     expect(isMeshAddress('100.63.255.255')).toBe(false);
     expect(isMeshAddress('100.128.0.0')).toBe(false);
   });
@@ -104,7 +89,6 @@ describe('malformed and hostile input', () => {
   });
 
   it('refuses credentials embedded in the URL', () => {
-    // Also an exfiltration shape: the secret ends up in logs and error messages.
     expect(checkEndpointUrl('http://user:pass@api.example.com/v1').ok).toBe(false);
   });
 
@@ -116,29 +100,18 @@ describe('malformed and hostile input', () => {
   });
 
   it('does not let an octet over 255 parse as a dotted quad', () => {
-    // "999.1.1.1" is not IPv4; if it were treated as one the range checks would be meaningless.
     expect(isAllowedIp('999.1.1.1')).toBe(false);
     expect(isAllowedIp('1.2.3')).toBe(false);
     expect(isAllowedIp('1.2.3.4.5')).toBe(false);
   });
 
   it('refuses IPv6 wholesale, including v4-mapped loopback', () => {
-    // ::ffff:127.0.0.1 is loopback wearing a v6 hat and slips past naive v4-only checks.
     expect(isAllowedIp('::1')).toBe(false);
     expect(isAllowedIp('::ffff:127.0.0.1')).toBe(false);
     expect(isAllowedIp('fc00::1')).toBe(false);
   });
 });
 
-/**
- * ── THE FIELD SAYS "BASE URL" AND NOTHING ENFORCED IT ──
- *
- * Every call site in the codebase does `POST ${baseUrl}/chat/completions`, and the registration
- * form's placeholder shows `…/v1` — but nothing checked the shape. An OpenRouter endpoint was
- * stored as `https://openrouter.ai/api/v1/chat/completions`, so requests went to
- * `…/v1/chat/completions/chat/completions`. Verified against the live API: the correct path
- * answers 401, the doubled one 404. That endpoint could never have worked.
- */
 describe('normaliseBaseUrl', () => {
   it('strips a completions path the user pasted in full', () => {
     expect(normaliseBaseUrl('https://openrouter.ai/api/v1/chat/completions'))
@@ -167,7 +140,6 @@ describe('normaliseBaseUrl', () => {
   });
 
   it('leaves a bare origin alone rather than inventing a path', () => {
-    // Some engines serve the OpenAI API at the root; guessing /v1 would break them.
     expect(normaliseBaseUrl('http://100.64.0.7:11434')).toBe('http://100.64.0.7:11434');
   });
 

@@ -21,10 +21,8 @@ export default function Home({
   leaves: Leaf[];
   branches: { id: string; title: string; treeId?: string }[];
   trees: { id: string; name: string }[];
-  /** The project in view. Absent means everything you own. */
   tree?: { id: string; name: string; goal?: string; projectIds?: string[] } | undefined;
   lastSeen?: string | undefined;
-  /** Who did the work. An id tells nobody anything, so the rows carry the name. */
   personaNames?: Record<string, string>;
   onStart: (treeId: string, prompt: string) => void;
   onOpenLeaf: (leaf: Leaf) => void;
@@ -54,7 +52,6 @@ export default function Home({
   const [prompt, setPrompt] = useState('');
   const [pickedTree, setPickedTree] = useState(() => localStorage.getItem('grove-tree') ?? trees[0]?.id ?? '');
 
-  // Query projects for linked CI/CD telemetry
   const { data: allProjects = [] } = useQuery<any[]>({
     queryKey: ['projects'],
     queryFn: () => listProjects<any>(),
@@ -65,7 +62,6 @@ export default function Home({
     ? allProjects.find((p) => p.name === tree.name || tree.projectIds?.includes(p.id))
     : undefined;
 
-  // Scoped or not, every section below reads from the same pair.
   const scoped = tree ? scopeToTree(tree.id, branches, leaves) : { branches, leaves };
   const treeId = tree?.id ?? pickedTree;
 
@@ -118,7 +114,6 @@ export default function Home({
 
   return (
     <div className="max-w-4xl mx-auto py-6 space-y-6 overflow-y-auto h-full pr-2">
-      {/* ── Say something ── */}
       <section>
         <div className="flex items-center gap-2.5 mb-1">
           <KoalaSpot size={28} mood="happy" />
@@ -165,7 +160,6 @@ export default function Home({
         )}
       </section>
 
-      {/* ── Linked CI/CD & Deployment Pipeline Hub ── */}
       {tree && linkedProject && (
         <section className="rounded-lg border border-[var(--bark-800)] bg-[var(--bark-900)]/40 p-4 space-y-3 font-mono">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -199,7 +193,6 @@ export default function Home({
         </section>
       )}
 
-      {/* ── Where the project stands ── */}
       {tree && mine && mine.total > 0 && (
         <section className="rounded-lg border border-[var(--bark-800)] bg-[var(--bark-900)]/40 p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400">
@@ -225,7 +218,6 @@ export default function Home({
         </section>
       )}
 
-      {/* ── Owed ── */}
       {attention.length > 0 && (
         <section>
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
@@ -264,7 +256,6 @@ export default function Home({
         </section>
       )}
 
-      {/* ── Owed by finished runs ── */}
       {owed.length > 0 && (
         <section>
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
@@ -317,7 +308,6 @@ export default function Home({
         </section>
       )}
 
-      {/* ── Running Leaves ── */}
       <section>
         <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Running</h3>
         {live.length === 0 ? (
@@ -344,7 +334,6 @@ export default function Home({
         )}
       </section>
 
-      {/* ── While you were away ── */}
       {recent.length > 0 && (
         <section>
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
@@ -354,7 +343,6 @@ export default function Home({
         </section>
       )}
 
-      {/* ── The project's conversations ── */}
       {tree && scoped.branches.length > 0 && onOpenBranch && (
         <section>
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
@@ -378,7 +366,6 @@ export default function Home({
         </section>
       )}
 
-      {/* ── All the work, grouped rather than columned ── */}
       {tree && work.length > 0 && (
         <section>
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">The work</h3>
@@ -397,7 +384,6 @@ export default function Home({
         </section>
       )}
 
-      {/* ── Trees, only at the top level ── */}
       {!tree && (
         <section>
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">

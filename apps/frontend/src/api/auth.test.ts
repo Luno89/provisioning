@@ -1,11 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-/**
- * Mocked at the API module's own dependency (`api/client`), not at axios.
- *
- * `vi.mock('axios')` cannot reach the instance `api/client` builds with `axios.create()` — the
- * same reason every component test here mocks at a module boundary instead of URLs.
- */
 vi.mock('./client', () => ({
   api: {
     get: vi.fn(),
@@ -32,8 +26,6 @@ describe('getMe', () => {
   });
 
   it('resolves null — not a rejection — when nobody is signed in', async () => {
-    // A 401 here is the ordinary first-load state; the shell must render the login form,
-    // not an error. See the docblock in auth.ts.
     mocked.get.mockRejectedValue(new Error('401'));
 
     await expect(getMe()).resolves.toBeNull();

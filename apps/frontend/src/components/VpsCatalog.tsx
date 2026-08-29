@@ -7,30 +7,11 @@ import { errorMessage } from '../api/client';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info, ArrowUp, ArrowDown } from 'lucide-react';
 
-/**
- * Live VPS plan search across providers.
- *
- * Prices here come from each provider's own catalogue API at request time rather than a list
- * baked into the app — Hetzner alone changed prices three times in 2026 and nearly tripled its
- * dedicated-vCPU line, which is exactly how a hardcoded table becomes bad advice.
- */
-
-
 const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€' };
 
-/**
- * Mirrors offerHasGpu() on the backend. Providers publish different subsets — Vultr gives VRAM and
- * a brand but no card count, Linode gives a count but no VRAM — so keying off any single field
- * hides whole providers' GPU ranges.
- */
 const hasGpuOffer = (o: VpsOffer) => Boolean(o.gpuCount || o.gpuVramGb || o.gpuModel);
 
 interface VpsCatalogProps {
-  /**
-   * Opens the cluster wizard pre-filled with this plan. Only offered on `provisionable` rows —
-   * the platform can price far more providers than it can actually deploy to, and a Deploy button
-   * on a Linode row would be a promise it cannot keep.
-   */
   onDeploy?: (offer: { provider: string; planId: string; location?: string }) => void;
 }
 
@@ -44,7 +25,6 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
   const [cpuType, setCpuType] = useState('');
   const [provisionableOnly, setProvisionableOnly] = useState(false);
   const [hourlyOnly, setHourlyOnly] = useState(false);
-  // '' = both, 'false' = hide GPU plans, 'true' = only GPU plans.
   const [hasGpu, setHasGpu] = useState('');
   const [sort, setSort] = useState('pricePerGbRam');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -71,16 +51,9 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
   });
 
   const money = (n: number, c: string) => `${CURRENCY_SYMBOL[c] ?? ''}${n.toFixed(2)}`;
-  // Hourly rates run to fractions of a cent — Vultr's cheapest is $0.003/hr, which two decimals
-  // would render as "$0.00". Four decimals below a dollar, two above, so GPU plans stay readable.
   const hourly = (n: number, c: string) =>
     `${CURRENCY_SYMBOL[c] ?? ''}${n >= 1 ? n.toFixed(2) : n.toFixed(4)}`;
 
-  /**
-   * First click on a column uses whatever direction reads naturally for it — cheapest-first for
-   * prices, biggest-first for capacities — and clicking the active column flips it. Kept in sync
-   * with NATURAL_SORT_DIR on the backend, which applies the same defaults when none is sent.
-   */
   const NATURAL_DIR: Record<string, 'asc' | 'desc'> = {
     price: 'asc', priceHourly: 'asc', pricePerGbRam: 'asc', name: 'asc',
     ram: 'desc', vcpu: 'desc', disk: 'desc', bandwidth: 'desc', gpu: 'desc',
@@ -92,9 +65,6 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
     else { setSort(key); setSortDir(NATURAL_DIR[key] ?? 'asc'); }
   };
 
-  // Sorting is applied server-side on purpose. The query is limited to 60 rows, so re-ordering
-  // only what's already loaded would show the top 60 by the PREVIOUS sort, re-sorted — quietly
-  // the wrong answer.
   const sortableHeader = (key: string, label: string, align: 'left' | 'right' = 'right', pad = 'px-3') => {
     const active = sort === key;
     return (
@@ -203,7 +173,6 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
         </div>
       </div>
 
-      {/* Per-provider status — explains any provider that's missing rather than silently omitting it. */}
       {data?.sources && (
         <div className="flex flex-wrap gap-2 mb-5">
           {data.sources.map((s) => (
@@ -292,9 +261,6 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
                   {hasGpuOffer(o) ? (
                     <>
                       <div className="text-slate-300">
-                        {/* Leaf count is only shown when the provider actually publishes one.
-                            Vultr publishes VRAM and a brand but no count, so requiring a count
-                            here blanked out its entire GPU line. */}
                         {o.gpuVramGb ? `${o.gpuVramGb} GB` : o.gpuCount ? `${o.gpuCount}×` : '—'}
                         {o.gpuVramGb && o.gpuCount ? (
                           <span className="text-slate-500"> · {o.gpuCount}×</span>
@@ -325,8 +291,6 @@ export default function VpsCatalog({ onDeploy }: VpsCatalogProps) {
                       onClick={() => onDeploy({
                         provider: o.provider,
                         planId: o.planId,
-                        // The row's own location, not the plan's cheapest: this offer exists as a
-                        // separate row precisely because its price is specific to these locations.
                         ...(o.locations[0] ? { location: o.locations[0] } : {}),
                       })}
                       className="text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 transition-colors whitespace-nowrap"

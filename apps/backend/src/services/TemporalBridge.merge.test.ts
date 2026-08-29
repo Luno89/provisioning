@@ -5,14 +5,6 @@ import { PALWORLD_SCHEMA } from '../lib/palworld-settings.js';
 import { resolveAppSettings } from '../lib/app-settings-schema.js';
 import type { DeploymentMetadata } from '../lib/types.js';
 
-/**
- * The single highest-risk behaviour in the schema-driven-settings design.
- *
- * The Config tab PATCHes only the settings the user actually changed. updateConfigAndSync
- * previously deep-merged `storage` and nothing else, so a partial `appSettings` patch would
- * replace the whole ~120-key map — and the CDKTF re-apply that follows would then revert the
- * running server to defaults. These tests pin the merge so that cannot regress silently.
- */
 describe('TemporalBridge.updateConfigAndSync map merging', () => {
   let db: MemoryDB;
   let bridge: TemporalBridge;
@@ -35,8 +27,6 @@ describe('TemporalBridge.updateConfigAndSync map merging', () => {
     } as DeploymentMetadata);
 
     bridge = new TemporalBridge(db);
-    // syncConfig needs a live Temporal client; the merge happens before it, so stub it out and
-    // assert on what landed in the DB.
     vi.spyOn(bridge as any, 'syncConfig').mockResolvedValue({ id: 'wf', event: 'app-sync-config' });
   });
 
@@ -49,7 +39,6 @@ describe('TemporalBridge.updateConfigAndSync map merging', () => {
     const [saved] = await db.getDeployments();
     expect(Object.keys(saved!.appSettings!).length).toBe(before + 0);
     expect(saved!.appSettings!.DIFFICULTY).toBe('Hard');
-    // The other ~119 survive — including the user's earlier customisations.
     expect(saved!.appSettings!.EXP_RATE).toBe('2.0');
     expect(saved!.appSettings!.IS_PVP).toBe('true');
     expect(saved!.appSettings!.PAL_CAPTURE_RATE).toBe('1.000000');

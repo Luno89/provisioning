@@ -1,17 +1,3 @@
-/**
- * generate-rclone-config.ts — Bridges the Google Drive OAuth credentials connected in-app
- * (Account → Backup Destinations → CloudAccounts.tsx, via /api/credentials/googledrive/connect)
- * into a runtime-only rclone.conf, so scripts/backup-to-drive.sh doesn't require a manually-run
- * `rclone config`.
- *
- * Picks the first user with googledrive credentials stored — this platform is local-first /
- * single-operator by design (see CLAUDE.md), so "whoever connected Drive" is unambiguous.
- *
- * On success: prints the generated config's path to stdout and exits 0.
- * On failure (no user has connected Drive yet, missing GOOGLE_CLIENT_ID/SECRET, etc.): exits 1
- * with nothing on stdout — callers should fall back to rclone's own default config in that case
- * (a user who ran `rclone config` by hand, per the platform's original setup docs, still works).
- */
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
@@ -22,9 +8,6 @@ import dotenv from 'dotenv';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../../../../');
 
-// quiet: true — dotenv's startup banner goes to stdout by default, which would otherwise land
-// in the middle of the single-line path this script is meant to print on success (the caller,
-// scripts/backup-to-drive.sh, captures stdout directly to decide whether generation worked).
 dotenv.config({ path: path.join(ROOT, 'apps/backend/.env'), quiet: true });
 
 async function main() {
@@ -54,8 +37,6 @@ async function main() {
   const rclonePath = path.join(ROOT, 'bin/rclone');
   const rclone = existsSync(rclonePath) ? rclonePath : 'rclone';
 
-  // expiry left in the past forces rclone to refresh on first use rather than trusting a
-  // (nonexistent) access_token — only the refresh_token needs to actually be valid here.
   const token = JSON.stringify({
     access_token: '',
     token_type: 'Bearer',
@@ -87,8 +68,6 @@ async function main() {
         '',
       );
     } catch {
-      // No usable backup password — secrets upload will be skipped by the caller, everything
-      // else (Mongo, k3d-storage) still works off the [gdrive] remote alone.
     }
   }
 

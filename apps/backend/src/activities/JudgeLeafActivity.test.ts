@@ -1,10 +1,3 @@
-/**
- * The judge, with its collaborators faked at the module boundary — same approach and same reasons
- * as ExecuteLeafActivity.test.ts.
- *
- * What is being pinned here is mostly what the judge must NOT do. It is a convenience over the
- * deterministic layers, not a replacement for them, so every failure mode has to be inert.
- */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryDB } from '../lib/memory-db.js';
 import type { Leaf } from '../lib/leaves.js';
@@ -72,12 +65,6 @@ describe('what the judge writes', () => {
     expect((await review())?.dimensions?.[0]?.quote).toContain('TODO: wire the middleware');
   });
 
-  /**
-   * ── THE LINE THAT MUST NOT MOVE ──
-   * `verified` means a deterministic check ran and passed. Letting a model set it — or `status`, or
-   * `merged` — would destroy the claimed-versus-verified distinction the rest of this codebase is
-   * built on, which is the same reason `decideStatus` exists.
-   */
   it('never touches status, verified or merged', async () => {
     db = await seeded([leaf({ status: 'succeeded', verified: false })], { capturedAt: 'now', diff: DIFF });
     replied(JSON.stringify({ dimensions: [{ name: 'x', verdict: 'unsound', quote: '// TODO: wire the middleware in', why: 'y' }] }));
@@ -91,10 +78,6 @@ describe('what the judge writes', () => {
   });
 });
 
-/**
- * Scope is a SAFETY property here, not a policy: the judge is never shown a green suite, so it is
- * structurally incapable of overturning one.
- */
 describe('which leaves it will look at', () => {
   it('refuses a verified leaf without calling a model', async () => {
     db = await seeded([leaf({ verified: true })], { capturedAt: 'now', diff: DIFF });
@@ -115,7 +98,6 @@ describe('which leaves it will look at', () => {
 
 describe('when it cannot answer', () => {
   it('says so rather than forming an opinion on nothing', async () => {
-    // The failure this entire design exists around: harness-v2 scored work against a hardcoded diff.
     db = await seeded([leaf()]);
 
     const out = await JudgeLeafActivity({ leafId: 'leaf-1' });
@@ -132,7 +114,6 @@ describe('when it cannot answer', () => {
     const out = await JudgeLeafActivity({ leafId: 'leaf-1' });
 
     expect(out.verdict).toBe('unavailable');
-    // No verdict at all beats a wrong one — and silence must be distinguishable from approval.
     expect(await review()).toBeUndefined();
   });
 
@@ -143,10 +124,6 @@ describe('when it cannot answer', () => {
     expect((await JudgeLeafActivity({ leafId: 'leaf-1' })).verdict).toBe('unavailable');
   });
 
-  /**
-   * A fabricated quote is discarded before it can vote, so a judge that invents everything ends up
-   * with no opinion rather than a confident wrong one.
-   */
   it('reaches no verdict when every finding was fabricated', async () => {
     db = await seeded([leaf()], { capturedAt: 'now', diff: DIFF });
     replied(JSON.stringify({

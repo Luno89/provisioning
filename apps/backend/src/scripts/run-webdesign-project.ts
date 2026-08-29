@@ -1,18 +1,3 @@
-/**
- * Builds and runs a research project end to end: four Researchers and a Synthesist.
- *
- *   npx tsx apps/backend/src/scripts/run-webdesign-project.ts          # build and start
- *   npx tsx apps/backend/src/scripts/run-webdesign-project.ts --watch  # then follow it
- *   npx tsx apps/backend/src/scripts/run-webdesign-project.ts --status # report on the last one
- *
- * ── WHY THIS SHAPE ──
- * It reproduces the Self-Hosted LLM Web Design project that failed: four independent Researchers and
- * one Synthesist depending on all four. Four matters — the Synthesist's inputs are the SUM of its
- * dependencies' findings, so a two-Researcher run would exercise none of what broke.
- *
- * Driven through `acceptLeaf`, the same function `POST /api/leaves/:id/accept` calls, so this takes
- * the real path — gating, Temporal, workflow — without needing a session cookie.
- */
 import dotenv from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -76,22 +61,12 @@ async function main(): Promise<void> {
     if (!ownerId) return console.log('No owner found.');
 
     const byName = (n: string) => personas.find((p: any) => p.ownerId === ownerId && p.name === n);
-    // The base personas, not the hand-cloned "Researcher (search kept)" workaround — the point is to
-    // see whether the harness works now, not whether the workaround still does.
     const researcher = byName('Researcher');
     const synthesist = byName('Synthesist');
     if (!researcher || !synthesist) {
       return console.log(`Missing personas. Have: ${personas.filter((p: any) => p.ownerId === ownerId).map((p: any) => p.name).join(', ')}`);
     }
 
-    /**
-     * Retry whatever failed, the same way the UI's retry button does.
-     *
-     * Necessary because `dependenciesMet` requires every dependency to have SUCCEEDED, so a single
-     * failed Researcher blocks the Synthesist permanently — the state the original project ended in.
-     * Back to `proposed` and through `acceptLeaf`, so a retry cannot start work a dependency has not
-     * finished; that is the rule a hand-rolled restart would forget.
-     */
     if (process.argv.includes('--retry-failed')) {
       const trees = (await db.getTrees()).filter((t: any) => t.ownerId === ownerId && t.name === TREE_NAME);
       const tree = trees[trees.length - 1];
@@ -111,7 +86,6 @@ async function main(): Promise<void> {
       return;
     }
 
-    /** Print the deliverable itself — the thing the whole project exists to produce. */
     if (process.argv.includes('--playbook')) {
       const trees = (await db.getTrees()).filter((t: any) => t.ownerId === ownerId && t.name === TREE_NAME);
       const tree = trees[trees.length - 1];
@@ -128,7 +102,6 @@ async function main(): Promise<void> {
     }
 
     if (process.argv.includes('--status') || process.argv.includes('--watch')) {
-      // Awaited: `return promise` inside a try/finally closes the database before it settles.
       return await report(db, ownerId, process.argv.includes('--watch'));
     }
 
@@ -139,13 +112,6 @@ async function main(): Promise<void> {
       goal: 'A practical playbook for self-hosted LLM web design.',
       createdAt: now(), updatedAt: now(),
     } as never);
-    /**
-     * An acceptance plan, because the harness refuses to accept a leaf without one.
-     *
-     * `acceptLeaf` is explicit about why: per-leaf checks prove each piece works, only an acceptance
-     * plan proves the assembled whole does. Modelled on what the ORIGINAL web-design branch used —
-     * greps over the assembled report — so this run is held to the same bar it was.
-     */
     await db.saveBranch({
       id: branchId, ownerId, treeId, title: TREE_NAME, messages: [],
       acceptance: [
@@ -193,8 +159,6 @@ async function main(): Promise<void> {
         l,
         all,
       );
-      // The Synthesist is expected to be gated here — `dependenciesMet` requires every dependency to
-      // have SUCCEEDED, so it waits rather than starting. That is the mechanism working.
       if (result.ok) started++;
       console.log(`  ${result.ok ? 'accepted' : `HELD — ${result.error}`}\n     ${l.title.slice(0, 66)}`);
     }

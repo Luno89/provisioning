@@ -1,19 +1,5 @@
 import { api } from '../client'
 
-/**
- * The memory bank, and its review queue.
- *
- * ── NEVER PASS THESE BARE AS A `mutationFn` ──
- * react-query v5 calls `mutationFn(variables, context)` — a second argument carrying the
- * QueryClient. `approveMemory` and `promoteMemory` take an optional BODY second, so
- * `mutationFn: approveMemory` would send that context object as the request payload. Always wrap:
- * `mutationFn: (id: string) => approveMemory(id)`.
- *
- * `approve` and `promote` are separate verbs and not one `PATCH {status}`: approving accepts a
- * memory as written, promoting raises its scope so other runs can see it. Collapsing them would
- * make the wider blast radius invisible at the call site.
- */
-
 export const memoryKeys = {
   list: () => ['harness-memories'] as const,
   consolidation: () => ['harness-memories', 'consolidation'] as const,

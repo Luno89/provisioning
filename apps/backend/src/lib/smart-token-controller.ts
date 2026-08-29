@@ -1,17 +1,3 @@
-/**
- * Smart Token Controller — Dynamic Token Budgeting & Automatic Continuation.
- *
- * Replaces hardcoded token limits with an intelligent, adaptive mechanism:
- *   1. Dynamic Prompt Complexity Estimator:
- *      Evaluates turn length, code blocks, system instructions, and mode (casual chat vs /plan)
- *      to dynamically allocate max_tokens (2048 for small talk up to 16384 for deep planning)
- *      and sets reasoning_effort ('low', 'medium', 'high').
- *
- *   2. Automatic Continuation Pass (finish_reason === 'length'):
- *      Tracks finish_reason across SSE chunks. If a hard problem or deep reasoning pass runs out of
- *      completion tokens mid-thought (finish_reason: 'length'), the backend automatically triggers
- *      a continuation pass to stream the remaining response seamlessly without truncating.
- */
 
 export interface TokenStrategy {
   tier: 'casual' | 'standard' | 'complex';
@@ -19,9 +5,6 @@ export interface TokenStrategy {
   reasoningEffort: 'low' | 'medium' | 'high';
 }
 
-/**
- * Evaluates conversation history and turn characteristics to assign an adaptive token strategy.
- */
 export function estimatePromptComplexity(
   messages: Array<{ role: string; content?: string }>,
   mode?: string,
@@ -34,7 +17,6 @@ export function estimatePromptComplexity(
   const lastMessage = messages[messages.length - 1]?.content ?? '';
   const trimmed = lastMessage.trim().toLowerCase();
 
-  // Casual greetings / small talk (under 8 words, no code, common pleasantries)
   const isCasual =
     trimmed.length < 50 &&
     !trimmed.includes('```') &&
@@ -57,9 +39,6 @@ export function estimatePromptComplexity(
   return { tier: 'standard', maxTokens: 8192, reasoningEffort: 'medium' };
 }
 
-/**
- * Scans an SSE stream for choice finish_reason (e.g., 'stop', 'length', 'tool_calls').
- */
 export class FinishReasonScanner {
   private buffer = '';
   private finishReason: string | undefined;
@@ -80,7 +59,6 @@ export class FinishReasonScanner {
           this.finishReason = reason;
         }
       } catch {
-        // Partial or non-JSON frames are normal mid-stream.
       }
     }
   }

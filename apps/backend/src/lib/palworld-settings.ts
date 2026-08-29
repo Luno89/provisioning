@@ -1,13 +1,3 @@
-/**
- * Palworld dedicated-server settings schema.
- *
- * Source of truth for the env-var → PalWorldSettings.ini mapping is the container image's own
- * `scripts/compile-settings.sh` (thijsvanloef/palworld-server-docker). Everything here mirrors a
- * name that script reads; adding a setting is a single entry in this file, which then flows to
- * the pod env, the Config-tab UI (GET /api/app-schemas/palworld) and the validator automatically.
- *
- * Defaults match the game's own defaults unless noted.
- */
 import type { AppSetting, AppSettingsSchema } from './app-settings-schema.js';
 
 export const PALWORLD_CATEGORIES = [
@@ -24,13 +14,11 @@ export const PALWORLD_CATEGORIES = [
   'Advanced',
 ] as const;
 
-/** Ports and ids the construct owns — see `readonly` in app-settings-schema.ts for why. */
 export const PALWORLD_GAME_PORT = 8211;
 export const PALWORLD_QUERY_PORT = 27015;
 export const PALWORLD_REST_PORT = 8212;
 export const PALWORLD_RCON_PORT = 25575;
 
-/** Env vars sourced from the Kubernetes Secret, never from appSettings. */
 export const PALWORLD_SECRET_ENVS = ['ADMIN_PASSWORD', 'SERVER_PASSWORD', 'RCON_PASSWORD'] as const;
 
 const b = (
@@ -68,7 +56,6 @@ const e = (
 });
 
 const SETTINGS: AppSetting[] = [
-  // ── Server identity ──────────────────────────────────────────────────────
   s('SERVER_NAME', 'ServerName', 'Server Name', 'A Palworld Server', 'Server'),
   s('SERVER_DESCRIPTION', 'ServerDescription', 'Server Description', '', 'Server'),
   i('PLAYERS', 'ServerPlayerMaxNum', 'Max Players', '16', 'Server', 1, 32),
@@ -86,19 +73,16 @@ const SETTINGS: AppSetting[] = [
   b('IS_SHOW_JOIN_LEFT_MESSAGE', 'bIsShowJoinLeftMessage', 'Show Join/Leave Messages', 'true', 'Server'),
   b('ALLOW_CLIENT_MOD', 'AllowClientMod', 'Allow Client Mods', 'false', 'Server'),
 
-  // Secrets — rendered in the UI, but the values live in a Kubernetes Secret.
   { env: 'ADMIN_PASSWORD', key: 'AdminPassword', label: 'Admin Password', default: '', category: 'Server', type: 'string', secret: true, help: 'Auto-generated on first deploy. Retrieve or rotate it from the credentials endpoint.' },
   { env: 'SERVER_PASSWORD', key: 'ServerPassword', label: 'Server Password', default: '', category: 'Server', type: 'string', secret: true, help: 'Leave unset for an open server. Required to be empty for community-browser listing.' },
   { env: 'RCON_PASSWORD', key: 'RCONPassword', label: 'RCON Password', default: '', category: 'Server', type: 'string', secret: true },
 
-  // Platform-owned — shown greyed out so the ports are discoverable, but not editable.
   { env: 'PORT', key: 'PublicPort', label: 'Game Port (UDP)', default: String(PALWORLD_GAME_PORT), category: 'Server', type: 'int', readonly: true, help: 'Fixed by the platform: the hostPort, Service and cloud firewall rule are all derived from it.' },
   { env: 'RCON_PORT', key: 'RCONPort', label: 'RCON Port (TCP)', default: String(PALWORLD_RCON_PORT), category: 'Server', type: 'int', readonly: true },
   { env: 'REST_API_PORT', key: 'RESTAPIPort', label: 'REST API Port (TCP)', default: String(PALWORLD_REST_PORT), category: 'Server', type: 'int', readonly: true, help: 'Also the health-probe target.' },
   { env: 'PUID', key: '-', label: 'Container UID', default: '1000', category: 'Operational', type: 'int', readonly: true },
   { env: 'PGID', key: '-', label: 'Container GID', default: '1000', category: 'Operational', type: 'int', readonly: true },
 
-  // ── Operational (container behaviour, not PalWorldSettings.ini) ──────────
   s('TZ', '-', 'Timezone', 'UTC', 'Operational'),
   b('UPDATE_ON_BOOT', '-', 'Update Game On Boot', 'true', 'Operational',
     'Runs SteamCMD before starting. Adds minutes to a restart — and every settings save restarts the server.'),
@@ -112,13 +96,11 @@ const SETTINGS: AppSetting[] = [
   b('MULTITHREADING', '-', 'Multithreading', 'true', 'Operational'),
   i('AUTO_SAVE_SPAN', 'AutoSaveSpan', 'Autosave Interval (s)', '30', 'Operational', 1),
 
-  // ── Backup ───────────────────────────────────────────────────────────────
   b('BACKUP_ENABLED', '-', 'Enable Backups', 'true', 'Backup'),
   s('BACKUP_CRON_EXPRESSION', '-', 'Backup Schedule (cron)', '0 0 * * *', 'Backup'),
   i('DELETE_OLD_BACKUPS_DAYS', '-', 'Delete Backups Older Than (days)', '0', 'Backup', 0, undefined, '0 keeps them forever.'),
   b('USE_BACKUP_SAVE_DATA', 'bUseBackupSaveData', 'Use Backup Save Data', 'true', 'Backup'),
 
-  // ── Gameplay ─────────────────────────────────────────────────────────────
   e('DIFFICULTY', 'Difficulty', 'Difficulty', 'None', 'Gameplay', ['None', 'Casual', 'Normal', 'Hard']),
   b('IS_MULTIPLAY', 'bIsMultiplay', 'Multiplayer', 'false', 'Gameplay'),
   b('HARDCORE', 'bHardcore', 'Hardcore', 'false', 'Gameplay'),
@@ -143,7 +125,6 @@ const SETTINGS: AppSetting[] = [
   s('RANDOMIZER_SEED', 'RandomizerSeed', 'Randomizer Seed', '', 'Gameplay'),
   b('IS_RANDOMIZER_PAL_LEVEL_RANDOM', 'bIsRandomizerPalLevelRandom', 'Randomize Pal Levels', 'false', 'Gameplay'),
 
-  // ── Rates ────────────────────────────────────────────────────────────────
   f('DAYTIME_SPEEDRATE', 'DayTimeSpeedRate', 'Day Speed', '1.000000', 'Rates', 0.1, 5),
   f('NIGHTTIME_SPEEDRATE', 'NightTimeSpeedRate', 'Night Speed', '1.000000', 'Rates', 0.1, 5),
   f('EXP_RATE', 'ExpRate', 'EXP Rate', '1.000000', 'Rates', 0.1, 20),
@@ -160,7 +141,6 @@ const SETTINGS: AppSetting[] = [
   f('ITEM_CORRUPTION_MULTIPLIER', 'ItemCorruptionMultiplier', 'Item Corruption Multiplier', '1.000000', 'Rates', 0, 5),
   f('MONSTER_FARM_ACTION_SPEED_RATE', 'MonsterFarmActionSpeedRate', 'Ranch Action Speed', '1.000000', 'Rates', 0.1, 5),
 
-  // ── Combat ───────────────────────────────────────────────────────────────
   f('PLAYER_DAMAGE_RATE_ATTACK', 'PlayerDamageRateAttack', 'Player Damage Dealt', '1.000000', 'Combat', 0.1, 5),
   f('PLAYER_DAMAGE_RATE_DEFENSE', 'PlayerDamageRateDefense', 'Player Damage Taken', '1.000000', 'Combat', 0.1, 5),
   f('PLAYER_STOMACH_DECREASE_RATE', 'PlayerStomachDecreaseRate', 'Player Hunger Rate', '1.000000', 'Combat', 0, 5),
@@ -173,7 +153,6 @@ const SETTINGS: AppSetting[] = [
   f('RESPAWN_PENALTY_DURATION_THRESHOLD', 'RespawnPenaltyDurationThreshold', 'Respawn Penalty Threshold', '0.000000', 'Combat', 0),
   f('RESPAWN_PENALTY_TIME_SCALE', 'RespawnPenaltyTimeScale', 'Respawn Penalty Time Scale', '1.000000', 'Combat', 0),
 
-  // ── Pals ─────────────────────────────────────────────────────────────────
   f('PAL_DAMAGE_RATE_ATTACK', 'PalDamageRateAttack', 'Pal Damage Dealt', '1.000000', 'Pals', 0.1, 5),
   f('PAL_DAMAGE_RATE_DEFENSE', 'PalDamageRateDefense', 'Pal Damage Taken', '1.000000', 'Pals', 0.1, 5),
   f('PAL_STOMACH_DECREASE_RATE', 'PalStomachDecreaseRate', 'Pal Hunger Rate', '1.000000', 'Pals', 0, 5),
@@ -188,7 +167,6 @@ const SETTINGS: AppSetting[] = [
   b('ALLOW_ENHANCE_STAT_WEIGHT', 'AllowEnhanceStatWeight', 'Allow Weight Enhancement', 'true', 'Pals'),
   b('ALLOW_ENHANCE_STAT_WORK_SPEED', 'AllowEnhanceStatWorkSpeed', 'Allow Work Speed Enhancement', 'true', 'Pals'),
 
-  // ── Building ─────────────────────────────────────────────────────────────
   f('BUILD_OBJECT_HP_RATE', 'BuildObjectHpRate', 'Structure HP', '1.000000', 'Building', 0.5, 3),
   f('BUILD_OBJECT_DAMAGE_RATE', 'BuildObjectDamageRate', 'Structure Damage', '1.000000', 'Building', 0.5, 3),
   f('BUILD_OBJECT_DETERIORATION_DAMAGE_RATE', 'BuildObjectDeteriorationDamageRate', 'Structure Deterioration', '1.000000', 'Building', 0, 3),
@@ -203,7 +181,6 @@ const SETTINGS: AppSetting[] = [
   b('ENABLE_BUILDING_PLAYER_UID_DISPLAY', 'bEnableBuildingPlayerUIdDisplay', 'Show Builder UID', 'false', 'Building'),
   i('BUILDING_NAME_DISPLAY_CACHE_TTL_SECONDS', 'BuildingNameDisplayCacheTTLSeconds', 'Builder Name Cache TTL (s)', '60', 'Building', 0),
 
-  // ── Guild ────────────────────────────────────────────────────────────────
   i('GUILD_PLAYER_MAX_NUM', 'GuildPlayerMaxNum', 'Max Guild Members', '20', 'Guild', 1),
   i('BASE_CAMP_MAX_NUM_IN_GUILD', 'BaseCampMaxNumInGuild', 'Max Base Camps Per Guild', '4', 'Guild', 1),
   b('AUTO_RESET_GUILD_NO_ONLINE_PLAYERS', 'bAutoResetGuildNoOnlinePlayers', 'Auto-Reset Inactive Guilds', 'false', 'Guild'),
@@ -215,7 +192,6 @@ const SETTINGS: AppSetting[] = [
   i('AUTO_TRANSFER_MASTER_CHECK_INTERVAL_SECONDS', 'AutoTransferMasterCheckIntervalSeconds', 'Guild Master Transfer Check (s)', '3600', 'Guild', 0),
   i('AUTO_TRANSFER_MASTER_THRESHOLD_DAYS', 'AutoTransferMasterThresholdDays', 'Guild Master Transfer After (days)', '7', 'Guild', 0),
 
-  // ── PvP ──────────────────────────────────────────────────────────────────
   b('IS_PVP', 'bIsPvP', 'Enable PvP', 'false', 'PvP'),
   i('COOP_PLAYER_MAX_NUM', 'CoopPlayerMaxNum', 'Max Co-op Players', '4', 'PvP', 1),
   b('DISPLAY_PVP_ITEM_NUM_ON_WORLD_MAP_BASE_CAMP', 'bDisplayPvPItemNumOnWorldMapBaseCamp', 'Show PvP Items (Base Camp)', 'false', 'PvP'),
@@ -224,7 +200,6 @@ const SETTINGS: AppSetting[] = [
   s('ADDITIONAL_DROP_ITEM_WHEN_PLAYER_KILLING_IN_PVP_MODE', 'AdditionalDropItemWhenPlayerKillingInPvPMode', 'Extra PvP Drop Item', '', 'PvP'),
   i('ADDITIONAL_DROP_ITEM_NUM_WHEN_PLAYER_KILLING_IN_PVP_MODE', 'AdditionalDropItemNumWhenPlayerKillingInPvPMode', 'Extra PvP Drop Count', '0', 'PvP', 0),
 
-  // ── Advanced / performance ───────────────────────────────────────────────
   f('SERVER_REPLICATE_PAWN_CULL_DISTANCE', 'ServerReplicatePawnCullDistance', 'Pawn Cull Distance', '15000.000000', 'Advanced', 5000, 30000,
     'Lowering this reduces CPU load on busy servers at the cost of draw distance for other players/pals.'),
   i('ITEM_CONTAINER_FORCE_MARK_DIRTY_INTERVAL', 'ItemContainerForceMarkDirtyInterval', 'Container Dirty Interval (s)', '1', 'Advanced', 0),

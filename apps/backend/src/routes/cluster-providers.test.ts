@@ -3,12 +3,6 @@ import { clusterProvidersRouter } from './cluster-providers.js';
 import { mountRouter, type Harness } from './test-harness.js';
 import { BUILT_IN_PROVIDERS } from '../lib/cluster-providers.js';
 
-/**
- * HTTP-level tests over a bare app with the REAL MemoryDB (`createDatabase()` returns it under
- * NODE_ENV=test) — a hand-written stub would drift from Mongo, and that divergence has already
- * cost one outage. See routes/test-harness.ts.
- */
-
 const harness: Harness = await mountRouter({
   prefix: '/api/cluster-providers',
   router: (db) => clusterProvidersRouter({ db }),
@@ -26,7 +20,6 @@ describe('GET /api/cluster-providers', () => {
   });
 
   it('serves seeded providers after they are stored', async () => {
-    // Seed via the same db the router reads, exactly as bootstrap's seeding step does.
     for (const p of BUILT_IN_PROVIDERS) {
       await harness.db.saveClusterProvider(p);
     }

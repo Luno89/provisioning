@@ -19,8 +19,6 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 const mockExec = vi.fn((cmd: string, cb: Function) => cb(null, { stdout: '', stderr: '' }));
-// Retained only so the child_process mock stays shaped like the real module — nothing in
-// AppExposureService spawns a process any more now that localtunnel is gone.
 const mockSpawnStdoutOn = vi.fn();
 const mockSpawnStderrOn = vi.fn();
 const mockSpawnOn = vi.fn();
@@ -63,10 +61,6 @@ beforeAll(async () => {
 function createService() {
   const db = { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment };
   const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
-  // getByIdUnscoped is what AppExposureService actually calls — it needs the cluster's connection
-  // details for a deployment the route already authorized, so it must not be ownership-filtered
-  // (getById(id, userId) returns undefined for any owned cluster when called without a userId).
-  // Both are stubbed to the same fn so the existing assertions on mockGetById still apply.
   const clusters = {
     getById: mockGetById,
     getByIdUnscoped: mockGetById,
@@ -79,10 +73,6 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// buildUpstreamTarget now resolves Traefik's own Service (a single object, not a `.items` list
-// — `kubectl get svc traefik -n traefik -o json` targets one named Service directly) as the
-// actual backend target, after first confirming the app's own Service exists. Tests queue this
-// as the second mockRunKubectl response via mockResolvedValueOnce, matching real call order.
 const traefikSvcJson = JSON.stringify({ spec: { type: 'NodePort', ports: [{ name: 'web', port: 80, nodePort: 32080 }] } });
 
 describe('sanitize', () => {
@@ -103,7 +93,6 @@ describe('buildConfContent', () => {
     expect(content).toContain('server {');
     expect(content).toContain('server_name my-app ~^my-app\\..*$;');
     expect(content).toContain('set $upstream "172.17.0.1:31301";');
-    // Fixed Host header, not $host — Traefik dispatches to the right app purely by this.
     expect(content).toContain('proxy_set_header Host my-app.apps.local;');
   });
   it('handles namespaces with hyphens', () => {
@@ -118,8 +107,6 @@ describe('syncExposedApps', () => {
   const svcJson = JSON.stringify({ items: [{ metadata: { name: 'm-web' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] });
 
   it('writes conf.d and removes stale configs', async () => {
-    // mockDep is public-only, and public exposure is now served by the root node — with no
-    // INGRESS_DOMAIN there is genuinely nothing to write, so the sync correctly does nothing.
     process.env.INGRESS_DOMAIN = 'nowrinkles.dev';
     mockGetDeployments.mockResolvedValue([mockDep]);
     mockGetById.mockResolvedValue(mockCluster);
@@ -193,9 +180,6 @@ describe('buildUpstreamTarget', () => {
     mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
     const r = await (createService() as any).buildUpstreamTarget(dep, cluster);
-    // Backend target is now always Traefik's own resolved address (see AppExposureService.ts) —
-    // not the app's own nodePort — every app in a cluster shares this one upstream, dispatched
-    // by Host header (appHostname) instead.
     expect(r).toEqual({ namespace: 'myapp', backendTarget: '10.0.0.5:32080', appHostname: 'myapp.apps.local' });
   });
 
@@ -217,9 +201,6 @@ describe('buildUpstreamTarget', () => {
   });
 
   it('throws when Traefik has no NodePort assigned', async () => {
-    // The app's own Service no longer matters for the actual target (only whether a real,
-    // non-DB Service exists at all) — this now exercises Traefik's own Service lacking a
-    // nodePort, which is the only nodePort this method still cares about.
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl
       .mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }))
@@ -244,10 +225,6 @@ describe('unexposePublic / unexposeLocal', () => {
     expect(result.isExposed).toBe(false);
   });
 
-  // The two modes used to share one nginx conf, because localtunnel pointed AT that nginx — so
-  // dropping public exposure meant rewriting the file to strip the tunnel host out. They are now
-  // independent: local is the host nginx, public is a Caddy site on the root node. Unexposing one
-  // removes only its own file and cannot disturb the other.
   it('unexposePublic removes only the Caddy site, leaving local exposure alone', async () => {
     mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const, isExposed: true, isExposedPublicly: true, publicExposureUrl: 'https://myapp-d1.nowrinkles.dev', isExposedLocally: true, localExposureUrl: 'http://myapp.localhost:8000' }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
@@ -258,8 +235,8 @@ describe('unexposePublic / unexposeLocal', () => {
 
     const result = await createService().unexposePublic('d1');
 
-    expect(mockUnlink).toHaveBeenCalledOnce();       // the Caddy site
-    expect(mockWriteFile).not.toHaveBeenCalled();    // nginx untouched
+    expect(mockUnlink).toHaveBeenCalledOnce();
+    expect(mockWriteFile).not.toHaveBeenCalled();
     expect(result.isExposed).toBe(true);
     expect(result.isExposedLocally).toBe(true);
     expect(result.exposureUrl).toBe('http://myapp.localhost:8000');
@@ -293,7 +270,6 @@ describe('exposePublic / exposeLocal', () => {
 
     expect(mockWriteFile).toHaveBeenCalledOnce();
     expect(result.isExposedPublicly).toBe(true);
-    // Was https://myapp.loca.lt — a rate-limited tunnel that did not reliably grant the subdomain.
     expect(result.exposureUrl).toMatch(/^https:\/\/myapp-[a-z0-9]+\.nowrinkles\.dev$/);
     delete process.env.INGRESS_DOMAIN;
   });
@@ -302,7 +278,6 @@ describe('exposePublic / exposeLocal', () => {
     mockGetDeployments.mockResolvedValue([{ id: 'd1', name: 'MyApp', clusterId: 'c1', strategy: 'native' as const, status: 'running' as const }]);
     mockGetById.mockResolvedValue({ id: 'c1', name: 'Tc', provider: 'k3d' as const, status: 'healthy' as const });
     delete process.env.INGRESS_DOMAIN;
-    // Better than the old behaviour of quietly producing a *.loca.lt URL that may not work.
     await expect(createService().exposePublic('d1')).rejects.toThrow(/INGRESS_DOMAIN/);
   });
 
@@ -331,11 +306,6 @@ describe('exposePublic / exposeLocal', () => {
 });
 
 describe('buildUpstreamTarget on mesh clusters', () => {
-  // The regression this branch exists for: constructs/traefik.ts gives self-managed clusters a
-  // NodePort Service, but hetzner/remote used to fall through to the LoadBalancer branch, which
-  // waits on status.loadBalancer.ingress — a field only a cloud controller ever populates. Every
-  // attempt to expose an app on a Hetzner cluster failed with "Cloud LoadBalancer for Traefik's
-  // Service is still provisioning", on a cluster that has no load balancer and never will.
   const appSvcJson = JSON.stringify({ items: [{ metadata: { name: 'web' }, spec: { ports: [{ port: 80 }] } }] });
 
   const target = async (cluster: any) => {
@@ -347,25 +317,18 @@ describe('buildUpstreamTarget on mesh clusters', () => {
   it('routes to the mesh IP and Traefik nodePort', async () => {
     const r = await target({ name: 'hz', provider: 'hetzner', meshIp: '100.64.0.5' });
     expect(r.backendTarget).toBe('100.64.0.5:32080');
-    // The Host rewrite is what makes Traefik pick the right app — unchanged by this branch.
     expect(r.appHostname).toBe('my-app.apps.local');
   });
 
   it('works the same for a bring-your-own machine', async () => {
-    // A remote cluster is behind someone's NAT; the mesh address is the only way in at all.
     const r = await target({ name: 'gpu-box', provider: 'remote', meshIp: '100.64.0.9' });
     expect(r.backendTarget).toBe('100.64.0.9:32080');
   });
 
   it('blames the missing mesh address, not a load balancer, for a self-managed cluster', async () => {
-    // The old message sent you looking for a cloud load balancer that was never coming.
     await expect(target({ name: 'hz', provider: 'hetzner' })).rejects.toThrow(/no mesh address/);
   });
 
-  // Deliberately no real-cloud case here: a provider like 'aws' with no stored credentials is
-  // mock-cloud (isMockCloudProvider), so it takes the k3d branch above and never reaches the
-  // LoadBalancer one. Exercising that path needs the credential resolver stubbed, and it is
-  // behaviour this change did not touch.
 });
 
 describe('public hostname allocation', () => {
@@ -379,8 +342,6 @@ describe('public hostname allocation', () => {
   });
 
   it('distinguishes two tenants who both called their app the same thing', () => {
-    // Without the id suffix the second deployment silently takes over the first's hostname —
-    // which, on a shared host, means one tenant's traffic landing on another tenant's cluster.
     const alice = svc().hostnameFor({ id: 'aaaaaaaa-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
     const bob = svc().hostnameFor({ id: 'bbbbbbbb-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
     expect(alice).not.toBe(bob);
@@ -395,8 +356,6 @@ describe('public hostname allocation', () => {
 
 describe('buildCaddyContent', () => {
   it('rewrites Host to the app ingress hostname, not the public one', () => {
-    // Traefik dispatches purely on Host. Forwarding the browser's Host (the public name) matches
-    // no Ingress in the cluster and every request 404s — the same trap the nginx path documents.
     const c = (createService() as any).buildCaddyContent('blog-abc123.nowrinkles.dev', '100.64.0.5:32080', 'blog.apps.local');
     expect(c).toContain('blog-abc123.nowrinkles.dev {');
     expect(c).toContain('reverse_proxy 100.64.0.5:32080');

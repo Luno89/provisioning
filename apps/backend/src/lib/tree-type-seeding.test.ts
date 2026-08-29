@@ -3,14 +3,6 @@ import { MemoryDB } from './memory-db.js';
 import { seedTreeTypes } from './tree-types.js';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 
-/**
- * ── SEEDING FOLLOWS `ensurePersonas`, INCLUDING WHY ──
- *
- * Adds only. A type edited in the Lab must survive the next boot, or "editable" is a lie — the same
- * rule `ensureKoala` states and the reason it gives: "a migration that overwrites a deliberate
- * setting is worse than one that never ran."
- */
-
 describe('seeding an owner\'s tree types', () => {
   const owned = async (db: MemoryDB, ownerId = 'u1') => (await db.getTreeTypes(ownerId));
 
@@ -24,7 +16,6 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it('does not duplicate on a second run', async () => {
-    // Boots happen. This runs on every one of them.
     const db = new MemoryDB();
     await db.init();
 
@@ -35,10 +26,6 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it('never overwrites an edit', async () => {
-    /**
-     * The property that makes these records rather than constants. Someone renames a type or
-     * changes its image in the Lab; the next boot must leave that alone.
-     */
     const db = new MemoryDB();
     await db.init();
     await seedTreeTypes(db, 'u1');
@@ -54,7 +41,6 @@ describe('seeding an owner\'s tree types', () => {
   });
 
   it('adds a type shipped later without touching the rest', async () => {
-    // The reason it is add-only rather than skip-if-any-exist: a new seed must still arrive.
     const db = new MemoryDB();
     await db.init();
     await seedTreeTypes(db, 'u1');
@@ -81,7 +67,6 @@ describe('seeding an owner\'s tree types', () => {
     const db = new MemoryDB();
     await db.init();
 
-    // Legacy record without validationRecipe or files
     await db.saveTreeType({
       id: 'api-service',
       ownerId: 'u1',
@@ -94,8 +79,8 @@ describe('seeding an owner\'s tree types', () => {
     await seedTreeTypes(db, 'u1');
 
     const updated = (await owned(db)).find((t) => t.id === 'api-service')!;
-    expect(updated.label).toBe('Custom Service Name'); // User customization preserved
-    expect(updated.validationRecipe).toBeDefined(); // Validation recipe backfilled!
+    expect(updated.label).toBe('Custom Service Name');
+    expect(updated.validationRecipe).toBeDefined();
     expect(updated.validationRecipe?.checks.length).toBeGreaterThan(0);
     expect(updated.files?.length).toBeGreaterThan(0);
   });

@@ -1,25 +1,10 @@
-/* ═══════════════ The single unified chat-stream wire ═══════════════ */
 
-/**
- * One wire contract for every chat conversation, replacing the two previous envelopes:
- *   /api/chat       forwarded the provider's raw OpenAI frames verbatim
- *   /api/koala/chat re-encoded into its own {delta}/{reasoning}/{toolCall}/{toolResult}
- *
- * This is the merge. Every frame is a typed `{ type, payload }`. The provider's delta rides
- * inside a `content` frame INTACT (nothing re-encoded and lost), and the server interleaves
- * semantic frames the raw wire never had — tool lifecycle, proposals, enabled, plan, usage.
- *
- * A persona pack's `delivery` spec (lib/persona-pack.ts) declares which frame types the UI
- * surface renders. The ENGINE emits them all; the SURFACE hides what a persona does not want,
- * so nothing is ever dropped at the source.
- */
 import type { ToolCall } from './leaf-tools.js';
 
-/** The raw provider delta, forwarded intact inside the content frame. */
 export interface ContentDelta {
   content?: string;
   reasoning_content?: string;
-  [key: string]: unknown; // unknown provider fields survive, not dropped
+  [key: string]: unknown;
 }
 
 export type UnifiedFrame =
@@ -36,7 +21,6 @@ export type UnifiedFrame =
   | { type: 'usage'; payload: unknown }
   | { type: 'interrupted'; payload: unknown };
 
-/** All the frame types, so a persona-pack's delivery can be validated against them. */
 export const UNIFIED_FRAME_TYPES = [
   'content', 'thinking', 'toolAnnounce', 'toolResult',
   'proposedTree', 'proposedSpec', 'proposedEscalation', 'proposedSecretRequest', 'enabled', 'plan', 'usage', 'interrupted',
@@ -51,10 +35,6 @@ export function isUnifiedFrame(v: unknown): v is UnifiedFrame {
   );
 }
 
-/**
- * A frame the engine emits, which the surface then filters by the pack's delivery flags.
- * Tool results arrive from the round-loop as ToolExecResult-ish; converted here.
- */
 export function toolResultFrame(
   id: string,
   name: string,
@@ -64,7 +44,6 @@ export function toolResultFrame(
   return { type: 'toolResult', payload: { id, ok, digest } };
 }
 
-/** The complete set a handler may produce in one turn. */
 export interface TurnFrames {
   content: ContentDelta[];
   thinking: string[];

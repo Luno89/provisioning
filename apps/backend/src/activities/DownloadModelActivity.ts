@@ -1,21 +1,3 @@
-/**
- * DownloadModelActivity — pre-populates the shared model cache on the host BEFORE the app's K8s
- * Deployment is created, instead of leaving the download to the pod's own startup script.
- *
- * Only wired up for clusters where this process shares a filesystem with the K8s node — see
- * TemporalBridge.deploy()'s `modelCacheHostPath` resolution and AppDeployWorkflow.ts. Currently
- * that's just the native-k3s system/management cluster (TabbyAPI is GPU-only, and k3d's nested
- * containerd can't do real GPU passthrough, so TabbyAPI never actually runs anywhere else). A
- * remote cloud cluster's nodes aren't reachable from here at all, so this step is skipped for
- * those and the pod's own in-container download logic (still present, unchanged) is the fallback.
- *
- * Downloads directly via HTTP (see lib/huggingface.ts) rather than shelling out to TabbyAPI's own
- * `main.py download` — that CLI catches every failure internally and always exits 0 (confirmed
- * live: it silently marked a cache directory "complete" that was never actually written, and the
- * server crashed on next boot looking for a config.json that didn't exist). A real thrown
- * exception here gets genuine Temporal retries and shows up as an actual failed activity instead
- * of a mysteriously empty model directory two layers away.
- */
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
@@ -35,8 +17,6 @@ export interface DownloadModelResult {
   modelDir: string;
 }
 
-// Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
-// VALUE from an activity file, only `import type`).
 export { downloadModelActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function DownloadModelActivity(args: DownloadModelArgs): Promise<DownloadModelResult> {
@@ -45,8 +25,6 @@ export async function DownloadModelActivity(args: DownloadModelArgs): Promise<Do
   const completeMarker = `${modelDir}.complete`;
   const configPath = path.join(modelDir, 'config.json');
 
-  // Same idempotency contract as the pod's own fallback script: a marker alone isn't proof of a
-  // real download, config.json actually being present is.
   if (fs.existsSync(completeMarker) && fs.existsSync(configPath)) {
     return { skipped: true, totalBytes: 0, modelDir };
   }

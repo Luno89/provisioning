@@ -9,15 +9,9 @@ const leaf = (over: Partial<Leaf>): Leaf => ({
 
 describe('which leaf is worth replanning after', () => {
   it('is the end of a chain, not a link in one', () => {
-    /**
-     * Finishing a leaf something waits on already has a next step: releasing the dependent. Only a
-     * leaf with nothing behind it represents work whose continuation nobody has decided.
-     */
     const first = leaf({ id: 'a' });
     const second = leaf({ id: 'b', dependsOn: ['a'] });
-    // `first` finished, but `second` is waiting on it — releasing that IS the next step.
     expect(isFrontier(first, [first, second])).toBe(false);
-    // `second` finished and nothing waits on it, so what happens next is nobody's decision yet.
     expect(isFrontier(second, [first, second])).toBe(true);
   });
 
@@ -27,8 +21,6 @@ describe('which leaf is worth replanning after', () => {
   });
 
   it('counts a failed leaf', () => {
-    // A failure is exactly the kind of thing that changes a plan. Skipping it would show the
-    // planner only the runs that went well, which is the wrong half.
     const failed = leaf({ status: 'failed' });
     expect(isFrontier(failed, [failed])).toBe(true);
   });
@@ -42,7 +34,6 @@ describe('whether to spend a planning turn', () => {
   });
 
   it('waits while unrelated work on the branch is still running', () => {
-    // Deciding against half a picture only means deciding again.
     const other = leaf({ id: 'b', status: 'running' });
     const v = shouldReplan(solo, [solo, other], undefined, 0);
     expect(v.replan).toBe(false);
@@ -50,7 +41,6 @@ describe('whether to spend a planning turn', () => {
   });
 
   it('does not wait for work that depends on this leaf', () => {
-    // That leaf is about to be released BY this one finishing; it is not unrelated.
     const dependent = leaf({ id: 'b', status: 'pending', dependsOn: ['a'] });
     expect(shouldReplan(solo, [solo, dependent], undefined, 0).replan).toBe(false);
   });
@@ -90,8 +80,6 @@ describe('what the planner is shown', () => {
   });
 
   it('trims an answer that would otherwise dominate the prompt', () => {
-    // Findings are capped at 20,000 characters on the record. All of it in a planning prompt would
-    // crowd out the thing being decided.
     const outcomes = summariseOutcomes([leaf({ findings: 'x'.repeat(9000) })], 'b1', named);
     expect(outcomes[0]!.findings!.length).toBe(MAX_OUTCOME_CHARS);
   });
@@ -99,10 +87,6 @@ describe('what the planner is shown', () => {
 
 describe('the turn itself', () => {
   it('asks about further work and never about completion', () => {
-    /**
-     * Completion is decided by running the acceptance checks and reading an exit code. Inviting an
-     * opinion on it would produce one that reads like a verdict.
-     */
     const text = buildReplanPrompt('scrape prices and serve them', [
       { title: 'Scrape prices', status: 'succeeded', verified: true, persona: 'Researcher', findings: 'a table' },
     ]);
@@ -117,7 +101,6 @@ describe('the turn itself', () => {
       { title: 'A', status: 'succeeded', verified: false, persona: null, summary: 'claims it works' },
     ]);
     expect(text).toContain('unverified');
-    // A claim is labelled as one, so the planner does not build on it as if it were a result.
     expect(text).toContain('it reported:');
   });
 

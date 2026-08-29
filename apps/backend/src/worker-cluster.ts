@@ -18,14 +18,6 @@ import { buildDataConverter } from './lib/temporal-codec.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// index.ts loads this for the backend, but the workers are separate processes that never did —
-// so every process.env lookup here silently saw undefined. That went unnoticed until the Temporal
-// PayloadCodec needed JWT_SECRET: the backend's client encrypted payloads while the workers, with
-// no key, built no codec and could not decode them.
-//
-// Resolved from this file rather than process.cwd() so it works regardless of where the worker is
-// launched from. A missing file is fine — in-cluster the values come from the pod's env, and
-// dotenv never overwrites an already-set variable.
 dotenv.config({ path: resolve(__dirname, '../.env') });
 const SA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount';
 
@@ -47,12 +39,6 @@ async function setupInClusterAuth() {
   }
 }
 
-// Must run once, before the first NativeConnection/Worker is created — the SDK's metrics
-// registry is wired up at Runtime construction time. Exposes workflow/activity success, failure,
-// and latency counters on :9464/metrics — scraped by k8s/worker-podmonitor.yaml when running as
-// the in-cluster pod (IN_CLUSTER=true), or by kube-prometheus-stack's additionalScrapeConfigs
-// (see monitoring.ts) when running as a bare host process on local dev — this exact bind
-// port/path is baked into both, so keep them in sync if this ever changes.
 Runtime.install({
   logger,
   telemetryOptions: {
@@ -78,8 +64,6 @@ async function main() {
       const dataConverter = buildDataConverter(process.env.JWT_SECRET);
       worker = await Worker.create({
         connection,
-        // Must match the client's converter (lib/temporal-client.ts) or this worker cannot decode
-        // the arguments it is handed.
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),

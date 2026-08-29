@@ -4,7 +4,6 @@ import { consumeChunk, splitThinkTags } from './stream-delta.js';
 const frame = (delta: Record<string, string>) =>
   `data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`;
 
-/** Drives the parser the way the component does: one buffer, many chunks. */
 function run(chunks: string[]) {
   let buffer = '';
   let content = '';
@@ -24,8 +23,6 @@ describe('consumeChunk', () => {
   });
 
   it('collects reasoning_content separately from content', () => {
-    // The bug this pins. TabbyAPI serving Qwen3 emits 35 reasoning frames and then one content
-    // frame; reading only `content` renders a spinner for the whole thinking phase.
     const r = run([
       frame({ reasoning_content: "Here's a" }),
       frame({ reasoning_content: ' thinking process:' }),
@@ -36,8 +33,6 @@ describe('consumeChunk', () => {
   });
 
   it('reassembles a frame split across chunk boundaries', () => {
-    // The other bug. Network chunks do not respect SSE frame boundaries, and parsing each one
-    // independently silently drops tokens partway through long replies.
     const whole = frame({ content: 'unbroken' });
     const cut = Math.floor(whole.length / 2);
     expect(run([whole.slice(0, cut), whole.slice(cut)]).content).toBe('unbroken');

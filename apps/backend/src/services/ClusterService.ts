@@ -19,11 +19,6 @@ import fs from 'fs/promises';
 
 const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 
-// Name of the always-on management cluster (scripts/cluster.sh — native k3s on Linux, k3d on
-// macOS). Deliberately used as both the synthetic entry's `id` and `name` below: since it's
-// not a mock cluster, getPhysicalClusterName() returns `cluster.name` as-is, so this string
-// doubles as the physicalName every kubeconfig/context-resolution helper already expects —
-// no special-casing needed anywhere downstream.
 const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
 export class ClusterService extends BaseService {
@@ -31,8 +26,6 @@ export class ClusterService extends BaseService {
   private masterKey: string;
   private temporalBridge?: any;
 
-  // Optional so the integration harnesses (tests/infra-integration.ts, tests/vllm-gpu-deploy.ts)
-  // can keep constructing this with two args; only createAwaitingKey needs it.
   constructor(db: Database, infra: InfrastructureService, masterKey?: string) {
     super(db);
     this.infra = infra;
@@ -43,31 +36,14 @@ export class ClusterService extends BaseService {
     this.temporalBridge = temporalBridge;
   }
 
-  // Widened to `string` rather than ClusterProviderName: isMockCloudProvider takes a plain string
-  // (it is shared with activities, which receive the provider off untyped workflow args), and
-  // every real caller passes a ClusterProviderName, which is assignable either way.
   hasCloudCredentials(provider: string): boolean {
     return hasCloudCredentials(provider);
   }
 
   isMockCloud(cluster: ClusterMetadata): boolean {
-    // The NEVER_MOCK_PROVIDERS exclusion inside isMockCloudProvider is load-bearing here, and the
-    // incident that produced it is worth remembering: before 'remote' was excluded, every remote
-    // cluster's *physical name* resolved to `mock-remote-<name>` during reconciliation, so
-    // reconcileAllClusters() looked for a k3d container that was never supposed to exist,
-    // concluded the (genuinely healthy) cluster had been "deleted outside the system," and
-    // dropped it from the next saveClusterList() full-replace — permanently erasing the record
-    // moments after its ClusterProvisionWorkflow succeeded. 'hetzner' would fail identically.
     return isMockCloudProvider(cluster.provider, (p) => this.hasCloudCredentials(p));
   }
 
-  /**
-   * Records a bring-your-own-machine cluster that is waiting for its key to be authorised.
-   *
-   * The private half is stored encrypted immediately — before the user has done anything — so
-   * that a browser refresh, or coming back tomorrow, resumes the same cluster with the same key
-   * rather than stranding a half-created record whose public key nobody can reproduce.
-   */
   async createAwaitingKey(args: {
     name: string;
     ownerId: string;
@@ -119,7 +95,6 @@ export class ClusterService extends BaseService {
           return nameservers;
         }
       } catch {
-        // Continue to next path
       }
     }
     
@@ -141,9 +116,6 @@ export class ClusterService extends BaseService {
 
       if (!exists) {
         try {
-          // GPU-enabled clusters attach to the shared management cluster (see
-          // ProvisionClusterActivity) rather than owning a real k3d cluster — re-derive from
-          // there instead of `k3d kubeconfig get`, which would fail (no such k3d cluster).
           const content = cluster.gpuEnabled
             ? await this.infra.getManagementClusterKubeconfig(physicalName)
             : await this.infra.getKubeconfig(physicalName);
@@ -158,19 +130,6 @@ export class ClusterService extends BaseService {
     return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
   }
 
-  /**
-   * Like getKubeconfigPath, but refuses to fall back to the management cluster.
-   *
-   * DEFAULT_KUBECONFIG is the MANAGEMENT cluster's config. For a k3d or mock cluster that
-   * fallback is harmless — they live inside it. For a self-managed one (hetzner, remote) it is
-   * not a graceful degradation at all: kubectl silently answers about a completely different
-   * cluster, and the result looks like real data. That is exactly what made the Cluster Inspector
-   * show the system cluster's pods for every Hetzner cluster, indistinguishably from the truth.
-   *
-   * Read-only inspection uses this so a missing kubeconfig surfaces as an error the UI can show,
-   * rather than as someone else's pods. getKubeconfigPath keeps the lenient behaviour for the
-   * destroy path, where a missing kubeconfig must not block tearing down the VM itself.
-   */
   private async getOwnKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
     const resolved = await this.getKubeconfigPath(cluster);
     const selfManaged = cluster.provider === 'hetzner' || cluster.provider === 'remote';
@@ -189,27 +148,14 @@ export class ClusterService extends BaseService {
     return resolved;
   }
 
-  /**
-   * Synthetic entry for the always-on management cluster — never persisted to the DB (it's
-   * bootstrap infrastructure created by scripts/cluster.sh, not something provisioned through
-   * the normal cluster lifecycle). Read-only in the UI and rejected by delete/abort below.
-   * Status is a live, cheap check (reads the local kubeconfig — no cluster API round trip).
-   */
   async getSystemClusterEntry(): Promise<ClusterMetadata> {
     let status: ClusterMetadata['status'] = 'failed';
     let capacity: ClusterCapacity | undefined;
     try {
-      // Returns the kubeconfig CONTENT, not a path — both are `string`, so passing it straight to
-      // runKubectl typechecks cleanly and then fails at runtime. Written to the same
-      // /tmp/kubeconfig-<name> location getKubeconfigPath uses, which runKubectl also pattern-matches
-      // on to decide whether to exec into a k3d container.
       const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
       status = 'healthy';
       const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
       await fs.writeFile(kubeconfigPath, content, 'utf-8').catch(() => {});
-      // This entry is synthetic and never goes through ProvisionClusterActivity, so it would
-      // otherwise be the ONE cluster with no capacity recorded — and it is the one most people
-      // deploy to first, since it owns the GPUs.
       capacity = await this.readLiveCapacity(kubeconfigPath);
     } catch {
       status = 'failed';
@@ -226,17 +172,6 @@ export class ClusterService extends BaseService {
     };
   }
 
-  /**
-   * Reads capacity from a live cluster, filling in per-GPU VRAM that Kubernetes does not publish.
-   *
-   * VRAM comes from GPU Feature Discovery's node label when it is installed. It usually is not — the
-   * device plugin alone publishes only a count — so for a cluster sharing this machine we fall back
-   * to nvidia-smi on the host, which is authoritative for exactly the case that matters most: the
-   * management cluster, where the GPUs physically live.
-   *
-   * Entirely best-effort. Every failure leaves the field absent, which downstream reads as
-   * "unknown" and never as "no VRAM".
-   */
   private async readLiveCapacity(kubeconfigPath: string): Promise<ClusterCapacity | undefined> {
     let capacity: ClusterCapacity | undefined;
     try {
@@ -252,19 +187,10 @@ export class ClusterService extends BaseService {
       const mib = parseNvidiaSmiVram(stdout);
       if (mib) capacity = { ...capacity, gpuVramMib: mib };
     } catch {
-      // No nvidia-smi here (a remote cluster, or an AMD box) — leave it unknown.
     }
     return capacity;
   }
 
-  /**
-   * Best-effort, one-shot: install the nvidia-device-plugin on the management cluster if GPU
-   * hardware/toolkit is present on the host. Nothing else does this proactively — it's normally
-   * a side effect of provisioning a GPU-enabled logical cluster (ProvisionClusterActivity), but
-   * the system cluster entry itself is synthetic and never goes through that flow, so without
-   * this, `nvidia.com/gpu` never gets advertised as a resource and the GPU Inspector stays empty
-   * even when the host genuinely has GPUs. Silently no-ops if there's no GPU toolkit on the host.
-   */
   async ensureSystemClusterGpuReady(): Promise<void> {
     try {
       const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
@@ -278,15 +204,6 @@ export class ClusterService extends BaseService {
     }
   }
 
-  /**
-   * Reconciles every cluster (recovery, drift detection against the real k3d/host state,
-   * saveClusterList(cleanClusters) on `changed`) and returns the FULL unfiltered list — every
-   * user's clusters, plus the synthetic system entry. Not filtered by owner here on purpose:
-   * AppService.getAll needs the complete cluster list to correctly reconcile every user's
-   * deployments (a deployment whose cluster got filtered out of this list would look
-   * indistinguishable from "cluster deleted outside the system" and get purged). getAll(userId)
-   * below is the only place that actually applies the per-requester filter.
-   */
   async reconcileAllClusters(io?: SocketServer): Promise<ClusterMetadata[]> {
     const dbClusters = await this.db.getClusters();
     const activeK3dNames = await this.infra.listLocalClusters();
@@ -297,10 +214,6 @@ export class ClusterService extends BaseService {
 
     for (const cluster of dbClusters) {
       const isMock = this.isMockCloud(cluster);
-      // GPU-enabled clusters attach to the shared management cluster (see ProvisionClusterActivity)
-      // instead of owning a real k3d cluster, so they'll never appear in `activeK3dNames` — treat
-      // them like the cloud-provider branch below (no k3d existence check) instead of letting the
-      // reconciliation loop below think they were "deleted outside the system" and drop them.
       if (cluster.gpuEnabled) {
         cleanClusters.push({ ...cluster, lastSyncedAt: now });
         continue;
@@ -447,15 +360,6 @@ export class ClusterService extends BaseService {
     return discovered;
   }
 
-  /**
-   * Ownership-unchecked lookup, for internal callers that need a cluster's *connection details*
-   * (kubeconfig, provider, gpuEnabled) during an operation the route layer already authorized.
-   * Same rationale as TemporalBridge.getClusterById — the per-user boundary is enforced once, at
-   * the route, and re-checking this deep would mean threading a userId through every internal
-   * call path for no additional safety.
-   *
-   * Never call this from a route handler; use getById(id, userId) there.
-   */
   async getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined> {
     if (id === SYSTEM_CLUSTER_ID) {
       return this.getSystemClusterEntry();
@@ -466,11 +370,7 @@ export class ClusterService extends BaseService {
 
   async getById(id: string, userId: string) {
     const cluster = await this.getByIdUnscoped(id);
-    // The synthetic system cluster is shared platform infrastructure with no ownerId — visible to
-    // every user, so it must bypass the check below rather than fail it.
     if (cluster && !cluster.isSystem && cluster.ownerId !== userId) return undefined;
-    // 404, not 403 — a wrong-owner lookup and a truly nonexistent id look identical to the
-    // caller, so a guessed id can't be used to confirm someone else's cluster even exists.
     return cluster;
   }
 
@@ -480,7 +380,6 @@ export class ClusterService extends BaseService {
     const metadata: ClusterMetadata = { id, name, provider, status: 'provisioning', lastLogPath: logFile, ownerId: userId };
     await this.db.saveCluster(metadata);
 
-    // Run provisioning in background
     (async () => {
       try {
         let kubeconfigPath = DEFAULT_KUBECONFIG;
@@ -493,22 +392,17 @@ export class ClusterService extends BaseService {
             io.to(id).emit('log', `No credentials found for ${provider.toUpperCase()}. Falling back to local k3d cluster "${physicalName}".\n\n`);
           }
 
-          // 1. Ensure kubeconfig context is clean for this name
           try {
             await this.infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
           } catch {
-            // Ignore if it doesn't exist
           }
 
-          // 2. Create the physical k3d cluster
           await this.infra.createLocalCluster(physicalName, { logFile, io, resourceId: id });
 
-          // 3. Dynamically fetch kubeconfig from k3d and write to dedicated local file
           const kubeconfigContent = await this.infra.getKubeconfig(physicalName);
           kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
           await fs.writeFile(kubeconfigPath, kubeconfigContent, 'utf-8');
 
-          // 4. Wait for cluster API server and nodes to become responsive and ready
           let ready = false;
           for (let i = 0; i < 45; i++) {
             try {
@@ -526,7 +420,6 @@ export class ClusterService extends BaseService {
               this.logger.info(`Waiting for cluster ${physicalName} API server: ${err.message}`);
             }
 
-            // Check docker logs for file descriptor limit exhaustion inside the Colima/Docker VM
             if (i > 0 && i % 5 === 0) {
               try {
                 const containerName = `k3d-${physicalName}-server-0`;
@@ -551,7 +444,6 @@ export class ClusterService extends BaseService {
             throw new Error(`Cluster ${physicalName} did not get a Ready control plane node in time.`);
           }
 
-          // Enable volume expansion on default local-path storage class with retries
           try {
             this.logger.info(`Enabling volume expansion on local-path storage class...`);
             let scPatched = false;
@@ -573,7 +465,6 @@ export class ClusterService extends BaseService {
             this.logger.error(`Failed to patch local-path storage class: ${err.message}`);
           }
 
-          // Patch CoreDNS ConfigMap to resolve systemd-resolved DNS loop
           try {
             const dnsList = await this.getRealNameservers();
             this.logger.info(`Patching coredns ConfigMap with nameservers: ${dnsList.join(', ')}`);
@@ -619,7 +510,6 @@ export class ClusterService extends BaseService {
             this.logger.error(`Failed to patch coredns: ${dnsErr.message}`);
           }
 
-          // Give it an additional short stabilization delay
           await new Promise(resolve => setTimeout(resolve, 5000));
         } else {
           kubeconfigPath = `/tmp/kubeconfig-${name}`;
@@ -632,7 +522,6 @@ export class ClusterService extends BaseService {
           KUBECONFIG_PATH: kubeconfigPath
         };
 
-        // 5. Deploy the infrastructure stack (Monitoring, etc.)
         await this.infra.deploy(physicalName, { logFile, io, resourceId: id, env });
 
         await this.db.saveCluster({ ...metadata, status: 'healthy', kubeconfigPath });
@@ -659,14 +548,10 @@ export class ClusterService extends BaseService {
         const physicalName = this.getPhysicalClusterName(cluster);
         const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
-        // GPU-enabled clusters attach to the shared management cluster rather than owning a
-        // physical cluster or a per-cluster CDKTF stack — nothing to destroy/delete but the
-        // kubeconfig pointer. App-level destroy already cleans up namespaces it created.
         if (cluster.gpuEnabled) {
           try {
             await fs.rm(kubeconfigPath, { force: true });
           } catch {
-            // Ignore
           }
           const clusters = await this.db.getClusters();
           await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
@@ -674,7 +559,6 @@ export class ClusterService extends BaseService {
           return;
         }
 
-        // 1. Destroy infrastructure stack
         await this.infra.destroy(physicalName, {
           logFile, io, resourceId: id,
           env: {
@@ -685,14 +569,12 @@ export class ClusterService extends BaseService {
           }
         });
 
-        // 2. Delete physical k3d cluster if local
         if (cluster.provider === 'k3d' || isMock) {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
             await this.infra.disconnectNginxFromNetwork(physicalName);
             try {
                 await fs.rm(kubeconfigPath, { force: true });
             } catch {
-                // Ignore
             }
         }
 
@@ -716,7 +598,6 @@ export class ClusterService extends BaseService {
 
     (async () => {
       try {
-        // 1. Terminate any active Temporal workflow for this cluster
         if (cluster.temporalWorkflowId && this.temporalBridge) {
           await this.temporalBridge.terminateWorkflow(cluster.temporalWorkflowId, 'User aborted cluster provisioning');
         }
@@ -725,8 +606,6 @@ export class ClusterService extends BaseService {
         const physicalName = this.getPhysicalClusterName(cluster);
         const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
-        // 2. Delete physical k3d cluster / containers if local. GPU-enabled clusters attach to
-        // the shared management cluster instead of owning one — just drop the kubeconfig.
         if (cluster.gpuEnabled) {
           try {
             await fs.rm(kubeconfigPath, { force: true });
@@ -741,7 +620,6 @@ export class ClusterService extends BaseService {
           }
         }
 
-        // 3. Remove cluster from state DB
         const clusters = await this.db.getClusters();
         await this.db.saveClusterList(clusters.filter((c: any) => c.id !== id));
 

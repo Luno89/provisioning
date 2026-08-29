@@ -1,10 +1,3 @@
-/**
- * The form for a list of shell commands, one per line.
- *
- * Presentational and fully controlled: it holds no draft, decides nothing about saving, and knows
- * nothing about acceptance. That is what lets the container above it own the policy — what a check
- * must do, what the server said when it refused one — while this owns only the shape of the input.
- */
 export default function ChecksForm({
   value, onChange, onSubmit, onCancel, saving = false, error, hint, placeholder, submitLabel = 'Save',
 }: {

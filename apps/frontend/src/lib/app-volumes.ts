@@ -1,16 +1,3 @@
-/**
- * Which persistent volumes an app type has, how big they are by default, and what each is for.
- *
- * ── WHY THESE ARE HERE ──
- * Three `switch` statements over app types, living inside `App.tsx`'s component as closures — so
- * the storage tab's whole behaviour, including which volumes a Helm deployment has that a native
- * one does not, could only be exercised by rendering a 2,858-line component and clicking to a tab.
- *
- * ── DUPLICATED, KNOWINGLY ──
- * The volume names mirror what the CDKTF constructs actually create in
- * `packages/cdktf-infra/constructs/`. If they disagree the construct wins — it is what runs — and
- * the storage tab will be offering to resize a PVC that does not exist.
- */
 export function getSupportedVolumes(appType: string, strategy: string): string[] {
   switch (appType) {
     case 'odoo':
@@ -22,8 +9,6 @@ export function getSupportedVolumes(appType: string, strategy: string): string[]
     case 'prometheus':
       return strategy === 'helm' ? ['server'] : [];
     case 'palworld':
-      // Must match StorageAdapter.getSupportedVolumes on the backend — that's what actually
-      // emits STORAGE_DATA for the construct.
       return ['data'];
     case 'jellyfin':
       return ['config', 'cache', 'media'];

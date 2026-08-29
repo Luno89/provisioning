@@ -16,11 +16,6 @@ describe('what the judge is shown', () => {
     expect(bundle).toContain('TokenBucket(100)');
   });
 
-  /**
-   * "Independent" cannot mean a different model on an instance with one endpoint, so it means
-   * independent CONTEXT. failure-review.ts already states the principle: the agent's own account of
-   * what it was doing is the least reliable thing in the record.
-   */
   it('never shows the agent’s own account of itself', () => {
     const { bundle } = buildJudgeBundle({
       title: 'Add a rate limiter',
@@ -37,11 +32,6 @@ describe('what the judge is shown', () => {
     expect(bundle.length).toBeLessThanOrEqual(MAX_BUNDLE_CHARS);
   });
 
-  /**
-   * A judge that thinks it saw the whole diff will confidently report something missing when it
-   * simply was not shown — so the truncation is stated INSIDE the bundle, not only recorded beside
-   * it.
-   */
   it('tells the judge when it is looking at a partial diff', () => {
     const { bundle } = buildJudgeBundle({
       title: 't', evidence: evidence({ diff: '+x', diffTruncated: true }),
@@ -55,12 +45,6 @@ describe('what the judge is shown', () => {
   });
 });
 
-/**
- * ── THE ANTI-FABRICATION DEVICE ──
- * A dimension whose quote is not in the bundle was invented, and an invented finding is exactly
- * what a plausible-sounding judge produces. Mechanically checkable, so it is checked mechanically
- * rather than trusted — this is the reason the whole design is worth anything.
- */
 describe('holding the judge to what it can quote', () => {
   const bundle = 'The diff adds:\n+const bucket = new TokenBucket(100);\n+// TODO: wire the middleware';
 
@@ -90,18 +74,12 @@ describe('holding the judge to what it can quote', () => {
   });
 
   it('rejects a quote too short to identify anything', () => {
-    // "true", "const", "{" — technically present, evidence of nothing.
     const out = parseJudgeReply(JSON.stringify({
       dimensions: [{ name: 'no_stubs', verdict: 'unsound', quote: 'const', why: 'x' }],
     }), bundle);
     expect(out.dimensions).toHaveLength(0);
   });
 
-  /**
-   * "I looked and found nothing wrong" cannot be evidenced by pointing at a line — there is no line
-   * to point at. Requiring one would discard every clean verdict and leave a judge that can only
-   * complain, which is a bias rather than a standard.
-   */
   it('lets a clean verdict stand without a quote', () => {
     const out = parseJudgeReply(JSON.stringify({
       dimensions: [{ name: 'implements_the_task', verdict: 'sound', quote: '', why: 'the diff does what was asked' }],
@@ -130,11 +108,6 @@ describe('holding the judge to what it can quote', () => {
   });
 });
 
-/**
- * A 0–100 score invites a threshold, and a threshold over model-produced numbers is the harness-v2
- * failure reproduced with better inputs. Three named states carry what a reader needs and cannot be
- * tuned.
- */
 describe('combining into one verdict, without arithmetic', () => {
   const d = (verdict: any) => ({ name: 'x', verdict, quote: 'q', why: 'w' });
 
@@ -145,19 +118,10 @@ describe('combining into one verdict, without arithmetic', () => {
   });
 
   it('says "unavailable" when nothing survived, not "sound"', () => {
-    // No opinion is different from approval, and a judge whose findings were all fabricated has
-    // no opinion.
     expect(combineJudgement([])).toBe('unavailable');
   });
 });
 
-/**
- * ── SCOPE AS A SAFETY PROPERTY ──
- * Only leaves that succeeded without anything checking them — the hole decideStatus leaves open on
- * purpose. The consequence is that the judge is never SHOWN a green suite, so it is structurally
- * incapable of overturning one: "must not veto passing tests" stops being a rule someone could
- * loosen and becomes a fact about which rows are fetched.
- */
 describe('which leaves are judged at all', () => {
   it('judges a success nothing checked', () => {
     expect(shouldJudge({ status: 'succeeded', verified: false })).toBe(true);
@@ -169,7 +133,6 @@ describe('which leaves are judged at all', () => {
   });
 
   it('never sees a failure', () => {
-    // A failed leaf already has a reason; a second opinion costs a call and adds nothing.
     expect(shouldJudge({ status: 'failed', verified: false })).toBe(false);
     expect(shouldJudge({ status: 'running' })).toBe(false);
   });
@@ -188,20 +151,10 @@ describe('the prompt', () => {
   });
 
   it('asks whether the tests actually exercise the code', () => {
-    // The highest-value question here: precisely what leaf-verify.ts disclaims about its own signal.
     expect(buildJudgePrompt('B', CODE_DIMENSIONS)).toMatch(/vacuous/);
   });
 });
 
-/**
- * Finding the answer inside a reasoning model's reply.
- *
- * The first version used `/\{[\s\S]*\}/`, which takes everything from the FIRST brace to the LAST.
- * That is right only when the reply contains nothing else — and a reasoning model reviewing a diff
- * quotes code, which means braces, before it answers. The match then spans the quoted snippet and
- * the answer, parses as neither, and fails in a way indistinguishable from a model that produced no
- * JSON at all.
- */
 describe('digging the JSON out of a thinking model', () => {
   const bundle = 'a diff containing const config = { retries: 3 };';
 
@@ -218,7 +171,6 @@ describe('digging the JSON out of a thinking model', () => {
   });
 
   it('takes the LAST answer when the model restates the schema first', () => {
-    // Reasoning models frequently echo the requested shape before filling it in.
     const raw = [
       'The shape is {"dimensions":[{"name":"…","verdict":"…"}]} so I will produce:',
       '{"dimensions":[{"name":"no_stubs","verdict":"sound","quote":"","why":"nothing stubbed"}]}',
@@ -246,22 +198,12 @@ describe('digging the JSON out of a thinking model', () => {
   });
 });
 
-/**
- * Salvaging a reply that ran out of room mid-answer.
- *
- * Observed live: the judge produced a well-formed first finding — name, verdict, and a real quote
- * from the diff — then hit its token ceiling partway through the array. `JSON.parse` on an
- * unterminated array fails whole, so good findings plus a truncated one yielded ZERO and the leaf
- * recorded `unavailable` as though the model had said nothing. Raising the ceiling makes that
- * rarer; it cannot make it impossible, because a reply is bounded and verbosity is not.
- */
 describe('a reply that was cut off', () => {
   const bundle = 'the diff adds:\n+function truncate(text, max) {\n+  return text.slice(0, max);';
 
   it('keeps the findings that completed and drops the one that did not', () => {
     const raw = '{"dimensions":['
       + '{"name":"implements_the_task","verdict":"sound","quote":"","why":"does what was asked"},'
-      // A quote containing an unbalanced brace, to prove the matcher is string-aware.
       + '{"name":"no_stubs","verdict":"concern","quote":"+function truncate(text, max) {","why":"no body"},'
       + '{"name":"files_match_promises","verdict":"sou';
 
@@ -275,10 +217,6 @@ describe('a reply that was cut off', () => {
     expect(parseJudgeReply(raw, bundle).dimensions).toHaveLength(1);
   });
 
-  /**
-   * Loosening the PARSE must not loosen the standard: a recovered finding still has to point at
-   * something real, or the salvage becomes a way to smuggle fabrications past the check.
-   */
   it('still holds a recovered finding to its quote', () => {
     const raw = '{"dimensions":[{"name":"a","verdict":"unsound","quote":"throw new Error(\\"not implemented\\")","why":"stub"},';
     const out = parseJudgeReply(raw, bundle);
@@ -287,7 +225,6 @@ describe('a reply that was cut off', () => {
   });
 
   it('does not mistake the wrapper for a finding', () => {
-    // The outer object has `dimensions`; a finding has a name and a verdict.
     const raw = '{"dimensions":[{"name":"a","verdict":"sound","quote":"","why":"fine"}]}';
     expect(parseJudgeReply(raw, bundle).dimensions).toHaveLength(1);
   });

@@ -11,11 +11,9 @@ export interface LiveRun {
   steps: AgentStep[];
 }
 
-
 export function LivePanel({ run }: { run: LiveRun }) {
   const tail = useRef<HTMLDivElement | null>(null);
 
-  // Follows the stream, since the interesting step is the one that just happened.
   useEffect(() => { tail.current?.scrollIntoView({ block: 'nearest' }); }, [run.steps.length]);
 
   const last = run.steps[run.steps.length - 1];
@@ -80,19 +78,16 @@ export function LivePanel({ run }: { run: LiveRun }) {
   );
 }
 
-/** The command or path out of a tool call's JSON, so a step reads as one line. */
 function summariseArgs(args: string): string {
   try {
     const parsed = JSON.parse(args);
     const text = String(parsed.command ?? parsed.path ?? parsed.summary ?? '');
     return text.length > 90 ? `${text.slice(0, 90)}…` : text;
   } catch {
-    // Arguments stream in fragments and the tail of a run can be mid-object.
     return args.slice(0, 90);
   }
 }
 
-/** Exit code if there is one, since that is what says whether the step worked. */
 function summariseResult(result: string): string {
   try {
     const parsed = JSON.parse(result);

@@ -50,7 +50,6 @@ Here is the plan to build the GitHub API client:
     const proposals = extractProposals(reasoningReply);
     expect(proposals).toHaveLength(4);
 
-    // Verify imperative title quality across all extracted items
     const imperativeVerbs = ['Implement', 'Create', 'Build', 'Add', 'Configure', 'Setup'];
     for (const prop of proposals) {
       const firstWord = prop.title.split(' ')[0];

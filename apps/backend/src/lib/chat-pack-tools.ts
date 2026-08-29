@@ -1,13 +1,4 @@
-/* ═══════════════ chat-pack/tools — the pack's tool dispatcher ═══════════════ */
 
-/**
- * Executes a tool call for a persona-pack turn, extracted from the router so it is testable alone.
- *
- * The dispatch order is load-bearing and matches koala exactly: a qualified `server__tool` name
- * (an ENABLED service) goes to that service's MCP registry; anything else is one of the pack's own
- * tools (koala's chain). Checking MCP first is safe only because `routeCall` refuses any name that
- * is not `server__tool` for an enabled service — it can never swallow a koala tool.
- */
 import { routeCall } from './mcp-tools.js';
 import { resolveMcpProbeUrl } from './mcp-probe-url.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
@@ -31,7 +22,6 @@ export interface PackToolContext {
   webSearch: (query: string) => Promise<SearchOutcome>;
   fetchWebPage: (url: string) => Promise<string>;
   toolRefused: (result: string) => boolean;
-  /** Injected so a test can substitute a stub rather than a real registry. */
   registry?: Pick<McpRegistryService, 'call'>;
   kubectl?: (args: string[]) => Promise<string>;
   temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'>;
@@ -39,14 +29,6 @@ export interface PackToolContext {
   isAdmin?: boolean | undefined;
   isEscalated?: boolean | undefined;
   escalatedNamespaces?: readonly string[] | undefined;
-  /**
-   * Which categories of action this conversation may take — the pack's `permitted`.
-   *
-   * `action-gate.ts` has shipped `READ_ONLY` and `PROPOSE_ONLY` since it was written and both tool
-   * runners have accepted this list all along, defaulting to `ALL_EFFECTS`. No caller ever passed
-   * one, so every conversation ran with full write access however its pack was configured. This is
-   * the wire that was missing.
-   */
   permitted?: readonly ToolEffect[] | undefined;
 }
 
@@ -66,7 +48,6 @@ export interface ToolExecResult {
   proposedSecretRequest?: unknown;
 }
 
-/** Builds the dispatcher for one turn. Injects nothing global; all deps come from ctx. */
 export function makePackToolExecutor(ctx: PackToolContext) {
   const registry = ctx.registry ?? new McpRegistryService(ctx.db, ctx.userId, (n: string) => resolveMcpProbeUrl(n));
   const kubectl = ctx.kubectl ?? ((a: string[]) =>

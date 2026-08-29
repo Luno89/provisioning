@@ -96,7 +96,6 @@ describe('InfisicalService', () => {
     expect(res.podRestarted).toBe(true);
     expect(res.secretReference).toBe('secret://proj-bot/WEBHOOK_SECRET');
 
-    // Verify kubectl was invoked for Secret creation/patching and rollout restart
     expect(mockKubectl).toHaveBeenCalledWith(
       expect.arrayContaining(['rollout', 'restart', 'deployment/proj-bot', '-n', 'proj-bot']),
       kubeconfigPath,

@@ -1,19 +1,3 @@
-/**
- * The personas a user starts with.
- *
- * ── WHY THESE MOVED OUT OF THE SCRIPT ──
- * `scripts/seed-personas.ts` had them inline with a hardcoded owner id, so they were seeded by hand
- * for exactly one account. A new user got none — no Builder, no Researcher — which means no leaf
- * could be accepted at all, since a leaf without a persona has no environment to run in.
- *
- * The script still owns them; it just imports them now, so the runtime seeding and the maintenance
- * tool cannot drift.
- *
- * ── THE TWO SEEDERS DIFFER ON PURPOSE ──
- * The script OVERWRITES: it is how a developer ships a change to a prompt. `ensurePersonas` only
- * ADDS what is missing, because reverting someone's edited persona every time they open the app is
- * the same failure the app-spec seeding avoids — the user fixes it, restarts, and finds it undone.
- */
 import type { Persona } from './personas.js';
 import { MERGER_PERSONA } from '../lib/well-known-personas.js';
 import { KOALA_NAME, KOALA_PROMPT } from '../lib/koala-persona.js';
@@ -23,12 +7,7 @@ import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 const TUNED_FOR = 'Tabbyapi-Production';
 
 export const RETIRED_PERSONAS = [
-  // Superseded by role personas that state their own environment. These carried a prompt and
-  // nothing else, so any leaf assigned one ran in whatever the caller happened to build.
   'Coder', 'Orchestrator', 'Debugger', 'Designer',
-  // The conflation: a worker duplicated per workpiece. A toolchain is a dependency of the code, so
-  // it belongs to the project — every persona working in a Go repository needs Go, which is one
-  // fact about the project rather than one persona each.
   'Builder (python)', 'Builder (go)',
 ];
 
@@ -36,23 +15,10 @@ type Seed = Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'>;
 
 export const PERSONA_SEEDS: Seed[] = [
   {
-    /**
-     * Koala, seeded like anything else.
-     *
-     * It used to be created only by `ensureKoala`, on the chat path, so a new user who opened the
-     * Personas view before ever chatting saw eight personas and no Koala — and the config drawer,
-     * asked for `koala`, fell through `personas.find(...) ?? personas[0]` and offered to edit
-     * Framer under Koala's name.
-     *
-     * It carries no scope, which is what makes it chat-only: `canRunLeaf` reads the absence of a
-     * toolchain rather than matching the literal string "Koala", so renaming it does not turn it
-     * into something `acceptLeaf` will hand a sandbox to.
-     */
     name: KOALA_NAME,
     description: 'General chat. Talks things through, operates projects, and proposes new builds.',
     systemPrompt: KOALA_PROMPT,
     scope: {},
-    // Sampling lives on the PACK now — see PACK_SEEDS. A persona is who; a pack is how.
     overrides: {},
   },
   {
@@ -74,22 +40,13 @@ export const PERSONA_SEEDS: Seed[] = [
       'You do not answer the questions. You only produce the list.',
     ].join('\n'),
     scope: {
-      /**
-       * No search tool, and no network.
-       *
-       * Deciding what to ask needs nothing but the question. Every second this spends fetching is a
-       * second not spent splitting, and it will fetch if it can — that is the measured failure.
-       */
       tools: ['read_file', 'write_file', 'finish'],
       egress: [],
-      // No repository: it produces a list of questions, not files in a project.
       repo: false,
       language: 'base',
       output: '/work/questions.md',
-      // The questions are its own reasoning, not something it looked up.
       requireSources: false,
       tunedFor: TUNED_FOR,
-      // Deciding what to ask is short work. A large budget here is a budget spent second-guessing.
       run: { maxSteps: 20 },
     },
     overrides: { temperature: 0.3 },
@@ -111,36 +68,14 @@ export const PERSONA_SEEDS: Seed[] = [
     ].join('\n'),
     scope: {
       repo: false,
-      // Nothing is compiled here, so the smallest image is the right one — a persona that writes
-      // prose does not need a Go toolchain to do it.
       language: 'base',
       output: '/work/findings.md',
       tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
-      /**
-       * Still no direct network.
-       *
-       * `web_search` and `fetch_web_page` run in the backend process, not in the sandbox, so this
-       * reaches the web through tools that can be logged and swapped without opening the pod up.
-       * Measured: when the web tools were withdrawn, the agent immediately tried `curl` — an open
-       * sandbox would have let it, invisibly.
-       */
       egress: [],
       tunedFor: TUNED_FOR,
-      /**
-       * The whole research environment, saved rather than derived.
-       *
-       * Finding material is itself work and the writing still has to happen afterwards, so the
-       * budget is large. Half of it buys searching; then the search tools are taken away, because
-       * across four measured runs the agent searched until the budget was gone no matter what it
-       * was told. The pacing notes talk about writing rather than committing — this persona has no
-       * repository to commit to, and the default note was telling it to save its work somewhere
-       * that does not exist.
-       */
       run: {
         maxSteps: RESEARCH_AGENT_STEPS,
         withdraw: { afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2), tools: [...WEB_TOOL_NAMES] },
-        // Imported, not retyped. The same messages existed as a function in sandbox-tools AND as
-        // literal strings here, which is two copies of one decision that can disagree silently.
         pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
       },
     },
@@ -164,15 +99,10 @@ export const PERSONA_SEEDS: Seed[] = [
       repo: false,
       language: 'base',
       output: '/work/findings.md',
-      // It is handed the sources; it does not go and find more. Requiring URLs it never fetched
-      // would fail honest work, so the sources rule is off and the prompt carries them through.
       requireSources: false,
-      // "You do not search" is in the prompt AND enforced here. The prompt explains why; the toolset
-      // is what makes it true.
       tools: ['read_file', 'write_file', 'finish'],
       egress: [],
       tunedFor: TUNED_FOR,
-      // Short: everything it needs is already in front of it, so a long budget only buys drift.
       run: { maxSteps: 30 },
     },
     overrides: { temperature: 0.5 },
@@ -189,12 +119,10 @@ export const PERSONA_SEEDS: Seed[] = [
       'Leave no conflict markers. Commit when the tree is clean.',
     ].join('\n'),
     scope: {
-      // git is the whole job, so run_command is not optional here.
       tools: ['run_command', 'read_file', 'write_file', 'finish'],
       repo: true,
       egress: [{ namespace: 'gitea', ports: [3000] }],
       tunedFor: TUNED_FOR,
-      // Conflicts are read and edited, not investigated. A long budget here buys rewriting.
       run: { maxSteps: 30 },
     },
     overrides: { temperature: 0.2 },
@@ -216,20 +144,12 @@ export const PERSONA_SEEDS: Seed[] = [
       'not cover the whole site, so it is spent on what was asked for.',
     ].join('\n'),
     scope: {
-      /**
-       * It orchestrates and reads results — it never fetches a page itself.
-       *
-       * fetch_web_page is deliberately absent: a persona that can pull a page into its own context
-       * will, and that is the bottleneck this whole path exists to remove.
-       */
       tools: ['start_ingest', 'ingest_status', 'search_corpus', 'read_file', 'write_file', 'finish'],
       repo: false,
       language: 'base',
       output: '/work/findings.md',
       egress: [],
       tunedFor: TUNED_FOR,
-      // Short: starting a crawl and reading snippets is a handful of calls. The crawl's own size is
-      // bounded by pages, not by this.
       run: { maxSteps: 40 },
     },
     overrides: { temperature: 0.3 },
@@ -256,16 +176,8 @@ export const PERSONA_SEEDS: Seed[] = [
     scope: {
       repo: false,
       language: 'base',
-      /**
-       * No tools at all, deliberately.
-       *
-       * A reviewer that could run commands would go looking instead of reading, and spend a budget
-       * rediscovering what the record already contains. Everything it needs is in the prompt.
-       */
       tools: [],
     },
-    // Nothing to tune: it reads a record and answers. The defaults are the point of comparison if
-    // reviews ever need bench-testing.
     overrides: {},
   },
   {
@@ -291,23 +203,8 @@ export const PERSONA_SEEDS: Seed[] = [
     scope: {
       repo: false,
       language: 'base',
-      /**
-       * No tools, for the same reason the Reviewer has none.
-       *
-       * Everything it needs was captured before the sandbox was destroyed — see lib/leaf-evidence.ts
-       * — and a judge that could go looking would go looking instead of reading. It also means this
-       * persona needs no workspace at all, which is why the activity is cheap enough to run on every
-       * unverified success.
-       */
       tools: [],
     },
-    /**
-     * Low temperature, deliberately.
-     *
-     * This is not a creative act: it is reading a diff and answering four questions. And the
-     * calibration loop measures STABILITY — the same bundle scored twice must give the same answer,
-     * or the verdict is noise wearing a word.
-     */
     overrides: { temperature: 0.1 },
   },
   {
@@ -322,10 +219,6 @@ export const PERSONA_SEEDS: Seed[] = [
       'Write a test for what you build and run it. A leaf whose tests pass is evidence; one that only',
       'reports success is a claim.',
       '',
-      // This said "there is no package registry" and told the agent not to try, which was true
-      // until a Verdaccio mirror was deployed in-cluster. Saying it now would have the agent
-      // hand-roll what it could install — see constructs/verdaccio-native.ts for why a mirror and
-      // not open egress.
       'Install what you need. A package registry is mirrored inside the cluster and your package',
       'manager already points at it, so `npm install` works — the public internet does not.',
       '',
@@ -334,16 +227,7 @@ export const PERSONA_SEEDS: Seed[] = [
       'build and the pipeline refuses.',
     ].join('\n'),
     scope: {
-      /**
-       * No web, deliberately.
-       *
-       * A search tool in front of an agent with a repository to read is a way to spend steps not
-       * writing code.
-       */
       tools: ['run_command', 'read_file', 'write_file', 'finish'],
-      // It works in the repository, so it says so — and opens the one hole its clone and push need.
-      // Gitea by NAMESPACE, never by address: kube-proxy rewrites the destination before the policy
-      // is evaluated, so a NodePort CIDR rule silently fails closed.
       repo: true,
       egress: [{ namespace: 'gitea', ports: [3000] }],
       tunedFor: TUNED_FOR,
@@ -351,3 +235,32 @@ export const PERSONA_SEEDS: Seed[] = [
     overrides: {},
   },
 ];
+
+export const builtInPersonaId = (name: string) =>
+  `builtin-persona-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+
+export interface PersonaSeedStore {
+  getPersonas(): Promise<Persona[]>;
+  savePersona(persona: Persona): Promise<void>;
+}
+
+export async function seedPersonas(store: PersonaSeedStore): Promise<number> {
+  const stored = await store.getPersonas();
+  const builtIns = new Map(stored.filter((p) => p.ownerId === undefined).map((p) => [p.name, p]));
+
+  let written = 0;
+  for (const seed of PERSONA_SEEDS) {
+    const prior = builtIns.get(seed.name);
+    const next: Persona = {
+      ...seed,
+      id: prior?.id ?? builtInPersonaId(seed.name),
+      builtIn: true,
+      createdAt: prior?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } as Persona;
+    if (prior && JSON.stringify({ ...prior, updatedAt: '' }) === JSON.stringify({ ...next, updatedAt: '' })) continue;
+    await store.savePersona(next);
+    written++;
+  }
+  return written;
+}

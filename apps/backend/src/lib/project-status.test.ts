@@ -20,8 +20,6 @@ describe('rolling a project up to one word', () => {
   });
 
   it('reports a built image that nothing is running as built, not as a failure', () => {
-    // Plenty of projects are never meant to be deployed. Colouring those red teaches people to
-    // ignore the column.
     expect(rollupProjectStatus(project, [run({})], undefined).status).toBe('built');
   });
 
@@ -40,10 +38,6 @@ describe('rolling a project up to one word', () => {
   });
 
   it('lets a failed build outrank a pod that is still happily serving the old image', () => {
-    /**
-     * The whole point of one indicator: green must mean the chain is good end to end. What is
-     * running is not what was last asked for, and reporting `running` would hide that.
-     */
     const runs = [run({ id: 'old', startedAt: '2026-01-01T00:00:00Z' }),
                   run({ id: 'new', startedAt: '2026-02-01T00:00:00Z', status: 'failed', errorMessage: 'tsc exploded' })];
     const r = rollupProjectStatus(project, runs, dep({ status: 'running' }));

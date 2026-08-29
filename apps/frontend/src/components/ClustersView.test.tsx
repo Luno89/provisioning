@@ -7,18 +7,6 @@ import * as clustersApi from '../api/clusters';
 import { useShellStore } from '../stores/shell';
 import type { Cluster } from '../types/cluster';
 
-/**
- * ── REPLACES __tests__/Inspector.test.tsx ──
- *
- * That version mounted the entire `App` — sidebar, router, every modal — clicked "Clusters" to
- * navigate, then clicked the inspector, and mocked `axios` wholesale to feed it. It cost 15
- * seconds, and it broke the moment the screen started using `axios.create()` instead of the
- * default export, because it was asserting against the transport rather than the screen.
- *
- * `ClustersView` owns its state and its queries now, so it can be mounted on its own. The mock is
- * `useClusterDetail` — the seam the screen actually depends on.
- */
-
 vi.mock('../api/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof clustersApi>()),
   useClusterDetail: vi.fn(),
@@ -62,16 +50,12 @@ describe('the clusters screen', () => {
   });
 
   it('asks App to open the provision wizard rather than reaching for its state', () => {
-    // It used to receive `setShowClusterModal`. A named intent means the screen cannot put App into
-    // any other state by accident.
     const { onProvision } = renderView();
     screen.getByText(/Provision Cluster/i).click();
     expect(onProvision).toHaveBeenCalled();
   });
 
   it('marks the system cluster read-only, with no destroy button', () => {
-    // It is shared platform infrastructure with no owner. Offering to destroy it from the UI would
-    // be offering to break every other tenant.
     renderView([cluster({ id: 'sys', name: 'provisioning-lunorica', isSystem: true })]);
     expect(screen.getByText('System')).toBeDefined();
     expect(screen.queryByTitle(/destroy/i)).toBeNull();
@@ -80,10 +64,6 @@ describe('the clusters screen', () => {
 
 describe('the health inspector', () => {
   it('shows pods and GPU availability once a row is expanded', async () => {
-    /**
-     * The assertions carried over from Inspector.test.tsx, which is what this replaces. The
-     * difference is that expanding now drives this component's own state instead of App's.
-     */
     useClusterDetail.mockReturnValue({
       ...EMPTY,
       pods: [{
@@ -112,8 +92,6 @@ describe('the health inspector', () => {
   });
 
   it('queries nothing until a row is expanded', () => {
-    // `enabled` on a null id. Three polling endpoints per cluster is not something to start doing
-    // because the screen rendered.
     renderView();
     expect(useClusterDetail).toHaveBeenCalledWith(null);
   });

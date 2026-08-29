@@ -36,24 +36,16 @@ export class AppService extends BaseService {
   async getById(id: string, userId: string) {
     const deployments = await this.db.getDeployments();
     const dep = deployments.find((d: any) => d.id === id);
-    // 404, not 403 — matches ClusterService.getById: a wrong-owner lookup and a nonexistent id
-    // look identical to the caller.
     if (dep && dep.ownerId !== userId) return undefined;
     return dep;
   }
 
   async getAll(userId: string, io?: SocketServer) {
-    // 1. Force cluster service to sync first, which will also clean up deployments of deleted
-    // clusters — the FULL cluster list (every user's), not just this requester's, on purpose: see
-    // ClusterService.reconcileAllClusters's docstring for why filtering here would incorrectly
-    // purge other users' deployments during reconciliation below.
     const clusters = await this.clusters.reconcileAllClusters(io);
 
-    // 2. Read the current deployments
     const deployments = await this.db.getDeployments();
     const now = new Date().toISOString();
 
-    // Group deployments by clusterId so we only query each cluster once
     const deploymentsByCluster = new Map<string, typeof deployments>();
     for (const dep of deployments) {
       if (!deploymentsByCluster.has(dep.clusterId)) {
@@ -110,9 +102,6 @@ export class AppService extends BaseService {
       await this.db.saveDeploymentList(cleanDeployments);
     }
 
-    // Filtered here, at the very end — same reasoning as ClusterService.getAll: saveDeploymentList
-    // reconciles the collection to the list it is given, so filtering before that point
-    // would silently wipe every other user's deployment records on the next reconciled save.
     return cleanDeployments.filter((d) => d.ownerId === userId);
   }
 
@@ -125,14 +114,12 @@ export class AppService extends BaseService {
     const clusterDeployments = dbDeployments.filter(d => d.clusterId === clusterId);
     const now = new Date().toISOString();
 
-    // Get all namespaces (excluding system ones)
     const nsOutput = await this.infra.runKubectl(['get', 'ns', '-o', 'json'], kubeconfigPath);
     const nsData = JSON.parse(nsOutput);
     const userNamespaces = nsData.items
       .map((item: any) => item.metadata.name)
       .filter((n: string) => !n.startsWith('kube-') && n !== 'default' && n !== 'kube-node-lease');
 
-    // Get all helm releases
     let helmReleases: any[] = [];
     try {
       const isMock = this.clusters.isMockCloud(cluster);
@@ -143,17 +130,14 @@ export class AppService extends BaseService {
       const helmOutput = await this.infra.runHelm(args, kubeconfigPath);
       helmReleases = JSON.parse(helmOutput);
     } catch {
-      // Best-effort: helm may not be available
     }
 
     const discovered: DeploymentMetadata[] = [];
 
     for (const ns of userNamespaces) {
-      // Skip if already tracked
       const alreadyTracked = clusterDeployments.some(d => this.sanitize(d.name) === ns);
       if (alreadyTracked) continue;
 
-      // Infer appType from helm releases in this namespace
       const nsReleases = helmReleases.filter((r: any) => r.Namespace === ns);
       let appType: DeploymentMetadata['appType'] | undefined;
       let strategy: 'helm' | 'native' = 'native';
@@ -167,14 +151,12 @@ export class AppService extends BaseService {
         const releaseName = nsReleases[0].Chart?.split(':')[0]?.toLowerCase() ?? '';
         appType = appTypeFromName(releaseName);
       } else {
-        // Try to infer from deployment names in the namespace
         try {
           const podsOutput = await this.infra.runKubectl(['get', 'pods', '-n', ns, '-o', 'json'], kubeconfigPath);
           const podsData = JSON.parse(podsOutput);
           const podNames = podsData.items.map((p: any) => p.metadata.name ?? '').map((n: string) => n.split('-')[0]);
           appType = podNames.map((p: string) => appTypeFromName(p)).find(Boolean);
         } catch {
-          // Best-effort
         }
       }
 
@@ -202,15 +184,10 @@ export class AppService extends BaseService {
     return discovered;
   }
 
-  // Delegates to lib/model-registry.ts rather than keeping a second copy: the model registry must
-  // derive the SAME namespace this uses to create it, and two implementations that drift would
-  // send a port-forward to a service that does not exist — a timeout, not an error.
   private sanitize(name: string) {
     return sanitizeNamespace(name);
   }
 
-  // Dead code — nothing calls this (deployment always goes through TemporalBridge.deployApp).
-  // Kept in sync with ClusterService/getAll's signatures anyway rather than left broken.
   async deploy(config: any, userId: string, io?: SocketServer) {
     const {
       name, clusterId, odooRepo, odooTag, pgRepo, pgTag, modules = [], appType = 'odoo', storage = {},
@@ -275,15 +252,10 @@ export class AppService extends BaseService {
           }
         }
 
-        // If modules are selected, we must build a custom image
         if (modules.length > 0) {
             const baseImage = `${odooRepo}:${odooTag}`;
             const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
 
-            // Import the image into the k3d cluster. GPU-enabled clusters attach to the native
-            // k3s management cluster instead (see ProvisionClusterActivity) — there's no k3d
-            // cluster to import into there (`k3d image import` would fail with "no nodes found"),
-            // and its containerd can't see this custom image (only in the host's Docker daemon).
             if (cluster.gpuEnabled) {
                 if (io) io.to(id).emit('log', `\n--- SKIPPING K3D IMPORT (GPU-attached cluster runs native k3s) — custom image "${customTag}" must be pushed to a registry to be pullable here ---\n`);
             } else if (cluster.provider === 'k3d' || isMock) {
@@ -321,13 +293,7 @@ export class AppService extends BaseService {
         if (targetId) {
           const allDeployments = await this.db.getDeployments();
           const target = allDeployments.find((d: DeploymentMetadata) => d.id === targetId);
-          // .svc.cluster.local only resolves within the same cluster — skip rather than wire
-          // in a DNS name that will never resolve if the target is on a different cluster.
           if (target && target.clusterId === clusterId) {
-            // Was a ternary whose else-branch handed EVERY non-tabbyapi target vLLM's service
-            // suffix and port 8000 — so a third engine, or a target that serves no model API at
-            // all, would have been wired to a URL that silently does not exist. The catalogue in
-            // lib/llm-apps.ts is now the only place those values live.
             const spec = llmAppSpec(target.appType)
               ?? (target.llmApi ? specFromTag(target.llmApi, target.appType ?? 'custom') : undefined);
             if (spec) {
@@ -373,12 +339,10 @@ export class AppService extends BaseService {
           VLLM_DTYPE: config.vllmDtype || '',
           VLLM_ENABLE_PREFIX_CACHING: config.vllmEnablePrefixCaching ? 'true' : 'false',
           OPENAI_API_BASE_URL: openaiApiBaseUrl,
-          // VPN Tunneling Configuration
           VPN_ENABLED: vpnEnabled ? 'true' : 'false',
           VPN_PROTOCOL: vpnProtocol,
           VPN_CONFIG: vpnConfig,
           VPN_DEDICATED_IP: vpnDedicatedIp,
-          // Backward compatibility for existing stacks
           ODOO_IMAGE_REPO: finalOdooRepo || '',
           ODOO_IMAGE_TAG: finalOdooTag || '',
           POSTGRES_IMAGE_REPO: pgRepo || '',
@@ -418,12 +382,9 @@ export class AppService extends BaseService {
 
     (async () => {
         try {
-          // 1. Rebuild the custom image with the new set of modules
           const baseImage = `${webRepo}:${webTag}`;
           const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
           
-          // 2. Import into cluster. GPU-enabled clusters attach to the native k3s management
-          // cluster instead (see ProvisionClusterActivity) — no k3d cluster to import into there.
           const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
           const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
           if (cluster && !cluster.gpuEnabled && (cluster.provider === 'k3d' || isMock)) {
@@ -446,12 +407,10 @@ export class AppService extends BaseService {
             WEB_IMAGE_TAG: customTag.split(':')[1] || '',
             DB_IMAGE_REPO: dbRepo,
             DB_IMAGE_TAG: dbTag,
-            // VPN Tunneling Configuration
             VPN_ENABLED: dep.vpnEnabled ? 'true' : 'false',
             VPN_PROTOCOL: dep.vpnProtocol || 'wireguard',
             VPN_CONFIG: dep.vpnConfig || '',
             VPN_DEDICATED_IP: dep.vpnDedicatedIp || '',
-            // Backward compatibility
             ODOO_IMAGE_REPO: customTag.split(':')[0] || '',
             ODOO_IMAGE_TAG: customTag.split(':')[1] || '',
             POSTGRES_IMAGE_REPO: dbRepo,
@@ -577,10 +536,8 @@ export class AppService extends BaseService {
         try {
             await this.infra.waitForNamespaceDeletion(this.sanitize(dep.name), kubeconfigPath);
         } catch {
-            // Ignore if already gone
         }
 
-        // Targeted delete rather than a full-collection rewrite — see mongo-db's saveDeploymentList.
         await this.db.deleteDeployment(id);
         if (io) io.emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
       } catch (err: any) {
@@ -599,12 +556,10 @@ export class AppService extends BaseService {
 
     (async () => {
       try {
-        // 1. Terminate active Temporal workflow if present
         if (dep.temporalWorkflowId && this.temporalBridge) {
           await this.temporalBridge.terminateWorkflow(dep.temporalWorkflowId, 'User aborted deployment');
         }
 
-        // 2. Tear down namespace / k8s resources
         const cluster = await this.clusters.getById(dep.clusterId, userId);
         if (cluster) {
           const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
@@ -615,8 +570,6 @@ export class AppService extends BaseService {
           }
         }
 
-        // 3. Remove deployment from state DB
-        // Targeted delete rather than a full-collection rewrite — see mongo-db's saveDeploymentList.
         await this.db.deleteDeployment(id);
 
         if (io) {
@@ -626,7 +579,6 @@ export class AppService extends BaseService {
         }
       } catch (err: any) {
         this.logger.error(`Abort failed for deployment ${dep.name}: ${err.message}`);
-        // Targeted delete rather than a full-collection rewrite — see mongo-db's saveDeploymentList.
         await this.db.deleteDeployment(id);
         if (io) io.emit('deployment:updated');
       }

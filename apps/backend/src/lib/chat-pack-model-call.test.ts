@@ -11,7 +11,6 @@ describe('buildChatCompletionRequest — the provider request for a pack turn', 
       overrides: {},
     });
     expect(req.stream).toBe(true);
-    // conversationSampling sets frequency_penalty/presence_penalty; tool-turn sampling does NOT.
     expect(req.frequency_penalty).toBeUndefined();
     expect(req.presence_penalty).toBeUndefined();
   });

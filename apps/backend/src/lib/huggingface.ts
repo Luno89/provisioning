@@ -1,9 +1,3 @@
-/**
- * Direct HuggingFace Hub API access — file listing and streaming downloads, independent of any
- * downstream tool's own downloader (see DownloadModelActivity.ts for why: TabbyAPI's own
- * `main.py download` swallows failures internally and always exits 0, which silently poisoned a
- * "download complete" cache marker for a directory that was never actually written).
- */
 import axios from 'axios';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -22,11 +16,6 @@ export interface HfModelSearchResult {
   tags: string[];
 }
 
-/**
- * Backs the wizard's model picker for vLLM/TabbyAPI — replaces a static hardcoded "Popular
- * Models" list of 4-5 entries with live results, sorted by downloads so an empty query still
- * returns something useful (a "trending" list) rather than nothing.
- */
 export async function searchHfModels(
   query: string,
   options?: { pipelineTag?: string; limit?: number },
@@ -47,14 +36,6 @@ export async function searchHfModels(
   }));
 }
 
-/**
- * TabbyAPI's exllamav3 backend only runs EXL3 quants — a generic HF search returns every format
- * (GGUF, AWQ, safetensors, ...) mixed in, most of which TabbyAPI can't load at all. The actual
- * exl3 collection curated by turboderp (exllamav3's own author, and the source of most exl3
- * quants that exist) is the closest thing to an authoritative "will this even work" list, so
- * TabbyAPI's picker uses this instead of generic search entirely — see the `/api/models/search`
- * route for how the two are switched between by appType.
- */
 export async function getExl3ModelCollection(query?: string): Promise<HfModelSearchResult[]> {
   const res = await axios.get('https://huggingface.co/api/collections/turboderp/exl3-models');
   const items = (res.data.items as any[]).filter((i) => i.repoType === 'model');
@@ -66,14 +47,6 @@ export async function getExl3ModelCollection(query?: string): Promise<HfModelSea
     .sort((a, b) => b.downloads - a.downloads);
 }
 
-/**
- * EXL2/EXL3 quants are distributed as separate branches of the same repo, one per
- * bits-per-weight target (confirmed live: turboderp/Qwen3.6-27B-exl3 has 6.00bpw, 5.00bpw,
- * 4.00bpw, 3.50bpw, 3.00bpw, 2.50bpw, 2.00bpw, plus "main") — the model picker alone doesn't
- * tell you which quant sizes actually exist for the repo you picked. Sorted with real bpw
- * branches first (highest bits-per-weight — best quality — first), anything else (like "main",
- * which is often just a README pointer with no weights) last.
- */
 export async function getHfModelBranches(repo: string, token?: string): Promise<string[]> {
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await axios.get(`https://huggingface.co/api/models/${repo}/refs`, { headers });
@@ -120,12 +93,6 @@ export async function getHfModelSize(
   return { totalBytes: files.reduce((sum, f) => sum + f.size, 0), fileCount: files.length };
 }
 
-/**
- * Fetches config.json directly (not via the tree listing — this needs the actual parsed
- * content, not just a file size). Multimodal repos nest the language-model architecture fields
- * under `text_config` (confirmed live against turboderp/Qwen3.6-27B-exl3's actual config.json);
- * this flattens that so callers don't have to know which shape they got.
- */
 export async function getHfModelConfig(
   repo: string,
   revision: string | undefined,
@@ -145,19 +112,6 @@ const CACHE_MODE_BYTES_PER_ELEMENT: Record<string, number> = {
   FP16: 2, Q8: 1, Q6: 0.75, Q4: 0.5,
 };
 
-/**
- * Estimates GPU VRAM needed for the KV cache at a given context length — separate from (and not
- * folded into) the host-side /dev/shm and memoryLimit sizing in tabbyapi.ts, since VRAM isn't a
- * resource Kubernetes' nvidia device plugin lets you request a specific amount of (you request a
- * GPU *count*, not GiB) — this is informational so a user can judge fit against their own
- * hardware before committing to a 20+ minute deploy, not a hard validation gate.
- *
- * Only `full_attention`-type layers contribute a cache that grows with sequence length — hybrid
- * architectures (confirmed live: Qwen3.6-27B-exl3 is 16 full_attention / 48 linear_attention out
- * of 64 total) use a fixed-size state for their linear-attention layers, roughly constant
- * regardless of context length and small enough to not be worth estimating here. A model with no
- * `layer_types` field is a standard non-hybrid transformer — every layer counts.
- */
 export function estimateKvCacheBytes(
   config: Record<string, any>,
   maxSeqLen: number,
@@ -172,15 +126,9 @@ export function estimateKvCacheBytes(
   const numKvHeads = config.num_key_value_heads || config.num_attention_heads || 8;
   const bytesPerElement = CACHE_MODE_BYTES_PER_ELEMENT[cacheMode || 'FP16'] ?? 2;
 
-  // 2x for K and V.
   return 2 * numKvHeads * headDim * bytesPerElement * fullAttentionLayers * maxSeqLen;
 }
 
-/**
- * Streams every file in `files` into `destDir`, preserving their relative paths. Throws on the
- * first failed file rather than continuing past it — a partial model directory is as useless as
- * an empty one, and the caller (DownloadModelActivity) needs a real exception to retry on.
- */
 export async function downloadHfFiles(
   files: HfFile[],
   destDir: string,

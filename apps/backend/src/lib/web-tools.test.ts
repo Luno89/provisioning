@@ -1,13 +1,6 @@
-/**
- * The behaviour that matters here is all in the seams: what happens when a service is configured
- * but down, answers but with nothing, or answers with something unparseable. Those are the states
- * that decide whether the agent gets a page or a wall of stripped tags — and none of them are
- * visible without a live model on one side and a live service on the other.
- */
 import { describe, it, expect, vi } from 'vitest';
 import { createWebTools } from './web-tools.js';
 
-/** A fetch stub that answers by URL substring, and records what it was asked. */
 function stubFetch(routes: Array<[string, Partial<Response> | (() => Partial<Response>)]>) {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   const impl = vi.fn(async (input: any, init?: RequestInit) => {
@@ -37,8 +30,6 @@ describe('search', () => {
     const tools = createWebTools({ searxngUrl: 'http://searx:8080', fetchImpl: impl });
 
     expect((await tools.search('kubernetes')).hits).toEqual([{ title: 'T', snippet: 'S', url: 'https://x.dev' }]);
-    // `format=json` is the whole reason the construct has to override the default settings — SearXNG
-    // ships with JSON disabled and answers 403 to exactly this request until it is turned on.
     expect(calls[0]?.url).toContain('format=json');
   });
 
@@ -49,8 +40,6 @@ describe('search', () => {
     ]);
     const tools = createWebTools({ searxngUrl: 'http://searx:8080', fetchImpl: impl });
 
-    // A deployment that went down must not take search with it — the point of the chain. And the
-    // result says WHICH backend answered, so a silent downgrade is visible rather than inferred.
     const out = await tools.search('kubernetes');
     expect(out.hits).toHaveLength(1);
     expect(out.answeredBy).toBe('duckduckgo');
@@ -62,18 +51,13 @@ describe('search', () => {
     const tools = createWebTools({ searxngUrl: 'http://searx:8080', fetchImpl: impl });
 
     const answered = await tools.search('asdkjhasd');
-    // Answered, with nothing. Distinct from unavailable — see the note on SearchOutcome.
     expect(answered.hits).toEqual([]);
     expect(answered.unavailable).toBe(false);
     expect(answered.answeredBy).toBe('searxng');
-    // Re-asking DuckDuckGo would present a DIFFERENT engine's results as the same search, and hide
-    // a misconfigured SearXNG behind results that look fine.
     expect(calls).toHaveLength(1);
   });
 
   it('falls back when the service answers with a shape it should not', async () => {
-    // A SearXNG without JSON enabled returns an HTML error page with a 200. Parsed as JSON that is
-    // a throw, and treating it as "no results" would silently halve the agent's reach.
     const { impl } = stubFetch([
       ['searx', { json: async () => { throw new Error('not json'); } }],
       ['duckduckgo', { text: async () => DDG_HTML }],
@@ -87,8 +71,6 @@ describe('search', () => {
     const { impl } = stubFetch([['duckduckgo', { text: async () => DDG_HTML }]]);
     const tools = createWebTools({ fetchImpl: impl });
 
-    // The raw href is a duckduckgo.com/l/ redirect; handing that to the fetcher wastes a round trip
-    // and gives the model a URL it cannot cite.
     expect((await tools.search('x')).hits[0]?.url).toBe('https://example.com/a');
   });
 
@@ -96,11 +78,6 @@ describe('search', () => {
     const { impl } = stubFetch([['duckduckgo', () => { throw new Error('offline'); }]]);
     const tools = createWebTools({ fetchImpl: impl });
 
-    /**
-     * Still does not throw — that would fail the whole turn and lose a reply already streamed. But
-     * it no longer reports an outage as a negative result, which is what sent a Researcher into
-     * nineteen broadening queries and a fifteen-step loop.
-     */
     const out = await tools.search('x');
     expect(out.unavailable).toBe(true);
     expect(out.hits).toEqual([]);
@@ -108,8 +85,6 @@ describe('search', () => {
   });
 
   it('treats a DuckDuckGo block page as unavailable, not as an empty topic', async () => {
-    // It arrives as a 200 with an anomaly notice, so the parse finds nothing and the honest-looking
-    // answer would be "no matches" — the most likely thing that actually happened in production.
     const { impl } = stubFetch([['duckduckgo', { text: async () => '<html>anomaly detected</html>' }]]);
     const tools = createWebTools({ fetchImpl: impl });
 
@@ -131,12 +106,6 @@ describe('fetching a page', () => {
   });
 
   it('never calls the token endpoint', async () => {
-    /**
-     * `POST /token` looks like the way in and is a dead end: it reads the api_token from the config
-     * FILE with no environment fallback, so on an env-configured deployment it answers 403 forever
-     * while every other route authenticates fine. An implementation built around it fails against a
-     * service that is working. Verified live against a deployed 0.9.2.
-     */
     const { impl, calls } = crawlOk('page');
     const tools = createWebTools({ crawl4aiUrl: 'http://c4:11235', crawl4aiToken: 's', fetchImpl: impl });
 
@@ -161,14 +130,10 @@ describe('fetching a page', () => {
     ]);
     const tools = createWebTools({ crawl4aiUrl: 'http://c4:11235', crawl4aiToken: 's', fetchImpl: impl });
 
-    // An empty render means the browser failed, not that the page is blank — chromium OOMing in a
-    // 64MB /dev/shm produces exactly this, and it is the most likely misconfiguration.
     expect(await tools.fetchPage('https://example.com')).toBe('Static content');
   });
 
   it('does not use the crawler when it has a URL but no token', async () => {
-    // Deliberate: the token IS the authentication, so a crawler without one 401s on every request.
-    // Trying anyway costs a round trip per fetch to reach the same fallback.
     const { impl } = stubFetch([['example.com', { text: async () => '<p>hi</p>' }]]);
     const tools = createWebTools({ crawl4aiUrl: 'http://c4:11235', fetchImpl: impl });
 
@@ -180,8 +145,6 @@ describe('fetching a page', () => {
     const { impl, calls } = stubFetch([]);
     const tools = createWebTools({ fetchImpl: impl });
 
-    // The URL is model output. `file:///etc/passwd` reaching a fetcher that runs inside the cluster
-    // is the whole SSRF surface of this tool.
     expect(await tools.fetchPage('file:///etc/passwd')).toMatch(/http/);
     expect(calls).toHaveLength(0);
   });

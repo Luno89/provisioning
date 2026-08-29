@@ -1,18 +1,3 @@
-/**
- * RunPipelineActivity
- *
- * Builds a sibling project's pushed commit in an isolated, ephemeral Kubernetes Job (Kaniko —
- * no docker.sock, no host access, minimal-RBAC ServiceAccount with zero K8s API permissions,
- * fixed resource limits) and pushes the resulting image to the self-hosted Gitea registry. This
- * is the actual "sandbox" — no docker-in-docker, no shared daemon, nothing the build script can
- * reach beyond network egress to Gitea itself.
- *
- * Manifest shape (git-clone init container -> Kaniko build+push from the cloned workspace) was
- * verified by hand against a real Gitea instance before being encoded here: Kaniko's own
- * `git://` context resolution hardcodes HTTPS with no override, which fails against this
- * platform's plain-HTTP in-cluster Gitea — cloning via an init container into a shared
- * `emptyDir`, then pointing Kaniko at that local directory, sidesteps it entirely.
- */
 import fs from 'fs/promises';
 import { spawn } from 'child_process';
 import os from 'os';
@@ -22,9 +7,6 @@ import { InfrastructureService } from '../services/InfrastructureService.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { ApplicationFailure } from '@temporalio/common';
 
-// Same __dirname-relative resolution InfrastructureService itself uses for BIN_DIR (private
-// there) — this file lives at the same directory depth (apps/backend/src/activities/ vs
-// .../services/), so the relative path to the repo-root bin/ directory is identical.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const BIN_DIR = path.resolve(__dirname, '../../../../bin');
@@ -36,11 +18,6 @@ export interface RunPipelineArgs {
   commitSha: string;
   ref: string; // e.g. "main"
   logFile: string;
-  /**
-   * The pipeline run this belongs to, so its Kubernetes Job has a name nothing else shares.
-   *
-   * Optional only so an older workflow already in flight still deserialises; every caller sets it.
-   */
   runId?: string;
 }
 
@@ -49,8 +26,6 @@ export interface RunPipelineResult {
   imageTag: string;
 }
 
-// Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
-// VALUE from an activity file, only `import type`).
 export { runPipelineActivityMeta } from '../lib/activity-timeouts.js';
 
 const MGMT_CLUSTER = 'provisioning-lunorica';
@@ -78,18 +53,6 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
   const kubeconfig = await resolveKubeconfig(infra);
   const gitea = new GiteaService(infra, JWT_SECRET, kubeconfig);
 
-  /**
-   * Unique per RUN, not per commit.
-   *
-   * It was `build-<repo>-<commit8>`, and one commit legitimately produces two runs: Gitea posts a
-   * webhook for the branch push and another when it lands on main. Both derived the same name, so
-   * the second `kubectl apply` hit `spec.template: field is immutable` — a Job's pod template
-   * cannot be changed — and then whichever finished first deleted the Job in its cleanup, leaving
-   * the other polling a Job that no longer existed: `jobs.batch ... not found`.
-   *
-   * Measured on koala-request-42784df9: two runs of 62517e2e, both failed, neither for a reason
-   * that had anything to do with the code being built.
-   */
   const runSlug = (args.runId ?? Math.random().toString(36).slice(2)).replace(/[^a-z0-9]/gi, '').slice(-8).toLowerCase();
   const jobName = `build-${args.giteaRepo}-${args.commitSha.slice(0, 8)}-${runSlug}`
     .toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63);
@@ -105,18 +68,6 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
     ? 'Found .provisioning/pipeline.yml (informational only — build is a fixed Dockerfile+Kaniko build for now)'
     : 'No .provisioning/pipeline.yml — building the repo root Dockerfile');
 
-  /**
-   * Refuse before building, and refuse PERMANENTLY.
-   *
-   * The build is a Dockerfile build, so a repository without one cannot produce an image no matter
-   * how many times it is attempted. Temporal's default policy is unlimited, and this had run 622
-   * times against one commit — each attempt scheduling a Kubernetes Job, cloning the repo, and
-   * watching Kaniko print its usage text because `--dockerfile` resolved to nothing.
-   *
-   * Checked here rather than inside the Job because the answer is already one API call away, and a
-   * failure that says what to do is worth more than a build log that says `error resolving
-   * dockerfile path`.
-   */
   const dockerfile = await gitea.getRawFile(args.giteaOwner, args.giteaRepo, 'Dockerfile', args.ref).catch(() => null);
   if (!dockerfile) {
     const message = `${args.giteaRepo} has no Dockerfile at its root on ${args.ref}, so there is `
@@ -209,10 +160,6 @@ spec:
     await infra.runKubectl(['apply', '-f', manifestPath], kubeconfig);
     await log(args.logFile, `Applied Job ${jobName} in namespace ${BUILD_NAMESPACE}`);
 
-    // Wait for the pod to exist, then tail its combined output into logFile — activities run in
-    // a separate process from the Express/Socket.IO server, so there's no live `io` to push to
-    // here; the existing join-room handler in index.ts tails this same file for connected
-    // clients, exactly like every other long-running operation in this platform.
     for (let i = 0; i < 30 && !podName; i++) {
       const out = await infra.runKubectl(['get', 'pods', '-n', BUILD_NAMESPACE, '-l', `job-name=${jobName}`, '-o', 'jsonpath={.items[0].metadata.name}'], kubeconfig).catch(() => '');
       if (out && out.trim()) podName = out.trim();

@@ -41,8 +41,6 @@ describe('providersToSeed', () => {
   });
 
   it('leaves an edited built-in alone instead of overwriting it back', () => {
-    // Every built-in stored under its own value counts as seeded, even when hand-edited —
-    // here ALL of them are present (hetzner renamed), so there is nothing left to seed.
     const editedHetzner: ClusterProviderSpec = {
       ...BUILT_IN_PROVIDERS.find((p) => p.value === 'hetzner')!,
       label: 'My Hetzner',
@@ -55,7 +53,7 @@ describe('providersToSeed', () => {
 
   it('is stable when run twice against the same store (idempotent)', () => {
     const stored: ClusterProviderSpec[] = [];
-    void providersToSeed(stored); // first boot
+    void providersToSeed(stored);
     expect(providersToSeed([])).toEqual(providersToSeed([]));
   });
 });

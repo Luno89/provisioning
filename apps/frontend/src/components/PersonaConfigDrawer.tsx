@@ -12,18 +12,6 @@ import { listPacks, updatePack, packKeys, type PersonaPack } from '../api/packs'
 import type { Persona } from './PersonaEditor.js';
 import { errorMessage } from '../api/client.js';
 
-/**
- * ── WHAT THIS DRAWER EDITS, AND WHY IT CHANGED ──
- * It listed PERSONAS and called `onSelectPack(persona.id)` — a persona uuid handed to something
- * expecting a pack. `ChatSurface` put it straight into the `:packId` path segment, so clicking any
- * persona posted to a pack that did not exist while the header still read "Koala".
- *
- * The two are different things and the drawer now says so. A pack is what you SWITCH between and
- * what carries the runtime — its tools, its permissions, its sampling. The persona it points at
- * carries the prompt, which is edited here too because a prompt and the tools it talks about are
- * the same act of configuration.
- */
-
 export function PersonaConfigDrawer({
   isOpen,
   onClose,
@@ -38,7 +26,6 @@ export function PersonaConfigDrawer({
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string>(activePackId);
 
-  // Queries
   const { data: packs = [] } = useQuery<PersonaPack[]>({
     queryKey: packKeys.list(),
     queryFn: listPacks,
@@ -57,17 +44,9 @@ export function PersonaConfigDrawer({
     enabled: isOpen,
   });
 
-  /**
-   * The selected pack, and the persona it names.
-   *
-   * No `?? packs[0]` fallback. That is precisely what made this drawer offer Framer's prompt under
-   * Koala's name: asked for `koala`, finding no persona by that name because Koala was not seeded,
-   * it silently showed the first record it had.
-   */
   const currentPack = packs.find((p) => p.id === selectedId || p.slug === selectedId);
   const currentPersona = personas.find((p) => p.id === currentPack?.personaId);
 
-  // Local Draft State
   const [draftName, setDraftName] = useState('');
   const [draftDesc, setDraftDesc] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
@@ -77,12 +56,10 @@ export function PersonaConfigDrawer({
   const [draftMaxSteps, setDraftMaxSteps] = useState<number>(20);
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
-  // Hydrate draft state when selected persona changes
   useEffect(() => {
     if (!currentPack) return;
     setDraftName(currentPack.name);
     setDraftDesc(currentPack.description ?? '');
-    // The prompt belongs to the persona; everything else on this form belongs to the pack.
     setDraftPrompt(currentPersona?.systemPrompt ?? '');
     setDraftTemperature(
       typeof currentPack.overrides?.temperature === 'number' ? currentPack.overrides.temperature : 0.7,
@@ -95,13 +72,6 @@ export function PersonaConfigDrawer({
     setStatusMsg(null);
   }, [currentPack, currentPersona]);
 
-  /**
-   * Two writes, because two records are being edited.
-   *
-   * The pack takes the runtime — its name, its tool grant, its sampling. The persona takes the
-   * prompt. Sending the tools to the persona is what this form used to do, and it is why the
-   * switches did nothing: a chat turn read its tools from the pack and never looked at the persona.
-   */
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!currentPack) return;
@@ -144,7 +114,6 @@ export function PersonaConfigDrawer({
     );
   };
 
-  // Built-in toolsets
   const toolCategories = [
     {
       id: 'proposals',
@@ -172,7 +141,6 @@ export function PersonaConfigDrawer({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150 font-sans">
       <div className="relative w-full max-w-4xl max-h-[90vh] bg-[var(--bark-900,#111814)] border border-[var(--bark-700,#24332b)] rounded-lg shadow-2xl flex flex-col overflow-hidden text-slate-200">
-        {/* Header Bar */}
         <div className="flex items-center justify-between px-5 py-3.5 bg-[var(--bark-950,#090d0b)] border-b border-[var(--bark-800,#1b2620)]">
           <div className="flex items-center gap-2">
             <div className="p-1 rounded bg-emerald-500/10 text-emerald-400">
@@ -195,9 +163,7 @@ export function PersonaConfigDrawer({
           </button>
         </div>
 
-        {/* Main Content Grid */}
         <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-[var(--bark-800,#1b2620)]">
-          {/* Left Column: Persona Selector */}
           <div className="md:col-span-4 p-3 bg-[var(--bark-950,#090d0b)]/40 space-y-2">
             <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-1">
               Packs ({packs.length})
@@ -214,8 +180,6 @@ export function PersonaConfigDrawer({
                     type="button"
                     onClick={() => {
                       setSelectedId(p.slug);
-                      // The SLUG, which is what the route carries. This passed `p.id` — a persona
-                      // uuid — straight into the `:packId` path segment.
                       onSelectPack(p.slug);
                     }}
                     className={`w-full text-left p-2.5 rounded-md border transition-colors text-xs flex items-center justify-between cursor-pointer ${
@@ -246,11 +210,9 @@ export function PersonaConfigDrawer({
             </div>
           </div>
 
-          {/* Right Column: Editor & Tool Config */}
           <div className="md:col-span-8 p-5 space-y-5 bg-[var(--bark-900,#111814)]">
             {currentPack ? (
               <>
-                {/* Identity & Prompt */}
                 <div className="space-y-3.5">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
@@ -296,7 +258,6 @@ export function PersonaConfigDrawer({
                   </div>
                 </div>
 
-                {/* Tool Enablement Matrix */}
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
                     <Wrench size={13} className="text-emerald-400" />
@@ -342,7 +303,6 @@ export function PersonaConfigDrawer({
                   </div>
                 </div>
 
-                {/* MCP Attached Services */}
                 <div className="space-y-2.5">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
                     <Server size={13} className="text-emerald-400" />
@@ -391,7 +351,6 @@ export function PersonaConfigDrawer({
           </div>
         </div>
 
-        {/* Bottom Action Footer */}
         <div className="flex items-center justify-between px-5 py-3 bg-[var(--bark-950,#090d0b)] border-t border-[var(--bark-800,#1b2620)]">
           <div>
             {statusMsg && (

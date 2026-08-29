@@ -1,10 +1,3 @@
-/**
- * Talks to the self-hosted Headscale instance (docker-compose.headscale.yml, container
- * `provisioning-headscale`) — the coordination server for the root-node → remote-cluster-target
- * mesh (VPS instances, GPU workstations). Every endpoint/shape here is verified against
- * Headscale's real v0.29.2 OpenAPI spec (gen/openapiv2/headscale/v1/*.swagger.json in
- * juanfont/headscale), not assumed.
- */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
@@ -27,21 +20,13 @@ export interface MeshDevice {
 
 export class HeadscaleService {
   private apiKeyCache: string | null = null;
-  private userIdCache = new Map<string, string>(); // platformUserId -> headscale numeric user id
+  private userIdCache = new Map<string, string>();
 
   constructor(
     private readonly masterKey: string,
     private readonly baseUrl: string = 'http://localhost:8080',
   ) {}
 
-  /**
-   * Headscale's REST API is itself Bearer-token gated, and there's no unauthenticated bootstrap
-   * endpoint to mint the very first key — confirmed against the real docs, the only way is
-   * `headscale apikeys create` run inside the container. Mirrors GiteaService's token-file
-   * caching pattern: mint once, encrypt-store on disk, verify liveness before reuse (a wiped
-   * Headscale data volume, e.g. after `npm run clean-dev`, leaves a stale-but-decryptable key on
-   * disk that no longer authenticates).
-   */
   private async getApiKey(): Promise<string> {
     if (this.apiKeyCache) return this.apiKeyCache;
 
@@ -56,7 +41,6 @@ export class HeadscaleService {
         return candidate;
       }
     } catch {
-      // File missing, undecryptable, or stale — fall through to mint a fresh one.
     }
 
     const { stdout } = await execFileAsync('docker', [
@@ -84,11 +68,6 @@ export class HeadscaleService {
     });
   }
 
-  /**
-   * Headscale "users" are namespaces nodes register under, not this platform's own accounts —
-   * one Headscale user per platform user, named by the platform user's id (stable, never
-   * reused, unlike email which can change), created lazily on first mesh interaction.
-   */
   private async ensureHeadscaleUser(platformUserId: string): Promise<string> {
     const cached = this.userIdCache.get(platformUserId);
     if (cached) return cached;
@@ -115,13 +94,6 @@ export class HeadscaleService {
     return createBody.user.id;
   }
 
-  /**
-   * Mints a single-use pre-auth key scoped to this platform user's Headscale namespace — the
-   * core of the onboarding flow used by both Phase 2 (SSH k3s bootstrap onto a GPU workstation)
-   * and Phase 3 (a freshly-created VPS): mint key here, SSH to the target, install the tailscale
-   * client, `tailscale up --login-server=<headscale-url> --authkey=<key>`, and the target is
-   * reachable at a stable mesh IP with no port-forwarding.
-   */
   async createPreAuthKey(
     platformUserId: string,
     opts: { reusable?: boolean; expirySeconds?: number } = {},
@@ -144,12 +116,6 @@ export class HeadscaleService {
     return { key: body.preAuthKey.key, expiration: body.preAuthKey.expiration };
   }
 
-  /**
-   * Lists every mesh device (node) registered under this platform user's Headscale namespace.
-   * Ensures the namespace exists first — confirmed live that Headscale's `ListNodes?user=`
-   * returns HTTP 500 "user not found" (not an empty list) for a name with no Headscale user yet,
-   * which is the normal case for any platform user who hasn't minted a pre-auth key before.
-   */
   async listUserDevices(platformUserId: string): Promise<MeshDevice[]> {
     await this.ensureHeadscaleUser(platformUserId);
     const name = `platform-${platformUserId}`;
@@ -167,7 +133,6 @@ export class HeadscaleService {
     }));
   }
 
-  /** Revokes (deletes) a mesh device — e.g. when a user removes a remote cluster target. */
   async revokeDevice(nodeId: string): Promise<void> {
     const res = await this.apiFetch(`/api/v1/node/${nodeId}`, { method: 'DELETE' });
     if (!res.ok) {
@@ -175,11 +140,6 @@ export class HeadscaleService {
     }
   }
 
-  /**
-   * Resolves a joined device's stable mesh IPv4 address (the 100.64.0.0/10 CGNAT range this
-   * instance's prefixes.v4 allocates from, see headscale/config/config.yaml) — what Phase 2's
-   * remote-host provisioning rewrites a remote cluster's kubeconfig server address to.
-   */
   async resolveDeviceMeshIp(nodeId: string): Promise<string | undefined> {
     const res = await this.apiFetch(`/api/v1/node/${nodeId}`);
     if (!res.ok) throw new Error(`Failed to get Headscale node ${nodeId}: HTTP ${res.status}`);

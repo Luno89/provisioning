@@ -5,41 +5,14 @@ import { Activity, ExternalLink, Plus, Shield, Trash2 } from 'lucide-react';
 import { deployStatusClass } from '../lib/deploy-status.js';
 import { NO_WEB_UI_APP_TYPES } from '../lib/app-ui.js';
 
-/**
- * The deployed applications table.
- *
- * ── WHY IT IS ITS OWN FILE ──
- * 39 lines inside App's single component. Small, but it is one of the fourteen screens sharing that
- * scope, and the reason App is 3,000 lines is that each of them looked too small to move.
- *
- * `deployStatusClass` moved to lib alongside it: a status colour is not App's business, and leaving
- * it behind would have this import from a component file, which is how a UI file becomes a module
- * everything depends on.
- */
-
-/**
- * The applications table.
- *
- * ── WHY IT TOOK NINE PROPS AND NOW TAKES FOUR ──
- * Four of them were the deploy wizard's setters — `setWizardStep`, `setWizardData`,
- * `setShowVllmAdvanced`, `setShowTabbyAdvanced` — used in a single `onClick` to reset the wizard
- * before opening it, with `setWizardData` handed a 44-key object literal inline. So this table
- * carried a copy of the wizard's initial state, in a different file from the other copy.
- *
- * The wizard unmounts when it closes, so its state resets on its own. This asks App to open it.
- */
 export interface AppsViewProps {
   deployments: Deployment[];
   clusters: Cluster[];
-  /** Opens the deploy wizard. It resets itself, so there is nothing to clear first. */
   onDeploy: () => void;
-  /** Opens the log/dashboard modal for a deployment. */
   onOpenLogs: (id: string) => void;
 }
 
 export default function AppsView({ deployments, clusters, onDeploy, onOpenLogs }: AppsViewProps) {
-  // Destroying raises the same confirmation wherever it is triggered from — App is not in the
-  // middle of it.
   const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy);
   return (
         <section>

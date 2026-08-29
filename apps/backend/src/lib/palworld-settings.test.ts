@@ -13,20 +13,14 @@ import {
 
 describe('palworld settings schema', () => {
   it('is internally consistent', () => {
-    // Catches duplicate env names, unknown categories, enums with no options, and defaults that
-    // would not survive their own validation — all far cheaper to find here than as a pod that
-    // refuses to start.
     expect(validateSchemaShape(PALWORLD_SCHEMA)).toEqual([]);
   });
 
   it('covers a substantial portion of PalWorldSettings.ini', () => {
-    // Guards against a botched edit silently truncating the list.
     expect(PALWORLD_SCHEMA.settings.length).toBeGreaterThan(100);
   });
 
   it('marks the platform-owned ports readonly', () => {
-    // A user editing PORT would leave the hostPort, Service and cloud firewall rule all pointing
-    // at the old number, silently making the server unreachable.
     for (const env of ['PORT', 'RCON_PORT', 'REST_API_PORT', 'PUID', 'PGID']) {
       const setting = PALWORLD_SCHEMA.settings.find((s) => s.env === env);
       expect(setting, `${env} missing from schema`).toBeDefined();
@@ -51,8 +45,6 @@ describe('validateAppSettings', () => {
   });
 
   it('rejects an unknown key', () => {
-    // This is the security boundary: these values become container env vars, so without an
-    // allowlist any authenticated user could inject arbitrary env into a pod.
     const { values, errors } = validateAppSettings(PALWORLD_SCHEMA, { LD_PRELOAD: '/tmp/evil.so' });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('LD_PRELOAD');
@@ -80,8 +72,6 @@ describe('validateAppSettings', () => {
   });
 
   it('strips readonly and secret keys without erroring', () => {
-    // The UI renders both (greyed out / blank password), so a form submitting the whole set must
-    // not be rejected because of them — they just must not be stored.
     const { values, errors } = validateAppSettings(PALWORLD_SCHEMA, {
       PORT: '9999',
       ADMIN_PASSWORD: 'hunter2',
@@ -106,7 +96,6 @@ describe('resolveAppSettings', () => {
     expect(resolved.PORT).toBe(String(PALWORLD_GAME_PORT));
     expect(resolved.REST_API_PORT).toBe(String(PALWORLD_REST_PORT));
     expect(resolved.DIFFICULTY).toBe('None');
-    // Secrets come from the Kubernetes Secret, never this map.
     for (const env of PALWORLD_SECRET_ENVS) {
       expect(resolved[env]).toBeUndefined();
     }
@@ -115,11 +104,10 @@ describe('resolveAppSettings', () => {
   it('applies stored overrides on top of defaults', () => {
     const resolved = resolveAppSettings(PALWORLD_SCHEMA, { EXP_RATE: '3.0' });
     expect(resolved.EXP_RATE).toBe('3.0');
-    expect(resolved.PAL_CAPTURE_RATE).toBe('1.000000'); // untouched default
+    expect(resolved.PAL_CAPTURE_RATE).toBe('1.000000');
   });
 
   it('drops stored keys the schema no longer knows about', () => {
-    // Otherwise a setting removed in a later schema version keeps being injected into the pod.
     const resolved = resolveAppSettings(PALWORLD_SCHEMA, { REMOVED_IN_V2: 'x' });
     expect(resolved.REMOVED_IN_V2).toBeUndefined();
   });

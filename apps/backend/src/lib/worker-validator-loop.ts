@@ -1,23 +1,3 @@
-/**
- * worker-validator-loop — orchestrates iterative refinement between worker and validator.
- *
- * ── WHY THIS EXISTS ──
- * An agent given a complex task or existing codebase rarely gets everything 100% right on its
- * very first pass. Previously, a run executed once: if tests or checks failed at the end, the work
- * was simply abandoned on a feature branch with `verified: false`, requiring manual human intervention.
- *
- * This loop pairs the Worker (who writes and modifies code) with the Validator (who executes
- * deterministic validation recipes: commands, probes, file integrity checks). They hand work back
- * and forth iteratively:
- *   1. Worker implements changes in the workspace.
- *   2. Validator evaluates the workspace against the project's ValidationRecipe.
- *   3. If all checks pass: the loop terminates with SUCCESS -> fast-forward merge -> CI/CD build.
- *   4. If checks fail, progress is assessed:
- *      - If meaningful progress was made: the Validator's exact diagnostic report is handed back
- *        to the Worker for round N+1 in the warm workspace.
- *      - If no meaningful progress was made (circling, thrashing, identical failures twice, or budget hit):
- *        the loop circuit-breaker trips, halting execution and preserving diagnostics.
- */
 
 import type { ValidationSummary, ValidationCheckResult } from '../services/UniversalValidatorService.js';
 
@@ -57,9 +37,6 @@ export interface WorkspaceStorage {
   readFile(leafId: string, path: string): Promise<string>;
 }
 
-/**
- * Persists validation feedback and report artifacts into the container at standard locations.
- */
 export async function writeValidationArtifacts(
   workspaces: WorkspaceStorage,
   leafId: string,
@@ -72,9 +49,6 @@ export async function writeValidationArtifacts(
   await workspaces.writeFile(leafId, `/work/${VALIDATION_REPORT_FILE}`, report);
 }
 
-/**
- * Reads the latest validation feedback artifact from the container, if present.
- */
 export async function readValidationFeedback(
   workspaces: WorkspaceStorage,
   leafId: string,
@@ -82,10 +56,6 @@ export async function readValidationFeedback(
   return workspaces.readFile(leafId, `/work/${VALIDATION_FEEDBACK_FILE}`).catch(() => undefined);
 }
 
-/**
- * Normalises a failure message for signature comparison across rounds.
- * Strips volatile timestamps and ephemeral port numbers so true identical failures match.
- */
 export function failureSignature(failure: ValidationRoundFailure): string {
   const err = (failure.error || '').replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z\b/g, '')
     .replace(/:\d{4,5}\b/g, '')
@@ -93,16 +63,12 @@ export function failureSignature(failure: ValidationRoundFailure): string {
   return `${failure.checkId}::${err}`;
 }
 
-/**
- * Assesses whether the Worker and Validator are making meaningful progress between rounds.
- */
 export function assessLoopProgress(
   previousRound: ValidationRoundRecord | undefined,
   currentRound: ValidationRoundRecord,
   maxRounds: number = DEFAULT_MAX_VALIDATION_ROUNDS,
   workerStoppedBecause?: string | undefined,
 ): LoopProgressAssessment {
-  // 1. Success condition: All checks passed
   if (currentRound.passed && currentRound.failedChecks === 0) {
     return {
       shouldContinue: false,
@@ -111,7 +77,6 @@ export function assessLoopProgress(
     };
   }
 
-  // 1b. Worker stopped itself and made zero repository changes: halting
   if (workerStoppedBecause && !currentRound.commits && (!currentRound.changedFiles || currentRound.changedFiles.length === 0)) {
     return {
       shouldContinue: false,
@@ -120,7 +85,6 @@ export function assessLoopProgress(
     };
   }
 
-  // 2. Round ceiling reached
   if (currentRound.round >= maxRounds) {
     return {
       shouldContinue: false,
@@ -129,7 +93,6 @@ export function assessLoopProgress(
     };
   }
 
-  // 3. First round failure: Always allow at least one refinement iteration if within budget
   if (!previousRound) {
     return {
       shouldContinue: true,
@@ -139,7 +102,6 @@ export function assessLoopProgress(
     };
   }
 
-  // 4. Progress Signal A: More checks passing than previous round
   if (currentRound.passedChecks > previousRound.passedChecks) {
     return {
       shouldContinue: true,
@@ -149,7 +111,6 @@ export function assessLoopProgress(
     };
   }
 
-  // 5. Progress Signal B: Fewer checks failing than previous round
   if (currentRound.failedChecks < previousRound.failedChecks) {
     return {
       shouldContinue: true,
@@ -159,14 +120,12 @@ export function assessLoopProgress(
     };
   }
 
-  // 6. Stall Detection: Identical failure signatures across rounds
   const prevSigs = new Set(previousRound.failures.map(failureSignature));
   const currSigs = new Set(currentRound.failures.map(failureSignature));
   const signaturesIdentical = prevSigs.size === currSigs.size
     && [...currSigs].every((sig) => prevSigs.has(sig));
 
   if (signaturesIdentical) {
-    // If files also didn't change, worker is definitely stuck
     const prevFiles = (previousRound.changedFiles ?? []).join(',');
     const currFiles = (currentRound.changedFiles ?? []).join(',');
     if (prevFiles === currFiles && (previousRound.commits ?? 0) === (currentRound.commits ?? 0)) {
@@ -177,7 +136,6 @@ export function assessLoopProgress(
       };
     }
 
-    // If files changed but the exact same error recurred, allow at most one retry with explicit warning
     if (currentRound.round >= 3) {
       return {
         shouldContinue: false,
@@ -187,7 +145,6 @@ export function assessLoopProgress(
     }
   }
 
-  // 7. Regression check: Fewer passing checks than before
   if (currentRound.passedChecks < previousRound.passedChecks) {
     return {
       shouldContinue: true,
@@ -197,7 +154,6 @@ export function assessLoopProgress(
     };
   }
 
-  // Fallback: Continue if within rounds budget
   return {
     shouldContinue: true,
     isComplete: false,
@@ -206,9 +162,6 @@ export function assessLoopProgress(
   };
 }
 
-/**
- * Builds the actionable prompt handed back to the worker for the next refinement round.
- */
 export function buildFeedbackPrompt(round: ValidationRoundRecord, isRegression = false): string {
   const lines: string[] = [
     `## ⚠️ Validation Feedback (Round ${round.round} of ${DEFAULT_MAX_VALIDATION_ROUNDS})`,
@@ -239,9 +192,6 @@ export function buildFeedbackPrompt(round: ValidationRoundRecord, isRegression =
   return lines.join('\n');
 }
 
-/**
- * Extracts ValidationRoundRecord from a UniversalValidatorService ValidationSummary.
- */
 export function recordFromSummary(
   round: number,
   summary: ValidationSummary,

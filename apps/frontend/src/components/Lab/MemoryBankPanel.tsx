@@ -25,7 +25,6 @@ interface MemoryItem {
   };
   createdAt: string;
   updatedAt: string;
-  /** Set when the memory stopped being true. Absent means current — invalidated rows are history. */
   invalidAt?: string;
   supersededBy?: string;
   lastUsedAt?: string;
@@ -53,7 +52,6 @@ export function MemoryBankPanel() {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Form states
   const [cat, setCat] = useState<'lessons_learned' | 'environment_facts' | 'prompt_guidance'>('lessons_learned');
   const [scope, setScope] = useState<'project' | 'global'>('project');
   const [title, setTitle] = useState('');
@@ -116,13 +114,6 @@ export function MemoryBankPanel() {
   const pendingList = (memories ?? []).filter((m) => m.status === 'pending_review' && !m.invalidAt);
   const retiredList = (memories ?? []).filter((m) => m.invalidAt);
 
-  /**
-   * Retired entries are excluded from every other view.
-   *
-   * They are kept so that "what did the harness believe when this leaf ran" stays answerable, and
-   * so a wrong supersession is reversible — but they are not current, and mixing them into the
-   * active list would present superseded facts as things the harness still believes.
-   */
   const activeList = (memories ?? []).filter((m) => {
     if (filter === 'retired') return Boolean(m.invalidAt);
     if (m.invalidAt) return false;
@@ -178,7 +169,6 @@ export function MemoryBankPanel() {
         ))}
       </div>
 
-      {/* CONSOLIDATION — a loop that retires memories unattended should be visible. */}
       {consolidation && (consolidation.deduped > 0 || consolidation.decayed > 0 || consolidation.promoted > 0) && (
         <div className="bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-xl p-3 text-[11px] text-slate-400 flex items-center gap-2">
           <Brain size={13} className="text-[var(--leaf-light)] shrink-0" />
@@ -191,7 +181,6 @@ export function MemoryBankPanel() {
         </div>
       )}
 
-      {/* THE OLD REVIEW QUEUE, WHICH NOBODY DRAINED */}
       {pendingList.length > 0 && filter !== 'pending' && (
         <div className="bg-amber-950/40 border border-amber-800/60 rounded-xl p-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5 text-amber-300 text-xs">
@@ -446,11 +435,6 @@ export function MemoryBankPanel() {
                     {m.text}
                   </p>
 
-                  {/*
-                    Use, not age. This is what decay is decided on, so it is the number worth showing:
-                    an old memory read by every leaf is load-bearing, and a recent one nothing ever
-                    matches is noise. "Never" on an old entry is the signal that it is about to go.
-                  */}
                   <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
                     <span>
                       Read {m.useCount ? `${m.useCount}×` : 'never'}

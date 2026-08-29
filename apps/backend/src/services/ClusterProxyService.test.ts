@@ -50,7 +50,6 @@ describe('ClusterProxyService', () => {
       const svc = new ClusterProxyService();
       const resultPromise = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
 
-      // spawn was called, wait for stdout
       expect(mockSpawn).toHaveBeenCalledOnce();
       emitForwarding(child, 54321);
 
@@ -88,13 +87,8 @@ describe('ClusterProxyService', () => {
 
       const args = mockSpawn.mock.calls[0]![1] as string[];
       expect(args).toContain('-n');
-      // Not kube-system — this platform's own Traefik release deploys into its own 'traefik'
-      // namespace (constructs/ingress.ts); k3s's bundled Traefik, which would be in
-      // kube-system, is explicitly disabled at cluster-create time.
       expect(args).toContain('traefik');
       expect(args).toContain('deployment/traefik');
-      // Not 9000 — the chart's dashboard/API entrypoint (named "traefik" in the container
-      // spec) is actually 8080; confirmed live against the running pod's containerPort list.
       expect(args).toContain('0:8080');
       expect(url).toBe('http://localhost:11111/dashboard/');
     });
@@ -117,7 +111,6 @@ describe('ClusterProxyService', () => {
       const url1 = await p1;
       expect(url1).toBe('http://localhost:40001/');
 
-      // Second call should reuse — no new spawn
       const url2 = await svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
       expect(url2).toBe('http://localhost:40001/');
       expect(mockSpawn).toHaveBeenCalledOnce();
@@ -258,7 +251,6 @@ describe('ClusterProxyService', () => {
 
       svc.stopForCluster('c1');
 
-      // After stop, a new port-forward should be spawned
       const p2 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
       emitForwarding(child2, 40002);
       const url = await p2;

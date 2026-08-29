@@ -6,43 +6,9 @@ import { useQuery } from '@tanstack/react-query';
 import { getVpsCatalog } from '../api/vps-catalog';
 import { validateCredentials, saveCredentials } from '../api/credentials';
 
-/**
- * Multi-step "Provision New Cluster" flow.
- *
- * Extracted from App.tsx rather than grown in place: the credentials step needs its own
- * validate/save round-trips and local state, which is exactly the kind of thing that made
- * App.tsx a ~1800-line monolith in the first place.
- *
- * The credentials step exists because a real-VM provider is unusable without a token, and
- * bouncing the user out to the Cloud Accounts page mid-flow (and losing the half-filled form)
- * is a worse experience than asking for the token right where it's first needed. It is skipped
- * entirely when the provider needs no credentials (k3d) or already has them configured.
- */
-
-
-
-/**
- * Plans and prices come from the live catalogue (`/api/vps-catalog`), not a list in this file.
- * A hardcoded list is wrong the moment a provider reprices — Hetzner changed prices three times in
- * 2026 — and the previous one had drifted to 5 of the 25 orderable plans.
- *
- * Two exclusions from that old list are preserved as query filters rather than dropped, because
- * both prevent a cluster that provisions fine and then fails:
- *
- *  - `arch=x86` — CAX plans are ARM64, and several images this platform deploys (notably game
- *    servers running SteamCMD) are x86-64 only. Picking one to save money yields exec-format
- *    errors on every app deploy.
- *  - `minRamGb=8` — k3s plus this platform's cluster stack (kube-prometheus-stack, Traefik, Loki)
- *    measures at a ~5 GB working set, so a 4 GB plan leaves no usable headroom. See
- *    tests/lib/memory-budget.ts for where that number comes from.
- */
-/**
- * Shared filter tail for a catalog fetch; the provider segment comes from the selected row.
- */
 const catalogQueryFor = (providerValue: string) =>
   `provider=${providerValue}&provisionableOnly=true&arch=x86&minRamGb=8&sort=price&sortDir=asc&limit=100`;
 
-/** The API returns provider-native location codes; these are just for humans. */
 const LOCATION_LABELS: Record<string, string> = {
   nbg1: 'Nuremberg, Germany',
   fsn1: 'Falkenstein, Germany',
@@ -52,11 +18,6 @@ const LOCATION_LABELS: Record<string, string> = {
   sin: 'Singapore',
 };
 
-/**
- * Used only when the catalogue can't be reached (provider API down, token not yet saved). Enough
- * to complete a provision rather than dead-ending the wizard — deliberately without prices, since
- * a stale price shown as fact is worse than no price at all.
- */
 const FALLBACK_PLANS = [
   { planId: 'cx33', vcpu: 4, ramGb: 8 },
   { planId: 'cx43', vcpu: 8, ramGb: 16 },
@@ -87,18 +48,11 @@ interface CatalogOffer {
 }
 
 interface Props {
-  /** From GET /api/credentials — used to skip the token step when one is already stored. */
   configuredProviders: { provider: string; configured: boolean }[];
   onCancel: () => void;
   onSubmit: (payload: Record<string, unknown>) => void;
   submitting?: boolean;
-  /** Re-fetches the credential statuses after a token is saved. */
   onCredentialsSaved?: () => void;
-  /**
-   * Pre-selection from the VPS Catalog's Deploy button, so picking a plan there lands here with
-   * that plan and location already chosen. Only seeds the initial state — the user can still
-   * change any of it before submitting.
-   */
   preset?: { provider: string; serverType?: string; location?: string };
 }
 
@@ -130,16 +84,12 @@ export default function ClusterWizard({
   const [remoteHost, setRemoteHost] = useState('');
   const [remoteUsername, setRemoteUsername] = useState('root');
 
-  // The provider list is served data. While it loads the select is empty and Next stays disabled —
-  // the same guarded state a slow credentials fetch already produced.
   const { data: providers = [] } = useQuery({
     queryKey: ['cluster-providers', 'list'],
     queryFn: listClusterProviders,
     staleTime: Infinity,
   });
 
-  // Capability flags replace name equality: what the wizard does next depends on WHAT the provider
-  // can do (serve a catalog, join the mesh), not on which string it is called.
   const selected: ClusterProviderSpec | undefined = providers.find((p) => p.value === provider);
   const hasCatalog = !!selected?.hasCatalog;
   const usesMesh = !!selected?.usesMesh;
@@ -147,22 +97,15 @@ export default function ClusterWizard({
   const credentialKey = selected?.credentialKey;
   const alreadyConfigured = !!credentialKey && configuredProviders.some((p) => p.provider === credentialKey && p.configured);
 
-  // The token step is skipped when there's nothing to ask for — but only *skipped*, never
-  // removed: `needsCredentialStep` is recomputed as the provider changes, so going back and
-  // switching from k3d to Hetzner re-introduces it.
   const needsCredentialStep = !!credentialKey && !alreadyConfigured && !tokenSaved;
   const needsOptionsStep = hasCatalog;
   const needsRemoteStep = usesMesh;
 
-  // Re-fetched once a token exists: the Hetzner catalogue is credential-gated, so a fetch before
-  // the credentials step would come back empty and strand the user on the fallback list.
   useEffect(() => {
     if (!usesMesh) return;
     let cancelled = false;
     listMeshDevices()
       .then((d) => { if (!cancelled) setMeshDevices(Array.isArray(d) ? d : []); })
-      // An unreachable mesh renders as "no machines" plus the pointer to My Machines, which is the
-      // same thing the user needs to do either way.
       .catch(() => { if (!cancelled) setMeshDevices([]); });
     return () => { cancelled = true; };
   }, [usesMesh]);
@@ -177,10 +120,6 @@ export default function ClusterWizard({
     return () => { cancelled = true; };
   }, [hasCatalog, catalogProviderValue, hasToken]);
 
-  /**
-   * One entry per plan, cheapest tier as the headline. The catalogue returns a separate offer per
-   * price tier because Hetzner charges differently per location, so a plan appears several times.
-   */
   const plans = useMemo(() => {
     const byPlan = new Map<string, CatalogOffer>();
     for (const o of offers ?? []) {
@@ -190,7 +129,6 @@ export default function ClusterWizard({
     return [...byPlan.values()].sort((a, b) => a.priceMonthly - b.priceMonthly);
   }, [offers]);
 
-  /** Every location the selected plan is offered in, each carrying that location's own price. */
   const locationChoices = useMemo(() => {
     const out: { code: string; priceMonthly: number; bandwidthTb?: number; currency: string }[] = [];
     for (const o of offers ?? []) {
@@ -202,7 +140,6 @@ export default function ClusterWizard({
     return out.sort((a, b) => a.priceMonthly - b.priceMonthly || a.code.localeCompare(b.code));
   }, [offers, serverType]);
 
-  // Not every plan is sold in every location, so a plan change can strand an invalid selection.
   useEffect(() => {
     if (locationChoices.length && !locationChoices.some((l) => l.code === location)) {
       setLocation(locationChoices[0]!.code);
@@ -256,8 +193,6 @@ export default function ClusterWizard({
     onSubmit({
       name,
       provider,
-      // Payload field names are keyed to capability, not vendor: a catalog-bearing provider carries
-      // its plan/location, a mesh-backed one its host. The backend still validates per provider.
       ...(hasCatalog ? { hetznerServerType: serverType, hetznerLocation: location } : {}),
       ...(usesMesh ? {
         remoteHost,
@@ -266,11 +201,6 @@ export default function ClusterWizard({
     });
   };
 
-  // Mirrors validateClusterName() in apps/backend/src/lib/cluster-name.ts — there are no
-  // cross-workspace source imports in this repo, so the rule is duplicated rather than shared.
-  // The backend check is the authoritative one; this exists so the user finds out while typing
-  // instead of after a submit, since the server-side failure otherwise surfaces from deep inside
-  // a CDKTF subprocess as "Cannot create TerraformStack with id ... whitespace character".
   const nameCheck = useMemo((): { error?: string; suggestion?: string } => {
     const trimmed = name.trim();
     if (trimmed === '') return {};
@@ -288,8 +218,6 @@ export default function ClusterWizard({
     return {};
   }, [name]);
 
-  // Step 4 gates on all three: an empty host or key reaches the workflow and fails minutes later
-  // inside an SSH activity, which is a poor place to discover a blank form field.
   const canAdvance =
     step === 1 ? name.trim().length > 0 && !nameCheck.error
     : step === 4 ? remoteHost.trim().length > 0
@@ -489,9 +417,6 @@ export default function ClusterWizard({
                       </option>
                     ))}
               </select>
-              {/* The premium is the whole reason location shows a price. Hetzner charges up to
-                  3.7x more for the same plan in its US locations and bundles 1TB of traffic there
-                  against the EU's 20TB — invisible in a plain list of city names. */}
               {selectedOffer && locationChoices[0] && selectedOffer.priceMonthly > locationChoices[0].priceMonthly && (
                 <p className="text-[11px] text-amber-400/90 mt-2 px-1">
                   {(selectedOffer.priceMonthly / locationChoices[0].priceMonthly).toFixed(1)}× the price of{' '}
@@ -560,10 +485,6 @@ export default function ClusterWizard({
               </p>
             </div>
 
-            {/* Deliberately no private-key field. The platform generates the pair and shows only
-                the public half — an invited user should never have to hand over a credential, and
-                a key pasted here could well be their everyday one with access to everything else
-                they own. The private half is created server-side and never leaves it. */}
             <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4 flex items-start gap-3">
               <KeyRound className="text-blue-400 flex-shrink-0 mt-0.5" size={16} />
               <p className="text-[11px] text-slate-400 leading-relaxed">

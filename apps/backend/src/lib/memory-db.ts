@@ -92,13 +92,6 @@ export class MemoryDB implements Database {
 
   async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
     const id = cluster.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getClusters()).find((x: ClusterMetadata) => x.id === id);
     const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
     const c: ClusterMetadata = {
@@ -116,8 +109,6 @@ export class MemoryDB implements Database {
   async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
     const idx = this.clusters.findIndex(c => c.id === clusterId);
     const existing = this.clusters[idx];
-    // Bind before spreading — under noUncheckedIndexedAccess an indexed read is `T | undefined`
-    // even after an `idx >= 0` check, since TS can't tie the two together.
     if (existing) {
       this.clusters[idx] = { ...existing, progress };
     }
@@ -143,13 +134,6 @@ export class MemoryDB implements Database {
 
   async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
     const id = deployment.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getDeployments()).find((x: DeploymentMetadata) => x.id === id);
     const merged = mergeRecord(previous, deployment as Partial<DeploymentMetadata>);
     const d: DeploymentMetadata = {
@@ -177,13 +161,6 @@ export class MemoryDB implements Database {
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
     const id = project.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getProjects()).find((x: ProjectMetadata) => x.id === id);
     const merged = mergeRecord(previous, project as Partial<ProjectMetadata>);
     const p: ProjectMetadata = {
@@ -212,13 +189,6 @@ export class MemoryDB implements Database {
 
   async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
     const id = run.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getPipelineRuns()).find((x: PipelineRunMetadata) => x.id === id);
     const merged = mergeRecord(previous, run as Partial<PipelineRunMetadata>);
     const r: PipelineRunMetadata = {
@@ -259,17 +229,6 @@ export class MemoryDB implements Database {
     this.users = [...users];
   }
 
-  /**
-   * Matches Mongo's semantics exactly, which means normalising the QUERY and not the stored value.
-   *
-   * This used to normalise both sides, and that leniency hid a real defect: `mongo-db.ts` does
-   * `findOne({ email: email.trim().toLowerCase() })` against whatever was written, so a user stored
-   * as `MixedCase@Example.COM` is unreachable forever — every login says "Invalid email or
-   * password" with the correct password. Under the old MemoryDB that was a green test.
-   *
-   * Registration normalises before writing (see `routes/auth.ts`), so this is strictly the
-   * safety net for the next write path that forgets to.
-   */
   async getUserByEmail(email: string): Promise<UserMetadata | undefined> {
     const cleanEmail = email.trim().toLowerCase();
     return this.users.find(u => u.email === cleanEmail);
@@ -330,8 +289,6 @@ export class MemoryDB implements Database {
   }
 
   async saveTreeType(treeType: TreeTypeSpec): Promise<void> {
-    // Keyed on (owner, id): a type id is unique per owner, not globally — two people may both have
-    // a "playbook" type and they are not the same record.
     const i = this.treeTypes.findIndex((t) => t.id === treeType.id && t.ownerId === treeType.ownerId);
     if (i >= 0) this.treeTypes[i] = treeType;
     else this.treeTypes.push(treeType);
@@ -461,7 +418,6 @@ export class MemoryDB implements Database {
   async enqueueFrontier(urls: FrontierUrl[]): Promise<number> {
     let added = 0;
     for (const u of urls) {
-      // The id is what Mongo's unique index enforces; here the same check is explicit.
       if (this.frontier.some((f) => f.id === u.id)) continue;
       this.frontier.push(u);
       added += 1;

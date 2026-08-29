@@ -1,14 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseSseStream } from '../lib/parse-sse.js';
 
-/**
- * RED: the unified SSE parser.
- *
- * The backend emits unified frames as SSE: `data: {"type":"content","delta":"..."}`
- * This parser extracts them one by one from the raw stream chunks.
- * Pure function, no fetch — just the framing logic.
- */
-
 describe('parseSseStream — unified wire frames from raw SSE chunks', () => {
   it('splits a single-frame chunk', () => {
     const chunks = ['data: {"type":"content","delta":"Hello"}\n\n'];

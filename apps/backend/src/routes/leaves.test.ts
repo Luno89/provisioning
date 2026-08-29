@@ -4,14 +4,6 @@ import { leavesRouter } from './leaves.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { LEAF_COLUMNS } from '../lib/leaves.js';
 
-/**
- * The board, over real HTTP.
- *
- * Ten routes and 455 lines that had no HTTP coverage. The database is real (`MemoryDB` via the
- * harness) so these exercise the actual ownership predicate and the actual records, not a mock's
- * idea of them.
- */
-
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
@@ -57,7 +49,6 @@ describe('listing the board', () => {
 
 describe('creating a leaf', () => {
   it('requires a title, and says which field', async () => {
-    // A 400 that says only "invalid" leaves the caller guessing — and the caller here is a model.
     const harness = await mount();
     const err = await axios.post(harness.url('/api/leaves'), { branchId: 'b1' }).catch((e) => e);
     expect(err.response.status).toBe(400);
@@ -65,10 +56,6 @@ describe('creating a leaf', () => {
   });
 
   it('rejects a column that is not one of the real ones', async () => {
-    /**
-     * `column` arrives as untrusted JSON and the union type validates nothing at runtime. A leaf
-     * stored in a column the board does not render is invisible work.
-     */
     const harness = await mount();
     const err = await axios.post(harness.url('/api/leaves'), {
       title: 'x', branchId: 'b1', column: 'not-a-column',
@@ -89,7 +76,6 @@ describe('creating a leaf', () => {
   });
 
   it('404s a parent belonging to someone else, rather than 403', async () => {
-    // Same rule as everywhere: a 403 would confirm the id exists.
     const harness = await mount();
     await harness.db.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else' }) as never);
     const err = await axios.post(harness.url('/api/leaves'), {
@@ -101,10 +87,6 @@ describe('creating a leaf', () => {
 
 describe('acting on one leaf', () => {
   it('404s another tenant\'s leaf on every route that takes an id', async () => {
-    /**
-     * Iterates rather than naming one, so a route added tomorrow that forgets the ownership filter
-     * fails here. That filter was seven hand-written closures before `ownedBy`.
-     */
     const harness = await mount();
     await harness.db.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else' }) as never);
     const calls: [string, () => Promise<unknown>][] = [
@@ -121,17 +103,11 @@ describe('acting on one leaf', () => {
       const err = await call().catch((e: { response?: { status?: number } }) => e);
       expect((err as { response?: { status?: number } }).response?.status, name).toBe(404);
     }
-    // And nothing was written.
     const stored = (await harness.db.getLeaves()).find((l) => l.id === 'theirs');
     expect(stored?.title).toBe('do a thing');
   });
 
   it('answers rather than hanging when a dependency throws', async () => {
-    /**
-     * Every handler here is wrapped. Before that, the leaves router's own tests found the cost of
-     * not wrapping: a missing import made `POST /api/trees` reject, and with no `asyncRoute` the
-     * request hung for 15 seconds and reported nothing.
-     */
     const harness = await mountRouter({
       prefix: '/api/leaves',
       router: () => leavesRouter({

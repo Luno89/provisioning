@@ -5,14 +5,6 @@ import {
 } from './memory-consolidate.js';
 import type { MemoryItem } from './memory-store.js';
 
-/**
- * ── THE PROPERTY EVERYTHING ELSE RESTS ON ──
- *
- * This runs unattended, on a timer, and edits the store every other subsystem reads. It may fire
- * during a leaf, overlap a deploy, or run fifty times overnight. So the first thing checked is that
- * a second pass changes nothing — without that, a loop on a timer compounds instead of converging.
- */
-
 const NOW = '2026-08-21T12:00:00.000Z';
 const daysBefore = (n: number) => new Date(Date.parse(NOW) - n * 86_400_000).toISOString();
 
@@ -25,11 +17,6 @@ const mem = (over: Partial<MemoryItem> = {}): MemoryItem => ({
 
 describe('duplicates by title', () => {
   it('collapses the repeated failure titles this extractor generates', () => {
-    /**
-     * Measured live: five copies of "Promised a file it did not deliver" and four "Repository
-     * layout", all ranking above everything else in search purely because there were five of them.
-     * `supersede` knew one hardcoded title, which is exactly why the rest accumulated.
-     */
     const copies = [1, 2, 3, 4, 5].map((i) => mem({
       id: `dup${i}`, title: 'Promised a file it did not deliver', createdAt: daysBefore(i),
     }));
@@ -52,8 +39,6 @@ describe('duplicates by title', () => {
   });
 
   it('does not merge across projects, owners or categories', () => {
-    // The same title in two projects is two facts. Collapsing them would be the cross-project leak
-    // wearing a different hat.
     const items = [
       mem({ id: 'a', projectId: 'p1' }),
       mem({ id: 'b', projectId: 'p2' }),
@@ -93,8 +78,6 @@ describe('duplicates by meaning', () => {
   });
 
   it('leaves a merely related pair alone', () => {
-    // Two lessons about the same subsystem sit around 0.90. Being conservative is the point: the
-    // cost of over-merging is a lost distinction, and the cost of under-merging is one extra line.
     const items = [mem({ id: 'a', title: 'X' }), mem({ id: 'b', title: 'Y', createdAt: daysBefore(5) })];
 
     expect(planSimilarityDedupe(items, similar({ a: [['b', DUPLICATE_SIMILARITY - 0.01]] }), NOW)).toEqual([]);
@@ -106,14 +89,6 @@ describe('duplicates by meaning', () => {
   });
 
   it('does not follow a chain through an entry it just retired', () => {
-    /**
-     * `newest ≈ middle` and `middle ≈ oldest`, both at 0.99 — and `oldest` survives.
-     *
-     * That is deliberate, not an oversight. Cosine similarity is not transitive: two 0.97 hops
-     * compose to roughly 0.94, so retiring `oldest` here would merge two things that were never
-     * measured against each other. Only a duplicate of a SURVIVING entry is retired, so the
-     * supersession chain can never point at something already invalid.
-     */
     const items = [
       mem({ id: 'newest', title: 'X', createdAt: daysBefore(1) }),
       mem({ id: 'middle', title: 'Y', createdAt: daysBefore(2) }),
@@ -139,7 +114,6 @@ describe('decay', () => {
   });
 
   it('keeps an old memory that is still being read', () => {
-    // Usage, not age: the repository layout is months old and read by every leaf on the project.
     const old = mem({ id: 'load-bearing', createdAt: daysBefore(400), lastUsedAt: daysBefore(1) });
     expect(planDecay([old], NOW)).toEqual([]);
   });
@@ -173,13 +147,6 @@ describe('promoting what a research leaf found', () => {
     expect(out[0]!.status).toBe('active');
   });
 
-  /**
-   * ── MEASURED, NOT HYPOTHETICAL ──
-   * The first live pass promoted 11 findings and every one was unreachable: each was written
-   * `scope: 'project'` with no `projectId`, which `buildMemoryContext` gives to nobody. Research
-   * personas are precisely the ones with no project — 0 of 11 — so the scope has to follow the data
-   * rather than be assumed.
-   */
   it('scopes to the owner when a research leaf has no project', () => {
     const out = planPromotions([leaf({ projectId: undefined })], [], NOW, () => 'x');
 
@@ -196,7 +163,6 @@ describe('promoting what a research leaf found', () => {
   });
 
   it('never produces the unreachable shape', () => {
-    // The invariant, stated directly: project scope requires a project.
     for (const l of [leaf({ projectId: 'p1' }), leaf({ projectId: undefined })]) {
       const [m] = planPromotions([l], [], NOW, () => 'x');
       expect(m!.scope === 'project' ? Boolean(m!.projectId) : true).toBe(true);
@@ -210,7 +176,6 @@ describe('promoting what a research leaf found', () => {
   });
 
   it('does not promote the same leaf twice', () => {
-    // Idempotence without remembering anything: the derived title is the key.
     const already = [mem({ title: 'What "Compare vector stores" established' })];
     expect(planPromotions([leaf()], already, NOW, () => 'x')).toEqual([]);
   });
@@ -253,10 +218,6 @@ describe('a whole pass', () => {
   };
 
   it('converges: a second pass changes nothing', async () => {
-    /**
-     * The property that makes a timer safe. Without it, every fire would retire something else,
-     * stamp new dates, and slowly empty the bank.
-     */
     const { store, deps } = setup([
       mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1) }),
       mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2) }),
@@ -292,7 +253,6 @@ describe('a whole pass', () => {
   });
 
   it('consolidates even when the index is unreachable', async () => {
-    // Mongo is the source of truth; the index is a copy. A dead Qdrant must not stop the cleanup.
     const { deps } = setup([
       mem({ id: 'a', title: 'Dup', createdAt: daysBefore(1) }),
       mem({ id: 'b', title: 'Dup', createdAt: daysBefore(2) }),
@@ -308,8 +268,6 @@ describe('a whole pass', () => {
   });
 
   it('leaves the review backlog out of the index', async () => {
-    // Those entries were never shown to a leaf and still are not. Indexing them would put them in
-    // front of `admitMemory` as neighbours of things they were never allowed to influence.
     const { deps } = setup([mem({ id: 'a', status: 'pending_review' })]);
     let sent: MemoryItem[] = [];
 

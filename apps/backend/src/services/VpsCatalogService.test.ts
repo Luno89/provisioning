@@ -24,8 +24,6 @@ describe('applyFilters', () => {
   });
 
   it('filters ARM out when x86 is required', () => {
-    // The Palworld lesson: an ARM plan is often the cheapest per GB and silently cannot run an
-    // x86-only image, so this filter has to be exact rather than a hint.
     const all = [offer({ arch: 'arm', priceMonthly: 5 }), offer({ arch: 'x86', priceMonthly: 50 })];
     const out = applyFilters(all, { arch: 'x86' });
     expect(out).toHaveLength(1);
@@ -49,15 +47,13 @@ describe('applyFilters', () => {
   });
 
   it('treats an offer with no locations as globally available', () => {
-    // Linode prices plans globally and returns no per-plan location list. Excluding those from a
-    // location search would hide the entire provider.
     const all = [offer({ locations: [] })];
     expect(applyFilters(all, { location: 'us-east' })).toHaveLength(1);
   });
 
   it('defaults to sorting by price per GB of RAM', () => {
-    const cheapTotal = offer({ planId: 'small', ramGb: 2, priceMonthly: 10 }); // 5.00/GB
-    const betterValue = offer({ planId: 'big', ramGb: 32, priceMonthly: 100 }); // 3.13/GB
+    const cheapTotal = offer({ planId: 'small', ramGb: 2, priceMonthly: 10 });
+    const betterValue = offer({ planId: 'big', ramGb: 32, priceMonthly: 100 });
     const out = applyFilters([cheapTotal, betterValue], {});
     expect(out[0]!.planId).toBe('big');
   });
@@ -72,9 +68,9 @@ describe('applyFilters', () => {
 
   it('applies the limit after sorting, not before', () => {
     const all = [
-      offer({ planId: 'a', ramGb: 2, priceMonthly: 20 }),  // 10/GB
-      offer({ planId: 'b', ramGb: 8, priceMonthly: 20 }),  // 2.5/GB
-      offer({ planId: 'c', ramGb: 4, priceMonthly: 20 }),  // 5/GB
+      offer({ planId: 'a', ramGb: 2, priceMonthly: 20 }),
+      offer({ planId: 'b', ramGb: 8, priceMonthly: 20 }),
+      offer({ planId: 'c', ramGb: 4, priceMonthly: 20 }),
     ];
     expect(applyFilters(all, { limit: 1 })[0]!.planId).toBe('b');
   });
@@ -84,8 +80,6 @@ describe('column sorting', () => {
   it('uses a natural direction per column when none is given', () => {
     const small = offer({ planId: 'small', ramGb: 2, priceMonthly: 5 });
     const big = offer({ planId: 'big', ramGb: 64, priceMonthly: 500 });
-    // Price ascends (cheapest first); capacities descend (biggest first). Nobody wants "sort by
-    // RAM" to lead with the 512MB plans.
     expect(applyFilters([big, small], { sort: 'price' })[0]!.planId).toBe('small');
     expect(applyFilters([small, big], { sort: 'ram' })[0]!.planId).toBe('big');
     expect(applyFilters([small, big], { sort: 'vcpu', ...{} })).toHaveLength(2);
@@ -99,8 +93,6 @@ describe('column sorting', () => {
   });
 
   it('sinks unknown disk to the bottom in BOTH directions', () => {
-    // diskGb 0 means "the provider didn't tell us" (Vultr's VX family). Ascending by disk must
-    // not fill the top of the table with rows that render "—".
     const known = offer({ planId: 'known', diskGb: 100 });
     const unknown = offer({ planId: 'unknown', diskGb: 0 });
     expect(applyFilters([unknown, known], { sort: 'disk', sortDir: 'asc' })[0]!.planId).toBe('known');
@@ -133,9 +125,6 @@ describe('column sorting', () => {
 
 describe('hourly pricing', () => {
   it('sorts by hourly rate independently of the monthly price', async () => {
-    // Not derived from monthly: providers set the two independently, so a plan can be cheaper by
-    // the month and dearer by the hour. For clusters created and destroyed on demand, the hourly
-    // figure is the one that bills.
     const cheapMonthly = offer({ planId: 'monthly-deal', priceMonthly: 10, priceHourly: 0.05 } as any);
     const cheapHourly = offer({ planId: 'hourly-deal', priceMonthly: 40, priceHourly: 0.001 } as any);
     expect(applyFilters([cheapMonthly, cheapHourly], { sort: 'price' })[0]!.planId).toBe('monthly-deal');
@@ -151,8 +140,6 @@ describe('hourly pricing', () => {
 });
 
 describe('GPU is kept separate from system RAM', () => {
-  // A Vultr vcg-a40-96c-480g-192vram genuinely has 480GB of system RAM and 192GB of VRAM.
-  // Conflating them gives both a wildly wrong price-per-GB and a wildly wrong machine.
   const gpuBox = offer({ planId: 'gpu', ramGb: 480, priceMonthly: 2000, gpuCount: 1, gpuVramGb: 192 } as any);
   const plainBox = offer({ planId: 'plain', ramGb: 32, priceMonthly: 100 });
 
@@ -185,23 +172,19 @@ describe('GPU is kept separate from system RAM', () => {
   });
 
   it('detects a GPU from VRAM or model alone, not just a count', () => {
-    // Vultr publishes neither a card count nor per-card VRAM — only total VRAM in the plan id and
-    // a brand. Requiring gpuCount would classify most of the GPU catalogue as CPU-only.
     const vultrStyle = offer({ planId: 'vultr-gpu', gpuVramGb: 192, gpuModel: 'NVIDIA' } as any);
     expect(applyFilters([vultrStyle, plainBox], { hasGpu: true }).map((o) => o.planId)).toEqual(['vultr-gpu']);
     expect(applyFilters([vultrStyle, plainBox], { hasGpu: false }).map((o) => o.planId)).toEqual(['plain']);
   });
 
   it('sorts by price per GB of VRAM, sinking non-GPU plans', () => {
-    const value = offer({ planId: 'value', priceMonthly: 100, gpuVramGb: 100 } as any);   // 1.00/GB
-    const pricey = offer({ planId: 'pricey', priceMonthly: 400, gpuVramGb: 100 } as any); // 4.00/GB
+    const value = offer({ planId: 'value', priceMonthly: 100, gpuVramGb: 100 } as any);
+    const pricey = offer({ planId: 'pricey', priceMonthly: 400, gpuVramGb: 100 } as any);
     const out = applyFilters([pricey, plainBox, value], { sort: 'pricePerGbVram' });
     expect(out.map((o) => o.planId)).toEqual(['value', 'pricey', 'plain']);
   });
 
   it('sorts by VRAM, falling back to card count where VRAM is unpublished', () => {
-    // Linode reports a GPU count but never VRAM, so those plans must still order sensibly
-    // rather than sinking as "unknown".
     const noVram = offer({ planId: 'linode-gpu', gpuCount: 4 } as any);
     const out = applyFilters([noVram, gpuBox, plainBox], { sort: 'gpu' });
     expect(out.map((o) => o.planId)).toEqual(['gpu', 'linode-gpu', 'plain']);
@@ -209,10 +192,6 @@ describe('GPU is kept separate from system RAM', () => {
 });
 
 describe('one bad provider must not empty the whole catalogue', () => {
-  // Regression: a stale dev process paired a new adapter (returning {offers, skippedNoPrice}) with
-  // an old service (expecting a bare array). The spread threw, but the cache had already been
-  // written, so every later request died on the cache-hit path — which sat outside the try/catch.
-  // Result: HTTP 500 and an empty table, while three providers were perfectly healthy.
   const stubDb = { getUserById: async () => undefined } as any;
 
   const good = (provider: string): VpsCatalogAdapter => ({
@@ -236,7 +215,6 @@ describe('one bad provider must not empty the whole catalogue', () => {
   });
 
   it('survives an adapter whose result shape is wrong, and does not poison the cache', async () => {
-    // The exact stale-process mismatch: a bare array where {offers} was expected.
     const malformed: VpsCatalogAdapter = {
       provider: 'malformed', requiresCredentials: false, provisionable: false,
       fetch: async () => [offer({ provider: 'malformed' })] as any,
@@ -247,16 +225,12 @@ describe('one bad provider must not empty the whole catalogue', () => {
     expect(first.offers.map((o) => o.provider)).toEqual(['linode']);
     expect(first.sources.find((x) => x.provider === 'malformed')?.status).toBe('error');
 
-    // Second call must behave identically. Previously this one 500'd, because the first had
-    // already cached the unusable value and the cache-hit spread was unguarded.
     const second = await s.search('u1', {});
     expect(second.offers.map((o) => o.provider)).toEqual(['linode']);
     expect(second.sources.find((x) => x.provider === 'malformed')?.status).toBe('error');
   });
 
   it('does not reject when token resolution blows up for a credentialed provider', async () => {
-    // resolveToken() calls the DB and used to sit outside the try, so a DB hiccup 500'd the
-    // entire search rather than dropping the one provider that needed a token.
     const failingDb = { getUserById: async () => { throw new Error('mongo unavailable'); } } as any;
     const gated: VpsCatalogAdapter = {
       provider: 'hetzner', requiresCredentials: true, provisionable: true,
@@ -269,10 +243,6 @@ describe('one bad provider must not empty the whole catalogue', () => {
 });
 
 describe('per-location pricing', () => {
-  // Hetzner charges 3.4-3.7x more for the CPX line in its US locations and bundles 1TB of traffic
-  // there against the EU's 20TB. The adapter used to report Math.min() across locations while
-  // listing every location on the row, so a location=ash search returned a €5.99 Falkenstein price
-  // on a row claiming to be available in Ashburn, where the plan actually costs €20.49.
   const eu = offer({
     planId: 'cpx11', idSuffix: 'fsn1', priceMonthly: 5.99, bandwidthTb: 20,
     locations: ['fsn1', 'hel1', 'nbg1'],
@@ -285,7 +255,6 @@ describe('per-location pricing', () => {
   it('gives each price tier a distinct id while keeping planId deployable', () => {
     expect(eu.id).toBe('test:cpx11@fsn1');
     expect(us.id).toBe('test:cpx11@ash');
-    // planId stays what Terraform expects — the suffix is presentation only.
     expect(eu.planId).toBe('cpx11');
     expect(us.planId).toBe('cpx11');
   });
@@ -305,7 +274,6 @@ describe('per-location pricing', () => {
   });
 
   it('prices per GB against the tier actually selected', () => {
-    // The whole point of splitting: a US row must not inherit EU value-for-money.
     expect(applyFilters([eu, us], { location: 'ash' })[0]!.pricePerGbRam)
       .toBeCloseTo(20.49 / 4, 4);
   });
@@ -323,8 +291,6 @@ describe('withDerived', () => {
   });
 
   it('does not divide by zero on a 0-RAM plan', () => {
-    // Vultr lists bare-metal/GPU entries whose RAM field is absent; Infinity would sort them to
-    // the bottom of every list and render as garbage.
     expect(offer({ ramGb: 0 }).pricePerGbRam).toBe(0);
   });
 });

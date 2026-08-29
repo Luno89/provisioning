@@ -23,11 +23,6 @@ describe('finding work with nobody assigned to it', () => {
   });
 
   it('ignores work that is already under way', () => {
-    /**
-     * Only proposals are worth re-asking about. A leaf that has been accepted and started cannot
-     * have its environment changed underneath it, and one that already failed is not fixed by
-     * assigning someone to it now.
-     */
     for (const status of ['pending', 'running', 'succeeded', 'failed'] as const) {
       expect(unassignedLeaves([leaf({ status })], 'b1')).toEqual([]);
     }
@@ -41,8 +36,6 @@ describe('asking the planner again', () => {
   ];
 
   it('names the leaves and lists the personas to choose from', () => {
-    // The failure being corrected is almost always that the model did not have the names to hand.
-    // Asking it to try again without them would be asking it to guess.
     const text = buildAssignmentPrompt([{ title: 'Write the client' }], personas);
     expect(text).toContain('Write the client');
     expect(text).toContain('Researcher — Answers one narrow question from sources.');
@@ -57,8 +50,6 @@ describe('asking the planner again', () => {
   });
 
   it('gives the planner a bounded number of chances', () => {
-    // A model that has ignored the instruction twice will not be persuaded by a third identical
-    // request; it will spend another inference pass saying so.
     expect(MAX_ASSIGNMENT_ROUNDS).toBe(2);
   });
 });
@@ -69,7 +60,6 @@ describe('handing it to the user', () => {
     expect(text).toContain('2 pieces of work need a persona');
     expect(text).toContain('Write the client');
     expect(text).toContain('assign a persona');
-    // Explains the refusal to guess, since that is the part a reader would otherwise find unhelpful.
     expect(text).toMatch(/toolchain|network|budget/);
   });
 

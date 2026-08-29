@@ -4,15 +4,6 @@ import {
 } from './memory-decide.js';
 import type { MemoryItem } from './memory-store.js';
 
-/**
- * ── WHAT THIS FILE IS ACTUALLY GUARDING ──
- *
- * Removing the human gate means a model's conclusion now reaches future prompts directly. That is
- * only defensible because of three properties, and all three are enforced here rather than asked
- * for in a prompt: it can act only on memories it was shown, it cannot destroy anything, and it
- * cannot widen a memory's scope. If these tests go, the safety argument goes with them.
- */
-
 const mem = (over: Partial<MemoryItem> = {}): MemoryItem => ({
   id: 'cand', ownerId: 'u1', projectId: 'p1', category: 'lessons_learned', scope: 'project',
   title: 'A lesson', text: 'Something learned.',
@@ -34,19 +25,12 @@ describe('what the model is allowed to say', () => {
     expect(parseDecision('We should keep this.\n{"action":"ADD"}\n', neighbours)).toEqual({ action: 'ADD' });
   });
 
-  /**
-   * ── THE ONE THAT MAKES THIS SAFE ──
-   * A memory it was not shown is one belonging to another project, another owner, or nothing at
-   * all. Same shape as the judge discarding a finding whose quote is not in its bundle.
-   */
   it('discards a decision naming an id it was never shown', () => {
     expect(parseDecision('{"action":"DELETE","id":"someone-elses-memory"}', neighbours)).toEqual({ action: 'NOOP' });
     expect(parseDecision('{"action":"UPDATE","id":""}', neighbours)).toEqual({ action: 'NOOP' });
   });
 
   it('cannot express a scope change at all', () => {
-    // Not "refuses to widen scope" — there is no field for it, so the escalation is unrepresentable
-    // rather than merely rejected. A project lesson misleads one project; a global one misleads all.
     const decision = parseDecision('{"action":"ADD","scope":"global","ownerId":"someone-else"}', neighbours);
     expect(decision).toEqual({ action: 'ADD' });
 
@@ -56,8 +40,6 @@ describe('what the model is allowed to say', () => {
   });
 
   it('falls back to ADD when the reply is not JSON at all', () => {
-    // A pipeline failure, not a model being unsure. Losing a real lesson to a missing brace would
-    // be worse than a duplicate, and duplicates are what consolidation cleans up.
     expect(parseDecision('I think you should keep it.', neighbours)).toEqual({ action: 'ADD' });
     expect(parseDecision('{"action":', neighbours)).toEqual({ action: 'ADD' });
     expect(parseDecision('{"action":"FRobnicate"}', neighbours)).toEqual({ action: 'ADD' });
@@ -66,7 +48,6 @@ describe('what the model is allowed to say', () => {
 
 describe('what a decision does to the bank', () => {
   it('never produces a deletion', () => {
-    // `db.deleteMemory` is not reachable from this module. Every outcome is a row to write.
     for (const reply of ['{"action":"DELETE","id":"n1"}', '{"action":"UPDATE","id":"n1"}', '{"action":"NOOP"}']) {
       const written = applyDecision(parseDecision(reply, neighbours), mem(), neighbours, 'NOW');
       expect(written.every((m) => typeof m.id === 'string')).toBe(true);
@@ -95,7 +76,6 @@ describe('what a decision does to the bank', () => {
   });
 
   it('still stores the candidate when the named target has vanished', () => {
-    // Between retrieval and the write, another leaf may have retired it. Storing beats losing it.
     expect(applyDecision({ action: 'UPDATE', targetId: 'n1' }, mem(), []).map((m) => m.id)).toEqual(['cand']);
   });
 });
@@ -127,10 +107,6 @@ describe('admission end to end', () => {
     expect(sawPrompt).not.toContain(`Stored ${MAX_NEIGHBOURS}`);
   });
 
-  /**
-   * Admission must never be the reason a lesson is lost. Every one of these is the behaviour the
-   * harness had before this file existed.
-   */
   it('stores the candidate when there is no model to ask', async () => {
     const out = await admitMemory({ neighbours: async () => neighbours }, mem());
     expect(out.write.map((m) => m.id)).toEqual(['cand']);

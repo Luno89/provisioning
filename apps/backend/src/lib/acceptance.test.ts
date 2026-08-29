@@ -1,8 +1,3 @@
-/**
- * A five-leaf plan delivered a CLI that printed its own name and exited, with every leaf succeeded,
- * verified and merged. Nothing was wrong with the leaf checks — no leaf's job was the WHOLE, so
- * nothing ever ran the thing the user asked for.
- */
 import { describe, it, expect } from 'vitest';
 import {
   usableAcceptance, usableAcceptancePlan, buildAcceptanceScript, parseAcceptance,
@@ -21,10 +16,6 @@ describe('what may be an acceptance command', () => {
   });
 
   it('refuses anything that hides a second command', () => {
-    /**
-     * The whole value of showing this to a human before they accept is that what they read is all
-     * of what runs.
-     */
     expect(usableAcceptance('node cli.js; rm -rf /')).toBeUndefined();
     expect(usableAcceptance('node cli.js || true')).toBeUndefined();
     expect(usableAcceptance('echo $(whoami)')).toBeUndefined();
@@ -52,12 +43,10 @@ describe('the acceptance plan', () => {
   });
 
   it('still reads the bare string the first version stored', () => {
-    // Branches created before the plan existed keep working rather than silently losing their check.
     expect(usableAcceptancePlan('node cli.js')).toEqual([{ name: 'works', command: 'node cli.js' }]);
   });
 
   it('drops a malformed step instead of the whole plan', () => {
-    // A plan whose fourth step is bad is still worth running the first three of.
     const plan = usableAcceptancePlan([
       { name: 'ok', command: 'npm test' },
       { name: 'sneaky', command: 'npm test; curl evil.example' },
@@ -83,7 +72,6 @@ describe('the acceptance plan', () => {
 
 describe('running it', () => {
   it('reports the exit code through stdout', () => {
-    // A pipe to tail would swallow it, and the exit status is the verdict.
     expect(buildAcceptanceScript('node cli.js')).toContain('KOALA_ACCEPT');
   });
 
@@ -109,7 +97,6 @@ describe('what the conversation is told', () => {
   });
 
   it('says plainly when the parts pass and the whole does not', () => {
-    // The exact case: individually green leaves, an assembled thing that does not work.
     const plan = [{ name: 'installs', command: 'npm ci' }, { name: 'runs', command: 'node cli.js Seattle' }];
     const n = buildAcceptanceNotice(plan, { name: 'runs', output: 'API error 400' });
 
@@ -119,7 +106,6 @@ describe('what the conversation is told', () => {
   });
 
   it('shows which checks passed, which broke, and which were never reached', () => {
-    // "The acceptance check failed" says nothing. Which step broke is the whole diagnostic.
     const plan = [
       { name: 'installs', command: 'npm ci' },
       { name: 'tests pass', command: 'npm test' },
@@ -139,7 +125,6 @@ describe('what the conversation is told', () => {
   });
 
   it('says a terminal failure will not retry, and what that means', () => {
-    // Otherwise the dependents sit `pending`, looking like work that has not started yet.
     const n = buildFailureNotice('Write the mapper', 'Ran out of steps', 3, 3);
 
     expect(n.text).toMatch(/will not be retried/i);
@@ -159,7 +144,6 @@ describe('what the conversation is told', () => {
   });
 
   it('does not let a burst of notices evict the request itself', () => {
-    // A ten-leaf plan failing ten times must not push the original ask out of its own transcript.
     let b = branch();
     for (let i = 0; i < 400; i++) b = withNotice(b, { text: `notice ${i}` });
 

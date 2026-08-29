@@ -1,11 +1,3 @@
-/**
- * The planning cycle, driven by a fake model.
- *
- * No inference here on purpose: what needs proving is that the turn assembles the same prompt as
- * chat, offers the same tools, and executes them through the same runner — because a runner that
- * reimplements any of that measures the reimplementation. Whether the model decomposes WELL is a
- * question for an experiment against a real endpoint, which is what this makes possible.
- */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { runPlanningTurn, MAX_PLANNING_ROUNDS, PLANNER_TOOLS } from './planning-turn.js';
@@ -21,14 +13,6 @@ const tools = (over: Partial<LeafToolContext> = {}): LeafToolContext => ({
   ...over,
 });
 
-/**
- * The fake model speaks SSE, because the runner streams.
- *
- * Not a stylistic choice: measured against the live endpoint, this model returns zero tool calls
- * when `stream` is false — in every prompt and sampler combination tried, including
- * `tool_choice: required`. A fake that answered in one JSON blob would pass tests the real
- * endpoint fails, which is the only kind of test worth nothing.
- */
 const sse = (turn: { content?: string; calls?: { name: string; args: unknown }[] }): string => {
   const frames: string[] = [];
   if (turn.content) {
@@ -46,7 +30,6 @@ const sse = (turn: { content?: string; calls?: { name: string; args: unknown }[]
   return `${frames.map((f) => `data: ${f}`).join('\n\n')}\n\ndata: [DONE]\n\n`;
 };
 
-/** A model that plays a fixed script of turns, so the loop is exercised without inference. */
 const scripted = (turns: { content?: string; calls?: { name: string; args: unknown }[] }[]) => {
   let i = 0;
   const seen: any[] = [];
@@ -70,7 +53,6 @@ beforeEach(async () => { db = new MemoryDB(); await db.init(); });
 
 describe('what the model is asked', () => {
   it('sends exactly one system message, first — the invariant chat templates enforce', async () => {
-    // More than one is rejected outright by the template, and the failure is total.
     const { sent } = await run([{ content: 'done' }]);
     const messages = sent[0].messages;
 
@@ -79,8 +61,6 @@ describe('what the model is asked', () => {
   });
 
   it('asks for a plan explicitly rather than letting a heuristic decide', async () => {
-    // Chat picks between plan and ambient from a mode and a complexity tier. An experiment that
-    // let that choice happen would be measuring the heuristic, not the decomposition.
     const { sent } = await run([{ content: 'done' }]);
     expect(sent[0].messages[0].content).toContain(PLAN_SYSTEM_PROMPT);
   });
@@ -104,9 +84,6 @@ describe('what the model is asked', () => {
   });
 
   it('nests a template_vars knob rather than sending it flat', async () => {
-    // `think` travels as template_vars.enable_thinking. The hand-rolled override filter this used
-    // to have sent it as a top-level `think`, which the engine accepts, ignores, and runs with
-    // reasoning in whatever state it defaulted to.
     const { sent } = await run([{ content: 'done' }], {
       persona: { id: 'p1', ownerId: 'u1', name: 'P', overrides: { think: true },
         createdAt: 'x', updatedAt: 'x' },
@@ -117,8 +94,6 @@ describe('what the model is asked', () => {
   });
 
   it('lets the resolved chain beat the built-in sampling', async () => {
-    // The ordering bug, in the planning path: built-in defaults spread last silently undid the
-    // profile for every key they set.
     const { sent } = await run([{ content: 'done' }], {
       persona: { id: 'p1', ownerId: 'u1', name: 'P', overrides: { frequency_penalty: 0 },
         createdAt: 'x', updatedAt: 'x' },
@@ -134,8 +109,6 @@ describe('what the model is asked', () => {
     });
 
     expect(sent[0].temperature).toBe(0.2);
-    // maxSteps is read by the agent loop and meaningless to the model — sending it is noise at
-    // best and a rejected request at worst.
     expect(sent[0].maxSteps).toBeUndefined();
   });
 });
@@ -151,7 +124,6 @@ describe('what the turn produces', () => {
     ]);
 
     expect(result.leaves.map((l) => l.title)).toEqual(['Build the client', 'Test it']);
-    // Ordering resolved by the same code the chat route runs.
     const first = result.leaves.find((l) => l.title === 'Build the client')!;
     expect(result.leaves.find((l) => l.title === 'Test it')!.dependsOn).toEqual([first.id]);
   });
@@ -179,8 +151,6 @@ describe('what the turn produces', () => {
   });
 
   it('stops calling tools eventually, and says it was the ceiling that stopped it', async () => {
-    // A model that keeps proposing without answering is a loop, not a thorough planner — and the
-    // run has to say which, because a capped plan may simply be unfinished.
     const { result } = await run([{ calls: [{ name: 'propose_leaf', args: { title: 'again' } }] }]);
     expect(result.rounds).toBe(MAX_PLANNING_ROUNDS);
     expect(result.exit).toBe('capped');
@@ -216,8 +186,6 @@ describe('research, because the planner has no web access', () => {
   const findings = (answer: string) => ({ ok: true, text: async () => sse({ content: answer }) });
 
   it('does not offer live search, so the model is never misled by an empty result', () => {
-    // The first version stubbed search to return nothing while still offering it. The model called
-    // it, got nothing, and concluded there was no information — an artifact of the stub.
     const names = PLANNER_TOOLS.map((t) => t.function.name);
     expect(names).not.toContain('web_search');
     expect(names).not.toContain('fetch_web_page');
@@ -225,7 +193,6 @@ describe('research, because the planner has no web access', () => {
   });
 
   it('tells the model plainly when research is unavailable', async () => {
-    // Rather than returning empty findings, which reads as "there is nothing to know".
     const { result } = await run([
       { calls: [{ name: 'research', args: { questions: ['what is the rate limit?'] } }] },
       { content: 'planned anyway' },
@@ -239,7 +206,6 @@ describe('research, because the planner has no web access', () => {
     let call = 0;
     const impl = (async () => {
       call += 1;
-      // 1: planner asks. 2: the research sub-agent answers. 3: planner proposes.
       if (call === 1) {
         return { ok: true, text: async () => sse({ calls: [{ name: 'research', args: { questions: ['what is the GitHub rate limit?'] } }] }) };
       }
@@ -259,8 +225,6 @@ describe('research, because the planner has no web access', () => {
   });
 
   it('stops when the planner asks something it already asked', async () => {
-    // Asking twice means it failed to use the answer it was given, which is indistinguishable
-    // from thoroughness without this check.
     const ask = { ok: true, text: async () => sse({ calls: [{ name: 'research', args: { questions: ['What is the rate limit?'] } }] }) };
     let call = 0;
     const impl = (async () => {
@@ -275,7 +239,6 @@ describe('research, because the planner has no web access', () => {
     });
 
     expect(result.exit).toBe('repeating');
-    // The repeat is answered from what was already learned rather than researched again.
     expect(result.research).toHaveLength(1);
   });
 

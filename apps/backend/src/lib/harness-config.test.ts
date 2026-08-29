@@ -5,13 +5,6 @@ import { MAX_AGENT_STEPS, SANDBOX_TOOLS } from './sandbox-tools.js';
 import { PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT } from './plan-mode.js';
 import { WORKSPACE_IMAGES } from './workspace-spec.js';
 
-/**
- * These assert that the page DERIVES its values rather than restating them.
- *
- * A hand-maintained copy is worse than no page: someone tunes a sampler, reads a stale number in
- * the UI, and concludes the change had no effect. Each test below compares the surfaced value
- * against the constant the running code actually uses, so hardcoding one fails here.
- */
 const config = buildHarnessConfig();
 const find = (sectionId: string, label: string) =>
   config.sections.find((s) => s.id === sectionId)!.settings.find((x) => x.label === label)!;
@@ -26,8 +19,6 @@ describe('the harness config surface', () => {
   });
 
   it('lists the tools the agent is actually given', () => {
-    // A tool added to SANDBOX_TOOLS but missing here would make the page quietly wrong about what
-    // the agent can do.
     for (const tool of SANDBOX_TOOLS) {
       expect(find('agent', 'Tools').value).toContain(tool.function.name);
     }
@@ -54,8 +45,6 @@ describe('the harness config surface', () => {
   });
 
   it('explains the values that exist because something broke', () => {
-    // The notes are the most useful thing on the page — a setting with a surprising value and no
-    // explanation invites someone to "fix" it.
     expect(find('agent', 'Reasoning on dispatch turns').note).toBeTruthy();
     expect(find('chat', '/plan token budget').note).toMatch(/7,908|silently/);
   });
@@ -68,7 +57,6 @@ describe('discovered choices', () => {
   ];
 
   it('fills a knob’s choices from what the caller can actually reach', () => {
-    // The registry cannot hold these: they are per-tenant and they come and go.
     const knob = buildHarnessConfig({}, models).tunables.find((t) => t.key === 'model')!;
     expect(knob.choices).toEqual([
       { value: 'dep-1', label: 'Tabbyapi Production', note: 'Qwen3-32B · tabbyapi' },
@@ -77,7 +65,6 @@ describe('discovered choices', () => {
   });
 
   it('keeps the knob with an empty list when there is nothing to offer', () => {
-    // Dropping it would read as "this cannot be varied", which is a different and wrong answer.
     const knob = buildHarnessConfig({}, []).tunables.find((t) => t.key === 'model')!;
     expect(knob.choices).toEqual([]);
   });

@@ -3,14 +3,6 @@ import { MemoryDB } from '../lib/memory-db.js';
 import { ExperimentService } from './ExperimentService.js';
 import type { Experiment } from '../lib/experiments.js';
 
-/**
- * Reconciliation, which is the part that can destroy work rather than merely mis-report it.
- *
- * The case these exist for was found by running the Lab for real: an edit to a source file
- * restarted the backend under `tsx watch`, bootstrap reconciled an experiment that a SEPARATE
- * process was three minutes into, and the run died with a sandbox orphaned behind it. Absence from
- * this process's memory is not evidence that the work is dead.
- */
 const experiment = (over: Partial<Experiment> = {}): Experiment => ({
   id: 'e1',
   ownerId: 'u1',
@@ -30,7 +22,6 @@ const serviceWith = async (...records: Experiment[]) => {
   const db = new MemoryDB();
   await db.init();
   for (const r of records) await db.saveExperiment(r);
-  // ModelService is never reached: nothing here starts a run.
   return { db, svc: new ExperimentService(db, {} as any) };
 };
 
@@ -38,8 +29,6 @@ const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString(
 
 describe('reconcileInterrupted', () => {
   it('leaves a run alone while something is still updating it', async () => {
-    // The regression. A second process — lab-live.mts, a replica, an in-cluster runner — owns this
-    // run, and reaping it strands the sandbox it is using mid-variant.
     const { db, svc } = await serviceWith(experiment({ updatedAt: minutesAgo(1) }));
 
     expect(await svc.reconcileInterrupted()).toBe(0);
@@ -57,8 +46,6 @@ describe('reconcileInterrupted', () => {
   });
 
   it('keeps the results a dead run already produced', async () => {
-    // Each variant was saved as it landed. They are real measurements someone paid GPU time for,
-    // and the record going terminal is no reason to discard them.
     const done = {
       label: 'a', taskId: 't1', succeeded: true, verified: true, verifyExitCode: 0,
       verifyOutput: 'PASS', steps: 4, tokensUsed: 900, durationMs: 1000, summary: 'ok',

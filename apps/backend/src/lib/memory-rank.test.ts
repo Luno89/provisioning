@@ -1,18 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { fuseRRF, buildMemoryQuery, memoryTerms, MAX_QUERY_TERMS, RRF_K } from './memory-rank.js';
 
-/**
- * Fusion, and the one property that justifies it existing at all.
- *
- * The corpus's `mergeHits` puts every exact-term hit ahead of every semantic one. That is a fine
- * rule when someone typed a phrase they expect to find, and the wrong one here: a leaf title shares
- * almost no literal vocabulary with a memory about the same subject. RRF is what lets AGREEMENT
- * between the two halves win, which is the strongest signal available without a reranker.
- */
-
 describe('RRF fusion', () => {
   it('ranks a memory both halves found above one either half ranked first', () => {
-    // The whole point. `both` is second on each list and beats two different first places.
     const fused = fuseRRF({
       dense: ['dense-first', 'both'],
       sparse: ['sparse-first', 'both'],
@@ -31,7 +21,6 @@ describe('RRF fusion', () => {
   });
 
   it('keeps a lone list in its original order', () => {
-    // Degenerate but the common one: when Qdrant is down, sparse alone must survive untouched.
     const fused = fuseRRF({ sparse: ['x', 'y', 'z'] });
     expect(fused.map((h) => h.id)).toEqual(['x', 'y', 'z']);
   });
@@ -49,12 +38,6 @@ describe('RRF fusion', () => {
 
 describe('the Quickwit query', () => {
   it('asks for terms rather than the whole phrase', () => {
-    /**
-     * `buildIndexQuery` quotes the phrase, because a corpus search is someone looking for words
-     * they expect to be there. "Add rate limiting to the upload route" appears verbatim in no
-     * memory ever written, so quoting it here would return nothing on every leaf and silently
-     * reduce hybrid search to its dense half.
-     */
     const q = buildMemoryQuery('Add rate limiting to the upload route', { ownerId: 'u1' });
 
     expect(q).toContain('owner_id:"u1"');
@@ -65,19 +48,13 @@ describe('the Quickwit query', () => {
   });
 
   it('cannot be made to inject a field term', () => {
-    // A leaf title is written by a planner model. Unquoted terms are an injection surface, so every
-    // non-alphanumeric character is a separator and what reaches Quickwit can only be words.
     const q = buildMemoryQuery('layout" OR owner_id:"victim', { ownerId: 'u1' });
 
-    // `owner` survives as a BODY term — `owner_id` splits on the underscore and `id` is too short
-    // to keep. That is the point: whatever the title contained can only ever become a word to
-    // search for, never a field to scope by. Exactly one field clause exists and it is ours.
     expect(q).toBe('owner_id:"u1" AND (body:layout OR body:owner OR body:victim)');
     expect(q.match(/owner_id:/g)).toHaveLength(1);
   });
 
   it('degrades to the owner alone when nothing usable is left', () => {
-    // Not an error: Quickwit answers this with that owner's memories, which beats throwing.
     expect(buildMemoryQuery('!! ?? ..', { ownerId: 'u1' })).toBe('owner_id:"u1"');
   });
 

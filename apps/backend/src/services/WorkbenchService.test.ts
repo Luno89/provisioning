@@ -1,13 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { WorkbenchService } from './WorkbenchService.js';
 
-/**
- * The live sandbox behind the verify window.
- *
- * What matters here is the lifecycle, because sessions live in memory and pods do not. Every
- * failure mode is the same shape: something forgets a pod that is still running, and nothing ever
- * comes back for it.
- */
 const fake = () => {
   const execs: { id: string; command: string; positional: string[] }[] = [];
   const written: { id: string; path: string; content: string }[] = [];
@@ -40,8 +33,6 @@ describe('opening a session', () => {
 
 describe('running commands', () => {
   it('never interpolates the command into the shell string', async () => {
-    // Same reasoning as the gate: this text is user- or model-authored, so any quote in it would
-    // be a shell injection if spliced in.
     const w = fake();
     const wb = new WorkbenchService(w.service);
     const { sessionId } = await wb.open('u1');
@@ -53,8 +44,6 @@ describe('running commands', () => {
   });
 
   it('refuses a session belonging to someone else', async () => {
-    // Conflates "no such session" with "not yours": a caller who does not own it has no business
-    // learning that it exists.
     const w = fake();
     const wb = new WorkbenchService(w.service);
     const { sessionId } = await wb.open('u1');
@@ -72,8 +61,6 @@ describe('running commands', () => {
 
 describe('reset', () => {
   it('wipes and re-seeds, so iteration is not tested against its own debris', async () => {
-    // A verify command tested against the leftovers of five attempts is being tested against a
-    // state no real run will ever have.
     const w = fake();
     const wb = new WorkbenchService(w.service);
     const { sessionId } = await wb.open('u1', { seed: [{ path: 'a.txt', content: '1' }] });
@@ -99,7 +86,6 @@ describe('not leaking pods', () => {
     const wb = new WorkbenchService(w.service);
     const { sessionId } = await wb.open('u1');
 
-    // An hour later.
     expect(await wb.reapIdle(Date.now() + 60 * 60_000)).toEqual([sessionId]);
     expect(w.service.destroy).toHaveBeenCalledWith(sessionId);
     await expect(wb.exec('u1', sessionId, 'ls')).rejects.toThrow();
@@ -113,8 +99,6 @@ describe('not leaking pods', () => {
   });
 
   it('asks the cluster about orphans, not its own memory', async () => {
-    // A restart empties the map and leaves the pods running — the same "absence from memory is not
-    // evidence" mistake that once reaped a live experiment, pointing the other way.
     const w = fake();
     expect(await new WorkbenchService(w.service).sweepOrphans()).toEqual(['old-1']);
     expect(w.service.reapStale).toHaveBeenCalled();

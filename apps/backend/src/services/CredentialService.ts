@@ -1,25 +1,12 @@
-/**
- * CredentialService
- *
- * Manages per-user cloud provider credentials with AES-256-GCM encryption
- * at rest. Provides CRUD operations plus the resolution chain used by
- * activities and workflows.
- */
 import type { Database } from '../lib/db-interface.js';
 import type { CloudCredentials, CloudProvider, UserMetadata } from '../lib/types.js';
 import { encryptValue, decryptValue, maskSecret } from '../lib/crypto.js';
 import { resolveCloudCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 
-/**
- * Provider API responses are unvalidated external JSON, and `Response.json()` is typed `unknown`.
- * We only ever read a couple of display fields off these, so this narrows just enough for those
- * reads to typecheck — deliberately without pretending the shape has been validated.
- */
 async function readJson(res: Response): Promise<Record<string, any>> {
   return (await res.json()) as Record<string, any>;
 }
 
-/** Fields that are considered sensitive and must be encrypted at rest */
 const SENSITIVE_FIELDS: Record<string, string[]> = {
   aws: ['accessKeyId', 'secretAccessKey'],
   gcp: ['serviceAccountJson'],
@@ -37,7 +24,6 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   googledrive: ['refreshToken', 'backupPassword'],
 };
 
-/** Fields that are stored in plaintext (non-sensitive metadata) */
 const PLAINTEXT_FIELDS: Record<string, string[]> = {
   aws: ['region'],
   gcp: ['projectId'],
@@ -60,7 +46,7 @@ export interface ProviderStatus {
   label: string;
   configured: boolean;
   source?: 'user' | 'env';
-  summary?: Record<string, string>; // masked values for display
+  summary?: Record<string, string>;
 }
 
 export class CredentialService {
@@ -69,9 +55,6 @@ export class CredentialService {
     private readonly masterKey: string,
   ) {}
 
-  /**
-   * Validate credentials live against provider API.
-   */
   async validateCredentials(
     provider: string,
     creds: Record<string, string>,
@@ -149,9 +132,6 @@ export class CredentialService {
 
       if (provider === 'hetzner') {
         if (!creds.token) return { valid: false, message: 'Hetzner Cloud API Token is required.' };
-        // Hetzner Cloud has no "account" endpoint — a token is scoped to a single project, so
-        // listing that project's servers is the cheapest call that proves the token both parses
-        // and is authorised. 401 here is the "bad token" signal; anything else is surfaced as-is.
         const res = await fetch('https://api.hetzner.cloud/v1/servers?per_page=1', {
           headers: { Authorization: `Bearer ${creds.token}` },
         });
@@ -172,37 +152,17 @@ export class CredentialService {
       }
 
       if (provider === 'cloudflare') {
-        // Trimmed because a token pasted from the dashboard commonly carries a trailing newline,
-        // and Cloudflare rejects the whole Authorization header rather than ignoring the
-        // whitespace — an invisible character producing an opaque failure.
         const token = String(creds.token ?? '').trim();
         if (!token) return { valid: false, message: 'Cloudflare API Token is required.' };
         if (/\s/.test(token)) {
           return { valid: false, message: 'The token contains a space or line break — it looks like more than just the token was pasted.' };
         }
 
-        // Listing zones, NOT /user/tokens/verify — verified live against a real Zone→DNS→Edit
-        // token, which answers 401 "Invalid API Token" to that endpoint while working perfectly
-        // for every DNS call we make. Both /user and /user/tokens/verify are user-scoped, and a
-        // zone-scoped token cannot call either; validating against them reports a good token as
-        // broken.
-        //
-        // This also validates the right thing. /zones is the first call the provisioning script
-        // makes, so a green result here means the token can do the actual job, not merely that it
-        // is well-formed.
         const res = await fetch('https://api.cloudflare.com/client/v4/zones', {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await readJson(res);
 
-        // Cloudflare's own error is far more useful than the status code, and it does NOT use 401
-        // for a bad token — a malformed one is a 400 whose body says "Invalid format for
-        // Authorization header", which tells you immediately that what was pasted is not a scoped
-        // token (a Global API Key uses X-Auth-Key/X-Auth-Email, not Bearer, and fails this way).
-        // Reporting the bare status instead threw that away and left "HTTP 400" as the only clue.
-        //
-        // It also answers 200 with success:false for a token that parses but is expired or
-        // inactive, so res.ok alone would call a dead token valid.
         if (!res.ok || data?.success !== true) {
           const detail = data?.errors?.[0]?.error_chain?.[0]?.message
             ?? data?.errors?.[0]?.message
@@ -218,9 +178,6 @@ export class CredentialService {
           return { valid: false, message: 'The token authenticates but can see no zones — check it is scoped to a zone, not just an account.' };
         }
 
-        // When a zone was named, confirm the token can actually see THAT one. A token scoped to
-        // some other zone authenticates fine and then fails at record-creation time, which is a
-        // much worse place to discover it.
         const wanted = String(creds.zone ?? '').trim();
         if (wanted && !zones.includes(wanted)) {
           return {
@@ -235,9 +192,6 @@ export class CredentialService {
         };
       }
 
-      // Each check below hits an endpoint verified to exist and to return 401 on a bad
-      // credential, so a green "Test Connection" means the token genuinely works — not merely
-      // that it looks well-formed.
       if (provider === 'vultr') {
         if (!creds.token) return { valid: false, message: 'Vultr Personal Access Token is required.' };
         const res = await fetch('https://api.vultr.com/v2/account', {
@@ -259,8 +213,6 @@ export class CredentialService {
       }
 
       if (provider === 'scaleway') {
-        // Scaleway authenticates with the SECRET key; the access key is only an identifier, so a
-        // missing access key is not an auth failure.
         if (!creds.secretKey) return { valid: false, message: 'Scaleway Secret Key is required.' };
         const res = await fetch('https://api.scaleway.com/account/v3/projects', {
           headers: { 'X-Auth-Token': creds.secretKey },
@@ -288,8 +240,6 @@ export class CredentialService {
         if (!clientId || !clientSecret || !apiUser || !apiPassword) {
           return { valid: false, message: 'Contabo needs Client ID, Client Secret, API user and API password.' };
         }
-        // Contabo uses an OAuth2 password grant rather than a bearer token, so validating means
-        // actually exchanging the four values for an access token.
         const res = await fetch('https://auth.contabo.com/auth/realms/contabo/protocol/openid-connect/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -345,12 +295,6 @@ export class CredentialService {
     }
   }
 
-  /**
-   * "Test Connection" for Google Drive can't reuse validateCredentials(provider, req.body)
-   * directly like the other providers — the frontend never has the plaintext refreshToken to
-   * send (it's set once via the OAuth callback, not typed into a form), so this pulls it from
-   * storage first.
-   */
   async testGoogleDriveConnection(userId: string): Promise<{ valid: boolean; message: string; details?: any }> {
     const user = await this.db.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, 'googledrive') : undefined;
@@ -358,9 +302,6 @@ export class CredentialService {
     return this.validateCredentials('googledrive', { refreshToken });
   }
 
-  /**
-   * Get the status of all supported cloud providers for a user.
-   */
   async getConfiguredProviders(userId: string): Promise<ProviderStatus[]> {
     const user = await this.db.getUserById(userId);
 
@@ -387,7 +328,6 @@ export class CredentialService {
         return { provider: key, label, configured: false };
       }
 
-      // Build a masked summary for display
       const summary: Record<string, string> = {};
       for (const [k, v] of Object.entries(resolved.env)) {
         summary[k] = maskSecret(v);
@@ -397,9 +337,6 @@ export class CredentialService {
     });
   }
 
-  /**
-   * Get the masked credential details for a specific provider.
-   */
   async getCredentials(userId: string, provider: CloudProvider): Promise<Record<string, string> | null> {
     const user = await this.db.getUserById(userId);
     if (!user?.credentials) return null;
@@ -427,9 +364,6 @@ export class CredentialService {
     return result;
   }
 
-  /**
-   * Save credentials for a provider. Encrypts sensitive fields before storage.
-   */
   async saveCredentials(
     userId: string,
     provider: CloudProvider,
@@ -444,11 +378,6 @@ export class CredentialService {
 
     for (const [key, rawValue] of Object.entries(creds)) {
       if (!rawValue) continue;
-      // A pasted token with a trailing space/newline (common clipboard artifact) encrypts and
-      // decrypts fine, and passes every validateCredentials() check here since those go through
-      // fetch()/curl, which tolerate it — but a strict HTTP client downstream (confirmed live:
-      // Python's httpx, used by TabbyAPI's own downloader) rejects it outright as an illegal
-      // header value, failing every request with no indication the token itself was the problem.
       const value = rawValue.trim();
       if (!value) continue;
       if (sensitive.includes(key)) {
@@ -456,25 +385,17 @@ export class CredentialService {
       } else if (plaintext.includes(key)) {
         encrypted[key] = value;
       }
-      // Ignore unknown fields
     }
 
     if (!user.credentials) {
       user.credentials = {};
     }
-    // Merge rather than replace: googledrive in particular is written incrementally by two
-    // independent flows (the OAuth callback sets refreshToken+email, the account-page form sets
-    // backupPassword separately) — replacing outright would let the second call wipe the first.
-    // Harmless for the other providers, whose forms always submit every field together anyway.
     const existing = (user.credentials as any)[provider] || {};
     (user.credentials as any)[provider] = { ...existing, ...encrypted };
 
     await this.db.saveUser(user);
   }
 
-  /**
-   * Remove stored credentials for a provider.
-   */
   async deleteCredentials(userId: string, provider: CloudProvider): Promise<void> {
     const user = await this.db.getUserById(userId);
     if (!user) throw new Error('User not found');
@@ -485,24 +406,12 @@ export class CredentialService {
     }
   }
 
-  /**
-   * Resolve credentials for a provider using the full resolution chain:
-   *   1. User's encrypted credentials (decrypted)
-   *   2. process.env
-   *   3. null → mock cloud mode
-   */
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {
     const user = await this.db.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, provider) : undefined;
     return resolveCloudCredentials(provider, decrypted);
   }
 
-  // ── Private helpers ──────────────────────────────────────────────────────
-
-  /**
-   * Decrypt all sensitive fields for a specific provider within a CloudCredentials blob.
-   * Returns a new CloudCredentials object with plaintext values (for resolution).
-   */
   private decryptAll(credentials: CloudCredentials, provider: string): CloudCredentials {
     const providerCreds = (credentials as any)[provider];
     if (!providerCreds) return {};
@@ -516,7 +425,6 @@ export class CredentialService {
         try {
           decrypted[key] = decryptValue(value, this.masterKey);
         } catch {
-          // Corrupted or wrong key — skip this field
           continue;
         }
       } else {

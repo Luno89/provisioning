@@ -2,11 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { conventionsOf, describeConventions, extensionVariants } from './tree-type-conventions.js';
 import type { TreeTypeSpec } from './tree-types.js';
 
-/**
- * These fixtures mirror the SHIPPED seeds, because the bug this module exists for came from the
- * real `api-service` type: it scaffolds plain JavaScript, the planner wrote `expects:
- * ['src/tools.ts']`, and the leaf was failed three times over a passing 34-test suite.
- */
 const apiService = {
   id: 'api-service', ownerId: 'u1', label: 'API / service', summary: 's',
   language: 'node', produces: 'service', doneMeans: 'tests pass',
@@ -31,7 +26,6 @@ const dataset = {
 
 describe('conventionsOf', () => {
   it('derives the source extension from the scaffold, not the language name', () => {
-    // The whole point: `language: 'node'` alone does not say .js vs .ts. The scaffold does.
     expect(conventionsOf(apiService)?.sourceExts).toEqual(['.js']);
   });
 
@@ -45,7 +39,6 @@ describe('conventionsOf', () => {
   });
 
   it('falls back to the language default when a type ships no scaffold', () => {
-    // `migration` operates on a repo that already exists, so it has no files of its own.
     expect(conventionsOf(migration)?.sourceExts).toEqual(['.js', '.mjs', '.cjs']);
   });
 

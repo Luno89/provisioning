@@ -1,9 +1,3 @@
-/**
- * DeployAppActivity
- *
- * Runs the deployment pipeline: builds a custom image if modules are selected,
- * imports it into the cluster (for k3d), then CDKTF-deploys the app stack.
- */
 import { randomBytes } from 'node:crypto';
 import { renderApp } from '../lib/app-spec.js';
 import { resolveBindings, bindingFiles } from '../lib/binding-resolve.js';
@@ -26,15 +20,6 @@ import { GiteaService } from '../services/GiteaService.js';
 import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 
-/**
- * The smallest allocatable memory across the cluster's nodes.
- *
- * The smallest rather than the sum: the pod lands on ONE node, and sizing against a total would
- * pass a check the scheduler then fails — or worse, place it on the node it exhausts.
- *
- * Returns undefined when the cluster cannot be asked, so the caller can plan without a budget
- * rather than treating an unreachable API as "no memory available" and refusing every deploy.
- */
 async function nodeAllocatableBytes(
   infra: InfrastructureService,
   kubeconfigPath: string,
@@ -92,14 +77,6 @@ export interface DeployAppArgs {
   tabbyReasoning?: boolean | undefined;
   tabbyToolFormat?: string | undefined;
   tabbyInlineModelLoading?: boolean | undefined;
-  /**
-   * Resource ceilings, chosen in the UI.
-   *
-   * Declared here because they were being SENT and not received: `TemporalBridge` puts all three
-   * in the workflow arguments, and this activity never passed them to `buildAppEnv` — so changing
-   * the memory limit in the UI did nothing, and nothing said so. The value simply never appeared
-   * in the Terraform plan.
-   */
   tabbyMemoryLimit?: string | undefined;
   tabbyShmSize?: string | undefined;
   tabbyCpuLimit?: string | undefined;
@@ -126,11 +103,6 @@ export interface DeployAppArgs {
   verdaccioUpstream?: string | undefined;
   verdaccioStorage?: string | undefined;
   gitappEnv?: string | undefined;
-  // Set only by TemporalBridge.deploy() for clusters where the worker shares a filesystem with
-  // the K8s node (see DownloadModelActivity.ts) — AppDeployWorkflow.ts uses this to decide
-  // whether to pre-download the model before this activity ever runs. Not read here; DeployAppActivity
-  // itself is unaffected either way since the pod's own in-container download logic is
-  // idempotent — it just sees the cache already populated when this ran first.
   modelCacheHostPath?: string | undefined;
   openaiApiBaseUrl?: string | undefined;
   webuiEnableWebSearch?: boolean | undefined;
@@ -145,8 +117,6 @@ export interface DeployAppResult {
   displayUrl: string;
 }
 
-// Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
-// VALUE from an activity file, only `import type`).
 export { deployAppActivityMeta } from '../lib/activity-timeouts.js';
 
 const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
@@ -156,10 +126,6 @@ export async function DeployAppActivity(
   args: DeployAppArgs,
 ): Promise<DeployAppResult> {
   const infra = new InfrastructureService();
-  // BuilderService inherits a Database from BaseService but never reads it — only its
-  // InfrastructureService is used. Activities have no DB access by design (see TemporalBridge's
-  // note on masterKey), so there is no real one to pass; the cast makes that explicit rather than
-  // relying on `{}` silently satisfying an unchecked parameter.
   const builder = new BuilderService({} as unknown as Database, infra);
   const logFile = args.logFile;
   const sanitizedName = SANITIZE(args.name);
@@ -183,9 +149,6 @@ export async function DeployAppActivity(
     minio: { repo: 'minio/minio', tag: 'latest' },
     qdrant: { repo: 'qdrant/qdrant', tag: 'latest' },
     quickwit: { repo: 'quickwit/quickwit', tag: 'latest' },
-    // Pinned, and specifically to the CPU build. This image's `latest` is the GPU one, which
-    // exits with "'nvidia-smi' command not found" on a node without a card — measured, not
-    // guessed. Falling through to the table's generic 'latest' produced exactly that.
     tei: { repo: 'ghcr.io/huggingface/text-embeddings-inference', tag: 'cpu-1.8.1' },
     verdaccio: { repo: 'verdaccio/verdaccio', tag: '6' },
   };
@@ -194,27 +157,15 @@ export async function DeployAppActivity(
   let finalOdooRepo = (args.appType !== 'odoo' && args.odooRepo === 'library/odoo') ? appDefault.repo : (args.odooRepo || appDefault.repo);
   let finalOdooTag = (args.appType !== 'odoo' && args.odooTag === '18.0') ? appDefault.tag : (args.odooTag || appDefault.tag);
 
-  // 'remote' is never a mock-cloud k3d scenario — see ProvisionClusterActivity.ts /
-  // ClusterService.isMockCloud() for the full explanation. hasCloudCredentials() has no 'remote'
-  // case and always resolves to mode 'mock', which — before this exclusion — made every app
-  // deployed onto a 'remote' cluster compute physicalName as `mock-remote-<clusterName>`, a stack
-  // name CDKTF never actually created, breaking every deploy onto a real remote cluster.
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
 
   let customImageTag: string | undefined;
 
-  // 'remote' clusters (ProvisionRemoteHostActivity) write their own standalone kubeconfig to
-  // this exact /tmp/kubeconfig-<name> path too — the LIVE_ROOT/.kube/config fallback below is
-  // only meaningful for real cloud providers (aws/gcp/azure/do) that configure a system
-  // kubeconfig via their own CLI tooling, which 'remote' never does. Confirmed live: without this,
-  // every app deploy onto a 'remote' cluster failed with "'config_path' refers to an invalid
-  // path" since that file never exists.
   const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
     ? `/tmp/kubeconfig-${physicalName}`
     : path.join(LIVE_ROOT, '.kube/config');
 
-  // ── 1. For vLLM on k3d: verify GPU toolkit and install device plugin ──
   let effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
   let effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
 
@@ -232,9 +183,6 @@ export async function DeployAppActivity(
     }
   }
 
-  // TabbyAPI (exllamav3) is CUDA-only with no CPU fallback, unlike vLLM above — a failed
-  // toolkit check here can't be papered over by dropping to CPU, so we just warn and leave the
-  // GPU count as configured; the pod will fail its own way if the toolkit truly isn't usable.
   const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
   if (args.appType === 'tabbyapi' && (args.provider === 'k3d' || isMock) && effectiveTabbyGpuCount > 0) {
     try {
@@ -245,13 +193,6 @@ export async function DeployAppActivity(
     }
   }
 
-  // ── 2. Build custom image or pull/import app image for k3d ──
-  // `k3d image import` only makes sense against a real k3d cluster — it copies a
-  // host-Docker-pulled image into that cluster's isolated, nested containerd. GPU-enabled
-  // clusters attach to the native k3s management cluster instead (see ProvisionClusterActivity),
-  // whose containerd is the host's only container runtime and pulls public images itself at
-  // pod-start time — no import step exists or is needed there (attempting it fails with
-  // "failed to get cluster <name>: No nodes found", since there's no such k3d cluster).
   if (args.modules && args.modules.length > 0) {
     const baseImage = (finalOdooRepo && finalOdooTag) ? `${finalOdooRepo}:${finalOdooTag}` : (args.odooRepo || 'odoo:latest');
     customImageTag = await builder.buildCustomImage(
@@ -281,8 +222,6 @@ export async function DeployAppActivity(
       const tabbyImageTag = args.tabbyImageTag === 'cu13' ? 'cu13' : 'latest';
       await infra.pullAndImportImage(physicalName, `ghcr.io/theroyallab/tabbyapi:${tabbyImageTag}`, { logFile });
     } else if (args.appType === 'palworld') {
-      // Pinned to the construct's own default rather than finalOdooRepo/Tag, which the wizard
-      // leaves at Odoo's values for app types that don't expose an image picker.
       const palworldImage = `${finalOdooRepo || 'thijsvanloef/palworld-server-docker'}:${finalOdooTag || 'latest'}`;
       await infra.pullAndImportImage(physicalName, palworldImage, { logFile });
     } else if (finalOdooRepo && finalOdooTag) {
@@ -295,18 +234,12 @@ export async function DeployAppActivity(
     }
   }
 
-  // Fail fast on a node too small to ever schedule the pod. Without this the deploy sits Pending
-  // until the activity's 80-minute Temporal timeout with nothing in the logs explaining why —
-  // the same reason checkGpuToolkit exists for vLLM. Best-effort: an unreadable node list should
-  // not block a deploy that might well have worked.
   if (args.appType === 'palworld') {
     const REQUIRED_GI = 12;
     try {
       const nodesJson = await infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
       const nodes = JSON.parse(nodesJson).items ?? [];
       const toGi = (q: string): number => {
-        // kubelet reports allocatable memory in Ki on every platform this runs on, but tolerate
-        // the other suffixes rather than silently computing a wrong number.
         const m = /^(\d+)(Ki|Mi|Gi)?$/.exec(q ?? '');
         if (!m?.[1]) return 0;
         const n = Number(m[1]);
@@ -326,10 +259,6 @@ export async function DeployAppActivity(
   }
 
   const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, {});
-  // Every entry here is a localhost placeholder that only means anything on k3d. For a game
-  // server it would be actively misleading — players connect to <node-ip>:8211 over UDP, and the
-  // UI computes that connect string from the cluster record instead. Left empty so nothing
-  // renders a dead clickable link.
   const displayUrl = args.appType === 'palworld'
     ? ''
     : args.appType === 'odoo'
@@ -346,14 +275,8 @@ export async function DeployAppActivity(
     ? 'http://localhost:8080'
     : 'http://localhost:80';
 
-  // Derived from the deployment rather than invented, so two activities for one deployment cannot
-  // end up writing different Terraform states. See lib/deployment-id.ts.
   const deploymentId = deploymentIdFor(args.deploymentId, args.name);
 
-  // Real size from HuggingFace, not the repo-name regex guess tabbyapi.ts falls back to when
-  // this is absent — sizes /dev/shm and the memory limit off what the model actually is rather
-  // than a string match. Non-fatal on failure (rate limit, network blip, gated repo without a
-  // token yet): the construct's own fallback estimate still runs, just less precisely.
   let tabbyModelSizeBytes: number | undefined;
   if (args.appType === 'tabbyapi' && args.tabbyModel) {
     try {
@@ -365,17 +288,6 @@ export async function DeployAppActivity(
     }
   }
 
-  /**
-   * Refuse a deployment the node cannot hold, before it takes the machine down with it.
-   *
-   * The construct sizes its own limit but floors it at 32G, which on a 30 GiB workstation is not a
-   * limit at all — Kubernetes cannot evict a pod whose ceiling is above physical memory, so the
-   * host swaps instead. Measured live: 28 GiB of 30 in use, 244 MiB free, and an experiment
-   * variant that burned its full 15-minute timeout without completing one turn.
-   *
-   * Decided here rather than in the construct because this is where the facts are: the model's
-   * real size is already fetched above, and the cluster can be asked what the node actually has.
-   */
   let tabbyMemoryPlan: HostMemoryPlan | undefined;
   if (args.appType === 'tabbyapi') {
     const allocatableBytes = await nodeAllocatableBytes(infra, kubeconfigPath, physicalName).catch(() => undefined);
@@ -389,13 +301,6 @@ export async function DeployAppActivity(
     if (tabbyMemoryPlan.refusal) throw new Error(tabbyMemoryPlan.refusal);
     console.log(`[DeployAppActivity] host memory plan: ${tabbyMemoryPlan.basis}`);
 
-    /**
-     * A chosen limit below the estimate is allowed, and said out loud.
-     *
-     * Not refused: it is the user's machine and a too-small limit fails SAFELY — the cgroup kills
-     * the pod rather than the host OOM killer taking the desktop with it, which is the whole point
-     * of having a limit that binds. But it should not be a surprise when the pod restarts.
-     */
     const chosen = args.tabbyMemoryLimit ? parseQuantity(args.tabbyMemoryLimit) : undefined;
     if (chosen !== undefined && chosen < tabbyMemoryPlan.limitBytes) {
       console.warn(
@@ -406,22 +311,8 @@ export async function DeployAppActivity(
     }
   }
 
-  /**
-   * A stored spec deploys instead of a construct.
-   *
-   * Looked up by app type: if the catalogue has one, this app is rendered from data and `main.ts`
-   * builds it with the generic construct. If it does not — which is every type today — nothing
-   * changes and the hand-written construct runs exactly as before. That is the migration: one type
-   * at a time, with the constructs as the fallback the whole way.
-   *
-   * Secrets are minted HERE, per deployment, and never live in the spec. The renderer puts them in
-   * a Kubernetes Secret and references them, so the value reaches the container and appears in no
-   * pod spec, no proposal and nothing a model can read.
-   */
   let renderedSpec: unknown;
   try {
-    // Opened for the lookup and closed straight after: this activity holds no database handle, and
-    // a deploy should not start depending on one staying open for its whole run.
     const specDb = createDatabase();
     await specDb.init();
     const stored = (await specDb.getAppSpecs()).find((s) => s.id === args.appType)
@@ -445,30 +336,14 @@ export async function DeployAppActivity(
       console.log(`[DeployAppActivity] ${args.appType} deploying from a stored spec, not a construct`);
     }
   } catch (err: any) {
-    // A catalogue that cannot be read must not stop a deploy that has a construct.
     console.warn(`[DeployAppActivity] could not read app specs: ${err.message}`);
   }
 
-  /**
-   * Service bindings: read the provider's Secret, write the consumer's, mount it as files.
-   *
-   * Kubernetes Secrets are namespace-scoped with no supported cross-namespace reference, so this is
-   * the only way a deployed app reaches a service in another namespace. `resolveBindings` has
-   * already refused anything the owner does not own — that filter is the security boundary, and it
-   * runs before any secret is read.
-   *
-   * Every copy is logged. There is no per-deploy approval — the DECLARATION is what a person
-   * approves, and a prompt seen on every redeploy is one that gets clicked through — so the record
-   * is what makes a credential movement reviewable afterwards.
-   */
   let bindingsJson = '';
   try {
-    // Own handle, closed straight after, like the spec lookup above: this activity holds none, and
-    // a deploy should not depend on one staying open for its whole run.
     const bindDb = createDatabase();
     await bindDb.init();
     const deployments = await bindDb.getDeployments();
-    // The project id is on the DEPLOYMENT record, not in the activity's arguments.
     const self = deployments.find((d) => d.name === args.name || d.id === args.name);
     const project = self?.gitappProjectId
       ? (await bindDb.getProjects()).find((p) => p.id === self.gitappProjectId)
@@ -484,9 +359,6 @@ export async function DeployAppActivity(
 
       const projected: ProjectedBinding[] = [];
       for (const b of bindings) {
-        // Shared with the sandbox path (lib/binding-project.ts). The decode is the one step where a
-        // mistake is silent — a key mapped wrongly yields a Secret of empty strings, and the failure
-        // surfaces much later as an auth error against a service that is fine. One copy.
         const credentials = await readBindingCredentials(async (args) => {
           const raw = await infra.runKubectl(args, kubeconfigPath);
           return typeof raw === 'string' ? raw : ((raw as any)?.stdout ?? '');
@@ -494,8 +366,6 @@ export async function DeployAppActivity(
 
         const secretName = bindingSecretName(b.name);
         const files = bindingFiles(b, credentials);
-        // Applied rather than created, so a redeploy updates a rotated credential instead of
-        // failing on an object that already exists.
         const manifest = JSON.stringify({
           apiVersion: 'v1',
           kind: 'Secret',
@@ -503,11 +373,6 @@ export async function DeployAppActivity(
           type: 'Opaque',
           stringData: files,
         });
-        /**
-         * Through a file, not `--from-literal`: an argument is visible in `ps` on the host for the
-         * lifetime of the process, and this one is a password. Written 0600 and removed straight
-         * after — the same shape RunPipelineActivity uses to apply a Job manifest.
-         */
         const manifestPath = path.join(os.tmpdir(), `binding-${sanitizedName}-${b.name}-${Date.now()}.json`);
         try {
           await fs.writeFile(manifestPath, manifest, { encoding: 'utf-8', mode: 0o600 });
@@ -523,8 +388,6 @@ export async function DeployAppActivity(
       if (projected.length) bindingsJson = JSON.stringify(bindingProjection(projected));
     }
   } catch (err: any) {
-    // A binding failure must not take down a deploy that might not need it. The app starts, finds
-    // no binding, and says so — which is a better failure than no deploy at all.
     console.warn(`[bindings] ${physicalName}: ${err.message}`);
   }
 
@@ -571,14 +434,6 @@ export async function DeployAppActivity(
     tabbyReasoning: args.tabbyReasoning,
     tabbyToolFormat: args.tabbyToolFormat,
     tabbyInlineModelLoading: args.tabbyInlineModelLoading,
-    /**
-     * The plan fills these in only when nobody chose.
-     *
-     * It used to overwrite them unconditionally, which silently discarded whatever the user had
-     * typed — they would change the memory limit, redeploy, and find their value nowhere in the
-     * Terraform plan. A computed default exists to save you from having to decide, not to overrule
-     * you once you have.
-     */
     tabbyMemoryLimit: args.tabbyMemoryLimit
       || (tabbyMemoryPlan ? `${Math.ceil(tabbyMemoryPlan.limitBytes / 1e9)}G` : undefined),
     tabbyShmSize: args.tabbyShmSize
@@ -615,18 +470,11 @@ export async function DeployAppActivity(
     storageEnv,
   });
 
-  // ── 4. Deploy the app stack via CDKTF ──
   await infra.deploy(
     `app-${physicalName}-${deploymentId}`,
     { logFile, env },
   );
 
-  // gitapp images live on the self-hosted Gitea registry, which requires auth to pull from —
-  // unlike every other app type here, which either uses a public image or one already imported
-  // into the target cluster's containerd. Created *after* the CDKTF apply above (which is what
-  // creates the namespace this secret needs to live in) rather than before — the pod will sit
-  // in a brief ImagePullBackOff until this lands, then kubelet's own pull-retry picks the
-  // secret up automatically; no coordination with CDKTF's own Namespace resource needed this way.
   if (args.appType === 'gitapp') {
     const gitea = new GiteaService(infra, process.env.JWT_SECRET || 'provisioning-platform-secret-12345', '/tmp/kubeconfig-provisioning-lunorica');
     const registryHost = await gitea.getRegistryHost();
@@ -643,16 +491,6 @@ export async function DeployAppActivity(
     await fs.rm(tmpSecretPath, { force: true }).catch(() => {});
   }
 
-  // Palworld's admin/server/RCON passwords. Generated HERE, inside the activity, and written
-  // straight to a Kubernetes Secret — deliberately never an activity argument, a workflow result,
-  // or an entry in buildAppEnv's env map, because all three of those persist the value somewhere
-  // durable (Temporal history forever, synthesized Terraform and tfstate on disk). The construct
-  // references this Secret with optional: true precisely so the pod tolerates the gap between the
-  // apply finishing and this block running.
-  //
-  // Created after the apply for the same reason as the gitapp block above: the namespace does not
-  // exist until then. Only created if absent, so a re-deploy or config sync never rotates the
-  // password out from under players who already have it.
   if (args.appType === 'palworld') {
     const exists = await infra
       .runKubectl(['get', 'secret', 'palworld-secrets', '-n', sanitizedName], kubeconfigPath)
@@ -661,7 +499,6 @@ export async function DeployAppActivity(
 
     if (!exists) {
       const { randomBytes } = await import('crypto');
-      // base64url: no shell-quoting or ini-escaping hazards in the value.
       const gen = () => randomBytes(18).toString('base64url');
       const secretYaml = await infra.runKubectl(
         ['create', 'secret', 'generic', 'palworld-secrets', '-n', sanitizedName,
@@ -678,7 +515,6 @@ export async function DeployAppActivity(
       } finally {
         await fs.rm(tmpPath, { force: true }).catch(() => {});
       }
-      // Restart so the pod picks up the Secret it started without.
       await infra
         .runKubectl(['rollout', 'restart', 'deployment/palworld', '-n', sanitizedName], kubeconfigPath)
         .catch((err: any) => console.warn(`[DeployAppActivity] palworld restart after secret creation failed: ${err.message}`));

@@ -45,10 +45,6 @@ export class RegistryService extends BaseService {
           if (tags.length > 0) return tags.slice(0, 30);
       }
 
-      // ghcr.io (GitHub Container Registry) isn't Docker Hub — it needs its own anonymous
-      // token exchange before the tags/list call will authenticate, per the OCI distribution
-      // spec's standard token-auth flow (docs.github.com/en/packages, no credentials required
-      // for public packages).
       if (repo.startsWith('ghcr.io/')) {
         const repoPath = repo.slice('ghcr.io/'.length);
         const tokenResp = await axios.get(`https://ghcr.io/token?scope=repository:${repoPath}:pull&service=ghcr.io`);
@@ -56,10 +52,6 @@ export class RegistryService extends BaseService {
           headers: { Authorization: `Bearer ${tokenResp.data.token}` },
         });
         const tags = (tagsResp.data.tags || [])
-          // GHCR image builds commonly push a per-commit "git-<sha>" tag alongside every real
-          // release tag, and CI-only "buildcache-*" tags that hold layer cache manifests rather
-          // than a runnable image — without filtering, those drown out (or worse, offer as
-          // selectable) tags a user actually wants.
           .filter((tag: string) => !tag.startsWith('git-') && !tag.startsWith('buildcache-') && !tag.includes('sha256'));
         if (tags.length > 0) return tags.slice(0, 30);
       }
@@ -78,9 +70,6 @@ export class RegistryService extends BaseService {
     }
   }
 
-  // Tags already pulled onto the host — these deploy instantly with no download wait, which
-  // matters for a multi-GB LLM serving image. Shells out to the host Docker daemon rather than
-  // any registry API, so it reflects this machine's actual cache, not what's merely publishable.
   async getLocalTags(repo: string): Promise<string[]> {
     try {
       const safeRepo = repo.replace(/(["'$`\\])/g, '\\$1');

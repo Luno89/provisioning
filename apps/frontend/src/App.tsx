@@ -27,8 +27,6 @@ import MeshDevices from './components/MeshDevices.js';
 import Personas from './components/Personas.js';
 import { API_BASE } from './api/client';
 import { getMe, logout } from './api/auth';
-// Aliased where App already names a MUTATION the same thing — those names describe what the shell
-// does; the api functions are the transport under them.
 import {
   listClusters, clusterKeys, type ClusterCreated,
   provisionCluster as provisionClusterApi,
@@ -42,21 +40,8 @@ import {
 import { listProviders, credentialKeys } from './api/credentials';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from './api/nginx';
 
-// Re-exported for the handful of callers that still take an api base as a prop; the value itself
-// is declared once in `api/client.ts`.
 export { API_BASE };
 
-// `axios.defaults.withCredentials = true` used to live here, and it was the worst of the three
-// ways credentials were being set: it silently coupled every component to App.tsx having been
-// imported first, so a component rendered in a test without it passed and would have failed in
-// production. `api/client.ts`'s instance carries it now.
-
-/**
- * Everything that is infrastructure rather than the harness.
- *
- * A table rather than eleven hand-written buttons: they differed only in id, icon and label, and
- * every style tweak previously meant eleven identical edits.
- */
 const FOREST_TABS = [
   { id: 'clusters' as const, label: 'Clusters', icon: Cloud },
   { id: 'apps' as const, label: 'Applications', icon: Server },
@@ -70,33 +55,8 @@ const FOREST_TABS = [
   { id: 'settings' as const, label: 'Security', icon: Shield },
 ];
 
-/**
- * Every view the URL may name.
- *
- * Anything else — a stale bookmark to a retired view, a typo — is resolved rather than rendered as
- * a blank page. See RETIRED_VIEWS in lib/route.ts.
- */
-/**
- * Mirrors APP_TYPES in apps/backend/src/lib/app-catalog.ts — the frontend does not import backend
- * modules, so this is the one copy on this side rather than the two inline unions it replaced.
- */
-
-
-
 function App() {
   const queryClient = useQueryClient();
-  /**
-   * ── SHELL STATE LIVES IN A STORE ──
-   *
-   * These were seven `useState` hooks here, plus two effects keeping `view` and the URL in step,
-   * plus fifteen raw setters passed down as props. They are `stores/shell.ts` now: `setView` writes
-   * the hash itself, so the two cannot drift, and a child that needs the view subscribes rather
-   * than being handed a setter it could put anything into.
-   *
-   * Read through selectors with the same names the markup below already uses, so this file's 2,800
-   * lines did not have to be edited to move the state. Components subscribe directly as their own
-   * slices land — Sidebar already does.
-   */
   const view = useShellStore((s) => s.view);
   const setView = useShellStore((s) => s.setView);
   const handoff = useShellStore((s) => s.handoff);
@@ -106,21 +66,12 @@ function App() {
   const authLoading = useShellStore((s) => s.authLoading);
   const setAuthLoading = useShellStore((s) => s.setAuthLoading);
 
-  // Back and Forward. Without this the buttons left the application entirely, because nothing had
-  // ever pushed an entry.
   useEffect(() => startHistorySync(), []);
 
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
-  /** A bring-your-own cluster waiting for its generated public key to be authorised. */
   const [pendingKey, setPendingKey] = useState<{ id: string; publicKey: string } | null>(null);
-  /** Set by the VPS Catalog's Deploy button so the wizard opens on that exact plan and location. */
   const [wizardPreset, setWizardPreset] = useState<{ provider: string; serverType?: string; location?: string } | undefined>(undefined);
-  /**
-   * The deploy wizard's state — step, form data, the advanced toggles, the model search box and
-   * five debounced mirrors of it — moved into `components/AppDeployWizard/` along with the six
-   * queries App ran on its behalf. App decides whether it is open and what happens on deploy.
-   */
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
   const confirmDestroy = useShellStore((s) => s.confirmDestroy);
@@ -131,13 +82,9 @@ function App() {
   const clearDestroyFor = useShellStore((s) => s.clearDestroyFor);
   
   const [logTab, setLogTab] = useState<'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage'>('general');
-  // Schema-driven settings for game servers, edited in the Config tab. Seeded from the
-  // deployment record when the tab opens (see the effect that hydrates configInputs).
   const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
   const [showNginxWizard, setShowNginxWizard] = useState(false);
   useEffect(() => {
-    // `getMe` resolves null rather than rejecting when nobody is signed in — that is the ordinary
-    // state on first load, not an error.
     getMe()
       .then((data) => { if (data) setUser(data); })
       .finally(() => setAuthLoading(false));
@@ -153,9 +100,6 @@ function App() {
     }
   };
 
-
-  // Unified Wizard State
-
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
   const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000 });
   const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders });
@@ -163,66 +107,11 @@ function App() {
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d: any) => d.id === showLogModal.id) : null;
   const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c: any) => c.id === showLogModal.id) : null;
 
-
-
-  /**
-   * The three cluster-detail queries that used to live here — pods, Helm releases and GPU status,
-   * all keyed on `expandedCluster` — are `useClusterDetail` inside ClustersView now. App was
-   * running queries on a child's behalf and handing back six data/loading values, for state the
-   * child owned.
-   */
-
-  
-
-  
-  // Custom Modules Queries
-
-
-  // Which image tags the running TabbyAPI image actually supports — fetched live rather than
-  // hardcoded, since ghcr.io/theroyallab/tabbyapi's published tags can change upstream (new
-  // CUDA variants added/dropped) independent of this codebase. Local tags come from the host
-  // Docker cache (deploys instantly, no pull) and are merged with what's downloadable from the
-  // registry so the picker shows both, distinguishing which is which.
-
-  // Debounced so this doesn't fire on every keystroke while typing a model ID or context length
-  // — HuggingFace's API is cheap but there's no reason to hit it on every digit.
-  /**
-   * Debounced so typing a model name is one request to the Hugging Face API rather than one per
-   * character. Seven `useState` mirrors and three copies of the same `setTimeout`/`clearTimeout`
-   * effect, replaced by `lib/use-debounce.ts`.
-   */
-
-  // Same VRAM-estimate treatment as TabbyAPI above, adapted for vLLM's own fields: no revision
-  // concept (vLLM doesn't split quants across HF branches the way EXL2/EXL3 repos do), and dtype
-  // instead of cache_mode — mapped to 'FP16' (2 bytes/element) for every realistic vLLM dtype
-  // (auto/half/float16/bfloat16 are all 2 bytes; float32 is rare enough for LLM serving that this
-  // doesn't special-case it separately, same caveat-labeled estimate as the TabbyAPI side).
-
-  // Shared model-search picker for both vLLM and TabbyAPI wizard steps — replaces what used to
-  // be a static hardcoded list of 4-5 models with a live HuggingFace search. An empty query
-  // still returns results (sorted by downloads), so it doubles as a "trending models" list.
-  // Only relevant for TabbyAPI — EXL2/EXL3 quants split their bpw variants across branches of
-
-
-
-
-  /**
-   * ── BROADCAST EVENTS, ON THE SHARED CONNECTION ──
-   *
-   * This opened one of the app's three `io()` connections. The two log rooms it also managed have
-   * moved to `useLogSocket` below, which owns the rejoin-and-clear on reconnect that used to live
-   * in this effect's `socket.on('reconnect')` block.
-   */
   useSocketEvent<{ id: string }>('resource-destroyed', (data) => {
-    // The store assigns the key. It used to be `Date.now()` here, which collides when two
-    // resources finish in the same millisecond and hands React duplicate keys.
     pushNotification(data);
 
-    // Close anything that was showing the resource that just went away.
     setShowLogModal((current) => (current && current.id === data.id) ? null : current);
     clearDestroyFor(data.id);
-    // Collapsing the expanded cluster row is ClustersView's own reaction now — it owns that
-    // state, so it listens for this event itself.
 
     queryClient.invalidateQueries({ queryKey: ['clusters'] });
     queryClient.invalidateQueries({ queryKey: ['deployments'] });
@@ -233,28 +122,6 @@ function App() {
     queryClient.invalidateQueries({ queryKey: ['deployments'] });
   });
 
-
-
-
-
-
-
-
-
-
-  /**
-   * Every mutation below reports its failure.
-   *
-   * ── WHY THIS IS HERE ──
-   * None of them did. A rejected POST left the wizard open with no message and no console error,
-   * so "click Deploy, nothing happens" was the entire user-visible symptom — and it was also the
-   * entire E2E failure report: a heading that never appeared, with no way to learn why from the
-   * artefacts. Diagnosing it needed a hand-driven browser and a request interceptor.
-   *
-   * `errorMessage` reads the server's `{ error }` body before falling back to the axios message,
-   * so a 404 "Cluster not found" reaches the user as those words rather than "Request failed with
-   * status code 404".
-   */
   const reportFailure = (what: string) => (err: unknown) =>
     pushNotification({ type: 'error', message: `${what}: ${errorMessage(err)}` });
 
@@ -264,9 +131,6 @@ function App() {
       queryClient.invalidateQueries({ queryKey: ['clusters'] });
       setShowClusterModal(false);
       setWizardPreset(undefined);
-      // A bring-your-own machine has not started provisioning: the backend generated a keypair and
-      // is holding it until the user authorises the public half. Jumping to the provisioning log
-      // here would show an empty log for a workflow that does not exist.
       if (res.status === 'awaiting-key') {
         setPendingKey({ id: res.id, publicKey: res.publicKey ?? '' });
         return;
@@ -295,14 +159,9 @@ function App() {
       setShowAppModal(false); 
       setShowLogModal({ type: 'app', id: res.id }); 
       setLogTab('provision'); 
-      // The wizard resets itself: it unmounts on close, so its state goes with it.
     },
-    // Deliberately does NOT close the wizard: the configuration is still on screen, and the fix
-    // for "Cluster not found" is usually to pick a different one.
     onError: reportFailure('Could not deploy the app'),
   });
-
-
 
   const destroyResource = useMutation({
     mutationFn: ({ type, id }: { type: 'cluster' | 'app'; id: string }) => destroyResourceApi(type, id),
@@ -316,15 +175,6 @@ function App() {
     onError: reportFailure('Could not destroy that'),
   });
 
-  // No separate "abort" mutation: DELETE /api/clusters/:id and /api/deployments/:id already
-  // detect a still-provisioning/deploying resource server-side and abort it instead of trying to
-  // destroy something that was never fully created — see index.ts's delete handlers. A dedicated
-  // Abort button/mutation calling POST .../abort did the exact same thing through a second path,
-  // which just meant two buttons for one operation.
-
-
-
-
   const { data: nginxConfig, isLoading: loadingNginxConfig } = useQuery({
     queryKey: nginxKeys.config(),
     queryFn: getNginxConfig,
@@ -336,8 +186,6 @@ function App() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['nginx-config'] });
     },
-    // NginxView renders `updateNginxConfig.isError` itself, so this adds the toast rather than
-    // replacing that — a config save is worth noticing from another screen.
     onError: reportFailure('Could not save the nginx config'),
   });
 
@@ -346,11 +194,6 @@ function App() {
       setEditorContent(nginxConfig.content);
     }
   }, [nginxConfig]);
-
-
-
-
-
 
   const openDashboard = (type: 'cluster' | 'app', id: string) => {
     setShowLogModal({ type, id });
@@ -459,10 +302,6 @@ function App() {
              <div className="flex gap-4">
                <button onClick={() => setConfirmDestroy(null)} className="flex-1 bg-slate-800 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all cursor-pointer">Cancel</button>
                <button
-                 // Always DELETE, whether this is showing as "Abort" or "Destroy" — the backend
-                 // (index.ts's delete handlers) already checks whether the resource is still
-                 // provisioning/deploying and aborts instead of destroying when it is. isAbort
-                 // here only picks which confirmation copy to show, not which request to send.
                  onClick={() => destroyResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })}
                  className={`flex-1 ${confirmDestroy.isAbort ? 'bg-amber-600 hover:bg-amber-500' : 'bg-red-600 hover:bg-red-500'} py-3 rounded-xl font-bold shadow-lg transition-all cursor-pointer flex items-center justify-center`}
                >
@@ -475,10 +314,6 @@ function App() {
 
       {showLogModal && (
         <AppDashboard
-          /**
-           * Keyed on the resource, so opening a different one remounts rather than carrying the
-           * previous deployment's tab, pod selection and half-edited config across.
-           */
           key={showLogModal.id}
           target={showLogModal}
           deployment={currentDeployment ?? null}
@@ -502,8 +337,6 @@ function App() {
 
       {showClusterModal && (
         <ClusterWizard
-          // Remounts when the preset changes, so a second Deploy click from the catalogue seeds
-          // fresh initial state instead of reusing the first plan's.
           key={wizardPreset ? `${wizardPreset.provider}:${wizardPreset.serverType}:${wizardPreset.location}` : 'blank'}
           configuredProviders={providers}
           submitting={provisionCluster.isPending}

@@ -178,9 +178,6 @@ export class MongoDB implements Database {
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, { unique: true });
     await this.pipelineRuns.createIndex({ projectId: 1 });
-    // The read order in claimFrontier, so the frontier is a range scan rather than a sort of every
-    // URL an ingest has ever queued — the difference between a crawl of 500 pages and one of 95
-    // million.
     await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
     await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
@@ -214,13 +211,6 @@ export class MongoDB implements Database {
 
   async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
     const id = cluster.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getClusters()).find((x: ClusterMetadata) => x.id === id);
     const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
     const c: ClusterMetadata = {
@@ -253,24 +243,6 @@ export class MongoDB implements Database {
     await this.deployments.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
-  /**
-   * Reconciles the collection to this list, without ever emptying it first.
-   *
-   * ── WHY NOT deleteMany + insertMany ──
-   * That is what this was, and it has two failure modes that both bite in the destroy → deploy
-   * cycle. It is not atomic, so anything writing between the two steps — the 30-second reconcile
-   * loop, a deploy, an exposure sync — inserts a document that `insertMany` then collides with:
-   * `E11000 duplicate key ... index: _id_`, observed on exactly this path.
-   *
-   * The second is worse and silent. `deleteMany({})` had already succeeded when `insertMany` threw,
-   * so a failure did not leave the collection unchanged — it left it EMPTY. One racing write could
-   * therefore delete every deployment record for every user, and the only trace was a warning line
-   * in the reconcile log.
-   *
-   * A bulk upsert plus targeted deletes has neither property: nothing is removed that the caller
-   * did not omit, a concurrent insert is absorbed rather than collided with, and a failure leaves
-   * the collection as it was.
-   */
   async saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void> {
     const keep = deployments.map(toDoc);
     const keepIds = keep.map((d) => d._id);
@@ -279,27 +251,17 @@ export class MongoDB implements Database {
       const { _id, ...rest } = doc;
       return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
     });
-    // Removals are expressed as "anything not in the list" rather than "empty it and rebuild",
-    // so the window in which the collection is missing records never exists.
     ops.push({ deleteMany: { filter: keepIds.length ? { _id: { $nin: keepIds } } : {} } });
 
     await this.deployments.bulkWrite(ops, { ordered: false });
   }
 
-  /** Removes one deployment. What every "filter it out and rewrite the world" caller actually meant. */
   async deleteDeployment(id: string): Promise<void> {
     await this.deployments.deleteOne({ _id: id as any });
   }
 
   async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
     const id = deployment.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getDeployments()).find((x: DeploymentMetadata) => x.id === id);
     const merged = mergeRecord(previous, deployment as Partial<DeploymentMetadata>);
     const d: DeploymentMetadata = {
@@ -328,13 +290,6 @@ export class MongoDB implements Database {
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
     const id = project.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getProjects()).find((x: ProjectMetadata) => x.id === id);
     const merged = mergeRecord(previous, project as Partial<ProjectMetadata>);
     const p: ProjectMetadata = {
@@ -364,13 +319,6 @@ export class MongoDB implements Database {
 
   async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
     const id = run.id || uuidv4();
-    /**
-     * Merged onto the stored record, not rebuilt from a list of fields.
-     *
-     * The list this replaced dropped anything it did not name — see lib/merge-record.ts
-     * for the two times that lost real data. Absence now means unchanged, which is what
-     * "save this partial info" already promised.
-     */
     const previous = (await this.getPipelineRuns()).find((x: PipelineRunMetadata) => x.id === id);
     const merged = mergeRecord(previous, run as Partial<PipelineRunMetadata>);
     const r: PipelineRunMetadata = {
@@ -407,8 +355,6 @@ export class MongoDB implements Database {
 
   async saveCorpusPages(pages: CorpusPage[]): Promise<void> {
     if (!pages.length) return;
-    // One round trip for a whole crawl batch. Written one-by-one this is the slowest part of an
-    // ingest by an order of magnitude.
     await this.corpus.bulkWrite(pages.map((page) => {
       const doc = toDoc(page);
       const { _id, ...rest } = doc;
@@ -423,18 +369,12 @@ export class MongoDB implements Database {
   async enqueueFrontier(urls: FrontierUrl[]): Promise<number> {
     if (!urls.length) return 0;
     try {
-      /**
-       * `ordered: false` so one already-queued URL does not abandon the rest of the batch, and the
-       * duplicate-key error it raises is the deduplication working rather than a failure. Every
-       * page in a crawl is linked from somewhere, so this is the common path, not the edge.
-       */
       const res = await this.frontier.insertMany(
         urls.map((u) => { const { _id, ...rest } = toDoc(u); return { _id, ...rest }; }),
         { ordered: false },
       );
       return res.insertedCount;
     } catch (err: any) {
-      // A bulk write that hit duplicates reports how many of the others landed.
       if (err?.code === 11000 || err?.writeErrors) return err.result?.insertedCount ?? err.insertedCount ?? 0;
       throw err;
     }
@@ -442,8 +382,6 @@ export class MongoDB implements Database {
 
   async claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]> {
     if (limit <= 0) return [];
-    // Sorted the way frontierOrder describes, by the index below — shallow first, then keyword
-    // score, then URL so a retry sees the same batch.
     const docs = await this.frontier
       .find({ ingestId, state: 'pending' })
       .sort({ depth: 1, rank: -1, url: 1 })
@@ -472,7 +410,6 @@ export class MongoDB implements Database {
 
   async saveLeafTrace(trace: LeafTrace): Promise<void> {
     const { _id, ...rest } = toDoc(trace);
-    // Replace: a retry describes the run that stands, not an additional one.
     await this.leafTraces.replaceOne({ _id }, rest, { upsert: true });
   }
 
@@ -481,7 +418,6 @@ export class MongoDB implements Database {
     await this.leafTraces.updateOne(
       { _id: id as any },
       {
-        // $push so the document is extended rather than rewritten; $set keeps the counters current.
         $push: { steps: step as any },
         $set: { ...rest, totalSteps: trace.totalSteps, tokensUsed: trace.tokensUsed },
         $setOnInsert: { _id: id as any },
@@ -491,7 +427,6 @@ export class MongoDB implements Database {
   }
 
   async saveLeafEvidence(leafId: string, evidence: LeafEvidence): Promise<void> {
-    // $set on one field, upserting so evidence survives even if the trace write lost its race.
     await this.leafTraces.updateOne(
       { _id: leafId as any },
       { $set: { evidence: evidence as any }, $setOnInsert: { _id: leafId as any } },
@@ -545,20 +480,16 @@ export class MongoDB implements Database {
   }
 
   async getClusterProviders(): Promise<ClusterProviderSpec[]> {
-    // `_id` IS the provider's `value`; it is dropped rather than mapped onto `id`.
     const docs = (await this.clusterProviders.find({}).toArray()) as Array<Record<string, any>>;
     return docs.map(({ _id, ...rest }) => rest as ClusterProviderSpec);
   }
 
   async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
-    // Keyed on `value`, not an `id` field — a provider spec has no other identity, and toDoc/fromDoc
-    // assume one exists.
     const { value, ...rest } = provider;
     await this.clusterProviders.replaceOne({ _id: value as any }, { _id: value, ...provider }, { upsert: true });
   }
 
   async deleteAppSpec(id: string): Promise<void> {
-    // Keyed on `_id`: these documents carry no `id` field, and { id } would match every one.
     await this.appSpecs.deleteOne({ _id: id as any });
   }
 
@@ -574,12 +505,9 @@ export class MongoDB implements Database {
   }
 
   async deleteConversation(id: string): Promise<void> {
-    // Keyed on `_id`: these documents have no `id` field, and { id } would match every one of them.
     await this.conversations.deleteOne({ _id: id as any });
   }
 
-  /** Keyed by ownerId rather than a surrogate id — there is exactly one account per user, and a
-   *  second one would mean a user whose repos are split across two identities. */
   async getExperiments(): Promise<Experiment[]> {
     return (await this.experiments.find({}).toArray()).map(doc => fromDoc<Experiment>(doc));
   }
@@ -595,36 +523,14 @@ export class MongoDB implements Database {
     await this.experiments.deleteOne({ _id: id as any });
   }
 
-  /** Keyed by its own id, unlike the profile: a user has several personas, not one. */
-  /**
-   * ── WHY THIS COLLECTION DOES NOT USE toDoc/fromDoc ──
-   *
-   * Those two assume `_id` IS the entity's id, which every other collection here can afford because
-   * every other id is globally unique. A type id is unique PER OWNER — two people may both keep a
-   * "playbook" — so the storage key is a composite and the entity's own `id` has to survive as an
-   * ordinary field.
-   *
-   * Running them anyway produced both halves of one outage: `toDoc` overwrote the composite with
-   * the bare id, so Mongo refused every write as an altered `_id` and the route (which logs and
-   * continues) served an empty list to everybody; and `fromDoc` would have handed back
-   * `id: "owner:mcp-server"` for anything that did save, so every lookup by id would have missed.
-   */
   async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
     const filter = ownerId ? { ownerId } : {};
     const docs = await this.treeTypes.find(filter).toArray();
-    // `id` is a stored field here, so the composite key is dropped rather than read back as one.
     return docs.map(({ _id, ...rest }) => rest as unknown as TreeTypeSpec);
   }
 
   async saveTreeType(treeType: TreeTypeSpec): Promise<void> {
-    /**
-     * Keyed on owner AND id, because a type id is unique per owner rather than globally: two people
-     * may both keep a "playbook" type and they are not the same record. `_id` is the composite so
-     * the upsert cannot silently merge them.
-     */
     const { _id: _ignored, ...doc } = treeType as TreeTypeSpec & { _id?: unknown };
-    // No `_id` in the replacement: an upsert takes it from the filter, and including it is what
-    // made Mongo reject the write as an alteration of an immutable field.
     await this.treeTypes.replaceOne(
       { _id: `${treeType.ownerId}:${treeType.id}` } as never,
       doc,
@@ -666,7 +572,6 @@ export class MongoDB implements Database {
     await this.personaPacks.deleteOne({ _id: id as any });
   }
 
-  /** Keyed by ownerId, like the Gitea account above — one profile in force per user. */
   async getHarnessProfile(ownerId: string): Promise<HarnessProfile | null> {
     const doc = await this.harnessProfiles.findOne({ _id: ownerId as any });
     if (!doc) return null;
@@ -707,7 +612,6 @@ export class MongoDB implements Database {
   }
 
   async deleteLeaf(id: string): Promise<void> {
-    // Collections here are untyped, so _id infers as ObjectId; every id in this codebase is a uuid.
     await this.leaves.deleteOne({ _id: id as any });
   }
 
@@ -723,9 +627,6 @@ export class MongoDB implements Database {
   }
 
   async deleteModelEndpoint(id: string): Promise<void> {
-    // Collections here are untyped, so `_id` is inferred as ObjectId. Every id in this codebase is
-    // a uuid string (see toDoc) — the other methods get away without a cast only because they pass
-    // `doc._id`, which toDoc widens to any.
     await this.modelEndpoints.deleteOne({ _id: id as any });
   }
 
@@ -815,12 +716,6 @@ export class MongoDB implements Database {
     await this.tools.deleteOne({ _id: id as any });
   }
 
-  /**
-   * Keyed on `modelId`, so this collection does not use `toDoc`/`fromDoc` — the same reasoning as
-   * `getTreeTypes` above. Those two exist to map `id` ↔ `_id`, and `ModelThinkingProfile` has no
-   * `id` at all: `toDoc` produced `_id: undefined`, and `fromDoc` grafted Mongo's own ObjectId onto
-   * the result as an `id` the type does not declare.
-   */
   async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {
     const doc = await this.thinkingProfiles.findOne({ modelId });
     if (!doc) return null;

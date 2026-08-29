@@ -10,21 +10,6 @@ import { canRunLeaf } from './persona-scope.js';
 import { LEAF_TOOLS } from './leaf-tools.js';
 import { acceptLeaf } from './accept-leaf.js';
 
-/**
- * General chat with Koala.
- *
- * ── WHAT MAKES IT DIFFERENT FROM A BRANCH ──
- * A branch is a conversation about building one thing, and everything it produces is work someone
- * accepts and runs. Asking "what is going on with the MCP server" should not require choosing a tree
- * first, nor leave a branch behind. So this is a normal chat whose output is a proposed PROJECT.
- *
- * ── AND THE LAZY TOOL MECHANISM ──
- * Every deployed service's tool schemas riding on every message would cost thousands of tokens per
- * turn for capabilities the conversation is usually not about. Names go in the prompt (~10 tokens);
- * `enable_mcp_server` loads the rest, and must take effect in the SAME turn or the mechanism does
- * not work.
- */
-
 const server = (over: Partial<any> = {}) => ({
   id: 'd1', name: 'github-mcp', url: 'http://x',
   tools: [{ name: 'get-repo', description: 'Look up a repo.' }],
@@ -37,8 +22,6 @@ const seeded = async (over: Partial<Conversation> = {}) => {
     id: 'c1', ownerId: 'u1', title: 'Chat', messages: [],
     createdAt: 'now', updatedAt: 'now', ...over,
   });
-  // Project types are owned records now, so a fixture without them cannot propose anything — the
-  // handler resolves the type against the caller's own list.
   await seedTreeTypes(db, 'u1');
   return db;
 };
@@ -60,10 +43,6 @@ describe('the tools Koala gets', () => {
   const names = KOALA_TOOLS.map((t) => t.function.name);
 
   it('cannot act on a branch, because there is not one', () => {
-    /**
-     * Offering LEAF_TOOLS here would let Koala propose work into a board that does not exist, and
-     * the failure would be "no such branch" for reasons the model cannot understand.
-     */
     for (const branchTool of ['propose_leaf', 'set_acceptance', 'revise_leaf', 'set_leaf_project']) {
       expect(names, branchTool).not.toContain(branchTool);
     }
@@ -75,19 +54,12 @@ describe('the tools Koala gets', () => {
   });
 
   it('offers the enable mechanism and says it takes effect immediately', () => {
-    // If the model believes it must wait for the next message, it will stop and ask.
     const enable = KOALA_TOOLS.find((t) => t.function.name === 'enable_mcp_server')!;
     expect(enable.function.description).toMatch(/IMMEDIATELY/);
     expect(enable.function.description).toMatch(/same reply/);
   });
 
   it('does not pin the proposed type to a fixed list', () => {
-    /**
-     * This asserted an enum, built from a module constant. Project types are owned records now, so a
-     * schema built once at import cannot know a type added this morning — and a fixed list would
-     * quietly exclude it. The handler validates against the caller's own types instead and refuses
-     * with the valid ids, which is the division `validateArgs` sets out.
-     */
     const params: any = KOALA_TOOLS.find((t) => t.function.name === 'propose_tree')!.function.parameters;
     expect(params.properties.type.enum).toBeUndefined();
     expect(params.properties.type.description).toMatch(/list_tree_types|ids available/i);
@@ -110,10 +82,6 @@ describe('hooking up a service', () => {
   });
 
   it('REFUSES a service that is deployed but not answering', async () => {
-    /**
-     * Enabling it would hand the model tools whose every call fails, and it would spend the rest of
-     * the conversation reasoning about errors with one cause it cannot see.
-     */
     const db = await seeded();
     const out = await run(db, 'enable_mcp_server', { name: 'github-mcp' }, {
       servers: [server({ tools: [], unreachable: 'HTTP 404 from initialize' })],
@@ -123,7 +91,6 @@ describe('hooking up a service', () => {
   });
 
   it('names the real services when asked for one that does not exist', async () => {
-    // A model that guessed will otherwise guess again.
     const db = await seeded();
     const out = await run(db, 'enable_mcp_server', { name: 'wether' });
     expect(out.body.error).toMatch(/No service named "wether"/);
@@ -141,10 +108,6 @@ describe('hooking up a service', () => {
 
 describe('what "session" means', () => {
   it('drops what a previous session enabled', async () => {
-    /**
-     * The reset the session boundary exists for: a tool enabled three weeks ago, in a conversation
-     * about something else, should not still ride on every message.
-     */
     const c = { sessionId: 'old', enabledMcp: ['github-mcp'] } as any;
     expect(enabledForSession(c, 'new')).toEqual([]);
     expect(enabledForSession(c, 'old')).toEqual(['github-mcp']);
@@ -166,8 +129,6 @@ describe('what "session" means', () => {
 describe('proposing a project', () => {
   it('records it and says plainly that nothing was created', async () => {
     const db = await seeded();
-    // A type is required now rather than defaulted — it decides the image, the starter files and
-    // what finishing means, so it is not a field to guess. See propose-tree-type.test.ts.
     const out = await run(db, 'propose_tree', { name: 'GitHub API MCP', goal: 'Wrap the GitHub API.', type: 'mcp-server' });
     expect(out.proposed?.name).toBe('GitHub API MCP');
     expect(out.body.note).toMatch(/Nothing is created until the user accepts/);
@@ -180,23 +141,16 @@ describe('proposing a project', () => {
   });
 
   it('REFUSES an invented type rather than quietly storing another', async () => {
-    /**
-     * This used to assert a fallback to `TREE_TYPES[0]` — an MCP server. The type decides the
-     * workspace image, the starter files and what finishing means, so substituting one silently
-     * builds a different kind of project than was asked for, and nothing says so.
-     */
     const db = await seeded();
     const out = await run(db, 'propose_tree', { name: 'X', goal: 'Y', type: 'not-a-type' });
 
     expect(out.proposed).toBeUndefined();
-    // The refusal is in the tool RESULT the model reads, not on the helper's typed shape.
     expect(out.content).toMatch(/not-a-type/);
   });
 });
 
 describe('ownership', () => {
   it('will not touch another user\'s conversation', async () => {
-    // The id comes from the session; a tool argument could otherwise name anyone's thread.
     const db = await seeded();
     const out = await runKoalaTool(ctx(db, { userId: 'intruder' }), {
       name: 'propose_tree', arguments: JSON.stringify({ name: 'X', goal: 'Y' }),
@@ -204,11 +158,6 @@ describe('ownership', () => {
     expect(JSON.parse(out.content).error).toMatch(/no longer exists/);
   });
 
-  /**
-   * Widened from KOALA_TOOLS to the dispatch table, so it covers what can be RUN rather than what
-   * happens to be declared. Ownership arrives on `ctx` from the session the route authenticated;
-   * an argument is a value the model chose, and the two must never be confusable.
-   */
   it('takes no owner argument on any dispatchable tool', () => {
     for (const name of KOALA_TOOL_NAMES) {
       const schema = KOALA_TOOLS.find((t) => t.function.name === name);
@@ -219,14 +168,6 @@ describe('ownership', () => {
     }
   });
 
-  /**
-   * `get_logs` and `get_events` build kubectl invocations as ARGUMENT ARRAYS this codebase
-   * constructs — never a string a model wrote. A tool that took a command, a script or a URL
-   * template would hand that back, so the shape is asserted rather than remembered.
-   *
-   * The abandoned harness-v2 branch is the cautionary case: its `call_platform_api` took a method
-   * and a path and issued any authenticated request the model asked for, DELETE included.
-   */
   it('offers no tool that takes a command, a script, or a raw request to issue', () => {
     for (const t of KOALA_TOOLS) {
       const props = Object.keys((t.function.parameters as any).properties ?? {});
@@ -237,15 +178,6 @@ describe('ownership', () => {
   });
 });
 
-/**
- * ── THE BUG THIS SECTION EXISTS FOR ──
- * `web_search` and `fetch_web_page` had working handlers, and the chat route wired the live
- * implementations into their context, and a dead `KOALA_TOOL_NAMES` constant listed them — but
- * neither had a schema in KOALA_TOOLS, so no model was ever told they existed. Koala could not
- * search the web, and every piece of the machinery said it could.
- *
- * The join in koala-tools.ts now makes that combination a compile error. These assert it stays one.
- */
 describe('every declared tool can be run, and every runnable tool is declared', () => {
   it('has a schema for each dispatchable name', () => {
     for (const name of KOALA_TOOL_NAMES) {
@@ -278,7 +210,6 @@ describe('reaching the web', () => {
   });
 
   it('still refuses a non-http address', async () => {
-    // The handler's own rule, unchanged by the move — file:// and friends are not fetchable here.
     const db = await seeded();
     expect((await run(db, 'fetch_web_page', { url: 'file:///etc/passwd' })).body.error).toMatch(/http or https/);
   });
@@ -290,10 +221,6 @@ describe('checking arguments before running anything', () => {
     expect((await run(db, 'web_search', { query: 42 })).body.error).toMatch(/"query" as string/);
   });
 
-  /**
-   * Deliberately NOT enforced here: the handlers report a missing field far better, because they
-   * know what it is for. Asserted so nobody re-adds a generic required-key check on top of them.
-   */
   it('leaves a missing field to the handler, which explains it properly', async () => {
     const db = await seeded();
     expect((await run(db, 'propose_tree', { name: 'X' })).body.error).toMatch(/goal is required/);
@@ -311,7 +238,6 @@ describe('the prompt Koala is given', () => {
   });
 
   it('marks what is already enabled, so it is not enabled twice', () => {
-    // A model that cannot see a service it holds tools for will spend a round re-enabling it.
     expect(buildKoalaPrompt('BASE', servers, ['github-mcp'])).toMatch(/github-mcp.*ENABLED/);
   });
 
@@ -322,14 +248,6 @@ describe('the prompt Koala is given', () => {
 
 describe('Koala is chat-only', () => {
   it('seeds with no execution settings at all, which is what makes it chat-only', () => {
-    /**
-     * language, repo and egress are execution settings, and "anything" is not a toolchain.
-     *
-     * This used to be asserted through `isChatOnly`, which compared the name to "Koala". The name
-     * was never the reason and the check failed in both directions — rename Koala and it became
-     * assignable to leaves, while every new chat persona was assignable from the day it was
-     * written. `canRunLeaf` reads the absence itself; see persona-seeds.test.ts.
-     */
     const seed = PERSONA_SEEDS.find((p) => p.name === KOALA_NAME)!;
     expect(seed.scope).toEqual({});
     expect(canRunLeaf(seed)).toBe(false);
@@ -351,17 +269,7 @@ describe('naming a thread', () => {
   });
 });
 
-
 describe('a leaf must never be assigned to a persona with no environment', () => {
-  /**
-   * Same failure as a leaf with no persona at all — an environment nobody chose — arriving by a
-   * route that looks assigned. Ten minutes into a sandbox is a bad place to discover it.
-   *
-   * The gate reads the persona's SCOPE, not its name. It used to compare against the literal
-   * "Koala", which failed in both directions: renaming Koala made it assignable, and any new
-   * chat persona was assignable from the moment it was written. The last case here is the one
-   * the name check could not express at all.
-   */
   const leaf = { id: 'l1', ownerId: 'u1', branchId: 'b1', status: 'proposed', personaId: 'k1' } as any;
   const withPlan = async () => [{ id: 'b1', acceptance: [{ name: 'runs', command: 'node cli.js' }] } as any];
   const accept = (persona: any) => acceptLeaf(
@@ -371,7 +279,6 @@ describe('a leaf must never be assigned to a persona with no environment', () =>
   );
 
   it('refuses, and says to pick one that builds', async () => {
-    // Koala's seed carries `scope: {}` — that emptiness IS the reason, and now it is the test.
     const result = await accept({ name: KOALA_NAME, scope: {} });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -382,7 +289,6 @@ describe('a leaf must never be assigned to a persona with no environment', () =>
   });
 
   it('accepts a leaf assigned to one that does build', async () => {
-    // A real Builder scope: tools and a repository, which is what "does build" means.
     const result = await accept({
       name: 'Builder',
       scope: { tools: ['run_command', 'read_file', 'write_file', 'finish'], repo: true },
@@ -391,43 +297,22 @@ describe('a leaf must never be assigned to a persona with no environment', () =>
   });
 
   it('accepts a tool-less reviewer, whose empty toolset is a decision and not an absence', async () => {
-    // Reviewer and Judge declare `tools: []` deliberately and still have an environment — they set
-    // `language`. Reading "no tools" as "no environment" would have refused both.
     const result = await accept({ name: 'Reviewer', scope: { tools: [], language: 'base' } });
     expect(result.ok).toBe(true);
   });
 
   it('still refuses a chat persona that has been renamed', async () => {
-    // The case the name check could not catch: same empty environment, different label.
     const result = await accept({ name: 'Talky', scope: {} });
     expect(result.ok).toBe(false);
   });
 
   it('skips the check when the caller passed no lookup', async () => {
-    // Optional so existing callers keep working; absent must not fail acceptance over a dependency
-    // somebody did not pass.
     const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: withPlan } }, leaf, []);
     expect(result.ok).toBe(true);
   });
 });
 
 describe('knowing what the cluster actually has', () => {
-  /**
-   * ── THE GAP ──
-   * Asked to add MongoDB caching to the GitHub MCP server, Koala planned it. There is no MongoDB:
-   * `mongo` is not in APP_TYPES, so the platform cannot deploy one, and the instance's own runs
-   * under docker-compose — not in the cluster, not reachable by a built service.
-   *
-   * Koala had no way to know. `list_mcp_servers` shows only gitapp deployments that speak MCP, so
-   * the eight other services actually running were invisible too. It could neither use what was
-   * there nor say that what was asked for was not.
-   */
-  /**
-   * Ids matter here, and not only for realism: MemoryDB saves with
-   * `findIndex(d => d.id === deployment.id)`, so records without one all collide on
-   * `undefined === undefined` and each save overwrites the first. The same undefined-id hazard that
-   * deleted 21 pipeline records against Mongo earlier.
-   */
   const deployments = [
     { id: 'd1', name: 'koala-vectors', appType: 'qdrant', status: 'running', ownerId: 'u1' },
     { id: 'd2', name: 'koala-store', appType: 'minio', status: 'running', ownerId: 'u1' },
@@ -443,10 +328,6 @@ describe('knowing what the cluster actually has', () => {
   });
 
   it('leaves out what is not running, and what is not theirs', async () => {
-    /**
-     * A deployment still deploying is not something to plan against — a leaf written to connect to
-     * it would reach an address that answers nothing. Another tenant's is not visible at all.
-     */
     const db = await seeded();
     for (const d of deployments) await db.saveDeployment(d as any);
     const names = (await run(db, 'list_infrastructure')).body.running.map((s: any) => s.name);
@@ -455,7 +336,6 @@ describe('knowing what the cluster actually has', () => {
   });
 
   it('lists what CAN be deployed, and mongo is not among it', async () => {
-    // The exact request that could not be satisfied.
     const db = await seeded();
     const ids = (await run(db, 'list_infrastructure')).body.deployable.map((d: any) => d.id);
     expect(ids).toContain('qdrant');
@@ -464,11 +344,6 @@ describe('knowing what the cluster actually has', () => {
   });
 
   it('says what each deployable thing IS, not just its id', async () => {
-    /**
-     * The half that makes the list usable. `qdrant`, `tei` and `quickwit` are unguessable from
-     * their names, so a model could neither pick the right one nor recognise the alternative to
-     * something absent.
-     */
     const db = await seeded();
     const byId = new Map<string, any>(
       (await run(db, 'list_infrastructure')).body.deployable.map((d: any) => [d.id, d]),
@@ -480,7 +355,6 @@ describe('knowing what the cluster actually has', () => {
   });
 
   it('describes what is RUNNING too', async () => {
-    // Same reason: "koala-vectors, type qdrant" is not something to reason from.
     const db = await seeded();
     for (const d of deployments) await db.saveDeployment(d as any);
     const running = (await run(db, 'list_infrastructure')).body.running;
@@ -489,7 +363,6 @@ describe('knowing what the cluster actually has', () => {
   });
 
   it('says what an absence MEANS, since a long list hides it', async () => {
-    // A model reading twenty-six app types will not notice `mongo` is missing unless told.
     const db = await seeded();
     const out = await run(db, 'list_infrastructure');
     expect(out.body.note).toMatch(/does not exist here and cannot be built/);
@@ -497,10 +370,6 @@ describe('knowing what the cluster actually has', () => {
   });
 
   it('invents no connection strings', async () => {
-    /**
-     * A plausible-looking address is worse than none: every service here is addressed differently,
-     * and a URL this invented would be indistinguishable to a model from one it was told.
-     */
     const db = await seeded();
     for (const d of deployments) await db.saveDeployment(d as any);
     const out = await run(db, 'list_infrastructure');
@@ -515,14 +384,6 @@ describe('knowing what the cluster actually has', () => {
 });
 
 describe('proposing a new app type', () => {
-  /**
-   * Adding a deployable app is a RECORD now, not a construct — so this is how Koala closes the gap
-   * that started all of it: asked for MongoDB caching on a platform with no MongoDB, it can now
-   * propose one instead of planning around the absence.
-   *
-   * Proposed and accepted like everything else it creates. A spec runs containers in someone's
-   * cluster, and the moment before it exists is the cheapest place to look at it.
-   */
   const mongo = {
     id: 'mongo',
     image: 'mongo:7',
@@ -541,10 +402,6 @@ describe('proposing a new app type', () => {
   });
 
   it('refuses one that would escape its namespace, in the turn that wrote it', async () => {
-    /**
-     * Validated at propose time so the refusal reaches the model while it still has the context to
-     * fix it. The same check runs again on accept, because a proposal can sit for a week.
-     */
     const db = await seeded();
     const out = await run(db, 'propose_spec', { ...mongo, hostPath: '/etc' });
     expect(out.proposedSpec).toBeUndefined();
@@ -559,12 +416,6 @@ describe('proposing a new app type', () => {
   });
 
   it('proposes a REPLACEMENT for one that already exists', async () => {
-    /**
-     * It used to refuse this, on the reasoning that an edit is a different decision from an
-     * addition. True — and why the proposal is marked — but refusing outright left no way to
-     * correct a broken spec at all. Koala hit exactly that: it found its own MongoDB crash-looping,
-     * worked out it needed fixing, and could not propose the fix. It called it a catch-22.
-     */
     const db = await seeded();
     await db.saveAppSpec({ id: 'mongo', spec: mongo as any, builtIn: false, createdAt: 'n', updatedAt: 'n' });
     const out = await run(db, 'propose_spec', { ...mongo, args: [] });
@@ -573,8 +424,6 @@ describe('proposing a new app type', () => {
   });
 
   it('still refuses to rewrite a BUILT-IN', async () => {
-    // Those ship with the platform and a test pins the list; a conversation rewriting one would
-    // have a fresh clone and a running instance disagreeing about what minio is.
     const db = await seeded();
     await db.saveAppSpec({ id: 'minio', spec: mongo as any, builtIn: true, createdAt: 'n', updatedAt: 'n' });
     expect((await run(db, 'propose_spec', { ...mongo, id: 'minio' })).body.error)
@@ -582,10 +431,6 @@ describe('proposing a new app type', () => {
   });
 
   it('is offered, and told never to write a password', async () => {
-    /**
-     * The rule that keeps a spec safe to author. A generated credential is minted by the platform
-     * and injected from a Secret; Koala never holds one and never writes one down.
-     */
     const tool = KOALA_TOOLS.find((t) => t.function.name === 'propose_spec')!;
     const env: any = (tool.function.parameters as any).properties.env;
     expect(env.description).toMatch(/Never write a password here/);
@@ -593,19 +438,7 @@ describe('proposing a new app type', () => {
   });
 });
 
-
 describe('knowing that something it built is broken', () => {
-  /**
-   * ── WHY VALIDATION WAS NEVER GOING TO BE ENOUGH ──
-   * The first spec Koala wrote deployed and crash-looped: it set `--noauth` alongside root
-   * credentials, and Mongo refuses to start with both —
-   * `auth is not allowed when noauth is specified`. No generic validator catches that. It is one
-   * app's flag semantics, and encoding every app's would be writing the fifteen constructs again in
-   * another form.
-   *
-   * So the answer is a feedback loop, not more rules. The reconciliation loop already probes and
-   * writes `healthReason`; this is what carries it back to the thing that can fix the spec.
-   */
   const broken = [
     { id: 'd1', name: 'spec-mongo', appType: 'mongo', status: 'unhealthy', ownerId: 'u1',
       healthReason: 'auth is not allowed when noauth is specified' },
@@ -624,7 +457,6 @@ describe('knowing that something it built is broken', () => {
   });
 
   it('leaves out what is merely still deploying', async () => {
-    // Not broken, not finished. Reporting it would have Koala fixing something that is working.
     const db = await seeded();
     for (const d of broken) await db.saveDeployment(d as any);
     const names = (await run(db, 'list_infrastructure')).body.broken.map((b: any) => b.name);
@@ -633,17 +465,12 @@ describe('knowing that something it built is broken', () => {
   });
 
   it('tells Koala to fix the SPEC rather than redeploy it unchanged', async () => {
-    /**
-     * The instruction that makes the loop a loop. Without it the obvious move is to try again, and
-     * a spec that cannot start does not start the second time either.
-     */
     const db = await seeded();
     for (const d of broken) await db.saveDeployment(d as any);
     expect((await run(db, 'list_infrastructure')).body.note).toMatch(/propose a corrected one/);
   });
 
   it('says nothing about broken things when nothing is', async () => {
-    // A permanently present empty list is noise that stops being read.
     const db = await seeded();
     await db.saveDeployment(broken[1] as any);
     const out = await run(db, 'list_infrastructure');
@@ -652,20 +479,13 @@ describe('knowing that something it built is broken', () => {
   });
 
   it('falls back to the status when no reason was recorded', async () => {
-    // "Unhealthy" alone still beats silence; it just sends someone to kubectl.
     const db = await seeded();
     await db.saveDeployment({ id: 'd9', name: 'x', appType: 'mongo', status: 'failed', ownerId: 'u1' } as any);
     expect((await run(db, 'list_infrastructure')).body.broken[0].reason).toBe('status is failed');
   });
 });
 
-
 describe('Koala can wire up what it discovers', () => {
-  /**
-   * It could SEE infrastructure and not act on it: asked to make a service cache in mongo it would
-   * find the database, propose a project, and stop — a plausible answer from something that quietly
-   * cannot do the thing. A person should not have to know which surface is able to act.
-   */
   it('has the same dependency tool the planners do', () => {
     expect(KOALA_TOOLS.map((t) => t.function.name)).toContain('add_project_dependency');
   });
@@ -772,4 +592,3 @@ describe('Project CI/CD and deployment tools', () => {
     expect(out.body.url).toBe('http://metrics-api.apps.local');
   });
 });
-

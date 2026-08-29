@@ -14,7 +14,6 @@ describe('reconcileLeaf — the workflow is known', () => {
   });
 
   it('says nothing when Temporal could not be read', () => {
-    // Guessing during a brief outage would fail every live leaf at once.
     expect(reconcileLeaf('running', undefined, 0)).toBeUndefined();
   });
 
@@ -26,18 +25,12 @@ describe('reconcileLeaf — the workflow is known', () => {
   });
 
   it('fails a leaf whose workflow ended without recording an outcome', () => {
-    /**
-     * LeafWorkflow writes a terminal status before returning. If it COMPLETED and the row is still
-     * live, that write was lost — and a leaf that is not running and has no result is not
-     * succeeded. Saying so unblocks the branch; guessing 'succeeded' would merge unverified work.
-     */
     const out = reconcileLeaf('running', 'COMPLETED', 0);
     expect(out?.action).toBe('fail');
     expect(out?.reason).toMatch(/without recording an outcome/i);
   });
 
   it('does not restart a leaf a human terminated', () => {
-    // Restarting here would fight the person who pressed stop.
     expect(reconcileLeaf('running', 'TERMINATED', 0)?.action).toBe('fail');
     expect(reconcileLeaf('running', 'CANCELED', 0)?.action).toBe('fail');
   });
@@ -54,11 +47,6 @@ describe('reconcileMissingLeafWorkflow — the workflow is gone', () => {
   const now = Date.now();
 
   it('restarts an orphan that never got to try', () => {
-    /**
-     * The case this exists for, observed live: two leaves sat `pending` for 4.5 days holding a
-     * workflowId for a workflow Temporal no longer had. `readyToStart` requires `!workflowId`, so
-     * the only backstop that could have restarted them excluded them permanently.
-     */
     const out = reconcileMissingLeafWorkflow('pending', old, 0, now);
     expect(out?.action).toBe('restart');
   });
@@ -68,7 +56,6 @@ describe('reconcileMissingLeafWorkflow — the workflow is gone', () => {
   });
 
   it('fails an orphan that has already used its attempts', () => {
-    // Restarting forever is how a reconciler becomes a loop.
     const out = reconcileMissingLeafWorkflow('running', old, 3, now);
     expect(out?.action).toBe('fail');
     expect(out?.reason).toMatch(/attempts/i);

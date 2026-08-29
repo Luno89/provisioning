@@ -40,7 +40,7 @@ describe('Auth Utilities', () => {
 
     it('should fail verification for expired token', () => {
       const payload = { userId: 'user-123' };
-      const token = signJWT(payload, secret, -10); // Expired 10 seconds ago
+      const token = signJWT(payload, secret, -10);
 
       const verified = verifyJWT(token, secret);
       expect(verified).toBeNull();

@@ -12,8 +12,6 @@ export class StorageAdapter {
       case 'prometheus':
         return strategy === 'helm' ? ['server'] : [];
       case 'palworld':
-        // Single volume holding the whole /palworld tree — world saves, config and the SteamCMD
-        // game install all live there.
         return ['data'];
       case 'jellyfin':
         return ['config', 'cache', 'media'];
@@ -30,9 +28,6 @@ export class StorageAdapter {
       case 'homeassistant':
         return ['config'];
       default:
-        // NOTE: openwebui and gitapp fall through here while main.ts reads STORAGE_DB /
-        // STORAGE_WEB for them — so their PVC sizes are silently unconfigurable. Pre-existing;
-        // fixing it means adding their cases here.
         return [];
     }
   }

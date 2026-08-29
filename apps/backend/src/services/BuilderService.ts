@@ -30,7 +30,6 @@ export class BuilderService extends BaseService {
     this.logger.info(`Building custom ${sanitizedAppType} image ${tag} from ${baseImage}`);
     if (io && resourceId) io.to(resourceId).emit('log', `\n--- STARTING BUILD: ${tag} ---\n`);
 
-    // 1. Check if git repo exists
     let repoExists = false;
     try {
       await fs.access(sourceRepo);
@@ -39,7 +38,6 @@ export class BuilderService extends BaseService {
       repoExists = false;
     }
 
-    // 2. Pre-flight Validation (only if validator script exists)
     const validatorPath = path.join(sourceRepo, 'validate.py');
     let hasValidator = false;
     if (repoExists) {
@@ -70,12 +68,10 @@ export class BuilderService extends BaseService {
 
     await fs.mkdir(this.buildContext, { recursive: true });
     
-    // 3. Prepare Addons/Plugins directory in build context
     const addonsDir = path.join(this.buildContext, 'addons');
     await fs.rm(addonsDir, { recursive: true, force: true });
     await fs.mkdir(addonsDir, { recursive: true });
     
-    // 4. Copy modules or write mock files if directory is missing
     if (repoExists) {
       if (io && resourceId) io.to(resourceId).emit('log', `Copying custom extensions from repository...\n`);
       for (const modId of modules) {
@@ -106,12 +102,10 @@ export class BuilderService extends BaseService {
       }
     }
 
-    // 5. Select copy destination inside Nginx/App container based on appType
     let destPaths: string[] = [];
     if (sanitizedAppType === 'odoo') {
       destPaths = ['/mnt/extra-addons'];
     } else if (sanitizedAppType === 'wordpress') {
-      // Copy to both bitnami path (Helm) and standard apache path (Native) to ensure compatibility
       destPaths = ['/opt/bitnami/wordpress/wp-content/plugins', '/var/www/html/wp-content/plugins', '/usr/src/wordpress/wp-content/plugins'];
     } else if (sanitizedAppType === 'nextcloud') {
       destPaths = ['/opt/bitnami/nextcloud/custom_apps', '/var/www/html/custom_apps', '/var/www/html/apps'];
@@ -137,20 +131,17 @@ export class BuilderService extends BaseService {
       destPaths = ['/config/custom_components'];
     }
 
-    // Build the Dockerfile instructions to copy to all potential paths (creating folders first if needed)
     let copyInstructions = '';
     for (const dest of destPaths) {
       copyInstructions += `RUN mkdir -p ${dest}\nCOPY ./addons /tmp/addons\nRUN cp -r /tmp/addons/* ${dest}/ && rm -rf /tmp/addons\n`;
     }
 
-    // 6. Create Dockerfile
     const dockerfile = `
 FROM ${baseImage}
 USER root
 ${copyInstructions}
 `;
 
-    // 7. Run Docker Build
     await this.infra.buildImage(tag, dockerfile, this.buildContext, options);
 
     this.logger.info(`Successfully built custom image ${tag}`);

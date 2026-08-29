@@ -1,11 +1,3 @@
-/**
- * The `save*Info` functions rebuilt a whole record from a hand-written field list, so anything not
- * on the list was deleted on write — silently, with no type error, because the argument genuinely
- * had the field.
- *
- * It cost a Crawl4AI credential (minted, threaded through, written, and gone before anything read
- * it back) and, found while auditing, every project's `ownerId`.
- */
 import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { mergeRecord } from './merge-record.js';
@@ -16,8 +8,6 @@ describe('merging a partial update', () => {
   });
 
   it('treats an explicit undefined as "nothing to say", not "erase it"', () => {
-    // Callers spread objects with optional keys. The opposite reading is how a status update wipes
-    // a configuration.
     expect(mergeRecord({ a: 1 }, { a: undefined } as any)).toEqual({ a: 1 });
   });
 
@@ -28,10 +18,6 @@ describe('merging a partial update', () => {
 
 describe('the save*Info functions', () => {
   it('does not lose a deployment field on a status-only update', async () => {
-    /**
-     * The exact incident: the token was written, then a `deploying -> running` transition rebuilt
-     * the record without it, and the agent silently fell back to tag-stripping.
-     */
     const db = new MemoryDB();
     await db.saveDeploymentInfo({
       id: 'd1', name: 'crawler', clusterId: 'c1', strategy: 'native', status: 'deploying',
@@ -44,14 +30,10 @@ describe('the save*Info functions', () => {
     expect(saved?.crawl4aiApiToken).toBe('the-token');
     expect(saved?.crawl4aiMemoryLimit).toBe('3Gi');
     expect(saved?.status).toBe('running');
-    // And the fields the partial did not carry are still the stored ones, not defaults.
     expect(saved?.name).toBe('crawler');
   });
 
   it('keeps a project\'s owner', async () => {
-    // Found by audit rather than by an incident: `ownerId` was on the type, on the record, and not
-    // on the list — so saving a project through this orphaned it, and an orphaned project is
-    // admin-only.
     const db = new MemoryDB();
     await db.saveProjectInfo({ id: 'p1', name: 'x', giteaOwner: 'o', giteaRepo: 'r', ownerId: 'u1' } as any);
     await db.saveProjectInfo({ id: 'p1', lastBuildStatus: 'succeeded' } as any);

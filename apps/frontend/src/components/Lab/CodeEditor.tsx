@@ -1,19 +1,3 @@
-/**
- * A small syntax-highlighted editor.
- *
- * ── HOW THE HIGHLIGHTING WORKS ──
- * A transparent textarea sits exactly on top of a coloured `<pre>` holding the same text. You type
- * into the textarea and read the `<pre>`. The two must agree on every metric that affects layout —
- * font, size, line height, padding, wrapping — or the caret drifts from the glyphs, so those live
- * in one shared class rather than being set twice.
- *
- * Tokens become React elements rather than an HTML string. A highlighter that builds markup has to
- * escape its input perfectly every time, and the input here includes prompts and shell commands
- * written by a model — exactly the text most likely to contain the character that breaks it.
- *
- * Deliberately small: three languages, a handful of token classes. This exists to make a 1,600
- * character prompt readable, not to be an IDE.
- */
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { Language } from './shared';
 
@@ -26,11 +10,6 @@ const TONE = {
   flag: 'text-amber-400',
 } as const;
 
-/**
- * One regex per language, with every token type as a named alternative.
- *
- * Ordered so the greedy cases win: a `#` inside a string is not a comment, so strings match first.
- */
 const PATTERNS: Record<Exclude<Language, 'text'>, RegExp> = {
   shell: /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(#[^\n]*)|(\s--?[\w-]+)|(&&|\|\||[|;><])|(\b\d+\b)/g,
   js: /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(\b(?:const|let|var|function|return|if|else|for|while|require|import|export|new|throw|await|async|class)\b)|(\b\d+(?:\.\d+)?\b)/g,

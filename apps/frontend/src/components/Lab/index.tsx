@@ -1,15 +1,3 @@
-/**
- * The Lab — what the harness is set to, and what happens when you change it.
- *
- * ── TWO TABS, BECAUSE THEY ARE TWO QUESTIONS ──
- * These were one column: settings, then prompts, then experiments, all scrolling past each other.
- * But "what is this thing configured to do" and "what happens when I change it" get asked at
- * different moments, and stacking them meant the configuration sat above every experiment forever
- * while the work you came for started below the fold.
- *
- * The column that matters in every results table is still `verified`, not `succeeded` — the
- * agent's own report is the least trustworthy number in a run.
- */
 import { useSocketEvent } from '../../stores/socket';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -31,7 +19,6 @@ import {
   duplicateExperiment, deleteExperiment,
 } from '../../api/harness';
 
-/** Steps kept for a run in flight. A window onto work happening, not a record — the trace is that. */
 const MAX_LIVE_STEPS = 12;
 
 type Tab = 'experiments' | 'tool-repo' | 'memories' | 'harness';
@@ -57,27 +44,10 @@ export default function Lab() {
   const { data: experiments } = useQuery<Experiment[]>({
     queryKey: ['experiments'],
     queryFn: listExperiments,
-    /**
-     * Polled only while something is actually running.
-     *
-     * Against a growing archive of finished experiments a fixed interval re-fetches the whole list
-     * forever to learn nothing, and the live panel already carries progress over sockets.
-     */
     refetchInterval: (query) =>
       (query.state.data ?? []).some((e) => e.running || e.status === 'running') ? 5000 : false,
   });
 
-  /**
-   * Live experiment frames, over the SHARED connection.
-   *
-   * This opened its own `io()` — one of three in the app, so having the Lab and a project on screen
-   * meant three handshakes and three server-side sessions for one user. These three events are
-   * broadcast rather than room-routed, so they are safe to share; see `stores/socket.ts` for why
-   * log streaming still is not.
-   */
-
-  // A new variant replaces the buffer rather than appending: the steps of the run that just ended
-  // belong to its result, and mixing two runs' steps would read plausibly and mean nothing.
   useSocketEvent<ExperimentRunStarted>('experiment-run-started', (d) => setLive((prev) => ({
     ...prev,
     [d.experimentId]: {
@@ -88,7 +58,6 @@ export default function Lab() {
 
   useSocketEvent<ExperimentStepEvent>('experiment-step', (d) => setLive((prev) => {
     const current = prev[d.experimentId];
-    // Frames can arrive out of order around a handover, and one late step must not relabel it.
     if (!current || current.label !== d.label || current.taskId !== d.taskId) return prev;
     return {
       ...prev,
@@ -96,20 +65,11 @@ export default function Lab() {
     };
   }));
 
-  /**
-   * Declared BEFORE the socket handlers that call it.
-   *
-   * It sat below them, which worked only because a socket event cannot fire until after the
-   * component body has run — the handler closed over a `const` still in its temporal dead zone at
-   * the moment it was registered. True today, and silently untrue the first time anything calls it
-   * synchronously during render.
-   */
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['experiments'] });
     qc.invalidateQueries({ queryKey: ['experiment'] });
   };
 
-  // Cleared on landing: from that moment the authoritative record is the trace on the result.
   useSocketEvent<ExperimentRunFinished>('experiment-run-finished', (d) => {
     setLive((prev) => {
       if (!prev[d.experimentId]) return prev;
@@ -143,7 +103,6 @@ export default function Lab() {
     tab === id ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-500 hover:text-slate-300'
   }`;
 
-  // Rendered outside the page's max-width so it genuinely fills the viewport.
   if (focused) {
     return (
       <Focus

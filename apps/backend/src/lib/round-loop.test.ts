@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { createStreamParser, type StreamEvent, type RoundToolCall, type RoundLoopCall } from './round-loop.js';
 import { runToolRounds } from './round-loop.js';
 
-/* ═════════════ PARSER (C1) ═════════════ */
 const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
 const delta = (d: Record<string, unknown>) => sse({ choices: [{ delta: d }] });
 
@@ -77,9 +76,6 @@ describe('createStreamParser', () => {
   });
 });
 
-/* ═════════════════ ROUND LOOP (C2) ═════════════ */
-
-/** A fake upstream stream that yields chunks from an array (the shape of `Response.body`). */
 const fakeStream = (chunks: string[]) => {
   const encoder = new TextEncoder();
   let i = 0;
@@ -234,7 +230,6 @@ describe('runToolRounds', () => {
       emit: vi.fn(),
       executeTool: async (c: RoundToolCall) => ({ content: 'out', digest: 'dig' }),
     });
-    // The second call's transcript must contain the assistant tool_calls message and tool result.
     expect(messages).toContainEqual({
       role: 'assistant',
       content: null,
@@ -245,7 +240,6 @@ describe('runToolRounds', () => {
 
   it('streams events live as the body parses, before the round resolves', async () => {
     const emit = vi.fn();
-    // A stream that resolves slowly, so we can observe emit firing mid-round.
     const slow = (function makeStream() {
       const encoder = new TextEncoder();
       let sent = 0;
@@ -271,7 +265,6 @@ describe('runToolRounds', () => {
       emit,
       executeTool: async () => ({ content: '' }),
     });
-    // Events were emitted live, one per chunk, then the loop finished.
     const kinds = emit.mock.calls.map(c => (c[0] as { kind: string }).kind);
     expect(kinds).toContain('content');
     expect(kinds.length).toBeGreaterThanOrEqual(2);

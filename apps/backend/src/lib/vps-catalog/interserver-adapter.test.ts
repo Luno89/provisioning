@@ -1,15 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { interserverOffersFromSliceXml } from './adapters.js';
 
-/**
- * InterServer is the one adapter whose SPECS are not derived from the API — its
- * get_vps_slice_types call returns the cost per slice and nothing about what a slice contains
- * (all 119 SOAP operations were checked). The ladder is therefore transcribed from
- * https://www.interserver.net/vps/ and pinned here.
- *
- * If InterServer changes what a slice contains, these tests are the thing that notices. The price
- * cannot drift the same way — it comes from the API.
- */
 const item = (name: string, cost: string, buyable: string, type = '14') =>
   `<item xsi:type="tns:vps_slice_type">` +
   `<name xsi:type="xsd:string">${name}</name>` +
@@ -28,23 +19,21 @@ describe('interserverOffersFromSliceXml', () => {
   const xml = envelope(
     item('KVM Linux VPS Slice', '3.00', '1'),
     item('OpenVZ VPS Slice', '3.00', '1', '6'),
-    item('Cloud KVM Linux VPS Slice', '10.00', '0', '4'), // not buyable
-    item('KVM Windows VPS Slice', '5.00', '1', '15'), // Windows
-    item('Hyper-V VPS Slice', '5.00', '1', '11'), // Windows hypervisor
-    item('KVM Storage', '3.00', '1', '16'), // disk add-on, not a machine
-    item('KVM Linux IPv6 Only VPS Slice', '2.50', '1'), // unreachable over IPv4
+    item('Cloud KVM Linux VPS Slice', '10.00', '0', '4'),
+    item('KVM Windows VPS Slice', '5.00', '1', '15'),
+    item('Hyper-V VPS Slice', '5.00', '1', '11'),
+    item('KVM Storage', '3.00', '1', '16'),
+    item('KVM Linux IPv6 Only VPS Slice', '2.50', '1'),
   );
   const { offers, skippedNoPrice } = interserverOffersFromSliceXml(xml);
   const kvm = offers.filter((o) => o.planId.startsWith('kvm-linux-vps-slice'));
 
   it('emits the advertised tiers for each buyable Linux slice type', () => {
-    // Two eligible types (KVM Linux, OpenVZ) × 5 advertised tiers.
     expect(offers).toHaveLength(10);
     expect(kvm).toHaveLength(5);
   });
 
   it('reproduces the published ladder exactly', () => {
-    // Straight from the pricing page: slices → vCores / RAM / disk / transfer.
     const expected = [
       { slices: 1, vcpu: 1, ramGb: 2, diskGb: 40, bandwidthTb: 2, priceMonthly: 3 },
       { slices: 4, vcpu: 2, ramGb: 8, diskGb: 160, bandwidthTb: 8, priceMonthly: 12 },
@@ -67,7 +56,6 @@ describe('interserverOffersFromSliceXml', () => {
   });
 
   it('vCores do not scale linearly — 1 slice gives 1 core, not half of one', () => {
-    // The reason the ladder is a table rather than a multiply.
     expect(kvm.find((o) => o.planId.endsWith('-1'))?.vcpu).toBe(1);
     expect(kvm.find((o) => o.planId.endsWith('-4'))?.vcpu).toBe(2);
   });
@@ -85,8 +73,6 @@ describe('interserverOffersFromSliceXml', () => {
   });
 
   it('excludes IPv6-only slices, which this platform could never reach', () => {
-    // Cheaper and genuinely tempting, but SSH bootstrap and the 100.64.0.0/10 mesh both assume
-    // IPv4 — cataloguing one as usable would strand whoever picked it.
     expect(offers.some((o) => /ipv6/i.test(o.label))).toBe(false);
   });
 

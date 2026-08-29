@@ -48,8 +48,6 @@ describe('what the nav offers', () => {
   });
 
   it('keeps the Forest tabs hidden until it is opened', () => {
-    // Lab used to live two levels down inside Forest, whose open state was not persisted — so
-    // collapsing Forest made it vanish. It is a sibling now, and must not be inside this.
     setup();
     expect(screen.queryByText('Clusters')).not.toBeInTheDocument();
     expect(screen.getByText('Lab')).toBeInTheDocument();
@@ -64,7 +62,6 @@ describe('what the nav offers', () => {
 
 describe('what clicking does', () => {
   it('navigates to each harness view', () => {
-    // Asserts the shell actually moved, rather than that a prop was called with a string.
     const { view } = setup();
     for (const [label, id] of [['Koala', 'chat'], ['Projects', 'grove'], ['Personas', 'personas'], ['Lab', 'lab']]) {
       fireEvent.click(screen.getByText(label!));
@@ -79,7 +76,6 @@ describe('what clicking does', () => {
   });
 
   it('toggles Forest rather than setting it', () => {
-    // Both directions from one handler, which is why the action accepts an updater.
     const { forestOpen } = setup({ forestOpen: false });
     fireEvent.click(screen.getByText('Forest'));
     expect(forestOpen()).toBe(true);

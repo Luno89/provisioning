@@ -2,11 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import Markdown from '../components/Markdown';
 
-/**
- * Every reply was rendered with `whitespace-pre-wrap`, so the model's most structured output came
- * out as its own syntax. Measured on a real reply: a comparison of five fields arrived as a
- * markdown table and displayed as rows of pipe characters.
- */
 describe('rendering a reply', () => {
   it('renders a table, which is the case that read worst', () => {
     const md = [
@@ -18,7 +13,6 @@ describe('rendering a reply', () => {
 
     expect(container.querySelector('table')).toBeTruthy();
     expect(screen.getByText('initialInterval')).toBeTruthy();
-    // Wide content scrolls in its own box rather than pushing the page sideways.
     expect(container.querySelector('.overflow-x-auto')).toBeTruthy();
   });
 
@@ -45,10 +39,6 @@ describe('rendering a reply', () => {
 
 describe('rendering untrusted text', () => {
   it('shows raw HTML rather than parsing it', () => {
-    /**
-     * This renders model output and repository content the model quotes. Raw HTML is not enabled,
-     * so a reply containing a script tag is text, not a tag.
-     */
     const { container } = render(<Markdown>{'<script>alert(1)</script> and <b>bold</b>'}</Markdown>);
 
     expect(container.querySelector('script')).toBeNull();
@@ -57,7 +47,6 @@ describe('rendering untrusted text', () => {
   });
 
   it('refuses a javascript: link', () => {
-    // A crafted link in a reply must not become a click target.
     const { container } = render(<Markdown>{'[click](javascript:alert(1))'}</Markdown>);
     const href = container.querySelector('a')?.getAttribute('href') ?? '';
 
@@ -73,7 +62,6 @@ describe('rendering untrusted text', () => {
   });
 
   it('survives half-written markdown, which is what streaming produces', () => {
-    // Content arrives a token at a time, so every intermediate state is parsed.
     expect(() => render(<Markdown>{'| Field | Def'}</Markdown>)).not.toThrow();
     expect(() => render(<Markdown>{'## Unclosed **bold'}</Markdown>)).not.toThrow();
   });

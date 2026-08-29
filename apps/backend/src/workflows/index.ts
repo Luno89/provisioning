@@ -1,4 +1,3 @@
-// Main workflow index
 export { ClusterProvisionWorkflow } from './ClusterProvisionWorkflow.js';
 export { executeDestroyClusterWorkflow } from './DestroyClusterWorkflow.js';
 export { executeDeployAppWorkflow } from './AppDeployWorkflow.js';

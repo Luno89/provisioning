@@ -9,15 +9,12 @@ describe('pacing the agent towards saving its work', () => {
   });
 
   it('warns a research leaf at the halfway mark, not four steps from the end', () => {
-    // Measured three times: the agent searches until the budget is gone. A warning that arrives at
-    // the end arrives after the only moment it could have changed anything.
     expect(pacingNoteFor(20, RESEARCH)?.message).toContain('STOP SEARCHING');
   });
 
   it('escalates to the urgent note once the end is close', () => {
     const note = pacingNoteFor(3, RESEARCH);
     expect(note?.message).toContain('call `finish`');
-    // The gentler halfway message would be actively misleading this late.
     expect(note?.message).not.toContain('STOP SEARCHING');
   });
 
@@ -61,7 +58,6 @@ describe('keeping the conversation inside the model window', () => {
   });
 
   it('never drops the system prompt or the task', () => {
-    // An agent that loses the task will confidently do the wrong thing for the rest of its budget.
     const out = trimConversation(convo(), 100);
     expect(out[0]!.content).toBe('you are an agent');
     expect(out[1]!.content).toBe('the task');
@@ -74,8 +70,6 @@ describe('keeping the conversation inside the model window', () => {
   });
 
   it('keeps every message, so tool results stay paired with their calls', () => {
-    // Deleting a tool message without its assistant tool_calls entry is a malformed request the
-    // API rejects outright.
     const out = trimConversation(convo(), 100);
     expect(out).toHaveLength(convo().length);
     expect(out.map((m) => m.role)).toEqual(convo().map((m) => m.role));

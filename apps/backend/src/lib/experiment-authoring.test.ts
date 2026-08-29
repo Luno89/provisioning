@@ -22,16 +22,12 @@ const good = (over: Record<string, unknown> = {}) => ({
 
 describe('buildTaskAuthorPrompt', () => {
   it('carries the real sandbox constraints, so a proposal cannot need the network', () => {
-    // Same reason PLAN_SYSTEM_PROMPT does it: the model deciding what the work IS needs the
-    // constraints more than the executor, who can only fail an impossible task.
     const prompt = buildTaskAuthorPrompt();
     expect(prompt).toMatch(/NO outbound network/);
     expect(prompt).toMatch(/read-only/);
   });
 
   it('teaches both properties that will actually be enforced', () => {
-    // A model told what will be checked writes better commands than one filtered afterwards — and
-    // the gate now checks two things, so the prompt has to describe both.
     const prompt = buildTaskAuthorPrompt();
     expect(prompt).toMatch(/MUST FAIL with only the seed present/);
     expect(prompt).toMatch(/MUST PASS with seed \+ solution/);
@@ -39,8 +35,6 @@ describe('buildTaskAuthorPrompt', () => {
   });
 
   it('explains that a prompt referring to a file needs that file in the seed', () => {
-    // The failure this exists to prevent: with nowhere to put starting state, the only move left
-    // was a verify command that created its own input, which the agent never sees.
     const prompt = buildTaskAuthorPrompt();
     expect(prompt).toMatch(/MUST be in the seed/);
     expect(prompt).toMatch(/never sees it/);
@@ -76,7 +70,6 @@ describe('extractTaskProposals', () => {
   });
 
   it('returns nothing for prose, rather than guessing', () => {
-    // A half-understood task costs a sandbox to discover it was nonsense.
     expect(extractTaskProposals('I would start by writing some tests.').tasks).toEqual([]);
   });
 
@@ -99,9 +92,6 @@ describe('extractTaskProposals', () => {
   });
 
   it('reads a suite whose prompt contains a fenced code sample', () => {
-    // The case that actually occurs and used to extract as silence: the inner fences match first,
-    // the outer JSON is sliced into fragments that parse as nothing, and zero tasks with zero
-    // rejections reads as the model having proposed nothing.
     const withFence = good({
       prompt: 'The file contains:\n```\nfoo\nbar\n```\nEdit it to say baz.',
     });
@@ -113,12 +103,10 @@ describe('extractTaskProposals', () => {
   });
 
   it('does not double-count a block the fallback also matches', () => {
-    // The whole reply is re-read whatever the fences did, so a well-formed block is parsed twice.
     expect(extractTaskProposals(block([good()])).tasks).toHaveLength(1);
   });
 
   it('keeps the first of two proposals sharing a name', () => {
-    // Two identical rows are two the matrix cannot tell apart.
     const { tasks } = extractTaskProposals(block([
       good({ prompt: 'first' }),
       good({ prompt: 'second' }),
@@ -136,8 +124,6 @@ describe('extractTaskProposals', () => {
 
 describe('the verify command gate', () => {
   it('rejects a command that passes whatever the agent did', () => {
-    // The dangerous field. A verify command that always exits zero makes every variant pass —
-    // the exact failure the Lab exists to catch, generated automatically.
     for (const cmd of ['true', ':', 'exit 0', 'echo ok', 'echo PASS']) {
       const { tasks, rejected } = extractTaskProposals(block([good({ verifyCommand: cmd })]));
       expect(tasks).toEqual([]);
@@ -152,14 +138,11 @@ describe('the verify command gate', () => {
   });
 
   it('keeps a real command that merely starts with echo', () => {
-    // `echo x && node t.js` genuinely checks something. A regex that tried to be cleverer would
-    // reject working commands and still miss the interesting failures.
     const { tasks } = extractTaskProposals(block([good({ verifyCommand: 'echo start && node t.js' })]));
     expect(tasks).toHaveLength(1);
   });
 
   it('reports rejections rather than silently shrinking the batch', () => {
-    // Asking for three and getting one, with no explanation, reads as a bug in the Lab.
     const { tasks, rejected } = extractTaskProposals(block([
       good({ name: 'a' }),
       good({ name: 'b', verifyCommand: 'true' }),
@@ -176,8 +159,6 @@ describe('judgeSolutionRun', () => {
   });
 
   it('rejects a command that fails even on a correct answer', () => {
-    // The typo class: `grep -q 'Hello Wolrd'` fails on the seed AND on a perfect solution, and
-    // from one side those are indistinguishable. Every variant then fails a task nothing can win.
     const v = judgeSolutionRun({ exitCode: 1, timedOut: false });
     expect(v.ok).toBe(false);
     expect(v.reason).toMatch(/the command is wrong, not the task/);
@@ -194,22 +175,18 @@ describe('judgeEmptyRun', () => {
   });
 
   it('rejects a command that passed with no work done', () => {
-    // It passes always, so every variant in every experiment scores a win.
     const v = judgeEmptyRun({ exitCode: 0, timedOut: false });
     expect(v.ok).toBe(false);
     expect(v.reason).toMatch(/not checking anything/);
   });
 
   it('rejects a command that hung', () => {
-    // It will hang on every real run too, burning the variant timeout for nothing.
     const v = judgeEmptyRun({ exitCode: -1, timedOut: true });
     expect(v.ok).toBe(false);
     expect(v.reason).toMatch(/hung/);
   });
 
   it('rejects a command that failed for the wrong reason', () => {
-    // 127 means the tool is absent, so the task could never pass however well the agent did.
-    // `jq` is missing from all four images, which is exactly how this arises.
     const v = judgeEmptyRun({ exitCode: 127, timedOut: false });
     expect(v.ok).toBe(false);
     expect(v.reason).toMatch(/command not found/);
@@ -218,9 +195,6 @@ describe('judgeEmptyRun', () => {
 
 describe('selfProvisionedInputs', () => {
   it('catches a verify command that creates the input the prompt asks the agent to read', () => {
-    // The real authored task this comes from. The command fails correctly on an empty workspace,
-    // so the first gate passed it — but data.txt only exists at verification time, so the agent
-    // burned 24 steps trying to invent an input it could never have had.
     expect(selfProvisionedInputs(
       'Read /work/data.txt and print its contents.',
       ['data.txt', 'read.js'],
@@ -228,8 +202,6 @@ describe('selfProvisionedInputs', () => {
   });
 
   it('allows scaffolding the prompt never mentions', () => {
-    // A verify command writing its own temp file is fine; it only misleads when the PROMPT
-    // describes that file as something already present.
     expect(selfProvisionedInputs(
       'Create hello.js that prints PASS.',
       ['.verify-tmp', 'expected-output.txt'],
@@ -241,7 +213,6 @@ describe('selfProvisionedInputs', () => {
   });
 
   it('does not fire on a partial word', () => {
-    // "data.txt" must not match a prompt that only says "database".
     expect(selfProvisionedInputs('Set up the database.', ['data.txt'])).toEqual([]);
   });
 
@@ -281,9 +252,6 @@ describe('stripTaskBlock', () => {
   });
 
   it('removes a fence the model never closed', () => {
-    // Measured against the live deployment: it opens ```json, emits the object and stops —
-    // finish_reason `stop`, no closing fence. Extraction tolerated it and stripping did not, so
-    // the whole payload landed in the transcript.
     const reply = 'Here you go:\n```json\n' + JSON.stringify({ tasks: [good()] });
     const stripped = stripTaskBlock(reply);
     expect(stripped).toBe('Here you go:');

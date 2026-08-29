@@ -10,9 +10,6 @@ describe('UnifiedFrame wire contract', () => {
   });
 
   it('content preserves the full delta object for advanced fields', () => {
-    // The frontend expects delta as string; the full object rides through the wire
-    // but the reducer only reads delta as string. Advanced fields are available
-    // in the raw frame if a surface wants them.
     const f: UnifiedFrame = { type: 'content', delta: 'Hello' };
     expect(f.delta).toBe('Hello');
   });

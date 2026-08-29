@@ -3,19 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Search, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
 import { getAppSchema, type AppSetting, type AppSettingsSchema } from '../api/app-schemas';
 
-/**
- * Schema-driven settings editor for game servers.
- *
- * Generic over whatever GET /api/app-schemas/:appType returns, so a second game server needs no
- * new UI at all. The schema is the single source of truth for field types, ranges, categories and
- * which fields are secret or platform-owned — see apps/backend/src/lib/app-settings-schema.ts.
- *
- * With ~120 fields the search box, not the accordions, is what actually makes this usable.
- */
-
 interface Props {
   appType: string;
-  /** Stored settings from the deployment record. */
   value: Record<string, string>;
   onChange: (next: Record<string, string>) => void;
 }
@@ -72,7 +61,6 @@ export default function GameServerSettings({ appType, value, onChange }: Props) 
   }
 
   const modifiedCount = schema.settings.filter(isModified).length;
-  // Filtering auto-expands, otherwise a match hidden inside a collapsed section looks like no result.
   const sectionOpen = (cat: string) => (search.trim() || onlyModified ? true : !!expanded[cat]);
 
   const field = (s: AppSetting) => {

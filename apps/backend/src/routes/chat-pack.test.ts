@@ -6,18 +6,6 @@ import type { Database } from '../lib/db-interface.js';
 import type { Persona, PersonaPack } from '@koala/harness-types';
 import { TEST_USER } from './test-harness.js';
 
-/**
- * The persona-pack router over HTTP: a turn comes back as typed UNIFIED frames
- * ({type:'content', delta:...}), and the pack that produced it comes from the DATABASE.
- *
- * ── WHY THE FIXTURES CHANGED ──
- * This suite used to inject its own `pack` resolver and its own `resolvePersona`, so it exercised
- * neither the real registry nor the real persona lookup. Both were broken in ways it therefore
- * could not see: the registry had two packs while the UI offered three, and `resolvePersona` fell
- * back to Koala for every name it could not match — so a pack naming a missing persona silently
- * ran as a different one. The packs and personas here are now rows in the test database.
- */
-
 const persona = (id: string, name: string, systemPrompt: string): Persona => ({
   id, ownerId: TEST_USER.id, name, systemPrompt, overrides: {},
   createdAt: '', updatedAt: '',
@@ -39,19 +27,11 @@ const modelServiceStub = {
 
 let upstream: http.Server | null = null;
 
-/** The last request body the upstream saw — lets us assert which persona's prompt was sent. */
 let lastRequestBody: any = null;
 
-/**
- * When set, the upstream answers the FIRST round with this tool call instead of content.
- *
- * The round loop then executes it and asks again, so the second round falls through to the plain
- * content answer — which is what lets a test drive one real tool call through the gate.
- */
 let upstreamToolCall: { name: string; args: string } | null = null;
 let roundsSeen = 0;
 
-/** A tiny upstream answering ONE SSE content frame, capturing the request it received. */
 function startUpstream(content: string) {
   return new Promise<void>((resolve) => {
     upstream = http.createServer((req, res) => {
@@ -88,7 +68,6 @@ const harness: Harness = await mountRouter({
   router: (db: Database) => personaChatRouter({
     db,
     modelService: modelServiceStub,
-    // No injected pack resolver: the route reads the database, which is what production does.
     personaFor: async (userId, personaId) =>
       (await db.getPersonas()).find((p) => p.ownerId === userId && p.id === personaId),
     serversFor: async () => [],
@@ -102,13 +81,11 @@ const harness: Harness = await mountRouter({
 
 beforeAll(async () => {
   await startUpstream('hello-red-green');
-  // Real rows, seeded through the harness's own database — the route resolves these itself.
   const db = harness.db;
   await db.savePersona(persona('p1', 'Koala', 'You are Koala.'));
   await db.savePersona(persona('p2', 'Researcher', 'You are a rigorous Researcher. Cite sources.'));
   await db.savePersonaPack(pack('koala', 'p1'));
   await db.savePersonaPack(pack('researcher', 'p2'));
-  // A pack whose persona was deleted or renamed away: the case that used to resolve to Koala.
   await db.savePersonaPack(pack('orphan', 'gone'));
 });
 afterAll(async () => { await harness.close(); upstream?.close?.(); });
@@ -137,7 +114,6 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
     });
     expect(res.status).toBe(200);
     await res.text();
-    // The model was told it is a Researcher, not Koala — proving persona-driven, not hard-coded.
     const system = lastRequestBody?.messages?.find((m: any) => m.role === 'system');
     expect(system?.content ?? '').toContain('rigorous Researcher');
     expect(system?.content ?? '').not.toContain('Koala');
@@ -172,7 +148,6 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
   });
 
   it('provides conversation CRUD endpoints', async () => {
-    // Create
     const createRes = await fetch(harness.url('/api/chat-pack/conversations'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -182,19 +157,16 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
     const created = (await createRes.json()) as { id: string };
     expect(created.id).toBeDefined();
 
-    // List
     const listRes = await fetch(harness.url('/api/chat-pack/conversations'));
     expect(listRes.status).toBe(200);
     const list = (await listRes.json()) as any[];
     expect(list.some((c: any) => c.id === created.id)).toBe(true);
 
-    // Get
     const getRes = await fetch(harness.url(`/api/chat-pack/conversations/${created.id}`));
     expect(getRes.status).toBe(200);
     const got = (await getRes.json()) as { id: string };
     expect(got.id).toBe(created.id);
 
-    // Delete
     const delRes = await fetch(harness.url(`/api/chat-pack/conversations/${created.id}`), { method: 'DELETE' });
     expect(delRes.status).toBe(200);
     const afterDel = (await harness.db.getConversations()).find((c: any) => c.id === created.id);
@@ -224,7 +196,6 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
       updatedAt: now,
     });
 
-    // Accept Tree Proposal
     const treeRes = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/trees/prop-tree-1/accept`), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -233,7 +204,6 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
     const treeBody = (await treeRes.json()) as { tree?: { id: string } };
     expect(treeBody.tree?.id).toBeDefined();
 
-    // Accept Spec Proposal
     const specRes = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/specs/my-custom-app/accept`), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -271,11 +241,6 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
 
 describe('a pack that cannot run', () => {
   it('404s an unknown pack instead of throwing a 500', async () => {
-    /**
-     * `getPersonaPack` THREW for anything outside a two-entry constant, and the frontend offered a
-     * third option that constant never had — so one of the three packs in the picker produced a
-     * 500 naming neither list.
-     */
     const res = await fetch(harness.url('/api/chat-pack/does-not-exist'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -285,12 +250,6 @@ describe('a pack that cannot run', () => {
   });
 
   it('refuses a pack whose persona is gone, rather than silently running as Koala', async () => {
-    /**
-     * The single most consequential line this replaces: `found ?? ensureKoala(userId)`. Any persona
-     * a pack named and could not find resolved to Koala — different prompt, different tools — with
-     * nothing logged and nothing shown. A conversation that is not with who you asked for is worse
-     * than one that refuses to start.
-     */
     const res = await fetch(harness.url('/api/chat-pack/orphan'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -299,7 +258,6 @@ describe('a pack that cannot run', () => {
     expect(res.status).toBe(409);
     const body = await res.json() as any;
     expect(body.error).toMatch(/no longer exists/i);
-    // And it names the pack, so the message says which record to open.
     expect(body.error).toMatch(/orphan/);
   });
 
@@ -314,7 +272,6 @@ describe('a pack that cannot run', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ conversationId: 'c-x', message: 'hi' }),
     });
-    // Absent rather than forbidden: distinguishing them tells a caller which ids are real.
     expect(res.status).toBe(404);
   });
 });
@@ -327,11 +284,6 @@ describe('the pack decides the turn', () => {
   }).then((r) => r.text());
 
   it('offers only the tools the pack grants', async () => {
-    /**
-     * The grant list was not consulted at all: an assistant pack got every one of KOALA_TOOLS
-     * whatever it declared, so the config drawer's switches wrote to the database and changed
-     * nothing the model saw.
-     */
     await harness.db.savePersonaPack(pack('narrow', 'p1', { tools: ['get_logs'] }));
     await turn('narrow', 'c-tools');
     const names = (lastRequestBody?.tools ?? []).map((t: any) => t.function.name);
@@ -346,8 +298,6 @@ describe('the pack decides the turn', () => {
   });
 
   it('puts the granted tools in the prompt, and only those', async () => {
-    // One list feeds the schemas AND the guidance, so the prompt can no longer advertise a tool the
-    // model has no way to call — which is what the non-assistant branch used to do.
     await turn('narrow', 'c-prompt');
     const system = lastRequestBody?.messages?.find((m: any) => m.role === 'system')?.content ?? '';
     expect(system).toMatch(/get_logs/);
@@ -362,12 +312,6 @@ describe('the pack decides the turn', () => {
 });
 
 describe('the action gate, finally wired', () => {
-  /**
-   * `PROPOSE_ONLY` and `READ_ONLY` have existed in `action-gate.ts` since it was written, and both
-   * tool runners have taken a `permitted` list all along — defaulting to `ALL_EFFECTS` when none
-   * was passed. Nothing ever passed one. So the gate was built, tested, and bypassed: every
-   * conversation ran with full write access no matter what its pack claimed.
-   */
   const callTool = async (slug: string, id: string, tool: string) => {
     upstreamToolCall = { name: tool, args: '{}' };
     roundsSeen = 0;
@@ -388,27 +332,15 @@ describe('the action gate, finally wired', () => {
   it('refuses a write tool to a read-only pack, and lets a read tool through', async () => {
     await harness.db.savePersonaPack(pack('readonly', 'p1', { permitted: ['read'] }));
 
-    /**
-     * The refusal arrives as the tool's CONTENT, not as a boolean.
-     *
-     * `gate` returns a sentence deliberately — it is handed back to the model, and a model given
-     * `false` retries the same call. `ok` is a different question entirely (`toolRefused`, about
-     * whether the RESULT was a refusal from a remote service), which is why asserting on it here
-     * would pass whatever the gate did.
-     */
     const write = await callTool('readonly', 'c-ro-w', 'deploy_project');
     expect(write?.digest ?? '').toMatch(/limited to read/i);
     expect(write?.digest ?? '').toMatch(/Nothing was changed/i);
 
     const read = await callTool('readonly', 'c-ro-r', 'get_logs');
-    // Declared `read`, so the gate lets it reach its handler — which then succeeds or fails on its
-    // own merits. What matters is that the GATE did not stop it.
     expect(read?.digest ?? '').not.toMatch(/limited to/i);
   });
 
   it('lets a write tool through when the pack permits writing', async () => {
-    // Koala's seeded pack declares read+write+propose, which is the honest set: it holds
-    // deploy_project, set_project_env and inject_secret_to_pod, all declared `write`.
     const write = await callTool('koala', 'c-rw', 'deploy_project');
     expect(write?.digest ?? '').not.toMatch(/limited to/i);
   });

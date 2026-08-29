@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { extractUsage, UsageScanner } from './token-usage.js';
 
-/**
- * The fixture is the real closing chunk from the live TabbyAPI deployment serving Qwen3 — timing
- * fields and all, since those are TabbyAPI extensions the parser has to ignore rather than choke on.
- */
 const REAL_FINAL_CHUNK =
   'data: {"id":"chatcmpl-5b50","object":"chat.completion.chunk","created":1785686121,' +
   '"choices":[{"index":0,"delta":{},"finish_reason":"length"}],' +
@@ -21,8 +17,6 @@ describe('extractUsage', () => {
   });
 
   it('returns undefined when the stream carried no usage', () => {
-    // The normal case for a server that does not support include_usage. Recording nothing is
-    // correct; recording 0 would silently under-report spend against a budget.
     expect(extractUsage(contentChunk('hello') + 'data: [DONE]\n\n')).toBeUndefined();
   });
 
@@ -50,8 +44,6 @@ describe('extractUsage', () => {
 
 describe('UsageScanner', () => {
   it('finds usage split across chunk boundaries', () => {
-    // The same failure mode that dropped content tokens before stream-delta.ts buffered properly:
-    // the network does not respect frame boundaries.
     const scanner = new UsageScanner();
     const cut = Math.floor(REAL_FINAL_CHUNK.length / 2);
     scanner.push(REAL_FINAL_CHUNK.slice(0, cut));
@@ -74,7 +66,6 @@ describe('UsageScanner', () => {
   });
 
   it('keeps a usage value found early even if later chunks have none', () => {
-    // The tail window slides, so a value must be retained rather than re-derived from the buffer.
     const scanner = new UsageScanner();
     scanner.push(REAL_FINAL_CHUNK);
     for (let i = 0; i < 100; i++) scanner.push(contentChunk('trailing '));

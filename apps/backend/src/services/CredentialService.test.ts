@@ -34,9 +34,9 @@ describe('CredentialService', () => {
 
       const result = await service.getCredentials('user-1', 'aws');
       expect(result).not.toBeNull();
-      expect(result!.region).toBe('us-east-1'); // plaintext field
-      expect(result!.accessKeyId).toContain('****'); // masked
-      expect(result!.secretAccessKey).toContain('****'); // masked
+      expect(result!.region).toBe('us-east-1');
+      expect(result!.accessKeyId).toContain('****');
+      expect(result!.secretAccessKey).toContain('****');
     });
 
     it('encrypts sensitive fields at rest', async () => {
@@ -46,9 +46,7 @@ describe('CredentialService', () => {
 
       const user = (await db.getUsers()).find((u) => u.id === 'user-1');
       expect(user?.credentials?.do?.token).toBeDefined();
-      // The stored value should NOT be the plaintext
       expect(user?.credentials?.do?.token).not.toBe('dop_v1_secret_token_12345');
-      // But it should decrypt back to the original
       const decrypted = decryptValue(user!.credentials!.do!.token, TEST_KEY);
       expect(decrypted).toBe('dop_v1_secret_token_12345');
     });
@@ -104,8 +102,6 @@ describe('CredentialService', () => {
       });
 
       const statuses = await service.getConfiguredProviders('user-1');
-      // Assert the actual set rather than a count — a bare length check says nothing about which
-      // provider went missing when it fails, and silently needs editing every time one is added.
       expect(statuses.map((s) => s.provider).sort()).toEqual(
         [
           'aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface',
@@ -122,9 +118,6 @@ describe('CredentialService', () => {
     });
   });
 
-  // Hetzner is the first provider that actually creates real, billable infrastructure (see the
-  // distributed-systems plan's Phase 3), so its credential path gets explicit coverage rather
-  // than being assumed to work because the shape matches DigitalOcean's.
   describe('hetzner', () => {
     it('encrypts the token at rest and masks it on read', async () => {
       await service.saveCredentials('user-1', 'hetzner', { token: 'hetzner-secret-token-value' });

@@ -33,8 +33,6 @@ describe('deriveLeafStatus', () => {
   });
 
   it('IGNORES non-blocking children entirely', () => {
-    // Follow-up work outlives its parent. Letting it drag the parent back to running would mean a
-    // leaf could never finish — the parent would wait on work it explicitly did not wait for.
     expect(deriveLeafStatus('succeeded', [
       { status: 'running', blocking: false },
       { status: 'failed', blocking: false },
@@ -50,7 +48,6 @@ describe('deriveLeafStatus', () => {
   });
 
   it('does not report success until the leaf\'s OWN work is done too', () => {
-    // A leaf whose children raced ahead has not integrated their output yet.
     expect(deriveLeafStatus('running', [{ status: 'succeeded', blocking: true }])).toBe('running');
     expect(deriveLeafStatus('succeeded', [{ status: 'succeeded', blocking: true }])).toBe('succeeded');
   });
@@ -68,8 +65,6 @@ describe('canAddChild', () => {
   });
 
   it('refuses beyond the depth cap', () => {
-    // Guards runaway decomposition: an agent that can create subtasks can create subtasks that
-    // create subtasks.
     expect(canAddChild(leaf({ depth: MAX_DEPTH }), 0)).toMatch(/depth/i);
   });
 
@@ -112,8 +107,6 @@ describe('budgetExceeded', () => {
 
 describe('childWorkflowId', () => {
   it('is deterministic for the same parent and index', () => {
-    // The single easiest thing to get wrong: activities retry, so a partially-succeeded
-    // "create subtask" with random ids yields duplicate leaves AND duplicate workspace pods.
     expect(childWorkflowId('abc', 0)).toBe(childWorkflowId('abc', 0));
   });
 
@@ -123,7 +116,6 @@ describe('childWorkflowId', () => {
   });
 
   it('does not collide when a planner emits two identically-titled subtasks', () => {
-    // Why this is index-based rather than a content hash — "write tests" twice is common.
     expect(childWorkflowId('abc', 0)).not.toBe(childWorkflowId('abc', 1));
   });
 });
@@ -156,8 +148,6 @@ describe('hierarchy helpers', () => {
   });
 
   it('does not spin forever on a cycle', () => {
-    // A cycle should be impossible, but "impossible" state reaching a while-loop is how a backend
-    // hangs rather than errors.
     const cyclic: Leaf[] = [
       leaf({ id: 'x', parentLeafId: 'y', depth: 1 }),
       leaf({ id: 'y', parentLeafId: 'x', depth: 1 }),
@@ -185,14 +175,11 @@ describe('aggregateUsage', () => {
   });
 
   it('measures wall-clock from the ROOT rather than summing children', () => {
-    // Children run concurrently. Summing their durations would count the same minutes several
-    // times over and exhaust a time budget that had barely started.
     expect(aggregateUsage(kids, root, t0 + 60_000).wallClockMs).toBe(60_000);
   });
 
   it('stops the clock once the root finishes', () => {
     const done = leaf({ id: 'r', status: 'succeeded', createdAt: '2026-08-02T00:00:00Z', updatedAt: '2026-08-02T00:05:00Z' });
-    // Long after the fact, the elapsed figure must not keep growing.
     expect(aggregateUsage([done], done, t0 + 99_999_999).wallClockMs).toBe(300_000);
   });
 
@@ -210,7 +197,6 @@ describe('aggregateUsage', () => {
   });
 
   it('survives an unparseable timestamp instead of producing NaN', () => {
-    // NaN would compare false against every budget and silently disable the time ceiling.
     const bad = leaf({ id: 'r', status: 'running', createdAt: 'not-a-date' });
     expect(aggregateUsage([bad], bad, t0).wallClockMs).toBe(0);
   });
@@ -226,8 +212,6 @@ describe('retry context', () => {
   });
 
   it('names every prior failure, not just the last', () => {
-    // A leaf that failed three different ways is a different situation from one that failed the
-    // same way three times, and only the full history tells them apart.
     const ctx = failureContext([fail(0, 'tests did not compile'), fail(1, 'lint failed')]);
     expect(ctx).toMatch(/tests did not compile/);
     expect(ctx).toMatch(/lint failed/);
@@ -239,8 +223,6 @@ describe('retry context', () => {
   });
 
   it('instructs the next attempt not to repeat the approach', () => {
-    // Without this the model tends to retry verbatim, which is exactly what Temporal's built-in
-    // retry would have done for free — and why this mechanism exists instead.
     expect(failureContext([fail(0, 'boom')])).toMatch(/Do not repeat the same approach/);
   });
 
@@ -258,9 +240,6 @@ describe('isLeafColumn', () => {
   });
 
   it('rejects columns that were removed', () => {
-    // A 'done' column was accepted with a 201 and written to the database before this guard
-    // existed, leaving a leaf in a state the UI could neither render nor move it out of. The
-    // union type validates nothing at a request boundary.
     expect(isLeafColumn('done')).toBe(false);
     expect(isLeafColumn('backlog')).toBe(false);
   });
@@ -279,8 +258,6 @@ describe('dependency ordering', () => {
   });
 
   it('holds a leaf until every dependency has SUCCEEDED', () => {
-    // The measured failure: five siblings fanned out, and the four that needed the first one's
-    // output each woke in an empty sandbox and spent all 24 steps rebuilding it.
     const base = leaf({ id: 'base', status: 'running' });
     const next = leaf({ id: 'next', dependsOn: ['base'] });
 
@@ -297,8 +274,6 @@ describe('dependency ordering', () => {
   });
 
   it('keeps holding a leaf whose dependency FAILED, since a retry can still satisfy it', () => {
-    // Distinct from a deleted dependency below: the work is still expected, it just has not
-    // happened. Releasing here would run the dependent against output that does not exist.
     const base = leaf({ id: 'base', status: 'failed' });
     const next = leaf({ id: 'next', dependsOn: ['base'] });
 
@@ -306,34 +281,28 @@ describe('dependency ordering', () => {
   });
 
   it('treats a deleted dependency as met rather than stranding the leaf forever', () => {
-    // There is no future in which a leaf that no longer exists succeeds, so waiting on it is
-    // waiting for nothing — and nothing in the UI can clear it.
     const next = leaf({ id: 'next', dependsOn: ['deleted'] });
 
     expect(dependenciesMet(next, [next])).toBe(true);
   });
 
   it('never starts a leaf that already has a workflow', () => {
-    // Starting twice is the expensive mistake: two sandboxes, two sets of tokens, one leaf.
     const started = leaf({ id: 'started', workflowId: 'leaf-started' });
 
     expect(readyToStart([started])).toEqual([]);
   });
 
   it('refuses a dependency that would close a cycle', () => {
-    // A cycle does not fail — every leaf in it waits forever, which looks exactly like slow work.
     const a = leaf({ id: 'a', dependsOn: ['b'] });
     const b = leaf({ id: 'b', dependsOn: ['c'] });
     const c = leaf({ id: 'c' });
 
     expect(wouldCycle('c', ['a'], [a, b, c])).toBe(true);
     expect(wouldCycle('c', [], [a, b, c])).toBe(false);
-    // Self-reference is the degenerate case and the easiest one to write by accident.
     expect(wouldCycle('c', ['c'], [a, b, c])).toBe(true);
   });
 
   it('releases a whole chain one step at a time, not all at once', () => {
-    // The shape the plan actually had: build → search → query builder, strictly in order.
     const one = leaf({ id: 'one', status: 'succeeded' });
     const two = leaf({ id: 'two', dependsOn: ['one'] });
     const three = leaf({ id: 'three', dependsOn: ['two'] });
@@ -344,13 +313,6 @@ describe('dependency ordering', () => {
   });
 });
 
-/**
- * Stopping a leaf that is not producing, rather than spending a third attempt learning it again.
- *
- * thrash.ts records the shape this rests on: every run that eventually worked began producing
- * early, and the leaf that failed three times had written nothing at all across forty turns each of
- * `ls`, `cat` and `git status`. It was not short of budget.
- */
 describe('a barren streak', () => {
   const attempt = (over: Partial<LeafAttempt> = {}): LeafAttempt =>
     ({ attempt: 0, error: 'boom', failedAt: '2026-08-21T00:00:00Z', ...over });
@@ -360,7 +322,6 @@ describe('a barren streak', () => {
   });
 
   it('keeps going when this attempt produced something', () => {
-    // Partial work is what the next attempt inherits and builds on — that is progress.
     expect(barrenStreak([attempt({ produced: false })], true)).toBe(false);
   });
 
@@ -369,14 +330,9 @@ describe('a barren streak', () => {
   });
 
   it('never stops on the first failure', () => {
-    // One barren attempt is normal: the retry exists precisely to give it the failure to read.
     expect(barrenStreak([], false)).toBe(false);
   });
 
-  /**
-   * Attempts recorded before `produced` existed say nothing about whether they wrote anything, and
-   * reading that silence as failure would retro-actively stop leaves that were doing fine.
-   */
   it('treats an unknown previous attempt as not-barren', () => {
     expect(barrenStreak([attempt({})], false)).toBe(false);
   });

@@ -1,18 +1,3 @@
-/**
- * tree-bootstrap — activating a project tree when accepted from Koala chat or the UI.
- *
- * ── WHAT HAPPENED BEFORE ──
- * When a user clicked "Accept to Grove" on a Koala proposal, the backend created an empty Tree
- * record in MongoDB and stopped. Koala could not continue autonomously, no repository was seeded,
- * no branch was opened, and no initial persona workflow was triggered.
- *
- * ── WHAT THIS DOES ──
- * 1. Creates/ensures a shippable project repository (Gitea webhook + target cluster + autoDeploy).
- * 2. Links the project repository to the Tree record.
- * 3. Creates the root Branch for the Tree with the initial goal.
- * 4. Creates the root Framer/Planner leaf and queues it for execution.
- * 5. If TemporalBridge is available, starts the leaf workflow immediately.
- */
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from './db-interface.js';
 import type { Tree } from './trees.js';

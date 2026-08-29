@@ -7,13 +7,6 @@ import {
   TOOL_DISCIPLINE_PROMPT,
 } from './sampling.js';
 
-/**
- * These guard a portability rule as much as a behavioural one.
- *
- * This platform talks to any OpenAI-compatible endpoint — OpenAI itself, or whatever a user
- * registers over the mesh. Sending an exllama-only sampler to a strict server earns a 400, which
- * would turn loop PREVENTION into an outage for every user on a different engine.
- */
 describe('sampler portability', () => {
   const OPENAI_STANDARD = ['temperature', 'frequency_penalty', 'presence_penalty', 'top_p', 'max_tokens'];
 
@@ -30,23 +23,12 @@ describe('sampler portability', () => {
   });
 
   it('guards a CONVERSATION turn against repetition, whatever the engine', () => {
-    // The observed failure was forty identical lines. That is a decoding pathology, and every
-    // engine gets at least the portable defence against it on a turn that produces prose.
     for (const kind of ['tabbyapi', 'vllm', undefined] as const) {
       expect(conversationSampling(kind).frequency_penalty).toBeGreaterThan(0);
     }
   });
 
   it('never penalises repetition on a turn that has to call a tool', () => {
-    /**
-     * The penalties do not degrade tool calling, they eliminate it. exp-penalties-001: 0/12
-     * verified with them, 12/12 without, perfect separation on both tasks and under both prompts.
-     * The failing runs made ZERO tool calls and burned all 40 steps in five seconds.
-     *
-     * Emitting a call means reproducing function names and JSON keys already in the prompt, which
-     * is precisely what these penalties suppress. Pinned so it cannot be reinstated as an obvious
-     * safety measure — it reads like one.
-     */
     for (const kind of ['tabbyapi', 'vllm', undefined] as const) {
       expect(toolTurnSampling(kind).frequency_penalty).toBeUndefined();
       expect(toolTurnSampling(kind).presence_penalty).toBeUndefined();
@@ -54,8 +36,6 @@ describe('sampler portability', () => {
   });
 
   it('keeps DRY on a tool turn, which was measured innocent', () => {
-    // DRY alone scored 3/3 on tool calls. It is the repetition guard that survives, so the
-    // pathology the penalties were added for is still covered where the engine supports it.
     expect(toolTurnSampling('tabbyapi')).toHaveProperty('dry_multiplier');
   });
 });
@@ -66,14 +46,10 @@ describe('what each kind of turn gets', () => {
   });
 
   it('leaves conversation temperature alone, so the caller stays in charge', () => {
-    // Reasoning and its temperature are what make the chat worth having; only the decoding
-    // pathology is suppressed here.
     expect(conversationSampling('tabbyapi')).not.toHaveProperty('temperature');
   });
 
   it('nests enable_thinking under template_vars, where it is actually read', () => {
-    // At the top level it is silently ignored and the model produces garbage — confirmed live,
-    // it emitted Chinese mid-sentence.
     expect(NO_THINKING).toEqual({ template_vars: { enable_thinking: false } });
   });
 
@@ -84,8 +60,6 @@ describe('what each kind of turn gets', () => {
 
 describe('TOOL_DISCIPLINE_PROMPT', () => {
   it('forbids inventing a tool result, which is the observed failure', () => {
-    // The model wrote a plausible list_projects RESULT into its own reasoning, believed it, then
-    // spent the rest of the turn discovering it had made the data up.
     expect(TOOL_DISCIPLINE_PROMPT).toMatch(/never invent/i);
     expect(TOOL_DISCIPLINE_PROMPT).toMatch(/call the tool and stop/i);
   });

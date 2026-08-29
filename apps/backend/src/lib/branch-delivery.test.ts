@@ -22,13 +22,11 @@ describe('where a request got to', () => {
   });
 
   it('ignores leaves that are only proposed', () => {
-    // Proposed work has not been accepted, so counting it would report progress nobody asked for.
     const s = summariseDelivery(branch(), [leaf({ status: 'proposed' })], undefined);
     expect(stage(s, 'work').state).toBe('pending');
   });
 
   it('counts verified separately from succeeded', () => {
-    /** A leaf can report success with nothing having checked it — that gap is the whole point. */
     const s = summariseDelivery(branch(), [leaf({ id: 'a', verified: true }), leaf({ id: 'b' })], undefined);
     expect(stage(s, 'work')).toMatchObject({ state: 'done', detail: '1 of 2 verified' });
   });
@@ -51,7 +49,6 @@ describe('where a request got to', () => {
   });
 
   it('treats a built-but-undeployed request as skipped, not broken', () => {
-    // Plenty of requests produce something never meant to run as a service.
     const s = summariseDelivery(branch(), [leaf({})], { status: 'built', reason: '' });
     expect(stage(s, 'built').state).toBe('done');
     expect(stage(s, 'deployed').state).toBe('skipped');
@@ -81,24 +78,16 @@ describe('where a request got to', () => {
     expect(stage(summariseDelivery(branch({ acceptance: plan, acceptanceRunAt: 'now', acceptanceOutcome: 'passed' }), [], undefined), 'accepted').state).toBe('done');
     expect(stage(summariseDelivery(branch({ acceptance: plan, acceptanceRunAt: 'now', acceptanceOutcome: 'failed', acceptanceFailedCheck: 'tests' }), [], undefined), 'accepted'))
       .toMatchObject({ state: 'failed', detail: 'failed at "tests"' });
-    // Ran and produced nothing. Must not read as a pass.
     expect(stage(summariseDelivery(branch({ acceptance: plan, acceptanceRunAt: 'now', acceptanceOutcome: 'unknown' }), [], undefined), 'accepted'))
       .toMatchObject({ state: 'warn', detail: 'ran without a verdict' });
   });
 
   it('does not blame an old branch for a verdict the schema never stored', () => {
-    // Ran before acceptanceOutcome existed. Still not a pass, but the reason is the record, not
-    // the work — and saying "ran without a verdict" would misattribute it.
     const s = summariseDelivery(branch({ acceptance: [{ name: 'tests', command: 'npm test' }], acceptanceRunAt: 'then' }), [], undefined);
     expect(stage(s, 'accepted')).toMatchObject({ state: 'warn', detail: 'verdict not recorded' });
   });
 
   it('gives a research request a shorter chain, not struck-through stages', () => {
-    /**
-     * Landed, Built and Deployed are not steps a research request skipped — they are steps it never
-     * had. Showing them greyed out claims three things did not happen, about work that was never
-     * going to do them.
-     */
     const s = summariseDelivery(branch(), [leaf({ verified: true, findings: 'an answer' })], undefined);
     expect(s.map((x) => x.key)).toEqual(['work', 'answered', 'accepted']);
     expect(stage(s, 'work')).toMatchObject({ state: 'done', detail: '1 of 1 verified' });
@@ -106,25 +95,17 @@ describe('where a request got to', () => {
   });
 
   it('does not treat a leaf that wrote nothing as answer-shaped work', () => {
-    /**
-     * Recognised by what it PRODUCED, not by what it was labelled. A leaf that wrote no answer and
-     * pushed no branch has simply not delivered, and calling it research on the strength of a label
-     * would report a chain it never had.
-     */
     const s = summariseDelivery(branch(), [leaf({})], undefined);
     expect(s.map((x) => x.key)).toEqual(['work', 'landed', 'built', 'deployed', 'accepted']);
   });
 
   it('brings the build chain back the moment a request also produces code', () => {
-    // One research leaf beside a code leaf is the normal shape: the planner looks something up and
-    // then builds. The build stages are real again.
     const s = summariseDelivery(branch(), [leaf({ id: 'r', findings: 'x' }), leaf({ id: 'c' })], undefined);
     expect(s.map((x) => x.key)).toEqual(['work', 'landed', 'built', 'deployed', 'accepted']);
   });
 
   it('still tracks merges when a request mixes research with code', () => {
     const s = summariseDelivery(branch(), [leaf({ id: 'r', findings: 'x' }), leaf({ id: 'c' })], undefined);
-    // One code leaf, unmerged — the research leaf must not inflate the denominator.
     expect(stage(s, 'landed')).toMatchObject({ state: 'pending', detail: '0 of 1 merged' });
   });
 

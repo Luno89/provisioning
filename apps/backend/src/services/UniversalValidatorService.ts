@@ -27,14 +27,9 @@ export interface ValidationExecutionEnvironment {
 }
 
 export class UniversalValidatorService {
-  /**
-   * Infers a sensible validation recipe from a workspace when none was explicitly configured.
-   * Enables existing, legacy, or custom projects to immediately benefit from the validator loop.
-   */
   async inferRecipe(env: ValidationExecutionEnvironment): Promise<ValidationRecipe | undefined> {
     const checks: ValidationCheckDefinition[] = [];
 
-    // 1. Node / TypeScript projects
     try {
       const pkgContent = await env.readFile('package.json');
       const pkg = JSON.parse(pkgContent);
@@ -57,10 +52,8 @@ export class UniversalValidatorService {
         });
       }
     } catch {
-      // Not a node project
     }
 
-    // 2. Python projects
     try {
       const pyproject = await env.readFile('pyproject.toml').catch(() => '');
       const reqs = await env.readFile('requirements.txt').catch(() => '');
@@ -74,10 +67,8 @@ export class UniversalValidatorService {
         });
       }
     } catch {
-      // Not a python project
     }
 
-    // 3. Go projects
     try {
       const gomod = await env.readFile('go.mod');
       if (gomod) {
@@ -90,10 +81,8 @@ export class UniversalValidatorService {
         });
       }
     } catch {
-      // Not a go project
     }
 
-    // 4. Rust projects
     try {
       const cargo = await env.readFile('Cargo.toml');
       if (cargo) {
@@ -106,10 +95,8 @@ export class UniversalValidatorService {
         });
       }
     } catch {
-      // Not a rust project
     }
 
-    // 5. Documentation fallback
     if (!checks.length) {
       try {
         const readme = await env.readFile('README.md');
@@ -123,7 +110,6 @@ export class UniversalValidatorService {
           });
         }
       } catch {
-        // No readme
       }
     }
 
@@ -136,13 +122,6 @@ export class UniversalValidatorService {
     return undefined;
   }
 
-  /**
-   * Validates a workspace or branch against a validation recipe.
-   *
-   * Executes checks deterministically, capturing exact exit codes, stdout/stderr,
-   * HTTP status codes, and JSON-RPC responses. Produces an LLM-actionable diagnostic
-   * report for the worker/validator loop.
-   */
   async validate(
     recipe: ValidationRecipe,
     env: ValidationExecutionEnvironment,
@@ -225,7 +204,6 @@ export class UniversalValidatorService {
             durationMs: Date.now() - start,
           };
         } catch {
-          // Fallback to test command in case readFile threw
           const res = await env.exec(`test -s "${target}"`);
           const passed = res.exitCode === 0;
           return {
@@ -344,7 +322,6 @@ export class UniversalValidatorService {
       case 'mcp-probe': {
         const url = check.target || 'http://127.0.0.1:8080/mcp';
         try {
-          // 1. Initialize probe
           const initRes = await fetchImpl(url, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -384,7 +361,6 @@ export class UniversalValidatorService {
             };
           }
 
-          // 2. Tools list probe
           const listRes = await fetchImpl(url, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },

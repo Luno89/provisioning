@@ -25,7 +25,6 @@ describe('ChatToolCallCard — Hermes-style tool telemetry', () => {
     expect(screen.getByText('get_logs')).toBeInTheDocument();
     expect(screen.getByText(/completed/i)).toBeInTheDocument();
 
-    // Click to open details
     fireEvent.click(screen.getByText('get_logs'));
 
     expect(screen.getByText('{"pod":"core-api"}')).toBeInTheDocument();

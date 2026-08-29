@@ -54,7 +54,6 @@ export default function CodeBlock({
 
   return (
     <div className="my-3 rounded-xl bg-[var(--bark-950,#0f1117)] border border-[var(--bark-700,#2a2e3d)] overflow-hidden shadow-md">
-      {/* Code Header Bar */}
       <div className="px-3.5 py-1.5 bg-[var(--bark-850,#161922)] border-b border-[var(--bark-700,#2a2e3d)] flex items-center justify-between text-[11px] text-slate-400 font-mono">
         <span className="font-bold text-slate-300 tracking-wider">{langLabel}</span>
         <button
@@ -66,7 +65,6 @@ export default function CodeBlock({
         </button>
       </div>
 
-      {/* Code Content Container */}
       <pre className="p-3.5 overflow-x-auto m-0">
         {renderCodeLines()}
       </pre>

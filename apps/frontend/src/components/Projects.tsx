@@ -21,9 +21,7 @@ interface Project {
   appType: string;
   autoDeployOnBuild?: boolean;
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
-  /** End-to-end rollup from the server — see lib/project-status.ts. Worst state in the chain wins. */
   status?: 'no-build' | 'building' | 'build-failed' | 'built' | 'deploying' | 'deploy-failed' | 'unhealthy' | 'running';
-  /** Why, for the states that need explaining: a build error, or the pod's health reason. */
   reason?: string;
   createdAt: string;
 }
@@ -137,7 +135,6 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
 
   return (
     <div className="max-w-6xl mx-auto py-6 px-4 space-y-6">
-      {/* Header */}
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--bark-800)]/60">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-slate-100 flex items-center gap-2.5">
@@ -232,7 +229,6 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
                     </div>
                   </div>
 
-                  {/* Expanded Pipeline Runs & Image Definitions */}
                   {isExpanded && (
                     <div className="mt-4 pt-4 border-t border-[var(--bark-800)] space-y-3">
                       <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
@@ -301,7 +297,6 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
         </div>
       )}
 
-      {/* Register Project Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
           <div className="bg-[var(--bark-900)] border border-[var(--bark-700)] rounded-lg p-6 w-full max-w-md shadow-2xl space-y-5">
@@ -409,7 +404,6 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
         </div>
       )}
 
-      {/* Build Log Modal Drawer */}
       {logRunId && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
           <div className="bg-[var(--bark-950)] border border-[var(--bark-700)] rounded-lg w-full max-w-4xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">

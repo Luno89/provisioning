@@ -1,13 +1,3 @@
-/**
- * Personas — named configurations you can pick, instead of the one everybody gets.
- *
- * ── WHY THIS LIVES IN THE HARNESS TAB ──
- * A persona is a system prompt plus an override bag validated against the same registry as
- * everything else here. It belongs beside the adopted defaults it layers on top of, not in a
- * settings screen of its own, because the question it answers — "what is the agent set to" — is
- * the question this tab exists for. The precedence is stated on screen for the same reason: a
- * knob set in two places with no visible winner is how a configuration becomes folklore.
- */
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
@@ -24,7 +14,6 @@ export interface Persona {
   overrides: Record<string, unknown>;
 }
 
-/** A knob's value as typed. The registry decides how to read it back — same rule as Focus. */
 const parseRaw = (raw: string, type: string): unknown => {
   const text = raw.trim();
   if (text === '') return undefined;
@@ -95,7 +84,6 @@ export function Personas({ config }: { config: HarnessConfig | undefined }) {
       </div>
 
       <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
-        {/* Stated because a knob set in two places with no visible winner becomes folklore. */}
         A persona is a prompt and a set of knobs you can choose per conversation, per leaf, or per
         experiment arm. It layers on top of the adopted defaults and under whatever the turn itself
         asks for: <span className="font-mono text-slate-400">built-in → adopted → persona → request</span>.
@@ -147,7 +135,6 @@ export function Personas({ config }: { config: HarnessConfig | undefined }) {
                     <Trash2 size={10} /> Delete
                   </button>
                   <span className="text-[10px] text-slate-600">
-                    {/* Said plainly: deleting must not rewrite what finished work ran under. */}
                     Leaves that already ran keep their record — they simply run with no persona next time.
                   </span>
                 </div>
@@ -222,8 +209,6 @@ export function Personas({ config }: { config: HarnessConfig | undefined }) {
                             rows={1}
                             field={`${field} py-0.5`}
                             placeholder={showRaw(live ? live.value : t.default) || 'unset'}
-                            // Same rule as the Focus table: text expands, a number has nothing to
-                            // expand into.
                             expandable={t.type === 'string'}
                             {...(t.type === 'string' ? {
                               fallback: showRaw(live ? live.value : t.default),

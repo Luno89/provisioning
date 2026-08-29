@@ -4,7 +4,6 @@ import { makePackToolExecutor } from './chat-pack-tools.js';
 vi.mock('./koala-tool-runner.js', () => ({ runKoalaTool: vi.fn() }));
 import { runKoalaTool } from './koala-tool-runner.js';
 
-// A server named 'github-mcp' that routeCall would produce for a 'github-mcp__get-repo' name.
 const github = { name: 'github-mcp', description: 'GitHub MCP' };
 
 const context: any = {

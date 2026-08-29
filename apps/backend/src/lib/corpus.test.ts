@@ -12,11 +12,8 @@ describe('storing a crawled page', () => {
   });
 
   it('truncates a pathological page rather than failing the crawl', () => {
-    // A document store has its own ceiling, and one enormous page should not be able to fail
-    // everything fetched alongside it.
     const p = page('https://example.com/big', 'x'.repeat(MAX_PAGE_CHARS + 5000));
     expect(p.text.length).toBe(MAX_PAGE_CHARS);
-    // The receipt describes what is actually stored, not what was fetched.
     expect(p.bytes).toBe(MAX_PAGE_CHARS);
   });
 
@@ -33,10 +30,6 @@ describe('asking a corpus a question', () => {
   ];
 
   it('returns snippets, never pages', () => {
-    /**
-     * The point of moving ingestion into a workflow is that bytes stop passing through a context
-     * window. Handing a page back at the last step would give that up.
-     */
     const hits = search(corpus, 'MIT licence');
     expect(hits).toHaveLength(1);
     expect(hits[0]!.url).toBe('https://a.example/1');
@@ -54,8 +47,6 @@ describe('asking a corpus a question', () => {
   });
 
   it('returns at most one hit per page', () => {
-    // A word appearing ninety times in one document would otherwise fill the budget with a single
-    // source and hide every other page that mentions it.
     const repeated = [page('https://a.example/1', 'licence '.repeat(200))];
     expect(search(repeated, 'licence')).toHaveLength(1);
   });
@@ -66,10 +57,6 @@ describe('asking a corpus a question', () => {
   });
 
   it('treats the query as text, not as a pattern', () => {
-    /**
-     * The query comes from a model. A regular expression like `(a+)+b` against a megabyte of text
-     * is a hang that looks exactly like a slow crawl.
-     */
     const withParens = [page('https://a.example/1', 'the config is (a+)+b in the file')];
     expect(search(withParens, '(a+)+b')).toHaveLength(1);
   });
@@ -87,24 +74,18 @@ describe('what an ingest reports back', () => {
 
 describe('walking a site', () => {
   it('treats a fragment as the same page and a query as a different one', () => {
-    /**
-     * `#install` and `#usage` are one document, and fetching it twice spends the page budget on
-     * nothing. `?page=2` is genuinely another page — dropping it silently truncates paginated sites.
-     */
     expect(canonical('https://a.example/docs#install')).toBe(canonical('https://a.example/docs#usage'));
     expect(canonical('https://a.example/docs/')).toBe('https://a.example/docs');
     expect(canonical('https://a.example/list?page=2')).not.toBe(canonical('https://a.example/list'));
   });
 
   it('refuses anything that is not http', () => {
-    // A crawl following mailto: or javascript: links is a crawl spending its budget on nothing.
     for (const bad of ['mailto:x@y.z', 'javascript:alert(1)', 'not a url']) {
       expect(canonical(bad)).toBeUndefined();
     }
   });
 
   it('never leaves the allowed hosts', () => {
-    // Without this a single outbound link turns a documentation crawl into a walk of the web.
     const seen = new Set<string>();
     const links = ['https://a.example/one', 'https://evil.example/two'];
     expect(usableLinks(links, ['a.example'], seen)).toEqual(['https://a.example/one']);
@@ -138,10 +119,6 @@ describe('reading a crawl response', () => {
   });
 
   it('degrades to nothing rather than throwing on a shape it does not know', () => {
-    /**
-     * This is a deployed service's response, not a contract we control. Throwing inside a Temporal
-     * activity would be retried identically forever.
-     */
     expect(readCrawlResults(undefined)).toEqual([]);
     expect(readCrawlResults({ unexpected: true })).toEqual([]);
   });

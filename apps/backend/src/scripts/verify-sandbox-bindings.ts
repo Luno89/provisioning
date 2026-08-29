@@ -1,18 +1,3 @@
-/**
- * Proves a sandbox can reach what its project declared — and cannot reach what it did not.
- *
- *   npx tsx apps/backend/src/scripts/verify-sandbox-bindings.ts
- *
- * ── WHY THIS SCRIPT AND NOT A UNIT TEST ──
- * The unit tests prove the manifests are right. They cannot prove that a NetworkPolicy written from
- * a resolved binding actually lets a packet through, and that is the entire claim. Two projects
- * burned ~3.7M tokens on leaves that had the correct address and were refused by the network.
- *
- * The control matters as much as the test: a sandbox with no declared dependency must still be
- * unable to reach the service. If it can, the policy is open and every guarantee here is decoration.
- *
- * Creates two throwaway sandboxes and destroys them. Writes nothing else.
- */
 import dotenv from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -57,7 +42,6 @@ async function main(): Promise<void> {
     const files = await workspaces.materializeBindings(bindings);
     for (const f of files) console.log(`  files:    ${f.name}/ -> ${Object.keys(f.files).join(', ')}`);
 
-    // ── THE TEST ──
     line();
     console.log('WITH the declared dependency:');
     const withId = randomUUID();
@@ -73,7 +57,6 @@ async function main(): Promise<void> {
     const got = await workspaces.exec(withId, probe);
     console.log(got.stdout.trim() || got.stderr.trim());
 
-    // ── THE CONTROL ──
     line();
     console.log('WITHOUT it (same image, no egress, no bindings):');
     const withoutId = randomUUID();

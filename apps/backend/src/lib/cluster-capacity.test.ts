@@ -10,13 +10,10 @@ import {
 
 describe('parseMemoryQuantity', () => {
   it('parses what a node actually reports', () => {
-    // Real shape from `kubectl get nodes -o json` — always Ki, never a round number.
     expect(parseMemoryQuantity('16265432Ki')).toBe(16265432 * 1024);
   });
 
   it('keeps binary and decimal suffixes distinct — 20G is NOT 20Gi', () => {
-    // The bug this guards: 20G is 20e9 bytes (18.6 GiB). Treating it as 20 GiB overstates by ~7%,
-    // which looks like a flaky scheduler rather than a unit error.
     expect(parseMemoryQuantity('20G')).toBe(20e9);
     expect(parseMemoryQuantity('20Gi')).toBe(20 * 1024 ** 3);
     expect(parseMemoryQuantity('20G')).not.toBe(parseMemoryQuantity('20Gi'));
@@ -28,7 +25,6 @@ describe('parseMemoryQuantity', () => {
   });
 
   it('returns undefined rather than guessing at garbage', () => {
-    // A wrong number here silently blocks or admits a deploy, so unparseable must stay unparseable.
     expect(parseMemoryQuantity('twenty gigs')).toBeUndefined();
     expect(parseMemoryQuantity('20QB')).toBeUndefined();
     expect(parseMemoryQuantity('')).toBeUndefined();
@@ -39,7 +35,6 @@ describe('parseMemoryQuantity', () => {
 describe('parseCpuQuantity', () => {
   it('parses whole cores and millicores', () => {
     expect(parseCpuQuantity('8')).toBe(8);
-    // Allocatable is normally millicores — the kubelet reserves a slice for itself.
     expect(parseCpuQuantity('7900m')).toBe(7.9);
   });
 
@@ -62,8 +57,6 @@ describe('capacityFromNodes', () => {
   });
 
   it('takes the largest node, not the sum — a pod cannot span nodes', () => {
-    // The bug this guards: summing reports 24GB for three 8GB nodes, then a 20GB pod still cannot
-    // schedule anywhere.
     const cap = capacityFromNodes({
       items: [node('8Gi', '4'), node('8Gi', '4'), node('8Gi', '4')],
     });
@@ -84,8 +77,6 @@ describe('capacityFromNodes', () => {
   });
 
   it('omits gpuCount entirely when there are none, rather than reporting 0', () => {
-    // Absent means "none measured"; checkCapacity treats absent capacity as unknown, so the
-    // difference matters.
     const cap = capacityFromNodes({ items: [node('8Gi', '4')] });
     expect(cap).not.toHaveProperty('gpuCount');
   });
@@ -113,18 +104,12 @@ describe('checkCapacity', () => {
   });
 
   it('does not block on a node that satisfies REQUESTS, even though the limit is far larger', () => {
-    // The bug this pins. The requirement table originally held the constructs' `limits` (20G for
-    // vLLM, 32G for TabbyAPI), but Kubernetes schedules on `requests` — both constructs request
-    // only 6G. Checking the limit refused deploys onto a 16GiB box that would have scheduled and
-    // run fine, which is the false rejection this module explicitly refuses to make.
     const sixteenGb: ClusterCapacity = { cpuCores: 8, ramGb: 16 };
     expect(checkCapacity('vllm', sixteenGb)).toBeUndefined();
     expect(checkCapacity('tabbyapi', sixteenGb)).toBeUndefined();
   });
 
   it('NEVER blocks when capacity is unknown', () => {
-    // Clusters provisioned before capacity was recorded have no numbers. Refusing to deploy to
-    // them would be a worse regression than the Pending pod this check exists to prevent.
     expect(checkCapacity('vllm', undefined)).toBeUndefined();
     expect(checkCapacity('vllm', undefined, 4)).toBeUndefined();
   });
@@ -143,32 +128,12 @@ describe('checkCapacity', () => {
   });
 
   it('compares GPU count to GPU count, never against RAM', () => {
-    // A 64 GiB box with 2 GPUs must not satisfy a 4-GPU request just because it has plenty of RAM.
-    // This is the RAM/VRAM conflation the module exists to prevent, in its most likely form.
     expect(checkCapacity('vllm', big, 4)).toMatch(/GPU/);
     expect(checkCapacity('vllm', big, 4)).not.toMatch(/GiB/);
   });
 });
 
-/**
- * ── THE BUG THIS PINS ──
- * Every app-deploy E2E test failed with:
- *
- *   503 "Temporal app deploy unavailable: This deployment requests 2 GPU(s) but no GPUs are
- *        visible to the scheduler on this cluster."
- *
- * for a WORDPRESS deploy. The wizard posts its whole state — one object with every app type's
- * fields on it, `tabbyGpuCount: '2'` among them — and `TemporalBridge.deployApp` read
- * `config.vllmGpuCount ?? config.tabbyGpuCount ?? 0` with no regard for which app was being
- * deployed. So WordPress, Nextcloud, Odoo and every other non-GPU app inherited TabbyAPI's default
- * GPU count and were refused on a cluster that correctly has no GPUs.
- *
- * It was invisible for two reasons: the preflight had never actually run until the commit that
- * moved it here, and the UI had no onError, so the refusal reached the user as a button that did
- * nothing.
- */
 describe('requestedGpuCount', () => {
-  /** What the deploy wizard actually posts — every app type's fields on one object. */
   const wizardPayload = {
     name: 'Wordpress-E2E',
     appType: 'wordpress',
@@ -194,17 +159,13 @@ describe('requestedGpuCount', () => {
   });
 
   it('accepts the count as a string, which is what the wizard sends', () => {
-    // The wizard binds these to text inputs, so they arrive as strings — a numeric comparison
-    // against a string is how a check like this silently stops working.
     expect(requestedGpuCount('vllm', { vllmGpuCount: '4' })).toBe(4);
   });
 
-  /** The end-to-end shape of the bug, through the function that actually refused the deploy. */
   it('lets a WordPress deploy through a GPU-less cluster', () => {
     const noGpus = { cpuCores: 8, ramGb: 16, gpuCount: 0 };
     expect(checkCapacity('wordpress', noGpus, requestedGpuCount('wordpress', wizardPayload)))
       .toBeUndefined();
-    // ...while still refusing the app that genuinely asked for one.
     expect(checkCapacity('tabbyapi', noGpus, requestedGpuCount('tabbyapi', wizardPayload)))
       .toMatch(/no GPUs are visible/);
   });

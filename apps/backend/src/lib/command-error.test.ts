@@ -1,12 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CommandFailedError, salientFailure, stripAnsi } from './command-error.js';
 
-/**
- * The real case this exists for: a CDKTF deploy failed and Temporal recorded
- * `Command failed: npx` with `stackTrace: undefined` and `applicationFailureInfo.type: "Object"`,
- * because the rejection was a plain object literal rather than an Error. The actual cause — an
- * admission webhook rejecting every Ingress — existed only in the log file on disk.
- */
 const E = '\x1b';
 const REAL_CDKTF_TAIL = [
   `${E}[1m${E}[33mapp-provisioning-lunorica${E}[39m${E}[22m  kubernetes_ingress_v1.gitapp: Creating...`,

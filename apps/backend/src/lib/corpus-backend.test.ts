@@ -15,13 +15,11 @@ describe('splitting a page for embedding', () => {
     const text = 'x'.repeat(CHUNK_CHARS * 2);
     const chunks = chunkText(text);
     expect(chunks.length).toBeGreaterThan(2);
-    // Consecutive chunks share CHUNK_OVERLAP characters of the source.
     const stride = CHUNK_CHARS - CHUNK_OVERLAP;
     expect(chunks[1]).toBe(text.slice(stride, stride + CHUNK_CHARS));
   });
 
   it('drops a trailing sliver already contained in the previous chunk', () => {
-    // Otherwise the last chunk is a duplicate vector pointing at text already covered.
     const text = 'y'.repeat(CHUNK_CHARS + 20);
     const chunks = chunkText(text);
     expect(chunks.every((c) => c.length > CHUNK_OVERLAP)).toBe(true);
@@ -35,8 +33,6 @@ describe('splitting a page for embedding', () => {
   });
 
   it('numbers by position in the page, so filtering does not renumber what is left', () => {
-    // Otherwise dropping a nav chunk shifts every id after it, and a re-ingest writes a second set
-    // of vectors instead of replacing the first.
     const nav = '[a](https://x) '.repeat(60);
     const prose = 'This is a real paragraph of documentation prose. '.repeat(20);
     const ids = chunksFor('https://x/p', nav + prose).map((c) => c.id);
@@ -46,7 +42,6 @@ describe('splitting a page for embedding', () => {
 
 describe('point ids', () => {
   it('is a uuid, because Qdrant rejects anything else', () => {
-    // A point id must be an unsigned integer or a UUID; `https://x#3` is refused outright.
     expect(pointId('https://x/p#3')).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
@@ -59,23 +54,17 @@ describe('point ids', () => {
 
 describe('scoping a search to one tenant', () => {
   it('makes the owner part of the query, not a filter afterwards', () => {
-    /**
-     * "Search everything then drop what is not yours" is one bad `if` away from a cross-tenant
-     * leak, so the owner is a required term of the query itself.
-     */
     expect(buildIndexQuery('licence', { ownerId: 'u1' })).toContain('owner_id:"u1"');
     expect(buildIndexQuery('licence', { ownerId: 'u1' })).toContain('AND');
   });
 
   it('quotes the phrase, so a model cannot inject a field term', () => {
-    // Unquoted, a query of `owner_id:someone-else` would be a query, not a search phrase.
     const q = buildIndexQuery('owner_id:someone-else', { ownerId: 'u1' });
     expect(q).toContain('owner_id:"u1"');
     expect(q).toContain('body:"owner_id:someone-else"');
   });
 
   it('removes quotes rather than escaping them', () => {
-    // Escaping is a smaller and subtler surface to get wrong than removal.
     const q = buildIndexQuery('say "hello" now', { ownerId: 'u1' });
     expect(q).toBe('owner_id:"u1" AND body:"say  hello  now"');
   });
@@ -87,7 +76,6 @@ describe('scoping a search to one tenant', () => {
   });
 
   it('still scopes when the phrase is empty', () => {
-    // "Everything of mine" is a legitimate query; "everything" is not.
     expect(buildIndexQuery('   ', { ownerId: 'u1' })).toBe('owner_id:"u1"');
   });
 });
@@ -96,8 +84,6 @@ describe('merging the two halves', () => {
   const hit = (url: string, via: 'index' | 'vectors'): CorpusHit => ({ url, snippet: 's', via });
 
   it('puts exact matches first', () => {
-    // Someone who searched for a phrase and got a page containing it should not have it buried
-    // under something merely related.
     const merged = mergeHits([hit('https://a', 'index')], [hit('https://b', 'vectors')]);
     expect(merged.map((h) => h.url)).toEqual(['https://a', 'https://b']);
   });
@@ -126,31 +112,22 @@ describe('snippets', () => {
   });
 
   it('falls back to the opening when the phrase is not literally present', () => {
-    // A vector hit matched on meaning, so there may be no literal occurrence to centre on.
     expect(snippetAround('some text about licences', 'legal terms')).toContain('some text');
   });
 });
 
 describe('the service configuration', () => {
   it('matches the vector size the embedding model emits', () => {
-    // Changing the model changes this, and a mismatch is rejected at upsert with a shape error.
     expect((collectionConfig() as any).vectors.size).toBe(VECTOR_SIZE);
   });
 
   it('keeps quantized vectors in RAM and the originals on disk', () => {
-    /**
-     * The pairing is the point: memory holds something 4x smaller, and full precision is read only
-     * to rescore the handful of candidates a search returns. int8 rather than binary because at 384
-     * dimensions there is not enough redundancy to survive one bit each.
-     */
     const c = collectionConfig() as any;
     expect(c.vectors.on_disk).toBe(true);
     expect(c.quantization_config.scalar).toMatchObject({ type: 'int8', always_ram: true });
   });
 
   it('indexes ids as whole terms, not as tokens', () => {
-    // The default tokenizer splits a uuid on its hyphens, so a scoped query would match any
-    // document sharing one segment.
     const fields = (indexConfig('koala-corpus') as any).doc_mapping.field_mappings;
     for (const name of ['owner_id', 'ingest_id', 'url']) {
       expect(fields.find((f: any) => f.name === name).tokenizer).toBe('raw');
@@ -165,10 +142,6 @@ describe('the service configuration', () => {
 
 describe('batching the embedding requests', () => {
   it('never sends more than the service accepts', async () => {
-    /**
-     * TEI refuses outright rather than truncating: a crawl batch of eight pages is around 666
-     * chunks, and sending them together answered `413 batch size 666 > maximum allowed 32`.
-     */
     const seen: number[] = [];
     const fake = vi.fn(async (_url: string, init: any) => {
       const inputs = JSON.parse(init.body).inputs as string[];
@@ -179,20 +152,13 @@ describe('batching the embedding requests', () => {
 
     const vectors = await embed('http://tei', Array.from({ length: 100 }, (_, i) => `chunk ${i}`));
     expect(Math.max(...seen)).toBeLessThanOrEqual(EMBED_BATCH);
-    // Every input still gets a vector, and they stay in order — zipping by index attaches them.
     expect(vectors).toHaveLength(100);
     vi.unstubAllGlobals();
   });
 });
 
-
 describe('deciding what is worth a vector', () => {
   it('drops a navigation menu', () => {
-    /**
-     * Measured on GitHub's rate-limit page: 18 of 52 chunks are link lists, and the first is the
-     * site header, byte-identical across every page. Hundreds of near-identical nav chunks sit at
-     * the same distance from any query and crowd out the one that answers it.
-     */
     const nav = '[Skip to main content](https://docs.github.com/x) [GitHub Docs](https://docs.github.com) '.repeat(6);
     expect(worthEmbedding(nav)).toBe(false);
   });

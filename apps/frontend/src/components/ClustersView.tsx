@@ -5,54 +5,15 @@ import { useShellStore } from '../stores/shell';
 import { useSocketEvent } from '../stores/socket';
 import type { Cluster } from '../types/cluster';
 
-/**
- * The clusters screen.
- *
- * ── WHY IT IS ITS OWN FILE ──
- * 164 lines of it sat inside App's single component, between the sidebar and the apps table,
- * sharing a scope with every other screen and every modal in the product.
- *
- * ── AND WHY IT IS NOW ITS OWN SCREEN ──
- * The first extraction was mechanical and left it taking twelve props typed `any`, including three
- * of App's raw setters and six `data`/`isLoading` values from queries App ran on its behalf. So
- * expanding a row meant a child setting a parent's state to make the parent run a query whose
- * result it was handed back.
- *
- * It owns `expandedCluster` now, `useClusterDetail` runs from it, and the destroy confirmation goes
- * to the shell store rather than through a prop. What is left as props is what genuinely belongs to
- * App: the cluster list it already queries, and two things the shell owns — opening the provision
- * wizard and opening a dashboard.
- *
- * Typed by letting the compiler enumerate the interface, as `NginxView`'s docblock describes.
- */
 export interface ClustersViewProps {
   clusters: Cluster[];
-  /** Opens App's provision wizard. A named intent, not App's `setShowClusterModal`. */
   onProvision: () => void;
-  /**
-   * Opens the log/dashboard modal for a cluster. App owns that modal, so this is a named intent
-   * rather than the modal's setter — and it takes only the id, because from this screen the type is
-   * always 'cluster'. (I first typed this as a proxy-dashboard call, which is a different feature
-   * entirely; the compiler caught it at App's call site.)
-   */
   onOpenLogs: (clusterId: string) => void;
 }
 
 export default function ClustersView({ clusters, onProvision, onOpenLogs }: ClustersViewProps) {
-  /**
-   * Which row is open. It was App's, for no reason other than that the markup used to live there —
-   * nothing outside this screen reads it.
-   */
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
 
-  /**
-   * Collapse the row if its cluster is destroyed from anywhere.
-   *
-   * App used to do this, because App held the state — and when the state moved here that call
-   * became a write to something nothing rendered, which is a silent way to lose behaviour. It
-   * belongs with the state it changes: destroying a cluster while its row is open otherwise leaves
-   * an expanded panel polling three endpoints for something that no longer exists.
-   */
   useSocketEvent<{ id: string }>('resource-destroyed', (data) => {
     setExpandedCluster((current) => (current === data.id ? null : current));
   });
@@ -63,8 +24,6 @@ export default function ClustersView({ clusters, onProvision, onOpenLogs }: Clus
     gpuStatus: clusterGpuStatus, loadingGpu: loadingClusterGpu,
   } = useClusterDetail(expandedCluster);
 
-  // Straight from the shell store: destroying a cluster raises the same confirmation dialog
-  // wherever it is triggered from, and App does not need to be in the middle of it.
   const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy);
 
   return (

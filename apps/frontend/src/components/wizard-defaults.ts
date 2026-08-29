@@ -1,18 +1,5 @@
 import type { AppType } from './app-types';
 
-/**
- * What the deploy wizard starts from, and what "Deploy Application" resets it to.
- *
- * ── WHY IT IS A MODULE CONSTANT ──
- * Forty-four keys, written out TWICE: once as App's `useState` initialiser and once inline in an
- * `onClick` in `AppsView.tsx`, which is the button that opens the wizard. Two hand-maintained
- * copies of the same object, in different files, and nothing to make them agree — a field added to
- * one is simply missing when the wizard is opened the other way, and the wizard shows a stale value
- * from the previous deploy.
- *
- * `as const` is deliberately NOT used: the wizard mutates this shape field by field, so the values
- * need to stay writable and widely typed.
- */
 export const EMPTY_WIZARD_DATA = {
   name: 'Odoo-Production',
   clusterId: '',
@@ -60,5 +47,4 @@ export const EMPTY_WIZARD_DATA = {
   palworldPlayers: '16'
   };
 
-/** The shape the wizard edits. Derived, so a new default is a new field without restating it. */
 export type WizardData = typeof EMPTY_WIZARD_DATA;

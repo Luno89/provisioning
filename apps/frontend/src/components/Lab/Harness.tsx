@@ -1,19 +1,9 @@
-/**
- * What the harness is set to — everything that shapes a run, in one place.
- *
- * Grouped by what a value IS rather than where it lives in the code: adopted first because it is
- * the layer that overrides everything else and the one most likely to surprise you, then the
- * interactive settings editor, then built-in settings, then prompts, and the registry of knobs.
- */
 import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, ChevronDown, Download, Upload, Save, RefreshCw, CheckCircle2, Sliders } from 'lucide-react';
 import { card, describeValue, describeTunable, type HarnessConfig, type HarnessProfile, errorMessage } from './shared';
 import { ProfileBanner } from './Promote';
 import { Personas } from './Personas';
-// Aliased: this file already has mutations named `saveProfile` and `resetProfile`, and the
-// collision is worth keeping rather than renaming the local ones — those names describe what the
-// COMPONENT does, and the api functions are the transport it does it with.
 import {
   saveProfile as putProfile, resetProfile as clearProfile, importHarnessConfig,
   harnessExportUrl,
@@ -101,7 +91,6 @@ export function Harness({ config, profile, onProfileChanged, onImported,
     <div className="space-y-6">
       <ProfileBanner profile={profile} onChanged={onProfileChanged} />
 
-      {/* ── Interactive Settings Editor ── */}
       <section>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-[10px] uppercase tracking-widest text-slate-500 flex items-center gap-1.5 font-bold">
@@ -216,10 +205,8 @@ export function Harness({ config, profile, onProfileChanged, onImported,
         </div>
       </section>
 
-      {/* ── the configurations you can choose between, above the one everybody gets ── */}
       <Personas config={config} />
 
-      {/* ── built-in settings, each with the failure that set it ── */}
       <section>
         <h3 className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Settings</h3>
         <div className="space-y-2">
@@ -255,7 +242,6 @@ export function Harness({ config, profile, onProfileChanged, onImported,
         </div>
       </section>
 
-      {/* ── every prompt the harness sends, verbatim ── */}
       <section>
         <h3 className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">
           Prompts ({config?.prompts.length ?? 0})
@@ -281,7 +267,6 @@ export function Harness({ config, profile, onProfileChanged, onImported,
         </div>
       </section>
 
-      {/* ── the registry: what an experiment is able to vary at all ── */}
       <section>
         <button
           onClick={() => setShowKnobs((s) => !s)}
@@ -318,7 +303,6 @@ export function Harness({ config, profile, onProfileChanged, onImported,
         )}
       </section>
 
-      {/* ── the committable artifact ── */}
       <section>
         <h3 className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Config file</h3>
         <div className={`${card} p-4`}>

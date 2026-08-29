@@ -18,20 +18,8 @@ const CDKTF_DIR = path.join(PROJECT_ROOT, 'packages/cdktf-infra');
 const LOG_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/logs');
 const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
-// Host-backed local-path-provisioner storage, keyed by cluster name. Bind-mounting this
-// into the node (instead of relying on k3d's default anonymous volume) means PVC data
-// survives `k3d cluster delete` — which `npm run clean-dev` and "Destroy Cluster" both
-// trigger — instead of being deleted along with the node container's volumes.
 const K3D_STORAGE_ROOT = path.join(PROJECT_ROOT, '.k3d-storage');
-// vLLM model weights use a hostPath volume (see constructs/vllm.ts) at a fixed path so they
-// survive namespace/app destroy, not just cluster delete. On k3d that path only exists inside
-// the node container's own ephemeral filesystem unless bind-mounted — this is that mount,
-// deliberately a SINGLE shared directory (not per-cluster like K3D_STORAGE_ROOT) so a model
-// downloaded once is reused across every k3d cluster instead of being re-fetched per cluster.
 const VLLM_CACHE_HOST_DIR = path.join(PROJECT_ROOT, '.vllm-model-cache');
-// Same reasoning as VLLM_CACHE_HOST_DIR above, for TabbyAPI's own model cache (see
-// constructs/tabbyapi.ts) — a separate directory since the two engines use incompatible model
-// formats (HF safetensors vs EXL2/EXL3) and shouldn't share a cache namespace.
 const TABBYAPI_CACHE_HOST_DIR = path.join(PROJECT_ROOT, '.tabbyapi-model-cache');
 
 export interface ExecuteOptions {
@@ -40,13 +28,9 @@ export interface ExecuteOptions {
   resourceId?: string | undefined;
   io?: SocketServer | undefined;
   timeout?: number | undefined;
-  /** Path `cdktf deploy` writes its TerraformOutputs JSON to — see deploy() below. */
   outputsFile?: string | undefined;
 }
 
-/**
- * Service to handle low-level infrastructure commands.
- */
 function escapeShellArg(arg: string): string {
   return "'" + arg.replace(/'/g, "'\\''") + "'";
 }
@@ -60,9 +44,6 @@ export class InfrastructureService {
 
   async deploy(stackName: string, options: ExecuteOptions = {}) {
     const args = ['cdktf', 'deploy', stackName, '--auto-approve'];
-    // Only stacks whose TerraformOutputs a caller actually needs to read back pass this (today:
-    // the Hetzner VM stack, whose IP the SSH bootstrap can't proceed without). Everything else
-    // deploys for its side effects alone, so the default stays flag-free.
     if (options.outputsFile) {
       args.push('--outputs-file', options.outputsFile, '--outputs-file-include-sensitive-outputs');
     }
@@ -135,17 +116,13 @@ export class InfrastructureService {
       const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
 
-      // Only true k3d clusters have a matching server container to exec into. GPU-attached
-      // clusters (and the system cluster) share this /tmp/kubeconfig-<name> naming convention
-      // but attach to the native k3s management cluster instead (see ProvisionClusterActivity)
-      // — no such container exists there, so fall through to direct kubectl below.
       if (await this.dockerContainerExists(containerName)) {
         const cleanArgs: string[] = [];
         for (let i = 0; i < args.length; i++) {
           const arg = args[i];
           if (arg === undefined) continue;
           if (arg === '--context') {
-            i++; // skip context name
+            i++;
           } else {
             cleanArgs.push(arg);
           }
@@ -170,13 +147,10 @@ export class InfrastructureService {
       const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
 
-      // Same reasoning as runKubectl above — only exec into a container that actually exists.
       if (await this.dockerContainerExists(containerName)) {
-        // Ensure helm binary exists in the container
         try {
           await execAsync(`docker exec ${containerName} ls /bin/helm`);
         } catch {
-          // If not, copy it from host bin/helm-linux
           try {
             const hostHelmPath = existsSync(path.join(BIN_DIR, 'helm-linux'))
               ? path.join(BIN_DIR, 'helm-linux')
@@ -193,7 +167,7 @@ export class InfrastructureService {
           const arg = args[i];
           if (arg === undefined) continue;
           if (arg === '--kube-context') {
-            i++; // skip context name
+            i++;
           } else {
             cleanArgs.push(arg);
           }
@@ -217,14 +191,6 @@ export class InfrastructureService {
     return stdout;
   }
 
-  /**
-   * GPU-enabled "clusters" don't get their own physical cluster — they attach to the shared,
-   * always-up management cluster (native k3s on Linux, k3d on macOS; see scripts/cluster.sh).
-   * Its credentials already live in the default kubeconfig under context `k3d-provisioning-lunorica`
-   * (native k3s's kubeconfig is merged in under that same name at cluster-start time — see
-   * cluster.sh's native_k3s_ensure_running). Extracts just that context and renames it to
-   * `k3d-<physicalName>` so every existing `--context k3d-<name>` call site works unmodified.
-   */
   async getManagementClusterKubeconfig(physicalName: string): Promise<string> {
     const managementContext = 'k3d-provisioning-lunorica';
     const { stdout } = await execAsync(
@@ -281,9 +247,6 @@ export class InfrastructureService {
       args.push('--volume', `${resolvConfPath}:${resolvConfPath}@server:*`);
     }
 
-    // Bind-mount host storage for local-path-provisioner so PVC data (model caches, DB
-    // volumes, etc.) survives cluster deletion/recreation instead of living only in a
-    // k3d-managed volume that gets torn down with the node containers.
     const hostStorageDir = path.join(K3D_STORAGE_ROOT, name);
     await fs.mkdir(hostStorageDir, { recursive: true });
     args.push('--volume', `${hostStorageDir}:/var/lib/rancher/k3s/storage@server:*;agent:*`);
@@ -322,12 +285,6 @@ export class InfrastructureService {
     return stdout.trim();
   }
 
-  // Native k3s (the system/management cluster) runs directly on the host, not inside a k3d
-  // node container — there's no container to `docker inspect` for a node IP. The provisioner-
-  // nginx container is Docker-bridge-networked, so its bridge gateway IP is what actually
-  // routes back to the host from inside it (127.0.0.1 there would mean the Nginx container
-  // itself, not the host). Verified live: a NodePort service reachable at
-  // <bridge-gateway>:<nodePort> from inside provisioner-nginx returns the real pod response.
   async getHostGatewayIp(): Promise<string> {
     const { stdout } = await execAsync(
       `docker inspect provisioner-nginx --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}'`
@@ -348,9 +305,6 @@ export class InfrastructureService {
 
     const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
     let child;
-    // Same reasoning as runKubectl/runHelm — only exec into a container that actually exists
-    // (GPU-attached/system clusters share the /tmp/kubeconfig-<name> naming but have no
-    // matching k3d container).
     if (match && await this.dockerContainerExists(`k3d-${match[1] ?? 'unknown'}-server-0`)) {
       const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
@@ -360,7 +314,7 @@ export class InfrastructureService {
         const arg = args[i];
         if (arg === undefined) continue;
         if (arg === '--context') {
-          i++; // skip context name
+          i++;
         } else {
           cleanArgs.push(arg);
         }
@@ -391,13 +345,8 @@ export class InfrastructureService {
     }
   }
 
-  /**
-   * Verifies the host has the required GPU container toolkit installed.
-   * Throws a descriptive error if the toolkit is missing.
-   */
   async checkGpuToolkit(vendor: 'nvidia' | 'amd'): Promise<void> {
     if (vendor === 'nvidia') {
-      // Check nvidia-smi exists
       let nvidiaSmiOk = false;
       try {
         await execAsync('nvidia-smi');
@@ -409,7 +358,6 @@ export class InfrastructureService {
         );
       }
 
-      // Check Docker NVIDIA runtime is configured
       let dockerInfo = '';
       try {
         const { stdout } = await execAsync('docker info');
@@ -434,7 +382,6 @@ export class InfrastructureService {
         );
       }
     } else {
-      // AMD: check rocminfo exists
       let rocminfoOk = false;
       try {
         await execAsync('rocminfo');
@@ -446,7 +393,6 @@ export class InfrastructureService {
         );
       }
 
-      // Check Docker ROCm runtime is configured
       let dockerInfo = '';
       try {
         const { stdout } = await execAsync('docker info');
@@ -473,20 +419,11 @@ export class InfrastructureService {
     }
   }
 
-  /**
-   * Installs the GPU device plugin DaemonSet into the cluster.
-   * Idempotent: skips if the DaemonSet already exists.
-   * Waits for the plugin pod to become ready (up to 60s).
-   */
   async installGpuDevicePlugin(vendor: 'nvidia' | 'amd', kubeconfigPath: string): Promise<void> {
     const manifestPath = path.join(PROJECT_ROOT, 'k8s', 'gpu-device-plugin', `${vendor}.yaml`);
     const dsName = vendor === 'nvidia' ? 'nvidia-device-plugin-daemonset' : 'amdgpu-device-plugin-daemonset';
     const dsLabel = vendor === 'nvidia' ? 'name=nvidia-device-plugin-ds' : 'name=amdgpu-dp-ds';
 
-    // NVIDIA only: point pods at the `nvidia` containerd runtime k3s already auto-registers on
-    // hosts with nvidia-container-runtime installed (confirmed via its own startup log — no
-    // config needed from us). AMD doesn't need this — ROCm GPU access is plain device-file
-    // mounting (/dev/kfd, /dev/dri), no custom OCI runtime injection involved. Idempotent.
     if (vendor === 'nvidia') {
       const runtimeClassPath = path.join(PROJECT_ROOT, 'k8s', 'gpu-device-plugin', 'nvidia-runtimeclass.yaml');
       try {
@@ -499,12 +436,10 @@ export class InfrastructureService {
       }
     }
 
-    // Check if DaemonSet already exists
     try {
       await this.runKubectl(['get', 'daemonset', dsName, '-n', 'kube-system'], kubeconfigPath);
       console.log(`[InfrastructureService] GPU device plugin (${vendor}) DaemonSet already exists, skipping install.`);
     } catch {
-      // DaemonSet doesn't exist, install it
       console.log(`[InfrastructureService] Installing GPU device plugin (${vendor}) DaemonSet...`);
       const escapedArgs = ['apply', '-f', manifestPath].map(escapeShellArg).join(' ');
       const { stdout } = await execAsync(
@@ -516,7 +451,6 @@ export class InfrastructureService {
       console.log(`[InfrastructureService] GPU device plugin (${vendor}) applied: ${stdout.trim()}`);
     }
 
-    // Wait for plugin pod to become ready (up to 60s)
     console.log(`[InfrastructureService] Waiting for GPU device plugin (${vendor}) pod to become ready...`);
     let ready = false;
     for (let i = 0; i < 30; i++) {
@@ -536,7 +470,6 @@ export class InfrastructureService {
           break;
         }
       } catch {
-        // Pod not found yet, continue polling
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
@@ -552,10 +485,6 @@ export class InfrastructureService {
     console.log(`[InfrastructureService] GPU device plugin (${vendor}) is ready.`);
   }
 
-  // Public because BuilderService drives its own subprocesses (the Odoo module validator) through
-  // the same logging/streaming plumbing rather than reimplementing it. It was marked private while
-  // already being called cross-service — which nothing caught, since this workspace had no
-  // tsconfig and was never typechecked.
   async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
     const env = {
       ...process.env,
@@ -620,9 +549,6 @@ export class InfrastructureService {
             const errorMsg = `\n--- EXECUTION FAILED (Exit Code ${code}) ---\n`;
             broadcast(errorMsg);
             fs.appendFile(logFile, errorMsg).catch(console.error);
-            // A real Error, not an object literal: Temporal keeps only `message` and records a
-            // plain object as type "Object" with no stack, which is how a webhook rejection once
-            // reached workflow history as the four words "Command failed: npx". See lib/command-error.ts.
             reject(new CommandFailedError(cmd, code, stdout, stderr, logFile));
         }
       });

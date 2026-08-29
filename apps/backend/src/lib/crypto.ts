@@ -1,35 +1,14 @@
-/**
- * AES-256-GCM encryption/decryption utilities for credential storage.
- *
- * Uses Node's native crypto module — zero external dependencies.
- * The master key is derived from JWT_SECRET via scrypt with a fixed
- * domain-separation salt so it doesn't collide with password hashing.
- */
 import crypto from 'crypto';
 
-// DO NOT RENAME, despite the stale product name. This string is scrypt input, not a label: change
-// a single character and every credential already encrypted with the old key becomes permanently
-// undecryptable — same failure mode as rotating JWT_SECRET. It was deliberately left behind when
-// the product was renamed to No Wrinkles. Migrating it would mean decrypting everything under the
-// old salt and re-encrypting under the new one, which buys nothing.
 const CREDENTIAL_SALT = 'ianthe-credential-encryption-v1';
-const KEY_LENGTH = 32; // 256 bits
+const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 
-/**
- * Derive a 256-bit encryption key from the master secret.
- * Uses a fixed domain-separation salt so the derived key is
- * deterministic for the same JWT_SECRET but distinct from password hashes.
- */
 function deriveKey(masterSecret: string): Buffer {
   return crypto.scryptSync(masterSecret, CREDENTIAL_SALT, KEY_LENGTH);
 }
 
-/**
- * Encrypt a plaintext string using AES-256-GCM.
- * Returns a colon-separated string: `iv:authTag:ciphertext` (all hex).
- */
 export function encryptValue(plaintext: string, masterKey: string): string {
   const key = deriveKey(masterKey);
   const iv = crypto.randomBytes(IV_LENGTH);
@@ -42,10 +21,6 @@ export function encryptValue(plaintext: string, masterKey: string): string {
   return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
 }
 
-/**
- * Decrypt a value previously encrypted with `encryptValue`.
- * Throws if the ciphertext has been tampered with or the key is wrong.
- */
 export function decryptValue(encrypted: string, masterKey: string): string {
   const parts = encrypted.split(':');
   if (parts.length !== 3) {
@@ -70,11 +45,6 @@ export function decryptValue(encrypted: string, masterKey: string): string {
   return decrypted;
 }
 
-/**
- * Mask a sensitive string for display purposes.
- * Shows the first `prefixLen` and last `suffixLen` characters,
- * replacing the middle with asterisks.
- */
 export function maskSecret(value: string, prefixLen = 4, suffixLen = 4): string {
   if (value.length <= prefixLen + suffixLen) {
     return '****';

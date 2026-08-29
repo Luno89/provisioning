@@ -23,8 +23,6 @@ describe('EncryptionCodec', () => {
   });
 
   it('leaves no plaintext in the encoded payload', async () => {
-    // The actual point of the codec: a secret in an activity argument must not be readable in
-    // Temporal's event history, which stores exactly these bytes.
     const [encoded] = await codec.encode([plainPayload({ hcloudToken: 'super-secret-token' })]);
     const wire = td.decode(encoded.data);
     expect(wire).not.toContain('super-secret-token');
@@ -33,8 +31,6 @@ describe('EncryptionCodec', () => {
   });
 
   it('passes through payloads it did not produce', async () => {
-    // Load-bearing: existing workflow history is plaintext, and without this every historical
-    // workflow becomes undecodable the moment the codec is switched on.
     const original = plainPayload({ ordinary: true });
     const [decoded] = await codec.decode([original]);
     expect(decoded).toBe(original);

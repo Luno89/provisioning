@@ -7,7 +7,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Server, Hash, Play } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-
 const STATUS_COLORS: Record<string, string> = {
   RUNNING: 'bg-green-500/10 text-green-500',
   COMPLETED: 'bg-blue-500/10 text-blue-500',
@@ -133,7 +132,6 @@ export default function TemporalPanel() {
         </div>
       </header>
 
-      {/* Summary cards */}
       <div className="grid grid-cols-5 gap-4 mb-8">
         {summaryCards.map(card => (
           <div key={card.label} className="bg-slate-800 rounded-2xl border border-slate-700 p-5">
@@ -148,7 +146,6 @@ export default function TemporalPanel() {
         ))}
       </div>
 
-      {/* Workflow list */}
       <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
         <div className="p-5 border-b border-slate-700 flex justify-between items-center">
           <h3 className="font-bold flex items-center gap-2"><Activity size={16} className="text-blue-500" /> Recent Workflows</h3>
@@ -165,7 +162,6 @@ export default function TemporalPanel() {
           </div>
         ) : (
           <div className="divide-y divide-slate-700/50">
-            {/* Column headers */}
             <div className="grid grid-cols-[1fr_2fr_120px_180px_180px_100px] gap-4 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">
               <span>Type</span>
               <span>Workflow ID</span>

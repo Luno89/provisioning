@@ -2,13 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { needsYou, running, changedSince, treeRollups, ago, scopeToTree, groupWork, settledBranches, outstandingWork } from './home-summary.js';
 import type { Leaf } from './leaf-types.js';
 
-/**
- * The landing page's arithmetic.
- *
- * A summary is read fastest and questioned least, so a wrong number here survives longest. Each of
- * these aims at a way the figure could be plausibly wrong rather than at the line that computes it.
- */
-
 const leaf = (over: Partial<Leaf>): Leaf => ({
   id: 'l', branchId: 'b1', title: 't', status: 'succeeded',
   depth: 0, blocking: true, childCount: 0, updatedAt: '2026-08-01T00:00:00Z', ...over,
@@ -16,10 +9,6 @@ const leaf = (over: Partial<Leaf>): Leaf => ({
 
 describe('what needs you', () => {
   it('puts work already spent ahead of a decision not yet made', () => {
-    /**
-     * A failure is owed — tokens went out and nothing came back. A proposal has cost nothing yet.
-     * Ordering proposals first would put the cheap decision above the expensive problem.
-     */
     const out = needsYou([
       leaf({ id: 'p', status: 'proposed' }),
       leaf({ id: 'f', status: 'failed' }),
@@ -28,8 +17,6 @@ describe('what needs you', () => {
   });
 
   it('puts the most-attempted failure first', () => {
-    // A leaf on its third attempt is the one least likely to fix itself, and the one where another
-    // retry is most likely to be the wrong instinct.
     const three = leaf({ id: 'three', status: 'failed', attempts: [1, 2, 3].map((n) => ({ attempt: n, error: 'e', failedAt: '' })) });
     const one = leaf({ id: 'one', status: 'failed', attempts: [{ attempt: 0, error: 'e', failedAt: '' }] });
     expect(needsYou([one, three]).map((a) => a.leaf.id)).toEqual(['three', 'one']);
@@ -44,7 +31,6 @@ describe('what needs you', () => {
   });
 
   it('survives an attempts field that is a count rather than an array', () => {
-    // The board payload spells it as a number; sorting must not throw on it.
     const odd = { ...leaf({ id: 'x', status: 'failed' }), attempts: 3 } as unknown as Leaf;
     expect(() => needsYou([odd])).not.toThrow();
     expect(needsYou([odd])).toHaveLength(1);
@@ -53,10 +39,6 @@ describe('what needs you', () => {
 
 describe('what is running', () => {
   it('is only work actually in a sandbox', () => {
-    /**
-     * `pending` means accepted and waiting its turn, which looks like progress and is not. Showing
-     * it here would have the page claim Koala is working when nothing has started.
-     */
     const out = running([
       leaf({ id: 'live', status: 'running' }),
       leaf({ id: 'queued', status: 'pending' }),
@@ -67,17 +49,12 @@ describe('what is running', () => {
   });
 
   it('is empty rather than undefined when nothing runs', () => {
-    // The page maps over this directly; undefined would blank the whole section.
     expect(running([])).toEqual([]);
   });
 });
 
 describe('what changed while you were away', () => {
   it('excludes work that is still running', () => {
-    /**
-     * Running leaves have their own list. Counting them in both makes a quiet night read as a busy
-     * one, which is the exact thing this page exists to report accurately.
-     */
     const out = changedSince([
       leaf({ id: 'done', updatedAt: '2026-08-02T00:00:00Z' }),
       leaf({ id: 'live', status: 'running', updatedAt: '2026-08-02T00:00:00Z' }),
@@ -86,7 +63,6 @@ describe('what changed while you were away', () => {
   });
 
   it('shows nothing rather than everything when there is no last-looked time', () => {
-    // First visit. "Everything changed since never" would be a wall of every leaf ever run.
     expect(changedSince([leaf({}), leaf({})], undefined)).toEqual([]);
   });
 
@@ -104,7 +80,6 @@ describe('per-tree progress', () => {
   const branches = [{ id: 'b1', treeId: 't1' }, { id: 'bx', treeId: 'other' }];
 
   it('never folds a claim into a verification', () => {
-    // The most damaging place to flatten these, because a summary is scanned rather than read.
     const r = treeRollups(trees, branches, [
       leaf({ id: '1', branchId: 'b1', status: 'succeeded', verified: true }),
       leaf({ id: '2', branchId: 'b1', status: 'succeeded', verified: false }),
@@ -114,8 +89,6 @@ describe('per-tree progress', () => {
   });
 
   it('counts a failure as still outstanding', () => {
-    // A failed leaf is not finished — it is owed. Counting it as done would show a broken tree at
-    // 100%.
     const r = treeRollups(trees, branches, [
       leaf({ id: '1', branchId: 'b1', status: 'succeeded', verified: true }),
       leaf({ id: '2', branchId: 'b1', status: 'failed' }),
@@ -125,10 +98,6 @@ describe('per-tree progress', () => {
   });
 
   it('ignores cancelled work rather than counting it as left to do', () => {
-    /**
-     * Cancelled is neither done nor owed. Including it would leave a tree permanently short of
-     * complete for work somebody deliberately stopped.
-     */
     const r = treeRollups(trees, branches, [
       leaf({ id: '1', branchId: 'b1', status: 'succeeded', verified: true }),
       leaf({ id: '2', branchId: 'b1', status: 'cancelled' }),
@@ -143,7 +112,6 @@ describe('per-tree progress', () => {
   });
 
   it('keeps a tree that has never run anything', () => {
-    // A new tree must appear so you can start work in it, not vanish until it has output.
     const r = treeRollups(trees, branches, []);
     expect(r).toHaveLength(1);
     expect(r[0]!.total).toBe(0);
@@ -160,10 +128,6 @@ describe('relative time', () => {
   });
 
   it('does not say something happened in the future when clocks disagree', () => {
-    /**
-     * The server writes the timestamp and the browser reads it; a few seconds of skew is normal
-     * and "in 4 seconds ago" reads as a broken harness.
-     */
     expect(ago('2026-08-16T12:00:04Z', now)).toBe('just now');
   });
 
@@ -186,18 +150,12 @@ describe('scoping to one project', () => {
   });
 
   it('excludes unfiled conversations rather than adopting them', () => {
-    // A conversation filed under nothing belongs to no project; sweeping it into whichever tree is
-    // open would attribute work to a project that never asked for it.
     expect(scopeToTree('t1', branches, [leaf({ branchId: 'b3' })]).leaves).toEqual([]);
   });
 });
 
 describe('grouping a project\'s work', () => {
   it('puts what is owed above what is done', () => {
-    /**
-     * The order is the argument: descending "should you do something about this". A board sorted by
-     * state alphabetically, or by creation, buries the failures under twenty green rows.
-     */
     const out = groupWork([
       leaf({ id: 'v', status: 'succeeded', verified: true }),
       leaf({ id: 'f', status: 'failed' }),
@@ -208,7 +166,6 @@ describe('grouping a project\'s work', () => {
   });
 
   it('omits groups with nothing in them', () => {
-    // Five empty columns was the board's normal state and 83% of its width.
     const out = groupWork([leaf({ status: 'succeeded', verified: true })]);
     expect(out).toHaveLength(1);
     expect(out[0]!.state).toBe('verified');
@@ -218,7 +175,6 @@ describe('grouping a project\'s work', () => {
     expect(groupWork([leaf({ status: 'cancelled' })])).toEqual([]);
   });
 });
-
 
 describe('a run that is over', () => {
   const branches = [{ id: 'b1', title: 'Last night\'s run' }, { id: 'b2', title: 'Live run' }];
@@ -233,21 +189,14 @@ describe('a run that is over', () => {
   });
 
   it('is not settled while a proposal awaits a decision', () => {
-    // It cannot move without a person, but it is waiting ON you — not finished.
     expect([...settledBranches(branches, [leaf({ branchId: 'b1', status: 'proposed' })])]).toEqual([]);
   });
 
   it('does not call an empty conversation finished', () => {
-    // Otherwise every brand-new chat is filed as a completed run that achieved nothing.
     expect([...settledBranches(branches, [])]).toEqual([]);
   });
 
   it('moves its failures out of the urgent list', () => {
-    /**
-     * The behaviour this whole split exists for. Three failures from the previous night sat at the
-     * top of the page all day, looking exactly as urgent as something that had broken a minute ago,
-     * with no way to clear them except deleting the leaf.
-     */
     const leaves = [
       leaf({ id: 'old', branchId: 'b1', status: 'failed' }),
       leaf({ id: 'new', branchId: 'b2', status: 'failed' }),
@@ -259,7 +208,6 @@ describe('a run that is over', () => {
   });
 
   it('says which run the outstanding work came from', () => {
-    // Without provenance you cannot judge whether a retry is worth it, or what it was part of.
     const leaves = [leaf({ id: 'old', branchId: 'b1', status: 'failed',
       attempts: [{ attempt: 0, error: 'e', failedAt: '' }, { attempt: 1, error: 'e', failedAt: '' }] })];
     const [out] = outstandingWork(branches, leaves);
@@ -268,13 +216,11 @@ describe('a run that is over', () => {
   });
 
   it('leaves cancelled work alone', () => {
-    // Stopped on purpose. Listing it as owed re-opens a decision somebody already made.
     const leaves = [leaf({ branchId: 'b1', status: 'cancelled' })];
     expect(outstandingWork(branches, leaves)).toEqual([]);
   });
 
   it('does not treat a failure from a still-running conversation as settled', () => {
-    // Its run may yet retry it. Lifting it to the project would be premature.
     const leaves = [
       leaf({ id: 'f', branchId: 'b2', status: 'failed' }),
       leaf({ id: 'r', branchId: 'b2', status: 'running' }),

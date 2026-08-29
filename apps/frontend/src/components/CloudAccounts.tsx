@@ -10,52 +10,22 @@ import { PROVIDERS, PROVIDER_CAPABILITY } from './credential-providers';
 import GoogleDriveCard from './GoogleDriveCard';
 import { driveNoticeFrom } from '../lib/drive-notice';
 
-/**
- * Cloud provider credentials, and the Google Drive backup destination.
- *
- * ── WHAT THIS USED TO BE ──
- * 867 lines: 180 of static provider metadata (now `credential-providers.ts`), 21 `useState` hooks,
- * and 9 raw `fetch` calls each hand-rolling its own loading flag, error swallow and manual refetch.
- * Two of those effects also called `setState` during render-phase effects, which is why this file
- * carried the only `react-hooks/set-state-in-effect` errors outside App.tsx.
- *
- * Server state is react-query's now. What is left in `useState` is genuinely UI state — which card
- * is open, what is typed into the form, which destructive action is awaiting confirmation. That is
- * the line: if it came from HTTP it has a query key; if it describes what this screen looks like
- * right now, it is local.
- */
-
-
 export default function CloudAccounts() {
   const qc = useQueryClient();
 
-  /**
-   * ── SERVER STATE ──
-   * Two queries rather than one, kept separate for the reason the old code separated its two
-   * effects: Drive is not part of the provider grid's shape, and its request failing (an older
-   * backend, no Google config) must not stop the grid rendering.
-   */
   const providersQuery = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders });
 
   const statuses = providersQuery.data ?? [];
   const loading = providersQuery.isPending;
 
-  /** Both lists come from the same endpoint, so any write invalidates both. */
   const refresh = () => qc.invalidateQueries({ queryKey: credentialKeys.all });
 
-  /** ── UI STATE ── */
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [valResult, setValResult] = useState<ValidationResult | null>(null);
 
-  /**
-   * ── MUTATIONS ──
-   * `isPending` replaces the seven hand-kept `saving`/`deleting`/`testing`/`running` booleans, and
-   * cannot fall out of step with the request the way a `finally` block can when an early return
-   * skips it.
-   */
   const save = useMutation({
     mutationFn: (v: { provider: string; values: Record<string, string> }) =>
       saveCredentials(v.provider, v.values),
@@ -77,44 +47,15 @@ export default function CloudAccounts() {
     mutationFn: (v: { provider: string; values: Record<string, string> }) =>
       validateCredentials(v.provider, v.values),
     onSuccess: (result) => setValResult(result),
-    // A failed validation is information, not a crash — the panel shows why.
     onError: (err) => setValResult({ valid: false, message: errorMessage(err) }),
   });
 
-
-
-
-
-  /**
-   * The OAuth callback redirects back here with `?driveConnected=1` or `?driveError=…`.
-   *
-   * ── DERIVED, NOT SET IN AN EFFECT ──
-   * This used to be an effect that called `setDriveNotice`, which is a `set-state-in-effect`
-   * violation and a real one: it renders the screen once without the notice and then again with it,
-   * so the toast visibly arrives a frame late. The message is a pure function of the URL that was
-   * loaded, so it is initial state — computed once, lazily, and never recomputed.
-   *
-   * Scrubbing the URL stays an effect because it IS a side effect. It sets no state, so a refresh
-   * does not re-show the toast and nothing re-renders.
-   */
-  /**
-   * Scrubbing the URL after an OAuth redirect, so a refresh does not re-show the toast.
-   *
-   * Stays here rather than in `GoogleDriveCard` because it is a fact about this PAGE's URL, and two
-   * components both calling `replaceState` would race. The card reads the same query string for its
-   * message; only one of them may erase it.
-   */
   useEffect(() => {
     if (driveNoticeFrom(window.location.search)) {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 
-  /**
-   * ── HANDLERS ──
-   * Thin, and named for what the UI calls them. The JSX below is unchanged, so these keep the
-   * names and signatures it already uses.
-   */
   const saving = save.isPending;
   const deleting = remove.isPending ? remove.variables : null;
   const validating = validate.isPending;
@@ -177,14 +118,12 @@ export default function CloudAccounts() {
                 ${justSaved ? 'ring-2 ring-green-500/50' : ''}
               `}
             >
-              {/* Accent bar */}
               <div
                 className="h-1 w-full"
                 style={{ backgroundColor: isConfigured ? provider.color : 'transparent' }}
               />
 
               <div className="p-6">
-                {/* Header */}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <span
@@ -234,15 +173,12 @@ export default function CloudAccounts() {
                   )}
                 </div>
 
-                {/* What connecting this provider actually gets you — stated before the user goes
-                    off to find a token, and honest where the answer is "not much yet". */}
                 {PROVIDER_CAPABILITY[provider.key] && !isExpanded && (
                   <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
                     {PROVIDER_CAPABILITY[provider.key]}
                   </p>
                 )}
 
-                {/* Configured summary */}
                 {isConfigured && !isExpanded && status?.summary && status.source === 'user' && (
                   <div className="space-y-1 mb-4">
                     {Object.entries(status.summary).map(([key, value]) => (
@@ -254,7 +190,6 @@ export default function CloudAccounts() {
                   </div>
                 )}
 
-                {/* Actions */}
                 {!isExpanded && (
                   <div className="flex gap-3 mt-4">
                     {isConfigured && status?.source === 'user' ? (
@@ -288,7 +223,6 @@ export default function CloudAccounts() {
                   </div>
                 )}
 
-                {/* Expanded form */}
                 {isExpanded && (
                   <div className="mt-4 space-y-4 animate-in slide-in-from-top-2 duration-200">
                     <div className="bg-slate-900/40 rounded-2xl p-6 border border-white/5 space-y-4">
@@ -375,7 +309,6 @@ export default function CloudAccounts() {
                 )}
               </div>
 
-              {/* Delete confirmation overlay */}
               {confirmDelete === provider.key && (
                 <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 z-10 animate-in fade-in duration-150">
                   <AlertTriangle className="text-red-500 mb-3" size={32} />
@@ -405,7 +338,6 @@ export default function CloudAccounts() {
         })}
       </div>
 
-      {/* Mock Cloud Mode info */}
       <div className="mt-8 max-w-4xl bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5 flex items-start gap-4">
         <Cloud className="text-blue-500 flex-shrink-0 mt-0.5" size={20} />
         <div>

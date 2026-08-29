@@ -6,16 +6,11 @@ import {
 } from '../lib/huggingface.js';
 import { isWorkspaceLanguage } from '../lib/workspace-spec.js';
 
-/** The `:id` from the path, narrowed once — Express types `req.params` loosely inside asyncRoute. */
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-/** The user `requireAuth` put on the request. */
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-/**
- * Model discovery and sizing — what a GPU app can be pointed at.
- */
 export function modelsRouter(deps: Record<string, any>): Router {
   const { modelService, db, credentialService } = deps;
   const router = Router();
@@ -28,13 +23,6 @@ export function modelsRouter(deps: Record<string, any>): Router {
     }
   });
 
-  /**
-   * Chooses which model does structured extraction.
-   *
-   * Deliberately explicit rather than auto-picking the smallest available: the right extractor is a
-   * NON-REASONING model, and nothing in the registry records that. Guessing would silently
-   * reproduce the failure this exists to fix.
-   */
   router.put('/extractor', async (req, res) => {
     try {
       const user = userOf(req);
@@ -79,8 +67,6 @@ export function modelsRouter(deps: Record<string, any>): Router {
           kvCacheBytesPerGpu = estimateKvCacheBytes(config, maxSeqLen, req.query.cacheMode as string | undefined) / gpuCount;
           weightBytesPerGpu = size.totalBytes / gpuCount;
         } catch {
-          // config.json missing/unparseable shouldn't block showing the download size — VRAM
-          // estimate just gets omitted.
         }
       }
 

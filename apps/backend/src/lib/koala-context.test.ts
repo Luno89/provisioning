@@ -16,10 +16,6 @@ const conv = (over: Partial<Conversation> = {}): Conversation => ({
   ...over,
 });
 
-/**
- * The whole point of the module: the chat sent every message forever, and `fittedMaxTokens` floors,
- * so the prompt silently passed the window and the engine refused the request outright.
- */
 describe('deciding when a conversation has outgrown the window', () => {
   it('leaves a short conversation alone', () => {
     expect(needsHandoff(4_000, 100)).toBe(false);
@@ -28,13 +24,10 @@ describe('deciding when a conversation has outgrown the window', () => {
   it('fires before the window is full, not when it is', () => {
     const atThreshold = KOALA_CONTEXT_PRESSURE * FALLBACK_CONTEXT_TOKENS * 4;
     expect(needsHandoff(atThreshold, 0)).toBe(true);
-    // Well clear of the cliff, so the notice and a full reply still fit.
     expect(KOALA_CONTEXT_PRESSURE).toBeLessThan(0.7);
   });
 
   it('counts the message about to be appended', () => {
-    // Just under on its own, over once the incoming message is included. Checking before the
-    // append is the only reason this distinction is available at all.
     const justUnder = (KOALA_CONTEXT_PRESSURE * FALLBACK_CONTEXT_TOKENS * 4) - 8_000;
     expect(needsHandoff(justUnder, 0)).toBe(false);
     expect(needsHandoff(justUnder, 12_000)).toBe(true);
@@ -48,8 +41,6 @@ describe('what a prompt carries after a reset', () => {
   });
 
   it('starts AT the notice, not after it', () => {
-    // The notice is the summary of everything above, so skipping it would discard the very thing
-    // the reset produced.
     const messages = [msg(), msg(), msg({ role: 'assistant', notice: true, handoff: true }), msg()];
     const out = historyForPrompt(messages);
     expect(out).toHaveLength(2);
@@ -65,8 +56,6 @@ describe('what a prompt carries after a reset', () => {
   });
 
   it('is not truncated by a notice that is not a boundary', () => {
-    // Round-exhaustion notices are notices but not handoffs. Treating them as boundaries would
-    // silently amputate a conversation that was never summarised.
     const messages = [msg(), msg({ role: 'assistant', notice: true }), msg()];
     expect(historyForPrompt(messages)).toHaveLength(3);
   });
@@ -88,9 +77,7 @@ describe('what survives into the artifact', () => {
     });
     const body = buildHandoffNotice(c).content;
 
-    // An open proposal is a live offer the user can still accept, so it has to survive.
     expect(body).toContain('Invoicer');
-    // An accepted one survives for the opposite reason: so Koala does not offer it a second time.
     expect(body).toContain('Dashboard');
     expect(body).toContain('do not propose these again');
   });
@@ -111,15 +98,9 @@ describe('what survives into the artifact', () => {
     const body = buildHandoffNotice(c).content;
 
     expect(body).toContain('no space left on device');
-    // A failed call tells a future turn nothing it cannot learn by calling again.
     expect(body).not.toContain('list_trees');
   });
 
-  /**
-   * `buildKoalaPrompt` rebuilds the service catalogue from `enabledForSession` on every turn,
-   * marking what is already on. Copying it into the artifact would be a second source of truth for
-   * a fact that already survives a reset perfectly.
-   */
   it('does not duplicate the enabled-services catalogue', () => {
     const c = conv({ messages: [msg()], sessionId: 's1', enabledMcp: ['github-mcp'] });
     expect(buildHandoffNotice(c).content).not.toContain('github-mcp');
@@ -140,7 +121,6 @@ describe('applying the reset', () => {
 
     expect(out[0]?.handoff).toBe(true);
     expect(out).toHaveLength(1 + KOALA_HANDOFF_TAIL);
-    // The most recent exchange is what the current question depends on, so it is not summarised.
     expect(out[out.length - 1]?.content).toBe('turn 19');
   });
 
@@ -149,17 +129,12 @@ describe('applying the reset', () => {
     const grown = [...first, ...Array.from({ length: 20 }, (_, i) => msg({ content: `b${i}` }))];
     const second = withHandoff(conv({ messages: grown }));
 
-    // Exactly one boundary, however many times this runs.
     expect(second.filter((m) => m.handoff)).toHaveLength(1);
     expect(second[0]?.handoff).toBe(true);
   });
 });
 
 describe('capping the stored thread', () => {
-  /**
-   * Separate problem from the prompt: `reasoning` is never sent to the model, but it is stored at
-   * up to 20,000 characters a message and shipped to the browser on every conversation GET.
-   */
   it('strips reasoning from older messages and keeps it on recent ones', () => {
     const messages = Array.from({ length: 12 }, (_, i) => msg({ content: `m${i}`, reasoning: 'x'.repeat(500) }));
     const out = trimKoalaThread(messages);
@@ -167,7 +142,6 @@ describe('capping the stored thread', () => {
     expect(out[0]?.reasoning).toBeUndefined();
     expect(out[out.length - 1]?.reasoning).toBeDefined();
     expect(out.filter((m) => m.reasoning)).toHaveLength(KOALA_REASONING_KEPT);
-    // Content is never touched — this caps the document, it does not summarise it.
     expect(out.map((m) => m.content)).toEqual(messages.map((m) => m.content));
   });
 

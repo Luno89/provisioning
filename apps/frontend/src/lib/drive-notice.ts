@@ -1,10 +1,3 @@
-/**
- * What the OAuth callback is telling us, read from the query string.
- *
- * Pure and outside the component so it can be called from a lazy initialiser without reading
- * external state during render — and so the three failure codes can be tested without mounting
- * anything. See rule R18 in CLAUDE.md.
- */
 export function driveNoticeFrom(search: string): { kind: 'success' | 'error'; message: string } | null {
   const params = new URLSearchParams(search);
   if (params.get('driveConnected')) {

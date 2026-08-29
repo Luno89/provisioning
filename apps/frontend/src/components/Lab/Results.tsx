@@ -11,20 +11,16 @@ import { PromoteConfirm } from './Promote';
 
 export function Results({ results, tasks, variants, openResult, setOpenResult, scope, onPromoted,
 }: {
-  /** Scores only — the matrix needs nothing else, and the list must not carry more. */
   results: ResultSummary[];
   tasks: { id: string; name: string }[];
   variants: { label: string }[];
   openResult: string | null;
   setOpenResult: (v: string | null) => void;
-  /** Experiment id, so an expanded cell belongs to one experiment rather than to a label. */
   scope: string;
   onPromoted: () => void;
 }) {
   const [promoting, setPromoting] = useState<string | null>(null);
 
-  // The evidence arrives only once a cell in THIS experiment is open. Everything above renders
-  // from the summary, which is what keeps the polled list small.
   const expanded = openResult?.startsWith(`${scope}:`) ?? false;
   const { data: detail, isPending: detailPending } = useExperimentDetail(scope, expanded);
   const runsOf = (predicate: (r: ResultSummary) => boolean) => results.filter(predicate);
@@ -33,7 +29,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
 
   return (
     <div className="space-y-5">
-      {/* ── the suite total ── */}
       <div className="overflow-x-auto">
         <table className="w-full text-[12px]">
           <thead>
@@ -64,8 +59,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
                     )}
                   </td>
                   <td className="py-2 text-right">
-                    {/* Over fair attempts: a run the harness killed is not evidence about this
-                        arm, and counting it here is how an outage becomes a capability claim. */}
                     <span className={t.attempted && t.verified === t.attempted ? 'text-[var(--leaf-light)]' : 'text-red-400'}>
                       {t.verified}/{t.attempted}
                     </span>
@@ -80,8 +73,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
                   <td className="py-2 text-right text-slate-400">{dash(t.tokens, (v) => v.toLocaleString())}</td>
                   <td className="py-2 text-right text-slate-400">{dash(t.ms, (v) => `${Math.round(v / 1000)}s`)}</td>
                   <td className="py-2 pl-3 text-right">
-                    {/* Only once it has run: promoting a configuration on no evidence is the thing
-                        the whole surface exists to prevent. */}
                     {t.attempted > 0 && (
                       <button
                         onClick={() => setPromoting(promoting === label ? null : label)}
@@ -112,7 +103,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
         </table>
       </div>
 
-      {/* ── the breakdown that carries the finding ── */}
       <div className="overflow-x-auto">
         <table className="w-full text-[12px]">
           <thead>
@@ -132,9 +122,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
                 label: v.label,
                 t: tally(forTask.filter((r) => r.label === v.label)),
               }));
-              // Only cells that ran: mid-experiment a variant with no results yet is a gap, and
-              // reading its zero as agreement would call a task uninformative before it had been
-              // measured.
               const scored = cells.filter((c) => c.t.attempted > 0);
               const rates = new Set(scored.map((c) => c.t.verified / c.t.attempted));
               const uninformative = scored.length > 1 && rates.size === 1;
@@ -146,9 +133,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
                   <tr className="border-t border-[var(--bark-700)]">
                     <td className="py-2 pr-3 text-slate-300">
                       <span className="align-middle">{task.name}</span>
-                      {/* A task nothing distinguishes cost a sandbox per variant per repeat and
-                          bought no evidence. Worth seeing: a suite made entirely of these reports
-                          a confident-looking dead heat. */}
                       {uninformative && !allFailed && (
                         <span className="ml-2 text-[10px] text-slate-600 align-middle">no signal — all tied</span>
                       )}
@@ -170,14 +154,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
                           <button
                             disabled={!t.runs}
                             onClick={() => setOpenResult(open ? null : key)}
-                            // Over fair attempts here too — the cell is where a suite is actually
-                            // read, so a denominator that differs from the total row is worse than
-                            // either one alone.
-                            /**
-                             * Three states, not two. A cell with no runs has not been asked yet; a
-                             * cell whose runs all died was asked and got no answer. Collapsing them
-                             * into "not run yet" hides a broken harness behind an idle one.
-                             */
                             title={t.runs === 0
                               ? 'not run yet'
                               : t.attempted
@@ -204,8 +180,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
                           {task.name} · {openCell.label}
                         </p>
                         {detailPending && <p className="text-[11px] text-slate-500">Loading the run…</p>}
-                        {/* From the DETAIL record: the trace, the request and the verify output are
-                            deliberately absent from the polled list. */}
                         {(detail?.results ?? [])
                           .filter((r) => r.taskId === task.id && r.label === openCell.label)
                           .map((r, i) => <RunDetail key={i} result={r} />)}
@@ -222,14 +196,6 @@ export function Results({ results, tasks, variants, openResult, setOpenResult, s
   );
 }
 
-/**
- * What the model was sent, on the run it produced.
- *
- * Collapsed, because it is long — and present, because without it a result reports a score and
- * cannot say what was asked. Measured the hard way here: a whole session of experiments failed
- * because the system prompt suppressed tool calling, and nothing in any record contained the
- * prompt, so diagnosing it meant rebuilding the request in a separate script.
- */
 function SentToModel({ request }: { request: AgentRequest }) {
   const [open, setOpen] = useState(false);
   return (
@@ -259,8 +225,6 @@ function SentToModel({ request }: { request: AgentRequest }) {
             <p className="text-[9px] uppercase tracking-widest text-slate-600 mb-0.5">
               Tools offered ({request.tools.length})
             </p>
-            {/* The descriptions the model actually read. A tool it ignores may simply be one it was
-                described badly — which is a prompt problem wearing a tool's clothes. */}
             <div className="space-y-1">
               {request.tools.map((t) => (
                 <div key={t.name}>
@@ -283,22 +247,11 @@ function SentToModel({ request }: { request: AgentRequest }) {
   );
 }
 
-/**
- * Every knob, and where its value came from.
- *
- * The raw body below says what went out; this says WHY. A value can be there because the harness
- * defaults to it, because a variant overrode it, or because a promoted profile supplied it — and a
- * knob can be missing because it was never set or because it was dropped for the wrong engine.
- * Those cases look identical in JSON and mean completely different things, which is how a variant
- * that changed nothing came to be read as a result.
- */
 function Knobs({ request }: { request: AgentRequest }) {
   const overrides = request.overrides ?? {};
   const sent = request.parameters ?? {};
   const dropped = new Set(request.unsupported ?? []);
 
-  // Everything anyone touched: what went out, what was asked for, and the loop controls that are
-  // deliberately never transmitted.
   const wire = Object.keys(sent).filter((k) => k !== 'messages' && k !== 'tools' && k !== 'stream'
     && k !== 'stream_options' && k !== 'model');
   const rows = [
@@ -345,18 +298,6 @@ function Knobs({ request }: { request: AgentRequest }) {
   );
 }
 
-/**
- * The whole exchange, verbatim.
- *
- * ── WHY THIS EXISTS BESIDE THE TRACE ──
- * The trace is a reconstruction — fields pulled out of each turn and re-assembled for display —
- * and its tool results are clipped to 1,200 characters while the model was sent up to 8,000. So it
- * tells you roughly what happened while quietly misrepresenting what the model saw, which is the
- * one question a transparency view exists to answer.
- *
- * This is the array the request was built from. Roles are labelled, order is the order it was sent
- * in, and nothing is summarised.
- */
 function Conversation({ messages }: { messages: ConversationMessage[] }) {
   const [open, setOpen] = useState(false);
 
@@ -385,7 +326,6 @@ function Conversation({ messages }: { messages: ConversationMessage[] }) {
                   {m.role}
                 </span>
                 {m.name && <span className="text-[9px] text-slate-600 font-mono">{m.name}</span>}
-                {/* Said out loud: a shortened message must never read as the whole of it. */}
                 {m.truncated && <span className="text-[9px] text-amber-400">truncated</span>}
                 <span className="ml-auto text-[9px] text-slate-700">{m.content.length} chars</span>
               </div>
@@ -408,7 +348,6 @@ function Conversation({ messages }: { messages: ConversationMessage[] }) {
   );
 }
 
-/** One run, expanded: what it was asked, what it claimed, and what verification found. */
 function RunDetail({ result: r }: { result: VariantResult }) {
   return (
     <div className="flex items-start gap-2 mb-3 last:mb-0">
@@ -419,7 +358,6 @@ function RunDetail({ result: r }: { result: VariantResult }) {
         {r.error
           ? <p className="text-[11px] text-red-400">{r.error}</p>
           : <p className="text-[11px] text-slate-400">{r.summary}</p>}
-        {/* Expected beside actual, so a red row says what it was supposed to do. */}
         {r.expected && (
           <p className="text-[10px] text-slate-500 mt-1">
             <span className="text-slate-600">expected: </span>
@@ -432,7 +370,6 @@ function RunDetail({ result: r }: { result: VariantResult }) {
             actual (exit {r.verifyExitCode}): {r.verifyOutput.slice(-400)}
           </pre>
         )}
-        {/* Dedicated Tool Audit Badge */}
         {r.usedDedicatedTool !== undefined && (
           <div className="mt-1.5 flex items-center gap-2">
             {r.usedDedicatedTool ? (
@@ -471,13 +408,6 @@ function RunDetail({ result: r }: { result: VariantResult }) {
   );
 }
 
-/**
- * The turn-by-turn record, reasoning included.
- *
- * Collapsed by default because a single reasoning block runs to thousands of characters — but it is
- * the only thing that explains a run rather than scoring it. A step showing no reasoning is itself
- * informative: it means thinking was off for that variant.
- */
 function Trace({ steps }: { steps: AgentStep[] }) {
   const [open, setOpen] = useState<number | null>(null);
   return (

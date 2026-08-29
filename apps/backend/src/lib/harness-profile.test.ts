@@ -78,8 +78,6 @@ describe('standingOf', () => {
   });
 
   it('ranks by rate, not count, so an errored run cannot flatter a variant', () => {
-    // think=true verified 1 of 1 because its other run never happened; think=false verified 1 of 2.
-    // By count they tie at 1. By rate, which is the honest comparison, think=true leads.
     const e = experiment({ results: [
       run('think=false', 't1', true), run('think=false', 't2', false),
       run('think=true', 't1', true),
@@ -104,8 +102,6 @@ describe('standingOf', () => {
 
 describe('promotedOverrides', () => {
   it('folds the variant onto the profile it ran against', () => {
-    // A variant's overrides are only the axis it varied; everything else came from the profile in
-    // force. Promoting the axis alone would produce a configuration that never actually ran.
     expect(promotedOverrides({ temperature: 0.2, think: false }, { think: true }))
       .toEqual({ temperature: 0.2, think: true });
   });
@@ -152,9 +148,6 @@ describe('buildPromotion', () => {
   });
 
   it('allows promoting a variant that did not win, but says so', () => {
-    // A variant that ties on verification while costing half the tokens is worth adopting, and so
-    // is one that loses on a suite you have judged unrepresentative. What must not happen is
-    // adopting a loser without noticing.
     const built = buildPromotion(won, 'think=false', null, 'u1')!;
     expect(built.standing.wasBest).toBe(false);
     expect(built.standing.rank).toBe(2);
@@ -182,8 +175,6 @@ describe('buildPromotion', () => {
 
 describe('effectiveOverrides', () => {
   it('puts the profile beneath the caller, so a promoted value stays testable', () => {
-    // Otherwise promoting a value would make it impossible to experiment against, and the harness
-    // would accumulate settings nobody could challenge.
     const profile: HarnessProfile = {
       ownerId: 'u1', overrides: { think: true, temperature: 0.2 }, updatedAt: 'x',
     };
@@ -195,9 +186,6 @@ describe('effectiveOverrides', () => {
   });
 
   it('lets null opt a variant out of an adopted default', () => {
-    // Layering alone cannot express a control arm: once a prompt is promoted, a variant labelled
-    // `shipped-prompt` with no overrides silently stops testing the shipped prompt while keeping
-    // its name. Measured on a real experiment whose three arms turned out to be two.
     const profile: HarnessProfile = {
       ownerId: 'u1', overrides: { systemPrompt: 'promoted', temperature: 0.2 }, updatedAt: 'x',
     };
@@ -219,13 +207,11 @@ describe('profile history', () => {
   };
 
   it('files the outgoing configuration instead of overwriting it', () => {
-    // Adopting a default used to be unrecoverable: no diff, no record of what changed, no way back.
     const next = supersede(inForce, { ownerId: 'u1', overrides: { think: false }, updatedAt: '' }, now);
 
     expect(next.overrides).toEqual({ think: false });
     expect(next.history).toHaveLength(1);
     expect(next.history![0]!.overrides).toEqual({ think: true });
-    // The old version still explains itself.
     expect(next.history![0]!.from!.experimentName).toBe('first');
     expect(next.history![0]!.supersededAt).toBe(now);
   });
@@ -240,8 +226,6 @@ describe('profile history', () => {
     const back = revertTo(second, second.history![0]!.id, now)!;
 
     expect(back.overrides).toEqual({ think: true });
-    // Reverting is itself a change: the state it replaced is filed too, or undoing twice would
-    // silently lose what was in between.
     expect(back.history!.map((v) => v.overrides)).toEqual([{ think: true }, { think: false }]);
   });
 
@@ -250,37 +234,15 @@ describe('profile history', () => {
   });
 
   it('keeps history bounded, dropping the oldest first', () => {
-    // This rides on a record read on every run, so it must not grow without limit.
     let p: HarnessProfile = inForce;
     for (let i = 0; i < MAX_PROFILE_HISTORY + 5; i++) {
       p = supersede(p, { ownerId: 'u1', overrides: { maxSteps: i }, updatedAt: '' }, now);
     }
     expect(p.history).toHaveLength(MAX_PROFILE_HISTORY);
-    // The useful undo is the recent one, so the oldest is what goes.
     expect(p.history![p.history!.length - 1]!.overrides).toEqual({ maxSteps: MAX_PROFILE_HISTORY + 3 });
   });
 });
 
-/**
- * ── EDITING OVERRIDES MUST NOT DISCARD A PROMOTION ──
- *
- * `PUT /api/harness/profile` rebuilt the profile from three fields — `ownerId`, `overrides`,
- * `updatedAt` — and tried to carry the rest forward with
- * `...(current?.reason ? { reason: current.reason } : {})` and the same for `promotedFrom`.
- *
- * Neither field exists. `HarnessProfile` has `personaId` and `from`. Both spreads were permanent
- * no-ops, so every override edit dropped the promoted persona and its provenance — the exact
- * failure `personaId`'s own comment describes as the reason it was added: "an arm that won BECAUSE
- * of its persona therefore handed Koala its sampling knobs and silently dropped the prompt that
- * actually won."
- *
- * The compiler said so, twice, as `Property 'reason' does not exist on type 'HarnessProfile'`. The
- * annotation on the same line was `HarnessProfile` without an import, so it was also an unresolved
- * name — which is how two real errors sat in a count I had written off as pre-existing noise.
- *
- * Fixed here rather than in the route because `supersede`'s own header states the rule: every path
- * that changes a profile goes through this module, so none of them can be the one that forgets.
- */
 describe('changing only the overrides', () => {
   const promoted: HarnessProfile = {
     ownerId: 'u1',
@@ -296,8 +258,6 @@ describe('changing only the overrides', () => {
   });
 
   it('keeps where the promotion came from', () => {
-    // Without provenance a promoted default is indistinguishable from a hand-typed one, and the
-    // Lab loses the ability to say which experiment produced the configuration in force.
     expect(withOverrides(promoted, { temperature: 0.9 } as never).from).toEqual(promoted.from);
   });
 
@@ -306,8 +266,6 @@ describe('changing only the overrides', () => {
   });
 
   it('adds nothing to a profile that was never promoted', () => {
-    // Absent and present are different states; inventing an empty provenance would make an
-    // unpromoted profile claim an origin it does not have.
     const plain: HarnessProfile = { ownerId: 'u1', overrides: {} as never, updatedAt: 'x' };
     const next = withOverrides(plain, { temperature: 0.1 } as never);
     expect('personaId' in next).toBe(false);

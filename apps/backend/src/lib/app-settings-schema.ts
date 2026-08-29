@@ -1,29 +1,10 @@
-/**
- * Schema-driven app settings.
- *
- * Some app types (game servers, notably) expose ~120 individual configuration options. Giving each
- * one a first-class field on DeploymentMetadata is not viable in this codebase: every per-app field
- * has to be hand-added to eight separate enumeration lists (types.ts, AppEnvArgs, buildAppEnv,
- * TemporalBridge's deployApp + syncConfig arg builders, DeployAppArgs, SyncConfigArgs, and
- * index.ts's CONFIGURABLE_FIELDS). At 120 fields that is ~960 edits, and a single missed list
- * silently drops the setting with no error.
- *
- * So instead: ONE `appSettings: Record<string, string>` field threaded through those lists once,
- * plus a runtime schema per app type. The schema replaces compile-time typing with runtime
- * validation — and, because it is also served to the frontend over HTTP
- * (GET /api/app-schemas/:appType), it drives the Config-tab UI from the same single source of
- * truth. Adding a setting becomes a one-file change.
- */
 
 export type AppSettingType = 'bool' | 'int' | 'float' | 'string' | 'enum';
 
 export interface AppSetting {
-  /** Native config key in the app's own config file — documentation/help only. */
   readonly key: string;
-  /** Container environment variable name. This is the primary key of the settings map. */
   readonly env: string;
   readonly type: AppSettingType;
-  /** Always a string: this is literally the value that goes into the pod's env. */
   readonly default: string;
   readonly category: string;
   readonly label: string;
@@ -32,17 +13,7 @@ export interface AppSetting {
   readonly max?: number;
   readonly step?: number;
   readonly options?: readonly string[];
-  /**
-   * Rendered as a password field, never pre-filled, and stripped from the stored settings map.
-   * Secrets live in a Kubernetes Secret instead — see the Palworld deploy activity — so they
-   * never reach MongoDB, synthesized Terraform, or Temporal workflow history.
-   */
   readonly secret?: boolean;
-  /**
-   * Shown in the UI but not user-editable, and stripped on write. These are owned by the
-   * construct: a user editing e.g. the game port would leave the hostPort, Service and firewall
-   * rule all pointing at the old number, silently making the server unreachable.
-   */
   readonly readonly?: boolean;
 }
 
@@ -53,7 +24,6 @@ export interface AppSettingsSchema {
 }
 
 export interface ValidationResult {
-  /** Accepted, type-coerced values. Unknown/readonly/secret keys are absent. */
   values: Record<string, string>;
   errors: string[];
 }
@@ -62,36 +32,21 @@ export function indexByEnv(schema: AppSettingsSchema): Map<string, AppSetting> {
   return new Map(schema.settings.map((s) => [s.env, s]));
 }
 
-/**
- * Full set of env vars to hand the construct: schema defaults with the user's stored overrides
- * applied on top. Resolving defaults here rather than in the construct means the stored record
- * and the Config tab always reflect what is actually running.
- */
 export function resolveAppSettings(
   schema: AppSettingsSchema,
   stored?: Record<string, string>,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const s of schema.settings) {
-    if (s.secret) continue; // injected from a Secret, never from this map
+    if (s.secret) continue;
     out[s.env] = s.default;
   }
   for (const [env, value] of Object.entries(stored ?? {})) {
-    // Only keys the schema knows about — a stale key left over from an older schema version
-    // shouldn't keep being injected into the pod forever.
     if (out[env] !== undefined) out[env] = value;
   }
   return out;
 }
 
-/**
- * Validates a user-supplied settings patch.
- *
- * This is a security boundary, not a nicety: these values become container environment variables,
- * so without an allowlist any authenticated user could inject arbitrary env (LD_PRELOAD, and so
- * on) into a pod. The route-level allowlist in index.ts gates field *names* on the deployment
- * record; it says nothing about the *keys inside* this map.
- */
 export function validateAppSettings(
   schema: AppSettingsSchema,
   input: Record<string, unknown>,
@@ -106,8 +61,6 @@ export function validateAppSettings(
       errors.push(`Unknown setting "${env}"`);
       continue;
     }
-    // Silently dropped rather than an error: the UI renders both (greyed out / blank password),
-    // so a form submitting the whole set shouldn't be rejected because of them.
     if (setting.readonly || setting.secret) continue;
 
     const value = typeof raw === 'string' ? raw.trim() : String(raw);
@@ -141,10 +94,6 @@ export function validateAppSettings(
           errors.push(`"${env}" must be <= ${setting.max} (got ${n})`);
           continue;
         }
-        // Ints are normalised ("007" -> "7"); floats keep the string the caller wrote. Round-
-        // tripping a float through Number would rewrite "1.000000" as "1", which the game accepts
-        // but which then never string-compares equal to the schema default — so the Config tab
-        // would flag every untouched float as modified.
         values[env] = setting.type === 'int' ? String(n) : value;
         break;
       }
@@ -166,10 +115,6 @@ export function validateAppSettings(
   return { values, errors };
 }
 
-/**
- * Self-check used by the schema's own unit test. A malformed schema is far easier to catch here
- * than as a pod that refuses to start.
- */
 export function validateSchemaShape(schema: AppSettingsSchema): string[] {
   const errors: string[] = [];
   const seen = new Set<string>();
@@ -185,10 +130,8 @@ export function validateSchemaShape(schema: AppSettingsSchema): string[] {
       errors.push(`"${s.env}" is an enum with no options`);
     }
 
-    // Every default must itself survive validation — otherwise the app ships broken out of the box.
     if (!s.secret) {
       const { errors: defaultErrors } = validateAppSettings(schema, { [s.env]: s.default });
-      // readonly settings are skipped by validateAppSettings, so check them directly.
       if (s.readonly) {
         if (s.type === 'int' && !Number.isInteger(Number(s.default))) {
           errors.push(`"${s.env}" default "${s.default}" is not an integer`);

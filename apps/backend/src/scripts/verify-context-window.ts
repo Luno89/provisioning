@@ -1,11 +1,3 @@
-/**
- * Proves the harness now budgets against the window the model actually has.
- *
- *   npx tsx apps/backend/src/scripts/verify-context-window.ts
- *
- * The number this checks was hardcoded at 32,768 while the deployed engine served 131,072, so every
- * budget in the harness was computed against a quarter of the real window. Read-only.
- */
 import dotenv from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -15,7 +7,6 @@ import { createDatabase } from '../lib/db-interface.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { fittedMaxTokens, FALLBACK_CONTEXT_TOKENS, FILE_TURN_MAX_TOKENS } from '../lib/sampling.js';
 
-/** The Synthesist's real prompt size, from its trace. */
 const SYNTHESIST_PROMPT_TOKENS = 29_450;
 
 async function main(): Promise<void> {

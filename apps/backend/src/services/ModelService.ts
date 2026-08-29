@@ -1,15 +1,3 @@
-/**
- * ModelService — Phase A of the agent harness (~/.claude/plans/agent-harness.md).
- *
- * Lists the models a user can actually talk to, and makes one reachable from this process.
- *
- * The reachability problem is the whole job. A vLLM deployment's OpenAI API lives at
- * `http://<ns>-vllm.<ns>.svc.cluster.local:8000/v1` — resolvable only from inside that cluster,
- * which this backend is not (see AppService's own cross-cluster warning, which skips wiring that
- * URL for exactly this reason). Rather than exposing model endpoints publicly, this reuses the
- * kubectl port-forward machinery ClusterProxyService already runs for the Grafana/Traefik
- * dashboards: the forward is process-local, so nothing new becomes reachable from the network.
- */
 import { BaseService } from './BaseService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { AppService } from './AppService.js';
@@ -32,11 +20,6 @@ export class ModelService extends BaseService {
     super(db);
   }
 
-  /**
-   * Every model this user can use, from both sources. Reads through AppService.getAll, which is
-   * ownership-filtered, and filters endpoints by ownerId here — never the raw lists, or one tenant
-   * would see (and be able to select) another's model.
-   */
   async list(userId: string): Promise<ModelProvider[]> {
     const [deployments, endpoints] = await Promise.all([
       this.apps.getAll(userId),
@@ -45,16 +28,6 @@ export class ModelService extends BaseService {
     return listProviders(deployments, endpoints.filter((e) => e.ownerId === userId));
   }
 
-  /**
-   * Confirms a mesh address is one of this user's OWN devices.
-   *
-   * Not optional. The root node carries `tag:platform` in acl.hujson, which grants it `dst: *:*` —
-   * it can reach every tenant's machines. Without this check a user could register a neighbour's
-   * 100.64.x.x Ollama address and the platform would happily proxy prompts to it, because from the
-   * network's point of view the request is perfectly authorised.
-   *
-   * Fails CLOSED: if Headscale cannot be reached we refuse rather than assume ownership.
-   */
   private async assertOwnsMeshAddress(userId: string, host: string): Promise<void> {
     let devices;
     try {
@@ -68,13 +41,6 @@ export class ModelService extends BaseService {
     }
   }
 
-  /**
-   * Resolves this user's extraction model, if they have chosen one.
-   *
-   * Returns undefined rather than falling back to the conversation model: extracting with a
-   * reasoning model is exactly the thing that does not work, so a silent substitution would look
-   * like the feature functioning while reproducing the original failure.
-   */
   async resolveExtractor(userId: string): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string } | undefined> {
     const user = await this.db.getUserById(userId);
     const chosen = user?.extractionModelId;
@@ -82,18 +48,10 @@ export class ModelService extends BaseService {
     try {
       return await this.resolveBaseUrl(userId, chosen);
     } catch {
-      // A deleted or unreachable extractor must not fail the chat it was called from.
       return undefined;
     }
   }
 
-  /**
-   * Resolves a model to an OpenAI-compatible base URL reachable from this process, standing up a
-   * port-forward if one is not already running.
-   *
-   * Throws rather than falling back to a different model: silently rerouting a prompt to somewhere
-   * the user did not choose is worse than an error, especially once personas and tools exist.
-   */
   async resolveBaseUrl(
     userId: string,
     modelId?: string,
@@ -105,8 +63,6 @@ export class ModelService extends BaseService {
 
     const provider = routeProvider(providers, modelId);
     if (!provider) {
-      // Ownership-filtered list above, so an unmatched id means "not yours" as much as "no such
-      // model" — same conflation ClusterService.getById makes deliberately.
       throw new Error(`Model ${modelId} not found`);
     }
 
@@ -114,13 +70,6 @@ export class ModelService extends BaseService {
     return this.resolveDeployment(userId, provider);
   }
 
-  /**
-   * Registered endpoint: reached directly, across the mesh when the address is in the CGNAT range.
-   *
-   * The URL was validated at registration, but it is re-validated here rather than trusted. A
-   * record can be older than the current rules, and the cost of re-checking a parsed URL is
-   * nothing compared to the cost of the one case where it matters.
-   */
   private async resolveEndpoint(
     userId: string,
     provider: ModelProvider,
@@ -140,15 +89,11 @@ export class ModelService extends BaseService {
     return { provider, baseUrl: baseUrl.replace(/\/$/, ''), ...(apiKey ? { apiKey } : {}) };
   }
 
-  /** Platform-deployed model: only resolvable inside its cluster, so it needs a port-forward. */
   private async resolveDeployment(
     userId: string,
     provider: ModelProvider,
   ): Promise<{ provider: ModelProvider; baseUrl: string }> {
     const { clusterId, service, namespace, port } = provider;
-    // providerFromDeployment always sets these together; if one is missing the record is malformed
-    // rather than the caller being wrong, so say so instead of asserting non-null and forwarding to
-    // "undefined" in a namespace called "undefined".
     if (!clusterId || !service || !namespace || port === undefined) {
       throw new Error(`Model ${provider.name} is missing its cluster location — it may need redeploying`);
     }
@@ -157,8 +102,6 @@ export class ModelService extends BaseService {
     if (!cluster) throw new Error(`Cluster for model ${provider.name} not found`);
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
 
-    // Cache key must be unique per model, not per service kind — two vLLM deployments on one
-    // cluster would otherwise share (and fight over) a single forward.
     const forwardUrl = await this.proxy.ensurePortForward(
       clusterId,
       `model:${provider.id}`,

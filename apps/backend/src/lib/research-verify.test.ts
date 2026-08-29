@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { assessFindings } from './research-verify.js';
 
-/** The outline that actually passed the first version of this check, verbatim from the run. */
 const THE_STUB = `# Temporal vs Restate (v2): Durable Execution, Licensing & Self-Hosting
 
 ## Overview
@@ -52,7 +51,6 @@ describe('proving a research leaf actually answered', () => {
   });
 
   it('does not count headings as content', () => {
-    // A skeleton of headings clears a raw character count while saying nothing.
     const headings = ['# One', '## Two', '### Three', '#### Four', '- a', '- b'].join('\n\n')
       + '\n\nhttps://example.com';
     expect(assessFindings(headings).outcome).toBe('failed');
@@ -72,8 +70,6 @@ describe('proving a research leaf actually answered', () => {
   });
 
   it('gives the same verdict however many times it is called', () => {
-    // A /g regex used with .test() advances lastIndex between calls, so the second identical call
-    // returns a different answer. Every leaf shares this module.
     for (let i = 0; i < 5; i++) expect(assessFindings(real).outcome).toBe('passed');
   });
 

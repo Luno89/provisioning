@@ -3,24 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2, ChevronRight, ChevronDown, Terminal, FileText, Brain } from 'lucide-react';
 import { getLeafTrace } from '../api/grove';
 
-/**
- * What a leaf actually did, turn by turn.
- *
- * ── WHY THIS IS ITS OWN FILE ──
- * It was the body of a modal that only the board could open, which meant the two leaf surfaces each
- * held half the story: the detail pane had the report, the task and the errors but could not show a
- * single thing the agent DID, and the trace modal showed every step but not what was asked or what
- * came back. Answering "why did this fail" needed both, reached by two unrelated routes.
- *
- * Extracted so one surface can hold everything. Nothing here decides layout or chrome — it renders
- * turns and nothing else.
- *
- * ── SHOWN COLLAPSED ──
- * A run is up to forty turns and a single reasoning block has been measured at ~8,000 characters.
- * Dumping that is not transparency, it is a wall. Each turn is one line saying what it DID —
- * commands are the readable summary of a step — and opens to the reasoning, arguments and results.
- */
-
 interface Step {
   step: number;
   reasoning?: string;
@@ -38,17 +20,9 @@ interface Trace {
   trimmed?: boolean;
   dropped?: number;
   missing?: boolean;
-  /**
-   * Save points written mid-run, where the conversation was committed and then reset.
-   *
-   * Load-bearing for reading this panel honestly: after a checkpoint, `steps` is only the turns
-   * SINCE the last reset. Without saying so, a run that saved twice shows its final third and reads
-   * as the whole thing.
-   */
   checkpoints?: { step: number; tokensUsed: number; sha?: string; branch?: string }[];
 }
 
-/** A tool call rendered as the thing a person recognises: the command, or the path. */
 function callLabel(call: { name: string; arguments: string }): string {
   try {
     const args = JSON.parse(call.arguments);
@@ -57,25 +31,16 @@ function callLabel(call: { name: string; arguments: string }): string {
     if (typeof args.query === 'string') return `${call.name} "${args.query}"`;
     if (typeof args.summary === 'string') return args.summary;
   } catch {
-    // A truncated or half-streamed argument is normal in a failed run — show what there is.
   }
   return call.arguments.slice(0, 120);
 }
 
 export default function LeafSteps({ leafId, live }: {
   leafId: string;
-  /** Polls while the leaf is in a sandbox, so turns appear as they are taken. */
   live?: boolean;
 }) {
   const [open, setOpen] = useState<number | null>(null);
 
-  /**
-   * Refetched while the leaf is running, so the turns appear as they happen.
-   *
-   * The worker writes each turn to the trace as it takes it — it runs in a different process from
-   * the one holding the sockets, so the database is the channel both ends already share. Polling a
-   * record that grows is the whole mechanism; there is no second transport to keep working.
-   */
   const { data, isLoading } = useQuery<Trace>({
     queryKey: ['leaf-trace', leafId],
     queryFn: () => getLeafTrace(leafId),
@@ -86,24 +51,12 @@ export default function LeafSteps({ leafId, live }: {
     return <div className="text-slate-500 flex items-center gap-2 text-[12px]"><Loader2 className="animate-spin" size={14} /> Loading the trace…</div>;
   }
 
-  /**
-   * Anything that is not a trace is treated as no trace.
-   *
-   * `data.tokensUsed.toLocaleString()` threw on a payload without those fields and took the whole
-   * leaf pane down with it — a trace endpoint that errors, or returns something unexpected, must
-   * degrade to "nothing to replay" rather than to a blank screen. Third instance of this shape in
-   * this UI, after LeafModal and TreeBoard.
-   */
   const usable = data && !data.missing && Array.isArray(data.steps);
 
   if (!usable) {
     return (
-      /* A leaf that has not run is not a leaf whose record was lost — different things, and saying
-         "no trace" for both would look like data loss. */
       <p className="text-slate-500 text-[12px]">
         {live
-          // A running leaf with no turns yet is starting its sandbox, which takes seconds — saying
-          // "has not run" there would read as broken.
           ? 'Starting the sandbox — the first turn will appear here shortly.'
           : 'This leaf has not run yet, so there is nothing to replay.'}
       </p>
@@ -123,8 +76,6 @@ export default function LeafSteps({ leafId, live }: {
         )}
         {totalSteps} {totalSteps === 1 ? 'turn' : 'turns'} · {tokensUsed.toLocaleString()} tokens
         {data.trimmed && data.dropped ? ` · ${data.dropped} middle turns dropped to fit` : ''}
-        {/* Said plainly, because it changes what the turns below MEAN — they are the run since the
-            last save, not the run. */}
         {data.checkpoints?.length
           ? ` · saved ${data.checkpoints.length}× (turns shown are since the last save)`
           : ''}
@@ -132,8 +83,6 @@ export default function LeafSteps({ leafId, live }: {
 
       {data.steps.map((step, i) => {
         const previous = data.steps[i - 1];
-        // The gap is drawn, not implied: consecutive numbers that jump would otherwise read as a
-        // short run rather than a trimmed one.
         const gap = previous && step.step > previous.step + 1;
         const isOpen = open === step.step;
         return (

@@ -3,17 +3,6 @@ import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
 import { MemoryDB } from './memory-db.js';
 import type { AppSpec } from './app-spec.js';
 
-/**
- * Declaring that a project depends on a running service.
- *
- * ── WHY THIS TOOL HAD TO EXIST ──
- * Everything else was in place — a planner could SEE mongo through `list_infrastructure`, the deploy
- * path could bind it, and the convention told an agent how to read it. Nothing could SAY that a
- * project should be able to connect to one. The declaration is the missing link, and it is also the
- * thing a person approves: `needs` is a property of the service, so every deploy binds the same
- * things and there is no per-deploy prompt to click through.
- */
-
 const MONGO_SPEC: AppSpec = {
   id: 'mongo',
   image: 'mongo:7',
@@ -49,7 +38,6 @@ describe('declaring a dependency', () => {
     const db = await seeded();
     const out = await declare(db, { projectId: 'p1', service: 'spec-mongo' });
     expect(out.added).toEqual({ service: 'spec-mongo', as: 'mongo', type: 'mongodb' });
-    // The real paths, so the leaf writes code against them rather than guessing.
     expect(out.readAt).toBe('$SERVICE_BINDING_ROOT/mongo/');
     expect(out.files).toEqual(['type', 'host', 'port', 'username', 'password']);
     expect((await db.getProjects())[0].needs).toEqual([{ service: 'spec-mongo' }]);
@@ -69,7 +57,6 @@ describe('declaring a dependency', () => {
   });
 
   it('is idempotent — declaring twice does not duplicate', async () => {
-    // A planner that re-reads its own board and calls again must not stack the same dependency.
     const db = await seeded();
     await declare(db, { projectId: 'p1', service: 'spec-mongo' });
     const again = await declare(db, { projectId: 'p1', service: 'spec-mongo' });
@@ -80,11 +67,6 @@ describe('declaring a dependency', () => {
 
 describe('what it refuses', () => {
   it('refuses a service belonging to someone else', async () => {
-    /**
-     * The same boundary `resolveBindings` enforces, applied HERE so the refusal reaches the model
-     * while it can still act on it. The deploy path checks again, because a service can be
-     * destroyed between declaring the dependency and using it.
-     */
     const db = await seeded();
     const out = await declare(db, { projectId: 'p1', service: 'theirs' });
     expect(out.error).toMatch(/No service named "theirs"/);
@@ -104,8 +86,6 @@ describe('what it refuses', () => {
   });
 
   it('stores nothing when the binding cannot be resolved', async () => {
-    // A declaration that cannot be honoured would fail at deploy time instead, which is later and
-    // further from the decision.
     const db = await seeded();
     await declare(db, { projectId: 'p1', service: 'nope' });
     expect((await db.getProjects())[0].needs).toBeUndefined();

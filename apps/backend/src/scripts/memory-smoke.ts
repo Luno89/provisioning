@@ -1,27 +1,9 @@
-/**
- * Proves hybrid recall on the real bank, against the real services, changing nothing.
- *
- *   npx tsx apps/backend/src/scripts/memory-smoke.ts [query...]
- *
- * ── WHY THIS EXISTS BEFORE ANYTHING DEPENDS ON IT ──
- * Every claim made for relevance retrieval is a claim about ordering, and ordering is exactly what
- * unit tests cannot check: they can prove that a ranked list is respected, not that the ranking is
- * any good. This runs real leaf-shaped questions against the real 125-memory bank and prints what
- * recall would inject beside what the old recency ordering would have injected, so the difference
- * is a thing you can read rather than a thing the design asserts.
- *
- * ── AND WHY IT IS SAFE TO RUN ──
- * It writes to Qdrant and Quickwit, which are disposable indexes rebuildable from Mongo at any
- * time, and it writes NOTHING to Mongo — no `lastUsedAt`, no new memories, no invalidation. The
- * memory bank is exactly as it was when this exits.
- */
 import { createDatabase } from '../lib/db-interface.js';
 import { corpusEndpoints } from '../lib/web-tools-resolver.js';
 import { indexMemories, searchMemories } from '../lib/memory-index.js';
 import { recallMemories, recallQuery } from '../lib/memory-recall.js';
 import { buildMemoryContext, type MemoryItem } from '../lib/memory-store.js';
 
-/** Leaf-shaped questions: the kind of thing a planner actually writes as a title. */
 const DEFAULT_QUERIES = [
   'Add rate limiting to the upload route',
   'The build failed because a command was missing from the sandbox image',
@@ -42,29 +24,14 @@ async function main(): Promise<void> {
       + `  pending_review: ${all.filter((m) => m.status === 'pending_review').length}`
       + `  invalidated: ${all.filter((m) => m.invalidAt).length}`);
 
-    // The owner with the most memories — the one whose bank can actually demonstrate a ranking.
     const ownerId = owners.sort((a, b) =>
       all.filter((m) => m.ownerId === b).length - all.filter((m) => m.ownerId === a).length)[0];
     if (!ownerId) return console.log('Nothing stored. Run a leaf first.');
 
     const mine = all.filter((m) => m.ownerId === ownerId);
 
-    /**
-     * A project, because without one nothing is injected at all.
-     *
-     * Every memory in this bank is project-scoped, and `selectForContext` gives a leaf with NO
-     * project none of them — that is the cross-project leak fix, working. Running this script
-     * without a project therefore prints an empty block for both orderings and measures nothing.
-     */
     const counts = new Map<string, number>();
     for (const m of mine) {
-      /**
-       * Counted on what could actually be INJECTED, not on what is stored.
-       *
-       * Picking the project with the most rows chose one whose entries were all held over from the
-       * old review queue, so both orderings printed a single memory and the comparison measured
-       * nothing. Relevance can only be demonstrated where there is more than one candidate.
-       */
       if (m.projectId && !m.invalidAt && m.status !== 'pending_review') {
         counts.set(m.projectId, (counts.get(m.projectId) ?? 0) + 1);
       }
@@ -82,7 +49,6 @@ async function main(): Promise<void> {
         + 'documented fallback. Nothing to measure here.');
     }
 
-    // Everything currently true. Invalidated rows are history and are deliberately not indexed.
     const live = mine.filter((m) => !m.invalidAt);
     console.log(`\nIndexing ${live.length} live memories…`);
     const written = await indexMemories(ends, live);
@@ -110,10 +76,6 @@ async function main(): Promise<void> {
         .map((l) => l.slice(2).split(':')[0]).join(' | ') || '(nothing)'}`);
     }
 
-    /**
-     * The claim that matters most, checked rather than asserted: a dead service must cost a leaf
-     * nothing but the relevance ordering.
-     */
     console.log(`\n${'─'.repeat(78)}\nDEGRADATION — pointing recall at a dead port:`);
     const began = Date.now();
     const dead = await recallMemories({
@@ -127,14 +89,6 @@ async function main(): Promise<void> {
   }
 }
 
-/**
- * Exits explicitly.
- *
- * `corpusEndpoints` establishes kubectl port-forwards, which are long-lived child processes held
- * open for the backend's benefit. Nothing here can close them without closing them for the running
- * server too, so the script says it is done rather than waiting for an event loop that will not
- * drain. Measured: without this it hangs forever after printing every result correctly.
- */
 main()
   .then(() => process.exit(0))
   .catch((err) => { console.error(err); process.exit(1); });

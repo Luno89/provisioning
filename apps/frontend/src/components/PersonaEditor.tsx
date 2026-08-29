@@ -6,27 +6,6 @@ import {
 } from '../api/personas';
 import { errorMessage } from '../api/client';
 
-/**
- * Everything a persona is, editable.
- *
- * ── WHY THIS HAS TO EXIST ──
- * A persona carries the entire environment a leaf runs in — the image, the CPU and memory, the
- * tools it may call, the network it may reach, the step budget, where its output goes. All of it
- * was fixed by a seed script, and the API accepted edits to four fields: name, description, prompt
- * and sampling overrides. Changing what the Builder could reach meant editing
- * `scripts/seed-personas.ts` and re-running it, which also rewrote every other persona on the way
- * past.
- *
- * ── THE EGRESS SECTION IS THE POINT ──
- * `egress` becomes the sandbox's NetworkPolicy. It is the difference between a container that can
- * reach a package registry and one that cannot, and until now it was unreachable from the UI while
- * being the single most common thing to need changed — measured: an agent spent three attempts
- * running `npm install` against a registry the policy blocks.
- *
- * Server-validated, deliberately, because a malformed rule fails in the direction that matters: the
- * pod comes up, the policy does not mean what was intended, and nothing says so.
- */
-
 interface EgressRule { namespace?: string; cidr?: string; ports?: number[] }
 
 interface Scope {
@@ -38,7 +17,6 @@ interface Scope {
   requireSources?: boolean;
   tools?: string[];
   egress?: EgressRule[];
-  /** MCP servers this persona may call, by service name. */
   mcp?: string[];
   env?: { name: string; value: string }[];
   run?: { maxSteps?: number | undefined };
@@ -61,7 +39,6 @@ const field = 'w-full bg-[var(--bark-900)] border border-[var(--bark-600)] round
 export default function PersonaEditor({
   persona, personas, onClose,
 }: {
-  /** Absent means a new one. */
   persona?: Persona | undefined;
   personas: Persona[];
   onClose: () => void;
@@ -74,7 +51,6 @@ export default function PersonaEditor({
   const { data: options } = useQuery<PersonaOptions>({
     queryKey: personaKeys.options(),
     queryFn: getPersonaOptions,
-    // The catalogue only changes when the code does.
     staleTime: Infinity,
   });
 
@@ -87,8 +63,6 @@ export default function PersonaEditor({
       try {
         overrides = JSON.parse(overridesText || '{}');
       } catch {
-        // Thrown rather than sent: the server would reject it too, but with a message about the
-        // registry rather than about the JSON, which is not the mistake that was made.
         throw new Error('The sampling overrides are not valid JSON.');
       }
       const body = {
@@ -161,15 +135,7 @@ export default function PersonaEditor({
             />
           </div>
 
-          {/* ── ISOLATION ── the reason this editor exists. */}
           <div className="border border-[var(--bark-600)] rounded-xl p-4 space-y-3">
-            {/*
-              * Services this harness has already built.
-              *
-              * Above isolation deliberately: naming one here is a NETWORK decision as much as a
-              * capability, and the two settings have to agree. A server named without matching
-              * egress is a tool the agent can see and every call times out.
-              */}
             <div className="flex items-center gap-2">
               <Boxes size={14} className="text-[var(--leaf)]" />
               <span className="text-[12px] font-bold text-slate-200">Services it may call</span>
@@ -177,11 +143,6 @@ export default function PersonaEditor({
                 MCP servers this harness deployed — their tools are prefixed with the service name
               </span>
             </div>
-            {/*
-              Picked, not typed. The free-text list meant granting a service was a remembered name
-              matched exactly, and a typo produced a persona granted a server that does not exist —
-              which reads at run time as "the tool never appeared", three layers from the cause.
-            */}
             {(options?.mcpServers ?? []).length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {(options?.mcpServers ?? []).map((s) => {
@@ -211,10 +172,6 @@ export default function PersonaEditor({
                 })}
               </div>
             )}
-            {/*
-              Kept alongside the picker rather than replaced by it: a server can be named before it
-              is deployed, which is exactly what happens when a plan builds one.
-            */}
             <input
               className={`${field} w-full`}
               placeholder={(options?.mcpServers ?? []).length
@@ -226,8 +183,6 @@ export default function PersonaEditor({
               })}
             />
             {(scope.mcp ?? []).length > 0 && (scope.egress ?? []).length === 0 && (
-              /* The disagreement worth catching here rather than mid-run: the tool would be
-                 visible and every call would time out, with the cause three layers away. */
               <p className="text-[11px] text-amber-400/80">
                 This persona is sealed, so it cannot reach any of these. Add the service's namespace
                 to Isolation below or the tools will appear and every call will time out.
@@ -255,8 +210,6 @@ export default function PersonaEditor({
                   className={`${field} w-32`}
                   value={rule.cidr !== undefined ? 'cidr' : 'namespace'}
                   onChange={(e) => setEgress(egress.map((r, n) => n === i
-                    // Exactly one of the two, because the server refuses a rule carrying both — a
-                    // NodePort address does not work as a cidr, so they are not interchangeable.
                     ? (e.target.value === 'cidr' ? { cidr: '', ports: r.ports ?? [] } : { namespace: '', ports: r.ports ?? [] })
                     : r))}
                 >
@@ -303,8 +256,6 @@ export default function PersonaEditor({
                 <option value="">default</option>
                 {(options?.languages ?? []).map((l) => <option key={l.id} value={l.id}>{l.id}</option>)}
               </select>
-              {/* What the image actually has, so a persona is not configured for a toolchain that
-                  is not in it — the failure that had an agent hunting for a test runner. */}
               <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
                 {options?.languages.find((l) => l.id === scope.language)?.summary ?? 'Whatever the leaf asks for.'}
               </p>

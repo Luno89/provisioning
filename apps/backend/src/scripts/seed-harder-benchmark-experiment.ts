@@ -9,7 +9,6 @@ async function main() {
   const now = new Date().toISOString();
   const ownerId = '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991';
 
-  // 1. Comprehensive Benchmark Experiment Suite
   const name1 = 'Advanced Engineering & Comprehensive Harness Benchmarks';
   const existing1 = (await mongo.getExperiments()).filter((e) => e.name === name1 || e.name === 'Advanced Engineering & Multi-File Architecture Benchmarks');
   for (const item of existing1) {
@@ -22,7 +21,6 @@ async function main() {
     name: name1,
     language: 'node',
     status: 'draft',
-    // Empty rather than absent: `results` is required, and a run appends to it.
     results: [],
     repeats: 2,
     createdAt: now,
@@ -238,7 +236,6 @@ run().catch(err => {
   await mongo.saveExperiment(experiment1);
   console.log(`Successfully created benchmark suite 1: "${experiment1.name}" (${experiment1.id}) with ${experiment1.tasks?.length ?? 0} tasks`);
 
-  // 2. Dedicated Tool Repository & Memory Bank Coverage Suite
   const name2 = 'Tool Repository & Memory Bank Capabilities Suite';
   const existing2 = (await mongo.getExperiments()).filter((e) => e.name === name2);
   for (const item of existing2) {
@@ -251,7 +248,6 @@ run().catch(err => {
     name: name2,
     language: 'node',
     status: 'draft',
-    // Empty rather than absent: `results` is required, and a run appends to it.
     results: [],
     repeats: 2,
     createdAt: now,

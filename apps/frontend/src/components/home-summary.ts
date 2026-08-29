@@ -1,23 +1,5 @@
 import { stateFor, type Leaf, type LeafState } from './leaf-types.js';
 
-/**
- * What Koala has been doing, and what it needs from you.
- *
- * ── WHY A SUMMARY EXISTS AT ALL ──
- * The harness's landing page was a list of branches beside an empty pane reading "Select a branch
- * or leaf" — a navigator with no destination. That is the wrong shape for this product: Koala runs
- * work unattended, overnight, and the question you actually arrive with is "what happened while I
- * was away, and what is waiting on me". A file tree cannot answer either.
- *
- * Everything here is derived from records the platform already writes. Nothing new is stored.
- */
-
-/**
- * Branches with nothing left that can move on its own.
- *
- * Mirrors `settlementOf` in apps/backend/src/lib/branch-settlement.ts — the frontend cannot import
- * backend modules, and the pair is asserted in that side's mirror test.
- */
 const LIVE_STATUS = new Set(['proposed', 'pending', 'running']);
 
 export function settledBranches(
@@ -27,29 +9,11 @@ export function settledBranches(
   const settled = new Set<string>();
   for (const b of branches) {
     const mine = leaves.filter((l) => l.branchId === b.id);
-    // An empty conversation has not finished, it has not started.
     if (mine.length > 0 && !mine.some((l) => LIVE_STATUS.has(l.status))) settled.add(b.id);
   }
   return settled;
 }
 
-/**
- * Work attempted and not delivered, once its run is over.
- *
- * ── WHY IT IS NOT "NEEDS YOU" ──
- * A failure from a run that finished last night is a decision to make, not an emergency to react
- * to. Leaving it in the urgent list meant the page looked equally alarmed about something that
- * broke a minute ago and something nobody had cleared in a day — measured here, three of them sat
- * at the top of the page overnight with no way to resolve them except deleting the leaf.
- */
-/**
- * Why a piece of outstanding work is outstanding.
- *
- * Deliberately narrower than the backend's `evidenceFor`, which describes every state: the only
- * case this list ever shows is a failure, so mirroring the whole function would be copying six
- * branches to use one. What it must agree on is the shape of the sentence a person reads —
- * attempts, then the LAST error, because that is the one that says where things actually stand.
- */
 export function failureEvidence(leaf: Leaf): string {
   const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
   const last = attempts[attempts.length - 1]?.error;
@@ -79,20 +43,11 @@ export function outstandingWork(
 
 export interface Attention {
   leaf: Leaf;
-  /** Why it is on the list, which decides what the button does. */
   reason: 'proposed' | 'failed';
 }
 
-/**
- * Work that cannot move without you.
- *
- * Failures first: a proposal is a decision you have not made yet, a failure is work already spent
- * that is owed. Within failures, the most-attempted first — a leaf on its third attempt is the one
- * least likely to fix itself.
- */
 export function needsYou(leaves: Leaf[], settled: Set<string> = new Set()): Attention[] {
   const count = (l: Leaf) => (Array.isArray(l.attempts) ? l.attempts.length : 0);
-  // A failure whose run is over belongs to the project, not to this list — see outstandingWork.
   const failed = leaves.filter((l) => l.status === 'failed' && !settled.has(l.branchId))
     .sort((a, b) => count(b) - count(a))
     .map((leaf): Attention => ({ leaf, reason: 'failed' }));
@@ -101,17 +56,10 @@ export function needsYou(leaves: Leaf[], settled: Set<string> = new Set()): Atte
   return [...failed, ...proposed];
 }
 
-/** In a sandbox right now. Its own list because it is the one thing that changes while you watch. */
 export function running(leaves: Leaf[]): Leaf[] {
   return leaves.filter((l) => l.status === 'running');
 }
 
-/**
- * What moved since a timestamp.
- *
- * Excludes anything still running: those are already on their own list, and counting them twice
- * makes a quiet night look busy.
- */
 export function changedSince(leaves: Leaf[], since: string | undefined): Leaf[] {
   if (!since) return [];
   return leaves
@@ -125,20 +73,11 @@ export interface TreeRollup {
   verified: number;
   claimed: number;
   failed: number;
-  /** Everything not finished — the honest "how much is left". */
   outstanding: number;
   total: number;
-  /** Most recent leaf activity, for ordering. Empty when the tree has never run anything. */
   lastActivity: string;
 }
 
-/**
- * Per-tree progress, counted the same way the board counts it.
- *
- * `claimed` is kept apart from `verified` here as everywhere else: folding them into one "done"
- * figure on a summary page would be the most damaging place yet to do it, because a summary is
- * read fastest and questioned least.
- */
 export function treeRollups(
   trees: { id: string; name: string }[],
   branches: { id: string; treeId?: string }[],
@@ -158,7 +97,6 @@ export function treeRollups(
       verified,
       claimed,
       failed,
-      // Cancelled leaves are excluded by stateFor, so they cannot inflate what is left.
       outstanding: states.length - verified - claimed,
       total: states.length,
       lastActivity: mine.reduce((newest, l) => (l.updatedAt > newest ? l.updatedAt : newest), ''),
@@ -166,11 +104,9 @@ export function treeRollups(
   }).sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
 }
 
-/** "3 minutes ago" — an absolute timestamp makes you do arithmetic to answer "is this stale". */
 export function ago(iso: string, now = Date.now()): string {
   const seconds = Math.round((now - new Date(iso).getTime()) / 1000);
   if (!Number.isFinite(seconds)) return '';
-  // A clock skew between the server and the browser must not read as "in 4 seconds".
   if (seconds < 60) return 'just now';
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -179,13 +115,6 @@ export function ago(iso: string, now = Date.now()): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-/**
- * Everything belonging to one tree.
- *
- * The same summary serves two altitudes — everything you own, and one project — so scoping happens
- * once here rather than being re-derived by each section. A branch with no tree matches nothing,
- * which is correct: unfiled conversations belong to no project.
- */
 export function scopeToTree<B extends { id: string; treeId?: string }>(
   treeId: string,
   branches: B[],
@@ -196,16 +125,6 @@ export function scopeToTree<B extends { id: string; treeId?: string }>(
   return { branches: mine, leaves: leaves.filter((l) => ids.has(l.branchId)) };
 }
 
-/**
- * The work of a tree, grouped the way you would ask about it.
- *
- * A list rather than columns. Columns showed exactly one attribute — state — which every row
- * already carries, and spent the width of the pane doing it; on a finished tree five of the six
- * stood empty. Grouping keeps the one thing the columns were for and costs nothing.
- *
- * Owed first, then in flight, then the claims that nothing checked, then what is actually done.
- * That is descending order of "should you do something about this".
- */
 export function groupWork(leaves: Leaf[]): { state: LeafState; leaves: Leaf[] }[] {
   const order: LeafState[] = ['failed', 'blocked', 'running', 'proposed', 'claimed', 'verified'];
   return order

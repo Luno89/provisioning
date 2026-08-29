@@ -1,15 +1,3 @@
-/* ═══════════════ Unified chat frame → render state reducer ═══════════════ */
-
-/**
- * Pure reducer: a stream of backend unified frames → minimal render state.
- *
- * The backend emits frames: {type:'content',delta}, {type:'thinking',delta},
- * {type:'toolAnnounce',payload:{id,name,args}}, {type:'toolResult',payload:{id,ok,digest}},
- * {type:'enabled',payload:string[]}, {type:'proposedTree'|'proposedSpec',payload},
- * {type:'plan',payload}, {type:'usage',payload}, {type:'interrupted',payload}
- *
- * This reducer is shared by any chat surface (workbench, koala, etc.). No React, no side effects.
- */
 
 export interface ToolPill {
   id: string;
@@ -32,14 +20,10 @@ export const emptyChatRenderState: ChatRenderState = {
   live: '', liveThinking: '', tools: [], enabled: [], proposals: [],
 };
 
-/**
- * Apply one unified frame to the render state. Returns a new state (immutable).
- */
 export function reduceUnifiedFrames(
   state: ChatRenderState,
   frame: UnifiedFrame,
 ): ChatRenderState {
-  // Narrow the frame first so TS tracks payload in each branch
   if (frame.type === 'content' && 'delta' in frame) {
     const delta = frame.delta ?? '';
     return delta === '' ? state : { ...state, live: state.live + delta };
@@ -76,7 +60,6 @@ export function reduceUnifiedFrames(
   return state;
 }
 
-/** All frames the backend can emit (kept here so surfaces don't need to import backend types). */
 export type UnifiedFrame =
   | { type: 'content'; delta: string }
   | { type: 'thinking'; delta: string }

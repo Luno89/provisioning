@@ -6,24 +6,6 @@ import ChatSurface from '../components/ChatSurface.js';
 import * as chatPackApi from '../api/chat-pack.js';
 import * as client from '../api/client.js';
 
-/**
- * RED: ChatSurface component with the unified wire.
- *
- * Renders a chat for a given persona pack, streams unified frames, and renders
- * - live assistant text (content frames)
- * - live thinking (thinking frames)
- * - tool pills (toolAnnounce → toolResult)
- * - enabled services banner
- *
- * Mocks at the api module boundary (chat-pack) and client boundary (postStream),
- * same pattern as KoalaChat.test.
- */
-
-/**
- * The pack catalogue is fetched now, not hardcoded — see `api/packs.ts` for why. A surface with no
- * catalogue renders "Loading…" rather than guessing, so a test that asserts on a pack's label has
- * to supply one.
- */
 vi.mock('../api/packs', async (orig) => ({
   ...(await orig<typeof import('../api/packs')>()),
   listPacks: vi.fn(async () => ([{
@@ -197,8 +179,6 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     );
 
     expect(screen.getByText('You')).toBeInTheDocument();
-    // The pack's label arrives with the catalogue rather than from a hardcoded array, so it appears
-    // on the next tick. The surface shows no name at all until it knows one — see `activePack`.
     await waitFor(() => expect(screen.getAllByText('KOALA').length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText('What is the cluster status?')).toBeInTheDocument();
     expect(screen.getByText('All 3 nodes are ready.')).toBeInTheDocument();

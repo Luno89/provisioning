@@ -1,19 +1,3 @@
-/**
- * One experiment, with its panels behind a tab strip instead of stacked accordions.
- *
- * ── WHY TABS AND NOT FIVE CHEVRONS ──
- * This card grew a collapsible section per feature — history, variants, prompts, results, plus the
- * live view — so a card at rest was five disclosure triangles and a card in use was an
- * indeterminate stack of open ones. Nothing told you which of them held the thing you wanted, and
- * two open at once pushed the third off screen.
- *
- * The panels are alternatives rather than additions: you are reading results, or editing variants,
- * or checking what the tasks say — never two at once. A tab strip says that, and keeps the card a
- * fixed shape whichever one is showing.
- *
- * The live view is the exception and is deliberately NOT a tab: it belongs to work happening right
- * now, so it sits above the strip and disappears when the run lands.
- */
 import { useState } from 'react';
 import { Play, Square, Trash2, Copy, Loader2, Maximize2 } from 'lucide-react';
 import { card, type Experiment, type HarnessConfig, type HarnessProfile } from './shared';
@@ -46,15 +30,12 @@ export function ExperimentCard({ experiment: e, config, profile, live, openResul
   const running = Boolean(e.running || e.status === 'running');
   const hasResults = e.results.length > 0;
 
-  // Results is the default, but an experiment that has never run has nothing to show there — so a
-  // fresh one opens on its tasks, which is what you would want to check before pressing play.
   const active: Panel = panel === 'results' && !hasResults ? 'tasks' : panel;
 
   const tabs: { id: Panel; label: string; badge?: string }[] = [
     { id: 'results', label: 'Results', ...(hasResults ? { badge: String(e.results.length) } : {}) },
     { id: 'variants', label: 'Variants', badge: String(e.variants.length) },
     { id: 'tasks', label: 'Tasks', badge: String(e.tasks.length) },
-    // Only once there is something to compare against — a single run is not a history.
     ...(e.history?.length > 1 ? [{ id: 'history' as const, label: 'History', badge: String(e.history.length) }] : []),
   ];
 
@@ -118,7 +99,6 @@ export function ExperimentCard({ experiment: e, config, profile, live, openResul
         </div>
       )}
 
-      {/* Above the strip, not in it: this is work happening now, and it goes away on its own. */}
       {live && <LivePanel run={live} />}
 
       <div className="border-t border-[var(--bark-600)] flex items-center gap-1 px-3 pt-2">

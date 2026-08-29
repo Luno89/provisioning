@@ -141,7 +141,6 @@ export function ChatMessageRow({
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
 
-  // Parse thoughts and strip control/think tags from body content
   const parsed = ChatParser.parse(message.content ?? '');
   const allThoughts = [
     ...(message.reasoning ? [message.reasoning.trim()] : []),
@@ -159,7 +158,6 @@ export function ChatMessageRow({
         isUser ? 'bg-[var(--bark-900,#111814)]/20' : ''
       }`}
     >
-      {/* Avatar */}
       <div className="shrink-0 w-7 h-7 rounded-md bg-[var(--bark-900,#111814)] border border-[var(--bark-700,#24332b)] flex items-center justify-center shadow-xs mt-0.5">
         {isUser ? (
           <User size={14} className="text-emerald-400" />
@@ -168,9 +166,7 @@ export function ChatMessageRow({
         )}
       </div>
 
-      {/* Message Column */}
       <div className="flex-1 min-w-0 space-y-1.5">
-        {/* Speaker Name & Time */}
         <div className="flex items-center gap-2 text-xs text-slate-400 font-sans">
           <span className={`font-semibold ${isUser ? 'text-slate-200' : 'text-emerald-400'}`}>
             {isUser ? 'You' : packLabel}
@@ -182,7 +178,6 @@ export function ChatMessageRow({
           )}
         </div>
 
-        {/* Reasoning / Thinking Pill */}
         {(allThoughts.length > 0 || isThinkingNow) && (
           <ThinkingDisclosure
             thoughts={allThoughts}
@@ -191,7 +186,6 @@ export function ChatMessageRow({
           />
         )}
 
-        {/* Enabled Services Banner */}
         {message.enabled && message.enabled.length > 0 && (
           <div className="my-1.5 flex flex-wrap gap-1.5 items-center text-xs text-slate-300 font-sans">
             <span className="text-slate-400 font-medium">Services attached:</span>
@@ -203,7 +197,6 @@ export function ChatMessageRow({
           </div>
         )}
 
-        {/* Tool Calls Cards */}
         {message.toolCalls && message.toolCalls.length > 0 && (
           <div className="space-y-1 my-2">
             {message.toolCalls.map((t) => (
@@ -212,7 +205,6 @@ export function ChatMessageRow({
           </div>
         )}
 
-        {/* Message Content - Clean document text without box wrapping */}
         <div className="text-[13.5px] leading-relaxed text-slate-200 prose prose-invert max-w-none">
           {parsed.cleanContent ? (
             <Markdown>{parsed.cleanContent}</Markdown>

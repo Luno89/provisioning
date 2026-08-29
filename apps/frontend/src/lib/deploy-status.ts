@@ -1,9 +1,3 @@
-/**
- * The colour a deployment status is shown in.
- *
- * In lib because two screens want it. Left in App.tsx it would have a component importing
- * from a screen file, which is how a UI file becomes a module everything depends on.
- */
 export const deployStatusClass = (status: string) => (
   status === 'running' ? 'bg-green-500/10 text-green-400'
   : status === 'unhealthy' ? 'bg-amber-500/10 text-amber-400'

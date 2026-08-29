@@ -1,6 +1,3 @@
-/**
- * WorkerService — Orchestrates the Worker life cycle inside the k3d cluster.
- */
 import { exec } from 'child_process';
 
 export interface WorkerState {
@@ -8,8 +5,6 @@ export interface WorkerState {
   readonly context: string;
   readonly state: 'running' | 'stopped';
 }
-
-// ─── Self-reference ───
 
 export default class WorkerService {
   private _state: WorkerState | null = null;

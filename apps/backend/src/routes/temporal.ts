@@ -1,16 +1,11 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 
-/** The `:id` from the path, narrowed once — Express types `req.params` loosely inside asyncRoute. */
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-/** The user `requireAuth` put on the request. */
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-/**
- * Workflow inspection: what is running, what it did, and terminating one.
- */
 export function temporalRouter(deps: Record<string, any>): Router {
   const { temporalBridge } = deps;
   const router = Router();

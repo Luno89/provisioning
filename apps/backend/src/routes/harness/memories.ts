@@ -6,18 +6,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { unreachableMemory, type MemoryItem } from '../../lib/memory-store.js';
 import type { TemporalBridge } from '../../services/TemporalBridge.js';
 
-/** The `:id` from the path, narrowed once — Express types `req.params` loosely inside asyncRoute. */
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-/** The user `requireAuth` put on the request. */
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-/**
- * The memory bank — what the harness remembers between runs, and the review gate over it.
- *
- * Extracted from index.ts, where `/api/harness/*` was 34 routes on one `app` object.
- */
 export interface memoriesRouterDeps {
   db: Database;
   temporalBridge: TemporalBridge;
@@ -33,12 +26,6 @@ export function memoriesRouter(deps: memoriesRouterDeps): Router {
     res.json(memories);
   });
 
-  /**
-   * What the last consolidation pass did.
-   *
-   * A loop that retires memories unattended should be visible to the person whose memories they
-   * are — otherwise the bank quietly shrinking is indistinguishable from the bank being broken.
-   */
   router.get('/consolidation', async (_req, res) => {
     res.json(temporalBridge.lastConsolidation ?? null);
   });
@@ -52,8 +39,6 @@ export function memoriesRouter(deps: memoriesRouterDeps): Router {
     const item: MemoryItem = {
       id: uuidv4(),
       ownerId,
-      // Omitted rather than set to undefined: `exactOptionalPropertyTypes` distinguishes the two,
-      // and so does Mongo — an explicit undefined is a stored key, not an absent one.
       ...(projectId ? { projectId: String(projectId) } : {}),
       category,
       scope: scope === 'global' ? 'global' : 'project',
@@ -65,7 +50,6 @@ export function memoriesRouter(deps: memoriesRouterDeps): Router {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    // Refused here as well as swept by the consolidation loop — see `unreachableMemory`.
     const unreachable = unreachableMemory(item);
     if (unreachable) return res.status(400).json({ error: unreachable });
 

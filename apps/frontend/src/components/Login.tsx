@@ -13,7 +13,6 @@ export default function Login({ onSuccess }: LoginProps) {
   const [password, setPassword] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   
-  // 2FA Challenge State
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
   const [userId, setUserId] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -22,8 +21,6 @@ export default function Login({ onSuccess }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Surfaces a rejected invite code from the OAuth roundtrip (backend redirects here with
-  // ?authError=... when GitHub/Google login would have created a brand-new, un-invited account).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const authError = params.get('authError');
@@ -91,14 +88,11 @@ export default function Login({ onSuccess }: LoginProps) {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0d0f14] p-4 relative overflow-hidden font-sans">
-      {/* Background Neon Gradients */}
       <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-violet-600/10 blur-[120px]" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[120px]" />
 
-      {/* Main Glass Leaf */}
       <div className="w-full max-w-md bg-[#161a22]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-2xl relative z-10">
         
-        {/* Branding Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-violet-600 to-cyan-500 mb-4 shadow-lg shadow-violet-600/20">
             <ShieldCheck className="w-6 h-6 text-white" />
@@ -107,7 +101,6 @@ export default function Login({ onSuccess }: LoginProps) {
           <p className="text-[#8c94a6] text-sm mt-1">Infrastructure Aggregator and Node Tool for Homelab Environments</p>
         </div>
 
-        {/* Status / Error Alerts */}
         {error && (
           <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-3">
             <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
@@ -122,7 +115,6 @@ export default function Login({ onSuccess }: LoginProps) {
           </div>
         )}
 
-        {/* 2FA Form Panel */}
         {twoFactorRequired ? (
           <form onSubmit={handle2FAVerify} className="space-y-6">
             <div className="text-center mb-4">
@@ -173,7 +165,6 @@ export default function Login({ onSuccess }: LoginProps) {
             </button>
           </form>
         ) : (
-          /* Sign In / Sign Up Form */
           <>
             <form onSubmit={handleNativeSubmit} className="space-y-6">
               <div>
@@ -247,7 +238,6 @@ export default function Login({ onSuccess }: LoginProps) {
               </button>
             </form>
 
-            {/* Social Logins Splitter */}
             <div className="relative my-8 text-center">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-white/5" />
@@ -257,7 +247,6 @@ export default function Login({ onSuccess }: LoginProps) {
               </span>
             </div>
 
-            {/* Social Social Buttons */}
             <div className="grid grid-cols-2 gap-4">
               <button
                 onClick={() => handleSocialLogin('github')}
@@ -275,7 +264,6 @@ export default function Login({ onSuccess }: LoginProps) {
               </button>
             </div>
 
-            {/* Switch Mode Toggle */}
             <div className="mt-8 text-center">
               <button
                 onClick={() => {

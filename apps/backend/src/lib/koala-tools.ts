@@ -10,21 +10,6 @@ import {
   type KoalaToolHandler,
 } from './koala-tool-handlers.js';
 
-/** The ids a proposal may use, taken from the definitions rather than restated. */
-
-/**
- * The tools Koala gets in general chat.
- *
- * ── WHY NOT LEAF_TOOLS ──
- * Every one of those acts on a branch: propose a leaf, revise it, set its acceptance, attach it to
- * a project. There is no branch here. Offering them would let Koala propose work into a board that
- * does not exist, and the failure would be a tool call returning "no such branch" for reasons the
- * model has no way to understand.
- *
- * What replaces them is one tool: propose a PROJECT. Koala works out what the thing is; the Grove
- * is where it gets built, by personas written for building.
- */
-
 const KOALA_OWN_TOOLS = [
   {
     type: 'function',
@@ -45,11 +30,6 @@ const KOALA_OWN_TOOLS = [
   {
     type: 'function',
     function: {
-      /**
-       * The lazy half of the mechanism. Every deployed service's tool schemas riding on every
-       * message would cost thousands of tokens per turn for capabilities the conversation is
-       * usually not about; a name in the prompt costs ten and is enough to ask for the rest.
-       */
       name: 'enable_mcp_server',
       description:
         'Hook up one of the services listed in your prompt, loading its tools so you can call them. '
@@ -78,25 +58,8 @@ const KOALA_OWN_TOOLS = [
         type: 'object',
         properties: {
           name: { type: 'string', description: 'Short name for the project, e.g. "GitHub API MCP".' },
-          /**
-           * Constrained to the same list the HTTP route validates against, so a model cannot invent
-           * a type that then fails on creation with a message about an enum it never saw.
-           */
           type: {
             type: 'string',
-            /**
-             * No enum, and no default.
-             *
-             * The enum came from a module constant. Project types are owned records now, so a
-             * schema built once at import cannot know a type someone added this morning — and a
-             * fixed list would quietly exclude it. The handler validates against the caller's own
-             * types and refuses with the valid ids, which is the division `validateArgs` sets out:
-             * this declares the shape, the handler decides whether the call makes sense.
-             *
-             * Omitting it is refused rather than defaulted. The type decides the image, the
-             * skeleton and what finishing means; substituting one silently builds a different kind
-             * of project than was asked for.
-             */
             description: 'What kind of thing this is. Call list_tree_types to see the ids available.',
           },
           goal: {
@@ -113,12 +76,6 @@ const KOALA_OWN_TOOLS = [
   {
     type: 'function',
     function: {
-      /**
-       * Koala could SEE infrastructure and not wire it up: asked to make a service cache in mongo it
-       * would discover the database, propose a project, and stop — a plausible answer from something
-       * that quietly cannot act. A person should not have to know which surface is able to do a
-       * thing.
-       */
       name: 'add_project_dependency',
       description:
         'Declare that an existing project depends on a running service, so its deployment is given '
@@ -144,13 +101,6 @@ const KOALA_OWN_TOOLS = [
   {
     type: 'function',
     function: {
-      /**
-       * Added after Koala planned MongoDB caching for a platform with no MongoDB. `mongo` is not in
-       * APP_TYPES, so one cannot be deployed, and the instance's own runs under docker-compose —
-       * not in the cluster and not reachable by a built service. Koala had no way to know, so it
-       * agreed. A request the platform cannot satisfy should be refused in conversation, where it
-       * costs a sentence, not in a build, where it costs a run.
-       */
       name: 'list_infrastructure',
       description:
         'What is running in the cluster that a built service could use — databases, storage, search, '
@@ -163,12 +113,6 @@ const KOALA_OWN_TOOLS = [
   {
     type: 'function',
     function: {
-      /**
-       * Adding a deployable app is a RECORD now, not a construct — see lib/app-spec.ts. This is how
-       * Koala writes one. Proposed and accepted like everything else it creates: a spec runs
-       * containers in someone's cluster, and the moment before it exists is the cheapest place to
-       * look at it.
-       */
       name: 'propose_spec',
       description:
         'Propose a new deployable app type, so this platform can deploy something it currently '
@@ -255,11 +199,6 @@ const KOALA_OWN_TOOLS = [
   {
     type: 'function',
     function: {
-      /**
-       * Added after Koala guessed. It found a crash-looping MongoDB and said the cause was
-       * "insufficient memory or a missing persistent volume" — plausible and wrong. The real reason
-       * was in the pod's own output, which nothing let it read.
-       */
       name: 'get_logs',
       description:
         'The recent output of a deployment, for working out WHY it is not working. Read this before '
@@ -294,14 +233,6 @@ const KOALA_OWN_TOOLS = [
   {
     type: 'function',
     function: {
-      /**
-       * The general read, added because two specific ones were not enough.
-       *
-       * `get_logs` and `get_events` answer one question each. Everything else a person asks — why is
-       * this pod pending, what did the PVC bind to, which container is restarting — had no tool, so
-       * the model went back to reasoning from an app's name. That is precisely the failure
-       * `kube-diagnostics.ts` was written to stop, reappearing one question over.
-       */
       name: 'inspect_resources',
       description:
         'Read the live state of Kubernetes objects belonging to one of your deployments or leaf '
@@ -549,29 +480,16 @@ const KOALA_OWN_TOOLS = [
   },
 ] as const;
 
-/**
- * The web tools, taken from LEAF_TOOLS rather than restated.
- *
- * They were implemented in the runner and wired into the chat route's context, and never offered to
- * a model, because nobody added a schema here — so Koala has not been able to search the web at
- * all. Importing the declarations means there is exactly one copy of them in the codebase, which is
- * the same rule the header of this file states about TREE_TYPES.
- */
 export const KOALA_TOOLS = [...KOALA_OWN_TOOLS, ...WEB_TOOLS] as const;
 
-/** Every tool Koala can be offered, by name. Derived, so it cannot list one that does not exist. */
 export type KoalaToolName = typeof KOALA_OWN_TOOLS[number]['function']['name'] | typeof WEB_TOOL_NAMES[number];
 
-/**
- * Schema ↔ handler, joined so that neither can exist alone.
- */
 export const KOALA_TOOL_HANDLERS = {
   list_mcp_servers: handleListMcpServers,
   enable_mcp_server: handleEnableMcpServer,
   add_project_dependency: handleAddProjectDependency,
   list_infrastructure: handleListInfrastructure,
   propose_spec: handleProposeSpec,
-  // Both names share one implementation, which reads the name to decide which command to build.
   get_logs: (ctx, args) => handleGetLogs(ctx, args, 'get_logs'),
   get_events: (ctx, args) => handleGetLogs(ctx, args, 'get_events'),
   inspect_resources: handleInspectResources,
@@ -593,9 +511,6 @@ export const KOALA_TOOL_HANDLERS = {
   fetch_web_page: handleFetchWebPage,
 } satisfies Record<KoalaToolName, KoalaToolHandler>;
 
-/**
- * What each tool DOES, for the Action Gate.
- */
 export const KOALA_TOOL_EFFECTS = {
   list_mcp_servers: 'read',
   enable_mcp_server: 'write',

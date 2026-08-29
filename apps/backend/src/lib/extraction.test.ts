@@ -18,8 +18,6 @@ describe('buildExtractionPrompt', () => {
   });
 
   it('keeps the TAIL of a long conversation', () => {
-    // A plan is refined as it goes; the earliest turns are the vaguest, and the conclusion is
-    // what the extractor actually needs.
     const many = Array.from({ length: 20 }, (_, i) => turn('user', `turn ${i}`));
     const p = buildExtractionPrompt(many);
     expect(p).toContain('turn 19');
@@ -56,13 +54,10 @@ describe('parseExtractionResult', () => {
   });
 
   it('treats an empty array as a real answer, not a failure', () => {
-    // The extractor must be able to say "nothing was agreed" — without that it invents work.
     expect(parseExtractionResult('{"leaves":[]}', 8)).toEqual([]);
   });
 
   it('returns nothing for truncated or malformed output', () => {
-    // A schema can be unsupported, silently ignored, or the model can hit its limit mid-object.
-    // Inventing work from a broken parse is the one outcome worse than extracting nothing.
     expect(parseExtractionResult('{"leaves":[{"title":"Broken"', 8)).toEqual([]);
     expect(parseExtractionResult('I think you should add rate limiting.', 8)).toEqual([]);
     expect(parseExtractionResult('', 8)).toEqual([]);
@@ -93,8 +88,6 @@ describe('parseExtractionResult', () => {
 
 describe('EXTRACTION_SCHEMA', () => {
   it('permits an empty leaves array', () => {
-    // If the schema forced at least one entry the extractor could not decline, and a model that
-    // must return something will manufacture it.
     expect((EXTRACTION_SCHEMA.properties.leaves as any).minItems).toBeUndefined();
   });
 
@@ -104,11 +97,6 @@ describe('EXTRACTION_SCHEMA', () => {
 });
 
 describe('the service name the planner declares', () => {
-  /**
-   * Without it the name fell back to the request id the deployment carries, so every tool a service
-   * exposed was prefixed `koala-request-42784df9__` — the one part of the name that should say what
-   * the thing IS said nothing.
-   */
   it('reads a short name out of the plan block', () => {
     const reply = 'Here is the plan.\n```json\n{"leaves":[{"title":"Do it"}],"serviceName":"weather"}\n```';
     expect(extractServiceName(reply)).toBe('weather');
@@ -119,13 +107,11 @@ describe('the service name the planner declares', () => {
   });
 
   it('rejects a sentence, so the tree name is used instead', () => {
-    // Prefixing every tool with a description is worse than falling back to a name somebody chose.
     const reply = '```json\n{"leaves":[],"serviceName":"the service that wraps the weather API"}\n```';
     expect(extractServiceName(reply)).toBeUndefined();
   });
 
   it('is undefined when the planner said nothing', () => {
-    // The common case: most work does not produce a callable service.
     expect(extractServiceName('```json\n{"leaves":[{"title":"Do it"}]}\n```')).toBeUndefined();
     expect(extractServiceName('just talking')).toBeUndefined();
     expect(extractServiceName('')).toBeUndefined();

@@ -25,8 +25,6 @@ export function NewExperiment({ languages, limits, tunables, onDone,
   const create = useMutation({
     mutationFn: () =>
       createExperiment(
-        // The suite's first language doubles as the experiment default, so a record always has one
-        // even though every task carries its own.
         { name, tasks, language: tasks[0]?.language ?? 'node', axes, repeats },
       ),
     onSuccess: onDone,
@@ -39,10 +37,6 @@ export function NewExperiment({ languages, limits, tunables, onDone,
   const patchTask = (index: number, patch: Partial<DraftTask>) =>
     setTasks((ts) => ts.map((t, i) => (i === index ? { ...t, ...patch } : t)));
 
-  // The cross product, which is what the server will build. Selecting a third axis multiplies
-  // past the ceiling quickly, and the server rejects rather than quietly dropping combinations —
-  // so the form has to say so here, before the Create button is worth pressing.
-  // A knob is a one-click axis only when the registry names two ends worth comparing.
   const offerable = tunables.filter((t) => t.suggested?.length);
 
   const variantCount = Object.values(axes).reduce((n, vs) => n * (vs.length || 1), 1);
@@ -50,7 +44,6 @@ export function NewExperiment({ languages, limits, tunables, onDone,
   const overCap = variantCount > limits.maxVariants
     ? `${variantCount} variants is over the limit of ${limits.maxVariants}. `
       + 'Drop an axis — otherwise some combinations would go unmeasured.'
-    // Three individually reasonable choices multiply into this, so it is stated as the product.
     : totalRuns > limits.maxTotalRuns
       ? `${tasks.length} × ${variantCount} × ${repeats} is ${totalRuns} sandboxes, over the limit `
         + `of ${limits.maxTotalRuns}. Cut tasks, variants or repeats.`
@@ -65,7 +58,6 @@ export function NewExperiment({ languages, limits, tunables, onDone,
         <div className="flex items-baseline gap-2 mb-2">
           <p className="text-[10px] uppercase tracking-widest text-slate-500">Tasks</p>
           <p className="text-[11px] text-slate-600">
-            {/* The reason the suite editor exists at all, said once where it is acted on. */}
             One task measures whether a setting suits one prompt. Several measure whether it is better.
           </p>
         </div>
@@ -146,8 +138,6 @@ export function NewExperiment({ languages, limits, tunables, onDone,
         </div>
 
         {['sampling', 'loop', 'prompt'].map((group) => {
-          // Only knobs with two ends worth comparing become one-click axes. The rest are real and
-          // sendable, but picking values for them is a judgement the form cannot make.
           const inGroup = offerable.filter((t) => t.group === group);
           if (!inGroup.length) return null;
           return (
@@ -170,8 +160,6 @@ export function NewExperiment({ languages, limits, tunables, onDone,
                     >
                       {t.label}
                       {on && <span className="ml-1.5 font-mono">{values.map(describeValue).join(' vs ')}</span>}
-                      {/* Engine-gated knobs are dropped on a different engine rather than failing
-                          the run, so the picker says which before you spend sandboxes on it. */}
                       {t.engine && <span className="ml-1.5 text-[10px] text-slate-600">{t.engine}</span>}
                     </button>
                   );
@@ -193,7 +181,6 @@ export function NewExperiment({ languages, limits, tunables, onDone,
           Create
         </button>
         <span className={`text-[11px] ${overCap ? 'text-amber-400' : 'text-slate-500'}`}>
-          {/* Stated before it runs, because each one is a real pod and real tokens. */}
           {overCap || `${totalRuns} sandbox${totalRuns > 1 ? 'es' : ''} will be created when you run it.`}
         </span>
       </div>

@@ -12,18 +12,11 @@ import { isWorkspaceLanguage } from '../../lib/workspace-spec.js';
 import type { Experiment, ExperimentTask } from '@koala/harness-types';
 import type { ExperimentService } from '../../services/ExperimentService.js';
 
-/** The `:id` from the path, narrowed once — Express types `req.params` loosely inside asyncRoute. */
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-/** The user `requireAuth` put on the request. */
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-/**
- * Experiment CRUD and runs. The running itself is ExperimentService; these routes are its API.
- *
- * Extracted from index.ts, where `/api/harness/*` was 34 routes on one `app` object.
- */
 export interface experimentsRouterDeps {
   db: Database;
   experimentService: ExperimentService; modelIdsFor: (u: string) => Promise<string[] | undefined>;
@@ -38,31 +31,23 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     res.json(
       mine
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        // Recomputed rather than stored: a backend restart during a run leaves the record saying
-        // "running" forever, and the service is the only thing that knows the truth.
         .map((e) => ({ ...summariseExperiment(e), running: experimentService.isRunning(e.id) })),
     );
   });
 
-  /** One experiment in full — prompts, traces, requests. Fetched when something is expanded. */
   router.get('/:id', async (req, res) => {
     const experiment = (await db.getExperiments())
       .find((e) => e.id === idOf(req) && e.ownerId === userOf(req).id);
     if (!experiment) return res.status(404).json({ error: 'No such experiment' });
-    // Normalised like the list is, so the client never branches on a record's age.
     res.json({ ...normaliseExperiment(experiment), running: experimentService.isRunning(experiment.id) });
   });
 
   router.post('/', async (req, res) => {
     const { name, tasks, task, verifyCommand, language, variants, axes, repeats } = req.body ?? {};
-    // Axes are the friendlier form — one question at a time — and expand to explicit variants so a
-    // stored experiment always says exactly what it ran.
     const resolved = Array.isArray(variants) && variants.length
       ? variants
       : expandAxes(axes && typeof axes === 'object' ? axes : {});
 
-    // A suite, or the single task the older client sends — both normalise to the same stored
-    // shape, so nothing downstream has to ask which one arrived.
     const suite: ExperimentTask[] = Array.isArray(tasks) && tasks.length
       ? normaliseTasks(tasks)
       : [{
@@ -93,16 +78,6 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     res.status(201).json(draft);
   });
 
-  /**
-   * Edits an experiment in place.
-   *
-   * ── WHY EDITING A PROMPT DISCARDS THAT TASK'S RESULTS ──
-   * A result is a measurement OF a prompt. Change the prompt and keep the number and the record
-   * quietly asserts something that was never run — the worst kind of wrong, because it looks like
-   * evidence. So results are dropped for exactly the tasks whose prompt or verify command moved,
-   * and kept for the ones that did not. `duplicate` is the non-destructive path when the old
-   * numbers are worth keeping alongside the new ones.
-   */
   router.put('/:id', async (req, res) => {
     const existing = (await db.getExperiments())
       .find((e) => e.id === idOf(req) && e.ownerId === userOf(req).id);
@@ -123,8 +98,6 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
         ? expandAxes(axes)
         : existing.variants;
 
-    // Spread the existing record: saveExperiment replaces the whole document, so anything not
-    // carried forward here would be silently deleted.
     const next: Experiment = {
       ...existing,
       name: name === undefined ? existing.name : String(name).trim().slice(0, 120),
@@ -139,19 +112,6 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     const invalid = validateExperiment(next);
     if (invalid) return res.status(400).json({ error: invalid });
 
-    /**
-     * Editing keeps every past execution.
-     *
-     * This used to delete results whose prompt had changed, on the reasoning that a number
-     * attached to wording it never measured is a lie. That was right when a record held ONE set of
-     * results and nothing about the conditions. It stopped being right when runs became history:
-     * every execution now stores the prompt it was actually sent, the parameters as they went out,
-     * and which keys came from the profile — so an old run is a self-describing record of what was
-     * asked then, not a claim about what is asked now.
-     *
-     * Deleting it would throw away the very evidence that makes "re-run it after the change"
-     * answerable, which is the entire reason the suite is written down.
-     */
     const changedTasks = suite
       .filter((t) => {
         const was = before.find((b) => b.id === t.id);
@@ -161,8 +121,6 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     const variantsChanged = JSON.stringify(resolvedVariants) !== JSON.stringify(existing.variants);
 
     await db.saveExperiment(next);
-    // Reported rather than acted on: the next run answers the new question, and the history says
-    // what the old one answered.
     res.json({
       ...next,
       changedTasks,
@@ -171,7 +129,6 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     });
   });
 
-  /** Copies an experiment without its results — the non-destructive way to try a reworded prompt. */
   router.post('/:id/duplicate', async (req, res) => {
     const existing = (await db.getExperiments())
       .find((e) => e.id === idOf(req) && e.ownerId === userOf(req).id);
@@ -202,8 +159,6 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
       return res.status(409).json({ error: 'Already running' });
     }
 
-    // Returns immediately: an experiment is minutes of real sandboxes and inference, and the UI
-    // polls for results as each variant lands.
     experimentService.start(experiment);
     res.status(202).json({ started: true, runs: plannedRuns(experiment) });
   });
@@ -242,6 +197,5 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     res.json({ deleted: true });
   });
 
-  // ── TOOL REPOSITORY ──
   return router;
 }

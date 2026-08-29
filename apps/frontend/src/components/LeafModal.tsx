@@ -4,21 +4,6 @@ import LeafDetail from './LeafDetail.js';
 import type { Leaf } from './leaf-types.js';
 import { listLeaves } from '../api/grove';
 
-/**
- * A leaf opened from the board.
- *
- * ── WHY IT IS A SHELL AND NOT A SECOND SURFACE ──
- * This used to be `LeafTrace`, and it was the other half of the split: the board could show every
- * turn a leaf took but not what it was asked, what it claimed, or how it failed, while the sidebar
- * pane could show all of that and no turns. Two surfaces, each missing the other's half, reached by
- * unrelated routes.
- *
- * So it holds no content of its own. It fetches the full leaf — the board's own payload is trimmed
- * for cards and lacks the body, the summary and the attempts — and hands it to the one component
- * that knows how to describe a leaf.
- *
- * The list is already in the cache whenever the workspace is open, so this is usually free.
- */
 export default function LeafModal({ leafId, onClose, onReview }: {
   leafId: string;
   onClose: () => void;
@@ -29,8 +14,6 @@ export default function LeafModal({ leafId, onClose, onReview }: {
     queryFn: listLeaves,
   });
 
-  // Defensive: a malformed or empty response must not take the panel down with it. Reading `.find`
-  // off a non-array is how a bad payload became a blank screen rather than a message.
   const all = Array.isArray(leaves) ? leaves : [];
   const leaf = all.find((l) => l.id === leafId);
 

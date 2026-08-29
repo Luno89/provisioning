@@ -7,21 +7,8 @@ import LeafDetail from '../components/LeafDetail';
 import AcceptancePlan from '../components/AcceptancePlan';
 import type { Leaf } from '../components/leaf-types';
 
-/**
- * The backend recorded all of this for a session and none of it reached the screen. Every green
- * result was confirmed by reading Mongo, port-forwarding Gitea, and cloning the repo by hand —
- * which is not a thing a user can do, so the product had no way to show that anything had been
- * checked.
- */
-// LeafDetail and AcceptancePlan still go through axios directly; Chat goes through api/models.
-// Both are mocked until those two components are converted as well.
 vi.mock('axios');
 
-/**
- * Chat blocks on its model list before rendering a transcript at all, so a notice is only
- * reachable once that query has resolved. Mocked at the api module, because `vi.mock('axios')`
- * cannot reach the instance `api/client` builds with `axios.create()`.
- */
 vi.mock('../api/models', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
   listModels: vi.fn().mockResolvedValue([
@@ -42,23 +29,15 @@ const show = (l: Leaf) => render(
 
 describe('what checked a leaf', () => {
   it('distinguishes a verified success from a claimed one', () => {
-    /**
-     * The board rendered both as the same green dot. "Its tests ran and passed" and "an agent said
-     * so" are very different claims and the interface made them identical.
-     */
     show(leaf({ verified: true }));
-    // The state word, and the reason under it — one says WHICH, the other says WHY.
     expect(screen.getByText('Verified')).toBeTruthy();
     expect(screen.getByText(/a check ran and passed/i)).toBeTruthy();
   });
 
   it('calls an unchecked success a claim, without calling it a failure', () => {
-    // An unverified success is still a success — most work is not test-shaped. It is just not
-    // evidence.
     show(leaf({ verified: false }));
     expect(screen.getByText('Claimed')).toBeTruthy();
     expect(screen.getByText(/nothing checked this/i)).toBeTruthy();
-    // The half that matters: it must not be dressed as a failure. Most work is not test-shaped.
     expect(screen.queryByText(/Failed/)).toBeNull();
   });
 
@@ -70,7 +49,6 @@ describe('what checked a leaf', () => {
 
 describe('where the work went', () => {
   it('names the branch when the work has not merged', () => {
-    // There was no path at all from a finished leaf to the code it produced.
     show(leaf({ verified: true, outputBranch: 'koala/deadbeef' }));
     expect(screen.getByText('koala/deadbeef')).toBeTruthy();
   });
@@ -88,13 +66,11 @@ describe('what a leaf promised and waits on', () => {
   });
 
   it('shows that it waits on other work', () => {
-    // The ordering you agreed to when you accepted, which appeared nowhere.
     show(leaf({ status: 'pending', dependsOn: ['a', 'b'] }));
     expect(screen.getByText(/waits on 2 other leaves/i)).toBeTruthy();
   });
 
   it('names what it waits on when those leaves are to hand', () => {
-    // "waits on the transport leaf" is actionable where a count is not.
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <LeafDetail
@@ -108,10 +84,6 @@ describe('what a leaf promised and waits on', () => {
   });
 
   it('does not claim finished work is still waiting', () => {
-    /**
-     * A succeeded leaf keeps its dependsOn — it is history, not a queue. Rendering the raw length
-     * had a leaf that was merged and verified reporting that it waited on two other leaves.
-     */
     show(leaf({ status: 'succeeded', verified: true, dependsOn: ['a', 'b'] }));
     expect(screen.queryByText(/waits on/i)).toBeNull();
   });
@@ -124,11 +96,6 @@ describe('what a leaf promised and waits on', () => {
 
 describe('the acceptance plan', () => {
   it('shows every check, command included', () => {
-    /**
-     * The planner writes these itself, which is only safe because a person reads them before
-     * agreeing to the work. That argument was made twice while the field appeared nowhere in the
-     * interface — so the command is shown, not just the friendly name the model chose.
-     */
     render(<AcceptancePlan acceptance={[{ name: 'tests pass', command: 'npm test' }]} />);
 
     expect(screen.getByText(/tests pass/)).toBeTruthy();
@@ -141,8 +108,6 @@ describe('the acceptance plan', () => {
   });
 
   it('renders nothing when no checks are declared', () => {
-    // An empty panel would read as "no checks required". The plan review says so in the
-    // conversation, which is where a warning belongs.
     const { container } = render(<AcceptancePlan acceptance={[]} />);
     expect(container.firstChild).toBeNull();
   });
@@ -150,11 +115,6 @@ describe('the acceptance plan', () => {
 
 describe('system notices in the transcript', () => {
   it('renders a notice as an event, not as the assistant speaking', async () => {
-    /**
-     * These carry the assistant role because `BranchMessage` has no system role, so before this
-     * they rendered with Koala's avatar — an automated failure report was indistinguishable from
-     * the model claiming to have noticed it.
-     */
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <Chat

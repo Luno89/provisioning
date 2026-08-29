@@ -1,6 +1,3 @@
-/**
- * ResizeDiskActivity - triggers a k8s volume resize for a specific deployment.
- */
 import fs from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
@@ -27,8 +24,6 @@ export interface ResizeDiskResult {
   msg: string;
 }
 
-// Moved to lib/activity-timeouts.ts — see that file for why (workflow files must never import a
-// VALUE from an activity file, only `import type`).
 export { resizeDiskActivityMeta } from '../lib/activity-timeouts.js';
 
 export async function ResizeDiskActivity(
@@ -37,10 +32,8 @@ export async function ResizeDiskActivity(
   const infra = new InfrastructureService();
   const logFile = args.logFile;
   
-  // See DeployAppActivity.ts's identical comment — 'remote' is never a mock-cloud scenario.
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
-  // See DeployAppActivity.ts's identical comment — 'remote' clusters also use this exact path.
   const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
     ? `/tmp/kubeconfig-${physicalName}`
     : undefined;
@@ -57,11 +50,6 @@ export async function ResizeDiskActivity(
     DEPLOYMENT_ID: deploymentId,
     KUBECONFIG: kubeconfigPath || '',
     KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
-    // Distinct from KUBECONFIG_CONTEXT above: that one selects a real kubeconfig context (must
-    // stay empty for 'remote', whose kubeconfig has no "k3d-..." context to select). This tells
-    // every app construct's serviceType heuristic whether it's targeting a self-managed k3s
-    // cluster (no real cloud LB controller — a `LoadBalancer` Service just hangs forever waiting
-    // for an external IP, or on k3s's own ServiceLB, conflicts with Traefik's hostPort claim).
     SELF_MANAGED_K8S: isSelfManagedCluster(args.provider, isMock) ? 'true' : 'false',
     APP_TYPE: args.appType,
     ...storageEnv,

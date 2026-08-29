@@ -1,17 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-/**
- * ── THE PROPERTY THIS FILE EXISTS TO PROTECT ──
- *
- * Hybrid recall is allowed to make memory BETTER. It is never allowed to make a leaf worse off than
- * it was before any of this existed. Qdrant down, Quickwit down, TEI down, nothing deployed, a
- * service reachable but wedged — every one of those must land a leaf on exactly the scope-and-
- * recency block it used to get, inside the cap, with no error.
- *
- * That is what makes it safe for the vector stack to be a disposable index over Mongo rather than a
- * dependency. If these tests do not hold, that claim is decoration.
- */
-
 const searchMemories = vi.fn();
 vi.mock('./memory-index.js', () => ({ searchMemories: (...a: unknown[]) => searchMemories(...a) }));
 
@@ -28,16 +16,12 @@ const mem = (over: Partial<Mem> = {}): Mem => ({
   ...over,
 });
 
-/** A bank where recency and relevance disagree, so the two orderings are distinguishable. */
 const bank: Mem[] = [
   mem({ id: 'newest', title: 'NEWEST', createdAt: '2026-08-20T00:00:00.000Z' }),
   mem({ id: 'relevant', title: 'RELEVANT', createdAt: '2026-01-01T00:00:00.000Z' }),
   mem({ id: 'oldest', title: 'OLDEST', createdAt: '2020-01-01T00:00:00.000Z' }),
 ];
 
-// Block body, not an expression body. `mockReset()` returns the mock, and vitest treats a function
-// returned from a hook as a TEARDOWN callback — so the concise form has vitest calling the mock
-// after each test, and any implementation that throws then fails the test it just passed.
 beforeEach(() => { searchMemories.mockReset(); });
 
 describe('when search answers', () => {
@@ -47,7 +31,6 @@ describe('when search answers', () => {
   });
 
   it('still includes everything search did not rank', () => {
-    // The tail matters as much as the head: a leaf must never receive LESS than before.
     const ordered = orderByRelevance(bank, ['oldest']);
     expect(new Set(ordered.map((m) => m.id))).toEqual(new Set(['oldest', 'newest', 'relevant']));
   });
@@ -64,12 +47,6 @@ describe('when search answers', () => {
 });
 
 describe('the pinned layout fact', () => {
-  /**
-   * Hybrid search is worst at exactly the memory that matters most. A file listing shares no
-   * vocabulary with "add rate limiting to the upload route", so it ranks nowhere on either half —
-   * and it is the entry that stops a leaf spending its budget on `ls -la` while three finished
-   * leaves have already built the thing it is standing in.
-   */
   it('leads, even when search ranked something else and never mentioned it', () => {
     const layout = mem({ id: 'layout', title: PINNED_TITLES[0]!, createdAt: '2020-01-01T00:00:00.000Z' });
     const ordered = orderByRelevance([...bank, layout], ['relevant']);
@@ -91,15 +68,6 @@ describe('when search does not answer', () => {
   });
 
   it('falls back when the search throws', async () => {
-    /**
-     * Throws synchronously rather than returning a rejected promise.
-     *
-     * vitest records every mock's return value in `mock.results`, which means a returned promise
-     * gets a handler attached by the harness as well as by the code under test — and a rejected one
-     * then surfaces as an unhandled rejection no matter how correctly `recallMemories` catches it.
-     * Verified outside vitest: the rejection is absorbed and `via` is `recency`. A synchronous
-     * throw inside the async caller becomes the same rejection without the harness artifact.
-     */
     searchMemories.mockImplementation(() => { throw new Error('Qdrant refused: HTTP 503'); });
     const out = await recallMemories({
       memories: bank, ownerId: 'u1', query: 'x', endpoints: async () => ({ index: { base: 'http://x' } }),
@@ -110,8 +78,6 @@ describe('when search does not answer', () => {
   });
 
   it('falls back when resolving the endpoints throws', async () => {
-    // `corpusEndpoints` port-forwards into a cluster. A cluster that has gone away must not be an
-    // exception thrown at the top of a leaf.
     const out = await recallMemories({
       memories: bank, ownerId: 'u1', query: 'x',
       endpoints: async () => { throw new Error('no kubeconfig'); },
@@ -122,9 +88,6 @@ describe('when search does not answer', () => {
   });
 
   it('gives up on a wedged service rather than holding the leaf open', async () => {
-    // Reachable but slow is the failure a try/catch does not cover. Slower than the cap rather
-    // than never-settling: a promise that never settles is one vitest waits on at teardown, which
-    // hangs the file rather than testing it.
     searchMemories.mockImplementation(() => new Promise((r) => setTimeout(() => r([]), 400)));
     const began = Date.now();
     const out = await recallMemories({

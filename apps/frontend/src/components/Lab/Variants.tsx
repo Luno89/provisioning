@@ -14,18 +14,12 @@ export function VariantPanel({ experiment, tunables, effective, prompts, profile
 }: {
   experiment: Experiment;
   tunables: Tunable[];
-  /** What a run uses when a variant leaves a knob alone — adopted defaults included. */
   effective: EffectiveKnob[];
-  /**
-   * The generated prompts by id. A knob whose default is built per task names the one it replaces
-   * via `promptId`, so a new prompt knob works here without a case being added for its key.
-   */
   prompts: Record<string, string>;
   profile: HarnessProfile | null;
   disabled: boolean;
   onSaved: () => void;
 }) {
-  // No disclosure of its own: this is a tab, so its content has already been chosen.
   const [shown, setShown] = useState<string | null>(null);
   const { data: personas } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['personas'],
@@ -49,13 +43,6 @@ export function VariantPanel({ experiment, tunables, effective, prompts, profile
     onError: (err: unknown) => setError(errorMessage(err)),
   });
 
-  /**
-   * Which persona an arm runs as, draft-aware.
-   *
-   * Held beside the override draft rather than inside it: a persona is not a knob, and folding it
-   * into the bag would put it through `validateOverrides`, which would reject an id it has never
-   * heard of — correctly, since it is not a tunable.
-   */
   const [personaDraft, setPersonaDraft] = useState<Record<string, string> | null>(null);
   const personaFor = (label: string) =>
     personaDraft?.[label] ?? experiment.variants.find((v) => v.label === label)?.personaId ?? '';
@@ -133,7 +120,6 @@ export function VariantPanel({ experiment, tunables, effective, prompts, profile
                           </span>
                         )}
                         <span className="ml-auto text-[9px] text-slate-600">
-                          {/* The point of pointing arms at personas: it is how you compare them. */}
                           resolved under this arm's own knobs
                         </span>
                       </div>
@@ -216,12 +202,6 @@ export function VariantPanel({ experiment, tunables, effective, prompts, profile
   );
 }
 
-/**
- * One knob on one variant: its effective value, where that value came from, and an editor.
- *
- * The editor is chosen from the registry's declared type rather than from the key's name, which is
- * what makes a new knob appear here automatically instead of needing a case added.
- */
 function KnobRow({
   tunable: t, value, fromProfile, profileValue, fallbackText, liveDefault, editing, field, onChange,
 }: {
@@ -229,9 +209,7 @@ function KnobRow({
   value: unknown;
   fromProfile: boolean;
   profileValue: unknown;
-  /** What a run would actually use for this knob when nothing overrides it. */
   liveDefault?: unknown;
-  /** Shown when the harness default is generated rather than a constant, per the knob's promptId. */
   fallbackText?: string | undefined;
   editing: boolean;
   field: string;
@@ -243,8 +221,6 @@ function KnobRow({
   const effective = isSet ? value : fromProfile ? profileValue : (fallbackText ?? liveDefault ?? t.default);
   const source = isVariantOverride ? 'this variant' : isProfileMatch ? 'adopted default' : 'harness default';
   const tone = isVariantOverride ? 'text-amber-400' : isProfileMatch ? 'text-amber-400' : 'text-slate-600';
-  // Long values are prose — a prompt — and belong in a block rather than on a line. Decided by the
-  // value's length and declared type, not by which key it is.
   const isProse = t.type === 'string' && String(effective ?? '').length > 60;
 
   return (
@@ -257,8 +233,6 @@ function KnobRow({
           {t.key}
         </span>
         {editing ? (
-          // Checked before the type, because what makes a value pickable is having a discovered
-          // set of them — not what shape it happens to be.
           t.choices ? (
             <select
               className={field}
@@ -303,7 +277,6 @@ function KnobRow({
                 rows={4}
                 field={`${field} font-mono`}
                 placeholder={`not set — uses the ${source}`}
-                // Only reached for string knobs — booleans and numbers have their own inputs above.
                 fallback={String(effective ?? '')}
                 fallbackNote={source}
                 onChange={(v) => onChange(v.trim() === '' ? undefined : v)}
@@ -313,8 +286,6 @@ function KnobRow({
         ) : (
           !isProse && (
             <span className="text-[10px] font-mono text-[var(--leaf-light)] break-all">
-              {/* A picked value is stored as an opaque id, so it is shown by the name it was
-                  picked under — otherwise the row reads back differently from how it was set. */}
               {t.choices?.find((c) => c.value === String(effective))?.label ?? String(effective ?? '—')}
             </span>
           )

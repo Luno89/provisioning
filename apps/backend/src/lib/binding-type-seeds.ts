@@ -1,12 +1,5 @@
 import type { BindingTypeRecord, Database } from './db-interface.js';
 
-/**
- * Default dynamic binding types seeded into the database on boot.
- *
- * Moving binding types out of a static TypeScript dictionary into MongoDB means
- * that custom services, MCP servers, and platform infrastructure can be bound dynamically
- * without requiring code edits or redeploying backend binaries.
- */
 export const BINDING_TYPE_SEEDS: BindingTypeRecord[] = [
   {
     id: 'mongodb',
@@ -91,12 +84,6 @@ export const BINDING_TYPE_SEEDS: BindingTypeRecord[] = [
   },
 ];
 
-/**
- * Seeds default binding types into the database.
- *
- * Only missing types are added, so any customizations or runtime edits in the database
- * remain preserved across server restarts.
- */
 export async function seedBindingTypes(
   db: Pick<Database, 'getBindingTypes' | 'saveBindingType'>,
 ): Promise<number> {

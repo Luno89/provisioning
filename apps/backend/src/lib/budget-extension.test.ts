@@ -24,8 +24,6 @@ const state = (over: Partial<ExtensionState> = {}): ExtensionState => ({
 
 describe('what counts as progress', () => {
   it('sees a verification go green', () => {
-    // The strongest thing that can be said about a run, and the same signal decideStatus lets
-    // overrule the agent's own claim.
     const out = compareProgress(sample({ verify: 'failed' }), sample({ verify: 'passed' }));
     expect(out.moved).toBe(true);
     expect(out.reasons[0]).toContain('tests now pass');
@@ -33,7 +31,6 @@ describe('what counts as progress', () => {
   });
 
   it('does not count a verification that was already green', () => {
-    // Still passing is not progressing — otherwise a run that did nothing would extend forever.
     expect(compareProgress(sample({ verify: 'passed' }), sample({ verify: 'passed' })).moved).toBe(false);
   });
 
@@ -60,7 +57,6 @@ describe('what counts as progress', () => {
   });
 
   it('ignores a deliverable that barely moved', () => {
-    // A few characters is editing, not writing.
     expect(compareProgress(sample({ findingsChars: 1000 }), sample({ findingsChars: 1050 })).moved).toBe(false);
   });
 
@@ -69,7 +65,6 @@ describe('what counts as progress', () => {
   });
 
   it('treats a first sample as a baseline, not as progress', () => {
-    // Nothing to compare against: an extension on turn one is not something anything has earned.
     expect(compareProgress(undefined, sample({ commits: 0, changedLines: 0 })).moved).toBe(false);
   });
 });
@@ -90,18 +85,10 @@ describe('churn, which is the signal that can be faked', () => {
   });
 
   it('ignores a trivial diff', () => {
-    // A reformat, a stray newline, a rewritten comment.
     expect(compareProgress(sample({ changedLines: 0 }), sample({ changedLines: 3 })).moved).toBe(false);
   });
 });
 
-/**
- * ── THE MOST IMPORTANT SECTION IN THIS FILE ──
- * Raising a budget on a struggling run has been measured to make things WORSE three separate times:
- * at 100 steps the agent searched for 100 steps instead of 40, and a later run at 100 died on
- * context exhaustion instead. Extending a thrashing run is a regression of findings this repository
- * already paid for, so the vetoes are absolute and are checked before any evidence is weighed.
- */
 describe('the vetoes', () => {
   it('refuses a thrashing run even with perfect evidence', () => {
     expect(decideExtension(state({ thrashing: true }))).toBeUndefined();
@@ -144,11 +131,6 @@ describe('granting more room', () => {
     expect(decideExtension(state({ extensionsUsed: MAX_EXTENSIONS }))).toBeUndefined();
   });
 
-  /**
-   * Each grant is half the ORIGINAL budget, so the worst case is exactly double what the persona
-   * declared. A human can reason about "at most double"; nobody can reason about a compounding
-   * series, and a runaway that compounds is what budgets exist to prevent.
-   */
   it('never compounds', () => {
     const first = decideExtension(state({ extensionsUsed: 0 }))!;
     const second = decideExtension(state({ extensionsUsed: 1 }))!;
@@ -159,35 +141,26 @@ describe('granting more room', () => {
   it('lets churn buy one extension but not a second', () => {
     const churn = { moved: true, reasons: ['200 lines changed since the last check'], churnOnly: true };
     expect(decideExtension(state({ evidence: churn, extensionsUsed: 0 }))).toBeDefined();
-    // Nothing better to show after already being extended once is not progressing.
     expect(decideExtension(state({ evidence: churn, extensionsUsed: 1 }))).toBeUndefined();
   });
 });
 
 describe('what the tree can afford', () => {
   it('never grants more than the root budget has left', () => {
-    // A subtree budget a single leaf can overrun is not a budget.
     const out = decideExtension(state({ headroomTokens: 12_000 }))!;
     expect(out.tokens).toBe(12_000);
   });
 
   it('refuses a grant too small to produce anything', () => {
-    // It would cost a probe and a notice and buy a turn that cannot finish.
     expect(decideExtension(state({ headroomTokens: 500 }))).toBeUndefined();
   });
 
   it('grants the full amount when no budget is enforced', () => {
-    // The current state of most installs — see lib/budget-policy.ts.
     expect(decideExtension(state({ headroomTokens: undefined }))!.tokens).toBe(50_000);
   });
 });
 
 describe('telling the agent', () => {
-  /**
-   * Not cosmetic. `buildAgentPrompt` bakes the step budget into the system prompt ONCE, so an
-   * unannounced extension leaves the agent working to a number that is no longer true —
-   * sandbox-tools.ts documents this exact bug class and step-budget.test.ts guards it.
-   */
   it('names the new ceiling and overrides the stale one', () => {
     const notice = extensionNotice({ tokens: 50_000, reason: 'granted because its tests now pass' }, 150_000, 'tokens');
     expect(notice).toContain('150,000 tokens');
@@ -200,20 +173,12 @@ describe('telling the agent', () => {
   });
 });
 
-/**
- * Why a refusal has to explain ITSELF.
- *
- * The first live run logged "no extension (its answer now meets the bar)" — the evidence in the
- * slot where a reader expects the cause, so it read as a contradiction. A refusal has exactly one
- * reason and the reader needs that one, not the argument it overruled.
- */
 describe('explaining a refusal', () => {
   it('says nothing when the extension was granted', () => {
     expect(refusalReason(state())).toBeUndefined();
   });
 
   it('names the veto rather than the evidence it overruled', () => {
-    // The exact shape of the confusing log line: strong evidence, refused anyway.
     const s = state({ thrashing: true, evidence: { moved: true, reasons: ['its tests now pass'], churnOnly: false } });
     expect(refusalReason(s)).toMatch(/thrashing/);
     expect(refusalReason(s)).not.toMatch(/tests now pass/);
@@ -230,10 +195,6 @@ describe('explaining a refusal', () => {
     expect(refusalReason(state({ headroomTokens: 500 }))).toMatch(/nothing meaningful left/);
   });
 
-  /**
-   * The two must agree, or the log explains a refusal that did not happen — which is worse than no
-   * log at all, because it is believable.
-   */
   it('agrees with decideExtension on every combination that matters', () => {
     const cases: Partial<ExtensionState>[] = [
       {},

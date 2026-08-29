@@ -12,15 +12,11 @@ describe('validatePack', () => {
   const personas = [{ id: 'p1' }, { id: 'p2' }];
 
   it('refuses a persona that does not exist', () => {
-    // A pack pointing at nothing refuses mid-conversation, which is a bad place to learn that a
-    // save was wrong. So it is refused at the write instead.
     expect(validatePack({ slug: 'a', name: 'A', personaId: 'gone', toolset: 'assistant' }, [], personas))
       .toMatch(/does not exist/i);
   });
 
   it('refuses a persona belonging to somebody else the same way as a missing one', () => {
-    // `personas` arrives ownership-filtered, so "not yours" and "not there" are one answer —
-    // distinguishing them tells a caller which ids are real.
     expect(validatePack({ slug: 'a', name: 'A', personaId: 'p9', toolset: 'assistant' }, [], personas))
       .toMatch(/does not exist/i);
   });
@@ -45,10 +41,6 @@ describe('validatePack', () => {
   });
 
   it('refuses an effect the gate would not recognise', () => {
-    /**
-     * The gate fails CLOSED on an unknown effect. So a typo does not read as a bad value — it reads
-     * as every tool in the pack refusing, three layers from the cause.
-     */
     expect(validatePack(
       { slug: 'a', name: 'A', personaId: 'p1', toolset: 'assistant', permitted: ['read', 'wrtie'] },
       [], personas,
@@ -62,11 +54,6 @@ describe('validatePack', () => {
 });
 
 describe('packForLeaf', () => {
-  /**
-   * Leaves predate packs — a leaf carries `personaId` because, when the board was built, a persona
-   * WAS the whole environment. So resolution has to work for work planned before any of this, with
-   * no migration and no dangling rows.
-   */
   const koala = pack({ id: 'pk-koala', slug: 'koala', personaId: 'p1' });
   const builder = pack({ id: 'pk-builder', slug: 'builder', personaId: 'p2', toolset: 'sandbox' });
   const packs = [koala, builder];
@@ -77,7 +64,6 @@ describe('packForLeaf', () => {
   });
 
   it('falls back to the pack built for the persona the leaf was assigned', () => {
-    // The case that covers every leaf created before packs existed.
     expect(packForLeaf(packs, { personaId: 'p2' })).toBe(builder);
   });
 
@@ -86,17 +72,14 @@ describe('packForLeaf', () => {
   });
 
   it('falls back to the persona when the named pack is gone', () => {
-    // A deleted pack must not strand a leaf that is mid-flight; its persona still resolves one.
     expect(packForLeaf(packs, { packId: 'deleted', personaId: 'p2' })).toBe(builder);
   });
 
   it('uses the profile persona when the leaf names neither', () => {
-    // What makes a Lab promotion mean anything: an adopted persona reaches unassigned work.
     expect(packForLeaf(packs, {}, 'p1')).toBe(koala);
   });
 
   it('returns nothing rather than guessing', () => {
-    // The leaf then runs with no pack, which is exactly what it did before packs existed.
     expect(packForLeaf(packs, {})).toBeUndefined();
     expect(packForLeaf(packs, { personaId: 'nobody' })).toBeUndefined();
   });

@@ -1,17 +1,3 @@
-/**
- * What each app type deploys by default, and which of them need a GPU.
- *
- * ── WHY IT IS NOT IN App.tsx ──
- * 150 lines of static image repositories and tags, sitting between the router setup and the
- * component. It is catalogue data: nothing about it changes at runtime, nothing reads React, and
- * only the deploy wizard uses it. It made `App.tsx` export non-components, which is what stops a
- * file hot-reloading (see the naming rule in CLAUDE.md).
- *
- * ── DUPLICATED, KNOWINGLY ──
- * The image defaults mirror what the CDKTF constructs use in `packages/cdktf-infra/constructs/`.
- * If they disagree the construct wins — it is what actually runs — and the wizard will have shown
- * a tag that is not what got deployed.
- */
 export const APP_DEFAULTS: Record<string, {
   helm: { webRepo: string; webTag: string; dbRepo: string; dbTag: string };
   native: { webRepo: string; webTag: string; dbRepo: string; dbTag: string };
@@ -43,8 +29,6 @@ export const APP_DEFAULTS: Record<string, {
     strategies: ['helm', 'native']
   },
   palworld: {
-    // Game server: native only. It has no Helm chart, and the wizard's Helm path would fall
-    // through to Odoo (see the submit handler's strategy note below).
     helm: { webRepo: 'thijsvanloef/palworld-server-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
     native: { webRepo: 'thijsvanloef/palworld-server-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
     hasDatabase: false,
@@ -142,43 +126,10 @@ export const APP_DEFAULTS: Record<string, {
   }
 };
 
-// App types that require a GPU-enabled cluster (attached to the shared, GPU-capable
-// management cluster — see backend ProvisionClusterActivity). Extend this as more GPU-backed
-// LLM engines are added (e.g. future TGI/Ollama support).
 export const GPU_ONLY_APP_TYPES = new Set(['vllm', 'tabbyapi']);
-// App types with no HTTP surface at all. The whole exposure story here is Traefik +
-// localtunnel over HTTP, so offering it for a UDP game server produces a working tunnel to
-// nothing. Also suppresses the clickable app link, whose url is a meaningless placeholder.
 
-
-/**
- * Colour for a deployment's status pill.
- *
- * Every status used to render in the same blue, so `failed` and `running` were distinguishable only
- * by reading the word — which defeats the point of a status pill in a list. `unhealthy` gets amber
- * rather than red on purpose: the deploy worked, and colouring it like a failed deploy sends people
- * to the wrong logs.
- */
-
-// TabbyAPI's tool-call parsers (endpoints/OAI/utils/toolcall_formats/*.py) — 'harmony' is
-// documented as equivalent to setting the separate `harmony: true` config flag, so it's passed
-// through as a plain tool_format value rather than needing special-casing.
 export const TABBY_TOOL_FORMATS = ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', 'glm4_5', 'minimax_m2', 'harmony'];
 
-/**
- * The defaults for an app type, never undefined.
- *
- * ── WHY THIS EXISTS ──
- * Every call site was `APP_DEFAULTS[appType]` followed immediately by `config.strategies` or
- * `config.hasDatabase`. `noUncheckedIndexedAccess` is right that this can be undefined: `appType`
- * reaches these from a `<select>` value and from a stored deployment record, so a type added to the
- * backend catalogue but not to this table — or an old record naming one that was removed — crashes
- * the wizard on a property of undefined rather than degrading.
- *
- * Falls back to `odoo`, which is the shape everything else assumes: a web tier, a database, and
- * both strategies. A wrong-but-working default beats a blank screen, and the picker still refuses
- * to advance without a real selection.
- */
 export function defaultsFor(appType: string): (typeof APP_DEFAULTS)[string] {
   return APP_DEFAULTS[appType] ?? APP_DEFAULTS.odoo!;
 }

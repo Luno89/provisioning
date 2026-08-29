@@ -1,14 +1,4 @@
-/* ═══════════════ ChatSurface — unified persona-pack chat surface ═══════════════ */
 
-/**
- * A comprehensive, unified chat surface for ANY persona pack.
- *
- * Synthesizes 30 years of chat interface evolution:
- * - ChatGPT-style centered canvas with transition from centered hero to floating bottom capsule
- * - Claude-style serene typography, thinking disclosure, and rich markdown
- * - Hermes-style real-time tool execution telemetry and deep observability
- * - Full conversation vault persistence, proposal cards, and routing integration
- */
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -62,21 +52,13 @@ export interface ChatMessageRecord extends ChatMessageData {
 }
 
 export interface ChatSurfaceProps {
-  /** The persona pack ID (e.g. 'koala', 'researcher', 'harness') */
   packId?: string | undefined;
-  /** Active conversation ID */
   conversationId?: string | undefined;
-  /** Session ID for dynamic tool discovery */
   sessionId?: string | undefined;
-  /** Optional model override */
   modelId?: string | undefined;
-  /** Initial messages for hydration / standalone display */
   initialMessages?: ChatMessageRecord[] | undefined;
-  /** Hide sidebar / tree toggle if embedded in another panel */
   hideSidebar?: boolean | undefined;
-  /** Callback when a conversation is switched or created */
   onConversationChange?: ((conversationId: string | null) => void) | undefined;
-  /** Callback when a project tree proposal is accepted to navigate to Grove */
   onOpenTree?: ((treeId: string) => void) | undefined;
 }
 
@@ -99,7 +81,6 @@ export default function ChatSurface({
   const [liveState, setLiveState] = useState<ChatRenderState>(emptyChatRenderState);
   const [localMessages, setLocalMessages] = useState<ChatMessageRecord[]>([]);
 
-  // UI view state
   const [showHistory, setShowHistory] = useState<boolean>(false);
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState<boolean>(false);
@@ -111,7 +92,6 @@ export default function ChatSurface({
   const liveStateRef = useRef<ChatRenderState>(emptyChatRenderState);
   const localSessionId = useRef(externalSessionId ?? Math.random().toString(36).slice(2));
 
-  // Sync external props
   useEffect(() => {
     if (externalConvId !== undefined) {
       setSelectedConvId(externalConvId);
@@ -124,33 +104,28 @@ export default function ChatSurface({
     }
   }, [initialPackId]);
 
-  // The pack catalogue — what the picker offers and what the server will actually accept.
   const { data: packs = [] } = useQuery<PersonaPack[]>({
     queryKey: packKeys.list(),
     queryFn: listPacks,
   });
 
-  // Fetch conversation list
   const { data: conversations = [] } = useQuery<ChatConversation[]>({
     queryKey: chatPackKeys.conversations(),
     queryFn: listChatConversations,
   });
 
-  // Fetch active conversation detail
   const { data: activeConversation } = useQuery<ChatConversation | null>({
     queryKey: chatPackKeys.conversation(selectedConvId ?? ''),
     queryFn: () => (selectedConvId ? getChatConversation(selectedConvId) : null),
     enabled: Boolean(selectedConvId),
   });
 
-  // Clear local messages when active conversation catches up
   useEffect(() => {
     if (activeConversation && (activeConversation.messages?.length ?? 0) > 0) {
       setLocalMessages([]);
     }
   }, [activeConversation]);
 
-  // Auto-select most recent conversation if none selected and conversations exist
   useEffect(() => {
     if (!selectedConvId && conversations.length > 0 && !externalConvId) {
       const first = conversations[0];
@@ -161,7 +136,6 @@ export default function ChatSurface({
     }
   }, [conversations, selectedConvId, externalConvId, onConversationChange]);
 
-  // Create conversation mutation
   const createMutation = useMutation({
     mutationFn: () => createChatConversation('New conversation'),
     onSuccess: (newConv) => {
@@ -175,7 +149,6 @@ export default function ChatSurface({
     },
   });
 
-  // Delete conversation mutation
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteChatConversation(id),
     onSuccess: (_, deletedId) => {
@@ -189,7 +162,6 @@ export default function ChatSurface({
     },
   });
 
-  // Accept Project Tree mutation
   const acceptTreeMutation = useMutation({
     mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
       acceptTreeProposal(convId, proposalId),
@@ -203,7 +175,6 @@ export default function ChatSurface({
     },
   });
 
-  // Accept App Spec mutation
   const acceptSpecMutation = useMutation({
     mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
       acceptSpecProposal(convId, proposalId),
@@ -213,7 +184,6 @@ export default function ChatSurface({
     },
   });
 
-  // Accept Escalation mutation
   const acceptEscalationMutation = useMutation({
     mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
       acceptEscalationProposal(convId, proposalId),
@@ -223,7 +193,6 @@ export default function ChatSurface({
     },
   });
 
-  // Deny Escalation mutation
   const denyEscalationMutation = useMutation({
     mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
       denyEscalationProposal(convId, proposalId),
@@ -233,7 +202,6 @@ export default function ChatSurface({
     },
   });
 
-  // Submit Secret mutation
   const submitSecretMutation = useMutation({
     mutationFn: ({ convId, requestId, value }: { convId: string; requestId: string; value: string }) =>
       submitSecretRequest(convId, requestId, value),
@@ -243,7 +211,6 @@ export default function ChatSurface({
     },
   });
 
-  // Dismiss Secret mutation
   const dismissSecretMutation = useMutation({
     mutationFn: ({ convId, requestId }: { convId: string; requestId: string }) =>
       dismissSecretRequest(convId, requestId),
@@ -253,14 +220,12 @@ export default function ChatSurface({
     },
   });
 
-  // Instant scroll to bottom without animation delay
   const scrollToBottomInstant = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, []);
 
-  // Smooth scroll helper for manual user click
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -271,7 +236,6 @@ export default function ChatSurface({
     }
   }, []);
 
-  // Track scroll position to pause auto-scroll if user scrolls up
   const handleFeedScroll = useCallback(() => {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
@@ -279,14 +243,12 @@ export default function ChatSurface({
     setIsAtBottom(atBottom);
   }, []);
 
-  // Auto-scroll on updates when at bottom
   useLayoutEffect(() => {
     if (isAtBottom) {
       scrollToBottomInstant();
     }
   }, [activeConversation?.messages, localMessages, liveState.live, liveState.liveThinking, liveState.tools, streaming, isAtBottom, scrollToBottomInstant]);
 
-  // ResizeObserver to ensure asynchronous content/markdown expansions stick to bottom
   useEffect(() => {
     const feed = scrollRef.current;
     if (!feed || typeof ResizeObserver === 'undefined') return;
@@ -301,7 +263,6 @@ export default function ChatSurface({
     return () => ro.disconnect();
   }, [isAtBottom]);
 
-  // Handle Send
   const handleSend = useCallback(async (explicitText?: string) => {
     const text = (typeof explicitText === 'string' ? explicitText : input).trim();
     if (!text || streaming) return;
@@ -311,7 +272,6 @@ export default function ChatSurface({
     setIsAtBottom(true);
     requestAnimationFrame(scrollToBottomInstant);
 
-    // Ensure we have a conversationId
     let targetConvId = selectedConvId;
     if (!targetConvId) {
       try {
@@ -326,7 +286,6 @@ export default function ChatSurface({
       }
     }
 
-    // Optimistically render user message
     const userMsg: ChatMessageRecord = {
       role: 'user',
       content: text,
@@ -382,13 +341,11 @@ export default function ChatSurface({
               liveStateRef.current = nextState;
               setLiveState({ ...nextState });
             } catch {
-              // Ignore malformed SSE lines
             }
           }
         }
       }
 
-      // Finalize turn into local messages
       const finalState = liveStateRef.current;
       if (finalState.live || finalState.liveThinking || finalState.tools.length > 0) {
         const assistantMsg: ChatMessageRecord = {
@@ -419,7 +376,6 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        // Stream aborted by user
       } else {
         setError(`Turn failed: ${errorMessage(err)}`);
       }
@@ -436,7 +392,6 @@ export default function ChatSurface({
     }
   }, []);
 
-  // Assemble full message list: persisted + local unsaved + initialMessages
   const renderedMessages = useMemo(() => {
     if (initialMessages.length > 0 && (!activeConversation || (activeConversation.messages?.length ?? 0) === 0)) {
       return [...initialMessages, ...localMessages];
@@ -445,13 +400,6 @@ export default function ChatSurface({
     return [...persisted, ...localMessages];
   }, [activeConversation, initialMessages, localMessages]);
 
-  /**
-   * The packs, from the server.
-   *
-   * This was a literal array of three while the server's registry held two, and the third —
-   * `researcher` — existed in neither. Selecting it posted to a pack the server had never heard of.
-   * The list is a catalogue now, so what the picker offers and what exists are the same set.
-   */
   const personaPacks: PersonaPackOption[] = useMemo(
     () => packs.map((p) => ({
       id: p.slug,
@@ -462,13 +410,6 @@ export default function ChatSurface({
     [packs],
   );
 
-  /**
-   * Undefined while the catalogue is still loading, or when the URL names a pack that is gone.
-   *
-   * Deliberately NOT `?? personaPacks[0]`. That fallback is what made the config drawer offer
-   * Framer's settings under Koala's name: asked for something it could not find, it silently
-   * showed the first record it had. A surface that cannot say what it is showing should say so.
-   */
   const activePack = personaPacks.find((p) => p.id === currentPackId);
 
   const liveTrees = useMemo(
@@ -493,13 +434,10 @@ export default function ChatSurface({
   return (
     <div className="flex flex-col h-full min-h-0 w-full bg-[var(--bark-950,#090d0b)] text-slate-200 font-sans overflow-hidden">
       
-      {/* ── Top Header Bar ── */}
       <div className="flex-none flex items-center justify-between gap-3 px-4 py-2.5 bg-[var(--bark-900,#111814)] border-b border-[var(--bark-800,#1b2620)] select-none font-sans">
         
-        {/* Left: History Toggle, Persona Switcher & Conversation Quick Switcher */}
         <div className="flex items-center gap-2">
           
-          {/* History Drawer Toggle Button */}
           {!hideSidebar && (
             <button
               type="button"
@@ -517,7 +455,6 @@ export default function ChatSurface({
             </button>
           )}
 
-          {/* Persona Tuning Drawer Button */}
           <div className="relative group">
             <button
               type="button"
@@ -531,7 +468,6 @@ export default function ChatSurface({
             </button>
           </div>
 
-          {/* Quick Switcher Dropdown */}
           <div className="relative">
             <button
               type="button"
@@ -575,7 +511,6 @@ export default function ChatSurface({
           </div>
         </div>
 
-        {/* Right: Escalation Badge & New Chat Action Button */}
         <div className="flex items-center gap-2">
           {activeConversation?.isEscalated && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[11px] font-mono select-none">
@@ -595,10 +530,8 @@ export default function ChatSurface({
         </div>
       </div>
 
-      {/* ── Main Responsive Workspace (Collapsible History List + Focus Chat) ── */}
       <div className="flex-1 min-h-0 flex flex-col sm:flex-row overflow-hidden relative">
         
-        {/* ── Collapsible Chat History Drawer ── */}
         {!hideSidebar && (
           <CollapsibleHistoryList
             conversations={conversations}
@@ -614,10 +547,8 @@ export default function ChatSurface({
           />
         )}
 
-        {/* ── Conversation Canvas & Docked Composer ── */}
         <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bark-950,#090d0b)] relative">
           
-          {/* CASE A: Empty State */}
           {isConversationEmpty ? (
             <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 flex flex-col justify-center items-center">
               <div className="w-full max-w-3xl space-y-6">
@@ -641,16 +572,13 @@ export default function ChatSurface({
               </div>
             </div>
           ) : (
-            /* CASE B: Populated Conversation Feed with Bottom Docked Composer */
             <>
-              {/* Feed Scroll View */}
               <div
                 ref={scrollRef}
                 onScroll={handleFeedScroll}
                 className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-2 relative"
               >
                 <div className="max-w-4xl mx-auto w-full space-y-0 pb-36">
-                  {/* Rendered Transcript Messages */}
                   {renderedMessages.map((msg, idx) => (
                     <ChatMessageRow
                       key={idx}
@@ -659,7 +587,6 @@ export default function ChatSurface({
                     />
                   ))}
 
-                  {/* Live Streaming Turn */}
                   {streaming && (
                     <ChatMessageRow
                       message={{
@@ -674,7 +601,6 @@ export default function ChatSurface({
                     />
                   )}
 
-                  {/* Live Project Proposals */}
                   {liveTrees.map((tree: any) => (
                     <ProposedTreeCard
                       key={tree.id}
@@ -687,7 +613,6 @@ export default function ChatSurface({
                     />
                   ))}
 
-                  {/* Live App Spec Proposals */}
                   {liveSpecs.map((spec: any) => (
                     <div key={spec.id} className="my-2">
                       <SpecProposal
@@ -701,7 +626,6 @@ export default function ChatSurface({
                     </div>
                   ))}
 
-                  {/* Live Privilege Escalation Proposals */}
                   {liveEscalations.map((esc: any) => (
                     <EscalationProposalCard
                       key={esc.id}
@@ -722,7 +646,6 @@ export default function ChatSurface({
                     />
                   ))}
 
-                  {/* Live Secret Requests */}
                   {liveSecretRequests.map((req: any) => (
                     <SecretRequestCard
                       key={req.id}
@@ -743,7 +666,6 @@ export default function ChatSurface({
                     />
                   ))}
 
-                  {/* Persisted Proposals for this conversation */}
                   {activeConversation?.proposedTrees &&
                     activeConversation.proposedTrees.length > 0 &&
                     !streaming && (
@@ -767,7 +689,6 @@ export default function ChatSurface({
                       </div>
                     )}
 
-                  {/* Persisted Escalations for this conversation */}
                   {activeConversation?.proposedEscalations &&
                     activeConversation.proposedEscalations.length > 0 &&
                     !streaming && (
@@ -800,7 +721,6 @@ export default function ChatSurface({
                       </div>
                     )}
 
-                  {/* Persisted Secret Requests for this conversation */}
                   {activeConversation?.proposedSecretRequests &&
                     activeConversation.proposedSecretRequests.length > 0 &&
                     !streaming && (
@@ -833,7 +753,6 @@ export default function ChatSurface({
                       </div>
                     )}
 
-                  {/* Error Notification */}
                   {error && (
                     <div className="w-full p-3 my-2 rounded-md bg-red-950/60 border border-red-500/50 text-red-300 font-sans text-xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -850,15 +769,12 @@ export default function ChatSurface({
                     </div>
                   )}
 
-                  {/* Bottom Anchor Sentinel */}
                   <div ref={bottomAnchorRef} className="h-4 w-full flex-none pointer-events-none" />
                 </div>
               </div>
 
-              {/* Bottom Docked Composer Bar */}
               <div className="absolute bottom-0 left-0 right-0 pointer-events-none bg-gradient-to-t from-[var(--bark-950,#090d0b)] via-[var(--bark-950,#090d0b)]/95 to-transparent pt-8 pb-4 px-4 sm:px-8 z-20">
                 
-                {/* Jump to Latest Button */}
                 {!isAtBottom && renderedMessages.length > 0 && (
                   <div className="flex justify-center mb-2">
                     <button
@@ -873,7 +789,6 @@ export default function ChatSurface({
                   </div>
                 )}
 
-                {/* Docked Composer Container */}
                 <div className="max-w-4xl mx-auto pointer-events-auto">
                   <ChatComposer
                     input={input}
@@ -893,7 +808,6 @@ export default function ChatSurface({
         </div>
       </div>
 
-      {/* ── Persona & Tools Configuration Drawer ── */}
       <PersonaConfigDrawer
         isOpen={showPersonaDrawer}
         onClose={() => setShowPersonaDrawer(false)}

@@ -4,20 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as personasApi from '../api/personas';
 import PersonaEditor from '../components/PersonaEditor';
 
-/**
- * Wiring tests for the persona editor.
- *
- * The field worth pinning is `egress`: it becomes the sandbox's NetworkPolicy, it is the reason
- * this editor exists, and a form that quietly dropped it would leave the isolation exactly as
- * unreachable as it was before.
- */
-/**
- * Mocked at the API module, not at axios — `vi.mock('axios')` cannot reach the instance
- * `api/client` builds with `axios.create()`.
- *
- * The save assertions read better this way too: `updatePersona.mock.calls[0][1]` is the BODY,
- * where the axios version had to index past a URL to reach it.
- */
 vi.mock('../api/personas', async (importOriginal) => ({
   ...(await importOriginal<typeof personasApi>()),
   getPersonaOptions: vi.fn(),
@@ -57,16 +43,11 @@ describe('editing a persona', () => {
   });
 
   it('warns when a persona can reach nothing', async () => {
-    // The state that had an agent spend three attempts on `npm install` against a blocked registry.
     draw({ ...builder, scope: { ...builder.scope, egress: [] } });
     expect(await screen.findByText(/can reach DNS and nothing else/i)).toBeInTheDocument();
   });
 
   it('sends the whole scope, not just the fields it was born with', async () => {
-    /**
-     * The bug this guards: the API accepted four fields and silently ignored scope, so an edit
-     * appeared to work and changed nothing.
-     */
     draw(builder);
     await waitFor(() => expect(screen.getByDisplayValue('gitea')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Save'));
@@ -89,8 +70,6 @@ describe('editing a persona', () => {
   });
 
   it('refuses overrides that are not JSON before sending them', async () => {
-    // The server would reject it too, but with a message about the tunable registry — which is not
-    // the mistake that was made.
     draw(builder);
     await waitFor(() => expect(screen.getByDisplayValue('gitea')).toBeInTheDocument());
     const overrides = screen.getByText('Sampling overrides').parentElement!.querySelector('textarea')!;
@@ -102,8 +81,6 @@ describe('editing a persona', () => {
 
   it('creates a new persona rather than editing one', async () => {
     draw();
-    // Scoped to the Name field: a blank create form has several empty inputs, so an unscoped
-    // lookup is ambiguous rather than wrong.
     const name = screen.getByText('Name').parentElement!.querySelector('input')!;
     fireEvent.change(name, { target: { value: 'Auditor' } });
     fireEvent.click(screen.getByText('Create'));

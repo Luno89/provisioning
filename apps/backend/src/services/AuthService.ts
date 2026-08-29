@@ -11,41 +11,32 @@ interface Challenge {
 export class AuthService extends BaseService {
   private activeChallenges: Map<string, Challenge> = new Map();
 
-  /**
-   * Create a 2FA OTP code and store it in activeChallenges
-   */
   create2FAChallenge(userId: string): string {
     const code = generateOTP();
     this.activeChallenges.set(userId, {
       code,
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes expiration
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
     return code;
   }
 
-  /**
-   * Verify the 2FA OTP code
-   */
   verify2FAChallenge(userId: string, code: string): boolean {
     const challenge = this.activeChallenges.get(userId);
     if (!challenge) return false;
 
     if (challenge.expiresAt < Date.now()) {
       this.activeChallenges.delete(userId);
-      return false; // Expired
+      return false;
     }
 
     if (challenge.code !== code.trim()) {
-      return false; // Mismatch
+      return false;
     }
 
     this.activeChallenges.delete(userId);
     return true;
   }
 
-  /**
-   * Send the 2FA code via preferred method (SMS or Email)
-   */
   async send2FACode(user: UserMetadata, code: string): Promise<void> {
     const method = user.twoFactorPreferredMethod || 'email';
 
@@ -63,18 +54,13 @@ export class AuthService extends BaseService {
         this.logger.info(`[AuthService] Sending Twilio SMS 2FA to ${phone}...`);
         await this.sendTwilioSMS(accountSid, authToken, fromPhone, phone, `Your Provisioning Platform verification code is: ${code}`);
       } else {
-        // Fallback to Developer Console Log Mode
         this.logger.warn(`[DEVELOPER 2FA ALERT] SMS 2FA to ${phone}: Code is ${code}`);
       }
     } else {
-      // Default to Email
       this.logger.warn(`[DEVELOPER 2FA ALERT] Email 2FA to ${user.email}: Code is ${code}`);
     }
   }
 
-  /**
-   * Native helper to make HTTPS POST request to Twilio Messages API (avoiding external dependencies)
-   */
   private sendTwilioSMS(
     accountSid: string,
     authToken: string,

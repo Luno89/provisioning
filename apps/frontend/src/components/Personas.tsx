@@ -7,30 +7,11 @@ import type { Leaf } from './leaf-types.js';
 import { listPersonas, deletePersona, personaKeys } from '../api/personas';
 import { listLeaves, groveKeys } from '../api/grove';
 
-/**
- * The personas, side by side.
- *
- * ── WHY A TABLE AND NOT CARDS ──
- * These were a grid of cards whose footer was a bag of optional chips, so no two rendered the same
- * shape: Framer read `sealed · base · 20 steps · 3 tools` while Builder read
- * `reaches gitea, koala-registry · repo · 4 tools` — no isolation word, no step count, different
- * order. Every one of those is a property you would compare ACROSS personas, and the layout made
- * comparing them impossible; you had to read nine cards and hold them in your head.
- *
- * ── AND WHY IT MEASURES THEM ──
- * Nothing here said whether a persona was any good. The Lab runs experiments comparing exactly
- * that, and every leaf already carries `personaId`, `verified`, tokens and attempts. The numbers
- * existed and were shown nowhere near the thing they describe.
- */
-
-/** A rate is a judgement, so it is coloured only where it is confident. */
 function Rate({ stats }: { stats: PersonaStats }) {
   if (stats.verifiedRate === undefined) {
-    // Not "0%" — a persona that has never finished anything has not failed at anything either.
     return <span className="text-slate-600">—</span>;
   }
   const pct = Math.round(stats.verifiedRate * 100);
-  // Under five finished runs this is noise, so it is shown without a verdict colour.
   const confident = stats.finished >= 5;
   const tone = !confident ? 'text-slate-400' : pct >= 80 ? 'text-green-400' : pct >= 50 ? 'text-amber-400' : 'text-red-400';
   return (
@@ -77,9 +58,6 @@ export default function Personas() {
           </div>
         </td>
 
-        {/* Isolation first among the settings, because it is the thing most likely to be wrong and
-            the thing nobody thinks to check — it decides whether an agent can install a dependency
-            or spends three attempts discovering it cannot. */}
         <td className="py-2.5 pr-3 whitespace-nowrap">
           {egress.length === 0 ? (
             <span className="flex items-center gap-1.5 text-amber-400/80" title="DNS only — installs and downloads will fail">
@@ -97,7 +75,6 @@ export default function Personas() {
         </td>
         <td className="py-2.5 pr-3 text-slate-500 whitespace-nowrap">{p.scope?.repo ? 'yes' : '—'}</td>
 
-        {/* ── Measured, not configured ── */}
         <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap" title={`${stats.assigned} assigned, ${stats.finished} finished`}>
           {stats.assigned === 0 ? <span className="text-slate-600">never used</span> : stats.finished}
         </td>
@@ -155,8 +132,6 @@ export default function Personas() {
                 <th className="py-2.5 pr-3 font-black">Steps</th>
                 <th className="py-2.5 pr-3 font-black">Tools</th>
                 <th className="py-2.5 pr-3 font-black">Repo</th>
-                {/* The three that are measured rather than set, kept together and labelled so the
-                    difference is legible. */}
                 <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Leaves that reached a terminal state">Ran</th>
                 <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Share of finished leaves a check actually passed — never the agent's own report">Verified</th>
                 <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Median tokens per run">Typical</th>
@@ -168,8 +143,6 @@ export default function Personas() {
               {byLineage(personas).map(({ root, variants }) => (
                 <Fragment key={root.id}>
                   {row(root, false)}
-                  {/* Variants directly under what they were forked from: comparing a fork against
-                      its parent is the one comparison anybody wants, and creation order buried it. */}
                   {variants.map((v) => row(v, true))}
                 </Fragment>
               ))}

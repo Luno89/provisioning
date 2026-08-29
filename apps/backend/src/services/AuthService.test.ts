@@ -21,7 +21,6 @@ describe('AuthService', () => {
     const isCorrect = authService.verify2FAChallenge(userId, code);
     expect(isCorrect).toBe(true);
 
-    // Verify code is consumed and deleted
     const isAgain = authService.verify2FAChallenge(userId, code);
     expect(isAgain).toBe(false);
   });
@@ -41,7 +40,6 @@ describe('AuthService', () => {
 
     authService.create2FAChallenge(userId);
 
-    // Mock Date.now() to 10 minutes in the future
     const originalNow = Date.now;
     Date.now = () => originalNow() + 10 * 60 * 1000;
 

@@ -8,10 +8,6 @@ describe('the tools a persona actually gets', () => {
   const ALL = ['run_command', 'write_file', 'read_file', 'finish', 'web_search', 'fetch_web_page'];
 
   it('holds a persona to the subset it declared', () => {
-    /**
-     * The Framer case, fixed at the mechanism rather than by instruction. It cannot search because
-     * it was never handed a search tool, not because it was asked nicely not to.
-     */
     expect(allowedTools(p('Framer', { tools: ['write_file', 'read_file', 'finish'] }), ALL))
       .toEqual(['write_file', 'read_file', 'finish']);
   });
@@ -27,19 +23,12 @@ describe('the tools a persona actually gets', () => {
   });
 
   it('treats an empty list as undeclared rather than as "no tools"', () => {
-    // A persona with no tools could do nothing and finish nothing; an empty array is far more
-    // likely to be an authoring accident than an intent.
     expect(allowedTools(p('X', { tools: [] }), ALL)).toEqual(ALL);
   });
 });
 
 describe('whether a persona works in the repository', () => {
   it('defaults to NO, because most work is not a codebase', () => {
-    /**
-     * Asking a question, comparing two options, writing up what was found — none of it needs a
-     * checkout, and giving it one leaves an empty repository nobody opens. Defaulting the other way
-     * is what produced 27 projects of which 26 never built, one per request.
-     */
     expect(usesRepo(p('Researcher'))).toBe(false);
     expect(usesRepo(p('Researcher', {}))).toBe(false);
     expect(usesRepo(null)).toBe(false);
@@ -50,7 +39,6 @@ describe('whether a persona works in the repository', () => {
   });
 
   it('treats an explicit false the same as saying nothing', () => {
-    // Both mean "I do not write files". Only `true` provisions anything.
     expect(usesRepo(p('Researcher', { repo: false }))).toBe(false);
   });
 });
@@ -73,7 +61,6 @@ describe('a persona defined as "that one, but ..."', () => {
       scope: { run: { maxSteps: 40 } } };
     const flat = flattenPersona(child, [parent, child]);
     expect(flat.scope!.run!.maxSteps).toBe(40);
-    // A variation must differ in ONE place, or the comparison it exists for is meaningless.
     expect(flat.systemPrompt).toBe('answer one question');
     expect(flat.scope!.tools).toEqual(['web_search', 'write_file', 'finish']);
     expect(flat.scope!.repo).toBe(false);
@@ -110,20 +97,12 @@ describe('the container a persona runs in', () => {
       ids,
     );
     expect(spec).toMatchObject({ leafId: 'leaf-1', ownerId: 'u1', cpu: '4', memory: '8Gi' });
-    // `toContainEqual` rather than an exact array: the language contributes its own package access
-    // (see `packageAccess`), so what this test means is "everything the record declared survives",
-    // not "the record is the only contributor" — which stopped being true and should have.
     expect(spec.egress).toContainEqual({ namespace: 'gitea', ports: [3000] });
     expect(spec.env).toContainEqual({ name: 'TOKEN', value: 'x' });
     expect(spec.image).toContain('go-toolset');
   });
 
   it("lets the project's toolchain win over the persona's own", () => {
-    /**
-     * A Go repository needs Go whichever persona is standing in it. The persona's language is what
-     * it runs in when there is no project — a Researcher writing prose should not inherit a
-     * compiler from whatever it happens to be working alongside.
-     */
     const spec = personaWorkspace(p('Builder', { language: 'node' }), ids, { language: 'go' });
     expect(spec.image).toContain('go-toolset');
   });
@@ -133,16 +112,10 @@ describe('the container a persona runs in', () => {
   });
 
   it('carries no image at all when neither says', () => {
-    // The platform default applies downstream; inventing one here would hide that nobody chose.
     expect(personaWorkspace(p('Plain'), ids).image).toBeUndefined();
   });
 
   it('distinguishes an unstated network from a deliberately closed one', () => {
-    /**
-     * Absent leaves the caller free to open what a clone needs; empty is a persona saying "open
-     * nothing". Collapsing the two would either strand a builder that cannot reach Gitea or quietly
-     * give the network back to a persona that refused it.
-     */
     expect(personaWorkspace(p('Unstated'), ids).egress).toBeUndefined();
     expect(personaWorkspace(p('Closed', { egress: [] }), ids).egress).toEqual([]);
   });
@@ -152,18 +125,6 @@ describe('the container a persona runs in', () => {
   });
 });
 
-/**
- * ── A CLONE NEEDS THE HOST IT CLONES FROM ──
- *
- * `scope.repo` says a leaf works in a checkout. Reaching Gitea is not a property of the ROLE that
- * does that — it is what cloning IS, the same way `egressForBindings` derives reachability from a
- * declared dependency rather than asking each persona to hand-write the matching rule.
- *
- * Measured: two of the eleven seeded personas carry `{ namespace: 'gitea' }` by hand. A tree type
- * that gives every leaf a repository — which is what research trees now do — puts the other nine
- * in a sandbox that can check out nothing, and default-deny egress reports that as a git error
- * with no output.
- */
 describe('the network a checkout needs', () => {
   const ids = { leafId: 'leaf-1', ownerId: 'u' };
   const gitea = (spec: { egress?: readonly { namespace?: string | undefined; ports?: number[] | undefined }[] | undefined }) =>
@@ -179,7 +140,6 @@ describe('the network a checkout needs', () => {
   });
 
   it('leaves a persona with no checkout unable to reach it', () => {
-    // Default-deny is the point. A leaf that clones nothing has no business talking to the forge.
     const spec = personaWorkspace(
       { id: 'p', ownerId: 'u', name: 'Reviewer', systemPrompt: '', scope: {} } as never,
       ids,
@@ -201,13 +161,6 @@ describe('the network a checkout needs', () => {
   });
 });
 
-/**
- * ── THE WORKSPACE GETS ITS REGISTRY FROM THE LANGUAGE ──
- *
- * See `packageAccess`. What matters here is that it arrives WITHOUT the persona asking, and that a
- * persona which does ask still wins — a team pointing one role at an internal mirror is a real
- * thing, and a duplicate `env` name is not something Kubernetes resolves sensibly.
- */
 describe('what a workspace can install', () => {
   const spec = (language: string | undefined, scope: Record<string, unknown> = {}) =>
     personaWorkspace(
@@ -229,8 +182,6 @@ describe('what a workspace can install', () => {
   });
 
   it('lets a persona override the index without ending up with two of them', () => {
-    // Two env entries with one name is not a merge Kubernetes does sensibly, and which one wins
-    // would depend on ordering nobody controls.
     const s = spec('node', { env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://internal:4873' }] });
     const npm = (s.env ?? []).filter((e) => e.name === 'NPM_CONFIG_REGISTRY');
     expect(npm).toHaveLength(1);
@@ -238,7 +189,6 @@ describe('what a workspace can install', () => {
   });
 
   it('opens no package egress for a prose workspace', () => {
-    // `base` has no package manager; a hole nothing can use is still a hole.
     const s = spec('base');
     expect((s.egress ?? []).find((r) => r.namespace === 'koala-egress')).toBeUndefined();
     expect((s.egress ?? []).find((r) => r.namespace === 'koala-registry')).toBeUndefined();

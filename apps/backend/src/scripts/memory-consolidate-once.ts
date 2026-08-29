@@ -1,16 +1,3 @@
-/**
- * Runs one consolidation pass against the real bank.
- *
- *   npx tsx apps/backend/src/scripts/memory-consolidate-once.ts          # dry run, writes nothing
- *   npx tsx apps/backend/src/scripts/memory-consolidate-once.ts --apply  # actually writes
- *
- * ── WHY A DRY RUN EXISTS ──
- * The pass runs unattended on a timer and edits the store every other subsystem reads. Being able
- * to see what it WOULD do, against real data, before believing it — and before the backend restarts
- * and does it on its own — is the difference between a reviewed change and a surprise. The dry run
- * needs no special support in the pass itself: it is the same code with a database that collects
- * writes instead of applying them.
- */
 import { createDatabase } from '../lib/db-interface.js';
 import { consolidateMemories } from '../lib/memory-consolidate.js';
 import { corpusEndpoints } from '../lib/web-tools-resolver.js';
@@ -42,8 +29,6 @@ async function main(): Promise<void> {
         },
       },
       ...(ends ? {
-        // Never indexed on a dry run: the index is disposable, but writing to it would still make
-        // the "nothing will be written" promise false.
         ...(apply ? { index: (items: MemoryItem[]) => indexMemories(ends, items) } : {}),
         similar: async (ids: string[]) => {
           const out = new Map<string, { id: string; score: number }[]>();

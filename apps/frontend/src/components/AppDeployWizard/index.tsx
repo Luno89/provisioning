@@ -11,26 +11,11 @@ import type { Cluster } from '../../types/cluster';
 import type { Deployment } from '../../types/deployment';
 import type { AppType } from '../app-types';
 
-/**
- * The six-step deploy wizard.
- *
- * ── WHY IT IS ITS OWN COMPONENT ──
- * 496 lines of it lived inside `App.tsx`'s single component — the largest of four inline modals
- * that together were 1,530 of that file's 2,858 lines. It carried five pieces of state and six
- * react-query calls that App ran on its behalf and handed back as eight `data`/`isFetching`/
- * `isError` props, gated on `showAppModal && wizardStep === 4` conditions written inline at each
- * query.
- *
- * It owns all of that now. App decides whether the wizard is open and what to do when it deploys;
- * everything else is in here, and a closed wizard makes no requests.
- */
 export interface AppDeployWizardProps {
   clusters: Cluster[];
   deployments: Deployment[];
   onClose: () => void;
-  /** Starts the deploy. App owns the mutation because it owns the deployments list it invalidates. */
   onDeploy: (data: WizardData) => void;
-  /** Set by the VPS Catalog's Deploy button so the wizard opens on that plan. */
   preset?: Partial<WizardData> | undefined;
 }
 
@@ -43,11 +28,6 @@ export default function AppDeployWizard({
   const [showTabbyAdvanced, setShowTabbyAdvanced] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
 
-  /**
-   * Debounced so typing a model name is one request to the Hugging Face API rather than one per
-   * character. See `lib/use-debounce.ts` — this replaced seven `useState` mirrors and three copies
-   * of the same `setTimeout`/`clearTimeout` effect.
-   */
   const debouncedTabbyModel = useDebounce(wizardData.tabbyModel);
   const debouncedTabbyRevision = useDebounce(wizardData.tabbyRevision);
   const debouncedTabbyMaxSeqLen = useDebounce(wizardData.tabbyMaxSeqLen);
@@ -80,12 +60,6 @@ export default function AppDeployWizard({
     data: modelSearchResults = [], isFetching: loadingModelSearch,
   } = useModelSearch(wizardData.appType, modelSearchQuery, wizardStep === 4);
 
-  /**
-   * Whether a Hugging Face token is stored, which decides whether the wizard offers gated models.
-   *
-   * Its own query rather than a prop: `api/credentials.ts` already exists from the CloudAccounts
-   * slice, and react-query dedupes it against the accounts screen's identical call.
-   */
   const { data: credentials = [] } = useQuery({
     queryKey: credentialKeys.list(),
     queryFn: listProviders,
@@ -101,34 +75,16 @@ export default function AppDeployWizard({
     wizardStep === 3 && wizardData.appType === 'tabbyapi',
   );
 
-  /**
-   * Defaults to the highest-bpw (best quality) branch the moment the list loads, rather than
-   * leaving Revision blank — TabbyAPI's downloader needs a real branch, and `main` on an EXL2/EXL3
-   * repo is often just a README pointer with no actual weights in it. Still fully overridable via
-   * the picker or the free-text Revision field on the next step.
-   */
   useEffect(() => {
     if (tabbyModelBranches.length > 0 && !wizardData.tabbyRevision) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note below
       setWizardData((prev) => ({ ...prev, tabbyRevision: tabbyModelBranches[0]! }));
     }
-    /**
-     * `set-state-in-effect` is disabled rather than obeyed, and the guard is why.
-     *
-     * The obvious fix — derive the revision at render as `wizardData.tabbyRevision ||
-     * branches[0]` — changes the behaviour: `!wizardData.tabbyRevision` means "adopt the default
-     * ONCE", so clearing the field leaves it cleared. A derived value would silently repopulate it,
-     * and the user would have no way to say "no revision".
-     *
-     * `exhaustive-deps` is disabled for the same reason: adding `wizardData.tabbyRevision` to the
-     * deps would re-run this the moment the user typed, undoing their edit.
-     */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabbyModelBranches]);
 
   const handleAppTypeChange = (newAppType: AppType) => {
     const config = defaultsFor(newAppType);
-    // `strategies` is never empty in the catalogue, but the compiler cannot know that.
     const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : (config.strategies[0] ?? 'native');
     const defaults = config[newStrategy];
     const capitalized = newAppType.charAt(0).toUpperCase() + newAppType.slice(1);
@@ -136,15 +92,9 @@ export default function AppDeployWizard({
     setWizardData(prev => {
       const prevCapitalized = prev.appType.charAt(0).toUpperCase() + prev.appType.slice(1);
       const isDefaultName = prev.name === `${prevCapitalized}-Production`;
-      // If the currently selected cluster no longer satisfies the new app type's GPU
-      // requirement (either direction), clear it rather than leaving an invalid selection.
       const selectedCluster = clusters.find((c) => c.id === prev.clusterId);
       const stillValidCluster = !selectedCluster || !GPU_ONLY_APP_TYPES.has(newAppType) || selectedCluster.gpuEnabled;
       let nextClusterId = stillValidCluster ? prev.clusterId : '';
-      // No selection yet (or it just got cleared above) and vLLM/TabbyAPI need a GPU cluster —
-      // if there's only one to choose from, there's no real decision to make the user click
-      // through, so pick it for them. Still overridable via the dropdown; only fires when
-      // there's exactly one candidate, never when there's a real choice to make.
       if (GPU_ONLY_APP_TYPES.has(newAppType) && !nextClusterId) {
         const gpuClusters = clusters.filter((c) => c.status === 'healthy' && c.gpuEnabled);
         if (gpuClusters.length === 1) nextClusterId = gpuClusters[0]!.id;
@@ -321,10 +271,6 @@ export default function AppDeployWizard({
               </div>
               {renderModelSearchPicker(
                 wizardData.appType === 'tabbyapi' ? wizardData.tabbyModel : wizardData.odooRepo,
-                // Clears the old bpw revision on model switch — otherwise a stale branch
-                // name from the previous model lingers (it almost certainly doesn't exist
-                // on the new repo) and blocks the auto-select-highest-bpw effect below,
-                // which only fires when tabbyRevision is empty.
                 (id) => setWizardData(wizardData.appType === 'tabbyapi' ? {...wizardData, tabbyModel: id, tabbyRevision: ''} : {...wizardData, odooRepo: id}),
                 wizardData.appType === 'tabbyapi' ? 'e.g. qwen, llama, gemma... (filters the exl3 collection)' : undefined,
               )}

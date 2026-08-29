@@ -1,30 +1,3 @@
-/**
- * The skeleton a new repository starts from, chosen by what the tree is for.
- *
- * ── WHY THIS EXISTS ──
- * Every project started empty, so the first leaf spent its budget rediscovering the same things —
- * and getting them wrong in the same ways. Measured, all in one effort:
- *
- *   - No Dockerfile, so the pipeline had nothing to build. It then retried 622 times.
- *   - No .gitignore, so `npm install` committed node_modules and poisoned the project's memory.
- *   - Nothing read `process.env.PORT`, so the deployed container decided it was not a service,
- *     fell back to stdio, and exited 0 in a restart loop.
- *   - The agent hunted for a test runner and reached for jest against a registry it could not
- *     reach.
- *
- * None of those are interesting problems and all of them are the same problem: the first leaf is
- * asked to invent a shape that is identical every time. A template is that shape, written once.
- *
- * ── WHAT A TEMPLATE IS NOT ──
- * It is not the work. It is the smallest thing that already builds, already runs and already has
- * somewhere to put a test — so the first leaf edits something that works rather than assembling
- * something that might. Nothing here is application logic.
- *
- * ── AND WHY IT IS KEYED ON THE TREE TYPE ──
- * The tree already declares what done means for the effort — `api-service` says "it builds, it
- * deploys, and the endpoint responds". That is precisely the sentence this file makes true on day
- * one, so the two belong to the same decision rather than being a second thing to pick.
- */
 
 import type { ValidationRecipe } from './tree-types.js';
 
@@ -33,28 +6,12 @@ export interface TemplateFile {
   content: string;
 }
 
-/**
- * Where base images come from.
- *
- * ── WHY NOT DOCKER HUB ──
- * Every build pulled `node:22-alpine` anonymously from Docker Hub, and Docker Hub rate-limits
- * anonymous pulls per source IP. A cluster is one IP, so a handful of builds in an afternoon is
- * enough: `TOOMANYREQUESTS: You have reached your unauthenticated pull rate limit`, and every
- * build fails at the first instruction with an error that has nothing to do with the code.
- *
- * The same reasoning as the in-cluster npm mirror. A build that depends on an unauthenticated
- * third party is a build that stops working on somebody else's schedule.
- *
- * Mirrored with: skopeo copy docker://docker.io/library/node:22-alpine docker://<registry>/provisioning-bot/node:22-alpine
- */
 export const MIRROR_NAMESPACE = 'provisioning-bot';
 
-/** The mirrored base for a given registry, or Docker Hub's name when there is no registry yet. */
 export function nodeBaseImage(registryHost?: string): string {
   return registryHost ? `${registryHost}/${MIRROR_NAMESPACE}/node:22-alpine` : 'node:22-alpine';
 }
 
-/** Node 22 is what the workspace image ships; the runtime has a test runner and fetch built in. */
 const NODE_DOCKERFILE = (base: string) => [
   '# This Dockerfile already works. Change it only if you add dependencies or build steps.',
   '#',
@@ -62,8 +19,6 @@ const NODE_DOCKERFILE = (base: string) => [
   '# install stage FAILS on a project with no dependencies — npm installs nothing, the directory',
   '# never exists, and the error names a path inside the builder rather than the cause.',
   '# Measured: three separate build failures from one rewrite of this file.',
-  // Mirrored in-cluster, not Docker Hub — see nodeBaseImage. Changing this back to a Docker Hub
-  // name will build a handful of times and then start failing on the anonymous pull limit.
   `FROM ${base}`,
   'WORKDIR /app',
   'COPY . .',
@@ -75,13 +30,6 @@ const NODE_DOCKERFILE = (base: string) => [
   '',
 ].join('\n');
 
-/**
- * A server that is already the right shape.
- *
- * Reads PORT, answers /health, and says out loud why both matter — the deployment's readiness probe
- * is a TCP check against that port, and a container that binds somewhere else looks like a broken
- * application rather than a misconfigured one.
- */
 const NODE_SERVER = [
   "import { createServer } from 'node:http';",
   '',
@@ -306,18 +254,6 @@ test('an unknown tool is an error, not a crash', async () => {
 });
 `;
 
-/**
- * The starter file SETS, as data.
- *
- * ── WHY THE SWITCH ON TREE TYPE IS GONE ──
- * `templateFor(treeType)` keyed a `switch` on type strings, one of the three places that duplicated
- * what `TREE_TYPES` already declared. A project type is a record now and carries its own starter
- * files — so these are the CONTENTS those seeds point at, with `{{projectName}}` and
- * `{{registryHost}}` filled by `renderStarterFiles` rather than by a function call here.
- *
- * Exported so the seed file references them by name instead of holding several kilobytes of inline
- * source, which would make the seeds unreadable and their diffs useless.
- */
 export const NODE_SERVICE_FILES = [
   { path: 'Dockerfile', content: NODE_DOCKERFILE('{{registryHost}}') },
   { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
@@ -334,16 +270,11 @@ export const MCP_SERVER_FILES = [
   { path: 'README.md', content: README('{{projectName}}', 'service') },
 ];
 
-/**
- * No Dockerfile and no server: a library is not deployed, and giving it one would have the pipeline
- * build an image nobody wants.
- */
 export const LIBRARY_FILES = [
   { path: 'package.json', content: NODE_PACKAGE('{{projectName}}') },
   { path: 'README.md', content: README('{{projectName}}', 'library') },
 ];
 
-/** UI application template: Vite + React 19 single-page application. */
 export const UI_APP_FILES = [
   {
     path: 'package.json',
@@ -469,7 +400,6 @@ CMD ["nginx", "-g", "daemon off;"]
   },
 ];
 
-/** Structured research paper template. */
 export const RESEARCH_PAPER_FILES = [
   {
     path: 'paper.md',
@@ -512,7 +442,6 @@ Cited academic publications, repositories, cluster documentation, and benchmark 
   },
 ];
 
-/** Decision brief template. */
 export const DECISION_BRIEF_FILES = [
   {
     path: 'brief.md',
@@ -550,7 +479,6 @@ Option B,Medium,Medium,Medium,Medium,Medium,Alternative
   },
 ];
 
-/** Structured dataset template. */
 export const DATASET_FILES = [
   {
     path: 'schema.json',
@@ -577,7 +505,6 @@ export const DATASET_FILES = [
   },
 ];
 
-/** Performance benchmark template. */
 export const BENCHMARK_FILES = [
   {
     path: 'benchmark.js',
@@ -612,7 +539,6 @@ console.log(\`Benchmark completed in \${elapsed.toFixed(2)}ms (checksum: \${accu
   },
 ];
 
-/** Investigation / incident analysis template. */
 export const INVESTIGATION_FILES = [
   {
     path: 'report.md',
@@ -646,8 +572,6 @@ echo "Reproducing failure case for {{projectName}}..."
     content: `# Investigation: {{projectName}}\n\nRoot cause analysis and diagnostic evidence.\n`,
   },
 ];
-
-/* ── Validation Recipes ────────────────────────────────────────── */
 
 export const MCP_SERVER_RECIPE: ValidationRecipe = {
   type: 'runtime-service',
@@ -737,5 +661,3 @@ export const MIGRATION_RECIPE: ValidationRecipe = {
     { id: 'unit-tests', name: 'Existing test suite passes', type: 'run-command', command: 'npm test' },
   ],
 };
-
-

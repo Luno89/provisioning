@@ -8,7 +8,6 @@ describe('giteaUsernameFor', () => {
   });
 
   it('fits inside Gitea\'s 40-character username limit', () => {
-    // A 36-char UUID plus a prefix overflows, and Gitea rejects it with an opaque 422.
     const name = giteaUsernameFor('3f2a1b4c-5d6e-7f80-9012-3456789abcde');
     expect(name.length).toBeLessThanOrEqual(MAX_GITEA_USERNAME);
     expect(name).toMatch(/^koala-[a-z0-9]+$/);
@@ -44,7 +43,6 @@ describe('sanitiseRepoName', () => {
   });
 
   it('cannot be used to escape into another path', () => {
-    // The result becomes part of a URL and a Gitea API path.
     expect(sanitiseRepoName('../../etc/passwd')).not.toContain('/');
     expect(sanitiseRepoName('../../etc/passwd')).not.toContain('..');
   });

@@ -1,106 +1,48 @@
-/**
- * Making sure a leaf has somewhere durable to put its work.
- *
- * ── WHY THIS IS NOT OPTIONAL ──
- * A leaf's sandbox is a pod that is destroyed when the leaf finishes. Without a repository, the
- * work goes with it — and the leaf still reports success, because the agent really did write the
- * file it says it wrote. Verified live: a leaf created `/work/index.js`, correct and complete, and
- * the file was read out of the pod seconds before the pod was destroyed. Nothing else ever saw it.
- *
- * `projectId` was the way to avoid that and it was opt-in, so the default path was the losing one.
- * A request that never picked a project now gets one made for it.
- *
- * ── ONE REPOSITORY PER REQUEST, NOT PER LEAF ──
- * The branch (the conversation) is the unit, because that is the unit a plan is decomposed within:
- * leaf 2 building on leaf 1 means reading leaf 1's commits, and cross-repository is not a
- * hand-off, it is a dependency. One repo with a branch per leaf also leaves something a person can
- * open and diff, which is what "the agent built something" should mean.
- */
 import type { Database } from './db-interface.js';
 import type { Leaf } from './leaves.js';
 import type { ProjectMetadata } from './types.js';
 import { DEFAULT_TARGET_CLUSTER } from './project-shipping.js';
 
-/** Gitea repository names allow a narrow set; a title never reaches this unfiltered. */
 export function autoRepoNameFor(branchId: string): string {
   return `koala-request-${branchId.slice(0, 8).toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 }
 
 export interface LeafProjectDeps {
-  /**
-   * The repository this leaf's TREE already owns, when it owns one.
-   *
-   * Checked before falling back to a repository per branch. A tree is an effort that spans many
-   * conversations, so its second branch must land in the first branch's repository — otherwise
-   * "carry on with that project tomorrow" silently starts a new one, and the hand-off between two
-   * branches of one effort is a hand-off between two unrelated repos.
-   *
-   * Passed in rather than looked up here so this module still knows nothing about trees or
-   * branches, which is what keeps it testable without a database.
-   */
   treeProjectId?: string | undefined;
   db: Pick<Database, 'getProjects' | 'saveProject'>;
-  /** Creates the user's Gitea account if needed and returns its name. */
   ensureAccount: (ownerId: string) => Promise<{ username: string }>;
-  /** Whether the repository is already there. Checked first so provisioning is idempotent. */
   repoExists: (username: string, name: string) => Promise<boolean>;
-  /** Creates the repository. Must be initialised — an empty repo cannot be cloned onto a branch. */
   createRepo: (username: string, name: string) => Promise<void>;
   newId: () => string;
 }
 
-/**
- * The project a leaf should work in: the one it was given, or one made for its request.
- *
- * Returns the project WITHOUT persisting it onto the leaf — the activity owns the leaf record and
- * writes it back once, at the end, together with everything else it learned.
- */
 export async function resolveLeafProject(deps: LeafProjectDeps, leaf: Leaf): Promise<ProjectMetadata> {
   const projects = await deps.db.getProjects();
 
   if (leaf.projectId) {
     const chosen = projects.find((p) => p.id === leaf.projectId && p.ownerId === leaf.ownerId);
-    // Ownership-scoped, then falls through rather than throwing: a projectId that does not resolve
-    // is a stale reference, and losing the work over it is a worse outcome than working somewhere.
     if (chosen) return chosen;
   }
 
   if (deps.treeProjectId) {
     const owned = projects.find((p) => p.id === deps.treeProjectId && p.ownerId === leaf.ownerId);
-    // Ownership-scoped and falling through if it does not resolve, for the same reason as above: a
-    // stale id should cost a new repository, not the work.
     if (owned) return owned;
   }
 
   const repo = autoRepoNameFor(leaf.branchId);
   const existing = projects.find((p) => p.ownerId === leaf.ownerId && p.giteaRepo === repo);
-  // The second leaf of a request must land in the FIRST leaf's repository, or the hand-off is
-  // between two unrelated repos and nothing is shared.
   if (existing) return existing;
 
   const account = await deps.ensureAccount(leaf.ownerId);
 
-  /**
-   * Idempotent, because the leaves of one request run CONCURRENTLY when nothing orders them.
-   *
-   * Observed live: two leaves of the same request both found no project, both tried to create the
-   * repository, and the loser got `duplicate key value violates unique constraint` — a 500 that
-   * left it with no repository at all, which is the exact failure this module exists to prevent.
-   * The same 500 also appears when a previous run created the repository but did not get as far as
-   * writing the project row.
-   */
   if (!(await deps.repoExists(account.username, repo))) {
     try {
       await deps.createRepo(account.username, repo);
     } catch (err) {
-      // Lost a race, or the repo appeared between the check and the create. Either way the end
-      // state we wanted now exists; anything else surfaces on the clone with a clear message.
       if (!(await deps.repoExists(account.username, repo))) throw err;
     }
   }
 
-  // Re-read: the racing leaf may have written the project row while we were creating the repo, and
-  // two rows for one repository would split the request's leaves across two project ids.
   const raced = (await deps.db.getProjects())
     .find((p) => p.ownerId === leaf.ownerId && p.giteaRepo === repo);
   if (raced) return raced;
@@ -119,21 +61,6 @@ export async function resolveLeafProject(deps: LeafProjectDeps, leaf: Leaf): Pro
   try {
     await deps.db.saveProject(project);
   } catch (err) {
-    /**
-     * Lost the race between the re-read above and this write.
-     *
-     * The re-read narrows the window; it cannot close it. Two leaves can both find no row, both
-     * build one, and the second write hits the unique index on (giteaOwner, giteaRepo) — which is
-     * the index doing its job. The end state we wanted exists, written by whoever got there first.
-     *
-     * This was survivable while only one or two CODING leaves of a request raced. Once every leaf
-     * that writes files takes a checkout, four research leaves start at once and hit it routinely:
-     * measured, two of five leaves lost their repository to `E11000` and reported "work will not
-     * persist" — the exact outcome the repository was given to them to prevent.
-     *
-     * Same shape as the `createRepo` guard above: try, and on failure ask whether the thing we
-     * wanted is now true anyway.
-     */
     const winner = (await deps.db.getProjects())
       .find((p) => p.ownerId === leaf.ownerId && p.giteaRepo === repo);
     if (!winner) throw err;

@@ -1,17 +1,3 @@
-/**
- * Drives the admission decision against the live model and the live search stack.
- *
- *   npx tsx apps/backend/src/scripts/memory-decide-probe.ts
- *
- * ── WHAT THIS COVERS THAT UNIT TESTS CANNOT ──
- * `memory-decide.test.ts` proves the parser and the safety rules hold for any reply. It cannot prove
- * the model produces a usable reply at all — and that is exactly where the judge failed three times
- * before it worked: a reasoning model spent its whole ceiling deliberating and emitted an empty
- * `content`, which parsed as "no opinion" and looked like a working feature.
- *
- * So this runs the real thing on two candidates with known right answers: one that duplicates
- * something already stored, and one that is genuinely new. Writes nothing.
- */
 import dotenv from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -75,7 +61,6 @@ async function main(): Promise<void> {
       return answer;
     };
 
-    // A near-copy of something already stored. The right answer is NOOP or UPDATE — never ADD.
     const existing = live.find((m) => m.category === 'environment_facts') ?? live[0]!;
     const duplicate: MemoryItem = {
       ...existing,
@@ -85,7 +70,6 @@ async function main(): Promise<void> {
       updatedAt: new Date().toISOString(),
     };
 
-    // Nothing in the bank is about this. The right answer is ADD.
     const novel: MemoryItem = {
       id: 'probe-novel',
       ownerId,

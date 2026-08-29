@@ -1,9 +1,4 @@
 #!/usr/bin/env tsx
-/**
- * seed-tools.ts — Seeds all platform built-in tools and operational guidance into MongoDB.
- *
- * Usage: npx tsx src/scripts/seed-tools.ts
- */
 
 import { createDatabase } from '../lib/db-interface.js';
 import { seedTools } from '../lib/tool-seeds.js';

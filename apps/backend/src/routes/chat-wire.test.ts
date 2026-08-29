@@ -6,36 +6,6 @@ import { createDatabase } from '../lib/db-interface.js';
 import type { Database } from '../lib/db-interface.js';
 import { ownedBy } from '../lib/ownership.js';
 
-/**
- * CHARACTERISATION TESTS — what the two chat routes put on the wire, byte for byte.
- *
- * ── WHY THESE EXIST ──
- * `/api/chat` and `/api/koala/chat` speak DIFFERENT SSE protocols, and that is deliberate:
- *
- *   /api/chat        forwards the upstream provider's own OpenAI frames verbatim
- *                    (`res.write(Buffer.from(value))`), because the frontend parses
- *                    `choices[0].delta` straight off them.
- *   /api/koala/chat  emits its own envelope — `{delta}` / `{reasoning}` / `{toolCall}` /
- *                    `{toolResult}`.
- *
- * Both were confirmed live against a real model before this file was written; these assertions are
- * a transcription of what actually came back, not a guess at what should.
- *
- * The two round loops are candidates for consolidation behind one emitter-driven `lib/chat-turn.ts`.
- * That change is only safe if something notices when a frame's SHAPE moves, and nothing did — no
- * test touched either route's output. A refactor that "works" while re-encoding
- * `reasoning_content` as `reasoning` breaks the chat pane and passes every other test in the repo.
- *
- * ── WHY A REAL UPSTREAM SERVER AND NOT A `fetch` MOCK ──
- * Both routes call global `fetch` against `${baseUrl}/chat/completions`. A mock returning a
- * hand-built `ReadableStream` would let a bug in how the route CHUNKS bytes go unnoticed, and
- * chunk boundaries are exactly what SSE gets wrong: a frame split across two writes without its
- * blank-line delimiter never fires `onmessage`, and presents as a hang rather than an error. So
- * the fake upstream is a real HTTP server writing real bytes, and it deliberately splits one frame
- * mid-JSON to prove the boundary survives the trip.
- */
-
-/** An OpenAI-compatible upstream that replays a scripted body. */
 async function fakeUpstream(script: string[], opts: { splitAt?: number } = {}) {
   const seen: any[] = [];
   const server = http.createServer((req, res) => {
@@ -46,8 +16,6 @@ async function fakeUpstream(script: string[], opts: { splitAt?: number } = {}) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       const whole = script.join('');
       if (opts.splitAt) {
-        // Mid-JSON split: proves the route reassembles across chunk boundaries rather than
-        // assuming one read == one frame.
         res.write(whole.slice(0, opts.splitAt));
         setTimeout(() => { res.write(whole.slice(opts.splitAt)); res.end(); }, 5);
       } else {
@@ -60,20 +28,17 @@ async function fakeUpstream(script: string[], opts: { splitAt?: number } = {}) {
   const port = (server.address() as { port: number }).port;
   return {
     baseUrl: `http://127.0.0.1:${port}`,
-    /** The request bodies the route sent upstream, in order. */
     requests: seen,
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
 }
 
-/** One OpenAI streaming frame, as the provider writes it. */
 const frame = (delta: Record<string, unknown>, finish: string | null = null) =>
   `data: ${JSON.stringify({
     id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 1, model: 'test',
     choices: [{ index: 0, delta, finish_reason: finish }],
   })}\n\n`;
 
-/** Collects an SSE response into its `data:` payloads. */
 async function collect(res: Response): Promise<string[]> {
   const text = await res.text();
   return text.split('\n\n').filter((b) => b.startsWith('data: ')).map((b) => b.slice(6));
@@ -129,11 +94,6 @@ describe('/api/chat wire format', () => {
     await up?.close();
   });
 
-  /**
-   * The passthrough contract. Every byte the provider wrote must arrive unchanged — the frontend
-   * reads `choices[0].delta.content`, so decoding and re-encoding here would silently drop any
-   * field the re-encoder did not know about (`reasoning_content` being the one that matters today).
-   */
   it('forwards the upstream frames verbatim and terminates with [DONE]', async () => {
     const script = [
       frame({ role: 'assistant', content: '' }),
@@ -152,8 +112,6 @@ describe('/api/chat wire format', () => {
     });
 
     expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
-    // nginx buffers proxied responses by default; without this every frame arrives at once when
-    // the response ends, which looks exactly like a model that produced nothing until it finished.
     expect(res.headers.get('x-accel-buffering')).toBe('no');
 
     const frames = await collect(res as unknown as Response);
@@ -164,17 +122,11 @@ describe('/api/chat wire format', () => {
     expect(content).toBe('Hello world');
     expect(frames.at(-1)).toBe('[DONE]');
 
-    // The shape itself, not just the text: these keys are what `lib/stream-delta.ts` reads.
     const first = JSON.parse(frames[0]!);
     expect(first).toHaveProperty('choices.0.delta');
     expect(first.object).toBe('chat.completion.chunk');
   });
 
-  /**
-   * `reasoning_content` is a separate field from `content` and the pane renders it in a think
-   * block. A re-encoder that normalised it to `reasoning` — koala's name for the same thing —
-   * would put the model's private reasoning into the visible answer.
-   */
   it('preserves reasoning_content under its own key, distinct from content', async () => {
     up = await fakeUpstream([
       frame({ reasoning_content: 'thinking...' }),
@@ -197,7 +149,6 @@ describe('/api/chat wire format', () => {
     expect(deltas[0]).not.toHaveProperty('content');
   });
 
-  /** A frame split across two TCP writes must still arrive as one frame. */
   it('survives a frame split mid-JSON by the upstream', async () => {
     const script = [frame({ content: 'abcdef' }), 'data: [DONE]\n\n'];
     up = await fakeUpstream(script, { splitAt: 40 });

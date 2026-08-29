@@ -36,7 +36,6 @@ export function ToolRepoPanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingTool, setDeletingTool] = useState<ToolRepositoryItem | null>(null);
 
-  // Form states
   const [name, setName] = useState('');
   const [category, setCategory] = useState<string>('custom');
   const [description, setDescription] = useState('');
@@ -110,7 +109,6 @@ export function ToolRepoPanel() {
         parameters: { type: 'object', properties: parsedProps },
       });
     } catch {
-      // The parse error itself says nothing a user can act on; the message below does.
       setJsonError('Invalid JSON properties object');
     }
   };
@@ -131,7 +129,6 @@ export function ToolRepoPanel() {
         },
       });
     } catch {
-      // The parse error itself says nothing a user can act on; the message below does.
       setJsonError('Invalid JSON properties object');
     }
   };
@@ -178,7 +175,6 @@ export function ToolRepoPanel() {
         ))}
       </div>
 
-      {/* DELETE CONFIRMATION MODAL */}
       {deletingTool && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className={`${card} max-w-md w-full p-5 space-y-4 border-rose-800 shadow-2xl animate-in fade-in zoom-in-95`}>

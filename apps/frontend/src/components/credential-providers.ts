@@ -1,15 +1,3 @@
-/**
- * What each provider is called, what it costs you to connect, and which fields its form needs.
- *
- * ── WHY THIS IS NOT IN CloudAccounts.tsx ──
- * It was, and it was 180 of that file's 867 lines — static metadata sitting in the middle of a
- * component, which is what made `CloudAccounts.tsx` export three non-components and trip
- * `react-refresh/only-export-components` three times. That rule is not pedantry: a module that
- * mixes a component with other exports cannot be hot-reloaded reliably, so every edit here used to
- * cost a full page refresh.
- *
- * kebab-case filename because it exports no component — see the naming rule in CLAUDE.md.
- */
 interface ProviderMeta {
   key: string;
   label: string;
@@ -19,8 +7,6 @@ interface ProviderMeta {
   fields: { key: string; label: string; sensitive: boolean; placeholder: string; multiline?: boolean }[];
 }
 
-// Exported so tests can assert against the real list instead of a hardcoded count that silently
-// goes stale (and fails) every time a provider is added.
 export const PROVIDERS: ProviderMeta[] = [
   {
     key: 'huggingface',
@@ -95,8 +81,6 @@ export const PROVIDERS: ProviderMeta[] = [
     label: 'Hetzner Cloud',
     color: '#D50C2D',
     icon: '▚',
-    // Tokens are per-project in Hetzner Cloud, minted under that project's Security page — there
-    // is no account-wide token, so this deep-links to the project list rather than a settings page.
     docsUrl: 'https://console.hetzner.cloud/projects',
     fields: [
       { key: 'token', label: 'API Token (Read & Write)', sensitive: true, placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
@@ -107,13 +91,8 @@ export const PROVIDERS: ProviderMeta[] = [
     label: 'Cloudflare DNS',
     color: '#F38020',
     icon: '☁',
-    // Unlike the others this is not a compute provider — it is only used to manage the platform's
-    // own DNS records when standing up or moving the root node. Tenant provisioning never touches
-    // it.
     docsUrl: 'https://dash.cloudflare.com/profile/api-tokens',
     fields: [
-      // A *scoped* token, not the Global API Key: Zone → DNS → Edit on the one zone is everything
-      // this needs, and the Global Key would grant account-wide access with no way to narrow it.
       { key: 'token', label: 'API Token (Zone → DNS → Edit)', sensitive: true, placeholder: 'scoped token, not the Global API Key' },
       { key: 'zone', label: 'Zone (Optional)', sensitive: false, placeholder: 'nowrinkles.dev' },
     ],
@@ -145,8 +124,6 @@ export const PROVIDERS: ProviderMeta[] = [
     icon: '❯',
     docsUrl: 'https://console.scaleway.com/iam/api-keys',
     fields: [
-      // The SECRET key is what authenticates; the access key is only an identifier, which is why
-      // it's the optional one here.
       { key: 'secretKey', label: 'Secret Key', sensitive: true, placeholder: 'Shown once when the API key is created' },
       { key: 'accessKey', label: 'Access Key (Optional)', sensitive: false, placeholder: 'SCWXXXXXXXXXXXXXXXXX' },
       { key: 'projectId', label: 'Project ID (Optional)', sensitive: false, placeholder: 'Needed only to create servers, not to browse plans' },
@@ -169,7 +146,6 @@ export const PROVIDERS: ProviderMeta[] = [
     icon: '▣',
     docsUrl: 'https://my.contabo.com/api/details',
     fields: [
-      // Contabo is the only provider here using an OAuth2 password grant rather than one token.
       { key: 'clientId', label: 'Client ID', sensitive: true, placeholder: 'API → Details → Client ID' },
       { key: 'clientSecret', label: 'Client Secret', sensitive: true, placeholder: 'API → Details → Client Secret' },
       { key: 'apiUser', label: 'API User (email)', sensitive: false, placeholder: 'your@email.com' },
@@ -178,16 +154,8 @@ export const PROVIDERS: ProviderMeta[] = [
   },
 ];
 
-// Providers this platform can actually create a cluster on today, in the order the cluster
-// wizard offers them. Everything else in PROVIDERS above is a credential store only (or, for
-// aws/gcp/azure/do, still the stubbed scaffolding the distributed-systems plan describes).
 export const CLUSTER_CAPABLE_PROVIDERS = ['hetzner'] as const;
 
-/**
- * What connecting each VPS provider actually gets you today, shown on the card so the value is
- * clear before someone goes hunting for a token — and so nobody expects Contabo plans to appear
- * in the catalog when its API publishes no prices at all.
- */
 export const PROVIDER_CAPABILITY: Record<string, string> = {
   hetzner: 'Live plan prices in the VPS Catalog, and full cluster provisioning.',
   vultr: 'Vultr plans are already in the VPS Catalog (public API) — a token is only needed for future provisioning.',

@@ -24,9 +24,6 @@ describe('createAwaitingKey', () => {
   };
 
   it('never stores the private key in plaintext', async () => {
-    // The whole point of generating server-side is that the credential is held safely. Writing it
-    // unencrypted would be worse than the old flow, where at least the user chose which key to
-    // hand over.
     const { svc, saved } = createService();
     await svc.createAwaitingKey(args);
 
@@ -37,8 +34,6 @@ describe('createAwaitingKey', () => {
   });
 
   it('parks the cluster in awaiting-key rather than provisioning', async () => {
-    // Provisioning immediately would spend all three of ProvisionClusterActivity's attempts on
-    // "Permission denied (publickey)" before the user could install anything.
     const { svc, saved } = createService();
     await svc.createAwaitingKey(args);
     expect(saved[0].status).toBe('awaiting-key');
@@ -58,8 +53,6 @@ describe('createAwaitingKey', () => {
   });
 
   it('omits the port entirely when not given, rather than writing undefined', async () => {
-    // exactOptionalPropertyTypes: an explicit `remoteSshPort: undefined` is not the same as absent,
-    // and saveCluster is a full replace — a stray undefined would persist as a real field.
     const { svc, saved } = createService();
     await svc.createAwaitingKey(args);
     expect('remoteSshPort' in saved[0]).toBe(false);

@@ -2,18 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { runChatTurn } from './chat-runtime.js';
 import type { UnifiedFrame } from './chat-wire.js';
 
-/**
- * End-to-end proof the engine actually runs a turn: a fake model that answers one tool call and
- * then the final answer, asserted through `onFrame` — the callback the route actually streams from.
- *
- * ── WHY EVERY ASSERTION MOVED TO `onFrame` ──
- * The engine used to also RETURN a filtered frame list, built by `mapTurnToFrames` from a pack's
- * nine `delivery` booleans, and the route discarded it. So the tests over that list were green
- * while production streamed something else, through a second copy of the filter written inline —
- * a copy that covered six of the nine flags. Both are gone. The engine emits everything, once, and
- * the surface decides what to draw.
- */
-
 function fakeStream(chunks: string[]) {
   const enc = new TextEncoder();
   let i = 0;
@@ -107,15 +95,6 @@ describe('runChatTurn (fake model)', () => {
   });
 
   it('emits every channel regardless of the pack, because nothing filters at the source', async () => {
-    /**
-     * The behaviour this pins. `chat-wire.ts` promised "nothing is ever dropped at the source" and
-     * the engine dropped plenty: nine booleans gated the stream, two of which (`plan`, `usage`) had
-     * no emitter to gate and one of which (`telemetry`) gated a field nothing ever assigned.
-     *
-     * It was also inconsistent with storage — the thinking trace is persisted onto the assistant
-     * message whatever the flag said, so a pack with thinking off was already keeping what it
-     * refused to show, and turning the flag on later revealed nothing for turns already taken.
-     */
     const reasoning = (r: string) => fakeStream([delts({ reasoning_content: r })]);
     const call = vi
       .fn()
@@ -134,7 +113,6 @@ describe('runChatTurn (fake model)', () => {
       onFrame: (f) => frames.push(f),
     });
 
-    // Every channel the engine can produce, on one turn, with no pack consulted anywhere.
     for (const type of ['thinking', 'toolAnnounce', 'toolResult', 'content', 'enabled', 'proposedTree', 'proposedSpec']) {
       expect(frames.map((f) => f.type), type).toContain(type);
     }

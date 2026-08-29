@@ -7,25 +7,16 @@ describe('validating what a persona may reach', () => {
   });
 
   it('accepts the two egress forms', () => {
-    /**
-     * Both exist because a NodePort address does NOT work as a cidr — kube-proxy rewrites the
-     * destination before the policy is evaluated, so the rule silently fails closed.
-     */
     expect(validateScope({ egress: [{ namespace: 'gitea', ports: [3000] }] })).toBeUndefined();
     expect(validateScope({ egress: [{ cidr: '10.0.0.0/8', ports: [443] }] })).toBeUndefined();
   });
 
   it('refuses a rule that names both or neither', () => {
-    // Ambiguous rules are the ones that look right and do nothing.
     expect(validateScope({ egress: [{ namespace: 'gitea', cidr: '10.0.0.0/8' }] })).toMatch(/exactly one/i);
     expect(validateScope({ egress: [{ ports: [443] }] })).toMatch(/exactly one/i);
   });
 
   it('refuses a malformed CIDR or namespace', () => {
-    /**
-     * The failure being prevented: the pod comes up, the NetworkPolicy does not mean what was
-     * intended, and nothing says so. Catching it at the edit is the only moment anyone is looking.
-     */
     expect(validateScope({ egress: [{ cidr: 'registry.npmjs.org' }] })).toMatch(/valid CIDR/i);
     expect(validateScope({ egress: [{ cidr: '10.0.0.0' }] })).toMatch(/valid CIDR/i);
     expect(validateScope({ egress: [{ namespace: 'Not A Namespace' }] })).toMatch(/valid namespace/i);

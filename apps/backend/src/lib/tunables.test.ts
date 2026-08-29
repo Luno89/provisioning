@@ -9,22 +9,11 @@ import {
 } from './tunables.js';
 import { toolTurnSampling, TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
 
-/**
- * The test this file exists for is the first one.
- *
- * `temperature` was declared in the overrides type, listed as tunable, and offered in the UI's axis
- * picker while never being written into the request — so an experiment varying it ran two
- * byte-identical configurations and reported the noise between them as a finding. That failure is
- * invisible: nothing errors, the run succeeds, the numbers differ slightly, and the conclusion is
- * garbage. So every registered knob is asserted to survive the trip to the wire, and any knob added
- * later is covered without anyone remembering to write a test for it.
- */
 describe('every registered tunable reaches the wire', () => {
   const sampleFor = (type: string, spec: { min?: number; max?: number; options?: unknown[] }) => {
     if (type === 'boolean') return true;
     if (type === 'string') return 'sample';
     if (type === 'enum') return spec.options?.[0];
-    // Inside the declared range, so the value is one the knob would really be given.
     const min = spec.min ?? 0;
     const max = spec.max ?? min + 10;
     return Math.round(((min + max) / 2) * 100) / 100;
@@ -35,8 +24,6 @@ describe('every registered tunable reaches the wire', () => {
 
     it(`sends ${spec.key}`, () => {
       const value = sampleFor(spec.type, spec);
-      // Every engine-gated knob is offered its own engine, since sending it elsewhere is correct
-      // to drop and would make this assertion meaningless.
       const { body, unsupported } = applyOverrides({}, { [spec.key]: value }, spec.engine ?? 'tabbyapi');
 
       expect(unsupported).toEqual([]);
@@ -52,8 +39,6 @@ describe('every registered tunable reaches the wire', () => {
 
 describe('applyOverrides', () => {
   it('puts the thinking switch under template_vars, where the engine actually reads it', () => {
-    // Sent at the top level it is accepted, ignored, and the model quietly degrades — measured, it
-    // began emitting Chinese mid-sentence. Placement is the difference between working and not.
     const { body } = applyOverrides({}, { think: true }, 'tabbyapi');
     expect(body.template_vars).toEqual({ enable_thinking: true });
     expect(body.think).toBeUndefined();
@@ -61,7 +46,6 @@ describe('applyOverrides', () => {
   });
 
   it('merges into existing template_vars rather than replacing them', () => {
-    // The harness already nests enable_thinking there; a bare assignment would drop it.
     const { body } = applyOverrides(
       { template_vars: { enable_thinking: false, other: 1 } },
       { think: true },
@@ -76,8 +60,6 @@ describe('applyOverrides', () => {
   });
 
   it('drops an engine-specific sampler on another engine, and says which', () => {
-    // A strict server is entitled to 400 on an unknown field, which would turn a loop-prevention
-    // measure into an outage for everyone on a different engine.
     const { body, unsupported } = applyOverrides({}, { dry_multiplier: 0.8, temperature: 0.5 }, 'vllm');
     expect(body.dry_multiplier).toBeUndefined();
     expect(body.temperature).toBe(0.5);
@@ -119,8 +101,6 @@ describe('validateOverrides', () => {
   });
 
   it('accepts null, which is the opt-out rather than a value', () => {
-    // Type-checking it as a value rejected exactly the variant that needed it — a control arm
-    // cannot be written any other way once something has been adopted.
     expect(validateOverrides({ systemPrompt: null })).toBeNull();
     expect(validateOverrides({ temperature: null, think: null })).toBeNull();
   });
@@ -145,8 +125,6 @@ describe('harnessDefaults', () => {
   });
 
   it('reads defaults from the live constants rather than restating them', () => {
-    // If someone retunes the sampler, this default moves with it. A hand-copied number here would
-    // make every experiment's control arm differ from what the harness actually does.
     expect(tunable('temperature')!.default).toBe(toolTurnSampling(undefined).temperature);
   });
 });
@@ -160,8 +138,6 @@ describe('effectiveConfig', () => {
   });
 
   it('is the ADOPTED value once a profile supplies one', () => {
-    // The whole point of the Lab is tuning the harness, and a page that reports the source-file
-    // constant while a promoted profile is in force is describing a configuration nobody runs.
     const live = effectiveConfig({ think: true, temperature: 0.9 }, 'tabbyapi');
     expect(live.find((k) => k.key === 'think')).toMatchObject({ value: true, source: 'adopted' });
     expect(live.find((k) => k.key === 'temperature')).toMatchObject({ value: 0.9, source: 'adopted' });
@@ -185,8 +161,6 @@ describe('effectiveConfig', () => {
 
 describe('the advertised token ceiling', () => {
   it('matches what the loop actually sends on a reasoning turn', () => {
-    // It was a bare 2000 inline in the agent loop while the registry advertised 800, so the stated
-    // default was wrong for every run with reasoning on.
     const maxTokens = TUNABLES.find((t) => t.key === 'max_tokens')!;
     expect(maxTokens.suggested).toEqual([TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS]);
     expect(maxTokens.note).toMatch(new RegExp(`Rises to ${THINKING_TURN_MAX_TOKENS}`));

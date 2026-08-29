@@ -7,22 +7,6 @@ import { createDatabase } from '../lib/db-interface.js';
 import type { Database } from '../lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 
-/**
- * The auth router over its REAL middleware.
- *
- * ── WHY NOT `routes/test-harness.ts` ──
- * Every other router test mounts a stub that puts a user on the request, because a route's job is
- * what it does once a caller is established. This router's job IS establishing the caller, so a
- * stub would test nothing: the interesting behaviour is that `/login` mints a cookie which
- * `requireAuth` then accepts, and that the public-path allow-list lets `/register` through while
- * `/me` stays closed. Both halves have to be the production ones for that to mean anything.
- *
- * The wiring below mirrors `bootstrap()` exactly — `app.use('/api', requireAuth)` before
- * `app.use('/api/auth', authRouter(...))`. If that order ever inverts in index.ts, this file keeps
- * passing and the server stops being protected, which is why `routes.test.ts` still boots the real
- * application too.
- */
-
 const JWT_SECRET = 'test-secret';
 
 async function serve(db: Database) {
@@ -47,8 +31,6 @@ async function serve(db: Database) {
 describe('auth router', () => {
   let db: Database;
   let ctx: Awaited<ReturnType<typeof serve>>;
-  // IS_E2E short-circuits requireAuth to a mock user. The dev shell exports it, and with it set
-  // every assertion below about being signed out silently inverts.
   const wasE2E = process.env.IS_E2E;
 
   beforeEach(async () => {
@@ -63,7 +45,6 @@ describe('auth router', () => {
     await new Promise<void>((r) => ctx.server.close(() => r()));
   });
 
-  /** Registers and returns the `session` cookie, which is what every later request needs. */
   async function registerAndLogin(email: string, password: string) {
     const reg = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
@@ -97,8 +78,6 @@ describe('auth router', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'second@example.com', password: 'hunter2hunter2' }),
     });
-    // No invite exists, so the second registration is refused outright — the platform can spend
-    // real money via cloud APIs, so an open registration endpoint is the whole risk.
     expect(second.status).toBe(403);
     expect((await second.json() as { error: string }).error).toMatch(/invite code is required/i);
 
@@ -127,19 +106,12 @@ describe('auth router', () => {
     expect((await reuse.json() as { error: string }).error).toMatch(/already been used/i);
   });
 
-  /**
-   * The bug this pins: registration stored the email as typed while every read path normalises,
-   * so a capital letter made the account unreachable forever with "Invalid email or password".
-   */
   it('normalises the email on registration so login can find it again', async () => {
     await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: '  MixedCase@Example.COM ', password: 'hunter2hunter2' }),
     });
-    // Asserted on the STORED value, not just on login succeeding. MemoryDB used to normalise both
-    // sides of the comparison while Mongo normalises only the query, so a login-only assertion
-    // passed with the normalisation deleted — verified by mutation.
     expect((await db.getUsers())[0]?.email).toBe('mixedcase@example.com');
 
     const login = await fetch(ctx.url('/api/auth/login'), {
@@ -171,7 +143,6 @@ describe('auth router', () => {
     const me = await fetch(ctx.url('/api/auth/me'));
     expect(me.status).toBe(401);
 
-    // Reached the handler rather than the guard: 400 is the router's own "missing fields".
     const login = await fetch(ctx.url('/api/auth/login'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -187,7 +158,6 @@ describe('auth router', () => {
       headers: { cookie: session },
     });
     expect(out.status).toBe(200);
-    // A clearCookie whose flags differ from the set leaves the original cookie in the browser.
     const cleared = out.headers.get('set-cookie') ?? '';
     expect(cleared).toMatch(/^session=;/);
     expect(cleared).toMatch(/HttpOnly/i);

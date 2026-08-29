@@ -3,42 +3,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../api/client';
 import { useShellStore, type AppUser } from '../stores/shell';
 
-/**
- * ── DUPLICATED, KNOWINGLY ──
- * Mirrors `InviteMetadata` in `apps/backend/src/lib/types.ts`; the backend is the authority. Note
- * that `id` and `code` hold the same value there — the code is its own primary key.
- */
 interface Invite {
   id: string;
   code: string;
   createdBy: string;
   createdAt: string;
-  /** The user who registered with it. Absent means unused. */
   usedBy?: string;
   usedAt?: string;
 }
 
-/**
- * Account security: two-factor settings, and what the account is.
- *
- * ── THE LAST INLINE SCREEN ──
- * Thirteen of the fourteen views had been extracted; this one was still rendered inside App's own
- * return, which is why it could only be reached in a test by mounting the whole application.
- *
- * It reads the user from the shell store rather than taking it as a prop, and owns the mutation
- * that changes it — App was holding `update2FASettings` purely because the markup lived there.
- */
 export default function SettingsView() {
   const qc = useQueryClient();
   const user = useShellStore((s) => s.user);
   const setUser = useShellStore((s) => s.setUser);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * Invite codes, for an admin. Native registration is invite-gated, and so is social login — the
-   * code rides through the OAuth roundtrip in `state`, so a new account created that way is gated
-   * exactly like a native one rather than being a silent bypass of it.
-   */
   const { data: invites = [] } = useQuery({
     queryKey: ['invites'],
     queryFn: () => api.get<Invite[]>('/admin/invites').then((r) => r.data),
@@ -49,12 +28,6 @@ export default function SettingsView() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['invites'] }),
   });
 
-  /**
-   * Writes the 2FA settings and folds the response back into the session.
-   *
-   * Reads the current user through `getState()` rather than closing over it: this is a plain
-   * setter, not a React dispatch, so there is no updater form to pass.
-   */
   const update2FASettings = async (
     enabled: boolean, phone?: string, preferredMethod?: 'email' | 'sms',
   ) => {
@@ -78,10 +51,6 @@ export default function SettingsView() {
   return (
 
   <section className="max-w-xl">
-    {/*
-      * A failed 2FA change used to `console.error` and nothing else, so the toggle appeared to
-      * work while the server had rejected it. That is worth showing.
-      */}
     {error && (
       <div className="mb-6 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
         {error}

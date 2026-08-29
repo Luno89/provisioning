@@ -2,50 +2,19 @@ import { Shield, Loader2, Plus, Check, AlertTriangle, Puzzle, Terminal } from 'l
 import type { UseMutationResult } from '@tanstack/react-query';
 import type { Dispatch, SetStateAction } from 'react';
 
-/**
- * The Nginx router screen.
- *
- * ── WHY IT IS ITS OWN FILE ──
- * 191 lines of it lived inside App's single 3,000-line component, between the clusters table and the
- * modals, sharing a scope with every other screen in the product. It needs ten things from App and
- * nothing else, so it was only ever there because that is where it was written.
- *
- * Moved mechanically rather than retyped: the markup and handlers are byte-for-byte what they were,
- * which is the only way to be sure a screen with no test coverage still behaves the same.
- */
-
 export default function NginxView({
   editorContent, setEditorContent, loadingNginxConfig, updateNginxConfig,
   deployments, clusters, vpnDomains, setVpnDomains,
   onAddRoute,
 }: {
   editorContent: string;
-  // A React setter, not a plain callback: the wizard appends with a function updater.
   setEditorContent: Dispatch<SetStateAction<string>>;
   loadingNginxConfig: boolean;
-  /**
-   * The react-query mutation that writes the config back.
-   *
-   * Typed with the library's own `UseMutationResult` rather than a hand-listed shape: the first
-   * attempt named `isPending` and `mutate` and the compiler then found `isSuccess`, `isError` and
-   * `error` in the markup one at a time.
-   */
   updateNginxConfig: UseMutationResult<any, any, string, any>;
   deployments: any[];
   clusters: any[];
-  /** Domain per deployment id, not a list — the compiler caught this at the call site. */
   vpnDomains: Record<string, string>;
-  // A React setter, for the same reason as `setEditorContent` above: the hostname input updates
-  // one key with a function updater. Typed as `any`, it was the ONLY error `strict` reported in
-  // the whole frontend — `prev` had nothing to infer from.
   setVpnDomains: Dispatch<SetStateAction<Record<string, string>>>;
-  /**
-   * Opens the route wizard.
-   *
-   * This took `setShowNginxWizard`, `setNginxWizardStep` AND `setNginxWizardData` — three of App's
-   * raw setters, used in one `onClick` to reset a wizard before opening it. The wizard unmounts on
-   * close, so it resets itself.
-   */
   onAddRoute: () => void;
 }) {
   return (
@@ -130,7 +99,6 @@ export default function NginxView({
                       const clusterName = cluster ? cluster.name : 'unknown';
                       const ns = d.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
                       
-                      // Determine service name and port based on appType
                       const serviceName = d.appType === 'prometheus' ? 'prometheus-server' : d.appType || 'odoo';
                       const port = d.appType === 'odoo' ? '8069' : '80';
                       const internalDns = `http://${serviceName}.${ns}.svc.cluster.local:${port}`;

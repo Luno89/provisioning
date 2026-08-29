@@ -2,12 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-/**
- * Mocked at the API MODULES, not at fetch.
- *
- * The wizard used to make four raw `fetch` calls with hand-written URLs and had no test file at
- * all. These tests pin behaviour through the same boundary every other converted screen uses.
- */
 vi.mock('../api/credentials', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/credentials')>()),
   validateCredentials: vi.fn(),
@@ -22,10 +16,6 @@ vi.mock('../api/mesh', () => ({
   listMeshDevices: vi.fn().mockResolvedValue([]),
 }));
 
-/**
- * The provider list is DATA served by the backend — the wizard must not carry its own literal.
- * The fixtures live INSIDE the factory because vi.mock is hoisted above every const in this file.
- */
 vi.mock('../api/cluster-providers', () => ({
   listClusterProviders: vi.fn().mockResolvedValue([
     { value: 'k3d', label: 'Local Datacenter (k3d)', hasCatalog: false, usesMesh: false },
@@ -52,7 +42,6 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-/** Walks to step 2 for a provider with a credentialKey (hetzner in the test fixtures). */
 const goToTokenStep = async () => {
   await screen.findByDisplayValue(/local datacenter/i);
   fireEvent.change(screen.getByPlaceholderText(/production-omega/i), {
@@ -65,8 +54,6 @@ const goToTokenStep = async () => {
   fireEvent.click(screen.getByRole('button', { name: /^next/i }));
 };
 
-
-/** The wizard reads the provider list through react-query, so every render needs a client. */
 const renderWizard = (props: Partial<Parameters<typeof ClusterWizard>[0]> = {}) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(

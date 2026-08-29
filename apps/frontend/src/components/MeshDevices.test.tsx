@@ -4,18 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MeshDevices from './MeshDevices';
 import * as meshApi from '../api/mesh';
 
-/**
- * Mocked at the API MODULE, not at axios.
- *
- * It used to `vi.mock('axios')` and stub `get` by matching on the URL — which stopped working the
- * moment the component started going through `api/mesh`, because `api/client` builds its own
- * instance with `axios.create()` and a module-level mock of the default export never touches it.
- * The failure is silent in the useful direction (the stub simply never fires) and shows up as an
- * empty render, not as a mocking error.
- *
- * Mocking here is also the point of the layer: the test says what the SERVER returns, and no test
- * in this file knows a URL.
- */
 vi.mock('../api/mesh', async (importOriginal) => ({
   ...(await importOriginal<typeof meshApi>()),
   getMeshConfig: vi.fn(),
@@ -42,9 +30,6 @@ describe('MeshDevices', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it('says the mesh is unreachable when no public login server is set', async () => {
-    // The realistic state today: Headscale's server_url is still localhost, so a machine outside
-    // this network cannot join. Printing a join command anyway would tell the user's machine to
-    // contact itself and fail confusingly.
     renderPanel(UNCONFIGURED, []);
     await waitFor(() => expect(screen.getByText(/mesh isn't reachable yet/i)).toBeDefined());
     expect(screen.getByRole('button', { name: /generate join command/i })).toHaveProperty('disabled', true);

@@ -9,19 +9,6 @@ import { errorMessage } from '../api/client';
 import { driveNoticeFrom } from '../lib/drive-notice';
 import type { ValidationResult, BackupResult } from '../types/credentials';
 
-/**
- * Where backups go, and the Google Drive OAuth connection behind it.
- *
- * ── WHY THIS IS NOT PART OF CloudAccounts ──
- * It was, and the two have nothing to do with each other beyond both being reached from the same
- * screen. `CloudAccounts` is a grid of provider credentials; this is one destination with its own
- * lifecycle — connect, set a password, test, run a backup, disconnect. Sharing a file meant sharing
- * a component, so `CloudAccounts` carried eleven `useState` hooks and five mutations that only this
- * markup ever read.
- *
- * Now it owns its own query and its own mutations. `CloudAccounts` holds no Drive state at all,
- * which is the rule: UI state lives in the component that renders the UI.
- */
 export default function GoogleDriveCard() {
   const qc = useQueryClient();
   const driveQuery = useQuery({ queryKey: credentialKeys.one('googledrive'), queryFn: getDriveStatus });
@@ -79,7 +66,6 @@ export default function GoogleDriveCard() {
 
   return (
     <>
-    {/* ── Backup Destinations ── */}
     <header className="mt-14 mb-6 max-w-4xl">
       <h2 className="text-2xl font-bold flex items-center gap-3">
         <HardDriveDownload className="text-blue-500" size={24} />

@@ -7,13 +7,6 @@ import * as deploymentsApi from '../api/deployments';
 import * as authApi from '../api/auth';
 import * as credentialsApi from '../api/credentials';
 
-/**
- * Mocked at the API modules, not at axios — `vi.mock('axios')` cannot reach the instance
- * `api/client` builds with `axios.create()`.
- *
- * `getMe` returning a user is what gets past the login gate: App renders Login until the session
- * query resolves, so an unmocked one leaves every assertion here looking at a form.
- */
 vi.mock('../api/clusters', async (importOriginal) => ({
   ...(await importOriginal<typeof clustersApi>()),
   listClusters: vi.fn(),
@@ -65,17 +58,9 @@ describe('App Dashboard', () => {
   it('switches between Clusters and Applications views', async () => {
     render(<App />, { wrapper });
 
-    /**
-     * Chat is the landing view now, so this navigates to Clusters first.
-     *
-     * It used to be 'clusters' — a table of infrastructure, which is what you look at when
-     * something is wrong rather than when you arrive. This test asserted the old front door and
-     * caught the change, which is what it is for.
-     */
     fireEvent.click(screen.getByText('Clusters'));
     expect(screen.getByText('Infrastructures')).toBeInTheDocument();
     
-    // Switch to apps
     const appsButton = screen.getByRole('button', { name: /applications/i });
     appsButton.click();
     

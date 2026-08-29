@@ -18,9 +18,6 @@ describe('vramMibFromNodeLabels', () => {
   });
 
   it('takes the SMALLEST card across a mixed fleet, not the largest', () => {
-    // Opposite of how host RAM is handled, and deliberately so: a pod lands on one node and gets
-    // one GPU, so the smallest card is what a model must fit inside. Reporting the largest would
-    // green-light a model that only fits on one of the nodes.
     expect(vramMibFromNodeLabels({ items: [node('1', '49152'), node('1', '24576')] })).toBe(24576);
   });
 
@@ -30,8 +27,6 @@ describe('vramMibFromNodeLabels', () => {
   });
 
   it('returns undefined when GFD is not installed — unknown, never zero', () => {
-    // This is the live state of the management cluster: the device plugin publishes a count and
-    // no label at all. Downstream must degrade to "cannot tell", not "no VRAM".
     expect(vramMibFromNodeLabels({ items: [node('2')] })).toBeUndefined();
   });
 
@@ -45,7 +40,6 @@ describe('vramMibFromNodeLabels', () => {
 
 describe('parseNvidiaSmiVram', () => {
   it('parses the real output shape of --format=csv,noheader,nounits', () => {
-    // Verified against the actual host: two RTX 3090s report 24576 apiece.
     expect(parseNvidiaSmiVram('24576\n24576\n')).toBe(24576);
   });
 
@@ -61,7 +55,7 @@ describe('parseNvidiaSmiVram', () => {
 
 describe('vramVerdict', () => {
   const GB = 1e9;
-  const RTX_3090 = 24576; // MiB
+  const RTX_3090 = 24576;
 
   it('fits a model comfortably inside a 3090', () => {
     expect(vramVerdict(12 * GB, RTX_3090)?.fits).toBe(true);
@@ -70,16 +64,10 @@ describe('vramVerdict', () => {
   it('refuses a model that exceeds the card', () => {
     const v = vramVerdict(30 * GB, RTX_3090);
     expect(v?.fits).toBe(false);
-    // 24576 MiB is exactly 24 GiB — which is 25.8 GB. The message reports GiB because that is how
-    // card capacity is universally quoted, while the estimate is in GB; mixing them up is the
-    // easiest way to be off by 7% in the direction that says "it fits".
     expect(v?.message).toMatch(/24 GiB/);
   });
 
   it('refuses a model that fits on paper but leaves no headroom', () => {
-    // 24576 MiB is ~25.8 GB; a 25 GB model "fits" arithmetically and then OOMs on load, because
-    // the estimate covers weights and KV cache but not CUDA context, activations or whatever the
-    // display server already holds.
     expect(vramVerdict(25 * GB, RTX_3090)?.fits).toBe(false);
   });
 

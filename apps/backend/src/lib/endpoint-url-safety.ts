@@ -1,25 +1,4 @@
-/**
- * Guards user-registered model endpoint URLs against being used as a server-side request forgery
- * primitive.
- *
- * This matters more here than on a typical app. The backend runs on the root node, which also runs
- * Headscale (its admin API on localhost:8080), Mongo, Temporal and the Gitea registry — all
- * unauthenticated on loopback because nothing outside the box was ever supposed to reach them. A
- * registered endpoint whose URL is `http://localhost:8080/api/v1/...` turns "chat with my model"
- * into "make the platform call its own control plane on my behalf".
- *
- * Cloud metadata is the other classic: 169.254.169.254 hands out instance credentials to anything
- * that asks from the host.
- *
- * The mesh complicates this, because 100.64.0.0/10 is EXACTLY where legitimate bring-your-own
- * endpoints live. So the CGNAT range cannot simply be blocked — it is allowed, and ownership is
- * enforced separately by checking the address belongs to one of the caller's own Headscale devices
- * (see ModelService). That second check is not optional: the root node carries `tag:platform` in
- * acl.hujson and can therefore reach EVERY tenant's machines, so without it one user could
- * register another user's Ollama address and talk to it.
- */
 
-/** Parsed IPv4 as a 32-bit number, or undefined if the string is not a dotted quad. */
 function ipv4ToInt(host: string): number | undefined {
   const parts = host.split('.');
   if (parts.length !== 4) return undefined;
@@ -42,14 +21,13 @@ const inRange = (ip: number, cidr: string): boolean => {
   return (ip & mask) >>> 0 === (baseInt & mask) >>> 0;
 };
 
-/** The Headscale mesh range — the whole point of the feature, so allowed rather than blocked. */
 export const MESH_CIDR = '100.64.0.0/10';
 
 const BLOCKED_V4 = [
   '0.0.0.0/8',
   '10.0.0.0/8',
   '127.0.0.0/8', // the root node's own control plane
-  '169.254.0.0/16', // cloud instance metadata
+  '169.254.0.0/16',
   '172.16.0.0/12',
   '192.168.0.0/16',
   '192.0.0.0/24',
@@ -63,16 +41,8 @@ export function isMeshAddress(host: string): boolean {
   return ip !== undefined && inRange(ip, MESH_CIDR);
 }
 
-/**
- * Whether a literal IP is acceptable as an endpoint host.
- *
- * Mesh addresses are allowed; every other private, loopback, link-local or reserved range is not.
- * IPv6 is refused wholesale rather than half-checked — the equivalent range analysis (::1, fc00::/7,
- * link-local, and v4-mapped forms like ::ffff:127.0.0.1 that smuggle loopback past a naive check)
- * is easy to get subtly wrong, and no mesh or model endpoint needs it today.
- */
 export function isAllowedIp(host: string): boolean {
-  if (host.includes(':')) return false; // IPv6 — see above
+  if (host.includes(':')) return false;
   const ip = ipv4ToInt(host);
   if (ip === undefined) return false;
   if (inRange(ip, MESH_CIDR)) return true;
@@ -81,44 +51,11 @@ export function isAllowedIp(host: string): boolean {
 
 export interface UrlCheck {
   ok: boolean;
-  /** Why it was refused — safe to show the user; never contains anything they did not supply. */
   reason?: string;
-  /** Literal IPv4 host, when the URL used one rather than a name. */
   literalIp?: string;
   hostname?: string;
 }
 
-/**
- * Structural check of a user-supplied endpoint URL.
- *
- * Deliberately does NOT resolve DNS. A hostname that resolves to 127.0.0.1 today can resolve
- * somewhere else on the next lookup (DNS rebinding), so a resolve-then-fetch check gives false
- * confidence. Hostnames are therefore accepted structurally here and must be pinned at request
- * time by the caller — see ModelService, which only accepts literal mesh IPs for mesh endpoints
- * and requires https for named hosts.
- */
-/**
- * A registered endpoint's base URL, in the shape every caller assumes.
- *
- * ── WHY THIS EXISTS ──
- * The stored field is documented as "Base URL through /v1" and the form's placeholder shows
- * `http://100.64.0.7:11434/v1`, but nothing enforced it — `checkEndpointUrl` validates the scheme,
- * the host and the address, and never looks at the path. Meanwhile every one of the ~20 call sites
- * in this codebase appends the operation itself:
- *
- *   POST `${baseUrl}/chat/completions`
- *
- * So an OpenRouter endpoint entered as `https://openrouter.ai/api/v1/chat/completions` — the URL
- * their documentation shows, and the obvious thing to paste — produced
- * `…/v1/chat/completions/chat/completions`. Verified against the live API: the intended path
- * answers 401, the doubled one 404. The endpoint could not have worked at any point.
- *
- * Normalised rather than rejected, and applied on READ as well as on write, because a row stored
- * before this existed must start working rather than start erroring.
- *
- * Deliberately does NOT add a missing `/v1`: some engines serve the OpenAI API at the root, and
- * guessing would break them the same way this fixes the other case.
- */
 const OPERATION_SUFFIX = /\/(?:chat\/)?completions\/?$/;
 
 export function normaliseBaseUrl(raw: string): string {
@@ -126,7 +63,6 @@ export function normaliseBaseUrl(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    // Not parseable: hand it back untouched and let checkEndpointUrl deliver the verdict.
     return raw;
   }
   url.pathname = url.pathname.replace(OPERATION_SUFFIX, '');
@@ -149,7 +85,6 @@ export function checkEndpointUrl(raw: string): UrlCheck {
     return { ok: false, reason: 'Credentials in the URL are not supported — use the API key field' };
   }
 
-  // URL keeps IPv6 literals in brackets; strip so the v6 rejection below is reached.
   const hostname = url.hostname.replace(/^\[|\]$/g, '');
   if (!hostname) return { ok: false, reason: 'URL has no host' };
 
@@ -164,8 +99,6 @@ export function checkEndpointUrl(raw: string): UrlCheck {
     return { ok: true, literalIp: hostname, hostname };
   }
 
-  // A bare name with no dot ("localhost", "mongo", a Docker service alias) resolves to something
-  // internal far more often than to anything a tenant legitimately owns.
   if (!hostname.includes('.')) {
     return { ok: false, reason: `"${hostname}" is not a public hostname. Use a mesh IP or a fully-qualified domain.` };
   }

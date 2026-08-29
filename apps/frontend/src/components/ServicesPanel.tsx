@@ -6,8 +6,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp, Server, Cloud, Shield, Zap, ExternalLink, GitBranch, Bell, FileText } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-
-
 const SERVICE_ICONS: Record<string, LucideIcon> = {
   prometheus: Activity,
   grafana: Zap,
@@ -35,10 +33,6 @@ const SERVICE_LABELS: Record<string, string> = {
   loki: 'Loki Logging',
 };
 
-// Loki has no web UI of its own (logs are browsed via Grafana Explore against the datasource
-// constructs/dashboards.ts auto-provisions) — no backend proxy route exists for it
-// (apps/backend/src/index.ts's PROXY_SERVICES), so its card shouldn't offer a dead "Open
-// Dashboard" link the way every other service card does.
 const NO_DASHBOARD = new Set(['loki']);
 
 function statusBadge(status: string) {

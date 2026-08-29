@@ -1,37 +1,14 @@
-/**
- * Every knob that changes how the model is called — declared once, in one place.
- *
- * ── WHY A REGISTRY AND NOT AN INTERFACE ──
- * This started as a hand-written `ExperimentOverrides` interface with five fields, each of which
- * had to be separately threaded into the request body. That arrangement has exactly one failure
- * mode and it is silent: `temperature` sat in the interface, in the tunable list, and in the UI's
- * axis picker for the whole of its first life while never being sent — so an experiment varying it
- * ran two byte-identical configurations and reported the noise between them as an effect.
- *
- * A declaration cannot half-exist that way. Each entry states its own wire field, where in the
- * request it belongs, and which engines will accept it, and `applyOverrides` is the only thing that
- * writes any of them into a body. Adding a knob is one entry here rather than five edits across
- * three files, and `tunables.test.ts` asserts that every registered key reaches the wire — which is
- * the generalisation of the bug that motivated the whole file.
- *
- * ── DEFAULTS ARE READ, NEVER RESTATED ──
- * `default` on each entry comes from the constant the running code uses. A hand-copied default here
- * would be worse than none: an experiment's control arm would silently differ from what the harness
- * actually does, and every comparison drawn against it would be wrong in a way nothing reports.
- */
 import type { ModelKind } from './model-registry.js';
 import { toolTurnSampling, TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
 import { MAX_AGENT_TOKENS, MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS } from './sandbox-tools.js';
 import type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType } from '@koala/harness-types';
 
-/** Re-exported: the Lab builds its axis picker from these, so both sides read one declaration. */
 export type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType };
 
 const dispatchDefaults = toolTurnSampling(undefined);
 const tabbyDefaults = toolTurnSampling('tabbyapi');
 
 export const TUNABLES: Tunable[] = [
-  // ── sampling: portable across every OpenAI-compatible engine ──
   {
     key: 'temperature',
     label: 'Temperature',
@@ -56,8 +33,6 @@ export const TUNABLES: Tunable[] = [
     min: 0,
     max: 1,
     step: 0.05,
-    // Unset by default: the engine's own default applies, and pinning it here would be a second
-    // opinion about a value nobody has measured on this harness.
     default: undefined,
     suggested: [0.8, 1],
     note: 'Nucleus sampling: keeps the smallest set of tokens whose probabilities add up to this, '
@@ -124,7 +99,6 @@ export const TUNABLES: Tunable[] = [
     source: 'lib/sampling.ts',
   },
 
-  // ── sampling: TabbyAPI only ──
   {
     key: 'top_k',
     label: 'Top-k',
@@ -262,14 +236,11 @@ export const TUNABLES: Tunable[] = [
     source: 'lib/thinking-classifier.ts',
   },
 
-  // ── the reasoning switch ──
   {
     key: 'think',
     label: 'Reasoning on dispatch turns',
     group: 'sampling',
     type: 'boolean',
-    // The one knob whose placement is load-bearing: nested it works, top-level it is ignored and
-    // output degrades without any error.
     placement: 'template_vars',
     field: 'enable_thinking',
     default: false,
@@ -279,7 +250,6 @@ export const TUNABLES: Tunable[] = [
     source: 'lib/sampling.ts',
   },
 
-  // ── loop controls: consumed here, never sent ──
   {
     key: 'useMemories',
     label: 'Inject Harness Memory Bank',
@@ -345,8 +315,6 @@ export const TUNABLES: Tunable[] = [
     type: 'number',
     placement: 'loop',
     min: 1,
-    // Was 64, below the shipped default of 200 — which made the default itself unsettable and any
-    // attempt to raise it a validation error.
     max: 500,
     step: 1,
     default: MAX_AGENT_STEPS,
@@ -377,40 +345,19 @@ export const TUNABLES: Tunable[] = [
     type: 'string',
     placement: 'loop',
     default: undefined,
-    // The value is a PROVIDER id, not a model name — it selects which API to talk to, and the name
-    // sent on the wire comes from that provider. Free text here only ever produced "not found".
     choicesFrom: 'models',
-    /**
-     * Not settable on the profile — see `settableAt`.
-     *
-     * `request` is kept because that is how the Lab compares two engines on one suite
-     * (`ExperimentService` passes variant overrides as the request layer); `persona` because a
-     * persona choosing its own model is the intended way to use several at once. What is refused is
-     * the one field that repoints an entire project.
-     */
-    /**
-     * `pack` is where this belongs now; `persona` remains during the move.
-     *
-     * Runtime configuration is migrating from the persona onto the pack — a persona is who, a pack
-     * is how — and personas still carry an `overrides` bag until that migration lands. Both layers
-     * are genuinely settable in the meantime, so both are listed; dropping `persona` early would
-     * refuse an override that is still in force on existing records.
-     */
     settableAt: ['persona', 'pack', 'request'],
     note: 'Which of your model APIs to run against — a deployed engine or a registered endpoint. '
       + 'Resolved to a base URL before the call, so two engines can be compared on the same suite.',
     source: 'services/ModelService.ts',
   },
 
-  // ── the prompt itself ──
   {
     key: 'systemPrompt',
     label: 'System prompt (full replace)',
     group: 'prompt',
     type: 'string',
     placement: 'loop',
-    // Undefined because there is no constant to point at: the prompt is built per task. `promptId`
-    // names the generated one instead, so an editor can open on what is really being sent.
     default: undefined,
     promptId: 'agent',
     note: 'Replaces the generated prompt ENTIRELY, including the environment description — so a '
@@ -436,24 +383,9 @@ const BY_KEY = new Map(TUNABLES.map((t) => [t.key, t]));
 
 export const tunable = (key: string): Tunable | undefined => BY_KEY.get(key);
 
-/** Overrides as they travel: an open bag, validated against the registry rather than by its type. */
-
-/** Keys the loop reads directly instead of sending. */
 export const loopKeys = (): string[] =>
   TUNABLES.filter((t) => t.placement === 'loop').map((t) => t.key);
 
-/**
- * Merges overrides into a request body.
- *
- * The ONLY thing that writes a tunable onto the wire. Everything else — the UI, validation, the
- * config page — describes; this is what makes a declaration real, which is why the test that every
- * key survives a round trip through here is the important one in the suite.
- *
- * Silently drops what it cannot send rather than throwing: an engine-gated sampler reaching a
- * different engine is a knob that does nothing, not a broken run, and failing the whole experiment
- * over it would discard the variants that were fine. `unsupported` reports what was dropped so the
- * caller can say so.
- */
 export function applyOverrides(
   body: Record<string, unknown>,
   overrides: Overrides,
@@ -463,9 +395,6 @@ export function applyOverrides(
   const unsupported: string[] = [];
 
   for (const [key, value] of Object.entries(overrides)) {
-    // Both mean "nothing to send": undefined was never set, null asked for the built-in default.
-    // `effectiveOverrides` already stripped a null it could act on, so one arriving here is a
-    // caller with no profile to opt out of — which is simply the default, and nothing to write.
     if (value === undefined || value === null) continue;
     const spec = BY_KEY.get(key);
     if (!spec) {
@@ -480,8 +409,6 @@ export function applyOverrides(
 
     const field = spec.field ?? spec.key;
     if (spec.placement === 'template_vars') {
-      // Merged, not replaced: the harness already sends `enable_thinking` here and a bare
-      // assignment would drop whatever else the caller had nested.
       const existing = (next.template_vars ?? {}) as Record<string, unknown>;
       next.template_vars = { ...existing, [field]: value };
     } else {
@@ -492,21 +419,11 @@ export function applyOverrides(
   return { body: next, unsupported };
 }
 
-/** Rejects an override before it reaches a model call. */
 export interface OverrideContext {
-  /** Which layer is being written. Omitted means "not a layered write", and layer rules are skipped. */
   layer?: 'profile' | 'persona' | 'pack' | 'request';
-  /**
-   * The values a `choicesFrom` knob may take, resolved by the caller.
-   *
-   * Passed in rather than looked up: this module is pure and has no database, and the valid set is
-   * per-tenant. Omitted means the caller could not resolve them, and the check is skipped rather
-   * than refusing everything — a model list that failed to load must not make the form unusable.
-   */
   models?: string[];
 }
 
-/** "a", "a or b", "a, b or c" — a refusal naming three layers should still read as a sentence. */
 const orList = (items: readonly string[]): string =>
   items.length <= 1
     ? (items[0] ?? '')
@@ -517,34 +434,14 @@ export function validateOverrides(overrides: Overrides, context: OverrideContext
     if (value === undefined) continue;
     const spec = BY_KEY.get(key);
     if (!spec) return `Unknown setting "${key}".`;
-    /**
-     * `null` is the opt-out, not a value.
-     *
-     * It means "ignore whatever the promoted profile supplies for this key and use the harness's
-     * built-in default" — the only way to express a control arm once anything has been adopted.
-     * Type-checking it as a value rejected exactly the variant that needed it most, which is how a
-     * control arm ended up impossible to write.
-     */
     if (value === null) continue;
 
-    /**
-     * Which layer may set this at all.
-     *
-     * Refused here rather than ignored at resolve time: a setting that is silently dropped is worse
-     * than one that is refused, because the person who set it goes on believing it took effect.
-     */
     if (context.layer && spec.settableAt && !spec.settableAt.includes(context.layer)) {
       return `${spec.label} cannot be set on the ${context.layer}. `
         + `Set it on ${orList(spec.settableAt)} instead — `
         + 'a profile-wide value would repoint every persona in every project at once.';
     }
 
-    /**
-     * A `choicesFrom` value must be one of the caller's own.
-     *
-     * This was a UI hint the server never enforced, so `model` accepted any string and the failure
-     * surfaced at every leaf, at run time, after a workspace had been built, as "Model X not found".
-     */
     if (spec.choicesFrom === 'models' && context.models && !context.models.includes(String(value))) {
       return context.models.length
         ? `${spec.label} must be one of your models: ${context.models.join(', ')}.`
@@ -565,18 +462,6 @@ export function validateOverrides(overrides: Overrides, context: OverrideContext
   return null;
 }
 
-/**
- * What the agent is ACTUALLY running with, right now.
- *
- * ── WHY THIS IS NOT `harnessDefaults` ──
- * The registry's `default` is the built-in constant, and for a long time the configuration page
- * showed exactly that and called it what the harness is set to. It is not: a promoted profile sits
- * on top of every run, so once anything is adopted the page describes a configuration nobody is
- * using. The whole point of the Lab is tuning the harness, and tuning against a number that is not
- * the one in force is worse than not showing a number at all.
- *
- * `think` in particular read as a hardcoded "off" while an adopted profile had turned it on.
- */
 export function effectiveConfig(profileOverrides: Overrides = {}, kind?: ModelKind): EffectiveKnob[] {
   return TUNABLES
     .filter((t) => !t.engine || t.engine === kind)
@@ -594,13 +479,6 @@ export function effectiveConfig(profileOverrides: Overrides = {}, kind?: ModelKi
     });
 }
 
-/**
- * What the harness runs at today, as an overrides bag.
- *
- * The control arm. An experiment that wants a baseline variant uses this rather than an empty
- * overrides object, so the comparison is against stated values instead of against whatever the
- * defaults happened to be on the day.
- */
 export function harnessDefaults(kind?: ModelKind): Overrides {
   const out: Overrides = {};
   for (const spec of TUNABLES) {

@@ -23,7 +23,6 @@ describe('appendUserTurn (koala vault policy)', () => {
   it('builds the composition of the persona and enabled services speaking', () => {
     const system = buildKoalaPrompt('You are Koala.', [], ['svc-a']);
     expect(system).toContain('You are Koala.');
-    // With no services, the composer adds the "nothing deployed yet" note.
     expect(system).toContain('deployed');
   });
 });

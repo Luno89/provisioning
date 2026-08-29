@@ -1,21 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runAgentLoop, type SandboxDriver } from './agent-loop.js';
 
-/**
- * These are termination tests.
- *
- * A loop driven by model output has three ways to never end — tools forever, prose forever, or a
- * `finish` that does not finish — and none of them show up as an error. They show up as a leaf
- * stuck "running" while tokens drain, which is why the fake model here is scripted rather than
- * live: the interesting cases are the ones a cooperative model never produces.
- */
-/**
- * Builds a real SSE stream, because the loop consumes one.
- *
- * Deliberately fragments the tool-call arguments across frames — that is how the endpoint actually
- * emits them, and reading only the first frame yields a call with empty arguments that then runs
- * with defaults.
- */
 const sse = (frames: unknown[]) =>
   frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') + 'data: [DONE]\n\n';
 
@@ -25,7 +10,6 @@ const reply = (message: { content?: string; tool_calls?: any[] }, tokens = 10) =
   const frames: unknown[] = [];
   if (message.content) frames.push(frame({ content: message.content }));
   for (const [index, call] of (message.tool_calls ?? []).entries()) {
-    // Name first, then arguments split in two — the real fragmentation shape.
     frames.push(frame({ tool_calls: [{ index, id: call.id, function: { name: call.function.name } }] }));
     const args: string = call.function.arguments;
     const mid = Math.ceil(args.length / 2);
@@ -41,17 +25,13 @@ const toolCall = (name: string, args: Record<string, unknown>, id = 'c1') => ({
   function: { name, arguments: JSON.stringify(args) },
 });
 
-/** A model that returns a scripted sequence, then repeats its last reply forever. */
 const scriptedModel = (replies: Record<string, unknown>[]) => {
   let i = 0;
   return vi.fn(async () => reply(replies[Math.min(i++, replies.length - 1)]!) as any);
 };
 
-/** The request body of the nth model call. Typed loosely because vi.fn's inferred arg tuple is
- *  empty, and every assertion here is about JSON we sent, not about the mock's shape. */
 const bodyOf = (model: any, call: number) => JSON.parse(model.mock.calls[call][1].body);
 
-/** The tool result the model was shown on its nth call. */
 const toolMessageOf = (model: any, call: number) =>
   bodyOf(model, call).messages.find((m: any) => m.role === 'tool');
 
@@ -74,18 +54,6 @@ describe('runAgentLoop', () => {
   });
 
   it('treats running out of steps as FAILURE, not completion', async () => {
-    /**
-     * The dangerous case: a model that keeps working forever. Reporting "ran 24 commands" as
-     * success would mark unfinished work complete and move it to review.
-     *
-     * It now gets one wrap-up turn first — hence 5 calls for 4 steps — but a model that ignores it
-     * and asks for another command still fails. The wrap-up is a chance to report, not a pass.
-     */
-    /**
-     * Varied commands, deliberately: repeating ONE command is now caught earlier by the circling
-     * check, which is the point of it. This is the case where the agent is genuinely working and
-     * simply does not stop.
-     */
     let n = 0;
     const model = vi.fn(async () => {
       n += 1;
@@ -109,8 +77,6 @@ describe('runAgentLoop', () => {
   });
 
   it('honours a finish that reports failure, instead of retrying inside the loop', async () => {
-    // "I am stuck" must end the attempt. The retry policy lives outside, and only there does the
-    // next attempt get the failure written into its context.
     const result = await run(scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: false, summary: 'No package.json anywhere.' })] }]));
     expect(result.succeeded).toBe(false);
     expect(result.summary).toBe('No package.json anywhere.');
@@ -124,7 +90,6 @@ describe('runAgentLoop', () => {
     ]);
     const result = await run(model, box);
     expect(result.succeeded).toBe(true);
-    // The exit code and stderr must reach the model — that is the whole feedback loop.
     const toolMessage = toolMessageOf(model, 1);
     expect(toolMessage.content).toContain('tsc: error');
     expect(toolMessage.content).toContain('"exitCode":2');
@@ -143,8 +108,6 @@ describe('runAgentLoop', () => {
   });
 
   it('reassembles tool-call arguments split across stream frames', async () => {
-    // The failure this prevents is silent: a call whose arguments never arrived runs with defaults
-    // and looks like the model asked for something it did not.
     const box = sandbox();
     const model = scriptedModel([
       { tool_calls: [toolCall('write_file', { path: 'src/a.ts', content: 'export const x = 1;' })] },
@@ -155,8 +118,6 @@ describe('runAgentLoop', () => {
   });
 
   it('counts tokens from the usage frame, which only a streamed response carries', async () => {
-    // Measured against the live endpoint: a non-streamed response returns `usage: null`, so a
-    // non-streaming loop meters every attempt at zero and the root budget never trips.
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'x' })] }]);
     expect((await run(model)).tokensUsed).toBe(10);
     expect(bodyOf(model, 0).stream_options).toEqual({ include_usage: true });
@@ -181,8 +142,6 @@ describe('runAgentLoop', () => {
   });
 
   it('throws when the model endpoint itself is broken, so it is not mistaken for a task failure', async () => {
-    // A 500 from the endpoint is infrastructure, and must reach Temporal's retry — not be recorded
-    // as "the agent could not do the task".
     const model = vi.fn(async () => ({ ok: false, status: 502, text: async () => 'bad gateway' }) as any);
     await expect(run(model)).rejects.toThrow(/502/);
   });
@@ -199,8 +158,6 @@ describe('runAgentLoop', () => {
   });
 
   it('sends an overridden temperature, so an experiment varying it actually varies something', async () => {
-    // Without this the Lab's temperature axis expanded into variants that were byte-for-byte the
-    // same request, and the noise between two identical configurations was reported as an effect.
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
@@ -215,15 +172,12 @@ describe('runAgentLoop', () => {
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       overrides: { maxSteps: 3 },
     });
-    // 3 steps plus the wrap-up turn the budget stop now earns.
     expect(model).toHaveBeenCalledTimes(4);
     expect(result.summary).toMatch(/Ran out of steps \(3\)/);
     expect(bodyOf(model, 0).maxSteps).toBeUndefined();
   });
 
   it('appends extra instructions while keeping the generated environment description', async () => {
-    // The safe way to test wording: a full replacement drops the "there is no network" text and
-    // the agent plans around an npm install that cannot work.
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
@@ -235,8 +189,6 @@ describe('runAgentLoop', () => {
   });
 
   it('replaces the whole system prompt but never the task', async () => {
-    // Dropping taskContext would produce an agent asked to do nothing — a variant that cannot
-    // succeed, reading as evidence that the new wording was worse.
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
@@ -245,7 +197,6 @@ describe('runAgentLoop', () => {
     const system = bodyOf(model, 0).messages[0].content;
     expect(system).toContain('You are terse.');
     expect(system).toContain('Do the thing');
-    // The generated environment description is what a replacement trades away.
     expect(system).not.toMatch(/NO outbound network/);
   });
 
@@ -259,16 +210,12 @@ describe('runAgentLoop', () => {
   });
 
   it('keeps the harness default when no temperature is given', async () => {
-    // The point of comparison is the value the harness actually runs at, so absent means the
-    // sampler's default rather than some second default invented here.
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await run(model);
     expect(bodyOf(model, 0).temperature).toBe(0.3);
   });
 
   it('caps tool-call arguments in the trace, keeping the head where the path is', async () => {
-    // write_file carries the whole file, so an uncapped trace grows without bound while every
-    // other field is clipped — and an experiment stores every run's trace in one document.
     const big = 'x'.repeat(20_000);
     const model = scriptedModel([
       { tool_calls: [toolCall('write_file', { path: 'src/index.ts', content: big })] },
@@ -292,8 +239,6 @@ describe('the step budget the agent can see', () => {
   };
 
   it('says nothing while there is plenty left', async () => {
-    // A counter on every turn is noise the model learns to skip. The number only changes a
-    // decision when there is barely any left.
     const { model, done } = runner(10);
     await done;
 
@@ -301,11 +246,6 @@ describe('the step budget the agent can see', () => {
   });
 
   it('warns near the end, and says what to do about it', async () => {
-    /**
-     * The budget was stated once in the system prompt and never again, so an agent twenty steps in
-     * had no way to know where it was. The axe then falls with everything uncommitted — which is
-     * how one leaf spent three attempts and 91,818 tokens without getting past `mkdir`.
-     */
     const { model, done } = runner(4);
     const result = await done;
 
@@ -320,7 +260,6 @@ describe('the step budget the agent can see', () => {
   });
 
   it('attaches the warning to a tool result rather than spending a step on it', async () => {
-    // An extra turn would cost a step, which is a perverse way to warn someone about running out.
     const { model, done } = runner(4);
     await done;
 
@@ -333,8 +272,6 @@ describe('the step budget the agent can see', () => {
 
 describe('the stored conversation', () => {
   it('is the array the request was built from, not a reconstruction', async () => {
-    // The trace clips tool results to 1,200 characters while the model was sent up to 8,000 — so
-    // reading a trace tells you roughly what happened and misrepresents what the model saw.
     const box = sandbox({
       exec: vi.fn(async () => ({ stdout: 'X'.repeat(3000), stderr: '', exitCode: 0, timedOut: false })),
     });
@@ -349,12 +286,9 @@ describe('the stored conversation', () => {
 
     const convo = result.conversation!;
     expect(convo.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant']);
-    // The system prompt in full, as sent.
     expect(convo[0]!.content).toMatch(/NO outbound network/);
     expect(convo[1]!.content).toMatch(/^Begin\./);
-    // The assistant turn carries the calls it actually made.
     expect(convo[2]!.toolCalls?.[0]?.name).toBe('run_command');
-    // The tool result as the MODEL received it, not the trace's shorter copy.
     const toolMessage = convo[3]!;
     expect(toolMessage.toolCallId).toBe('c1');
     expect(toolMessage.content.length).toBeGreaterThan(1200);
@@ -362,7 +296,6 @@ describe('the stored conversation', () => {
   });
 
   it('is absent when the run is not being recorded', async () => {
-    // A leaf execution has no use for it and would write hundreds of kilobytes per attempt.
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     expect((await run(model)).conversation).toBeUndefined();
   });
@@ -382,27 +315,14 @@ describe('the stored conversation', () => {
   });
 });
 
-
 describe('running out of budget is a stop, not a verdict', () => {
-  /**
-   * ── THE WORK THIS LOST ──
-   * A leaf wrote 30 passing tests, committed them, pushed them to koala/7565dc49 and said so in
-   * prose — then hit the step ceiling before calling `finish`. The harness recorded a failure,
-   * never merged the branch, and it sat in the outstanding list for days while the code was on a
-   * branch the whole time.
-   *
-   * The agent knew what it had done. It was never asked. So it is asked now, once, with `finish`
-   * as the only tool available.
-   */
 
-  /** A model that never finishes on its own, then answers the forced wrap-up however you say. */
   const neverFinishes = (wrapUp: Record<string, unknown>) => {
     let calls = 0;
     return vi.fn(async (_url: string, init: any) => {
       calls += 1;
       const body = JSON.parse(init.body);
       const only = body.tools?.length === 1 && body.tools[0].function?.name === 'finish';
-      // The wrap-up turn is the one where finish is the only tool on offer.
       if (only) return reply(wrapUp) as any;
       return reply({ tool_calls: [toolCall('run_command', { command: `echo ${calls}` })] }) as any;
     });
@@ -417,11 +337,8 @@ describe('running out of budget is a stop, not a verdict', () => {
     });
     const out = await run(model, sandbox(), 3);
 
-    // The work is reported, not discarded.
     expect(out.succeeded).toBe(true);
     expect(out.summary).toContain('koala/7565dc49');
-    // And it is still marked as having been stopped, so nothing downstream mistakes it for a run
-    // that ended on its own terms.
     expect(out.outOfBudget).toBe(true);
   });
 
@@ -432,13 +349,10 @@ describe('running out of budget is a stop, not a verdict', () => {
     const last = JSON.parse(model.mock.calls[model.mock.calls.length - 1]![1].body);
     expect(last.tools).toHaveLength(1);
     expect(last.tools[0].function.name).toBe('finish');
-    // And it is told why, in terms it can act on.
     expect(JSON.stringify(last.messages)).toMatch(/call `finish` now/i);
   });
 
   it('believes an honest failure too', async () => {
-    // The wrap-up is not a way to launder a failure into a success — it is asked for the truth and
-    // its answer is taken either way.
     const model = neverFinishes({
       tool_calls: [toolCall('finish', { succeeded: false, summary: 'Could not reach the registry.' })],
     });
@@ -448,11 +362,6 @@ describe('running out of budget is a stop, not a verdict', () => {
   });
 
   it('keeps BOTH the diagnosis and the prose account', async () => {
-    /**
-     * Replacing the diagnosis with the prose lost the classification: a run that simply ran out
-     * reported its last idle thought instead of saying it ran out. Both matter — one says what
-     * happened to the run, the other is the agent's account of where the work stands.
-     */
     const model = neverFinishes({ content: 'I already committed the tests and pushed them.' });
     const out = await run(model, sandbox(), 3);
     expect(out.summary).toMatch(/Ran out of steps \(3\)/);
@@ -460,20 +369,13 @@ describe('running out of budget is a stop, not a verdict', () => {
   });
 
   it('keeps prose when the agent answers without calling the tool', async () => {
-    /**
-     * Exactly what happened to the leaf that was lost: it explained what it had done in prose. That
-     * account is the most useful thing on the record, so it is kept — but it is NOT taken as a
-     * claim of success, because no claim was made.
-     */
     const model = neverFinishes({ content: 'I already committed the tests and pushed them.' });
     const out = await run(model, sandbox(), 3);
     expect(out.summary).toContain('already committed the tests');
-    // Prose is not a claim: no `finish` was called, so nothing is claimed.
     expect(out.succeeded).toBe(false);
   });
 
   it('still reports the run when the wrap-up call itself fails', async () => {
-    // A wrap-up that errors must not take the run's own record down with it.
     let calls = 0;
     const model = vi.fn(async (_url: string, init: any) => {
       const body = JSON.parse(init.body);
@@ -488,46 +390,32 @@ describe('running out of budget is a stop, not a verdict', () => {
   });
 });
 
-
 describe('bounding by what actually costs', () => {
-  /**
-   * A step is not a unit of anything — it can be 200 tokens or 20,000 — so counting steps bounds
-   * neither spend nor time, only patience. Tokens are what a run costs, so tokens are what stops it.
-   */
   it('stops on spend, and says so in those terms', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
     const out = await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
-      // Each scripted reply reports 10 tokens, so this stops after three turns rather than on steps.
       maxSteps: 100, maxTokens: 25,
     });
     expect(out.succeeded).toBe(false);
     expect(out.summary).toMatch(/Ran out of tokens/);
-    // Named honestly: reporting a spend stop as a step stop sent a real diagnosis down the wrong
-    // path once already.
     expect(out.summary).not.toMatch(/Ran out of steps/);
     expect(out.outOfBudget).toBe(true);
   });
 
   it('never cuts a turn in half to enforce the budget', async () => {
-    /**
-     * Checked before a turn, never during. Stopping mid-turn abandons a tool call the agent is
-     * waiting on, and the overshoot of letting one reply finish is a single reply.
-     */
     const box = sandbox();
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl: model,
       maxSteps: 100, maxTokens: 25,
     });
-    // Every command the model asked for was actually run: none was stranded by the stop.
     const asked = model.mock.calls.length;
     expect((box.exec as any).mock.calls.length).toBeGreaterThan(0);
     expect(asked).toBeGreaterThan(1);
   });
 
   it('lets a run finish normally well inside a generous budget', async () => {
-    // The budget must not be the thing that ends ordinary work — that is the whole complaint.
     const out = await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'Done.' })] }]),
@@ -538,13 +426,7 @@ describe('bounding by what actually costs', () => {
   });
 });
 
-
 describe('stopping a run that is going in circles', () => {
-  /**
-   * The failure a step cap and a production counter both miss: an agent that IS acting — writing a
-   * file every single turn — and getting nowhere. Only what it is thinking separates that from
-   * honest iteration.
-   */
   it('stops a busy loop and says what repeated', async () => {
     const model = scriptedModel([{
       content: 'Rewrite the server to fix the port binding',
@@ -557,17 +439,11 @@ describe('stopping a run that is going in circles', () => {
 
     expect(out.succeeded).toBe(false);
     expect(out.summary).toMatch(/loop, not progress/i);
-    // Quotes the repeated thought, so a person can check the verdict rather than trust it.
     expect(out.summary).toMatch(/port binding/);
-    // And it stops EARLY — the point is not to spend the rest of the budget on more of the same.
     expect(out.steps).toBeLessThan(10);
   });
 
   it('does not offer a wrap-up turn for circling', async () => {
-    /**
-     * Circling is a diagnosis, not an interruption. The loop already knows what went wrong and its
-     * own account is better than asking the agent, which is the thing that was confused.
-     */
     const model = scriptedModel([{
       content: 'Rewrite the server to fix the port binding',
       tool_calls: [toolCall('write_file', { path: 'src/server.js', content: 'x' })],
@@ -575,15 +451,12 @@ describe('stopping a run that is going in circles', () => {
     const out = await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model, maxSteps: 40,
     });
-    // Typed loosely for the same reason as bodyOf: vi.fn's inferred arg tuple is empty.
     const last = JSON.parse((model.mock.calls as any[])[model.mock.calls.length - 1][1].body);
-    // The final call still offered the full toolset; no finish-only wrap-up was made.
     expect(last.tools.length).toBeGreaterThan(1);
     expect(out.outOfBudget).toBeUndefined();
   });
 
   it('lets a run that varies its work reach the end', async () => {
-    // The false positive that would matter: distinct turns must never be called a loop.
     let n = 0;
     const model = vi.fn(async () => {
       n += 1;
@@ -602,11 +475,6 @@ describe('stopping a run that is going in circles', () => {
 });
 
 describe('tools from the servers this harness built', () => {
-  /**
-   * The last connection in the loop Koala exists to close: it builds an MCP server, deploys it, and
-   * until now no agent could call it. These are about the ways offering remote tools goes wrong
-   * quietly rather than loudly.
-   */
   const remoteTool = (name: string) => ({
     type: 'function' as const,
     function: { name, description: `[weather] ${name}`, parameters: { type: 'object', properties: {} } },
@@ -635,18 +503,11 @@ describe('tools from the servers this harness built', () => {
     });
 
     expect(callRemote).toHaveBeenCalledWith('weather__get-forecast', { city: 'London' });
-    // The sandbox never saw it.
     expect((box.exec as any).mock.calls).toHaveLength(0);
-    // And the model was shown the result.
     expect(JSON.stringify(bodyOf(model, 1).messages)).toContain('tempC');
   });
 
   it('NEVER lets a remote handler shadow a built-in', async () => {
-    /**
-     * The dangerous collision. A handler answering for `run_command` would have the model call the
-     * real tool and reach something else — and it would look like the sandbox misbehaving rather
-     * than like two things sharing a name.
-     */
     const box = sandbox();
     const callRemote = vi.fn(async () => ({ text: 'HIJACKED', isError: false }));
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
@@ -656,14 +517,11 @@ describe('tools from the servers this harness built', () => {
       maxSteps: 2, callRemote,
     });
 
-    // The sandbox ran it, whatever the handler would have said.
     expect((box.exec as any).mock.calls.length).toBeGreaterThan(0);
     expect(JSON.stringify(bodyOf(model, 1).messages)).not.toContain('HIJACKED');
   });
 
   it('does not let a remote tool replace a built-in in the offer either', async () => {
-    // Same collision, one step earlier: offering a remote `run_command` would remove the real one
-    // from the list entirely.
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'x' })] }]);
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
@@ -675,8 +533,6 @@ describe('tools from the servers this harness built', () => {
   });
 
   it('reports a failing remote tool to the model instead of ending the run', async () => {
-    // A tool that fails is information the agent can act on; killing the run would discard
-    // everything done so far.
     const callRemote = vi.fn(async () => ({ text: 'city not found', isError: true }));
     const model = scriptedModel([{ tool_calls: [toolCall('weather__get-forecast', { city: 'zzz' })] }]);
     const out = await runAgentLoop({
@@ -688,11 +544,6 @@ describe('tools from the servers this harness built', () => {
   });
 
   it('respects a persona that named its tools', async () => {
-    /**
-     * A persona listing its tools must not silently gain remote ones. Every tool offered costs
-     * prompt tokens on every turn, and a toolset that grows when somebody deploys something
-     * unrelated is a toolset nobody chose.
-     */
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'x' })] }]);
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
@@ -703,25 +554,13 @@ describe('tools from the servers this harness built', () => {
   });
 });
 
-/**
- * Checkpoints: saving a run partway through, then forgetting how it got there.
- *
- * The failure these exist for is not exotic. ExecuteLeafActivity is ONE Temporal activity wrapping
- * the whole loop, `/work` is an emptyDir destroyed with the pod, and the only push was the agent
- * doing it at the end — so a run killed by the activity's own wall-clock timeout restarted at step
- * zero having lost both the tokens and every file written.
- *
- * Driven here with a tiny token budget so a checkpoint lands within a few scripted turns.
- */
 describe('checkpointing a run', () => {
-  /** Token budget small enough that CHECKPOINTS thresholds fall inside a short scripted run. */
   const withCheckpoint = (fetchImpl: any, checkpoint: any, maxTokens = 30) =>
     runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Add a rate limiter', sandbox: sandbox(),
       fetchImpl, maxSteps: 8, maxTokens, checkpoint,
     });
 
-  /** A run that keeps working, so the budget is what stops it rather than a `finish`. */
   const working = () => scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
 
   it('saves, and records where the save landed', async () => {
@@ -734,10 +573,6 @@ describe('checkpointing a run', () => {
   });
 
   it('asks the agent for a handoff with exactly one tool on offer', async () => {
-    /**
-     * Withholding every other tool is what makes this a pause rather than another working turn —
-     * the agent cannot decide to keep going, which is the whole reason it was interrupted.
-     */
     const model = working();
     await withCheckpoint(model, vi.fn(async () => ({ artifact: 'a' })));
 
@@ -753,7 +588,6 @@ describe('checkpointing a run', () => {
     const checkpoint = vi.fn(async () => ({ artifact: 'a' }));
     const model = vi.fn(async (_url: string, init: any) => {
       const body = JSON.parse(init.body);
-      // The handoff turn is the one offered a single `handoff` tool.
       if (body.tools?.length === 1 && body.tools[0].function?.name === 'handoff') {
         return reply({ tool_calls: [toolCall('handoff', { done: 'bucket written', next: 'wire middleware' })] }) as any;
       }
@@ -762,7 +596,6 @@ describe('checkpointing a run', () => {
 
     await withCheckpoint(model, checkpoint);
 
-    // `as any`: vi.fn's inferred arg tuple is empty, same reason `bodyOf` above is loose.
     expect((checkpoint.mock.calls[0] as any)[0]).toMatchObject({
       number: 1,
       handoff: { done: 'bucket written', next: 'wire middleware' },
@@ -773,8 +606,6 @@ describe('checkpointing a run', () => {
     const model = working();
     await withCheckpoint(model, vi.fn(async () => ({ artifact: '# Checkpoint 1\nTHE SAVED STATE' })));
 
-    // The first working turn AFTER the save: system prompt plus one user message carrying the
-    // artifact, and nothing else. That is the reset.
     const after = model.mock.calls
       .map((c: any) => JSON.parse(c[1].body))
       .filter((b: any) => !(b.tools?.length === 1 && b.tools[0].function?.name === 'handoff'))
@@ -784,21 +615,14 @@ describe('checkpointing a run', () => {
     expect(after.messages).toHaveLength(2);
     expect(after.messages[0].role).toBe('system');
     expect(after.messages[1].content).toContain('THE SAVED STATE');
-    // The agent is TOLD it happened — one that finds its context inexplicably shorter spends turns
-    // re-establishing things it already knew.
     expect(after.messages[1].content).toContain('was reset');
   });
 
   it('does NOT reset when the save failed', async () => {
-    /**
-     * The load-bearing case. Discarding a context whose replacement failed to write would turn a
-     * bookkeeping failure into a lost run — the exact outcome checkpoints exist to prevent.
-     */
     const model = working();
     const result = await withCheckpoint(model, vi.fn(async () => undefined));
 
     expect(result.checkpoints).toBeUndefined();
-    // Still ran to its budget and produced a normal result rather than dying.
     expect(result.steps).toBeGreaterThan(0);
   });
 
@@ -811,7 +635,6 @@ describe('checkpointing a run', () => {
   });
 
   it('does not checkpoint at all when the caller cannot save', async () => {
-    // No driver means the run simply does not checkpoint — not that it fails to.
     const result = await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: working(), maxSteps: 4, maxTokens: 30,
@@ -820,15 +643,6 @@ describe('checkpointing a run', () => {
   });
 });
 
-/**
- * Extending a run that is still producing.
- *
- * The ceiling has to exist — a loop whose model never calls `finish` runs forever — but it fires at
- * the same number whether the agent is one command from done or has written nothing. This codebase
- * has both cases on record: a leaf that wrote 30 passing tests and hit the cap before calling
- * finish, and a leaf that failed three times having written nothing at all. Same ceiling, opposite
- * right answers.
- */
 describe('earning more room', () => {
   const working = () => scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
 
@@ -843,7 +657,6 @@ describe('earning more room', () => {
     const result = await withBudget(working(), extend);
 
     expect(extend).toHaveBeenCalled();
-    // It ran past the ceiling it was given rather than stopping at it.
     expect(result.steps).toBeGreaterThan(3);
     expect(result.extensions?.[0]?.reason).toContain('its tests now pass');
   });
@@ -855,11 +668,6 @@ describe('earning more room', () => {
   });
 
   it('hands the loop’s own diagnoses to whoever decides', async () => {
-    /**
-     * The vetoes are the point of the whole mechanism, and the loop is the only thing that knows
-     * them — raising a budget on a thrashing run has been measured to make outcomes worse three
-     * separate times.
-     */
     const extend = vi.fn(async () => undefined);
     await withBudget(working(), extend);
 
@@ -873,11 +681,6 @@ describe('earning more room', () => {
   });
 
   it('tells the agent its budget moved', async () => {
-    /**
-     * `buildAgentPrompt` bakes the step budget into the system prompt ONCE, so an unannounced
-     * extension leaves the agent working to a number that is no longer true. sandbox-tools.ts
-     * documents this exact bug class and step-budget.test.ts guards it.
-     */
     const model = working();
     await withBudget(model, vi.fn(async () => ({ steps: 3, reason: 'granted because its tests now pass' })));
 
@@ -897,37 +700,21 @@ describe('earning more room', () => {
     expect(result.extensions?.[0]).toMatchObject({ at: 'steps', steps: 2 });
   });
 
-  /**
-   * ── AN EXTENSION MUST NOT OUTRANK THE LOOP'S OWN DETECTORS ──
-   *
-   * Observed while writing these tests, and worth pinning: a run that was extended past its step
-   * ceiling then kept repeating itself, and the thought-loop detector stopped it — the extension
-   * did not buy it the right to circle for longer. That is the correct outcome and it is easy to
-   * lose, because the natural way to implement extensions is to relax the condition that stops the
-   * loop, which would relax all of them at once.
-   *
-   * `decideExtension` vetoes on these signals too, so this is belt and braces: even a decider that
-   * ignores the vetoes cannot turn a stuck run into an unbounded one.
-   */
   it('still stops a circling run, extension or not', async () => {
-    // scriptedModel repeats its last reply forever, which is exactly what the detector is for.
     const result = await withBudget(working(), vi.fn(async () => ({ steps: 2, reason: 'granted' })), 2);
 
     expect(result.succeeded).toBe(false);
     expect(result.summary).toMatch(/repeat|loop|no meaningful variation/i);
-    // It was extended once and then stopped anyway, rather than running to a second ceiling.
     expect(result.extensions).toHaveLength(1);
   });
 
   it('survives a decider that throws', async () => {
-    // A broken affordability check must not turn a finished run into a crashed one.
     const result = await withBudget(working(), vi.fn(async () => { throw new Error('mongo gone'); }));
     expect(result.steps).toBe(3);
     expect(result.summary).toBeTruthy();
   });
 
   it('does not extend at all when the caller cannot', async () => {
-    // Absent means hard ceilings, which is what every caller had before this existed.
     const result = await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: working(), maxSteps: 3,
@@ -937,14 +724,6 @@ describe('earning more room', () => {
   });
 });
 
-/**
- * The memory tool that used to lie.
- *
- * It answered "Memory recorded and sent to Memory Bank review queue" and never called saveMemory —
- * so `source: 'agent_tool'` was a dead enum value, every agent that used it was told it had worked,
- * and seed-harder-benchmark-experiment.ts contains a task that SCORES an agent on calling it. The
- * suite was rewarding a no-op and reporting the score as a capability.
- */
 describe('saving a lesson', () => {
   const asking = () => scriptedModel([
     { tool_calls: [toolCall('save_harness_memory', { category: 'lessons_learned', title: 'npm ci needs a lockfile', text: 'The build context has no package-lock.json.' })] },
@@ -966,12 +745,6 @@ describe('saving a lesson', () => {
   });
 
   it('tells the agent it is stored, now that it actually is', async () => {
-    /**
-     * This asserted "Queued for review", because everything a model concluded waited for a human.
-     * Nobody drained that queue — 124 of 143 memories were sitting in it unread — so the reply was
-     * accurate and the mechanism was useless. Admission is now decided against what is already
-     * stored (lib/memory-decide.ts) and the reply reports what happened.
-     */
     const model = asking();
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
@@ -984,8 +757,6 @@ describe('saving a lesson', () => {
   });
 
   it('says so when the bank already held it, rather than claiming a write', async () => {
-    // An agent told "saved" when nothing was stored would stop repeating a lesson that is recorded
-    // nowhere. NOOP is a real outcome of admission, not an error.
     const model = asking();
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
@@ -998,14 +769,12 @@ describe('saving a lesson', () => {
   });
 
   it('says it could not save rather than claiming it did', async () => {
-    // The exact failure being fixed: `saved: true` with nothing written.
     const model = asking();
     await runAgentLoop({
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: model, maxSteps: 2,
     });
 
-    // Asserted on the text rather than parsed: the loop appends its own notes to a tool result.
     const result = toolMessageOf(model, 1).content;
     expect(result).toContain('"saved":false');
     expect(result).toMatch(/nothing is listening/);

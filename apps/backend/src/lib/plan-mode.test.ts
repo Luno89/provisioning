@@ -1,12 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { extractProposals, stripProposalBlock, parseChatCommand, isChatMode, MAX_PROPOSALS_PER_REPLY } from './plan-mode.js';
 
-/**
- * These cover the shapes models ACTUALLY emit rather than the shape the prompt asks for. A local
- * 27B does not reliably return clean JSON, and every case below is a way the parser could invent
- * work the model did not propose — which is worse than reading nothing, because the proposed
- * status exists precisely so a human reviews before anything runs.
- */
 const fenced = (json: string) => '```json\n' + json + '\n```';
 
 describe('extractProposals', () => {
@@ -16,8 +10,6 @@ describe('extractProposals', () => {
   });
 
   it('proposes NOTHING when the model just talks', () => {
-    // The common case, and it must stay empty — otherwise ordinary discussion inside a planning
-    // conversation manufactures work nobody asked for.
     expect(extractProposals('That depends on whether you want per-user or global limits. Which?')).toEqual([]);
   });
 
@@ -32,7 +24,6 @@ describe('extractProposals', () => {
   });
 
   it('accepts a bare object when the model forgets the fence', () => {
-    // Smaller models drop the fence often enough to be worth one attempt.
     expect(extractProposals('Sure: {"leaves":[{"title":"Do the thing"}]}')).toEqual([{ title: 'Do the thing' }]);
   });
 
@@ -111,12 +102,10 @@ describe('parseChatCommand', () => {
   });
 
   it('does not claim a word that merely starts with plan', () => {
-    // "/planning" is not the command, and treating it as one would silently eat the message.
     expect(parseChatCommand('/planning permission').command).toBeNull();
   });
 
   it('ignores unknown slash commands rather than inventing syntax', () => {
-    // Far more likely to be someone typing a path than a command.
     expect(parseChatCommand('/usr/local/bin is on PATH').command).toBeNull();
     expect(parseChatCommand('/deploy now').command).toBeNull();
   });
@@ -133,8 +122,6 @@ describe('isChatMode', () => {
   });
 
   it('rejects anything else, so the caller can fall back rather than trust it', () => {
-    // A chat request must never fail because a selector was out of date, so the route defaults
-    // instead of erroring — which only works if this is honest about what it does not recognise.
     for (const v of ['planning', 'PLAN', '', undefined, null, 1, {}]) expect(isChatMode(v)).toBe(false);
   });
 });

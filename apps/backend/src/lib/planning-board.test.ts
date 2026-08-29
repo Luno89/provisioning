@@ -26,19 +26,14 @@ describe('serialiseBoard', () => {
   });
 
   it('reports null rather than an id when a persona was never assigned', () => {
-    // A predicate asking "did it assign anyone" should get an answer, not a lookup failure.
     expect(serialiseBoard([leaf({})])[0]!.persona).toBeNull();
   });
 
   it('drops a dependency whose target no longer exists', () => {
-    // The ordering was already lost when the target vanished; emitting a dangling id would make
-    // every predicate handle a shape the board cannot meaningfully be in.
     expect(serialiseBoard([leaf({ dependsOn: ['deleted'] })])[0]!.dependsOn).toEqual([]);
   });
 
   it('keeps the order the model proposed them in', () => {
-    // Itself evidence: a planner that proposes the test before the thing it tests has said
-    // something about how it thinks, and sorting by anything else erases it.
     const second = leaf({ id: 'b', title: 'second', createdAt: '2026-08-07T00:00:02.000Z' });
     const first = leaf({ id: 'a', title: 'first', createdAt: '2026-08-07T00:00:01.000Z' });
 
@@ -64,16 +59,12 @@ describe('boardFile', () => {
   });
 
   it('writes an empty array when nothing was proposed', () => {
-    // The seed side of the gate: a verify that passes on this is not checking anything.
     expect(JSON.parse(boardFile([]).content)).toEqual([]);
   });
 });
 
 describe('the gate baseline', () => {
   it('an empty board is what a planning verify must fail on', () => {
-    // The subtle false pass this prevents: without an empty leaves.json seeded, the seed-only half
-    // fails because the FILE is missing, which every predicate does regardless of what it asserts.
-    // The gate would then bless a verify command that checks nothing at all.
     const empty = JSON.parse(boardFile([]).content);
     expect(Array.isArray(empty)).toBe(true);
     expect(empty).toHaveLength(0);

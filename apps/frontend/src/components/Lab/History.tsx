@@ -1,18 +1,8 @@
 import type { RunSummary } from './shared';
 
-/**
- * Every execution of this experiment, so a change can be judged against what came before.
- *
- * The reason a suite is worth writing down at all: re-run it after rewording a prompt, adopting a
- * default or switching models, and the previous numbers are still there to compare against. They
- * used to be deleted to make room for the new ones, which made an experiment a question you could
- * ask exactly once.
- */
 export function RunHistory({ history }: { history: RunSummary[] }) {
   const latest = history[history.length - 1];
   const previous = history[history.length - 2];
-  // Verified RATE, since executions can differ in how many runs completed.
-  // Over fair attempts, so an execution the model server died during does not read as a regression.
   const rate = (r: RunSummary) => (r.attempted ? r.verified / r.attempted : 0);
   const delta = latest && previous ? rate(latest) - rate(previous) : 0;
 

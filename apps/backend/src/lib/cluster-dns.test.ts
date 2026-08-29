@@ -3,32 +3,12 @@ import { clusterHost, clusterAuthority, clusterUrl } from './cluster-dns.js';
 import { mcpUrlFor } from './mcp-registry.js';
 import { inClusterBaseUrl, LLM_APPS } from './llm-apps.js';
 
-/**
- * The address a pod uses to reach a Service.
- *
- * ── WHY THESE PIN EXACT STRINGS ──
- * This consolidated three hand-written builders. The only thing that makes that safe is proving the
- * output did not change, so the expectations below are the literal strings the old code produced,
- * transcribed from it — not re-derived from the new function, which would make them tautological.
- *
- * It matters more than an ordinary refactor because a fourth caller is coming: a service binding
- * tells an app where to connect. If the address it is handed differs by a character from the one
- * the Service actually has, the app reaches nothing and the failure is a DNS error three layers
- * from its cause.
- */
-
 describe('the DNS name Kubernetes gives a Service', () => {
   it('is service, then namespace, then the cluster domain', () => {
-    // The ordering is the part that is easy to get backwards, and backwards resolves to nothing.
     expect(clusterHost('mongo', 'spec-mongo')).toBe('mongo.spec-mongo.svc.cluster.local');
   });
 
   it('is fully qualified, not the short form', () => {
-    /**
-     * `<service>.<namespace>` resolves only through the pod's search domains, which differ between
-     * a pod, a sandbox, and anything with a custom dnsConfig. The long form means the same thing
-     * everywhere.
-     */
     expect(clusterHost('mongo', 'spec-mongo')).toContain('.svc.cluster.local');
   });
 
@@ -40,7 +20,6 @@ describe('the DNS name Kubernetes gives a Service', () => {
 
 describe('building a URL', () => {
   it('defaults to http, because this is pod-to-pod inside one cluster', () => {
-    // TLS would need certificates nothing here issues.
     expect(clusterUrl({ service: 'minio', namespace: 'minio', port: 9000 }))
       .toBe('http://minio.minio.svc.cluster.local:9000');
   });
@@ -48,7 +27,6 @@ describe('building a URL', () => {
   it('appends a path exactly as given, and guesses at none', () => {
     expect(clusterUrl({ service: 'gitapp', namespace: 'x', port: 8080 }, { path: '/mcp' }))
       .toBe('http://gitapp.x.svc.cluster.local:8080/mcp');
-    // Ends at the port: no path invented when none was asked for.
     expect(clusterUrl({ service: 'gitapp', namespace: 'x', port: 8080 })).toMatch(/:8080$/);
   });
 
@@ -59,27 +37,17 @@ describe('building a URL', () => {
 });
 
 describe('the three callers still produce what they produced before', () => {
-  /**
-   * Transcribed from the code this replaced, not re-derived. If one of these changes, an app that
-   * was reaching a service stops reaching it.
-   */
   it('minio, for quickwit\'s S3 endpoint', () => {
-    // was: `http://minio.${minio?.name ?? 'minio'}.svc.cluster.local:9000`
     expect(clusterUrl({ service: 'minio', namespace: 'koala-store', port: 9000 }))
       .toBe('http://minio.koala-store.svc.cluster.local:9000');
   });
 
   it('an MCP server, which a sandbox calls', () => {
-    // was: `http://${GITAPP_SERVICE}.${namespace}.svc.cluster.local:${port}/mcp`
     expect(mcpUrlFor({ name: 'github-mcp' }, 'koala-request-30b2d228', 8080))
       .toBe('http://gitapp.koala-request-30b2d228.svc.cluster.local:8080/mcp');
   });
 
   it('an LLM endpoint, whose Service is named differently', () => {
-    /**
-     * `<namespace>-<suffix>` rather than the app's name. That is how those Services are actually
-     * created, so it is a fact to preserve rather than an inconsistency to unify.
-     */
     const spec = LLM_APPS.find((a) => a.serviceSuffix)!;
     const url = inClusterBaseUrl(spec, 'my-llm');
     expect(url).toBe(`http://my-llm-${spec.serviceSuffix}.my-llm.svc.cluster.local:${spec.port}${spec.apiPath}`);

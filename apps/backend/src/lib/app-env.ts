@@ -1,8 +1,3 @@
-/**
- * Builds the CDKTF AppStack env vars (see packages/cdktf-infra/main.ts) from already-resolved
- * deployment values. Shared by DeployAppActivity (first deploy) and SyncConfigActivity (re-apply
- * an existing deployment's current config) so the two can never drift out of sync on env var names.
- */
 import { randomBytes } from 'node:crypto';
 import { clusterUrl } from './cluster-dns.js';
 import type { DeploymentMetadata } from './types.js';
@@ -17,14 +12,7 @@ export interface AppEnvArgs {
   provider: string;
   isMock: boolean;
   appType: string;
-  /**
-   * A rendered app spec, when this type is deployed from the catalogue rather than a construct.
-   *
-   * Present means `main.ts` builds it with the generic `SpecApp` and never reaches the hand-written
-   * constructs — the migration, one type at a time. Absent is every app today.
-   */
   renderedSpec?: unknown;
-  /** Service-binding volumes and mounts, when this project declares dependencies. */
   bindingsJson?: string | undefined;
   webRepo?: string | undefined;
   webTag?: string | undefined;
@@ -48,9 +36,6 @@ export interface AppEnvArgs {
   tabbyModel?: string | undefined;
   tabbyRevision?: string | undefined;
   tabbyGpuCount: number;
-  // Real byte count from HuggingFace's file-tree API (see DeployAppActivity.ts), when the lookup
-  // succeeded — lets tabbyapi.ts size /dev/shm and the memory limit off the actual model instead
-  // of its own regex-based guess from the repo name, which it falls back to when this is absent.
   tabbyModelSizeBytes?: number | undefined;
   tabbyHfToken?: string | undefined;
   tabbyCachePvc?: string | undefined;
@@ -91,63 +76,22 @@ export interface AppEnvArgs {
   webuiEnableWebSearch?: boolean | undefined;
   webuiWebSearchEngine?: string | undefined;
   webuiWebSearchApiKey?: string | undefined;
-  // Schema-driven settings for game servers etc. Serialized as one JSON env var rather than ~120
-  // discrete ones, so main.ts needs a single read instead of 120 named ones.
   appSettings?: Record<string, string> | undefined;
   storageEnv: Record<string, string>;
 }
 
-// Keep in sync with packages/cdktf-infra/constructs/vllm.ts's own fallback defaults
-// (modelName/gpuCount/gpuVendor) — those are the values that actually get deployed whenever a
-// vLLM app is created without explicitly setting them. Not sharable as a real cross-package
-// import today, but resolving the SAME concrete values here — before persisting to Mongo —
-// means the stored deployment record (and therefore the Config tab) always reflects what's
-// actually running instead of silently leaving the field blank while vllm.ts substitutes a
-// default no one ever wrote back.
 export const VLLM_DEFAULT_MODEL = 'meta-llama/Llama-3.2-3B-Instruct';
 export const VLLM_DEFAULT_GPU_COUNT = 1;
 export const VLLM_DEFAULT_GPU_VENDOR: 'nvidia' | 'amd' = 'nvidia';
 
-// Keep in sync with packages/cdktf-infra/constructs/tabbyapi.ts's own fallback default (model) —
-// see resolveVllmDefaults above for why this is resolved here rather than left to tabbyapi.ts.
-// Defaults below mirror a known-working config.yml (turboderp/Qwen3.6-27B-exl3, Q8 KV cache,
-// 262144 max_seq_len, tensor parallel across 2 GPUs, reasoning + qwen3_coder tool format).
 export const TABBYAPI_DEFAULT_MODEL = 'turboderp/Qwen3.6-27B-exl3';
 export const TABBYAPI_DEFAULT_GPU_COUNT = 2;
 export const TABBYAPI_DEFAULT_CACHE_MODE: 'FP16' | 'Q8' | 'Q6' | 'Q4' = 'Q8';
-/**
- * 32K, not 256K.
- *
- * Measured: at 262144 this model held ~27 GiB of VRAM for a KV cache nothing used, and the host
- * memory plan correctly REFUSES that configuration on a 30 GiB node. Dropping to 32768 freed 7.7
- * GiB of VRAM with no observed cost — the harness clips conversation messages at 6,000 characters
- * and tool results at 8,000, so nothing here comes close to the old ceiling.
- */
 export const TABBYAPI_DEFAULT_MAX_SEQ_LEN = 32768;
 export const TABBYAPI_DEFAULT_REASONING = true;
 export const TABBYAPI_DEFAULT_TOOL_FORMAT = 'qwen3_coder';
-/**
- * Off.
- *
- * Inline loading keeps a host-side copy of the weights so a model can be swapped without re-reading
- * it — worth paying only if you actually swap models. Measured on the same deployment: 21.4 GiB of
- * host RAM with it on, 7.8 GiB with it off, identical VRAM either way. On by default it left a
- * 30 GiB machine with 244 MiB free and 8.6 GiB swapped.
- */
 export const TABBYAPI_DEFAULT_INLINE_MODEL_LOADING = false;
 
-/**
- * Mints the Crawl4AI credential HERE rather than letting the construct generate one.
- *
- * The construct can generate a token, and if it does nothing else ever learns it — the agent needs
- * the same secret to call the service, and reading it back out of a Kubernetes Secret at tool-call
- * time is a round trip that can fail on a path that has no way to report it. Resolving it before
- * the record is persisted means the deployment stores what it deployed, which is the same reason
- * `resolveVllmDefaults` resolves model names here instead of leaving them to vllm.ts.
- *
- * Not optional: with no token the image's entrypoint binds loopback and refuses to expose itself,
- * so a Service in front of it never answers.
- */
 export function resolveCrawl4aiDefaults(dep: DeploymentMetadata): DeploymentMetadata {
   if (dep.appType !== 'crawl4ai') return dep;
   return Object.assign({}, dep, {
@@ -155,7 +99,6 @@ export function resolveCrawl4aiDefaults(dep: DeploymentMetadata): DeploymentMeta
   });
 }
 
-/** Same reasoning as `resolveCrawl4aiDefaults` — a key generated in the construct is unknowable. */
 export function resolveSearxngDefaults(dep: DeploymentMetadata): DeploymentMetadata {
   if (dep.appType !== 'searxng') return dep;
   return Object.assign({}, dep, {
@@ -163,7 +106,6 @@ export function resolveSearxngDefaults(dep: DeploymentMetadata): DeploymentMetad
   });
 }
 
-/** Credentials for the two search services that hold data of their own. */
 export function resolveMinioDefaults(dep: DeploymentMetadata): DeploymentMetadata {
   if (dep.appType !== 'minio') return dep;
   return Object.assign({}, dep, {
@@ -179,35 +121,12 @@ export function resolveQdrantDefaults(dep: DeploymentMetadata): DeploymentMetada
   });
 }
 
-/**
- * Quickwit's credentials, which are not its own.
- *
- * Its metastore and every index split live in the MinIO bucket, so it has to be handed the keys
- * that MinIO was actually deployed with. Generating a fresh pair here — the shape every other
- * resolver above has — would produce a pod that starts, passes its liveness probe, and cannot read
- * a single split.
- *
- * Hence the deployment list: this is the one resolver that reads another deployment's record, and
- * it fails loudly when there is nothing to read rather than deploying something inert.
- */
 export function resolveQuickwitDefaults(
   dep: DeploymentMetadata,
   deployments: DeploymentMetadata[],
 ): DeploymentMetadata {
   if (dep.appType !== 'quickwit') return dep;
 
-  /**
-   * What is actually required here is the CREDENTIALS, not a MinIO that is already serving.
-   *
-   * Checking for `status === 'running'` is the obvious version and it is wrong: the record reaches
-   * that state when the deploy workflow finishes reconciling, which lags the pod being ready.
-   * Deploying MinIO, watching it go 1/1, and then deploying Quickwit was refused with "deploy
-   * minio first" — advice the user had just followed.
-   *
-   * A Quickwit that starts before MinIO answers simply fails its readiness probe until it does,
-   * which is ordinary Kubernetes. A Quickwit started with the wrong keys never recovers. So the
-   * gate is on the keys, and only a MinIO on its way out is skipped.
-   */
   const GONE = new Set(['destroying', 'destroyed', 'failed']);
   const minio = deployments.find((d) =>
     d.appType === 'minio'
@@ -231,16 +150,10 @@ export function resolveQuickwitDefaults(
     quickwitS3AccessKey: dep.quickwitS3AccessKey || minio?.minioRootUser || 'koala',
     quickwitS3SecretKey: dep.quickwitS3SecretKey || minio?.minioRootPassword || '',
     quickwitS3Endpoint: dep.quickwitS3Endpoint
-      // The in-cluster Service address, not an ingress: this is pod-to-pod and must not depend on
-      // an ingress controller or a port-forward being up.
       || clusterUrl({ service: 'minio', namespace: minio?.name ?? 'minio', port: 9000 }),
   });
 }
 
-// Not generic on purpose — every caller in this codebase passes a real DeploymentMetadata, and
-// a generic here fights TypeScript's control-flow narrowing at call sites where `dep` starts as
-// `DeploymentMetadata | undefined` (destructured from a filter()) and gets reassigned just
-// before this call.
 export function resolveVllmDefaults(dep: DeploymentMetadata): DeploymentMetadata {
   if (dep.appType !== 'vllm') return dep;
   return Object.assign({}, dep, {
@@ -272,11 +185,6 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     DEPLOYMENT_ID: a.deploymentId,
     KUBECONFIG: a.kubeconfigPath,
     KUBECONFIG_CONTEXT: (a.provider === 'k3d' || a.isMock) ? `k3d-${a.physicalName}` : '',
-    // Distinct from KUBECONFIG_CONTEXT above: that one selects a real kubeconfig context (must
-    // stay empty for 'remote', whose kubeconfig has no "k3d-..." context to select). This tells
-    // every app construct's serviceType heuristic whether it's targeting a self-managed k3s
-    // cluster (no real cloud LB controller — a `LoadBalancer` Service just hangs forever waiting
-    // for an external IP, or on k3s's own ServiceLB, conflicts with Traefik's hostPort claim).
     SELF_MANAGED_K8S: isSelfManagedCluster(a.provider, a.isMock) ? 'true' : 'false',
     APP_TYPE: a.appType,
     WEB_IMAGE_REPO: a.webRepo || '',
@@ -348,19 +256,10 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     VERDACCIO_STORAGE: a.verdaccioStorage || '',
     GITAPP_ENV: a.gitappEnv || '',
     OPENAI_API_BASE_URL: a.openaiApiBaseUrl || '',
-    // Empty string (not 'true'/'false') when unset, not a default value baked in here — lets
-    // main.ts's own `=== 'false'` check (and the construct's `!== false` default-true beneath
-    // it) be the single source of truth for "enabled unless explicitly disabled" instead of
-    // this layer silently overriding it either direction.
     WEBUI_ENABLE_WEB_SEARCH: a.webuiEnableWebSearch === false ? 'false' : '',
     WEBUI_WEB_SEARCH_ENGINE: a.webuiWebSearchEngine || '',
     WEBUI_WEB_SEARCH_API_KEY: a.webuiWebSearchApiKey || '',
     APP_SETTINGS_JSON: JSON.stringify(a.appSettings ?? {}),
-    /**
-     * The whole app as one blob, the same way APP_SETTINGS_JSON already carries a game server's
-     * hundred-odd settings. Empty when this type still has a construct, and `main.ts` only branches
-     * on whether the string is set — so an app that has not been migrated is untouched by this.
-     */
     APP_SPEC_JSON: a.renderedSpec ? JSON.stringify(a.renderedSpec) : '',
     BINDINGS_JSON: a.bindingsJson || '',
     ...a.storageEnv,

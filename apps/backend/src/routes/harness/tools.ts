@@ -4,18 +4,11 @@ import { ownedBy } from '../../lib/ownership.js';
 import type { Database } from '../../lib/db-interface.js';
 import { v4 as uuidv4 } from 'uuid';
 
-/** The `:id` from the path, narrowed once — Express types `req.params` loosely inside asyncRoute. */
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-/** The user `requireAuth` put on the request. */
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-/**
- * The tool repository: what a persona may be offered beyond the built-ins.
- *
- * Extracted from index.ts, where `/api/harness/*` was 34 routes on one `app` object.
- */
 export interface toolsRouterDeps {
   db: Database;
   
@@ -77,6 +70,5 @@ export function toolsRouter(deps: toolsRouterDeps): Router {
     res.json({ deleted: true });
   });
 
-  // ── MEMORY BANK ──
   return router;
 }

@@ -3,7 +3,6 @@ import { composePersonaPrompt, type McpServerItem, type PersonaPromptOptions } f
 
 export { composePersonaPrompt };
 
-/** The name is the identity: everything that looks Koala up does it by this. */
 export const KOALA_NAME = 'Koala';
 
 export const KOALA_PROMPT = [
@@ -36,9 +35,6 @@ export const KOALA_PROMPT = [
 
 export const KOALA_TEMPERATURE = 0.7;
 
-/**
- * Universal prompt composer, aliased for backward compatibility.
- */
 export function buildKoalaPrompt(
   base: string,
   servers: readonly McpServerItem[],

@@ -3,16 +3,6 @@ import { api } from './client'
 import type { Deployment } from '../types/deployment'
 import type { ClusterPod } from '../types/cluster'
 
-/**
- * Deployment reads, and the hooks the log/dashboard modal uses.
- *
- * All seven of these lived in `App.tsx`, keyed on `showLogModal?.id` and gated on inline
- * `!!showLogModal && logTab === 'x'` conditions — so App ran seven requests on behalf of a modal it
- * also rendered, and handed the results down. The `enabled` conditions are the interesting part:
- * each tab's data is fetched only while that tab is open, which is what keeps a modal with seven
- * tabs from making seven requests every time it opens.
- */
-
 export const deploymentKeys = {
   all: ['deployments'] as const,
   list: () => [...deploymentKeys.all, 'list'] as const,
@@ -32,13 +22,6 @@ export interface PodsResponse {
   namespace?: string
 }
 
-/**
- * The pods behind a deployment, polled while the Pods tab is open.
- *
- * Three seconds, matching what App did: fast enough that a pod restarting is visible, slow enough
- * not to hammer the API server. `dataUpdatedAt` comes back too, because the tab shows when it last
- * checked — "no pods" and "have not looked recently" mean different things.
- */
 export function useDeploymentPods(id: string | undefined, enabled: boolean) {
   const query = useQuery({
     queryKey: deploymentKeys.pods(id),
@@ -48,8 +31,6 @@ export function useDeploymentPods(id: string | undefined, enabled: boolean) {
   })
   return {
     pods: query.data?.pods ?? [],
-    // `odoo` was the fallback in App. Kept, because changing it is a behaviour change disguised as
-    // a refactor — a wrong namespace makes the pod tail silently tail nothing.
     namespace: query.data?.namespace ?? 'odoo',
     checkedAt: query.dataUpdatedAt,
   }
@@ -71,11 +52,9 @@ export function useDiagnostics(id: string | undefined, enabled: boolean) {
   })
 }
 
-/** Which git modules can be added to this app type. Odoo is the only one that uses them today. */
 export interface GitModule {
   id: string
   name?: string
-  /** The one-line description shown on the module row. */
   summary?: string
   author?: string
   version?: string
@@ -98,16 +77,9 @@ export interface ResourcePlan {
   shmSize?: string
   cpuLimit?: string
   basis?: string
-  /** Why no plan could be produced — shown instead of silently offering nothing. */
   refusal?: string
 }
 
-/**
- * What the resource ceilings resolve to when left blank.
- *
- * Only for the app that is open, and only where the plan applies — the endpoint answers
- * `applicable: false` for anything that is not TabbyAPI rather than guessing.
- */
 export function useResourcePlan(deployment: Deployment | null | undefined) {
   return useQuery({
     queryKey: deploymentKeys.resourcePlan(deployment?.id),
@@ -117,13 +89,6 @@ export function useResourcePlan(deployment: Deployment | null | undefined) {
   })
 }
 
-/**
- * Whatever log file the resource has on disk, fetched once when the tab opens.
- *
- * The socket stream appends to this rather than replacing it — see `useLogSocket`. Also fetched for
- * a FAILED app on the general tab, because that is where the reason lives and the user has no
- * reason to know it is under "provision".
- */
 export function useInitialLogs(
   target: { type: 'cluster' | 'app'; id: string } | null,
   enabled: boolean,
@@ -138,16 +103,5 @@ export function useInitialLogs(
 export const deployApp = <T,>(body: unknown): Promise<T> =>
   api.post<T>('/deployments', body).then((r) => r.data)
 
-/**
- * Destroys a cluster or an app.
- *
- * One function for both because the SHELL treats them identically — same confirm dialog, same
- * log modal afterwards. The routes are separate and the ids are not interchangeable, so the kind
- * is an explicit argument rather than something inferred from the id's shape.
- *
- * No separate abort: both DELETE routes detect a still-provisioning resource server-side and abort
- * it rather than trying to destroy something never fully created. A dedicated abort button called
- * the same endpoint through a second path, which just meant two buttons for one operation.
- */
 export const destroyResource = (kind: 'cluster' | 'app', id: string): Promise<void> =>
   api.delete(`/${kind === 'cluster' ? 'clusters' : 'deployments'}/${id}`).then(() => undefined)

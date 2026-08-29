@@ -4,14 +4,6 @@ import {
 } from './proposal-merge.js';
 import type { Persona } from './personas.js';
 
-/**
- * Merging a prose plan into leaves.
- *
- * Both halves come from one observed planning turn: five leaves proposed, one a restatement of
- * another under a different name, and four with no persona because the prose path could not carry
- * one. A person caught both by reading the list.
- */
-
 const persona = (name: string): Persona => ({ id: name.toLowerCase(), ownerId: 'u1', name } as Persona);
 
 const DOC = 'Document MCP Streamable HTTP spec and chosen GitHub endpoints';
@@ -29,11 +21,6 @@ describe('what is dropped, and it is only the certain case', () => {
   });
 
   it('does NOT drop the real duplicate, because dropping it needs a judgement', () => {
-    /**
-     * Deliberate. A similarity threshold that dropped this pair also drops "Add a rate limit to
-     * /api/chat" against "…/api/search", which scores HIGHER — so a dropping rule built on
-     * similarity deletes real stages. This pair is reported instead; see suspectedDuplicates.
-     */
     expect(isRestatement(DISCOVERY, [DOC])).toBe(false);
   });
 
@@ -45,7 +32,6 @@ describe('what is dropped, and it is only the certain case', () => {
 
 describe('a reply that restates itself verbatim', () => {
   it('creates one leaf, not two', () => {
-    // The prose block and the tool calls are one turn, so a batch can duplicate itself.
     const kept = newProposals(
       [{ title: 'Build the server' }, { title: 'build the SERVER' }, { title: 'Write the README' }],
       [],
@@ -54,7 +40,6 @@ describe('a reply that restates itself verbatim', () => {
   });
 
   it('keeps the FIRST of a duplicate pair', () => {
-    // The tool-made leaf comes first and already has a persona and an id others may depend on.
     const kept = newProposals([{ title: 'Build it', id: 'a' }, { title: 'build it', id: 'b' }], []);
     expect(kept).toHaveLength(1);
     expect((kept[0] as any).id).toBe('a');
@@ -73,7 +58,6 @@ describe('the pairs a reviewer is asked about', () => {
   });
 
   it('stays quiet about the other stages of that same plan', () => {
-    // Two of them share "GitHub MCP server". A notice that fires on every plan is wallpaper.
     expect(suspectedDuplicates(OTHERS)).toEqual([]);
   });
 
@@ -129,16 +113,10 @@ describe('resolving the persona name a model wrote', () => {
   });
 
   it('REFUSES when the loosened match is ambiguous', () => {
-    /**
-     * The load-bearing rule. A persona decides the toolchain and the network reach, so guessing
-     * between two builds the wrong thing and fails far from here. Nobody assigned is visible and
-     * one click to fix; the wrong one is neither.
-     */
     expect(resolvePersonaNamed('Builder', [persona('Backend Builder'), persona('Frontend Builder')])).toBeUndefined();
   });
 
   it('still resolves an exact name that is also a prefix of another', () => {
-    // Exact equality wins before any loosening, so adding a persona cannot break an existing name.
     expect(resolvePersonaNamed('Builder', [persona('Builder'), persona('Builder Deluxe')])?.name).toBe('Builder');
   });
 

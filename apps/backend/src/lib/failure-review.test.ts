@@ -24,23 +24,16 @@ const trace = (steps: AgentStep[], total?: number): LeafTrace => ({
 
 describe('what the reviewer is asked', () => {
   it('tells it to diagnose rather than summarise', () => {
-    /**
-     * The failure this guards against: every real cause here has been invisible in the agent's own
-     * narration, which was confident and wrong. A reviewer that retells the story reproduces the
-     * mistake.
-     */
     const p = buildReviewPrompt(leaf(), null);
     expect(p).toMatch(/diagnosis, not a summary/i);
     expect(p).toMatch(/least reliable/i);
   });
 
   it('asks explicitly whether retrying would help', () => {
-    // The decision the person is actually making when they open this.
     expect(buildReviewPrompt(leaf(), null)).toMatch(/retrying would help/i);
   });
 
   it('permits "I cannot tell"', () => {
-    // A confident guess about a failure is worse than none — it sends the next hour the wrong way.
     expect(buildReviewPrompt(leaf(), null)).toMatch(/does not support a conclusion/i);
   });
 
@@ -56,19 +49,12 @@ describe('what the reviewer is asked', () => {
   });
 
   it('says so when no record was kept, rather than implying nothing happened', () => {
-    // Leaves that ran before traces were persisted have none, and a silent gap would read as an
-    // agent that did nothing.
     expect(buildReviewPrompt(leaf(), null)).toMatch(/No turn-by-turn record was kept/i);
   });
 });
 
 describe('how much of the trace it sees', () => {
   it('keeps the END when there are more turns than fit', () => {
-    /**
-     * The opposite of trimTrace, which keeps the opening too — that is for STORAGE, where someone
-     * may be reading to understand the approach. Here the reader already knows something is wrong,
-     * and a failure lives at the end.
-     */
     const steps = Array.from({ length: 40 }, (_, i) => step(i + 1, {
       toolCalls: [{ name: 'run_command', arguments: `{"command":"step-${i + 1}"}` }],
     }));
@@ -90,7 +76,6 @@ describe('how much of the trace it sees', () => {
   });
 
   it('includes the environment, because that is where the causes have been', () => {
-    // Two of the three real causes so far were environmental and invisible from the transcript.
     const p = buildReviewPrompt(leaf(), null, 'Outbound network is blocked except DNS.');
     expect(p).toContain('Outbound network is blocked');
   });
@@ -104,15 +89,10 @@ describe('how much of the trace it sees', () => {
 
 describe('the review as a chat message', () => {
   it('opens as something a person is asking, not a system instruction', () => {
-    // It is sent as the user's own message now, so it has to read like one.
     expect(buildReviewPrompt(leaf(), null)).toMatch(/^One of the leaves on this branch failed/);
   });
 
   it('asks for a length', () => {
-    /**
-     * The one-shot path clipped the degenerate tail; a streamed conversation cannot, so the
-     * instruction has to carry it. The deployed model is accurate for a paragraph and then drifts.
-     */
     expect(buildReviewPrompt(leaf(), null)).toMatch(/under 200 words/i);
   });
 });

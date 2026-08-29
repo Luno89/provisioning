@@ -9,10 +9,6 @@ import * as nginxApi from '../api/nginx';
 import * as authApi from '../api/auth';
 import * as credentialsApi from '../api/credentials';
 
-/**
- * Mocked at the API modules, not at axios — `vi.mock('axios')` cannot reach the instance
- * `api/client` builds with `axios.create()`.
- */
 vi.mock('../api/clusters', async (o) => ({ ...(await o<typeof clustersApi>()), listClusters: vi.fn() }));
 vi.mock('../api/deployments', async (o) => ({ ...(await o<typeof deploymentsApi>()), listDeployments: vi.fn() }));
 vi.mock('../api/credentials', async (o) => ({ ...(await o<typeof credentialsApi>()), listProviders: vi.fn() }));
@@ -65,24 +61,19 @@ describe('Nginx Ingress Proxy Wizard', () => {
     const user = userEvent.setup();
     render(<App />, { wrapper });
 
-    // Go to Nginx Router view
     await user.click(screen.getByRole('button', { name: /nginx router/i }));
     
-    // Verify Nginx header and Save button are visible
     expect(await screen.findByText('Nginx Router Settings')).toBeInTheDocument();
     
-    // Open Proxy Wizard
     const wizardBtn = await screen.findByRole('button', { name: /proxy wizard/i });
     await user.click(wizardBtn);
     expect(screen.getByText('Proxy Exposure Wizard')).toBeInTheDocument();
 
-    // Step 1: Select Application
     expect(screen.getByText('Select Application')).toBeInTheDocument();
     const appSelect = screen.getByRole('combobox', { name: /application instance/i });
     await user.selectOptions(appSelect, 'd1');
     await user.click(screen.getByRole('button', { name: /next/i }));
 
-    // Step 2: Domain Configuration
     await waitFor(() => expect(screen.getByText('Domain & Traffic Settings')).toBeInTheDocument());
     const domainInput = screen.getByRole('textbox', { name: /proxy hostname/i });
     expect(domainInput).toHaveValue('odoo-production.vpn.local');
@@ -90,19 +81,15 @@ describe('Nginx Ingress Proxy Wizard', () => {
     await user.type(domainInput, 'odoo-custom.vpn.local');
     await user.click(screen.getByRole('button', { name: /next/i }));
 
-    // Step 3: Review & Inject
     await waitFor(() => {
       expect(screen.getByText(/proxy_pass http.+(upstream|proxy_pass).+/i)).toBeInTheDocument();
     });
 
-    // Click Inject
     const injectBtn = screen.getByRole('button', { name: /inject into config & close/i });
     await user.click(injectBtn);
 
-    // Verify modal is closed
     await waitFor(() => expect(screen.queryByText('Proxy Exposure Wizard')).not.toBeInTheDocument());
 
-    // Verify Nginx.conf textarea contains inject block (generic)
     const textarea = screen.getByPlaceholderText('Loading configuration...') as HTMLTextAreaElement;
     expect(textarea.value).toContain('server_name odoo-custom.vpn.local;');
     expect(textarea.value).toContain('proxy_pass http://');

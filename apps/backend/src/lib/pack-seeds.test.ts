@@ -4,17 +4,6 @@ import { PERSONA_SEEDS } from './persona-seeds.js';
 import type { PersonaPack } from '@koala/harness-types';
 import { KOALA_TOOLS } from './koala-tools.js';
 
-/**
- * Packs are rows, not a `const REGISTRY`.
- *
- * ── WHY THAT MATTERS ENOUGH TO TEST ──
- * The registry held two packs while `ChatSurface` offered three, and the third — `researcher` —
- * had never existed, so choosing it threw out of `getPersonaPack` and returned a 500 with no
- * indication which list was wrong. Two lists describing one thing is the failure this codebase has
- * hit with leaf columns, cluster providers and tree types; a served catalogue is how the others
- * were fixed.
- */
-
 const store = (packs: PersonaPack[], personas: { id: string; ownerId: string; name: string }[]): PackSeedStore & { saved: PersonaPack[] } => {
   const saved = [...packs];
   return {
@@ -36,8 +25,6 @@ const ids = () => `pack-${++n}`;
 
 describe('the seeds themselves', () => {
   it('names a persona that is actually seeded', () => {
-    // A pack whose persona never gets created is a pack that refuses at runtime. Seeding skips it
-    // rather than writing a dangling id, so this catches the typo at the point it is introduced.
     const seeded = new Set(PERSONA_SEEDS.map((s) => s.name));
     for (const pack of PACK_SEEDS) {
       expect(seeded, pack.slug).toContain(pack.personaName);
@@ -50,40 +37,22 @@ describe('the seeds themselves', () => {
   });
 
   it('declares permissions honestly against the tools it grants', () => {
-    /**
-     * The old pack said `workflow: 'propose-only'` while granting `deploy_project`,
-     * `set_project_env` and `inject_secret_to_pod` — all declared `write`. Nothing read the field,
-     * so the false claim cost nothing. It is enforced now, so a pack granting a write tool without
-     * the `write` effect would refuse its own tools at runtime.
-     */
     const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
     expect(koala.tools).toContain('deploy_project');
     expect(koala.permitted).toContain('write');
   });
 
   it('grants every tool the assistant executor can actually dispatch', () => {
-    /**
-     * A grant naming a tool that does not exist is silently nothing — it neither appears in the
-     * schema list nor raises anything, so the pack simply lacks a capability its record claims.
-     * Checked against the real dispatch table, which `KoalaToolName` already ties to the schemas.
-     */
     const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
     const dispatchable = new Set(KOALA_TOOLS.map((t) => t.function.name as string));
     for (const name of koala.tools) {
       expect(dispatchable, name).toContain(name);
     }
-    // Including the web tools, which reach the network through the backend rather than the sandbox.
     expect(koala.tools).toContain('web_search');
   });
 });
 
 describe('every persona has a pack to run as', () => {
-  /**
-   * The reason leaves carried their environment on the persona is only that packs did not exist
-   * when leaves were built. A leaf run is the model being run, so it runs under a pack too — and
-   * that is what makes its tools, budgets and sampling editable and comparable in the Lab rather
-   * than fixed by whichever constants its code path happened to read.
-   */
   it('ships one pack per seeded persona', () => {
     const packed = new Set(PACK_SEEDS.map((p) => p.personaName));
     for (const persona of PERSONA_SEEDS) {
@@ -92,15 +61,11 @@ describe('every persona has a pack to run as', () => {
   });
 
   it('gives work packs the sandbox executor, and Koala the assistant one', () => {
-    // Different executors, not different tool lists: a leaf runs the agent loop inside a pod, a
-    // conversation runs `runKoalaTool` in the backend process. See `PackToolset`.
     expect(PACK_SEEDS.find((p) => p.slug === 'koala')!.toolset).toBe('assistant');
     expect(PACK_SEEDS.find((p) => p.slug === 'builder')!.toolset).toBe('sandbox');
   });
 
   it('starts each work pack as what its persona already declared', () => {
-    // Derived, not restated. A hand-written second copy would be wrong the first time either was
-    // edited — the failure this codebase keeps hitting with parallel lists.
     for (const seed of PERSONA_SEEDS.filter((p) => p.name !== 'Koala')) {
       const pack = PACK_SEEDS.find((p) => p.personaName === seed.name)!;
       expect(pack.tools, seed.name).toEqual(seed.scope?.tools ?? []);
@@ -117,16 +82,10 @@ describe('seeding', () => {
     expect(added).toBe(PACK_SEEDS.length);
     const koala = s.saved.find((p) => p.slug === 'koala')!;
     expect(koala.ownerId).toBe('u1');
-    // The id, not the name: a rename in the Personas view must not re-point the pack.
     expect(koala.personaId).toBe(personas.find((p) => p.name === 'Koala')!.id);
   });
 
   it('adds only what is missing, and never overwrites', async () => {
-    /**
-     * The rule `ensurePersonas` states and the reason it gives: reverting somebody's edited record
-     * every time they open the app is a failure they cannot diagnose, because the fix is undone
-     * silently. A pack is where the tuning lives, so this matters more here than anywhere.
-     */
     const s = store([], personasFor('u1'));
     await seedPacks(s, 'u1', ids);
 
@@ -144,8 +103,6 @@ describe('seeding', () => {
   });
 
   it('skips a pack whose persona does not exist rather than writing a dangling id', async () => {
-    // A pack pointing at nothing REFUSES at runtime now, instead of silently resolving to Koala.
-    // Writing one during seeding would manufacture exactly that broken state.
     const s = store([], []);
     const added = await seedPacks(s, 'u1', ids);
     expect(added).toBe(0);
@@ -159,7 +116,6 @@ describe('seeding', () => {
 
     expect(s.saved.filter((p) => p.ownerId === 'u1')).toHaveLength(PACK_SEEDS.length);
     expect(s.saved.filter((p) => p.ownerId === 'u2')).toHaveLength(PACK_SEEDS.length);
-    // Each owner's pack points at that owner's persona, never across the tenant boundary.
     const u2 = s.saved.find((p) => p.ownerId === 'u2' && p.slug === 'koala')!;
     expect(u2.personaId).toMatch(/-u2$/);
   });

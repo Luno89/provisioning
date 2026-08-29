@@ -41,7 +41,6 @@ export function ChatHero({
 }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-8 px-4 max-w-2xl mx-auto space-y-5 font-sans">
-      {/* Centered Koala Mascot */}
       <div
         className="cursor-pointer transition-opacity hover:opacity-80"
         onClick={onOpenPersona}
@@ -59,7 +58,6 @@ export function ChatHero({
         </p>
       </div>
 
-      {/* 4 Interactive Starter Prompt Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full pt-1">
         {STARTER_PROMPTS.map((item, idx) => {
           const Icon = item.icon;

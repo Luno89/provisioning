@@ -17,32 +17,15 @@ import { APP_DEFAULTS, TABBY_TOOL_FORMATS } from '../app-catalog';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 
-/**
- * The log and dashboard modal: seven tabs over one deployment or cluster.
- *
- * ── THE LARGEST BLOCK IN App.tsx ──
- * 765 lines of the 2,858 — provisioning logs, live pod tails, Helm status, diagnostics, git
- * modules, storage resizing, and the config panel. It carried nine pieces of state and seven
- * react-query calls that App ran on its behalf, each gated on an inline
- * `!!showLogModal && logTab === 'x'` condition.
- *
- * It owns all of that now. The `enabled` conditions are what keep a seven-tab modal from making
- * seven requests every time it opens: each tab fetches only while it is the tab you are looking at.
- */
-
 export type LogTab = 'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
 
 export interface AppDashboardProps {
-  /** Which resource is open. The modal is not rendered when this is null. */
   target: { type: 'cluster' | 'app'; id: string };
   deployment: Deployment | null;
-  /** Every deployment, for the config panel's "point this at another app" pickers. */
   deployments: Deployment[];
-  /** Every cluster, so the header can name the one this is running on. */
   clusters: Cluster[];
   cluster: Cluster | null;
   onClose: () => void;
-  /** Which tab to open on. App picks `provision` for a cluster, `general` for an app. */
   initialTab?: LogTab;
 }
 
@@ -52,7 +35,6 @@ export default function AppDashboard({
 }: AppDashboardProps) {
   const qc = useQueryClient();
   const queryClient = qc;
-  /** Scrolls the log pane to the newest line. */
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const showLogModal = target;
 
@@ -81,35 +63,18 @@ export default function AppDashboard({
     currentDeployment?.appType === 'tabbyapi',
   );
 
-  /**
-   * The log file on disk, fetched once. Also fetched for a FAILED app on the general tab — that is
-   * where the reason lives, and the user has no reason to know it is filed under "provision".
-   */
   const { data: initialLogs } = useInitialLogs(
     showLogModal,
     logTab === 'provision'
       || (isApp && currentDeployment?.status === 'failed' && logTab === 'general'),
   );
 
-  /**
-   * The resource's provisioning log, on its own connection joined to exactly one room.
-   *
-   * Cleared on join AND on reconnect: the server replays recent history rather than resuming, so a
-   * replay landing on top of what is already accumulated shows as the identical lines repeating.
-   */
   useLogSocket({
     room: showLogModal.id,
     onChunk: (chunk) => setSocketLogs((prev) => prev + chunk),
     onReconnect: () => setSocketLogs(''),
   });
 
-  /**
-   * The selected pod's live tail, on its own connection for the same reason.
-   *
-   * The server always restarts the tail from scratch (`kubectl logs --tail=100`) rather than
-   * resuming, so the buffer is cleared on every rejoin or the re-fetched history duplicates what is
-   * already on screen.
-   */
   const tailing = isApp && logTab === 'app' && selectedPod;
   useLogSocket({
     room: tailing ? showLogModal.id : null,
@@ -121,24 +86,10 @@ export default function AppDashboard({
     onReconnect: () => { setKubeLogs(''); setLastLogAt(null); },
   });
 
-  /**
-   * Keeps a real pod selected on the Pods tab.
-   *
-   * Pods are ephemeral: the one being tailed can be replaced by a rollout at any moment, and a
-   * selection pointing at a name that no longer exists tails nothing while looking fine. This
-   * re-picks the first available one and clears the buffer, because the new pod's history has
-   * nothing to do with the old one's.
-   */
   useEffect(() => {
     if (showLogModal.type === 'app' && logTab === 'app' && pods.length > 0) {
       const exists = pods.some((p) => p?.metadata?.name === selectedPod);
       if (!selectedPod || !exists) {
-        /**
-         * `set-state-in-effect` is disabled rather than obeyed: this reacts to POLLED data, not to
-         * a render. `useDeploymentPods` refetches every 3s, and the whole point is to notice that
-         * the pod being tailed has been replaced by a rollout. There is nothing to derive from —
-         * the answer depends on what the previous poll returned, which is state by definition.
-         */
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedPod(pods[0]?.metadata?.name ?? null);
         setKubeLogs('');
@@ -147,34 +98,18 @@ export default function AppDashboard({
     }
   }, [showLogModal, logTab, pods, selectedPod]);
 
-
-  /**
-   * Seeds the exposure-path field from the deployment when it opens.
-   *
-   * Keyed on `id` so it seeds once per deployment and then leaves the field alone — the user edits
-   * it, and re-deriving on every render would discard what they typed the moment the deployment
-   * record refetched. That is why it is an effect rather than a derived value.
-   */
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (currentDeployment) setExposurePathInput(currentDeployment.exposurePath || '');
   }, [currentDeployment?.id]);
 
   useEffect(() => {
-    // scrollIntoView scrolls both axes; skip for diagnostics so its horizontal
-    // scroll position (browsing the wide kubectl table) isn't reset every poll.
     if (logTab === 'diagnostics') return;
     if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
   }, [socketLogs, kubeLogs, helmStatus, diagnostics, logTab]);
 
-
   const invalidate = () => qc.invalidateQueries({ queryKey: deploymentKeys.all });
 
-  /**
-   * Public exposure is Localtunnel; local is an entry in the host's nginx. `mode` rides in the
-   * variables rather than there being two mutations, because each button shows a spinner only for
-   * its own mode — `exposeApp.variables?.mode` is what distinguishes them.
-   */
   const exposeApp = useMutation({
     mutationFn: ({ id, mode }: { id: string; mode: 'public' | 'local' }) =>
       api.post(`/deployments/${id}/expose`, { mode }).then((r) => r.data),
@@ -186,10 +121,6 @@ export default function AppDashboard({
     onSuccess: invalidate,
   });
 
-  /**
-   * The config panel's state. Seeded from the deployment when it opens, then edited freely —
-   * `key` on the modal means a different deployment remounts it rather than carrying values over.
-   */
   const [configInputs, setConfigInputs] = useState({
     webRepo: '', webTag: '', dbRepo: '', dbTag: '',
     vllmModel: '', vllmGpuCount: '1', vllmGpuVendor: 'nvidia', vllmHfToken: '',
@@ -204,8 +135,6 @@ export default function AppDashboard({
     hermesTargetId: '',
     webuiEnableWebSearch: true, webuiWebSearchEngine: 'duckduckgo', webuiWebSearchApiKey: '',
   });
-  // Schema-driven settings for game servers, edited in the Config tab. Seeded from the deployment
-  // record when the tab opens.
   const [gameSettings, setGameSettings] = useState<Record<string, string>>({});
 
   const updateAppModules = useMutation({
@@ -339,9 +268,6 @@ export default function AppDashboard({
                        onClick={() => {
                          const appType = currentDeployment.appType || 'odoo';
                          const patch: Record<string, unknown> = { storage: storageInputs };
-                         // Only the keys that actually differ from what's stored — the backend deep-merges
-                         // appSettings, so sending the whole map would be wasteful and sending a partial one
-                         // is safe.
                          if (NO_WEB_UI_APP_TYPES.has(appType)) {
                            const stored = currentDeployment.appSettings || {};
                            const dirty: Record<string, string> = {};
@@ -553,7 +479,6 @@ export default function AppDashboard({
                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Memory Limit (RAM)</label>
                          <input value={configInputs.tabbyMemoryLimit} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyMemoryLimit: e.target.value }))} title={resourcePlan?.basis ? `Computed from ${resourcePlan.basis}` : undefined} placeholder={resourcePlan?.memoryLimit ? `${resourcePlan.memoryLimit} — sized from the model` : 'e.g. 32G, 48G, 64G'} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
                          {resourcePlan?.refusal && (
-                           // Said where the number is chosen, not after a pod has been killed.
                            <p className="text-[11px] text-amber-400 mt-1">{resourcePlan.refusal}</p>
                          )}
                        </div>
@@ -739,12 +664,6 @@ export default function AppDashboard({
             )}
            {logTab === 'general' && currentDeployment && (
              <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
-                {/*
-                  * A deploy that failed and a workload that will not start are different
-                  * problems with different evidence, and the deployment log only explains the
-                  * first. Sending someone to it for a CrashLoopBackOff wastes their time: the
-                  * deploy succeeded, so its log ends in success.
-                  */}
                 {currentDeployment.status === 'unhealthy' && (
                   <div className="bg-amber-950/20 border-2 border-amber-500/30 rounded-2xl p-6 flex flex-col gap-4 animate-in fade-in duration-300">
                     <div className="flex items-center gap-3 text-amber-400">
@@ -796,7 +715,6 @@ export default function AppDashboard({
                  <div className="bg-slate-900/50 border border-slate-700/60 p-6 rounded-2xl">
                    <div className="text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1">Status</div>
                    <div className="flex items-center gap-2">
-                     {/* Amber for unhealthy: it deployed, so it is not the same red as a deploy that never landed. */}
                      <div className={`w-2.5 h-2.5 rounded-full ${currentDeployment.status === 'running' ? 'bg-green-500' : currentDeployment.status === 'deploying' ? 'bg-yellow-500 animate-pulse' : currentDeployment.status === 'unhealthy' ? 'bg-amber-500' : 'bg-red-500'}`}></div>
                      <span className="font-bold text-lg uppercase text-slate-200">{currentDeployment.status}</span>
                    </div>

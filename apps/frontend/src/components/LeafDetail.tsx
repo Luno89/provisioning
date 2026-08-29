@@ -11,31 +11,10 @@ import {
 } from '../api/grove';
 import { errorMessage } from '../api/client';
 
-/**
- * Everything about one leaf — the only surface that describes one.
- *
- * ── WHY IT IS ONE SURFACE NOW ──
- * There used to be two, and neither was sufficient. This pane had the report, the task, the
- * dependencies and the failure history but could not show a single thing the agent DID. The board's
- * trace modal showed every turn but not what was asked, what came back, or what failed. Diagnosing
- * one leaf meant opening both, by two unrelated routes, and the modal meant two leaves could never
- * be compared.
- *
- * The order is the order you need it in when something has gone wrong: what state it is in, whether
- * anything checked it, what it claims it did, what it was asked to do, how it failed, and then —
- * last, because it is the longest and only sometimes the answer — every turn it took.
- */
 export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
   leaf: Leaf;
   subLeaves: Leaf[];
-  /**
-   * Every leaf, for deciding whether this one is blocked.
-   *
-   * State is derived rather than read off the record: the `column` field means different things
-   * depending on which endpoint returned the leaf. See leaf-types.ts.
-   */
   all?: Leaf[];
-  /** Hands a failure to Koala. This pane never talks to a model itself. */
   onReview?: (branchId: string, prompt: string) => void;
 }) {
   const qc = useQueryClient();
@@ -49,64 +28,23 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
   const cancel = useMutation(call(() => cancelLeaf(leaf.id)));
   const remove = useMutation(call(() => deleteLeaf(leaf.id)));
 
-  /**
-   * Raising the request's token budget.
-   *
-   * Exists because the budget now REFUSES things. `accept-leaf.ts` answers a 409 saying "Token
-   * budget exhausted", and a limit with nothing on screen to lift it is an outage rather than a
-   * limit — so the number and the way to change it ship together.
-   *
-   * Doubling rather than a free-text field: the question a reader actually has at a ceiling is
-   * "let it keep going", not "what integer". A precise number is a PATCH away for anyone who wants
-   * one.
-   */
   const raiseBudget = useMutation(call(() => patchLeaf(
     leaf.id,
     { maxTokens: (leaf.budget?.maxTokens ?? 0) * 2 },
   )));
 
-  /**
-   * Two different things to do with a failure, offered together on purpose.
-   *
-   * Retrying is not a no-op — the loop feeds the last failure into the next prompt, so attempt two
-   * is not attempt one. But it cannot fix an environmental cause, and every real cause found in this
-   * system so far has been environmental. Offering only retry would make the useless action the
-   * obvious one.
-   */
   const retry = useMutation(call(() => retryLeaf(leaf.id)));
-  /**
-   * Fetches the evidence and hands it to the conversation.
-   *
-   * The route builds the prompt and stops — no model call here. Koala answers it as an ordinary
-   * turn, which is what puts the EVIDENCE in the transcript rather than only the conclusion.
-   */
   const review = useMutation({
     mutationFn: () => reviewLeaf(leaf.id),
     onSuccess: (data) => onReview?.(data.branchId, data.prompt),
   });
 
-  // A leaf with children has a DERIVED status, so the server refuses a manual move.
   const derived = subLeaves.length > 0;
   const state = stateFor(leaf, all);
   const waiting = blockedBy(leaf, all);
-  // What it declared it waits on, which is knowable without the other records; `waiting` is the
-  // subset those records could actually be found for.
   const pending = Math.max(waiting.length, leaf.status === 'succeeded' ? 0 : (leaf.dependsOn?.length ?? 0));
-  /**
-   * The failure history, which is an ARRAY on a leaf record and a COUNT on a board payload.
-   *
-   * The same field name carrying two shapes is the second instance of this hazard in one type (see
-   * `column` in leaf-types.ts). Guarded rather than trusted: reading `.length` off a number is
-   * silent — it yields undefined, so the whole failure history simply disappears from the panel.
-   */
   const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
   const attemptCount = Array.isArray(leaf.attempts) ? leaf.attempts.length : Number(leaf.attempts ?? 0);
-  /**
-   * How much of the REQUEST's budget is gone, for a root leaf that has one.
-   *
-   * Derived here rather than inline so the "running low" threshold is one number rather than a
-   * condition repeated in a class name and a string.
-   */
   const cap = leaf.budget?.maxTokens;
   const usedTotal = leaf.usageTotal?.tokens;
   const budgetLine = cap && typeof usedTotal === 'number'
@@ -118,15 +56,12 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
     }
     : undefined;
 
-
   return (
     <div className="max-w-3xl pb-10">
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <h2 className="text-2xl font-bold text-slate-100 break-words">{leaf.title}</h2>
           <div className="flex items-center gap-3 mt-2 flex-wrap">
-            {/* One word for the state, the same word the board uses. The raw API status stays as a
-                tooltip so a log line and the screen can still be matched up. */}
             <span
               className={`text-[11px] uppercase tracking-widest font-semibold ${state ? STATE_STYLE[state] : 'text-slate-600 line-through'}`}
               title={state ? `${STATE_HINT[state]} (api: ${leaf.status})` : `cancelled (api: ${leaf.status})`}
@@ -159,33 +94,17 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       </div>
 
-      {/*
-        * ── WHAT CHECKED THIS, AND WHERE THE WORK WENT ──
-        * A success meaning "its tests ran and passed" and one meaning "the agent said so" used to
-        * look identical, and there was no path at all from a finished leaf to the branch it made.
-        */}
       {leaf.status === 'succeeded' && (
         <div className="mt-5 flex items-center gap-4 flex-wrap text-[12px]">
-          {/*
-            * The state chip above already says Verified or Claimed, so this says WHY rather than
-            * repeating it — the two used to be separate surfaces and each needed its own verdict.
-            * Saying it twice is how a page starts reading as noise.
-            */}
           {leaf.verified ? (
             <span className="flex items-center gap-1.5 text-green-400" title="Its tests ran and passed, or a promised file was checked">
               <ShieldCheck size={13} /> a check ran and passed
             </span>
           ) : (
-            /* Deliberately not styled as a failure. An unverified success is still a success — most
-               work is not test-shaped — it is just not evidence, and saying so is the whole point. */
             <span className="flex items-center gap-1.5 text-amber-400" title="Nothing checked this — the agent reported it succeeded">
               <ShieldQuestion size={13} /> nothing checked this
             </span>
           )}
-          {/*
-            * Work that produced an ANSWER has no branch and never will, so the merge state is not a
-            * gap to report. Read from what the leaf produced rather than from a label.
-            */}
           {leaf.findings && !leaf.outputBranch ? (
             <span className="flex items-center gap-1.5 text-slate-500" title="Research — the answer is stored on this leaf, not in a repository">
               <BookOpen size={13} /> answer, not code
@@ -202,7 +121,6 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       )}
 
-      {/* ── The two things to do about a failure ── */}
       {leaf.status === 'failed' && (
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <button
@@ -228,7 +146,6 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
             </span>
           )}
           {attemptCount > 1 && (
-            // Said out loud, because at this point retrying is usually the wrong instinct.
             <span className="text-[11px] text-slate-500">
               Already tried {attemptCount} times — a review is more likely to help than another run.
             </span>
@@ -236,17 +153,9 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       )}
 
-      {/* The ordering you agreed to when you accepted, and the files it promised. */}
       {(pending > 0 || leaf.expects?.length) && (
         <div className="mt-4 flex flex-col gap-1.5 text-[12px] text-slate-500">
           {pending > 0 && (
-            /**
-             * Named when the records are to hand, counted when they are not.
-             *
-             * "waits on the transport leaf" is actionable where "waits on 1 leaf" is not — but this
-             * pane is also opened without the full list, and resolving titles against a list it does
-             * not have made a blocked leaf claim it was waiting for nothing at all.
-             */
             <span title="This does not start until they have succeeded">
               {waiting.length > 0
                 ? `waits on ${waiting.map((w) => w.title).join(', ')}`
@@ -261,12 +170,6 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       )}
 
-      {/*
-        * A research leaf's actual answer, above its self-report.
-        *
-        * The deliverable, not a description of one — so it is presented as content rather than as a
-        * claim, which is the opposite of how the summary below is framed.
-        */}
       {leaf.findings && (
         <div className="mt-5">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Findings</h3>
@@ -276,8 +179,6 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       )}
 
-      {/* The agent's own account of what it did. Labelled as a report rather than presented as
-          fact, because that is exactly what it is. */}
       {leaf.summary && (
         <div className="mt-5">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">What it reported</h3>
@@ -296,9 +197,6 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       )}
 
-      {/* Every failed attempt, not just the last — a leaf that failed three different ways is a
-          different situation from one that failed the same way three times, and only the history
-          tells them apart. This is also exactly what the next retry was given as context. */}
       {attempts.length > 0 && (
         <div className="mt-6">
           <h3 className="text-[10px] font-black text-red-400/80 uppercase tracking-widest mb-2 flex items-center gap-1.5">
@@ -317,19 +215,10 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
 
       {(leaf.usage?.tokens || leaf.usageTotal?.tokens || leaf.budget) && (
         <div className="mt-6 flex flex-wrap gap-x-6 gap-y-1 text-[12px] text-slate-500">
-          {/* `usage` is THIS leaf. No wall-clock here — the record deliberately omits it. */}
           {leaf.usage?.tokens ? (
             <span className="flex items-center gap-1.5"><Coins size={12} /> {leaf.usage.tokens.toLocaleString()} tokens</span>
           ) : null}
 
-          {/*
-            * A root additionally shows what its WHOLE TREE has spent against the ceiling.
-            *
-            * Without this the budget is invisible until it refuses something, and a 409 saying
-            * "Token budget exhausted" with nothing on screen showing a budget is a support ticket,
-            * not a limit. `usageTotal` is the subtree rollup the leaves route sends on roots —
-            * `usage` is this leaf alone and cannot answer the question.
-            */}
           {budgetLine && (
             <span
               className={budgetLine.tight ? 'text-amber-400' : undefined}
@@ -351,16 +240,8 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       )}
 
-      {/*
-        * Last, because it is the longest thing here and only sometimes the answer.
-        *
-        * Not a modal any more: it used to be, which meant the turns could only be read on top of a
-        * dimmed board and never beside the task that produced them.
-        */}
       <div className="mt-8 border-t border-[var(--bark-700)] pt-5">
         <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">What it actually did</h3>
-        {/* Rendered for every state, including proposed: "this has not run yet" is a different
-            answer from a missing record, and hiding the section made them look the same. */}
         <LeafSteps leafId={leaf.id} live={leaf.status === 'running'} />
       </div>
     </div>

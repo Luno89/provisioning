@@ -1,11 +1,4 @@
-/* ═══════════════ Unified chat-pack client ═══════════════ */
 
-/**
- * Client for persona-pack chats and conversation vaults.
- *
- * Calls `POST /api/chat-pack/:packId` with the turn request and returns the SSE response.
- * Also provides conversation thread management and proposal acceptance.
- */
 import { api, postStream, type StreamResponse } from './client.js';
 
 export interface ChatPackTurnRequest {
@@ -21,7 +14,6 @@ export const chatPackKeys = {
   conversation: (id: string) => ['chat-pack-conversation', id] as const,
 };
 
-/** Opens the turn and returns the SSE response. */
 export const openChatPackStream = (
   body: ChatPackTurnRequest,
   signal?: AbortSignal,

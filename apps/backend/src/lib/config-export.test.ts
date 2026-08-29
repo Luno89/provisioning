@@ -27,8 +27,6 @@ const profile: HarnessProfile = {
 
 describe('buildConfigExport', () => {
   it('carries the question and not the answers', () => {
-    // Numbers produced by one model on one machine mean nothing restored somewhere else, and
-    // shipping them would invite exactly that comparison.
     const out = buildConfigExport([experiment()], null, 'now');
     expect(JSON.stringify(out)).not.toMatch(/trace|verified|tokensUsed/);
     expect(out.suites[0]!.tasks[0]!.prompt).toBe('write fib');
@@ -62,8 +60,6 @@ describe('buildConfigExport', () => {
 
 describe('parseConfigExport', () => {
   it('refuses a file from a newer harness rather than reading it partially', () => {
-    // Silently ignoring fields a newer writer considered essential is how an import looks
-    // successful and is not.
     const out = parseConfigExport({ version: CONFIG_EXPORT_VERSION + 1, suites: [] });
     expect(out).toEqual({ error: expect.stringMatching(/reads up to/) });
   });
@@ -74,7 +70,6 @@ describe('parseConfigExport', () => {
   });
 
   it('names what it skipped rather than importing a shorter suite silently', () => {
-    // A suite that imports as three tasks when the file had five is worse than one that refuses.
     const out = parseConfigExport({
       version: 1,
       suites: [

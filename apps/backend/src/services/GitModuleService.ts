@@ -11,9 +11,6 @@ export interface OdooModule {
   id: string;
   name: string;
   summary: string;
-  // Optional because only modules parsed from a real manifest carry one (see the `data.description
-  // || ''` fallback in listAvailableModules); the built-in catalogue below has summaries only. The
-  // UI already treats it as a fallback — `mod.summary || mod.description` in App.tsx.
   description?: string;
   author: string;
   version: string;
@@ -93,14 +90,12 @@ export class GitModuleService extends BaseService {
     const repoPath = this.getRepoPath(sanitizedAppType);
 
     try {
-      // 1. Try reading the actual directory if it exists
       await fs.access(repoPath);
       const items = await fs.readdir(repoPath, { withFileTypes: true });
       const modules: OdooModule[] = [];
 
       for (const item of items) {
         if (item.isDirectory() && !item.name.startsWith('.')) {
-          // If Odoo, parse standard manifest
           if (sanitizedAppType === 'odoo') {
             const manifestPath = path.join(repoPath, item.name, '__manifest__.py');
             try {
@@ -115,10 +110,8 @@ export class GitModuleService extends BaseService {
                 depends: this.extractManifestList(content, 'depends') || []
               });
             } catch {
-              // Ignore invalid module folders
             }
           } else {
-            // For other apps, check for a simple manifest or metadata file, or default metadata
             const metaPath = path.join(repoPath, item.name, 'manifest.json');
             try {
               const content = await fs.readFile(metaPath, 'utf-8');
@@ -132,7 +125,6 @@ export class GitModuleService extends BaseService {
                 version: data.version || '1.0'
               });
             } catch {
-              // Fallback: use directory name and look up mock defaults
               const matchedMock = MOCK_MODULES[sanitizedAppType]?.find(m => m.id === item.name);
               modules.push(matchedMock || {
                 id: item.name,
@@ -150,7 +142,6 @@ export class GitModuleService extends BaseService {
       if (modules.length > 0) return modules;
       return MOCK_MODULES[sanitizedAppType] || [];
     } catch (err: any) {
-      // 2. Directory missing or unreadable - fall back to mock data
       return MOCK_MODULES[sanitizedAppType] || [];
     }
   }
@@ -158,9 +149,6 @@ export class GitModuleService extends BaseService {
   private extractManifestValue(content: string, key: string): string | null {
     const regex = new RegExp(`['"]${key}['"]\\s*:\\s*['"]([^'"]+)['"]`, 'i');
     const match = content.match(regex);
-    // `?? null` rather than `match ? match[1] : null`: under noUncheckedIndexedAccess a capture
-    // group is `string | undefined` even when the match succeeded, and the caller's contract is
-    // `string | null`.
     return match?.[1] ?? null;
   }
 

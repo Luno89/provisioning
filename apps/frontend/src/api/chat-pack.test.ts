@@ -2,13 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { openChatPackStream } from '../api/chat-pack.js';
 import * as client from '../api/client.js';
 
-/**
- * RED: the unified chat-pack client.
- *
- * Calls POST /api/chat-pack/:packId with a turn request and returns the SSE response.
- * Mocked at the module boundary (client.postStream) — same pattern as KoalaChat.test.
- */
-
 vi.mock('../api/client', async (orig) => ({
   ...(await orig<typeof client>()),
   postStream: vi.fn(),

@@ -1,9 +1,3 @@
-/**
- * Seeds a dedicated Lab experiment for testing Project Planning & Leaf Decomposition.
- *
- * Exercises how models break down high-level architectural prompts into actionable,
- * distinct proposed leaves (e.g., GitHub API Client, K8s Resource Auditor CLI, Redis Caching Layer).
- */
 import { createDatabase } from '../lib/db-interface.js';
 import type { Experiment } from '../lib/experiments.js';
 
@@ -18,13 +12,8 @@ export async function seedProjectDecompositionExperiment() {
     id: experimentId,
     ownerId: DEMO_USER_ID,
     name: 'GitHub API Client & Project Planning Decomposition Benchmark',
-    // Evaluates how models break down high-level project requests into 3–6 distinct, imperative
-    // proposed leaves. A comment rather than a field: `Experiment` has no `description`, nothing
-    // renders one, and a key the type does not declare is dropped silently on the way to Mongo.
     repeats: 1,
     status: 'draft',
-    // Both required on `Experiment`; the language decides the workspace image and an unrun
-    // experiment has zero results rather than an absent field.
     language: 'node',
     results: [],
     createdAt: new Date().toISOString(),
@@ -84,7 +73,6 @@ export async function seedProjectDecompositionExperiment() {
   console.log(`[seed] Saved benchmark experiment "${experiment.name}" (ID: ${experiment.id})`);
 }
 
-// Run directly if invoked from CLI
 if (process.argv[1]?.endsWith('seed-project-decomposition-benchmark.ts')) {
   seedProjectDecompositionExperiment()
     .then(() => process.exit(0))

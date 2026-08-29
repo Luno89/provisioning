@@ -18,7 +18,6 @@ async function main() {
     name: 'Harness Reliability & Tool Enforcement',
     language: 'node',
     status: 'draft',
-    // Empty rather than absent: `results` is required, and a run appends to it.
     results: [],
     repeats: 2,
     createdAt: now,

@@ -20,12 +20,10 @@ export default function ChatMessageRenderer({
 
   return (
     <div className={`chat-message-renderer space-y-2 ${className}`}>
-      {/* Extracted or Explicit Thought/Reasoning Accordion */}
       {(allThoughts.length > 0 || parsed.isThinking) && (
         <ThoughtAccordion thoughts={allThoughts} isThinking={parsed.isThinking} />
       )}
 
-      {/* Embedded Tool Calls Pills */}
       {parsed.toolCalls.length > 0 && (
         <div className="space-y-1 my-2">
           {parsed.toolCalls.map((tc, idx) => (
@@ -41,7 +39,6 @@ export default function ChatMessageRenderer({
         </div>
       )}
 
-      {/* Clean Markdown Body */}
       {parsed.cleanContent && (
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -56,7 +53,6 @@ export default function ChatMessageRenderer({
             strong: ({ children: c }) => <strong className="font-semibold text-slate-100">{c}</strong>,
             em: ({ children: c }) => <em className="italic text-slate-300">{c}</em>,
             blockquote: ({ children: c }) => {
-              // Check if blockquote is a GitHub-style alert
               const firstChild = Array.isArray(c) ? c[0] : c;
               const textContent = typeof firstChild === 'string' ? firstChild : '';
               const match = textContent.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i);

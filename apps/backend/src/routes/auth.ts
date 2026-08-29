@@ -8,37 +8,12 @@ import type { Auth } from '../middleware/auth.js';
 import type { Database } from '../lib/db-interface.js';
 import type { AuthService } from '../services/AuthService.js';
 
-/**
- * Registration, login, 2FA, logout, and the two OAuth round-trips.
- *
- * ── THE PUBLIC PATHS ARE STILL DECIDED ELSEWHERE ──
- * `requireAuth` is mounted on `/api` before this router and holds the allow-list of paths that do
- * not need a session (`/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the four OAuth
- * routes). That list deliberately did NOT move here: it is the guard's business to know what it
- * lets through, and a router that could exempt itself would be a router that can quietly stop
- * being protected. Adding a route here that must be reachable signed-out means editing the
- * allow-list in `middleware/auth.ts` too — which is the intended friction.
- *
- * `/logout`, `/me` and `/2fa/settings` are NOT on that list and require a session, which is why
- * they read `req.user` without checking it.
- */
-
 export interface AuthRouterDeps {
   db: Database;
   authService: AuthService;
   auth: Auth;
   jwtSecret: string;
-  /** Where OAuth providers are told to come back to. */
   publicUrl: string;
-  /**
-   * Where the callbacks redirect the browser afterwards — the frontend origin, which in dev is
-   * :5173 and is NOT `publicUrl`. Kept as its own value rather than derived, because index.ts
-   * resolves it from two env vars with a fallback.
-   *
-   * The OAuth client ids are deliberately NOT injected: the handlers read `process.env` at request
-   * time, and `lib/oauth-gate.ts`'s mock flow turns on when they are blank. Hoisting them to boot
-   * time would mean a test that sets one mid-run no longer changes anything.
-   */
   appUrl: string;
 }
 
@@ -56,12 +31,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
-      // getUserByEmail (used by login, 2FA, OAuth linking, etc.) normalizes with
-      // .trim().toLowerCase() before querying — pre-existing, found live while testing this
-      // session's per-user isolation work: registering with any capital letter in the email
-      // (e.g. "isoA@example.com") stored it as-is, so login's normalized lookup could never find
-      // it again ("Invalid email or password" despite a correct password). Normalizing here too
-      // keeps every path consistent instead of only patching the read side.
       email = email.trim().toLowerCase();
       const existing = await db.getUserByEmail(email);
       if (existing) {
@@ -209,9 +178,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
   });
 
   router.get('/github', (req, res) => {
-    // Carries any invite code through the OAuth roundtrip via `state` — GitHub/Google echo it
-    // back verbatim on the callback — so a brand-new account created via social login is
-    // invite-gated exactly like native registration, not a silent bypass of it.
     const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const githubId = process.env.GITHUB_CLIENT_ID;
     if (!githubId) {
@@ -233,10 +199,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
       const githubId = process.env.GITHUB_CLIENT_ID;
       const githubSecret = process.env.GITHUB_CLIENT_SECRET;
 
-      // The magic code is attacker-controlled input, so it can only be honoured where the mock
-      // flow is permitted at all. Previously `code !== 'mock-github-code'` was the ONLY guard, which
-      // meant requesting this callback directly with that value skipped the token exchange and
-      // logged the caller in as the mock user even on a fully configured server.
       const mockRequested = code === 'mock-github-code';
       if (mockRequested && !mockOAuthAllowed()) {
         return res.status(403).json({ error: 'Mock sign-in is disabled on this server.' });
@@ -300,7 +262,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
   });
 
   router.get('/google', (req, res) => {
-    // See the matching comment on /api/auth/github: carries the invite code through via `state`.
     const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
     const googleId = process.env.GOOGLE_CLIENT_ID;
     if (!googleId) {
@@ -322,10 +283,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
       const googleId = process.env.GOOGLE_CLIENT_ID;
       const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
 
-      // The magic code is attacker-controlled input, so it can only be honoured where the mock
-      // flow is permitted at all. Previously `code !== 'mock-google-code'` was the ONLY guard, which
-      // meant requesting this callback directly with that value skipped the token exchange and
-      // logged the caller in as the mock user even on a fully configured server.
       const mockRequested = code === 'mock-google-code';
       if (mockRequested && !mockOAuthAllowed()) {
         return res.status(403).json({ error: 'Mock sign-in is disabled on this server.' });

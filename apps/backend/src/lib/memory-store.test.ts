@@ -3,15 +3,6 @@ import { buildMemoryContext, MAX_MEMORY_CONTEXT_CHARS, type MemoryItem,
   unreachableMemory,
 } from './memory-store.js';
 
-/**
- * The memory bank, and the one thing that made it dangerous: it had no size.
- *
- * This text is baked into the SYSTEM prompt, which is outside the region `trimConversation` may
- * touch — so it is the only part of a prompt that grows monotonically. Every finished run extracts
- * a memory, every memory joins every future prompt, and nothing ever dropped one. A trimmer working
- * hard on the messages while the system prompt expanded underneath it was fixing the wrong half.
- */
-
 const mem = (over: Partial<MemoryItem> = {}): MemoryItem => ({
   id: 'm1', ownerId: 'u1', category: 'environment_facts',
   title: 'A fact', text: 'Something true about the repo.',
@@ -19,7 +10,6 @@ const mem = (over: Partial<MemoryItem> = {}): MemoryItem => ({
   ...over,
 });
 
-/** Enough entries to blow any sane budget several times over. */
 const many = (n: number, over: Partial<MemoryItem> = {}) =>
   Array.from({ length: n }, (_, i) => mem({
     id: `m${i}`,
@@ -38,11 +28,6 @@ describe('what reaches the prompt', () => {
   });
 
   it('renders one bullet per memory, whatever the text contains', () => {
-    /**
-     * A promoted research finding is markdown — headings, lists, blank lines. Rendered verbatim it
-     * became a dozen apparent bullets, most beginning mid-sentence, and an agent reading that
-     * cannot tell where one memory ends and the next begins.
-     */
     const out = buildMemoryContext([mem({
       title: 'What the research established',
       text: '# Heading\n\n- point one\n- point two\n\nA paragraph.',
@@ -59,10 +44,6 @@ describe('what reaches the prompt', () => {
   });
 
   it('says how much it left out, rather than eliding silently', () => {
-    /**
-     * An agent handed a quietly truncated bank will state confidently that something is not
-     * recorded when it is. The count turns a wrong answer into a checkable one.
-     */
     const out = buildMemoryContext(many(200));
     expect(out).toMatch(/\(\d+ older entries not shown/);
   });
@@ -70,7 +51,6 @@ describe('what reaches the prompt', () => {
 
 describe('which memories win the budget', () => {
   it('prefers the project-scoped fact over the general one', () => {
-    // "This repo's tests need a live Postgres" beats a general note about tests.
     const items = [
       ...many(40, { scope: 'global' as const }),
       mem({ id: 'proj', scope: 'project', projectId: 'p1', title: 'THE PROJECT FACT', text: 'short' }),
@@ -80,7 +60,6 @@ describe('which memories win the budget', () => {
   });
 
   it('prefers the newer fact when scope is equal', () => {
-    // A layout re-extracted last week describes the current repo; the one it superseded does not.
     const items = [
       mem({ id: 'old', title: 'OLD LAYOUT', createdAt: '2020-01-01T00:00:00.000Z', text: 'y'.repeat(3000) }),
       mem({ id: 'new', title: 'NEW LAYOUT', createdAt: '2026-08-20T00:00:00.000Z', text: 'z'.repeat(3000) }),
@@ -93,8 +72,6 @@ describe('which memories win the budget', () => {
 
 describe('what it still refuses to include', () => {
   it('leaves pending_review out, cap or no cap', () => {
-    // The whole point of the review queue: nothing a model concluded reaches a future prompt
-    // without somebody agreeing to it. The budget must not become a way around that.
     const out = buildMemoryContext([mem({ status: 'pending_review', title: 'INFERRED' })]);
     expect(out).toBe('');
   });
@@ -104,19 +81,6 @@ describe('what it still refuses to include', () => {
     expect(out).toBe('');
   });
 
-  /**
-   * ── THE LEAK THIS FILE EXISTS TO PREVENT ──
-   * The filter read `!projectId || m.projectId === projectId`, so a leaf with NO project matched
-   * EVERY project-scoped memory. Every `repo: false` persona resolves no project — Researcher,
-   * Framer, Synthesist, Reviewer, Judge — so that was most leaves.
-   *
-   * Measured live: 125 memories, all project-scoped, 18 active, every one of them a "Repository
-   * layout" for a different project. A research leaf opened each prompt with eighteen unrelated
-   * codebases' file listings presented as environment facts.
-   *
-   * The old test passed a MATCHING projectId and so never touched this branch, which is why the
-   * bug survived being tested.
-   */
   it('gives a leaf with NO project none of the project-scoped memories', () => {
     const bank = Array.from({ length: 18 }, (_, i) => mem({
       id: `m${i}`, scope: 'project', projectId: `proj-${i}`, title: 'Repository layout',
@@ -126,7 +90,6 @@ describe('what it still refuses to include', () => {
   });
 
   it('still gives a leaf its OWN project\'s memories', () => {
-    // The fix must not go the other way and starve a leaf that does have a project.
     const bank = [
       mem({ id: 'mine', scope: 'project', projectId: 'p1', title: 'MY LAYOUT' }),
       mem({ id: 'theirs', scope: 'project', projectId: 'p2', title: 'THEIR LAYOUT' }),
@@ -138,7 +101,6 @@ describe('what it still refuses to include', () => {
   });
 
   it('still gives a project-less leaf the GLOBAL memories', () => {
-    // Global is the scope that means "applies everywhere", and a project-less leaf is everywhere.
     const out = buildMemoryContext([mem({ scope: 'global', title: 'NODE 22 IS INSTALLED' })], undefined);
     expect(out).toContain('NODE 22 IS INSTALLED');
   });
@@ -148,29 +110,12 @@ describe('what it still refuses to include', () => {
   });
 
   it('reports the omission rather than an empty bank when every entry is oversized', () => {
-    // An empty bank reads as "there is nothing to know", which is a different and wrong claim.
     const out = buildMemoryContext([mem({ text: 'x'.repeat(MAX_MEMORY_CONTEXT_CHARS * 2) })]);
     expect(out).toContain('omitted');
     expect(out).not.toBe('');
   });
 });
 
-/**
- * ── A MEMORY NOBODY CAN READ SHOULD NOT BE WRITABLE ──
- *
- * `selectForContext` gives a project-scoped memory only to a leaf with that project:
- * `if (m.scope === 'project') return Boolean(projectId) && m.projectId === projectId`. So
- * `scope: 'project'` with no `projectId` is a row no caller can ever receive.
- *
- * The consolidation loop already sweeps them (`planUnreachable`), which was written after promotion
- * produced eleven of them. But `POST /api/harness/memories` could still create one — it defaulted
- * `scope` to `'project'` and left `projectId` undefined — so a manually saved memory would be
- * accepted, appear in the list, and quietly disappear on the next consolidation.
- *
- * Rejecting at the door rather than only sweeping afterwards: the sweep is a repair, and a repair
- * that runs on a hand-written record turns a mistake the person could have fixed into data loss
- * they never see.
- */
 describe('a memory that could never be recalled', () => {
   const base = {
     id: 'm1', ownerId: 'u1', category: 'fact', title: 'T', text: 'x',
@@ -191,7 +136,6 @@ describe('a memory that could never be recalled', () => {
   });
 
   it('says which field would fix it', () => {
-    // A bare rejection makes the caller guess between changing the scope and adding the project.
     expect(unreachableMemory({ ...base, scope: 'project' } as never)).toMatch(/projectId|global/);
   });
 });

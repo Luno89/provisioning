@@ -2,20 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { NEVER_MOCK_PROVIDERS, isMockCloudProvider, isSelfManagedCluster } from './cluster-topology.js';
 import { buildAppEnv } from './app-env.js';
 
-/**
- * These predicates were open-coded in ~20 places and acquired a silent bug every time a provider
- * was added and one copy was missed. The tests below pin the two failures that actually happened,
- * so a third provider can't reintroduce them.
- */
 describe('cluster-topology', () => {
   const noCredentials = () => false;
   const hasCredentials = () => true;
 
   describe('isMockCloudProvider', () => {
     it.each(NEVER_MOCK_PROVIDERS)('never treats %s as mock cloud, even with no credentials', (provider) => {
-      // 'remote' failing this made reconciliation look for a k3d container that never existed,
-      // conclude the cluster was deleted, and erase the record. 'hetzner' would fail identically —
-      // and would additionally orphan a running, billing VM.
       expect(isMockCloudProvider(provider, noCredentials)).toBe(false);
     });
 
@@ -31,18 +23,11 @@ describe('cluster-topology', () => {
 
   describe('DigitalOcean', () => {
     it('is never mock, with or without credentials', () => {
-      // Both directions matter. Without credentials it must not silently become a k3d container
-      // pretending to be a cloud; with them it must reach the real provisioning branch, which
-      // before this existed it did not — a credentialed 'do' cluster fell through every branch in
-      // ProvisionClusterActivity and then ran the shared CDKTF tail against a kubeconfig nothing
-      // had written.
       expect(isMockCloudProvider('do', noCredentials)).toBe(false);
       expect(isMockCloudProvider('do', hasCredentials)).toBe(false);
     });
 
     it('is self-managed, so apps get NodePort rather than a LoadBalancer that never resolves', () => {
-      // A single-node k3s droplet has no cloud load-balancer controller; the 'hetzner' omission of
-      // this left every app on a Hetzner VM hanging on a LoadBalancer Service forever.
       expect(isSelfManagedCluster('do', false)).toBe(true);
     });
   });
@@ -74,9 +59,6 @@ describe('buildAppEnv provider handling', () => {
     storageEnv: {},
   } as any;
 
-  // The regression this whole module exists for: with SELF_MANAGED_K8S 'false', every app
-  // construct picks a LoadBalancer Service, which on single-node k3s hangs forever waiting for an
-  // external IP that no controller will ever assign.
   it.each(['k3d', 'remote', 'hetzner'])('sets SELF_MANAGED_K8S=true for %s', (provider) => {
     expect(buildAppEnv({ ...base, provider, isMock: false }).SELF_MANAGED_K8S).toBe('true');
   });
@@ -89,8 +71,6 @@ describe('buildAppEnv provider handling', () => {
     expect(buildAppEnv({ ...base, provider: 'aws', isMock: false }).SELF_MANAGED_K8S).toBe('false');
   });
 
-  // Distinct from SELF_MANAGED_K8S: this one selects a real kubeconfig context, and must stay
-  // empty for remote/hetzner whose kubeconfigs have no "k3d-..." context to select.
   it('leaves KUBECONFIG_CONTEXT empty for remote and hetzner', () => {
     expect(buildAppEnv({ ...base, provider: 'remote', isMock: false }).KUBECONFIG_CONTEXT).toBe('');
     expect(buildAppEnv({ ...base, provider: 'hetzner', isMock: false }).KUBECONFIG_CONTEXT).toBe('');

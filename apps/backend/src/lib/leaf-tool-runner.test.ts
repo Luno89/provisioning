@@ -1,11 +1,3 @@
-/**
- * Tool execution, testable for the first time.
- *
- * This lived inside a closure in the Express bootstrap, so the only way to reach it was an HTTP
- * request against a running server — which is why the code that actually creates leaves had schema
- * tests and no behaviour tests. Passing its dependencies in was the point of the extraction; these
- * are the cases that were previously unreachable.
- */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
@@ -40,7 +32,6 @@ beforeEach(async () => {
 
 describe('propose_leaf', () => {
   it('creates work as a proposal, never as something already running', async () => {
-    // A tool call is the model suggesting, not deciding — nothing spends until a human accepts.
     await runLeafTool(ctx(), call('propose_leaf', { title: 'Add a rate limit' }));
 
     const [leaf] = await leavesOnBranch();
@@ -71,8 +62,6 @@ describe('assigning a persona', () => {
   });
 
   it('keeps the leaf when the persona name matches nothing', async () => {
-    // Refusing would trade a real proposal for a spelling mistake. The work is still valid; it
-    // just runs as the default configuration.
     const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', { title: 'x', persona: 'Nobody' })));
 
     expect(out.error).toBeUndefined();
@@ -82,7 +71,6 @@ describe('assigning a persona', () => {
   });
 
   it('will not assign another user’s persona', async () => {
-    // getPersonas returns every user's; the owner filter is the only thing keeping them apart.
     await db.savePersona(persona({ ownerId: 'someone-else' }));
     await runLeafTool(ctx(), call('propose_leaf', { title: 'x', persona: 'Coder' }));
 
@@ -90,7 +78,6 @@ describe('assigning a persona', () => {
   });
 
   it('lists personas by name and purpose, and nothing else', async () => {
-    // The model assigns by name. Its prompt and its knobs are not the model's business.
     await db.savePersona(persona({ overrides: { temperature: 0.1 }, systemPrompt: 'secret-ish' }));
     const out = JSON.parse(await runLeafTool(ctx(), call('list_personas')));
 
@@ -101,7 +88,6 @@ describe('assigning a persona', () => {
 
 describe('dependency ordering', () => {
   it('resolves dependencies by title within the same turn', async () => {
-    // The model proposes several leaves at once and cannot know the ids of ones it just created.
     await runLeafTool(ctx(), call('propose_leaf', { title: 'Build the client' }));
     await runLeafTool(ctx(), call('propose_leaf', { title: 'Test it', dependsOn: ['Build the client'] }));
 
@@ -118,11 +104,6 @@ describe('dependency ordering', () => {
   });
 
   it('TELLS the model when a dependency matched nothing', async () => {
-    /**
-     * The drop is right; the silence was not. `propose_leaf` reported plain success, so a model
-     * that paraphrased its own title by one word believed it had built a chain and had actually
-     * built a fan-out — every step starting at once against work that did not exist yet.
-     */
     await runLeafTool(ctx(), call('propose_leaf', { title: 'Build the client' }));
     const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', {
       title: 'Test it', dependsOn: ['Build an client'],
@@ -130,15 +111,11 @@ describe('dependency ordering', () => {
 
     expect(out.proposed).toBeTruthy();
     expect(out.unresolvedDependencies).toEqual(['Build an client']);
-    // Says the consequence, not just the fact — this leaf will now start immediately.
     expect(out.warning).toMatch(/start immediately/i);
-    // The real titles come back so the next call can name one correctly instead of guessing.
     expect(out.existingTitles).toContain('Build the client');
   });
 
   it('confirms the dependencies it DID record, by title', async () => {
-    // An id the model has never seen tells it nothing; the title is what it can check against its
-    // own plan.
     await runLeafTool(ctx(), call('propose_leaf', { title: 'Build the client' }));
     const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', {
       title: 'Test it', dependsOn: ['Build the client'],
@@ -149,7 +126,6 @@ describe('dependency ordering', () => {
   });
 
   it('says nothing about dependencies when none were asked for', async () => {
-    // A leaf with no ordering must not read as one whose ordering was lost.
     const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', { title: 'Standalone' })));
 
     expect('dependsOn' in out).toBe(false);
@@ -167,18 +143,15 @@ describe('dependency ordering', () => {
   });
 
   it('refuses a dependency that would close a cycle', async () => {
-    // A cycle does not fail — everything in it waits forever, which looks like slow work.
     await runLeafTool(ctx(), call('propose_leaf', { title: 'A' }));
     await runLeafTool(ctx(), call('propose_leaf', { title: 'B', dependsOn: ['A'] }));
     const b = (await leavesOnBranch()).find((l) => l.title === 'B')!;
     await db.saveLeaf({ ...b, title: 'B' });
 
-    // A depending on B would close the loop A -> B -> A.
     const a = (await leavesOnBranch()).find((l) => l.title === 'A')!;
     await db.saveLeaf({ ...a, dependsOn: [b.id] });
     const out = JSON.parse(await runLeafTool(ctx(), call('propose_leaf', { title: 'C', dependsOn: ['B'] })));
 
-    // C -> B is fine; the guard only fires on an actual cycle.
     expect(out.error).toBeUndefined();
   });
 });
@@ -206,7 +179,6 @@ describe('failure handling', () => {
   });
 
   it('turns a thrown error into a tool result the loop can carry on from', async () => {
-    // A tool that throws would otherwise fail the whole turn, losing the reply already streamed.
     const boom = ctx({ webSearch: async () => { throw new Error('network is off'); } });
     const out = JSON.parse(await runLeafTool(boom, call('web_search', { query: 'x' })));
     expect(out.error).toMatch(/network is off/);

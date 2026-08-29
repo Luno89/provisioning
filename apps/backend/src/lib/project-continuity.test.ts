@@ -4,21 +4,6 @@ import { MemoryDB } from './memory-db.js';
 import { resolveLeafProject, autoRepoNameFor } from './leaf-project.js';
 import { withProject, primaryProjectId } from './trees.js';
 
-/**
- * Every leaf of one request landing in ONE repository.
- *
- * ── THE RUN THIS SPLIT ──
- * A planning turn called `create_project("github-mcp")` and never called `set_leaf_project`. The
- * project attached to nothing, so each leaf resolved no project, fell through to the per-branch
- * fallback, and built in `koala-request-30b2d228` while `github-mcp` sat empty.
- *
- * It could not be recovered afterwards either: the first leaf to FINISH calls `withProject` with
- * whatever it resolved, so the fallback became the tree's primary repository permanently — and
- * every later branch of the same effort would have joined the wrong one too.
- *
- * The chain has three links and the failure was in the first, so the tests follow all three.
- */
-
 const seeded = async () => {
   const db = new MemoryDB() as any;
   await db.saveTree({ id: 't1', ownerId: 'u1', name: 'GitHub API MCP', createdAt: 'now', updatedAt: 'now' });
@@ -51,8 +36,6 @@ describe('link one: creating a project attaches it to the tree', () => {
   });
 
   it('tells the model it does not need to set it per leaf', async () => {
-    // Otherwise it does the second step anyway, or worse, believes it must and gives up when the
-    // round trips run out.
     const db = await seeded();
     const out = JSON.parse(await runLeafTool(ctx(db, fakeProjects(db)), {
       name: 'create_project', arguments: JSON.stringify({ name: 'github-mcp' }),
@@ -62,10 +45,6 @@ describe('link one: creating a project attaches it to the tree', () => {
   });
 
   it('does NOT hijack a tree that already has a repository', async () => {
-    /**
-     * `withProject` appends and keeps the first primary. A second project created mid-effort must
-     * not repoint work that is already landing somewhere.
-     */
     const db = await seeded();
     const first = (await db.getTrees()).find((t: any) => t.id === 't1');
     await db.saveTree(withProject(first, 'p-original'));
@@ -78,8 +57,6 @@ describe('link one: creating a project attaches it to the tree', () => {
   });
 
   it('still creates the project when the branch has no tree', async () => {
-    // A branch outside a tree is legal. Losing the project over it would be worse than not
-    // attaching.
     const db = new MemoryDB() as any;
     await db.saveBranch({ id: 'b1', ownerId: 'u1', createdAt: 'now', updatedAt: 'now' });
     const out = JSON.parse(await runLeafTool(ctx(db, fakeProjects(db)), {
@@ -101,11 +78,6 @@ describe('link one: creating a project attaches it to the tree', () => {
 });
 
 describe('pointing a leaf at an existing service', () => {
-  /**
-   * The path the planner should have taken: it found `github-mcp`, was given its projectId by
-   * list_mcp_servers, and could point the verify leaf at it. Without the tree learning, every OTHER
-   * leaf on the branch would still fall through to a per-branch repository.
-   */
   const point = async (db: any, treeHasProject: boolean) => {
     if (treeHasProject) {
       const t = (await db.getTrees()).find((x: any) => x.id === 't1');
@@ -127,7 +99,6 @@ describe('pointing a leaf at an existing service', () => {
   });
 
   it('does NOT repoint a tree whose work is already landing somewhere', async () => {
-    // A per-leaf exception must stay per-leaf.
     const db = await seeded();
     const out = await point(db, true);
     expect(out.updated.projectId).toBe('p-github');
@@ -158,15 +129,12 @@ describe('link two: a leaf resolves the tree\'s project', () => {
   });
 
   it('falls back to the per-branch repository when nothing is attached', async () => {
-    // The observed run. Correct behaviour on its own — it only became wrong because link one
-    // never fired.
     const db = await seeded();
     const got = await resolveLeafProject(deps(db) as any, { id: 'l1', ownerId: 'u1', branchId: 'b1' } as any);
     expect(got.giteaRepo).toBe(autoRepoNameFor('b1'));
   });
 
   it('lets an explicit leaf project win over the tree\'s', async () => {
-    // set_leaf_project is still the override, for a leaf that genuinely belongs elsewhere.
     const db = await seeded();
     await db.saveProject({ id: 'p-other', ownerId: 'u1', name: 'other', giteaOwner: 'koala-u1', giteaRepo: 'other', createdAt: 'now' });
     await db.saveProject({ id: 'p-tree', ownerId: 'u1', name: 'tree', giteaOwner: 'koala-u1', giteaRepo: 'tree', createdAt: 'now' });
@@ -180,10 +148,6 @@ describe('link two: a leaf resolves the tree\'s project', () => {
 
 describe('link three: every leaf of a request agrees', () => {
   it('gives concurrent leaves of one branch the same repository', async () => {
-    /**
-     * The property the whole chain exists for. Leaves run in parallel, and two repositories for one
-     * request means leaf 2 cannot build on leaf 1.
-     */
     const db = await seeded();
     await db.saveProject({ id: 'p-github-mcp', ownerId: 'u1', name: 'github-mcp', giteaOwner: 'koala-u1', giteaRepo: 'github-mcp', createdAt: 'now' });
     const deps = {
@@ -200,8 +164,6 @@ describe('link three: every leaf of a request agrees', () => {
   });
 
   it('re-attaching the same project is a no-op, so the executor cannot undo it', async () => {
-    // The executor calls withProject with whatever it resolved. Once link one has run, that is the
-    // same id — and appending it twice would be the bug that made the fallback primary.
     const db = await seeded();
     const tree = (await db.getTrees()).find((t: any) => t.id === 't1');
     const once = withProject(tree, 'p-github-mcp');

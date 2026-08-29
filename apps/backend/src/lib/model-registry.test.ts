@@ -22,8 +22,6 @@ const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata =>
 
 describe('sanitizeNamespace', () => {
   it('matches the derivation AppService uses to CREATE the namespace', () => {
-    // If these ever drift, the registry port-forwards to a service that does not exist and the
-    // failure looks like a timeout rather than a wrong name.
     expect(sanitizeNamespace('My Llama')).toBe('my-llama');
     expect(sanitizeNamespace('Odoo-Production')).toBe('odoo-production');
     expect(sanitizeNamespace('a__b  c')).toBe('a-b-c');
@@ -51,20 +49,15 @@ describe('providerFromDeployment', () => {
   it('excludes app types that serve no OpenAI-compatible API', () => {
     expect(providerFromDeployment(dep({ appType: 'odoo' }))).toBeUndefined();
     expect(providerFromDeployment(dep({ appType: 'openwebui' }))).toBeUndefined();
-    // openwebui TALKS to a model but does not serve one — an easy one to wire up backwards.
   });
 
   it('excludes endpoints that are not running yet', () => {
-    // A deploying endpoint accepts a port-forward and then hangs; excluding it here turns a
-    // confusing timeout into an absent option.
     expect(providerFromDeployment(dep({ status: 'deploying' }))).toBeUndefined();
     expect(providerFromDeployment(dep({ status: 'failed' }))).toBeUndefined();
     expect(providerFromDeployment(dep({ status: 'destroying' }))).toBeUndefined();
   });
 
   it('survives a deployment whose model was never recorded', () => {
-    // Built without the field rather than with an explicit undefined — exactOptionalPropertyTypes
-    // rejects the latter, and the absent case is what actually occurs in the database.
     const { vllmModel: _omitted, ...withoutModel } = dep();
     const p = providerFromDeployment(withoutModel as DeploymentMetadata);
     expect(p?.model).toBe('');
@@ -81,13 +74,10 @@ describe('providerFromDeployment', () => {
       llmApi: { port: 9000, model: 'my-finetune' },
     }));
     expect(p).toMatchObject({ service: 'my-llama-gitapp', port: 9000, model: 'my-finetune' });
-    // No engine kind — the platform did not package it and cannot claim to know.
     expect(p?.kind).toBeUndefined();
   });
 
   it('lets the catalogue WIN over a tag on a known app type', () => {
-    // The whole point of the catalogue: platform-packaged values are authoritative, so a stored
-    // field cannot quietly repoint a vLLM deployment at another port.
     const p = providerFromDeployment(dep({ llmApi: { port: 9999, serviceSuffix: 'hijacked' } }));
     expect(p).toMatchObject({ service: 'my-llama-vllm', port: 8000 });
   });
@@ -109,7 +99,6 @@ describe('listProviders', () => {
   });
 
   it('returns an empty list rather than throwing when the user has no models', () => {
-    // A real state to render — most users start here.
     expect(listProviders([])).toEqual([]);
   });
 });
@@ -138,8 +127,6 @@ describe('registered endpoints (any OpenAI-compatible API)', () => {
   });
 
   it('does not filter on status — the platform does not manage this thing and has no live signal', () => {
-    // Unlike a deployment, there is no status to trust. A failed request surfaces the engine's own
-    // error, which beats hiding an endpoint because a health check was stale.
     expect(providerFromEndpoint(ep())).toBeTruthy();
   });
 
@@ -172,8 +159,6 @@ describe('routeProvider', () => {
   });
 
   it('returns undefined for an id the user does not own, rather than silently substituting one', () => {
-    // The caller passes an ownership-filtered list, so an unmatched id means "not yours". Falling
-    // back to a different model would send the prompt somewhere the user did not choose.
     expect(routeProvider(providers, 'someone-elses')).toBeUndefined();
   });
 
@@ -182,10 +167,6 @@ describe('routeProvider', () => {
   });
 
   it('matches on the provider id and never on the model it serves', () => {
-    // Why the `model` knob is a picker rather than free text, and why a run must send
-    // `provider.model` rather than the override: the override is an id, so passing it along as the
-    // model name asked the API for a model called "dep-a". Anything else here does not resolve at
-    // all, which is the error people actually hit when they typed a model name in.
     const served = listProviders([dep({ id: 'dep-a', vllmModel: 'Qwen3-32B' })]);
     expect(routeProvider(served, 'dep-a')?.model).toBe('Qwen3-32B');
     expect(routeProvider(served, 'Qwen3-32B')).toBeUndefined();

@@ -1,8 +1,3 @@
-/**
- * The case that matters is the second leaf of a request: it has to land in the FIRST leaf's
- * repository. Anywhere else and the hand-off is between two unrelated repos, which looks like it
- * worked and shares nothing.
- */
 import { describe, it, expect, vi } from 'vitest';
 import { resolveLeafProject, autoRepoNameFor } from './leaf-project.js';
 import type { Leaf } from './leaves.js';
@@ -32,7 +27,6 @@ describe('choosing where a leaf works', () => {
   });
 
   it('makes one for the request when none was chosen', async () => {
-    // The default path used to be the losing one: no project meant the pod was the only copy.
     const d = deps();
     const project = await resolveLeafProject(d, leaf());
 
@@ -48,7 +42,6 @@ describe('choosing where a leaf works', () => {
     const first = await resolveLeafProject(d, leaf({ id: 'l1' }));
     const second = await resolveLeafProject(d, leaf({ id: 'l2' }));
 
-    // The hand-off depends entirely on this. Two repos would share nothing while looking fine.
     expect(second.id).toBe(first.id);
     expect(d.createRepo).toHaveBeenCalledTimes(1);
   });
@@ -64,7 +57,6 @@ describe('choosing where a leaf works', () => {
   });
 
   it('does not hand a leaf another owner\'s project', async () => {
-    // projectId arrives on a leaf that a model proposed, so it is untrusted like any other id.
     const theirs = { id: 'p1', ownerId: 'someone-else', giteaRepo: 'theirs', giteaOwner: 'o', name: 'n', appType: 'generic', createdAt: '' };
     const d = deps([theirs]);
 
@@ -74,7 +66,6 @@ describe('choosing where a leaf works', () => {
   });
 
   it('falls through to a fresh project when the id is stale', async () => {
-    // Losing the work over a dangling reference is worse than working somewhere else.
     const d = deps();
     await expect(resolveLeafProject(d, leaf({ projectId: 'deleted' }))).resolves.toMatchObject({ ownerId: 'u1' });
   });
@@ -86,8 +77,6 @@ describe('choosing where a leaf works', () => {
 
 describe('two leaves of one request racing', () => {
   it('adopts a repository that already exists instead of creating it again', async () => {
-    // Observed live: the loser of the race got `duplicate key value violates unique constraint`
-    // back as a 500 and ended up with no repository at all.
     const d = deps([], { repoExists: vi.fn(async () => true) });
 
     await expect(resolveLeafProject(d, leaf())).resolves.toMatchObject({ ownerId: 'u1' });
@@ -95,7 +84,6 @@ describe('two leaves of one request racing', () => {
   });
 
   it('survives losing the create race outright', async () => {
-    // Exists check says no, then the other leaf creates it before we do.
     let exists = false;
     const d = deps([], {
       repoExists: vi.fn(async () => exists),
@@ -106,15 +94,11 @@ describe('two leaves of one request racing', () => {
   });
 
   it('still reports a create failure that left no repository', async () => {
-    // A real failure — no permission, Gitea down — must not be swallowed into a project row
-    // pointing at a repository that does not exist.
     const d = deps([], { createRepo: vi.fn(async () => { throw new Error('HTTP 403'); }) });
     await expect(resolveLeafProject(d, leaf())).rejects.toThrow('HTTP 403');
   });
 
   it('does not write a second project row for the same repository', async () => {
-    // The racing leaf may save the row while this one is creating the repo. Two rows would split
-    // one request's leaves across two project ids, which is exactly no hand-off.
     const projects: any[] = [];
     const d = deps(projects, {
       createRepo: vi.fn(async () => {
@@ -127,15 +111,6 @@ describe('two leaves of one request racing', () => {
   });
 });
 
-/**
- * ── THE RACE THAT LOST TWO LEAVES THEIR REPOSITORY ──
- *
- * The re-read above `saveProject` narrows the window between "is there a row?" and "write one"; it
- * cannot close it. This was survivable while only one or two coding leaves of a request raced. Once
- * every leaf that writes files takes a checkout, four research leaves start at once — measured, two
- * of five hit `E11000 duplicate key ... giteaOwner_1_giteaRepo_1` and reported "work will not
- * persist", which is the exact outcome the repository exists to prevent.
- */
 describe('two leaves of one request racing for the repository', () => {
   const duplicateKey = () => Object.assign(
     new Error('E11000 duplicate key error collection: provisioning.projects index: giteaOwner_1_giteaRepo_1'),
@@ -143,8 +118,6 @@ describe('two leaves of one request racing for the repository', () => {
   );
 
   it('returns the winner rather than failing the loser', async () => {
-    // Derived, not hardcoded: `autoRepoNameFor` strips non-alphanumerics from the branch id slice,
-    // so writing the name by hand silently tests a repo nobody would look for.
     const repo = autoRepoNameFor(leaf().branchId);
     const winner = {
       id: 'winner', ownerId: 'u1', giteaOwner: 'koala-u1', giteaRepo: repo,
@@ -152,8 +125,6 @@ describe('two leaves of one request racing for the repository', () => {
     };
     let written = false;
     const d = deps([], {
-      // Empty on the first read — the loser genuinely saw no row — and holding the winner by the
-      // time the write collides, which is what actually happens in Mongo.
       db: {
         getProjects: vi.fn(async () => (written ? [winner] : [])),
         saveProject: vi.fn(async () => { written = true; throw duplicateKey(); }),
@@ -163,14 +134,10 @@ describe('two leaves of one request racing for the repository', () => {
     const got = await resolveLeafProject(d, leaf());
 
     expect(got.id).toBe('winner');
-    // Both leaves of the request must end up on ONE project id, or their work splits across two
-    // repositories and neither sees the other's.
     expect(got.giteaRepo).toBe(repo);
   });
 
   it('still throws when the write failed for some other reason', async () => {
-    // A collision means the row exists; anything else means it does not, and swallowing that would
-    // hand the leaf a project that was never saved.
     const d = deps([], {
       db: {
         getProjects: vi.fn(async () => []),

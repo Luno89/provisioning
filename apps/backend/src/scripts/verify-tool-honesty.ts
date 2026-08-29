@@ -1,15 +1,3 @@
-/**
- * Proves a degraded tool now says so, against the real deployments.
- *
- *   npx tsx apps/backend/src/scripts/verify-tool-honesty.ts
- *
- * A Researcher was told "No results found" nineteen times for queries SearXNG answers with ten
- * results each, and responded by broadening and then looping for fifteen steps. The claim being
- * verified is narrow: a working search and a broken one must not produce the same sentence.
- *
- * Also exercises Koala's cluster read policy against the live cluster — the refusals are unit
- * tested exhaustively, so what is checked here is that an ALLOWED read actually returns something.
- */
 import dotenv from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -31,7 +19,6 @@ async function main(): Promise<void> {
     const ownerId = (await db.getDeployments())[0]?.ownerId;
     if (!ownerId) return console.log('No deployments — nothing to verify against.');
 
-    // ── SEARCH: the real path ──
     line();
     console.log('SEARCH — the real deployment:');
     const real = await buildWebTools(db, ownerId);
@@ -43,7 +30,6 @@ async function main(): Promise<void> {
       console.log('  no web tools resolved for this owner');
     }
 
-    // ── SEARCH: the degraded path, which is what actually happened ──
     line();
     console.log('SEARCH — SearXNG unreachable AND the fallback failing:');
     const broken = createWebTools({
@@ -54,7 +40,6 @@ async function main(): Promise<void> {
     console.log(`  ${JSON.stringify(renderSearchOutcome('OpenUI', down))}`);
     console.log(`  -> says unavailable rather than "no results": ${down.unavailable ? 'YES' : 'NO'}`);
 
-    // ── KOALA'S CLUSTER READS ──
     line();
     console.log('KOALA cluster reads (live):');
     const infra = new InfrastructureService();

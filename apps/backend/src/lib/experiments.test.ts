@@ -34,7 +34,6 @@ const result = (over: Partial<VariantResult> = {}): VariantResult => ({
   ...over,
 });
 
-/** A run of a named task by a named variant, passing or not. */
 const run = (taskId: string, label: string, verified: boolean, over: Partial<VariantResult> = {}) =>
   result({ taskId, label, verified, succeeded: verified, ...over });
 
@@ -57,9 +56,6 @@ describe('expandAxes', () => {
   });
 
   it('returns the whole cross product, leaving the ceiling to validation', () => {
-    // It used to slice to MAX_VARIANTS here, which meant a three-axis design silently ran a
-    // subset — the experiment on screen was not the experiment that executed, and which
-    // combinations survived depended on key order. Over-cap is now a rejection, not an edit.
     const variants = expandAxes({ a: [1, 2, 3], b: [1, 2, 3], c: [1, 2, 3] });
     expect(variants).toHaveLength(27);
     expect(validateExperiment({
@@ -77,8 +73,6 @@ describe('expandAxes', () => {
 
 describe('summariseResults', () => {
   it('counts verified and claimed separately', () => {
-    // The whole point of the verify command: an agent's self-report is the least reliable number
-    // in the run.
     const [summary] = summariseResults([
       result({ succeeded: true, verified: true }),
       result({ succeeded: true, verified: false }),
@@ -98,8 +92,6 @@ describe('summariseResults', () => {
   });
 
   it('leaves runs that never completed out of the medians', () => {
-    // A run that errored recorded zeros because nothing ran. Counted as a measurement it makes the
-    // variant look dramatically cheaper for having failed to start — the opposite of the truth.
     const [summary] = summariseResults([
       result({ steps: 10, tokensUsed: 5000 }),
       result({ steps: 12, tokensUsed: 6000 }),
@@ -130,8 +122,6 @@ describe('experimentTasks', () => {
   });
 
   it('presents a pre-suite experiment as a one-task suite', () => {
-    // These are real measurements someone paid GPU time for. A schema change is a poor reason to
-    // make an old result unreadable, so exactly one place knows about the old shape.
     const tasks = experimentTasks({ task: 'write fib', verifyCommand: 'node t.js', language: 'go' });
     expect(tasks).toEqual([
       { id: LEGACY_TASK_ID, name: 'Task', prompt: 'write fib', verifyCommand: 'node t.js', language: 'go' },
@@ -139,7 +129,6 @@ describe('experimentTasks', () => {
   });
 
   it('groups results that predate task ids under that same synthetic task', () => {
-    // Otherwise an old experiment renders as an empty matrix beside a row of orphaned runs.
     const legacy = experimentTasks({ task: 'write fib', verifyCommand: 'node t.js', language: 'node' });
     const [row] = buildTaskMatrix(
       [result({ verified: true }), result({ verified: false })],
@@ -168,8 +157,6 @@ describe('buildTaskMatrix', () => {
   });
 
   it('is the reason a suite exists: two variants tie overall and disagree on every task', () => {
-    // The finding no aggregate can show. Both variants sit at 1/2, and reporting only that would
-    // call the setting a dead heat when it in fact changed which tasks succeed.
     const results = [
       run('t1', 'a', true), run('t1', 'b', false),
       run('t2', 'a', false), run('t2', 'b', true),
@@ -196,8 +183,6 @@ describe('buildTaskMatrix', () => {
   });
 
   it('does not call a half-run task uninformative', () => {
-    // Mid-run the second variant has no results yet. Treating its empty cell as agreement would
-    // report a verdict on a task that has been measured once.
     const matrix = buildTaskMatrix([run('t1', 'a', true)], [task('t1')], variants);
     expect(matrix[0]!.uninformative).toBe(false);
     expect(matrix[0]!.cells[1]!.runs).toBe(0);
@@ -205,7 +190,6 @@ describe('buildTaskMatrix', () => {
 
   it('ranks tasks by how far apart they drove the variants', () => {
     const matrix = buildTaskMatrix([
-      // t1 splits them completely, t2 only partly.
       run('t1', 'a', true), run('t1', 'a', true), run('t1', 'b', false), run('t1', 'b', false),
       run('t2', 'a', true), run('t2', 'a', true), run('t2', 'b', true), run('t2', 'b', false),
     ], tasks, variants);
@@ -237,8 +221,6 @@ describe('summariseExperiment', () => {
   });
 
   it('drops the evidence and keeps the scores', () => {
-    // One six-run suite of full records is on the order of a megabyte, and the list is polled every
-    // five seconds against the whole archive.
     const summary = summariseExperiment(heavy());
     const [r] = summary.results;
 
@@ -251,7 +233,6 @@ describe('summariseExperiment', () => {
 
   it('keeps everything the matrix needs to render', () => {
     const summary = summariseExperiment(heavy());
-    // Task identity for the rows, variants for the columns, and the numbers for the cells.
     expect(summary.tasks).toEqual([{ id: 't1', name: 'fib', language: 'go' }]);
     expect(summary.variants).toHaveLength(1);
     expect(summary.status).toBe('complete');
@@ -277,8 +258,6 @@ describe('summariseExperiment', () => {
 
 describe('overclaimed', () => {
   it('finds runs the agent called a success that verification failed', () => {
-    // This is the failure that silently corrupts everything downstream — a leaf marked succeeded
-    // and moved to review on work that never happened.
     const flagged = overclaimed([
       result({ succeeded: true, verified: false, label: 'lying' }),
       result({ succeeded: true, verified: true }),
@@ -325,8 +304,6 @@ describe('validateExperiment', () => {
   });
 
   it('rejects the product, not just each dimension', () => {
-    // Reached by three individually reasonable choices — a fifth task, a third variant, three
-    // repeats — none of which is over its own limit.
     const message = validateExperiment({
       ...valid,
       tasks: Array.from({ length: 6 }, (_, i) => task(`t${i}`)),
@@ -379,8 +356,6 @@ describe('run history', () => {
   });
 
   it('reads the LATEST execution as the current results', () => {
-    // Running an experiment used to clear its results, which made a suite something you could only
-    // ask once. The point of keeping it is asking again after a change.
     const e: any = { runs: [runOf('r1', 1, 3), runOf('r2', 3, 3)], results: [] };
     expect(latestResults(e).filter((r) => r.verified)).toHaveLength(3);
   });
@@ -393,15 +368,12 @@ describe('run history', () => {
   it('summarises every execution so two can be compared without their traces', () => {
     const e: any = { runs: [runOf('r1', 1, 3, { model: 'qwen3' }), runOf('r2', 3, 3, { model: 'qwen4' })] };
     expect(summariseRuns(e)).toEqual([
-      // `attempted` sits beside `runs` rather than replacing it: an execution where half the runs
-      // died is a different fact from one where they all ran, and one number cannot carry both.
       { id: 'r1', startedAt: '2026-08-04T01:00:00Z', status: 'complete', model: 'qwen3', verified: 1, runs: 3, attempted: 3, broken: 0 },
       { id: 'r2', startedAt: '2026-08-04T02:00:00Z', status: 'complete', model: 'qwen4', verified: 3, runs: 3, attempted: 3, broken: 0 },
     ]);
   });
 
   it('keeps history out of the list payload while keeping the comparison', () => {
-    // The whole reason the list/detail split exists: a comparison must not cost every run's trace.
     const e: any = {
       id: 'e1', ownerId: 'u', name: 'n', language: 'node', variants: [], repeats: 1,
       status: 'complete', createdAt: 'a', updatedAt: 'b', tasks: [task('t1')],
@@ -420,8 +392,6 @@ describe('priorExecutions', () => {
   };
 
   it('promotes pre-history results to execution one', () => {
-    // Otherwise appending a new execution makes the older evidence invisible the first time an
-    // experiment is re-run — losing the comparison re-running exists to produce.
     const [first, ...rest] = priorExecutions({ ...base, status: 'complete', results: [result()] });
     expect(rest).toEqual([]);
     expect(first!.id).toBe('r0');
@@ -454,8 +424,6 @@ describe('seed and solution', () => {
   });
 
   it('accepts a task that seeds the world the agent wakes up in', () => {
-    // The shape that was impossible to express: "read data.txt" needs data.txt to exist, and with
-    // nowhere to put it the only move was having the verify command create its own input.
     expect(validateExperiment(withFiles({
       seed: [{ path: 'data.txt', content: 'hello' }],
       solution: [{ path: 'read.js', content: 'console.log(require("fs").readFileSync("data.txt","utf8"))' }],
@@ -463,7 +431,6 @@ describe('seed and solution', () => {
   });
 
   it('rejects a path that escapes the workspace', () => {
-    // A message at creation, not an exception halfway through a run that already cost sandboxes.
     expect(validateExperiment(withFiles({ seed: [{ path: '../etc/passwd', content: 'x' }] })))
       .toMatch(/must be relative to \/work/);
     expect(validateExperiment(withFiles({ seed: [{ path: '/etc/passwd', content: 'x' }] })))
@@ -476,7 +443,6 @@ describe('seed and solution', () => {
   });
 
   it('bounds how much a suite can carry', () => {
-    // A suite travels in one document and is exported as one file.
     expect(validateExperiment(withFiles({
       seed: Array.from({ length: MAX_TASK_FILES + 1 }, (_, i) => ({ path: `f${i}`, content: 'x' })),
     }))).toMatch(new RegExp(`more than ${MAX_TASK_FILES} seed files`));

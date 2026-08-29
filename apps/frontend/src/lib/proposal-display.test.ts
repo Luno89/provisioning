@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { splitProposalBlock } from './proposal-display.js';
 
-/** The real payload that prompted this — four leaves, prose before it. */
 const REAL_BLOCK = `Here is how I would break that up.
 
 \`\`\`json
@@ -33,8 +32,6 @@ describe('splitProposalBlock', () => {
   });
 
   it('hides a proposal block that is still arriving, and says so', () => {
-    // Mid-stream the fence is open and the JSON half-written. Showing it means watching JSON type
-    // itself out.
     const midStream = 'Here is the plan.\n\n```json\n{"leaves":[{"title":"Scaffold the pro';
     const r = splitProposalBlock(midStream);
     expect(r.prose).toBe('Here is the plan.');

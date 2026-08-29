@@ -11,9 +11,6 @@ import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './le
 import { type Message } from './Chat.js';
 import { parseHash, formatHash, shouldReplace } from '../lib/route.js';
 import { lastSeen, markSeenAfterDwell } from '../lib/seen.js';
-// Aliased: this file names its MUTATIONS `createBranch`, `deleteTree`, `deleteBranch` and
-// `deleteLeaf`, and those names describe what the screen does. The api functions are the transport
-// underneath them, so they get the `api` prefix rather than renaming the local ones.
 import {
   listTrees, listBranches, listLeaves, patchBranch, acceptLeaf,
   createBranch as apiCreateBranch,
@@ -22,30 +19,6 @@ import {
   deleteLeaf as apiDeleteLeaf,
 } from '../api/grove';
 import { listPersonas } from '../api/personas';
-
-/**
- * The harness, arranged the way its data actually is.
- *
- * ── WHY THIS REPLACES FOUR SIBLING VIEWS ──
- * Koala's model is Tree → Branch → Leaf, and the interface presented four TOP-LEVEL views that each
- * entered that hierarchy at a different depth and shared no context:
- *
- *   Koala    — entered at Branch, listing every branch of every tree, flat
- *   Trees    — entered at Tree, then replaced itself with a board
- *   Personas — entered nowhere; a global list
- *   Lab      — entered nowhere; filed under infrastructure, two levels deep
- *
- * The consequence was that the tree — which owns the repository, the memory and the definition of
- * done — was invisible from the place you spend all your time, and the conversation, the only place
- * you can direct work, was unreachable from the board except through a bespoke hand-off.
- *
- * ── SO THERE IS ONE NAVIGATOR ──
- * It renders the three levels the data already has. Picking a tree scopes everything to its right;
- * picking a branch opens that conversation; picking a leaf opens that leaf. Nothing is a separate
- * destination any more, which is what dissolves the flat branch wall: two conversations under one
- * tree used to look like accidental duplicates of each other, because nothing said they were
- * siblings.
- */
 
 interface Tree {
   id: string;
@@ -56,7 +29,6 @@ interface Tree {
   updatedAt: string;
 }
 
-/** Branches with no tree are real and must not be hidden — see the Unfiled group below. */
 const UNFILED = '__unfiled__';
 
 export default function Grove({ handoff, onHandoffTaken }: {
@@ -65,18 +37,10 @@ export default function Grove({ handoff, onHandoffTaken }: {
 }) {
   const qc = useQueryClient();
 
-  /**
-   * What is open, and what is selected inside it.
-   *
-   * The tree persists across reloads because it is a SCOPE rather than a click — coming back to the
-   * project you were in is the default anyone expects, and losing it was one of the costs of having
-   * no routing at all.
-   */
   const fromUrl = parseHash(window.location.hash);
   const urlPath = fromUrl?.view === 'grove' ? fromUrl.path : [];
   const [openTree, setOpenTree] = useState<string>(() => urlPath[0] ?? localStorage.getItem('grove-tree') ?? '');
   const [selected, setSelected] = useState<{ kind: 'tree' | 'branch' | 'leaf'; id: string }>(() => {
-    // Deepest wins: a link to a leaf opens that leaf, not the tree containing it.
     if (urlPath[2]) return { kind: 'leaf', id: urlPath[2] };
     if (urlPath[1]) return { kind: 'branch', id: urlPath[1] };
     return { kind: 'tree', id: urlPath[0] ?? localStorage.getItem('grove-tree') ?? '' };
@@ -86,28 +50,9 @@ export default function Grove({ handoff, onHandoffTaken }: {
   const [railClosed, setRailClosed] = useState(false);
   const [newTree, setNewTree] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
-  /**
-   * Chat mode, per conversation, held above the component that unmounts.
-   *
-   * Per branch rather than global: two conversations are legitimately in different modes — one
-   * being planned, one just being talked about — and a single setting would flip both.
-   */
   const [modes, setModes] = useState<Record<string, 'chat' | 'auto' | 'plan'>>({});
-  /**
-   * The opening message for a conversation started from the home page.
-   *
-   * Held here rather than passed straight through because the branch does not exist yet when the
-   * text is typed — it is created first, and this is what gets sent the moment it does.
-   */
   const [opening, setOpening] = useState<{ branchId: string; prompt: string } | undefined>();
 
-  /**
-   * When this page was last looked at.
-   *
-   * Read through `lastSeen` rather than straight from localStorage, and stamped after a dwell
-   * rather than on unmount — under StrictMode an unmount cleanup fires immediately, which marked
-   * the page seen before anything had been read. See lib/seen.ts.
-   */
   const seenAt = useRef<string | undefined>(lastSeen('grove-seen'));
   useEffect(() => markSeenAfterDwell('grove-seen'), []);
 
@@ -141,7 +86,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
     qc.invalidateQueries({ queryKey: ['branches'] });
   };
 
-  /** Branches grouped under their tree, with the unfiled ones kept rather than dropped. */
   const groups = useMemo(() => {
     const leavesAll = leaves ?? [];
     const out = trees.map((t) => ({
@@ -152,13 +96,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
     }));
     const orphans = branchRecords.filter((b) => !b.treeId || !trees.some((t) => t.id === b.treeId));
 
-    /**
-     * Leaves whose branch record is gone still need somewhere to live.
-     *
-     * Grouping strictly by branch RECORD dropped them from the navigator entirely — work that
-     * exists, cost tokens and may have shipped, invisible because a conversation was deleted out
-     * from under it. Workspace showed them; losing that in the move would have been a regression.
-     */
     const known = new Set(branchRecords.map((b) => b.id));
     const stranded = [...new Set(leavesAll.filter((l) => !known.has(l.branchId)).map((l) => l.branchId))]
       .map((id) => ({
@@ -170,8 +107,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
     orphans.push(...stranded);
 
     if (orphans.length > 0) {
-      // A dangling treeId lands here too: a branch pointing at a deleted tree is unfiled in every
-      // sense that matters, and hiding it would lose the conversation.
       out.push({ id: UNFILED, name: 'Unfiled', goal: 'Conversations not filed under a tree', branches: orphans });
     }
     return out;
@@ -204,7 +139,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
     onSuccess: (_, id) => {
       if (openTree === id) { setOpenTree(''); setSelected({ kind: 'tree', id: '' }); }
       qc.invalidateQueries({ queryKey: ['trees'] });
-      // The conversations survive un-filed, so they move to the Unfiled group.
       qc.invalidateQueries({ queryKey: ['branches'] });
     },
   });
@@ -217,18 +151,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
       refresh();
     },
   });
-  /**
-   * Why an accept was refused.
-   *
-   * ── THE BUG THIS FIXES ──
-   * There was no `onError`, so a 409 went nowhere: the button did nothing, no message appeared, and
-   * the leaf sat there looking clickable. Reported as "I can't click accept" on the second branch of
-   * a tree, which is exactly where it bites — the acceptance-plan guard is checked per BRANCH, and a
-   * second branch starts with none, so every leaf on it is refused until someone sets one.
-   *
-   * The refusals are all actionable ("assign a persona", "ask the planner to call set_acceptance"),
-   * which is worth nothing while they are swallowed.
-   */
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const refusal = (err: any) =>
     err?.response?.data?.error ?? err?.message ?? 'That could not be accepted.';
@@ -243,13 +165,9 @@ export default function Grove({ handoff, onHandoffTaken }: {
     onSuccess: refresh,
   });
   const acceptAll = useMutation({
-    // Sequential, not parallel: each accept re-checks the branch budget, and firing them at once
-    // would let several slip through a ceiling that only had room for one.
     mutationFn: async (ids: string[]) => {
       let failed: string | null = null;
       for (const id of ids) {
-        // The FIRST refusal is kept and the rest of the batch still runs: one leaf missing a
-        // persona should not stop its siblings, and reporting the last one would hide the cause.
         await acceptLeaf(id)
           .catch((err) => { if (!failed) failed = refusal(err); });
       }
@@ -258,7 +176,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
     onSuccess: refresh,
   });
 
-  /** A hand-off opens its branch, once — see Workspace for why this is keyed rather than plain. */
   const openedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!handoff || openedRef.current === handoff.branchId) return;
@@ -269,39 +186,15 @@ export default function Grove({ handoff, onHandoffTaken }: {
   }, [handoff, branchRecords]);
 
   const selectedLeaf = selected.kind === 'leaf' ? all.find((l) => l.id === selected.id) : undefined;
-  /**
-   * The conversation that is open.
-   *
-   * Falls back to a minimal record when the id is selected but no record has arrived. A review
-   * handed over from the board names a branch by id, and requiring the record to be loaded first
-   * meant the hand-off could land on the home page instead of the conversation — silently dropping
-   * the review, which is the one thing that path exists to deliver.
-   */
   const selectedBranch = selected.kind === 'branch'
     ? branchRecords.find((b) => b.id === selected.id)
       ?? ({ id: selected.id, title: 'Conversation', messages: [], updatedAt: '' } as BranchRecord)
     : undefined;
   const scopeTree = trees.find((t) => t.id === openTree);
-  /**
-   * The project the pane is showing, which follows what is SELECTED rather than what is expanded.
-   *
-   * Expanding a tree must not swap the pane — that was the whole point of separating the disclosure
-   * from the row — so this cannot be derived from `openTree`.
-   */
   const projectTree = selected.kind === 'tree' && selected.id && selected.id !== UNFILED
     ? trees.find((t) => t.id === selected.id)
     : undefined;
 
-  /**
-   * The address of what is open: #/grove/<tree>/<branch>/<leaf>.
-   *
-   * A leaf carries its BRANCH in the middle segment even though nothing selected it — the segments
-   * are positional, so omitting it would shift the leaf id into the branch slot and a shared link
-   * would open the wrong thing entirely.
-   *
-   * Moving within a tree replaces the history entry rather than pushing one: clicking six cards and
-   * then wanting out should be one Back press, not six.
-   */
   useEffect(() => {
     const branchId = selected.kind === 'branch' ? selected.id : selectedLeaf?.branchId ?? '';
     const path = [openTree, branchId, selected.kind === 'leaf' ? selected.id : ''];
@@ -348,7 +241,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
   return (
     <div className="flex h-[calc(100vh-7rem)] gap-0 relative">
       {acceptError && (
-        /* Above everything, because the click that caused it may have been anywhere in the tree. */
         <div className="absolute top-0 left-0 right-0 z-30 m-2 rounded-xl border border-amber-500/40 bg-amber-950/60 px-4 py-2.5 flex items-start gap-3">
           <AlertTriangle size={15} className="text-amber-400 shrink-0 mt-0.5" />
           <p className="text-[12px] text-amber-100 leading-relaxed flex-1">{acceptError}</p>
@@ -357,7 +249,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
           </button>
         </div>
       )}
-      {/* ── Navigator: tree → branch → leaf ── */}
       <aside className={`${railClosed ? 'w-0 opacity-0 overflow-hidden hidden' : 'w-72 pr-3'} shrink-0 border-r border-[var(--bark-600)] overflow-y-auto transition-all duration-200`}>
         <div className="flex items-center justify-between mb-3 pl-2">
           <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Grove</h2>
@@ -378,11 +269,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
           return (
             <div key={group.id} className="mb-1">
               <div
-                /**
-                 * Selecting a tree opens its board. Expanding it does NOT — those were one click,
-                 * so reaching for the disclosure triangle threw away whatever you were reading.
-                 * The branch rows below always had them separate; this row was the odd one out.
-                 */
                 onClick={() => { setOpenTree(group.id); setSelected({ kind: 'tree', id: group.id }); }}
                 className={`group flex items-center gap-1.5 py-1.5 px-2 rounded-md cursor-pointer text-[13px] font-semibold ${
                   selected.kind === 'tree' && selected.id === group.id ? 'bg-[var(--bark-700)] text-slate-100' : 'text-slate-300 hover:bg-[var(--bark-800)]'
@@ -461,7 +347,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
         })}
       </aside>
 
-      {/* ── Pane ── */}
       <section className="flex-1 min-w-0 pl-6 overflow-hidden flex flex-col relative">
         {railClosed && (
           <button
@@ -473,8 +358,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
           </button>
         )}
 
-        {/* A breadcrumb rather than a title: it is the only thing that says which tree you are
-            inside, which was the whole complaint about the old chat view. */}
         {(selectedBranch || selectedLeaf) && (
           <div className="shrink-0 flex items-center gap-2 text-[11px] text-slate-500 mb-2 min-w-0">
             {scopeTree && (
@@ -525,10 +408,6 @@ export default function Grove({ handoff, onHandoffTaken }: {
             onModeChange={(m) => setModes((all) => ({ ...all, [selectedBranch.id]: m }))}
             onProposals={refresh}
             onAccept={(id) => accept.mutate(id)}
-            /**
-             * Grove owns the request because it owns the cache: saving has to refresh the branch
-             * records, and the editor should not know that a query cache exists.
-             */
             onSetAcceptance={async (commands) => {
               await patchBranch(selectedBranch.id, { acceptance: commands });
               setAcceptError(null);
@@ -539,19 +418,10 @@ export default function Grove({ handoff, onHandoffTaken }: {
             {...(handoff && handoff.branchId === selectedBranch.id
               ? { autoSend: handoff.prompt, ...(onHandoffTaken ? { onAutoSent: onHandoffTaken } : {}) }
               : opening && opening.branchId === selectedBranch.id
-                // Started from the home page: the first message goes out on arrival, so the box you
-                // typed into is the box the work started from.
                 ? { autoSend: opening.prompt, onAutoSent: () => setOpening(undefined) }
                 : {})}
           />
         ) : (
-          /*
-           * The landing, or one project — the same screen, scoped.
-           *
-           * This used to be a koala and the words "Pick a tree, a conversation, or a leaf" over
-           * about a thousand pixels of nothing; choosing a tree then opened a six-column board.
-           * Both are gone: see the header comment in Home.tsx for why the columns went.
-           */
           <Home
             leaves={all}
             branches={branchRecords}

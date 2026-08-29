@@ -7,18 +7,6 @@ import * as deploymentsApi from '../../api/deployments';
 import * as modelsApi from '../../api/models';
 import type { Deployment } from '../../types/deployment';
 
-/**
- * ── REPLACES FOUR WHOLE-App TEST FILES ──
- *
- * `__tests__/AppDashboard.test.tsx`, `Diagnostics.test.tsx`, `Helm.test.tsx` and the dashboard half
- * of `App.test.tsx` each mounted the entire application, mocked `axios` wholesale, navigated
- * through the sidebar and opened the modal — in order to assert what one component renders. Between
- * them that was roughly 400 lines and tens of seconds.
- *
- * The modal is a component now, so it can be mounted directly and its data seams mocked. Every
- * assertion below was in one of those files; what is new is that they run against the unit.
- */
-
 vi.mock('../../api/deployments', async (importOriginal) => ({
   ...(await importOriginal<typeof deploymentsApi>()),
   useDeploymentPods: vi.fn(() => ({ pods: [], namespace: 'odoo', checkedAt: Date.now() })),
@@ -78,7 +66,6 @@ describe('the dashboard', () => {
 
 describe('the tabs', () => {
   it('shows Helm output when that tab is opened', async () => {
-    // From __tests__/Helm.test.tsx, which mounted all of App to reach it.
     useHelmStatus.mockReturnValue({ data: { content: 'REVISION: 3' } } as never);
     const { user } = setup();
     await user.click(screen.getByText('Helm Status'));
@@ -86,23 +73,15 @@ describe('the tabs', () => {
   });
 
   it('shows diagnostics when that tab is opened', async () => {
-    // From __tests__/Diagnostics.test.tsx, same story.
     useDiagnostics.mockReturnValue({ data: { content: 'kube-system pod running' } } as never);
     const { user } = setup();
     await user.click(screen.getByText('Diagnostics'));
-    // The pane renders through `AnsiText`, which splits output across spans to colour it, so no
-    // single node holds the string and every ancestor does. Assert on the document's text.
     await waitFor(() => {
       expect(document.body.textContent).toContain('kube-system pod running');
     });
   });
 
   it('fetches each tab\'s data only while that tab is open', () => {
-    /**
-     * The property that keeps a seven-tab modal from making seven requests every time it opens —
-     * and the thing most easily lost when queries move between components. Asserts the `enabled`
-     * flag rather than counting requests, so it does not depend on react-query's timing.
-     */
     setup(deployment(), 'general');
     expect(useHelmStatus).toHaveBeenCalledWith('d1', false);
     expect(useDiagnostics).toHaveBeenCalledWith('d1', false);
@@ -116,10 +95,6 @@ describe('the tabs', () => {
 
 describe('a failed deployment', () => {
   it('fetches the provisioning log on the General tab, where the reason actually is', () => {
-    /**
-     * From AppDashboard.test.tsx. A failed app's error is written to the provisioning log, and a
-     * user looking at "why did this fail" has no reason to know it is filed under another tab.
-     */
     setup(deployment({ status: 'failed' }), 'general');
     expect(useInitialLogs).toHaveBeenCalledWith(expect.anything(), true);
   });

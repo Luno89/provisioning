@@ -2,7 +2,6 @@ import { WORKSPACE_IMAGES, type WorkspaceLanguage } from './workspace-spec.js';
 import { ALL_TOOL_SEEDS, type ToolRepositoryItem } from './tool-seeds.js';
 
 export type { ToolRepositoryItem };
-/** The complete catalogue, including the tools derived from live schemas — see tool-seeds.ts. */
 export const TOOL_REPOSITORY: ToolRepositoryItem[] = ALL_TOOL_SEEDS;
 
 export function getToolRepository(category?: string): ToolRepositoryItem[] {

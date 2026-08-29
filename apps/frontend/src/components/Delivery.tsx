@@ -1,21 +1,5 @@
 import { Check, X, Loader2, Circle, AlertTriangle, Minus } from 'lucide-react';
 
-/**
- * How far this request actually got, above the conversation that produced it.
- *
- * ── WHY THIS IS HERE AND NOT ONLY IN PROJECTS ──
- * The Projects list answers "is this repo's code running" in one word, because it is a list. This
- * is the thing you opened to find out what went wrong, and the useful answer here is WHERE it
- * stopped — work that failed, work that never merged, an image that never built, a pod that will
- * not start, and checks that did not pass are five different problems with five different fixes.
- *
- * Until now the only way to learn any of it was to read Mongo. The leaf column showed the work; the
- * fact that the work then built, deployed and was checked lived nowhere a user could see.
- *
- * Every stage comes from the server (lib/branch-delivery.ts) so this cannot drift from what the
- * Projects tab says about the same project.
- */
-
 export interface DeliveryStage {
   key: string;
   label: string;
@@ -24,8 +8,6 @@ export interface DeliveryStage {
 }
 
 const STATE = {
-  // `warn` is amber for the same reason `unhealthy` is on a deployment: it got there and does not
-  // work, which is a different problem from never getting there.
   done: { icon: Check, dot: 'bg-[var(--leaf)]', text: 'text-[var(--leaf)]' },
   active: { icon: Loader2, dot: 'bg-blue-400', text: 'text-blue-300' },
   failed: { icon: X, dot: 'bg-red-500', text: 'text-red-400' },
@@ -35,8 +17,6 @@ const STATE = {
 } as const;
 
 export default function Delivery({ stages, projectName }: { stages?: DeliveryStage[] | undefined; projectName?: string | undefined }) {
-  // A conversation that has produced no work at all shows nothing — an empty chain on every new
-  // chat would be noise attached to the thing you use most.
   if (!stages?.length || stages.every((s) => s.state === 'pending' || s.state === 'skipped')) return null;
 
   return (
@@ -57,7 +37,6 @@ export default function Delivery({ stages, projectName }: { stages?: DeliverySta
                 </span>
                 <div className="flex flex-col min-w-0">
                   <span className={`text-[11px] font-bold leading-tight ${style.text}`}>{s.label}</span>
-                  {/* The detail is the point — "3 of 4 merged" is what you came for, not "Landed". */}
                   <span className="text-[10px] text-slate-500 leading-tight truncate" title={s.detail}>{s.detail}</span>
                 </div>
               </div>

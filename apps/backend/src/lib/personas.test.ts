@@ -14,8 +14,6 @@ const persona = (over: Partial<Persona> = {}): Persona => ({
 
 describe('resolveConfig', () => {
   it('narrows scope at each step: profile, then persona, then request', () => {
-    // A persona beats the profile because choosing one is an explicit act about the work in front
-    // of you; the request beats the persona for the same reason one step further in.
     const resolved = resolveConfig(
       profile({ temperature: 0, think: false }),
       persona({ overrides: { temperature: 0.4 } }),
@@ -27,8 +25,6 @@ describe('resolveConfig', () => {
   });
 
   it('records which layer supplied each key', () => {
-    // A run that cannot say where its temperature came from is a number nobody can argue with —
-    // and a variant named after a configuration it was no longer running has already happened here.
     const resolved = resolveConfig(
       profile({ temperature: 0, think: false, maxSteps: 12 }),
       persona({ overrides: { temperature: 0.4 } }),
@@ -43,7 +39,6 @@ describe('resolveConfig', () => {
   });
 
   it('lets a later layer opt out of an adopted default without knowing its value', () => {
-    // null is the reset sentinel: "ignore whatever the profile says for this one".
     const resolved = resolveConfig(
       profile({ temperature: 0, think: true }),
       persona({ overrides: { think: null } }),
@@ -55,8 +50,6 @@ describe('resolveConfig', () => {
   });
 
   it('carries the persona prompt separately from the sampler bag', () => {
-    // In chat the prompt becomes a MESSAGE, not a parameter. Conflating the two is how a persona
-    // prompt ends up as a sampler field the engine silently ignores.
     const resolved = resolveConfig(null, persona({ systemPrompt: 'You review code.' }));
 
     expect(resolved.systemPrompt).toBe('You review code.');
@@ -64,7 +57,6 @@ describe('resolveConfig', () => {
   });
 
   it('prefers the persona’s own prompt over one left in its overrides bag', () => {
-    // The dedicated field is what the editor writes; a bag that disagrees is stale, not deliberate.
     const resolved = resolveConfig(
       null,
       persona({ systemPrompt: 'current', overrides: { systemPrompt: 'stale' } }),
@@ -82,8 +74,6 @@ describe('resolveConfig', () => {
   });
 
   it('treats a blank persona prompt as no prompt rather than an empty system message', () => {
-    // An empty system message is worse than none: it costs a turn's worth of template and says
-    // nothing.
     const resolved = resolveConfig(null, persona({ systemPrompt: '   ' }));
     expect(resolved.systemPrompt).toBeUndefined();
   });
@@ -111,11 +101,6 @@ describe('validatePersona', () => {
 });
 
 describe('the pack layer', () => {
-  /**
-   * A pack sits between the persona and the request because it is the narrower statement: one
-   * persona can be run several ways — same prompt, different engine or budget — and which way you
-   * picked says more about this run than who you picked.
-   */
   it('beats the persona, because it says how that persona is being run', () => {
     const resolved = resolveConfig(
       null,
@@ -135,8 +120,6 @@ describe('the pack layer', () => {
   });
 
   it('is absent for every caller that has not moved yet', () => {
-    // The parameter is optional so the migration can land route by route. An absent pack must
-    // resolve exactly as before, or every unmigrated caller changes behaviour silently.
     const without = resolveConfig(null, { id: 'p', name: 'K', overrides: { temperature: 0.7 } } as never);
     expect(without.overrides.temperature).toBe(0.7);
     expect(without.from.persona).toEqual(['temperature']);
@@ -145,9 +128,6 @@ describe('the pack layer', () => {
 });
 
 describe('personas as experiment arms', () => {
-  // A variant is already a named override bag, so pointing arms at personas runs them head to
-  // head on one suite — the only way to answer "which is better" rather than preferring whichever
-  // was written most recently.
   const reviewer = persona({ id: 'p-rev', name: 'Reviewer', systemPrompt: 'Terse.', overrides: { temperature: 0.1 } });
   const explorer = persona({ id: 'p-exp', name: 'Explorer', systemPrompt: 'Curious.', overrides: { temperature: 0.9, think: true } });
 
@@ -162,7 +142,6 @@ describe('personas as experiment arms', () => {
   });
 
   it('lets an arm borrow a persona and change one knob', () => {
-    // "This persona but hotter" should be a variant, not a second persona.
     const hotter = resolveConfig(null, reviewer, { temperature: 0.8 });
 
     expect(hotter.overrides.temperature).toBe(0.8);
@@ -171,8 +150,6 @@ describe('personas as experiment arms', () => {
   });
 
   it('keeps persona and profile provenance apart in the record', () => {
-    // An experiment comparing two personas is unreadable if "this install decided that" and "this
-    // arm was run as someone" collapse into one list.
     const resolved = resolveConfig(profile({ maxSteps: 20 }), explorer, {});
 
     expect(resolved.from.profile).toEqual(['maxSteps']);

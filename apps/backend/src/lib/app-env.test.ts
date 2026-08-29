@@ -37,17 +37,12 @@ describe('Quickwit, whose credentials are not its own', () => {
   });
 
   it('takes the keys the MinIO beside it was actually deployed with', () => {
-    /**
-     * The whole point. Generating a fresh pair — which is what every other resolver here does —
-     * produces a pod that starts, passes its liveness probe, and cannot read a single split.
-     */
     const out = resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [minio]);
     expect(out.quickwitS3SecretKey).toBe('the-real-password');
     expect(out.quickwitS3AccessKey).toBe('koala');
   });
 
   it('points at the in-cluster Service, not an ingress', () => {
-    // Pod-to-pod: this must not depend on an ingress controller or a port-forward being up.
     const out = resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [minio]);
     expect(out.quickwitS3Endpoint).toBe('http://minio.koala-store.svc.cluster.local:9000');
   });
@@ -58,12 +53,6 @@ describe('Quickwit, whose credentials are not its own', () => {
   });
 
   it('accepts a MinIO that is still deploying, because what it needs is the keys', () => {
-    /**
-     * The obvious gate is `status === 'running'`, and it is wrong: the record reaches that state
-     * when the deploy workflow finishes reconciling, which lags the pod being ready. Deploying
-     * MinIO, watching it go 1/1 and then deploying Quickwit was refused with "deploy minio first"
-     * — advice that had just been followed.
-     */
     const deploying = { ...minio, status: 'deploying' } as DeploymentMetadata;
     expect(resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [deploying]).quickwitS3SecretKey)
       .toBe('the-real-password');
@@ -75,18 +64,12 @@ describe('Quickwit, whose credentials are not its own', () => {
   });
 
   it('says so when a MinIO exists but its credentials were never stored', () => {
-    // A different failure needing a different fix, and "deploy minio first" would be wrong advice
-    // for it.
-    // The key is removed rather than set to undefined: under exactOptionalPropertyTypes those are
-    // different things, and only one of them is what an unset field actually looks like.
     const { minioRootPassword, ...noCreds } = minio;
     expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit' }), [noCreds]))
       .toThrow(/credentials are not stored/i);
   });
 
   it('does not take another tenant\'s storage', () => {
-    // A corpus is the tenant's. Borrowing another tenant's bucket credentials would be worse
-    // than failing.
     const theirs = { ...minio, ownerId: 'them' } as DeploymentMetadata;
     expect(() => resolveQuickwitDefaults(dep({ appType: 'quickwit', ownerId: 'me' }), [theirs])).toThrow();
   });
@@ -108,10 +91,6 @@ describe('the app catalog', () => {
   });
 
   it('prefers the longest match, so a short name cannot claim a longer one', () => {
-    /**
-     * `tei` is three characters. Matching shortest-first it would claim any name containing them,
-     * and every one of these types is a substring test against a pod name.
-     */
     expect(appTypeFromName('protein-service')).not.toBe('tei');
   });
 
@@ -131,17 +110,12 @@ describe('what the sandbox tells the agent about installing', () => {
   });
 
   it('still says so when the only egress is a service, not a registry', () => {
-    // Gitea is reachable and a registry is not — the agent must not infer one from the other.
     const out = describeSandbox({ egress: [{ namespace: 'gitea', ports: [3000] }] });
     expect(out).toMatch(/the gitea service/);
     expect(out).toMatch(/WILL fail/i);
   });
 
   it('says npm install works once a registry is injected', () => {
-    /**
-     * The sentence is an INSTRUCTION, and it was true until a mirror was deployed in-cluster. An
-     * agent that still believes it hand-rolls what it could have installed.
-     */
     const out = describeSandbox({
       egress: [{ namespace: 'koala-registry', ports: [4873] }],
       env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://verdaccio.koala-registry.svc.cluster.local:4873' }],

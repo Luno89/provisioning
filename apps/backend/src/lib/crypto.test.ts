@@ -24,7 +24,6 @@ describe('crypto', () => {
       const a = encryptValue(plaintext, TEST_KEY);
       const b = encryptValue(plaintext, TEST_KEY);
       expect(a).not.toBe(b);
-      // But both decrypt to the same value
       expect(decryptValue(a, TEST_KEY)).toBe(plaintext);
       expect(decryptValue(b, TEST_KEY)).toBe(plaintext);
     });
@@ -37,7 +36,6 @@ describe('crypto', () => {
     it('fails with tampered ciphertext', () => {
       const encrypted = encryptValue('secret', TEST_KEY);
       const parts = encrypted.split(':');
-      // Tamper with the ciphertext portion
       const tampered = `${parts[0]}:${parts[1]}:${'ff'.repeat(16)}`;
       expect(() => decryptValue(tampered, TEST_KEY)).toThrow();
     });

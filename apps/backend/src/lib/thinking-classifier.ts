@@ -1,15 +1,3 @@
-/**
- * System-Wide ML Thinking Cycle Classifier & Failure Predictor.
- *
- * Evaluates streaming model reasoning in real-time using model-specific probabilistic features:
- *   - N-Gram Entropy: Shannon entropy of reasoning tokens (measures vocabulary diversity vs loops).
- *   - Repetition Density: Ratio of repeated n-gram sequences to total sequence length.
- *   - Reasoning Token Count & Velocity: Total tokens spent thinking.
- *   - Prompt-to-Thought Complexity Ratio: Ratio of thought length to prompt length.
- *
- * Profiles are saved system-wide in MongoDB without user partitioning, enabling shared learning
- * across all users on the platform.
- */
 
 export interface ThoughtFeatureVector {
   reasoningTokens: number;
@@ -33,9 +21,6 @@ export interface ModelThinkingProfile {
   updatedAt: string;
 }
 
-/**
- * Calculates Shannon entropy of n-grams in a text string.
- */
 export function calculateNgramEntropy(text: string, n = 3): { entropy: number; repetitionDensity: number; maxRepeat: number; uniqueRatio: number } {
   const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length < n) {
@@ -62,7 +47,6 @@ export function calculateNgramEntropy(text: string, n = 3): { entropy: number; r
     entropy -= p * Math.log2(p);
   }
 
-  // Normalised entropy (0 to 1)
   const maxPossibleEntropy = Math.log2(total || 1);
   const normalizedEntropy = maxPossibleEntropy > 0 ? entropy / maxPossibleEntropy : 1.0;
 
@@ -77,9 +61,6 @@ export function calculateNgramEntropy(text: string, n = 3): { entropy: number; r
   };
 }
 
-/**
- * Extracts streaming feature vector from reasoning text.
- */
 export class ThoughtFeatureExtractor {
   private reasoningText = '';
   private promptTokens = 0;
@@ -111,9 +92,6 @@ export class ThoughtFeatureExtractor {
   }
 }
 
-/**
- * Parses SSE chunks to extract raw reasoning text string without JSON wrapper tokens.
- */
 export class ReasoningScanner {
   private buffer = '';
   private text = '';
@@ -141,7 +119,6 @@ export class ReasoningScanner {
           this.text += reasoning;
         }
       } catch {
-        // Partial or non-JSON frames are normal mid-stream.
       }
     }
     return added;
@@ -152,9 +129,6 @@ export class ReasoningScanner {
   }
 }
 
-/**
- * Predicts the probability of reasoning failure (0.0 to 1.0) using streaming features & global profile.
- */
 export function predictFailure(
   features: ThoughtFeatureVector,
   profile?: ModelThinkingProfile,
@@ -162,15 +136,12 @@ export function predictFailure(
   threshold = 0.85,
   ngramRepeatCap = 5
 ): { pFailure: number; shouldInterrupt: boolean; reason?: string } {
-  // Never interrupt short reasoning streams under 250 tokens — give the model ample room to think naturally
   if (features.reasoningTokens < 250) {
     return { pFailure: 0.05, shouldInterrupt: false };
   }
 
-  // Sensitivity multipliers adjust probability scaling
   const sensitivityMultiplier = sensitivity === 'high' ? 1.2 : sensitivity === 'low' ? 0.6 : 0.85;
 
-  // 1. Extreme N-Gram Loop check (e.g. repeated sequence 6+ times with > 55% repetition density)
   if (features.maxNgramRepeatCount > ngramRepeatCap && features.repetitionDensity > 0.55) {
     const pFailure = Math.min(0.99, 0.85 * sensitivityMultiplier);
     return {
@@ -180,7 +151,6 @@ export function predictFailure(
     };
   }
 
-  // 2. Severe Entropy Loss check (vocab diversity collapses after 300+ reasoning tokens)
   if (features.reasoningTokens > 300 && features.ngramEntropy < 0.25) {
     const pFailure = Math.min(0.99, 0.90 * sensitivityMultiplier);
     return {
@@ -190,7 +160,6 @@ export function predictFailure(
     };
   }
 
-  // 3. System-Wide Profile Distance Check
   if (profile && (profile.successSamples + profile.failureSamples) >= 5) {
     const distToFailure = Math.abs(features.ngramEntropy - profile.avgFailureEntropy) +
       Math.abs(features.repetitionDensity - profile.avgFailureRepetition);
@@ -207,7 +176,6 @@ export function predictFailure(
     }
   }
 
-  // 4. Overthinking on Simple Prompt (e.g., > 1200 reasoning tokens on a < 15 prompt token input)
   if (features.promptTokens < 15 && features.reasoningTokens > 1200) {
     const pFailure = Math.min(0.95, 0.82 * sensitivityMultiplier);
     return {
@@ -220,9 +188,6 @@ export function predictFailure(
   return { pFailure: 0.1, shouldInterrupt: false };
 }
 
-/**
- * Updates a model's system-wide global thinking profile with new turn sample data.
- */
 export function updateModelProfile(
   existing: ModelThinkingProfile | undefined,
   modelId: string,

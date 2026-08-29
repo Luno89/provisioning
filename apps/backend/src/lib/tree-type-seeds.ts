@@ -21,13 +21,6 @@ import {
   MIGRATION_RECIPE,
 } from './project-templates.js';
 
-/**
- * The types this platform ships with.
- *
- * A starting point, not the source of truth — `seedTreeTypes` copies these to an owner once and
- * never again, so a type edited in the Lab stays edited. Same relationship `PERSONA_SEEDS` has to
- * personas.
- */
 export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
   {
     id: 'mcp-server',

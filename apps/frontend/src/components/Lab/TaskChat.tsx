@@ -1,15 +1,3 @@
-/**
- * Talking to Koala about one task.
- *
- * ── WHY A CONVERSATION AND NOT ANOTHER ONE-SHOT ──
- * A task's four parts are interdependent, and generating them in a single pass produced exactly the
- * incoherence you would expect: a prompt saying "read data.txt" beside a verify command that
- * created data.txt itself, because nothing forced the two to be considered together. Iterating is
- * how that gets resolved — you say "the agent never sees that file", and the seed appears.
- *
- * A revision is a PROPOSAL, never applied on arrival. Same rule as leaf proposals and for the same
- * reason: the model is suggesting a change to work you own, and the accept is where you read it.
- */
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2, Check, X } from 'lucide-react';
@@ -23,7 +11,6 @@ interface Turn {
 
 type Revision = Partial<Pick<ExperimentTask, 'prompt' | 'verifyCommand' | 'seed' | 'solution'>>;
 
-/** What a revision would change, by name — so accepting is never a surprise. */
 const changedFields = (r: Revision): string[] => Object.keys(r);
 
 export function TaskChat({ task, field, onAccept,
@@ -45,8 +32,6 @@ export function TaskChat({ task, field, onAccept,
     },
     onSuccess: (d) => {
       setError('');
-      // A reply that is only a revision still gets a line in the transcript, or the conversation
-      // appears to have skipped a turn.
       setTurns((t) => [...t, { role: 'assistant', content: d.reply || '(proposed a change)' }]);
       if (d.revision) setPending(d.revision);
     },
@@ -58,7 +43,6 @@ export function TaskChat({ task, field, onAccept,
       <div className="flex-1 overflow-y-auto space-y-2 mb-2 min-h-0">
         {turns.length === 0 && (
           <p className="text-[11px] text-slate-600 leading-snug">
-            {/* Steering toward the questions this chat is actually good at. */}
             Ask about this task — whether the prompt is answerable from the seed, what the verify
             command should check, why a run failed. Koala can propose changes to the prompt, seed,
             solution and verify together.
