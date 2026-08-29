@@ -1,15 +1,24 @@
 /* ═══════════════ The chat runtime: persona-pack → runnable turn ═══════════════ */
 
-import type { DeliverySpec, PersonaPack } from './persona-pack.js';
 import type { UnifiedFrame } from './chat-wire.js';
 
 /**
- * Turns a completed round-loop result into the UnifiedFrames a persona's `delivery` surfaces.
+ * ── THE ENGINE EMITS EVERYTHING ──
  *
- * "What the user wants to see" is granular: the same turn renders as a rich assistant feed for
- * the Koala pack (deltas + thinking + tool pills + proposal cards) and as a transparency console
- * for the Harness pack (adds plan + usage, drops enable). The engine always EMITS everything; the
- * delivery filter decides what the surface puts on screen.
+ * It did not, and the docblock on `chat-wire.ts` said it did: "the ENGINE emits them all; the
+ * SURFACE hides what a persona does not want, so nothing is ever dropped at the source." The code
+ * dropped frames at the source, gated by nine `delivery` booleans — of which `plan` and `usage`
+ * had no emitter at all and `telemetry` gated `interrupted`, a field declared, read once, and
+ * assigned nowhere.
+ *
+ * Filtering here is also the wrong place on its own terms. The turn's thinking trace is persisted
+ * onto the assistant message regardless of any flag, so a pack with `thinking: false` was already
+ * STORING what it refused to stream — and turning the flag on later showed nothing for past turns,
+ * because the data had never reached the client. Rendering is a decision the surface can revisit;
+ * transmission is not.
+ *
+ * So every frame goes on the wire, one shape for every conversation, and a pack's delivery
+ * preferences are applied where they can be changed without re-running the turn.
  */
 
 /** The semantic result of one turn, as `runToolRounds` reports it. */
@@ -21,51 +30,6 @@ export interface TurnOutcome {
   proposedTrees: unknown[];
   proposedSpecs: unknown[];
   exhaustedRounds: boolean;
-  /** Optional subscription/control event, e.g. overthinking interruption. */
-  interrupted?: string;
-}
-
-export function mapTurnToFrames(turn: TurnOutcome, delivery: DeliverySpec): UnifiedFrame[] {
-  const frames: UnifiedFrame[] = [];
-
-  if (delivery.content && turn.answer) {
-    frames.push({ type: 'content', delta: String(turn.answer) });
-  }
-  if (delivery.thinking && turn.thinking) {
-    frames.push({ type: 'thinking', delta: turn.thinking });
-  }
-
-  if (delivery.tools === 'semantic') {
-    const announces = turn.toolCalls.map((c) => ({
-      type: 'toolAnnounce' as const,
-      payload: { id: c.id, name: c.name, args: c.args },
-    }));
-    frames.push(...announces);
-    if (delivery.toolResults) {
-      const results = turn.toolCalls.map((c) => ({
-        type: 'toolResult' as const,
-        payload: { id: c.id, ok: c.ok, digest: c.digest },
-      }));
-      frames.push(...results);
-    }
-  }
-
-  if (delivery.proposals) {
-    frames.push(
-      ...turn.proposedTrees.map((tree) => ({ type: 'proposedTree' as const, payload: tree })),
-      ...turn.proposedSpecs.map((spec) => ({ type: 'proposedSpec' as const, payload: spec })),
-    );
-  }
-
-  if (delivery.enable && turn.enabledNow.length) {
-    frames.push({ type: 'enabled', payload: turn.enabledNow });
-  }
-
-  if (delivery.telemetry && turn.interrupted) {
-    frames.push({ type: 'interrupted', payload: turn.interrupted });
-  }
-
-  return frames;
 }
 
 /**
@@ -83,7 +47,6 @@ export function mapTurnToFrames(turn: TurnOutcome, delivery: DeliverySpec): Unif
  */
 
 export interface ChatRuntimeDeps {
-  pack: PersonaPack;
   /** Builds and performs one provider request. Roundloop's call signature. */
   call: (req: { messages: unknown[]; tools: string[]; toolChoice?: 'none' }) => Promise<{
     ok: boolean; status?: number; body?: unknown;
@@ -107,7 +70,6 @@ export interface ChatRuntimeDeps {
 }
 
 export interface ChatTurnResult {
-  frames: UnifiedFrame[];
   outcome: TurnOutcome;
   exhaustedRounds: boolean;
   answer: string;
@@ -115,14 +77,15 @@ export interface ChatTurnResult {
 }
 
 /**
- * Runs one turn and returns both the raw outcome and the delivery-filtered frames for the surface.
+ * Runs one turn, streaming every frame it produces through `onFrame`.
  *
- * The round-loop (`runToolRounds`) drives the machine; the pack's `delivery` maps the result to the
- * frames the UI renders. Live streamed events (content/thinking/tools/etc.) are forwarded through `onFrame`.
+ * The round-loop (`runToolRounds`) drives the machine; this adapts its events to the unified wire
+ * and reports the semantic outcome so the caller can persist it. It takes no pack: with nothing
+ * filtered, there is nothing here that varies by persona.
  */
 export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult> {
   const {
-    pack, call, executeTool, messages, tools: initialTools = [],
+    call, executeTool, messages, tools: initialTools = [],
     trimPerRound, maxRounds = 12, onFrame: onFrameProp, onEachToolResult,
   } = deps;
 
@@ -132,7 +95,7 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
 
   const wrappedExecuteTool = async (callArg: { id: string; name: string; arguments: string }) => {
     const out = await executeTool(callArg);
-    if (pack.delivery.proposals && emitFrame) {
+    if (emitFrame) {
       if (out.proposed) emitFrame({ type: 'proposedTree', payload: out.proposed });
       if (out.proposedSpec) emitFrame({ type: 'proposedSpec', payload: out.proposedSpec });
       if ((out as any).proposedEscalation) emitFrame({ type: 'proposedEscalation', payload: (out as any).proposedEscalation });
@@ -148,20 +111,18 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
     call: call as any,
     executeTool: wrappedExecuteTool as any,
     onEnabled: (name: string) => {
-      if (pack.delivery.enable && emitFrame) {
-        emitFrame({ type: 'enabled', payload: [name] });
-      }
+      emitFrame?.({ type: 'enabled', payload: [name] });
     },
     onExhausted: 'wrap-up',
     emit: ((frame: any) => {
       if (!emitFrame) return;
-      if (frame.kind === 'content' && pack.delivery.content) {
+      if (frame.kind === 'content') {
         emitFrame({ type: 'content', delta: String(frame.text) });
-      } else if (frame.kind === 'reasoning' && pack.delivery.thinking) {
+      } else if (frame.kind === 'reasoning') {
         emitFrame({ type: 'thinking', delta: String(frame.text) });
-      } else if (frame.kind === 'toolCall' && pack.delivery.tools === 'semantic') {
+      } else if (frame.kind === 'toolCall') {
         emitFrame({ type: 'toolAnnounce', payload: { id: frame.id, name: frame.name, args: frame.args } });
-      } else if (frame.kind === 'toolResult' && pack.delivery.tools === 'semantic' && pack.delivery.toolResults) {
+      } else if (frame.kind === 'toolResult') {
         emitFrame({ type: 'toolResult', payload: { id: frame.id, ok: frame.ok, digest: frame.digest } });
       }
     }) as unknown as (f: any) => void,
@@ -178,6 +139,5 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
     exhaustedRounds: result.exhaustedRounds,
   };
 
-  const frames = mapTurnToFrames(outcome, pack.delivery);
-  return { frames, outcome, exhaustedRounds: result.exhaustedRounds, answer: result.answer, spoken: result.spoken };
+  return { outcome, exhaustedRounds: result.exhaustedRounds, answer: result.answer, spoken: result.spoken };
 }

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { runChatTurn } from '../lib/chat-runtime.js';
-import { getPersonaPack, type PersonaPack } from '../lib/persona-pack.js';
+import type { PersonaPack } from '@koala/harness-types';
+import { ownedBy } from '../lib/ownership.js';
 import type { Database } from '../lib/db-interface.js';
 import type { Persona } from '@koala/harness-types';
 import type { ModelService } from '../services/ModelService.js';
@@ -48,18 +49,36 @@ export interface PersonaChatRouterDeps {
   infraService?: InfrastructureService;
   infisicalService?: InfisicalService;
   jwtSecret?: string;
-  resolvePersona: (userId: string, personaName: string) => Promise<Persona>;
+  /**
+   * Looks up one of this user's personas by id, or nothing.
+   *
+   * By ID, and returning NOTHING on a miss — the two halves of the fix. This was
+   * `resolvePersona(userId, name)`, which matched on a name and fell back to `ensureKoala` for
+   * anything it could not find, so renaming a persona (which the personas route allows) silently
+   * re-pointed every pack that named it at Koala instead.
+   */
+  personaFor: (userId: string, personaId: string) => Promise<Persona | undefined>;
   serversFor: (userId: string) => Promise<McpServer[]>;
   ownedConversations: (userId: string) => Promise<Conversation[]>;
   webSearch: (query: string) => Promise<SearchOutcome>;
   fetchWebPage: (url: string) => Promise<string>;
   toolRefused: (result: string) => boolean;
-  pack?: (id: string) => PersonaPack;
+  /** Overridable so a test can drive a pack without seeding one. Defaults to the database. */
+  pack?: (userId: string, id: string) => Promise<PersonaPack | undefined>;
 }
 
 export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
   const { db, modelService } = deps;
-  const packFor = deps.pack ?? getPersonaPack;
+  /**
+   * By slug or by id, ownership-filtered.
+   *
+   * Slug because that is what the URL carries (`#/chat/koala`); id because the config drawer holds
+   * records rather than routes. Filtered by owner before either match, so an id belonging to
+   * somebody else reads as absent rather than as a pack — the same conflation `ClusterService`
+   * makes deliberately.
+   */
+  const packFor = deps.pack ?? (async (userId: string, id: string) =>
+    ownedBy(await db.getPersonaPacks(), userId).find((p) => p.id === id || p.slug === id));
   const router = Router();
 
   // ── Conversation Vault Management ──
@@ -277,20 +296,58 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
   router.post('/:packId', asyncRoute(async (req, res) => {
     const userId = (req as any).user.id;
-    const pack = packFor(String(req.params.packId));
 
     const { conversationId, message, sessionId, modelId } = req.body ?? {};
     if (typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'message is required' });
     }
 
-    // Resolve persona & model endpoint
-    const personaName = typeof pack.persona === 'string' ? pack.persona : pack.persona.name;
-    const persona = await deps.resolvePersona(userId, personaName);
+    /**
+     * The pack is a record, and a miss is a miss.
+     *
+     * This was `getPersonaPack(id)` against a two-entry constant, which THREW for anything else —
+     * and the frontend offered a third pack that constant had never had, so one of the three
+     * options in the picker produced a 500. Ownership-filtered, because a pack names a persona and
+     * a model, and reading someone else's would run as them.
+     */
+    const pack = await packFor(userId, String(req.params.packId));
+    if (!pack) return res.status(404).json({ error: `No pack "${String(req.params.packId)}"` });
+
+    /**
+     * The persona it names must exist. If it does not, refuse and SAY SO.
+     *
+     * The behaviour this replaces resolved any unmatched persona to Koala (`?? ensureKoala`), so a
+     * pack whose persona had been deleted or renamed ran as a different persona entirely, with a
+     * different prompt, and nothing anywhere reported it. A pack pointing at nothing is a broken
+     * configuration, and the only useful thing to do with one is name it.
+     */
+    const persona = await deps.personaFor(userId, pack.personaId);
+    if (!persona) {
+      return res.status(409).json({
+        error: `The pack "${pack.name}" points at a persona that no longer exists. `
+          + 'Open it and choose one.',
+      });
+    }
+
     const servers = await deps.serversFor(userId);
+
+    /**
+     * Config BEFORE the endpoint, because the config is what picks the endpoint.
+     *
+     * These were the other way round: `resolveBaseUrl` ran on the request's `modelId` alone, ten
+     * lines before `resolveConfig` produced the pack's `model`. So a pack could name an engine,
+     * have it validated against the user's own models, store it — and never run on it, because by
+     * the time anyone knew about it the connection was already open to `providers[0]`.
+     */
+    const resolved = resolveConfig(await db.getHarnessProfile(userId), persona, {}, pack);
+    const chosenModel = modelId ?? resolved.overrides.model;
+
     let provider, baseUrl, apiKey;
     try {
-      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl(userId, modelId));
+      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl(
+        userId,
+        typeof chosenModel === 'string' ? chosenModel : undefined,
+      ));
     } catch (err: any) {
       return res.status(404).json({ error: err.message });
     }
@@ -310,7 +367,6 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     }
 
     const enabled = enabledForSession(conversation, sessionId);
-    const resolved = resolveConfig(await db.getHarnessProfile(userId), persona, {});
     const systemPrompt = resolved.systemPrompt ?? persona.systemPrompt ?? '';
     const thread = appendUserTurn(conversation, message, now);
     await db.saveConversation(thread);
@@ -318,14 +374,32 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     // Open SSE connection
     openSse(res);
 
+    /**
+     * The tools this turn offers: the pack's grant, intersected with what its executor has.
+     *
+     * ── WHAT THIS FIXES ──
+     * The grant list was not consulted at all. An `assistant` pack was handed every one of
+     * `KOALA_TOOLS` regardless of what it declared, so the config drawer's tool switches wrote to
+     * the database and changed nothing a model ever saw. Anything else got remote tools only, while
+     * the PROMPT was still built from `persona.scope.tools` — so a non-assistant pack advertised
+     * tools it had no schema for and could not call.
+     *
+     * Both halves now come from one list, which is what makes the switches mean something.
+     */
+    const granted = (name: string) => pack.tools.length === 0 || pack.tools.includes(name);
+
+    const ownTools = pack.toolset === 'assistant'
+      ? KOALA_TOOLS.filter((t) => granted(t.function.name))
+      : [];
+
     const toolsFor = (enabledNames: string[]) => {
+      // Remote MCP tools are named `server__tool` and are granted by ENABLING the server, not by
+      // the pack's list — their names are not knowable when a pack is written. See `allowWithMcp`,
+      // which makes the same allowance for the leaf loop.
       const remote = servers
         .filter((s) => enabledNames.includes(s.name))
         .flatMap((s) => toLoopTools(s.name, s.tools));
-      if (pack.env.toolset === 'assistant') {
-        return [...KOALA_TOOLS, ...remote];
-      }
-      return remote;
+      return [...ownTools, ...remote];
     };
 
     const call = async (reqBody: { messages: unknown[]; tools: string[]; toolChoice?: 'none' }) => {
@@ -348,9 +422,9 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
     const user = (req as any).user ?? { id: userId, isAdmin: false };
     const toolRegistry = await db.getTools();
-    const activeToolNames = pack.env.toolset === 'assistant'
-      ? KOALA_TOOLS.map((t) => t.function.name)
-      : (persona.scope?.tools ?? []);
+    // The SAME list the schemas came from, so the prompt cannot advertise a tool the model has no
+    // way to call — or omit one it does.
+    const activeToolNames = ownTools.map((t) => t.function.name);
 
     const executeTool = makePackToolExecutor({
       db, userId, conversationId: conversation.id, sessionId,
@@ -359,6 +433,9 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       toolRefused: deps.toolRefused,
       isAdmin: Boolean(user.isAdmin),
       isEscalated: Boolean(conversation.isEscalated),
+      // What this pack may DO, as opposed to which tools it holds. A read-only pack keeps its
+      // tools and is refused the ones that change anything.
+      permitted: pack.permitted,
       ...(conversation.escalatedNamespaces ? { escalatedNamespaces: conversation.escalatedNamespaces } : {}),
       ...(deps.temporalBridge ? { temporalBridge: deps.temporalBridge } : {}),
       ...(deps.infisicalService ? { infisicalService: deps.infisicalService } : {}),
@@ -380,7 +457,6 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     });
 
     const result = await runChatTurn({
-      pack,
       messages: [
         { role: 'system', content: systemPromptContent },
         ...historyMsgs,

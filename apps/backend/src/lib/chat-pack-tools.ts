@@ -16,6 +16,7 @@ import { InfrastructureService } from '../services/InfrastructureService.js';
 import type { Database } from './db-interface.js';
 import type { McpServer } from './mcp-registry.js';
 import type { SearchOutcome } from './web-tools.js';
+import type { ToolEffect } from './action-gate.js';
 
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
@@ -38,6 +39,15 @@ export interface PackToolContext {
   isAdmin?: boolean | undefined;
   isEscalated?: boolean | undefined;
   escalatedNamespaces?: readonly string[] | undefined;
+  /**
+   * Which categories of action this conversation may take — the pack's `permitted`.
+   *
+   * `action-gate.ts` has shipped `READ_ONLY` and `PROPOSE_ONLY` since it was written and both tool
+   * runners have accepted this list all along, defaulting to `ALL_EFFECTS`. No caller ever passed
+   * one, so every conversation ran with full write access however its pack was configured. This is
+   * the wire that was missing.
+   */
+  permitted?: readonly ToolEffect[] | undefined;
 }
 
 export interface ToolCall {
@@ -88,6 +98,7 @@ export function makePackToolExecutor(ctx: PackToolContext) {
         isAdmin: ctx.isAdmin,
         isEscalated: ctx.isEscalated,
         escalatedNamespaces: ctx.escalatedNamespaces,
+        permitted: ctx.permitted,
       },
       { name: c.name, arguments: c.arguments },
     );

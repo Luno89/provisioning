@@ -1130,13 +1130,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     infraService,
     infisicalService,
     jwtSecret: JWT_SECRET,
-    resolvePersona: async (userId, name) => {
-      // 'Koala' resolves to the seeded chat-only persona; anything else by name, seeded on demand.
-      if (name === 'Koala') return ensureKoala(userId);
-      const mine = await ownedPersonas(userId);
-      const found = mine.find((p) => p.name === name);
-      return found ?? ensureKoala(userId);
-    },
+    /**
+     * By id, and undefined when it is not there.
+     *
+     * The fallback this replaces was `found ?? ensureKoala(userId)`: any persona a pack named and
+     * could not find resolved to Koala, so a renamed or deleted persona meant the conversation ran
+     * as somebody else with nothing reporting it. The route now refuses and names the pack.
+     */
+    personaFor: async (userId, personaId) =>
+      (await ownedPersonas(userId)).find((p) => p.id === personaId),
     serversFor: koalaServers,
     ownedConversations,
     webSearch: executeWebSearch,
