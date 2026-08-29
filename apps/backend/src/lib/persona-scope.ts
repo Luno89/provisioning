@@ -36,6 +36,27 @@ export function allowedTools(persona: Pick<Persona, 'scope'> | null | undefined,
 }
 
 /**
+ * Whether this persona has an environment to work in at all.
+ *
+ * ── WHY A CAPABILITY AND NOT A NAME ──
+ * This was `isChatOnly(persona)`, which compared the name to the literal string "Koala". That is
+ * wrong in both directions: rename Koala and it becomes assignable to leaves it cannot run, and
+ * every future chat persona is assignable from the day it is written. The name was never the
+ * reason — the reason is stated in `acceptLeaf`: a persona carries the whole sandbox, and one with
+ * no toolchain, no tools and no repository would run in an environment nobody chose.
+ *
+ * So the check reads the absence directly. A persona that declares any part of an environment can
+ * run a leaf; one that declares none of it cannot, whatever it is called. Note `Reviewer` and
+ * `Judge` declare `tools: []` deliberately and still qualify, because they set `language` — an
+ * empty toolset is a decision about tools, not an absence of environment.
+ */
+export function canRunLeaf(persona: Pick<Persona, 'scope'> | null | undefined): boolean {
+  const scope = persona?.scope;
+  if (!scope) return false;
+  return Boolean(scope.tools?.length || scope.language || scope.repo || scope.egress?.length);
+}
+
+/**
  * Whether this persona works in the project's repository.
  *
  * Absent means NO. A repository is something a persona asks for, and most work is not a codebase —

@@ -16,6 +16,7 @@
  */
 import type { Persona } from './personas.js';
 import { MERGER_PERSONA } from '../lib/well-known-personas.js';
+import { KOALA_NAME, KOALA_PROMPT } from '../lib/koala-persona.js';
 import { RESEARCH_AGENT_STEPS, researchPacing } from '../lib/sandbox-tools.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 
@@ -34,6 +35,26 @@ export const RETIRED_PERSONAS = [
 type Seed = Omit<Persona, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'>;
 
 export const PERSONA_SEEDS: Seed[] = [
+  {
+    /**
+     * Koala, seeded like anything else.
+     *
+     * It used to be created only by `ensureKoala`, on the chat path, so a new user who opened the
+     * Personas view before ever chatting saw eight personas and no Koala — and the config drawer,
+     * asked for `koala`, fell through `personas.find(...) ?? personas[0]` and offered to edit
+     * Framer under Koala's name.
+     *
+     * It carries no scope, which is what makes it chat-only: `canRunLeaf` reads the absence of a
+     * toolchain rather than matching the literal string "Koala", so renaming it does not turn it
+     * into something `acceptLeaf` will hand a sandbox to.
+     */
+    name: KOALA_NAME,
+    description: 'General chat. Talks things through, operates projects, and proposes new builds.',
+    systemPrompt: KOALA_PROMPT,
+    scope: {},
+    // Sampling lives on the PACK now — see PACK_SEEDS. A persona is who; a pack is how.
+    overrides: {},
+  },
   {
     name: 'Framer',
     description: 'Breaks a large question into small ones that can each be answered on their own.',

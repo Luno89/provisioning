@@ -866,6 +866,103 @@ export interface Persona {
   updatedAt: string;
 }
 
+/* ── persona packs ────────────────────────────────────────────────────────── */
+
+/**
+ * Which executor dispatches a tool call.
+ *
+ * ── WHY THIS IS NOT THE TOOL LIST ──
+ * It was, and the two do not belong together. `assistant` and `workbench` are not two sets of
+ * tools; they are two FUNCTIONS with different arguments — `runKoalaTool` is scoped to a
+ * conversation, `runLeafTool` to a branch, and koala-tool-runner.ts's docblock is explicit that
+ * "the two share no vocabulary". Which tools a pack may call is a separate list, resolved against
+ * the tool registry, because those are separate questions: one is dispatch, the other is grant.
+ *
+ * `sandbox` was a fourth value and is deliberately absent. A sandbox is the LEAF runtime — a pod
+ * with a NetworkPolicy, created by `personaWorkspace` and run under Temporal over minutes. A chat
+ * turn is one HTTP request holding a stream open. A conversation reaches sandboxed work by
+ * proposing a leaf, never by becoming one.
+ */
+export type PackToolset = 'assistant' | 'workbench' | 'none';
+
+/**
+ * Everything about HOW something runs, as one editable record.
+ *
+ * ── WHY THIS IS SEPARATE FROM THE PERSONA ──
+ * A persona is WHO: a name, a description, a prompt. A pack is HOW: the engine, the tools, the
+ * sandbox shape, the budgets, what the surface renders. They were one record that claimed both
+ * jobs and did neither completely — `PersonaScope` held the sandbox environment while a hardcoded
+ * `PersonaPack` constant held the conversation environment, and five of that constant's six knobs
+ * had no reader at all.
+ *
+ * The split is by MEANING, not by runtime: one pack answers "how is this run" for a chat turn and
+ * for a leaf alike. That is why `leaf.packId` replaced `leaf.personaId` — a leaf run is the model
+ * being run, so it is a pack that runs it.
+ *
+ * ── WHY THE KNOBS LIVE IN `overrides` AND NOT AS FIELDS ──
+ * `tunables.ts` already provides registry validation, layered resolution and Lab variance for
+ * every key in that bag. A field here would get none of those, and would have to grow each of them
+ * by hand. Adding a knob is one registry entry; it is then editable and A/B-testable with no code.
+ */
+export interface PersonaPack {
+  id: string;
+  ownerId: string;
+  /**
+   * Stable, URL-safe identity — `#/chat/koala` rather than `#/chat/<uuid>`.
+   *
+   * Also what seeding matches on, so re-seeding recognises a pack the user has since renamed.
+   * Unique per owner, for the same reason a persona's name is: the picker shows it, and two packs
+   * answering to `koala` is a route you cannot resolve.
+   */
+  slug: string;
+  /** Shown in the pack picker and the chat header. */
+  name: string;
+  description?: string;
+  /**
+   * The persona this pack runs as — its prompt and identity.
+   *
+   * An id rather than a name. Names are editable (`routes/personas.ts` PUT accepts one), so a name
+   * handle silently re-points when somebody renames a persona in the UI. A pack whose persona has
+   * been deleted REFUSES rather than substituting one: the previous behaviour resolved any unknown
+   * name to Koala, so a pack could run as a persona nobody chose with nothing reporting it.
+   */
+  personaId: string;
+  /** Which executor dispatches this pack's tool calls. */
+  toolset: PackToolset;
+  /**
+   * Tools this pack may call, by registry name. Empty means every tool its executor offers.
+   *
+   * Resolved against the tool registry, so the same list decides the schemas sent to the model,
+   * the guidance written into the prompt, and what the editor offers. Those were three disjoint
+   * lists — 26 registry tools could not be granted through the UI at all, and the two web tools
+   * had handlers with no schema, so no model was ever offered them.
+   */
+  tools: string[];
+  /**
+   * Which categories of action this pack may take, for the action gate.
+   *
+   * `action-gate.ts` has shipped `READ_ONLY` and `PROPOSE_ONLY` since it was written, and both
+   * tool runners accept a `permitted` list — but no caller ever set one, so every conversation ran
+   * with full write access regardless of what its pack claimed. This is that wire.
+   */
+  permitted: ToolEffect[];
+  /** Every registered tunable this pack sets. Validated against `TUNABLES`, layered by `resolveConfig`. */
+  overrides: Overrides;
+  /** Ships with the platform. Seeded additively and never overwritten once edited. */
+  builtIn?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * What a tool call DOES, for the action gate.
+ *
+ * Mirrored from `lib/action-gate.ts` so the frontend can render a pack's permissions without
+ * importing backend code. ── DUPLICATED, KNOWINGLY ── `lib/action-gate.ts` is the authority; it
+ * owns `ALL_EFFECTS` and the default-deny decision.
+ */
+export type ToolEffect = 'read' | 'write' | 'propose';
+
 /* ── run outcomes ─────────────────────────────────────────────────────────── */
 
 /**

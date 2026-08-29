@@ -350,23 +350,27 @@ describe('naming a thread', () => {
 });
 
 
-describe('a leaf must never be assigned to Koala', () => {
+describe('a leaf must never be assigned to a persona with no environment', () => {
   /**
    * Same failure as a leaf with no persona at all — an environment nobody chose — arriving by a
    * route that looks assigned. Ten minutes into a sandbox is a bad place to discover it.
+   *
+   * The gate reads the persona's SCOPE, not its name. It used to compare against the literal
+   * "Koala", which failed in both directions: renaming Koala made it assignable, and any new
+   * chat persona was assignable from the moment it was written. The last case here is the one
+   * the name check could not express at all.
    */
   const leaf = { id: 'l1', ownerId: 'u1', branchId: 'b1', status: 'proposed', personaId: 'k1' } as any;
   const withPlan = async () => [{ id: 'b1', acceptance: [{ name: 'runs', command: 'node cli.js' }] } as any];
+  const accept = (persona: any) => acceptLeaf(
+    { db: { saveLeaf: async () => {}, getBranches: withPlan }, personaOf: async () => persona },
+    leaf,
+    [],
+  );
 
   it('refuses, and says to pick one that builds', async () => {
-    const result = await acceptLeaf(
-      {
-        db: { saveLeaf: async () => {}, getBranches: withPlan },
-        personaOf: async () => ({ name: KOALA_NAME }),
-      },
-      leaf,
-      [],
-    );
+    // Koala's seed carries `scope: {}` — that emptiness IS the reason, and now it is the test.
+    const result = await accept({ name: KOALA_NAME, scope: {} });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(409);
@@ -376,15 +380,25 @@ describe('a leaf must never be assigned to Koala', () => {
   });
 
   it('accepts a leaf assigned to one that does build', async () => {
-    const result = await acceptLeaf(
-      {
-        db: { saveLeaf: async () => {}, getBranches: withPlan },
-        personaOf: async () => ({ name: 'Builder' }),
-      },
-      leaf,
-      [],
-    );
+    // A real Builder scope: tools and a repository, which is what "does build" means.
+    const result = await accept({
+      name: 'Builder',
+      scope: { tools: ['run_command', 'read_file', 'write_file', 'finish'], repo: true },
+    });
     expect(result.ok).toBe(true);
+  });
+
+  it('accepts a tool-less reviewer, whose empty toolset is a decision and not an absence', async () => {
+    // Reviewer and Judge declare `tools: []` deliberately and still have an environment — they set
+    // `language`. Reading "no tools" as "no environment" would have refused both.
+    const result = await accept({ name: 'Reviewer', scope: { tools: [], language: 'base' } });
+    expect(result.ok).toBe(true);
+  });
+
+  it('still refuses a chat persona that has been renamed', async () => {
+    // The case the name check could not catch: same empty environment, different label.
+    const result = await accept({ name: 'Talky', scope: {} });
+    expect(result.ok).toBe(false);
   });
 
   it('skips the check when the caller passed no lookup', async () => {

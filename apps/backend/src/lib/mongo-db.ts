@@ -1,4 +1,4 @@
-import type { Persona } from '@koala/harness-types';
+import type { Persona, PersonaPack } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
@@ -80,6 +80,10 @@ export class MongoDB implements Database {
 
   private get personas(): Collection {
     return this.db!.collection('personas');
+  }
+
+  private get personaPacks(): Collection {
+    return this.db!.collection('personaPacks');
   }
 
   private get treeTypes(): Collection {
@@ -645,6 +649,21 @@ export class MongoDB implements Database {
 
   async deletePersona(id: string): Promise<void> {
     await this.personas.deleteOne({ _id: id as any });
+  }
+
+  async getPersonaPacks(): Promise<PersonaPack[]> {
+    return (await this.personaPacks.find({}).toArray()).map(doc => fromDoc<PersonaPack>(doc));
+  }
+
+  async savePersonaPack(pack: PersonaPack): Promise<void> {
+    const doc = toDoc(pack);
+    const id = doc._id;
+    delete (doc as any)._id;
+    await this.personaPacks.replaceOne({ _id: id }, doc, { upsert: true });
+  }
+
+  async deletePersonaPack(id: string): Promise<void> {
+    await this.personaPacks.deleteOne({ _id: id as any });
   }
 
   /** Keyed by ownerId, like the Gitea account above — one profile in force per user. */

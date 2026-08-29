@@ -12,9 +12,10 @@
  */
 import { aggregateUsage, budgetExceeded, blockedBy, childrenOf, rootLeaf, type Leaf } from './leaves.js';
 import { usableAcceptancePlan } from './acceptance.js';
-import { isChatOnly } from './koala-persona.js';
+import { canRunLeaf } from './persona-scope.js';
 import { hollowChecks, explainHollow } from './acceptance-validation.js';
 import type { Database } from './db-interface.js';
+import type { PersonaScope } from '@koala/harness-types';
 
 export interface AcceptDeps {
   db: Pick<Database, 'saveLeaf' | 'getBranches'>;
@@ -26,8 +27,11 @@ export interface AcceptDeps {
   /**
    * Looks a persona up by id. Optional so existing callers keep working; absent skips the chat-only
    * check rather than failing acceptance over a dependency someone did not pass.
+   *
+   * Returns the SCOPE as well as the name, because the check is now what the persona can do rather
+   * than what it is called — see `canRunLeaf`. The name is still returned, for the refusal message.
    */
-  personaOf?: (id: string | undefined) => Promise<{ name: string } | null | undefined>;
+  personaOf?: (id: string | undefined) => Promise<{ name: string; scope?: PersonaScope } | null | undefined>;
 }
 
 export type AcceptResult =
@@ -102,19 +106,23 @@ export async function acceptLeaf(deps: AcceptDeps, leaf: Leaf, leaves: Leaf[]): 
   }
 
   /**
-   * Koala can talk about work; it cannot do it.
+   * A chat persona can talk about work; it cannot do it.
    *
-   * A persona carries the whole sandbox — language, egress, repository, budget — and the general
-   * chat persona has none of those, because "anything" is not a toolchain. A leaf assigned to it
-   * would run in an environment nobody chose, which is the same failure as a leaf with no persona
-   * at all, arriving by a route that looks assigned.
+   * A persona carries the whole sandbox — language, egress, repository, budget — and a chat persona
+   * has none of those, because "anything" is not a toolchain. A leaf assigned to one would run in
+   * an environment nobody chose, which is the same failure as a leaf with no persona at all,
+   * arriving by a route that looks assigned.
    *
    * Refused here rather than in the executor: ten minutes into a sandbox is a bad place to discover
    * it, and the fix is one click on the board.
+   *
+   * The test is `canRunLeaf`, which reads the absent environment. It used to compare the name to
+   * "Koala" — so renaming Koala made it assignable, and any new chat persona was assignable from
+   * the moment it was written.
    */
   if (deps.personaOf) {
     const persona = await deps.personaOf(leaf.personaId);
-    if (isChatOnly(persona)) {
+    if (!canRunLeaf(persona)) {
       return {
         ok: false,
         status: 409,

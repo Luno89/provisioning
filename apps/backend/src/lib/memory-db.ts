@@ -1,4 +1,4 @@
-import type { Persona } from '@koala/harness-types';
+import type { Persona, PersonaPack } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
@@ -41,6 +41,7 @@ export class MemoryDB implements Database {
   private harnessProfiles: HarnessProfile[] = [];
   private treeTypes: TreeTypeSpec[] = [];
   private personas: Persona[] = [];
+  private personaPacks: PersonaPack[] = [];
   private memories: MemoryItem[] = [];
   private bindingTypes: BindingTypeRecord[] = [];
   private customTools: ToolRepositoryItem[] = [];
@@ -352,6 +353,20 @@ export class MemoryDB implements Database {
 
   async deletePersona(id: string): Promise<void> {
     this.personas = this.personas.filter((p) => p.id !== id);
+  }
+
+  async getPersonaPacks(): Promise<PersonaPack[]> {
+    return this.personaPacks;
+  }
+
+  async savePersonaPack(pack: PersonaPack): Promise<void> {
+    const i = this.personaPacks.findIndex((p) => p.id === pack.id);
+    if (i >= 0) this.personaPacks[i] = pack;
+    else this.personaPacks.push(pack);
+  }
+
+  async deletePersonaPack(id: string): Promise<void> {
+    this.personaPacks = this.personaPacks.filter((p) => p.id !== id);
   }
 
   async getHarnessProfile(ownerId: string): Promise<HarnessProfile | null> {

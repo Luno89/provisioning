@@ -1,4 +1,4 @@
-import type { Persona } from '@koala/harness-types';
+import type { Persona, PersonaPack } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
 import { MemoryDB } from './memory-db.js';
@@ -93,6 +93,17 @@ export interface Database {
   getPersonas(): Promise<Persona[]>;
   savePersona(persona: Persona): Promise<void>;
   deletePersona(id: string): Promise<void>;
+
+  /**
+   * How things run, as opposed to who runs them — see `PersonaPack`.
+   *
+   * Unfiltered like `getPersonas`, with ownership applied by the caller through `ownedBy`. The
+   * alternative — an `ownerId` parameter here — puts the tenant rule in the storage layer where
+   * `lib/ownership.ts` cannot see it, and that rule already had three copies once.
+   */
+  getPersonaPacks(): Promise<PersonaPack[]>;
+  savePersonaPack(pack: PersonaPack): Promise<void>;
+  deletePersonaPack(id: string): Promise<void>;
   deleteHarnessProfile(ownerId: string): Promise<void>;
 
   /** Keyed by ownerId — one Gitea account per platform user. */
