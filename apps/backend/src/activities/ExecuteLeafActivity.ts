@@ -1137,6 +1137,16 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
               taskContext: currentTaskContext,
               overrides: adopted,
               sandboxSpec,
+              /**
+               * Where each knob came from, kept with the run.
+               *
+               * A run that cannot say where its temperature came from is a number nobody can argue
+               * with — and now that a pack can supply one, a record without this could not tell a
+               * pack's value from a persona's. See `AgentRequest.fromPack`.
+               */
+              ...(resolved.from.profile.length ? { fromProfile: resolved.from.profile } : {}),
+              ...(resolved.from.persona.length ? { fromPersona: resolved.from.persona } : {}),
+              ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
               ...(provider.contextTokens ? { contextTokens: provider.contextTokens } : {}),
               ...(memoryContext ? { memoryContext } : {}),
               ...(project || bindings.length ? { bindingsContext: describeBindings(bindings.map(describable)) } : {}),

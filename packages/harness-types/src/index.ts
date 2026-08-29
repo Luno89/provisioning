@@ -114,6 +114,19 @@ export interface AgentRequest {
    * unreadable if both collapse into one list.
    */
   fromPersona?: string[];
+  /**
+   * Keys whose value came from the PACK — the runtime the arm ran under.
+   *
+   * Separate from `fromPersona` for the same reason that one is separate from `fromProfile`: they
+   * answer different questions. "This arm was run as someone" and "this arm was run THAT WAY" are
+   * the two halves of what a comparison is about, and an experiment whose arms differ by pack is
+   * unreadable if both collapse into one list.
+   *
+   * Without this, a pack supplying a temperature would be indistinguishable in the record from a
+   * persona supplying it — which is how a variant ends up named after a configuration it was not
+   * running, the failure this file's provenance fields exist to prevent.
+   */
+  fromPack?: string[];
   /** Loop controls, which never appear in `parameters` because they are never transmitted. */
   loop?: { maxSteps: number; think: boolean; toolResultCap: number };
 }
@@ -216,6 +229,18 @@ export interface ExperimentVariant {
    * change one knob.
    */
   personaId?: string;
+  /**
+   * A pack this arm runs under — its engine, tool grant, permissions and budgets.
+   *
+   * The reason this is worth having beside `personaId`: a pack is where the runtime lives now, so
+   * pointing two arms at two packs compares two complete configurations rather than two prompts
+   * that happen to share whatever constants their code path read. "Builder, but half the steps on a
+   * different engine" is a second pack over one persona, which is the comparison the Lab exists to
+   * make and could not previously express without copying a persona that then drifts.
+   *
+   * The variant's own `overrides` still win, so an arm can borrow a pack and change one knob.
+   */
+  packId?: string;
 }
 
 /** A file written into the sandbox. Relative to /work; paths that escape it are rejected. */

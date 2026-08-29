@@ -22,6 +22,7 @@ import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
 import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
+import type { PersonaPack } from '@koala/harness-types';
 import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
 import { boardFile } from '../lib/planning-board.js';
@@ -227,6 +228,7 @@ export class ExperimentService {
     // Same reasoning, same snapshot: a persona edited mid-run must not make the arms after it
     // differ from the arms before it.
     const personas = (await this.db.getPersonas()).filter((p) => p.ownerId === experiment.ownerId);
+    const packs = (await this.db.getPersonaPacks()).filter((p) => p.ownerId === experiment.ownerId);
 
     /**
      * A NEW execution, appended — never a reset.
@@ -296,7 +298,7 @@ export class ExperimentService {
               total,
             });
 
-            const result = await this.runVariant(experiment, task, variant, repeat, execution.id, profile, personas, signal);
+            const result = await this.runVariant(experiment, task, variant, repeat, execution.id, profile, personas, packs, signal);
             current = await this.save(current, {
               runs: appendResult(current.runs, execution.id, result),
             });
@@ -363,6 +365,7 @@ export class ExperimentService {
   ): Promise<VariantResult> {
     const branchId = `plan-${runId}`;
     const personas = (await this.db.getPersonas()).filter((p) => p.ownerId === experiment.ownerId);
+    const packs = (await this.db.getPersonaPacks()).filter((p) => p.ownerId === experiment.ownerId);
 
     const turn = await withTimeout(
       runPlanningTurn({
@@ -444,6 +447,7 @@ export class ExperimentService {
           overrides: resolved.overrides,
           fromProfile: resolved.from.profile,
           ...(resolved.from.persona.length ? { fromPersona: resolved.from.persona } : {}),
+          ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
         },
         expected: {
           verifyCommand: task.verifyCommand,
@@ -472,6 +476,7 @@ export class ExperimentService {
     profile: HarnessProfile | null,
     /** Snapshotted with the profile, and for the same reason. */
     personas: Persona[],
+    packs: PersonaPack[],
     signal?: AbortSignal,
   ): Promise<VariantResult> {
     /**
@@ -491,7 +496,17 @@ export class ExperimentService {
     const variantPersona = variant.personaId
       ? (() => { const found = personas.find((p) => p.id === variant.personaId); return found ? flattenPersona(found, personas) : null; })()
       : null;
-    const resolvedForVariant = resolveConfig(profile, variantPersona, variant.overrides);
+    /**
+     * The pack this arm runs under, if it names one.
+     *
+     * Layered between the persona and the variant's own overrides — see `resolveConfig`. This is
+     * what makes a pack the unit of comparison: two arms on two packs differ in a complete runtime
+     * rather than in a prompt plus whatever constants happened to apply.
+     */
+    const variantPack = variant.packId
+      ? packs.find((p) => p.id === variant.packId || p.slug === variant.packId) ?? null
+      : null;
+    const resolvedForVariant = resolveConfig(profile, variantPersona, variant.overrides, variantPack);
     if (resolvedForVariant.systemPrompt) {
       // The agent loop reads the prompt from the bag, unlike chat which composes it into a message.
       resolvedForVariant.overrides.systemPrompt = resolvedForVariant.systemPrompt;
@@ -597,6 +612,7 @@ export class ExperimentService {
               memoryContext,
               fromProfile: resolvedForVariant.from.profile,
               fromPersona: resolvedForVariant.from.persona,
+              fromPack: resolvedForVariant.from.pack,
               ...(wantsWeb(variantPersona) ? { web: await buildWebTools(this.db, experiment.ownerId) } : {}),
               sandbox: {
                 exec: (command) => this.workspaces.exec(runId, command),

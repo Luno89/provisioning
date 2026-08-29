@@ -226,6 +226,8 @@ export interface AgentRunOptions {
   fromProfile?: string[] | undefined;
   /** Keys supplied by a persona, recorded beside `fromProfile` rather than merged into it. */
   fromPersona?: string[] | undefined;
+  /** Keys the PACK supplied — the runtime, as opposed to who ran. See `AgentRequest.fromPack`. */
+  fromPack?: string[] | undefined;
   /**
    * Saves a mid-run checkpoint, if the caller can. Absent means the run simply does not checkpoint.
    *
@@ -542,6 +544,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     unsupported,
     ...(opts.fromProfile?.length ? { fromProfile: opts.fromProfile } : {}),
     ...(opts.fromPersona?.length ? { fromPersona: opts.fromPersona } : {}),
+    ...(opts.fromPack?.length ? { fromPack: opts.fromPack } : {}),
     loop: {
       maxSteps,
       think,

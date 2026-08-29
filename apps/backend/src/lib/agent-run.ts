@@ -44,6 +44,8 @@ export interface RunInputs {
   web?: WebTools | undefined;
   fromProfile?: string[] | undefined;
   fromPersona?: string[] | undefined;
+  /** Keys the PACK supplied — the runtime, as opposed to who ran. See `AgentRequest.fromPack`. */
+  fromPack?: string[] | undefined;
   /**
    * Tools from MCP servers this harness has deployed, already resolved for THIS persona.
    *
@@ -116,6 +118,7 @@ export function agentRunOptions(
     ...(inputs.contextTokens ? { contextTokens: inputs.contextTokens } : {}),
     ...(inputs.fromProfile?.length ? { fromProfile: inputs.fromProfile } : {}),
     ...(inputs.fromPersona?.length ? { fromPersona: inputs.fromPersona } : {}),
+    ...(inputs.fromPack?.length ? { fromPack: inputs.fromPack } : {}),
     // Offered only when the persona asked and the caller could build them. Two conditions because
     // either one alone has been wrong: a flag with nothing wired behind it is how the Lab spent a
     // run reporting it had no internet access.
