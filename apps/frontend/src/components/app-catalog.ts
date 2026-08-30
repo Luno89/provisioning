@@ -5,26 +5,26 @@ export const APP_DEFAULTS: Record<string, {
   strategies: ('helm' | 'native')[];
 }> = {
   odoo: {
-    helm: { webRepo: 'bitnamilegacy/odoo', webTag: '18.0.20250805-debian-12-r8', dbRepo: 'bitnamilegacy/postgresql', dbTag: '17.5.0-debian-12-r20' },
-    native: { webRepo: 'library/odoo', webTag: '18.0', dbRepo: 'library/postgres', dbTag: '16.4' },
+    helm: { webRepo: 'bitnamilegacy/odoo', webTag: 'latest', dbRepo: 'bitnamilegacy/postgresql', dbTag: 'latest' },
+    native: { webRepo: 'library/odoo', webTag: 'latest', dbRepo: 'library/postgres', dbTag: 'latest' },
     hasDatabase: true,
     strategies: ['native']
   },
   wordpress: {
-    helm: { webRepo: 'bitnamilegacy/wordpress', webTag: '6.7.1-debian-12-r3', dbRepo: 'bitnamilegacy/mariadb', dbTag: '11.4.5-debian-12-r3' },
-    native: { webRepo: 'library/wordpress', webTag: '6.7-apache', dbRepo: 'library/mariadb', dbTag: '11.4' },
+    helm: { webRepo: 'bitnamilegacy/wordpress', webTag: 'latest', dbRepo: 'bitnamilegacy/mariadb', dbTag: 'latest' },
+    native: { webRepo: 'library/wordpress', webTag: 'apache', dbRepo: 'library/mariadb', dbTag: 'latest' },
     hasDatabase: true,
     strategies: ['helm', 'native']
   },
   nextcloud: {
-    helm: { webRepo: 'bitnamilegacy/nextcloud', webTag: '30.0.5-debian-12-r1', dbRepo: 'bitnamilegacy/mariadb', dbTag: '11.4.5-debian-12-r3' },
-    native: { webRepo: 'library/nextcloud', webTag: '30.0-apache', dbRepo: 'library/mariadb', dbTag: '11.4' },
+    helm: { webRepo: 'bitnamilegacy/nextcloud', webTag: 'latest', dbRepo: 'bitnamilegacy/mariadb', dbTag: 'latest' },
+    native: { webRepo: 'library/nextcloud', webTag: 'stable-apache', dbRepo: 'library/mariadb', dbTag: 'latest' },
     hasDatabase: true,
     strategies: ['helm', 'native']
   },
   audiobookshelf: {
-    helm: { webRepo: 'advplyr/audiobookshelf', webTag: '2.19.0', dbRepo: '', dbTag: '' },
-    native: { webRepo: 'advplyr/audiobookshelf', webTag: '2.19.0', dbRepo: '', dbTag: '' },
+    helm: { webRepo: 'advplyr/audiobookshelf', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'advplyr/audiobookshelf', webTag: 'latest', dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['helm', 'native']
   },
@@ -89,20 +89,20 @@ export const APP_DEFAULTS: Record<string, {
     strategies: ['native']
   },
   prometheus: {
-    helm: { webRepo: 'prometheus/prometheus', webTag: 'v3.1.0', dbRepo: '', dbTag: '' },
+    helm: { webRepo: 'prom/prometheus', webTag: 'latest', dbRepo: '', dbTag: '' },
     native: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['helm']
   },
   traefik: {
-    helm: { webRepo: 'traefik', webTag: 'v3.6.0', dbRepo: '', dbTag: '' },
+    helm: { webRepo: 'traefik', webTag: 'latest', dbRepo: '', dbTag: '' },
     native: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['helm']
   },
   vllm: {
     helm: { webRepo: '', webTag: '', dbRepo: '', dbTag: '' },
-    native: { webRepo: 'vllm/vllm-openai', webTag: 'v0.7.2', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'vllm/vllm-openai', webTag: 'latest', dbRepo: '', dbTag: '' },
     hasDatabase: false,
     strategies: ['native']
   },

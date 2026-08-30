@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Blocks, Box, Check, ChevronDown, ChevronUp, Database, Layers, Loader2, Package, X, Zap } from 'lucide-react';
-import { useImageTags, useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from '../../api/models';
+import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from '../../api/models';
+import { TagPicker } from './TagPicker';
 import { useDebounce } from '../../lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
 import { EMPTY_WIZARD_DATA, type WizardData } from '../wizard-defaults';
@@ -34,9 +35,6 @@ export default function AppDeployWizard({
   const debouncedVllmModel = useDebounce(wizardData.odooRepo);
   const debouncedVllmMaxModelLen = useDebounce(wizardData.vllmMaxModelLen);
 
-  const { data: odooTags = [], isLoading: loadingOdooTags } = useImageTags(wizardData.odooRepo, wizardStep === 4);
-  const { data: pgTags = [], isLoading: loadingPgTags } = useImageTags(wizardData.pgRepo, wizardStep === 5);
-
   const {
     data: tabbyModelSize, isFetching: loadingTabbyModelSize, isError: tabbyModelSizeError,
   } = useHfModelSize({
@@ -58,7 +56,7 @@ export default function AppDeployWizard({
 
   const {
     data: modelSearchResults = [], isFetching: loadingModelSearch,
-  } = useModelSearch(wizardData.appType, modelSearchQuery, wizardStep === 4);
+  } = useModelSearch(wizardData.appType, modelSearchQuery, wizardStep === 3 && isModelApp(wizardData.appType));
 
   const { data: credentials = [] } = useQuery({
     queryKey: credentialKeys.list(),
@@ -540,7 +538,12 @@ export default function AppDeployWizard({
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Zap className="text-yellow-500" size={18}/> Component: {wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</h4><p className="text-slate-400 text-sm">Select the image version.</p></div>
               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input value={wizardData.odooRepo} onChange={e => setWizardData({...wizardData, odooRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Available Tags</label>{loadingOdooTags ? (<div className="flex items-center gap-2 text-slate-500 py-3"><Loader2 size={16} className="animate-spin" /> Fetching tags...</div>) : (<div className="grid grid-cols-2 gap-2">{odooTags.map((tag: string) => (<button key={tag} onClick={() => setWizardData({...wizardData, odooTag: tag})} className={`px-4 py-2 rounded-lg text-left text-xs border transition-all ${wizardData.odooTag === tag ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>{tag}</button>))}</div>)}</div>
+              <TagPicker
+                repo={wizardData.odooRepo}
+                selected={wizardData.odooTag}
+                onSelect={(tag) => setWizardData({ ...wizardData, odooTag: tag })}
+                enabled={wizardStep === 4}
+              />
               {wizardData.appType === 'openwebui' && (
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">LLM Backend (vLLM / TabbyAPI Deployment)</label>
@@ -625,7 +628,12 @@ export default function AppDeployWizard({
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Database className="text-green-500" size={18}/> Component: Database</h4><p className="text-slate-400 text-sm">Select the database version.</p></div>
               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Docker Repository</label><input value={wizardData.pgRepo} onChange={e => setWizardData({...wizardData, pgRepo: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm" /></div>
-              <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Available Tags</label>{loadingPgTags ? (<div className="flex items-center gap-2 text-slate-500 py-3"><Loader2 size={16} className="animate-spin" /> Fetching tags...</div>) : (<div className="grid grid-cols-2 gap-2">{pgTags.map((tag: string) => (<button key={tag} onClick={() => setWizardData({...wizardData, pgTag: tag})} className={`px-4 py-2 rounded-lg text-left text-xs border transition-all ${wizardData.pgTag === tag ? 'bg-blue-600 border-blue-400 text-white shadow-lg' : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'}`}>{tag}</button>))}</div>)}</div>
+              <TagPicker
+                repo={wizardData.pgRepo}
+                selected={wizardData.pgTag}
+                onSelect={(tag) => setWizardData({ ...wizardData, pgTag: tag })}
+                enabled={wizardStep === 5}
+              />
             </div>
           )}
           {wizardStep === 6 && (

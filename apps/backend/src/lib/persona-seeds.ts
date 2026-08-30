@@ -164,11 +164,27 @@ export const builtInPersonaId = (name: string) =>
 export interface PersonaSeedStore {
   getPersonas(): Promise<Persona[]>;
   savePersona(persona: Persona): Promise<void>;
+  deletePersona(id: string): Promise<void>;
 }
 
 export async function seedPersonas(store: PersonaSeedStore): Promise<number> {
   const stored = await store.getPersonas();
-  const builtIns = new Map(stored.filter((p) => p.ownerId === undefined).map((p) => [p.name, p]));
+
+  const seen = new Map<string, number>();
+  for (const p of stored) {
+    if (p.ownerId != null) continue;
+    const prev = seen.get(p.name);
+    if (prev !== undefined) {
+      const keep = p.updatedAt >= stored[prev]!.updatedAt ? p : stored[prev]!;
+      const drop = p.updatedAt >= stored[prev]!.updatedAt ? stored[prev]! : p;
+      await store.deletePersona(drop.id);
+      seen.set(keep.name, stored.indexOf(keep));
+    } else {
+      seen.set(p.name, stored.indexOf(p));
+    }
+  }
+  const cleaned = await store.getPersonas();
+  const builtIns = new Map(cleaned.filter((p) => p.ownerId == null).map((p) => [p.name, p]));
 
   let written = 0;
   for (const seed of PERSONA_SEEDS) {

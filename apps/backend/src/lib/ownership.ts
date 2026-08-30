@@ -42,7 +42,7 @@ export function withBuiltIns<T extends { ownerId?: string | undefined }>(
   const out: T[] = [];
   const seen = new Set<string>();
   for (const r of records) {
-    if (r.ownerId !== undefined) continue;
+    if (r.ownerId != null) continue;
     const k = key(r);
     seen.add(k);
     out.push(mine.get(k) ?? r);

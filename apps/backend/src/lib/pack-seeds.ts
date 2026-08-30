@@ -306,13 +306,29 @@ export const builtInPackId = (slug: string) => `builtin-pack-${slug}`;
 export interface PackSeedStore {
   getPersonaPacks(): Promise<PersonaPack[]>;
   savePersonaPack(pack: PersonaPack): Promise<void>;
+  deletePersonaPack(id: string): Promise<void>;
   getPersonas(): Promise<{ id: string; ownerId?: string | undefined; name: string }[]>;
 }
 
 export async function seedPacks(store: PackSeedStore): Promise<number> {
   const stored = await store.getPersonaPacks();
-  const builtIns = new Map(stored.filter((p) => p.ownerId === undefined).map((p) => [p.slug, p]));
-  const personas = (await store.getPersonas()).filter((p) => p.ownerId === undefined);
+
+  const seen = new Map<string, PersonaPack>();
+  for (const p of stored) {
+    if (p.ownerId != null) continue;
+    const prev = seen.get(p.slug);
+    if (prev && p.updatedAt < prev.updatedAt) {
+      await store.deletePersonaPack(p.id);
+    } else if (prev) {
+      await store.deletePersonaPack(prev.id);
+      seen.set(p.slug, p);
+    } else {
+      seen.set(p.slug, p);
+    }
+  }
+  const cleaned = await store.getPersonaPacks();
+  const builtIns = new Map(cleaned.filter((p) => p.ownerId == null).map((p) => [p.slug, p]));
+  const personas = (await store.getPersonas()).filter((p) => p.ownerId == null);
 
   let written = 0;
   for (const seed of PACK_SEEDS) {

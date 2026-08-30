@@ -145,7 +145,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
       const persona = resolvePersonaNamed(
         wantedPersona,
-        (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === userId),
+        (await db.getPersonaPacks()).filter((p) => p.ownerId == null || p.ownerId === userId),
       );
 
       const wantedProjectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';

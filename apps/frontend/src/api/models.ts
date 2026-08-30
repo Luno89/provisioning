@@ -16,17 +16,53 @@ export interface ModelSearchResult {
 }
 
 export const modelKeys = {
-  tags: (repo: string) => ['tags', repo] as const,
+  tags: (repo: string, query: TagQuery) => ['tags', repo, query] as const,
   localTags: (repo: string) => ['local-tags', repo] as const,
   hfSize: (params: Record<string, unknown>) => ['hf-size', params] as const,
   search: (appType: string, q: string) => ['model-search', appType, q] as const,
 }
 
-export function useImageTags(repo: string, enabled: boolean) {
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Authority: `TagPage` and `TAG_SORTS` in apps/backend/src/lib/registry-tags.ts.
+ */
+export const TAG_SORTS = ['newest', 'oldest', 'version', 'name'] as const
+export type TagSort = typeof TAG_SORTS[number]
+
+export const TAG_SORT_LABELS: Record<TagSort, string> = {
+  newest: 'Newest first',
+  oldest: 'Oldest first',
+  version: 'Version',
+  name: 'Name (A–Z)',
+}
+
+export interface TagPage {
+  tags: string[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  sort: TagSort
+}
+
+export interface TagQuery {
+  page?: number
+  pageSize?: number
+  sort?: TagSort
+}
+
+export const EMPTY_TAG_PAGE: TagPage = {
+  tags: [], page: 1, pageSize: 30, total: 0, totalPages: 1, sort: 'newest',
+}
+
+export function useImageTags(repo: string, enabled: boolean, query: TagQuery = {}) {
   return useQuery({
-    queryKey: modelKeys.tags(repo),
-    queryFn: () => api.get<string[]>('/registry/tags', { params: { repo } }).then((r) => r.data),
+    queryKey: modelKeys.tags(repo, query),
+    queryFn: () => api.get<TagPage>('/registry/tags', {
+      params: { repo, page: query.page, pageSize: query.pageSize, sort: query.sort },
+    }).then((r) => r.data),
     enabled: enabled && !!repo,
+    placeholderData: (prev) => prev,
   })
 }
 
@@ -75,9 +111,12 @@ export interface TabbyImageTag {
 }
 
 export function useTabbyImageTags(enabled: boolean) {
+  const tabbyQuery: TagQuery = { pageSize: 100 }
   const remote = useQuery({
-    queryKey: modelKeys.tags(TABBY_IMAGE_REPO),
-    queryFn: () => api.get<string[]>('/registry/tags', { params: { repo: TABBY_IMAGE_REPO } }).then((r) => r.data),
+    queryKey: modelKeys.tags(TABBY_IMAGE_REPO, tabbyQuery),
+    queryFn: () => api.get<TagPage>('/registry/tags', {
+      params: { repo: TABBY_IMAGE_REPO, pageSize: tabbyQuery.pageSize },
+    }).then((r) => r.data.tags),
     enabled,
   })
   const local = useQuery({

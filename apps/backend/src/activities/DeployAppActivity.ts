@@ -19,6 +19,7 @@ import { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
 import { deploymentIdFor } from '../lib/deployment-id.js';
+import { isValidImageTag } from '../lib/registry-tags.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,
@@ -131,10 +132,10 @@ export async function DeployAppActivity(
   const sanitizedName = SANITIZE(args.name);
 
   const DEFAULT_APP_REPOS: Record<string, { repo: string; tag: string }> = {
-    odoo: { repo: 'library/odoo', tag: '18.0' },
+    odoo: { repo: 'library/odoo', tag: 'latest' },
     wordpress: { repo: 'library/wordpress', tag: 'latest' },
     nextcloud: { repo: 'library/nextcloud', tag: 'latest' },
-    audiobookshelf: { repo: 'ghcr.io/advplyr/audiobookshelf', tag: '2.19.0' },
+    audiobookshelf: { repo: 'ghcr.io/advplyr/audiobookshelf', tag: 'latest' },
     jellyfin: { repo: 'jellyfin/jellyfin', tag: 'latest' },
     plex: { repo: 'plexinc/pms-docker', tag: 'latest' },
     navidrome: { repo: 'deluan/navidrome', tag: 'latest' },
@@ -142,20 +143,21 @@ export async function DeployAppActivity(
     immich: { repo: 'ghcr.io/immich-app/immich-server', tag: 'release' },
     papra: { repo: 'papra/papra', tag: 'latest' },
     homeassistant: { repo: 'ghcr.io/home-assistant/home-assistant', tag: 'stable' },
-    vllm: { repo: 'vllm/vllm-openai', tag: 'v0.7.2' },
+    vllm: { repo: 'vllm/vllm-openai', tag: 'latest' },
     openwebui: { repo: 'ghcr.io/open-webui/open-webui', tag: 'main' },
     hermes: { repo: 'nousresearch/hermes-agent', tag: 'latest' },
     palworld: { repo: 'thijsvanloef/palworld-server-docker', tag: 'latest' },
     minio: { repo: 'minio/minio', tag: 'latest' },
     qdrant: { repo: 'qdrant/qdrant', tag: 'latest' },
     quickwit: { repo: 'quickwit/quickwit', tag: 'latest' },
-    tei: { repo: 'ghcr.io/huggingface/text-embeddings-inference', tag: 'cpu-1.8.1' },
-    verdaccio: { repo: 'verdaccio/verdaccio', tag: '6' },
+    tei: { repo: 'ghcr.io/huggingface/text-embeddings-inference', tag: 'cpu-latest' },
+    verdaccio: { repo: 'verdaccio/verdaccio', tag: 'latest' },
   };
 
   const appDefault = DEFAULT_APP_REPOS[args.appType] || { repo: '', tag: 'latest' };
-  let finalOdooRepo = (args.appType !== 'odoo' && args.odooRepo === 'library/odoo') ? appDefault.repo : (args.odooRepo || appDefault.repo);
-  let finalOdooTag = (args.appType !== 'odoo' && args.odooTag === '18.0') ? appDefault.tag : (args.odooTag || appDefault.tag);
+  const sentOdooFallback = args.appType !== 'odoo' && args.odooRepo === 'library/odoo';
+  let finalOdooRepo = sentOdooFallback ? appDefault.repo : (args.odooRepo || appDefault.repo);
+  let finalOdooTag = sentOdooFallback ? appDefault.tag : (args.odooTag || appDefault.tag);
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
@@ -213,13 +215,13 @@ export async function DeployAppActivity(
     }
   } else if ((args.provider === 'k3d' || isMock) && !args.clusterGpuEnabled) {
     if (args.appType === 'vllm') {
-      const vllmImageTag = (finalOdooTag && finalOdooTag !== 'latest') ? finalOdooTag : 'v0.7.2';
+      const vllmImageTag = isValidImageTag(finalOdooTag) ? finalOdooTag : 'latest';
       const vllmImage = args.vllmGpuVendor === 'amd'
         ? `vllm/vllm-openai-rocm:${vllmImageTag}`
         : `vllm/vllm-openai:${vllmImageTag}`;
       await infra.pullAndImportImage(physicalName, vllmImage, { logFile });
     } else if (args.appType === 'tabbyapi') {
-      const tabbyImageTag = args.tabbyImageTag === 'cu13' ? 'cu13' : 'latest';
+      const tabbyImageTag = isValidImageTag(args.tabbyImageTag) ? args.tabbyImageTag : 'latest';
       await infra.pullAndImportImage(physicalName, `ghcr.io/theroyallab/tabbyapi:${tabbyImageTag}`, { logFile });
     } else if (args.appType === 'palworld') {
       const palworldImage = `${finalOdooRepo || 'thijsvanloef/palworld-server-docker'}:${finalOdooTag || 'latest'}`;

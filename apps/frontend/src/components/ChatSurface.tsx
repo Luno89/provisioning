@@ -59,6 +59,7 @@ export interface ChatSurfaceProps {
   initialMessages?: ChatMessageRecord[] | undefined;
   hideSidebar?: boolean | undefined;
   onConversationChange?: ((conversationId: string | null) => void) | undefined;
+  onPackChange?: ((packId: string) => void) | undefined;
   onOpenTree?: ((treeId: string) => void) | undefined;
 }
 
@@ -70,6 +71,7 @@ export default function ChatSurface({
   initialMessages = [],
   hideSidebar = false,
   onConversationChange,
+  onPackChange,
   onOpenTree,
 }: ChatSurfaceProps) {
   const qc = useQueryClient();
@@ -108,6 +110,16 @@ export default function ChatSurface({
     queryKey: packKeys.list(),
     queryFn: listPacks,
   });
+
+  // Resolve initial slug or stale ID to the current pack's real ID once the list loads.
+  useEffect(() => {
+    if (!packs.length) return;
+    const resolved = packs.find((p) => p.id === currentPackId || p.slug === currentPackId);
+    if (resolved && resolved.id !== currentPackId) {
+      setCurrentPackId(resolved.id);
+      onPackChange?.(resolved.id);
+    }
+  }, [packs, currentPackId, onPackChange]);
 
   const { data: conversations = [] } = useQuery<ChatConversation[]>({
     queryKey: chatPackKeys.conversations(),
@@ -400,7 +412,7 @@ export default function ChatSurface({
 
   const personaPacks: PersonaPackOption[] = useMemo(
     () => packs.map((p) => ({
-      id: p.slug,
+      id: p.id,
       name: p.name,
       label: p.name.toUpperCase(),
       desc: p.description ?? '',
@@ -564,7 +576,7 @@ export default function ChatSurface({
                   isStreaming={streaming}
                   activePack={activePack}
                   personaPacks={personaPacks}
-                  onSelectPack={(id) => setCurrentPackId(id)}
+                  onSelectPack={(id) => { setCurrentPackId(id); onPackChange?.(id); }}
                   onOpenPersonaDrawer={() => setShowPersonaDrawer(true)}
                 />
               </div>
@@ -796,7 +808,7 @@ export default function ChatSurface({
                     isStreaming={streaming}
                     activePack={activePack}
                     personaPacks={personaPacks}
-                    onSelectPack={(id) => setCurrentPackId(id)}
+                    onSelectPack={(id) => { setCurrentPackId(id); onPackChange?.(id); }}
                     onOpenPersonaDrawer={() => setShowPersonaDrawer(true)}
                   />
                 </div>
@@ -812,6 +824,7 @@ export default function ChatSurface({
         activePackId={currentPackId}
         onSelectPack={(packId) => {
           setCurrentPackId(packId);
+          onPackChange?.(packId);
         }}
       />
     </div>

@@ -3,28 +3,37 @@ import axios from 'axios';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { Database } from '../lib/db-interface.js';
+import { normalizeTags, nextPageUrl, pageOf, type TagPage, type TagPageRequest } from '../lib/registry-tags.js';
 
 const execAsync = promisify(exec);
+
+const GHCR_MAX_PAGES = 10;
+const HUB_MAX_PAGES = 10;
+const HUB_PAGE_SIZE = 100;
+const TAG_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export class RegistryService extends BaseService {
   constructor(db: Database) {
     super(db);
   }
+
+  private tagCache = new Map<string, { tags: string[]; expiresAt: number }>();
+
   private FALLBACK_TAGS: Record<string, string[]> = {
-    'bitnami/odoo': ['18.0.20250805-debian-12-r8', '17.0.20240805-debian-12-r0', '16.0.20240805-debian-12-r0'],
-    'bitnamilegacy/odoo': ['18.0.20250805-debian-12-r8', '17.0.20240805-debian-12-r0', '16.0.20240805-debian-12-r0'],
-    'bitnami/postgresql': ['17.5.0-debian-12-r20', '16.4.0-debian-12-r0', '15.8.0-debian-12-r0'],
-    'bitnamilegacy/postgresql': ['17.5.0-debian-12-r20', '16.4.0-debian-12-r0', '15.8.0-debian-12-r0'],
-    'bitnami/nginx': ['1.27.1-debian-12-r2', '1.26.2-debian-12-r0'],
+    'bitnami/odoo': ['latest'],
+    'bitnamilegacy/odoo': ['latest'],
+    'bitnami/postgresql': ['latest'],
+    'bitnamilegacy/postgresql': ['latest'],
+    'bitnami/nginx': ['latest'],
     'ghcr.io/open-webui/open-webui': ['main', 'latest', 'cuda', 'ollama'],
-    'jellyfin/jellyfin': ['latest', '10.9.11', '10.9.10'],
-    'plexinc/pms-docker': ['latest', '1.41.0.8994-1b1e95662', '1.40.5.8921-836b04859'],
-    'deluan/navidrome': ['latest', '0.53.3', '0.53.2', '0.52.5'],
-    'jvmorgan/kavita': ['latest', '0.8.2', '0.8.1', '0.8.0'],
-    'ghcr.io/immich-app/immich-server': ['release', 'v1.118.0', 'v1.117.0', 'v1.116.0'],
-    'papra/papra': ['latest', '0.4.0', '0.3.0'],
-    'ghcr.io/home-assistant/home-assistant': ['stable', '2025.1.0', '2024.12.5', 'latest'],
-    'ghcr.io/advplyr/audiobookshelf': ['2.19.0', '2.18.0', 'latest']
+    'jellyfin/jellyfin': ['latest'],
+    'plexinc/pms-docker': ['latest'],
+    'deluan/navidrome': ['latest'],
+    'jvmorgan/kavita': ['latest'],
+    'ghcr.io/immich-app/immich-server': ['release', 'main'],
+    'papra/papra': ['latest'],
+    'ghcr.io/home-assistant/home-assistant': ['stable', 'latest', 'beta', 'dev'],
+    'ghcr.io/advplyr/audiobookshelf': ['latest'],
   };
 
   async search(query: string) {
@@ -32,42 +41,78 @@ export class RegistryService extends BaseService {
     return response.data.results;
   }
 
-  async getTags(repo: string) {
+  private async fetchGhcrTags(repoPath: string): Promise<string[]> {
+    const tokenResp = await axios.get(`https://ghcr.io/token?scope=repository:${repoPath}:pull&service=ghcr.io`);
+    const headers = { Authorization: `Bearer ${tokenResp.data.token}` };
+
+    const collected: string[] = [];
+    let url: string | undefined = `https://ghcr.io/v2/${repoPath}/tags/list?n=1000`;
+    for (let page = 0; url && page < GHCR_MAX_PAGES; page++) {
+      const resp: any = await axios.get(url, { headers });
+      collected.push(...(resp.data?.tags ?? []));
+      url = nextPageUrl(resp.headers?.link, 'https://ghcr.io');
+    }
+    return collected;
+  }
+
+  private async fetchHubTags(hubRepo: string): Promise<string[]> {
+    const collected: string[] = [];
+    let url: string | undefined =
+      `https://hub.docker.com/v2/repositories/${hubRepo}/tags?page_size=${HUB_PAGE_SIZE}`;
+    for (let page = 0; url && page < HUB_MAX_PAGES; page++) {
+      const resp: any = await axios.get(url);
+      collected.push(...(resp.data?.results ?? []).map((t: any) => t.name));
+      url = resp.data?.next ?? undefined;
+    }
+    return collected;
+  }
+
+  private async fetchEcrTags(repoName: string): Promise<string[]> {
+    const response = await axios.get(
+      `https://api.gallery.ecr.aws/v1/repository/public/tags?repositoryName=${repoName}&registryAlias=bitnami`,
+    );
+    return (response.data?.tags ?? []).map((t: any) => t.tagName);
+  }
+
+  async getTags(repo: string): Promise<string[]> {
     if (!repo) return ['latest'];
+
+    const cached = this.tagCache.get(repo);
+    if (cached && cached.expiresAt > Date.now()) return cached.tags;
+
+    const tags = await this.resolveTags(repo);
+    this.tagCache.set(repo, { tags, expiresAt: Date.now() + TAG_CACHE_TTL_MS });
+    return tags;
+  }
+
+  private async resolveTags(repo: string): Promise<string[]> {
     try {
       if (repo.startsWith('bitnami/')) {
-          const repoName = repo.split('/')[1];
-          const response = await axios.get(`https://api.gallery.ecr.aws/v1/repository/public/tags?repositoryName=${repoName}&registryAlias=bitnami`);
-          const tags = response.data.tags
-            .map((t: any) => t.tagName)
-            .filter((tag: string) => !tag.includes('sha256'));
-
-          if (tags.length > 0) return tags.slice(0, 30);
+        const repoName = repo.split('/')[1];
+        if (repoName) {
+          const tags = normalizeTags(await this.fetchEcrTags(repoName), 'newest-first');
+          if (tags.length > 0) return tags;
+        }
       }
 
       if (repo.startsWith('ghcr.io/')) {
-        const repoPath = repo.slice('ghcr.io/'.length);
-        const tokenResp = await axios.get(`https://ghcr.io/token?scope=repository:${repoPath}:pull&service=ghcr.io`);
-        const tagsResp = await axios.get(`https://ghcr.io/v2/${repoPath}/tags/list`, {
-          headers: { Authorization: `Bearer ${tokenResp.data.token}` },
-        });
-        const tags = (tagsResp.data.tags || [])
-          .filter((tag: string) => !tag.startsWith('git-') && !tag.startsWith('buildcache-') && !tag.includes('sha256'));
-        if (tags.length > 0) return tags.slice(0, 30);
+        const tags = normalizeTags(await this.fetchGhcrTags(repo.slice('ghcr.io/'.length)), 'oldest-first');
+        if (tags.length > 0) return tags;
       }
 
       const hubRepo = repo.includes('/') ? repo : `library/${repo}`;
-      const response = await axios.get(`https://hub.docker.com/v2/repositories/${hubRepo}/tags?page_size=100`);
-      const tags = response.data.results
-        .map((t: any) => t.name)
-        .filter((tag: string) => !tag.includes('sha256') && !tag.includes('metadata') && !tag.includes('sig'));
-      
-      const defaultTagList = this.FALLBACK_TAGS[repo] || ['latest'];
-      return tags.length > 0 ? tags.slice(0, 30) : defaultTagList;
+      const tags = normalizeTags(await this.fetchHubTags(hubRepo), 'newest-first');
+      if (tags.length > 0) return tags;
+
+      return this.FALLBACK_TAGS[repo] ?? ['latest'];
     } catch (err: any) {
       this.logger.warn(`Failed to fetch tags for ${repo}: ${err.message}`);
-      return this.FALLBACK_TAGS[repo] || ['latest'];
+      return this.FALLBACK_TAGS[repo] ?? ['latest'];
     }
+  }
+
+  async getTagPage(repo: string, request: TagPageRequest = {}): Promise<TagPage> {
+    return pageOf(await this.getTags(repo), request);
   }
 
   async getLocalTags(repo: string): Promise<string[]> {

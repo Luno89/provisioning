@@ -158,7 +158,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const uid = (req as any).user.id;
     const chatPack = packId
       ? (await db.getPersonaPacks()).find((p) => (p.id === String(packId) || p.slug === String(packId))
-          && (p.ownerId === undefined || p.ownerId === uid)) ?? null
+          && (p.ownerId == null || p.ownerId === uid)) ?? null
       : null;
     if (packId && !chatPack) {
       return res.status(404).json({ error: 'No such pack' });

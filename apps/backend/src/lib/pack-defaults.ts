@@ -17,7 +17,7 @@ interface PackRowStore {
  */
 async function defaultPack(store: PackRowStore) {
   const rows = await store.getPersonaPacks();
-  return rows.find((p) => p.slug === 'koala' && p.ownerId === undefined);
+  return rows.find((p) => p.slug === 'koala' && p.ownerId == null);
 }
 
 export async function defaultSampling(store: PackRowStore): Promise<SamplingConfig | undefined> {

@@ -2,12 +2,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { packsRouter } from './packs.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import type { Database } from '../lib/db-interface.js';
+import { PersonaPackService } from '../services/PersonaPackService.js';
 import { PACK_SEEDS } from '../lib/pack-seeds.js';
 
 let harness: Harness;
 
 const build = (db: Database) => packsRouter({
   db,
+  packs: new PersonaPackService(db),
   modelIdsFor: async () => ['dep-1'],
 });
 

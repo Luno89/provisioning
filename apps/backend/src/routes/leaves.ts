@@ -206,7 +206,7 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
     const trace = await db.getLeafTrace(leaf.id);
     const ranAs = leaf.packId
       ? (await db.getPersonaPacks()).find((p) => (p.id === leaf.packId || p.slug === leaf.packId)
-          && (p.ownerId === undefined || p.ownerId === user.id))
+          && (p.ownerId == null || p.ownerId === user.id))
       : undefined;
     const images = await new WorkspaceImageService(db).list(user.id);
     const sandbox = ranAs

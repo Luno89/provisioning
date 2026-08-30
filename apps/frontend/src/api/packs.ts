@@ -1,19 +1,16 @@
 import { api } from './client'
 
-export type ToolEffect = 'read' | 'write' | 'propose'
+export type { ToolEffect } from '@koala/harness-types'
 
-export interface PersonaPack {
-  id: string
-  slug: string
-  name: string
-  description?: string
-  personaId: string
-  toolset: 'assistant' | 'workbench' | 'none'
-  tools: string[]
-  permitted: ToolEffect[]
-  overrides: Record<string, unknown>
-  builtIn?: boolean
-}
+/**
+ * The backend's shape, imported rather than restated.
+ *
+ * This file declared its own copy, and it drifted: it still listed `toolset` and `permitted` long
+ * after those were deleted, then kept `overrides` after that went too. Nothing caught it — the
+ * compiler had no second shape to compare, backend tests test the backend, and the frontend's own
+ * tests mock these modules. Only Playwright crosses the wire, and it needs Docker to run.
+ */
+export type { PersonaPack } from '@koala/harness-types'
 
 export const packKeys = {
   list: () => ['packs'] as const,

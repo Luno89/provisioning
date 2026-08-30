@@ -6,6 +6,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { Persona, PersonaPack } from '@koala/harness-types';
 import { TEST_USER } from './test-harness.js';
 import { seedTools } from '../lib/tool-seeds.js';
+import { PersonaPackService } from '../services/PersonaPackService.js';
 import { PACK_SEEDS } from '../lib/pack-seeds.js';
 
 const persona = (id: string, name: string, systemPrompt: string): Persona => ({
@@ -72,9 +73,8 @@ const harness: Harness = await mountRouter({
   prefix: '/api/chat-pack',
   router: (db: Database) => personaChatRouter({
     db,
+    packs: new PersonaPackService(db),
     modelService: modelServiceStub,
-    personaFor: async (userId, personaId) =>
-      (await db.getPersonas()).find((p) => p.ownerId === userId && p.id === personaId),
     serversFor: async () => [],
     ownedConversations: async (userId: string) =>
       db.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),

@@ -1,12 +1,12 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
-import { withBuiltIns } from '../lib/ownership.js';
 import { v4 as uuidv4 } from 'uuid';
 import { validatePack } from '../lib/packs.js';
 import type { PersonaPack } from '@koala/harness-types';
 import type { Database } from '../lib/db-interface.js';
 import { requireBudget, requirePrompt } from '../lib/pack-defaults.js';
 import { validatePackValues, mergeValues } from '../lib/derived-packs.js';
+import type { PersonaPackService } from '../services/PersonaPackService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -15,24 +15,22 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
 
 export interface PacksRouterDeps {
   db: Database;
+  packs: PersonaPackService;
   modelIdsFor: (userId: string) => Promise<string[] | undefined>;
 }
 
 export function packsRouter(deps: PacksRouterDeps): Router {
-  const { db, modelIdsFor } = deps;
+  const { db, modelIdsFor, packs } = deps;
   const router = Router();
 
-  const visiblePacks = async (userId: string) =>
-    withBuiltIns(await db.getPersonaPacks(), userId, (p) => p.slug);
-
   const visiblePersonas = async (userId: string) =>
-    withBuiltIns(await db.getPersonas(), userId, (p) => p.name);
+    packs.visiblePersonas(userId);
 
   const findPack = async (userId: string, id: string) =>
-    (await visiblePacks(userId)).find((p) => p.id === id || p.slug === id);
+    packs.resolvePack(userId, id);
 
   router.get('/', asyncRoute(async (req, res) => {
-    res.json(await visiblePacks(userOf(req).id));
+    res.json(await packs.visiblePacks(userOf(req).id));
   }));
 
   router.get('/:id', asyncRoute(async (req, res) => {
@@ -45,7 +43,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const userId = userOf(req).id;
     const { slug, name, description, personaId, tools, sampling, budget, prompt } = req.body ?? {};
 
-    const existing = await visiblePacks(userId);
+    const existing = await packs.visiblePacks(userId);
     const personas = await visiblePersonas(userId);
     const refusal = validatePack({ slug, name, personaId, tools }, existing, personas);
     if (refusal) return res.status(400).json({ error: refusal });
@@ -80,7 +78,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
 
   router.put('/:id', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const existing = await visiblePacks(userId);
+    const existing = await packs.visiblePacks(userId);
     const pack = existing.find((p) => p.id === idOf(req) || p.slug === idOf(req));
     if (!pack) return res.status(404).json({ error: 'No such pack' });
 
@@ -95,7 +93,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const refusal = validatePack(candidate, existing, personas, pack.id);
     if (refusal) return res.status(400).json({ error: refusal });
 
-    const isBuiltIn = pack.ownerId === undefined;
+    const isBuiltIn = pack.ownerId == null;
     const updated: PersonaPack = {
       ...pack,
       ...candidate,
@@ -131,7 +129,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const pack = await findPack(userId, idOf(req));
     if (!pack) return res.status(404).json({ error: 'No such pack' });
 
-    if (pack.ownerId === undefined) {
+    if (pack.ownerId == null) {
       return res.status(409).json({
         error: `"${pack.name}" ships with the platform. Edit it to make your own version, `
           + 'or delete that version to go back to this one.',

@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { runChatTurn } from '../lib/chat-runtime.js';
 import type { PersonaPack } from '@koala/harness-types';
-import { ownedBy } from '../lib/ownership.js';
 import { ToolService } from '../services/ToolService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { Persona } from '@koala/harness-types';
@@ -26,6 +25,7 @@ import { validateSpec, explainSpecProblems } from '../lib/app-spec-validate.js';
 import { visibleAppSpecs, type AppSpec } from '../lib/app-spec.js';
 import { normaliseTreeInput } from '../lib/trees.js';
 import type { Tree } from '../lib/trees.js';
+import type { PersonaPackService } from '../services/PersonaPackService.js';
 
 import { bootstrapAcceptedTree } from '../lib/tree-bootstrap.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -35,25 +35,26 @@ import type { InfisicalService } from '../services/InfisicalService.js';
 
 export interface PersonaChatRouterDeps {
   db: Database;
+  packs: PersonaPackService;
   modelService: ModelService;
   projectRepoService?: ProjectRepoService;
   temporalBridge?: TemporalBridge;
   infraService?: InfrastructureService;
   infisicalService?: InfisicalService;
   jwtSecret?: string;
-  personaFor: (userId: string, personaId: string) => Promise<Persona | undefined>;
   serversFor: (userId: string) => Promise<McpServer[]>;
   ownedConversations: (userId: string) => Promise<Conversation[]>;
   webSearch: (query: string) => Promise<SearchOutcome>;
   fetchWebPage: (url: string) => Promise<string>;
   toolRefused: (result: string) => boolean;
-  pack?: (userId: string, id: string) => Promise<PersonaPack | undefined>;
 }
 
 export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
-  const { db, modelService } = deps;
-  const packFor = deps.pack ?? (async (userId: string, id: string) =>
-    ownedBy(await db.getPersonaPacks(), userId).find((p) => p.id === id || p.slug === id));
+  const { db, modelService, packs } = deps;
+  const packFor = async (userId: string, id: string) =>
+    packs.resolvePack(userId, id);
+  const personaFor = async (userId: string, personaId: string) =>
+    packs.resolvePersona(userId, personaId);
   const router = Router();
 
   router.get('/conversations', asyncRoute(async (req, res) => {
@@ -274,7 +275,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     const pack = await packFor(userId, String(req.params.packId));
     if (!pack) return res.status(404).json({ error: `No pack "${String(req.params.packId)}"` });
 
-    const persona = await deps.personaFor(userId, pack.personaId);
+    const persona = await personaFor(userId, pack.personaId);
     if (!persona) {
       return res.status(409).json({
         error: `The pack "${pack.name}" points at a persona that no longer exists. `

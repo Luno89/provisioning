@@ -4,6 +4,7 @@ import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import { isValidImageTag } from "../lib/image-tag.js";
 
 export interface TabbyApiConfig {
   readonly namespace?: string;
@@ -89,9 +90,7 @@ export class TabbyApiApp extends Construct {
 
     const serviceType = config.serviceType || (process.env.SELF_MANAGED_K8S === "true" ? "NodePort" : "LoadBalancer");
 
-    // ghcr.io/theroyallab/tabbyapi only publishes "latest" (CUDA 12.8) and "cu13" (CUDA 13.x) —
-    // no semver tags exist upstream, unlike vllm/vllm-openai.
-    const imageTag = config.imageTag === 'cu13' ? 'cu13' : 'latest';
+    const imageTag = isValidImageTag(config.imageTag) ? config.imageTag : 'latest';
     const imageName = `ghcr.io/theroyallab/tabbyapi:${imageTag}`;
 
     const gpuResources = gpuCount > 0 ? { 'nvidia.com/gpu': gpuCount } : {};

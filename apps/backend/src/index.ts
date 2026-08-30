@@ -147,6 +147,7 @@ import { summariseDelivery } from './lib/branch-delivery.js';
 import { unassignedLeaves, buildAssignmentPrompt, buildUnassignedNotice, MAX_ASSIGNMENT_ROUNDS } from './lib/persona-assignment.js';
 import { normaliseTreeInput, withProject, type Tree } from './lib/trees.js';
 import { seedTreeTypes, validateTreeType, resolveTreeType } from './lib/tree-types.js';
+import { seedAll } from './scripts/seed-all.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
@@ -166,6 +167,7 @@ import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
 import { withBuiltIns } from './lib/ownership.js';
 import { ToolService } from './services/ToolService.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
+import { PersonaPackService } from './services/PersonaPackService.js';
 import { defaultSampling, defaultBudget } from './lib/pack-defaults.js';
 
 dotenv.config();
@@ -221,6 +223,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const db = createDatabase();
   await db.init();
   await migrateLegacyOwnership(db);
+  await seedAll(db as never);
 
   const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
   const infraService = new InfrastructureService();
@@ -243,6 +246,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
+  const personaPackService = new PersonaPackService(db);
 
   const modelIdsFor = async (userId: string): Promise<string[] | undefined> => {
     try {
@@ -640,14 +644,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     (await db.getConversations()).filter((c) => c.ownerId === userId);
 
   app.use('/api/chat-pack', personaChatRouter({
-    db, modelService,
+    db, packs: personaPackService, modelService,
     projectRepoService,
     temporalBridge,
     infraService,
     infisicalService,
     jwtSecret: JWT_SECRET,
-    personaFor: async (userId, personaId) =>
-      (await ownedPersonas(userId)).find((p) => p.id === personaId),
     serversFor: koalaServers,
     ownedConversations,
     webSearch: executeWebSearch,
@@ -665,7 +667,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   app.use('/api/personas', personasRouter({ db, modelIdsFor }));
   app.use('/api/persona-options', personaOptionsRouter({ db, modelIdsFor }));
-  app.use('/api/packs', packsRouter({ db, modelIdsFor }));
+  app.use('/api/packs', packsRouter({ db, packs: personaPackService, modelIdsFor }));
 
   app.use('/api/tree-types', treeTypesRouter({ db }));
   app.use('/api/binding-types', bindingTypesRouter({ db }));
