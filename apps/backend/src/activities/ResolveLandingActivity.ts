@@ -9,6 +9,7 @@ import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { agentRunOptions } from '../lib/agent-run.js';
 import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
+import { ToolService } from '../services/ToolService.js';
 import type { WorkspaceLanguage } from '../lib/workspace-spec.js';
 import { MERGER_PERSONA } from '../lib/well-known-personas.js';
 import { resolveConfig } from '../lib/personas.js';
@@ -113,6 +114,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
       let settled = false;
       for (let round = 0; round < MAX_ROUNDS && !settled; round++) {
         const run = await runAgentLoop({
+          catalogue: await new ToolService(db).schemas(ownerId),
           baseUrl,
           ...(apiKey ? { apiKey } : {}),
           model: provider.model,

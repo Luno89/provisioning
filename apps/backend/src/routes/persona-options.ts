@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
+import { ToolService } from '../services/ToolService.js';
 import { WORKSPACE_IMAGES, DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from '../lib/workspace-spec.js';
 import { LEAF_TOOLS } from '../lib/leaf-tools.js';
 import { SANDBOX_TOOLS, MAX_AGENT_STEPS } from '../lib/sandbox-tools.js';
@@ -44,7 +45,7 @@ export function personaOptionsRouter(deps: PersonaOptionsRouterDeps): Router {
         available: spec.available,
         absent: spec.absent,
       })),
-      tools: (await db.getTools())
+      tools: (await new ToolService(db).list(userOf(req).id))
         .map((t) => ({ name: t.name, description: t.description }))
         .filter((t, i, all) => t.name && all.findIndex((x) => x.name === t.name) === i)
         .sort((a, b) => a.name.localeCompare(b.name)),

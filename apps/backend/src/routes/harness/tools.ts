@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../../middleware/async-route.js';
 import { ownedBy } from '../../lib/ownership.js';
+import { ToolService } from '../../services/ToolService.js';
 import type { Database } from '../../lib/db-interface.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -20,7 +21,7 @@ export function toolsRouter(deps: toolsRouterDeps): Router {
 
   router.get('/', async (req, res) => {
     const category = typeof req.query.category === 'string' ? req.query.category : undefined;
-    const all = await db.getTools();
+    const all = await new ToolService(db).list(userOf(req).id);
     if (category && category !== 'all') {
       return res.json(all.filter((t) => t.category === category));
     }

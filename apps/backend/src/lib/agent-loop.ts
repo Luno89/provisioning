@@ -110,6 +110,14 @@ export interface AgentRunOptions {
   web?: WebTools | undefined;
   allowTools?: string[] | undefined;
   remoteTools?: { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }[] | undefined;
+  /**
+   * The tool catalogue this run may draw on, read from the database by the caller.
+   *
+   * Passed in rather than imported: this module has no database, and reading `TOOL_REPOSITORY`
+   * here meant a leaf was offered the compiled-in descriptions no matter what the catalogue said.
+   * Absent falls back to the constant, which is what a caller with no database does.
+   */
+  catalogue?: { type: 'function'; function: { name: string; description?: string; parameters?: unknown } }[] | undefined;
   callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
   pacing?: PacingNote[] | undefined;
   withdrawTools?: ToolWithdrawal | undefined;
@@ -174,7 +182,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     { role: 'user', content: 'Begin. Start by looking at what is in the workspace.' },
   ];
 
-  const toolRepoOpenAI = formatToolRepoForOpenAI(TOOL_REPOSITORY);
+  const toolRepoOpenAI = opts.catalogue ?? formatToolRepoForOpenAI(TOOL_REPOSITORY);
   const toolMap = new Map<string, any>();
   for (const t of SANDBOX_TOOLS) {
     toolMap.set(t.function.name, t);

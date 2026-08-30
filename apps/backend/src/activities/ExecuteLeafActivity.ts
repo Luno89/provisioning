@@ -1,4 +1,5 @@
 import { Context } from '@temporalio/activity';
+import { visibleAppSpecs } from '../lib/app-spec.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase } from '../lib/db-interface.js';
 import { failureContext, type Branch, type Leaf, type LeafAttempt } from '../lib/leaves.js';
@@ -12,6 +13,7 @@ import { toLoopTools, routeCall } from '../lib/mcp-tools.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { resolveConfig } from '../lib/personas.js';
 import { packForLeaf } from '../lib/packs.js';
+import { ToolService } from '../services/ToolService.js';
 import { flattenPersona, usesRepo, personaWorkspace, allowedTools } from '../lib/persona-scope.js';
 import {
   prepareInputs, buildInputIndex, buildInlineInputs, REQUIRED_TOOL,
@@ -284,7 +286,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           const resolution = resolveBindings(
             needs,
             await db.getDeployments(),
-            await db.getAppSpecs(),
+            visibleAppSpecs(await db.getAppSpecs(), leaf.ownerId),
             leaf.ownerId,
             { dynamicTypes },
           );
@@ -547,6 +549,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         while (validationRound <= maxValidationRounds) {
           beat({ phase: 'agent', round: validationRound });
           const singleRun = await runAgentLoop({
+            catalogue: await new ToolService(db).schemas(leaf.ownerId),
             baseUrl,
             apiKey,
             model: provider.model,

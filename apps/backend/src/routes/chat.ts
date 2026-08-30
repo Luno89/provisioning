@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import { acceptLeaf } from '../lib/accept-leaf.js';
+import { ToolService } from '../services/ToolService.js';
 import { usableAcceptancePlan } from '../lib/acceptance.js';
 import { wantsMcp } from '../lib/agent-run.js';
 import { DEFAULT_POLICY, reviewBatch } from '../lib/auto-accept.js';
@@ -187,7 +188,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const doneMeans = planTreeType?.doneMeans;
     const conventions = conventionsOf(planTreeType);
     const fileConventions = conventions ? describeConventions(conventions) : undefined;
-    const toolRegistry = await db.getTools();
+    const toolRegistry = await new ToolService(db).list(uid);
     const activeToolNames = offerTools ? (chatPack?.tools?.length ? chatPack.tools : LEAF_TOOLS.map((t) => t.function.name)) : [];
     const historyChars = JSON.stringify(messages).length;
     const personaPrompt = resolved.systemPrompt

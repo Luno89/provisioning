@@ -1,3 +1,4 @@
+import { withBuiltIns } from './ownership.js';
 
 export interface SpecPort {
   name: string;
@@ -197,6 +198,17 @@ export function specsToSeed(
     if (existing.editedAt) return false;
     return JSON.stringify(existing.spec) !== JSON.stringify(spec);
   });
+}
+
+/**
+ * The specs this user can see: the shipped ones, with their own in place of any they replaced.
+ *
+ * `resolveBindings` builds its lookup as `new Map(specs.map(...))`, so an unfiltered list lets the
+ * LAST spec with a given id win — which across tenants means somebody else's. Filtering here keeps
+ * that decision in one place rather than at each of the four readers.
+ */
+export function visibleAppSpecs(specs: readonly StoredAppSpec[], userId: string): StoredAppSpec[] {
+  return withBuiltIns(specs, userId, (s) => s.id);
 }
 
 export interface AppSpecSeedStore {

@@ -9,6 +9,7 @@ import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
 import type { PersonaPack } from '@koala/harness-types';
+import { ToolService } from './ToolService.js';
 import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
 import { boardFile } from '../lib/planning-board.js';
@@ -373,6 +374,7 @@ export class ExperimentService {
 
         const run = await withTimeout(
           runAgentLoop({
+            catalogue: await new ToolService(this.db).schemas(experiment.ownerId),
             baseUrl,
             apiKey,
             model: provider.model,

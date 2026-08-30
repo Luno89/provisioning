@@ -108,20 +108,25 @@ export async function resolveTreeType(
 ): Promise<TreeTypeSpec | undefined> {
   if (!id) return undefined;
   const all = await store.getTreeTypes(ownerId).catch(() => [] as TreeTypeSpec[]);
-  const found = all.find((t) => t.id === id && t.ownerId === ownerId);
+  // The user's own row wins over the shipped one; the shipped one is a real database row, not the
+  // seed constant. Matching `ownerId === ownerId` alone could never find a built-in once seeded
+  // rows became ownerless, so every untouched type silently resolved to the constant and an edit
+  // to the shipped record reached nobody.
+  const mine = all.find((t) => t.id === id && t.ownerId === ownerId);
+  const shipped = all.find((t) => t.id === id && t.ownerId === undefined);
+  const found = mine ?? shipped;
+  if (!found) return undefined;
+
+  // Backfill only what a legacy row is missing, from the seed it was written from.
   const seed = TREE_TYPE_SEEDS_VALUE.find((s) => s.id === id);
-  if (found) {
-    if (seed && (!found.validationRecipe || !found.files?.length)) {
-      return {
-        ...found,
-        validationRecipe: found.validationRecipe ?? seed.validationRecipe,
-        files: found.files?.length ? found.files : seed.files,
-      };
-    }
-    return found;
+  if (seed && (!found.validationRecipe || !found.files?.length)) {
+    return {
+      ...found,
+      validationRecipe: found.validationRecipe ?? seed.validationRecipe,
+      files: found.files?.length ? found.files : seed.files,
+    };
   }
-  if (seed) return { ...seed, ownerId };
-  return undefined;
+  return found;
 }
 
 export type TreeTypeSeed = Omit<TreeTypeSpec, 'ownerId'>;

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { renderApp } from '../lib/app-spec.js';
+import { renderApp, visibleAppSpecs } from '../lib/app-spec.js';
 import { resolveBindings, bindingFiles } from '../lib/binding-resolve.js';
 import { bindingProjection, bindingSecretName, type ProjectedBinding } from '../lib/service-binding.js';
 import { readBindingCredentials } from '../lib/binding-project.js';
@@ -349,7 +349,9 @@ export async function DeployAppActivity(
       ? (await bindDb.getProjects()).find((p) => p.id === self.gitappProjectId)
       : undefined;
     const needs = project?.needs ?? [];
-    const specs = needs.length ? await bindDb.getAppSpecs() : [];
+    const specs = needs.length && project?.ownerId
+      ? visibleAppSpecs(await bindDb.getAppSpecs(), project.ownerId)
+      : [];
     const dynamicTypes = needs.length ? await bindDb.getBindingTypes().catch(() => []) : [];
     await bindDb.close().catch(() => undefined);
 

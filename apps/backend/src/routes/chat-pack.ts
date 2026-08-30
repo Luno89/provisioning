@@ -3,6 +3,7 @@ import { asyncRoute } from '../middleware/async-route.js';
 import { runChatTurn } from '../lib/chat-runtime.js';
 import type { PersonaPack } from '@koala/harness-types';
 import { ownedBy } from '../lib/ownership.js';
+import { ToolService } from '../services/ToolService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { Persona } from '@koala/harness-types';
 import type { ModelService } from '../services/ModelService.js';
@@ -22,7 +23,7 @@ import { makePackToolExecutor } from '../lib/chat-pack-tools.js';
 import { schemasFor } from '../lib/tool-schemas.js';
 import { toLoopTools } from '../lib/mcp-tools.js';
 import { validateSpec, explainSpecProblems } from '../lib/app-spec-validate.js';
-import type { AppSpec } from '../lib/app-spec.js';
+import { visibleAppSpecs, type AppSpec } from '../lib/app-spec.js';
 import { normaliseTreeInput } from '../lib/trees.js';
 import type { Tree } from '../lib/trees.js';
 
@@ -147,7 +148,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     const problems = validateSpec(proposal.spec);
     if (problems.length) return res.status(400).json({ error: explainSpecProblems(problems) });
 
-    const existing = (await db.getAppSpecs()).find((s) => s.id === proposal.id);
+    const existing = visibleAppSpecs(await db.getAppSpecs(), userId).find((s) => s.id === proposal.id);
     if (existing?.builtIn) {
       return res.status(409).json({ error: `"${proposal.id}" ships with the platform and cannot be replaced.` });
     }
@@ -344,7 +345,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     };
 
     const user = (req as any).user ?? { id: userId, isAdmin: false };
-    const toolRegistry = await db.getTools();
+    const toolRegistry = await new ToolService(db).list(userId);
     const activeToolNames = ownTools.map((t) => t.function.name);
 
     const executeTool = makePackToolExecutor({

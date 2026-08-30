@@ -31,7 +31,7 @@ export function validateImageForTools(language: WorkspaceLanguage, toolIds: stri
 
 export function formatToolRepoForOpenAI(items: ToolRepositoryItem[] = TOOL_REPOSITORY) {
   return items.map((item) => ({
-    type: 'function',
+    type: 'function' as const,
     function: {
       name: item.name,
       description: item.description,
