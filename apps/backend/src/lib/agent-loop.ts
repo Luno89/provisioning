@@ -1,11 +1,8 @@
 import {
   conversationBudget,
-  MAX_AGENT_STEPS,
-  MAX_AGENT_TOKENS,
-  MAX_TOOL_RESULT_CHARS,
   buildAgentPrompt,
   clampToolResult,
-  CODE_PACING,
+  codePacing,
   pacingNoteFor,
   trimConversation,
   toolsForStep,
@@ -27,13 +24,13 @@ import type { WorkspaceLanguage, WorkspaceSpec } from './workspace-spec.js';
 import type { ModelKind } from './model-registry.js';
 import type { WebTools } from './web-tools.js';
 import {
-  TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS, turnMaxTokens, fittedMaxTokens,
+  turnMaxTokens, fittedMaxTokens,
 } from './sampling.js';
 import { type Overrides } from './tunables.js';
 import { buildModelRequest } from './model-request.js';
 import type { AgentStep, AgentRequest, ConversationMessage } from '@koala/harness-types';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
-import type { SamplingConfig } from '@koala/harness-types';
+import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
 
 export type { AgentStep, AgentRequest, ConversationMessage };
 
@@ -61,13 +58,6 @@ export type CheckpointDriver = (input: {
   tokensUsed: number;
   maxTokens: number;
 }) => Promise<{ artifact: string; sha?: string; branch?: string } | undefined>;
-
-export const MAX_TRACE_REASONING = 6000;
-export const MAX_TRACE_CONTENT = 2000;
-export const MAX_TRACE_TOOL_RESULT = 1200;
-export const MAX_TRACE_TOOL_ARGS = 2000;
-
-export const MAX_CONVERSATION_MESSAGE = 6000;
 
 export interface AgentRunResult {
   succeeded: boolean;
@@ -123,6 +113,8 @@ export interface AgentRunOptions {
   images?: readonly WorkspaceImageSpec[] | undefined;
   /** The pack's sampler. Absent sends none, rather than a base layer from a module. */
   sampling?: SamplingConfig | undefined;
+  /** The pack's budget — what this run may spend and what the model is shown. */
+  budget: BudgetConfig;
   callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
   pacing?: PacingNote[] | undefined;
   withdrawTools?: ToolWithdrawal | undefined;
@@ -154,10 +146,10 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   const think = typeof overrides.think === 'boolean' ? overrides.think : Boolean(opts.think);
   let maxSteps = typeof overrides.maxSteps === 'number'
     ? overrides.maxSteps
-    : (opts.maxSteps ?? MAX_AGENT_STEPS);
+    : (opts.maxSteps ?? opts.budget.run.steps);
   let maxTokens = typeof overrides.maxTokens === 'number'
     ? overrides.maxTokens
-    : (opts.maxTokens ?? MAX_AGENT_TOKENS);
+    : (opts.maxTokens ?? opts.budget.run.tokens);
   const originalMaxSteps = maxSteps;
   const originalMaxTokens = maxTokens;
   const toolResultCap = typeof overrides.maxToolResultChars === 'number'
@@ -223,7 +215,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     ? offered.filter((t) => opts.allowTools!.includes(t.function.name))
     : offered;
 
-  const turnCap = turnMaxTokens({
+  const turnCap = turnMaxTokens(opts.budget.replyTokens, {
     think,
     canWriteFiles: activeTools.some((t) => (t.function?.name || t.name) === 'write_file'),
   });
@@ -257,7 +249,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     loop: {
       maxSteps,
       think,
-      toolResultCap: toolResultCap ?? MAX_TOOL_RESULT_CHARS,
+      toolResultCap: toolResultCap ?? opts.budget.toolResultChars,
     },
   };
 
@@ -280,7 +272,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
         ...requestBody,
         messages,
         tools: [tool],
-        max_tokens: fittedMaxTokens(1200, JSON.stringify(messages).length, opts.contextTokens),
+        max_tokens: fittedMaxTokens(opts.budget, 1200, JSON.stringify(messages).length, opts.contextTokens),
       };
       const res = await doFetch(`${opts.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -396,9 +388,9 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
     requestBody.messages = trimConversation(
       messages,
-      conversationBudget(opts.contextTokens, typeof overrides.conversationGrowth === 'number' ? overrides.conversationGrowth : undefined),
+      conversationBudget(opts.budget, opts.contextTokens, typeof overrides.conversationGrowth === 'number' ? overrides.conversationGrowth : undefined),
     );
-    requestBody.max_tokens = fittedMaxTokens(turnCap, JSON.stringify(requestBody.messages).length, opts.contextTokens);
+    requestBody.max_tokens = fittedMaxTokens(opts.budget, turnCap, JSON.stringify(requestBody.messages).length, opts.contextTokens);
     requestBody.tools = toolsForStep(step, activeTools, opts.withdrawTools);
 
     const response = await doFetch(`${opts.baseUrl}/chat/completions`, {
@@ -422,14 +414,14 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     const record: AgentStep | undefined = opts.captureTrace || opts.onStep
       ? {
           step: step + 1,
-          ...(reasoning ? { reasoning: clip(reasoning, MAX_TRACE_REASONING) } : {}),
-          ...(content ? { content: clip(content, MAX_TRACE_CONTENT) } : {}),
-          toolCalls: toolCalls.map((c) => ({ name: c.name, arguments: clipHead(c.arguments, MAX_TRACE_TOOL_ARGS) })),
+          ...(reasoning ? { reasoning: clip(reasoning, opts.budget.record.traceReasoning) } : {}),
+          ...(content ? { content: clip(content, opts.budget.record.traceContent) } : {}),
+          toolCalls: toolCalls.map((c) => ({ name: c.name, arguments: clipHead(c.arguments, opts.budget.record.traceToolArgs) })),
           toolResults: [],
           tokens,
-          ...(reasoning.length > MAX_TRACE_REASONING
-          || content.length > MAX_TRACE_CONTENT
-          || toolCalls.some((c) => c.arguments.length > MAX_TRACE_TOOL_ARGS)
+          ...(reasoning.length > opts.budget.record.traceReasoning
+          || content.length > opts.budget.record.traceContent
+          || toolCalls.some((c) => c.arguments.length > opts.budget.record.traceToolArgs)
             ? { truncated: true }
             : {}),
         }
@@ -523,7 +515,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
           steps: step + 1,
           request,
           transcript,
-          ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
+          ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages, opts.budget.messageChars) } : {}),
           ...(checkpoints.length ? { checkpoints } : {}),
           ...(extensions.length ? { extensions } : {}),
           ...(unsupported.length ? { unsupported } : {}),
@@ -554,18 +546,18 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
         result = JSON.stringify({ error: String(err?.message ?? err).slice(0, 500) });
       }
 
-      record?.toolResults.push({ name, result: clip(result, MAX_TRACE_TOOL_RESULT) });
+      record?.toolResults.push({ name, result: clip(result, opts.budget.record.traceToolResult) });
 
       messages.push({
         role: 'tool',
         tool_call_id: call.id,
         name,
-        content: clampToolResult(result, toolResultCap),
+        content: clampToolResult(result, toolResultCap ?? opts.budget.toolResultChars),
       });
     }
 
     const remaining = maxSteps - (step + 1);
-    const note = pacingNoteFor(remaining, opts.pacing ?? CODE_PACING);
+    const note = pacingNoteFor(remaining, opts.pacing ?? codePacing(opts.budget.run.wrapUpSteps));
     if (note) {
       const last = messages[messages.length - 1] as { content?: string };
       last.content = `${last.content ?? ''}\n\n[${remaining} step${remaining === 1 ? '' : 's'} left of ${maxSteps}. `
@@ -609,7 +601,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
         transcript,
         outOfBudget: true,
         stoppedBecause: 'budget',
-        ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
+        ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages, opts.budget.messageChars) } : {}),
         ...(checkpoints.length ? { checkpoints } : {}),
         ...(extensions.length ? { extensions } : {}),
         ...(unsupported.length ? { unsupported } : {}),
@@ -643,32 +635,32 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     steps: stoppedAtStep,
     request,
     transcript,
-    ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages) } : {}),
+    ...(opts.captureTrace ? { trace, conversation: snapshotConversation(messages, opts.budget.messageChars) } : {}),
     ...(checkpoints.length ? { checkpoints } : {}),
     ...(extensions.length ? { extensions } : {}),
     ...(unsupported.length ? { unsupported } : {}),
   };
 }
 
-function snapshotConversation(messages: Record<string, unknown>[]): ConversationMessage[] {
+function snapshotConversation(messages: Record<string, unknown>[], cap: number): ConversationMessage[] {
   return messages.map((m) => {
     const content = String(m.content ?? '');
     const calls = Array.isArray(m.tool_calls) ? m.tool_calls : [];
     return {
       role: m.role as ConversationMessage['role'],
-      content: clipHead(content, MAX_CONVERSATION_MESSAGE),
+      content: clipHead(content, cap),
       ...(calls.length
         ? {
             toolCalls: calls.map((c: any) => ({
               id: String(c?.id ?? ''),
               name: String(c?.function?.name ?? ''),
-              arguments: clipHead(String(c?.function?.arguments ?? ''), MAX_CONVERSATION_MESSAGE),
+              arguments: clipHead(String(c?.function?.arguments ?? ''), cap),
             })),
           }
         : {}),
       ...(m.tool_call_id ? { toolCallId: String(m.tool_call_id) } : {}),
       ...(m.name ? { name: String(m.name) } : {}),
-      ...(content.length > MAX_CONVERSATION_MESSAGE ? { truncated: true } : {}),
+      ...(content.length > cap ? { truncated: true } : {}),
     };
   });
 }

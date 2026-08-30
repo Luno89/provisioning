@@ -5,6 +5,8 @@ import { chatRouter } from './chat.js';
 import { createDatabase } from '../lib/db-interface.js';
 import type { Database } from '../lib/db-interface.js';
 import { ownedBy } from '../lib/ownership.js';
+import { seedPacks } from '../lib/pack-seeds.js';
+import { seedPersonas } from '../lib/persona-seeds.js';
 
 async function fakeUpstream(script: string[], opts: { splitAt?: number } = {}) {
   const seen: any[] = [];
@@ -87,6 +89,9 @@ describe('/api/chat wire format', () => {
   beforeEach(async () => {
     db = createDatabase();
     await db.init();
+    // The turn's budget is the pack's, so the shipped packs have to be present.
+    await seedPersonas(db as never);
+    await seedPacks(db as never);
   });
 
   afterEach(async () => {

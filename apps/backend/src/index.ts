@@ -85,7 +85,7 @@ import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { budgetForNewRoot } from './lib/budget-policy.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
-import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, isChatMode, type ChatMode, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
 import { extractServiceName } from './lib/extraction.js';
 import { buildOutboundMessages } from './lib/leaf-context.js';
 import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
@@ -131,7 +131,7 @@ import { preferUsable } from './lib/mcp-registry.js';
 import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
-import { fittedMaxTokens, MIN_TURN_TOKENS } from './lib/sampling.js';
+import { fittedMaxTokens } from './lib/sampling.js';
 import { needsHandoff, withHandoff, historyForPrompt, trimKoalaThread } from './lib/koala-context.js';
 import { canRecheck, recheckVerdict, statusAfterRecheck } from './lib/leaf-recheck.js';
 import { webhookUrlFor } from './lib/project-shipping.js';
@@ -159,8 +159,7 @@ import {
   type Experiment, type ExperimentTask,
 } from './lib/experiments.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
-import { MAX_AGENT_STEPS, trimConversation } from './lib/sandbox-tools.js';
-import { MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
+import { ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
 import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, blockedBy, wouldCycle, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 import type { SearchOutcome } from './lib/web-tools.js';
@@ -168,7 +167,7 @@ import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
 import { withBuiltIns } from './lib/ownership.js';
 import { ToolService } from './services/ToolService.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
-import { defaultSampling } from './lib/pack-sampling.js';
+import { defaultSampling, defaultBudget } from './lib/pack-defaults.js';
 
 dotenv.config();
 
@@ -568,6 +567,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       await new ToolService(db).list(userId),
       await new WorkspaceImageService(db).list(userId),
       await defaultSampling(db),
+      await defaultBudget(db),
     ));
   });
 

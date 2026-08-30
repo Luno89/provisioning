@@ -4,7 +4,7 @@ import { ownedBy } from '../lib/ownership.js';
 import { ToolService } from '../services/ToolService.js';
 import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from '../lib/workspace-spec.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { MAX_AGENT_STEPS } from '../lib/sandbox-tools.js';
+import { defaultBudget } from '../lib/pack-defaults.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { preferUsable } from '../lib/mcp-registry.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
@@ -49,7 +49,11 @@ export function personaOptionsRouter(deps: PersonaOptionsRouterDeps): Router {
         .map((t) => ({ name: t.name, description: t.description }))
         .filter((t, i, all) => t.name && all.findIndex((x) => x.name === t.name) === i)
         .sort((a, b) => a.name.localeCompare(b.name)),
-      defaults: { cpu: DEFAULT_WORKSPACE_CPU, memory: DEFAULT_WORKSPACE_MEMORY, maxSteps: MAX_AGENT_STEPS },
+      defaults: {
+        cpu: DEFAULT_WORKSPACE_CPU,
+        memory: DEFAULT_WORKSPACE_MEMORY,
+        maxSteps: (await defaultBudget(db))?.run.steps,
+      },
     });
   });
   return router;

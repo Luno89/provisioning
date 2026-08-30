@@ -359,6 +359,61 @@ export interface SamplingConfig {
   byEngine?: Record<string, Record<string, number | string | boolean>>;
 }
 
+/**
+ * What one run may spend, and what it is shown. Concrete values, not a diff — a pack that said
+ * nothing still ran to a 800-token reply cap, 8 rounds and a 60,000-character conversation budget,
+ * all decided in modules no user can reach.
+ *
+ * The three groups are not interchangeable. `replyTokens` and `rounds` decide what the model
+ * PRODUCES; `toolResultChars`, `conversationChars` and `handoff` decide what it is SHOWN; `record`
+ * decides only what is written down afterwards and never reaches the model at all.
+ */
+export interface BudgetConfig {
+  replyTokens: {
+    /** A turn whose job is to call a tool. */
+    tool: number;
+    /** A turn that is allowed to think first. */
+    thinking: number;
+    /** A turn that writes files, which needs room for the file. */
+    writingFiles: number;
+    /** A /plan turn. */
+    plan: number;
+    /** The most any single turn may be given, whatever the caller asks for. */
+    ceiling: number;
+  };
+  /** Used when the endpoint does not report its own window. The endpoint wins when it does. */
+  contextTokens: number;
+  contextMargin: number;
+  minReplyTokens: number;
+  /** Rounds of tool calling within one turn. */
+  rounds: number;
+  proposalsPerReply: number;
+  toolResultChars: number;
+  conversationChars: number;
+  conversationGrowth: number;
+  messageChars: number;
+  run: { steps: number; tokens: number; researchSteps: number; wrapUpSteps: number };
+  handoff: {
+    /** Fraction of the context window at which a conversation is handed off rather than continued. */
+    at: number;
+    tail: number;
+    reasoningKept: number;
+    goalChars: number;
+    discoveryChars: number;
+    discoveries: number;
+    listedProposals: number;
+  };
+  record: {
+    callsPerRound: number;
+    argChars: number;
+    digestChars: number;
+    traceReasoning: number;
+    traceContent: number;
+    traceToolResult: number;
+    traceToolArgs: number;
+  };
+}
+
 export interface PersonaPack {
   id: string;
   ownerId?: string;
@@ -371,6 +426,7 @@ export interface PersonaPack {
   mcp?: string[];
   workspace?: WorkspaceScope;
   sampling: SamplingConfig;
+  budget: BudgetConfig;
 
   overrides: Overrides;
   builtIn?: boolean;

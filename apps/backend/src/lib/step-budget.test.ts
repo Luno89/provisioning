@@ -1,24 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { buildAgentPrompt, MAX_AGENT_STEPS, WRAPUP_STEPS } from './sandbox-tools.js';
+import { buildAgentPrompt } from './sandbox-tools.js';
 import { buildRepoStateScript, summariseRepoState } from './leaf-checkout.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 describe('the cap the agent is told', () => {
   it('states the cap the loop will actually enforce', () => {
     expect(buildAgentPrompt(IMAGES, 'node', 'do a thing', 99)).toContain('up to 99 steps');
-    expect(buildAgentPrompt(IMAGES, 'node', 'do a thing', 99)).not.toContain(`up to ${MAX_AGENT_STEPS} steps`);
+    expect(buildAgentPrompt(IMAGES, 'node', 'do a thing', 99)).not.toContain(`up to ${BUDGET.run.steps} steps`);
   });
 
-  it('falls back to the shipped constant when no cap is given', () => {
-    expect(buildAgentPrompt(IMAGES, 'node', 'x')).toContain(`up to ${MAX_AGENT_STEPS} steps`);
+  it("states the pack's step ceiling, since there is no constant to fall back to", () => {
+    expect(buildAgentPrompt(IMAGES, 'node', 'x', BUDGET.run.steps))
+      .toContain(`up to ${BUDGET.run.steps} steps`);
   });
 
   it('tells the agent uncommitted work is lost', () => {
-    expect(buildAgentPrompt(IMAGES, 'node', 'x')).toMatch(/commit and push as you go/i);
+    expect(buildAgentPrompt(IMAGES, 'node', 'x', BUDGET.run.steps)).toMatch(/commit and push as you go/i);
   });
 
   it('leaves room to commit, push and finish', () => {
-    expect(WRAPUP_STEPS).toBeGreaterThanOrEqual(3);
+    expect(BUDGET.run.wrapUpSteps).toBeGreaterThanOrEqual(3);
   });
 });
 

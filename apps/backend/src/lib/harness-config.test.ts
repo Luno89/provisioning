@@ -1,29 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import { buildHarnessConfig } from './harness-config.js';
-import { TOOL_TURN_MAX_TOKENS, TOOL_DISCIPLINE_PROMPT } from './sampling.js';
+import { TOOL_DISCIPLINE_PROMPT } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
 import { PACK_SEEDS } from './pack-seeds.js';
-import { MAX_AGENT_STEPS } from './sandbox-tools.js';
-import { PLAN_MODE_MAX_TOKENS, planSystemPrompt } from './plan-mode.js';
+
+import { planSystemPrompt } from './plan-mode.js';
 
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
 import { forSurface } from './tool-catalogue.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
+const BUDGET = PACK_SEEDS[0]!.budget;
+
 const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
 
-const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES, PACK_SEEDS[0]!.sampling);
+const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES, PACK_SEEDS[0]!.sampling, PACK_SEEDS[0]!.budget);
 const find = (sectionId: string, label: string) =>
   config.sections.find((s) => s.id === sectionId)!.settings.find((x) => x.label === label)!;
 
 describe('the harness config surface', () => {
   it('reads the dispatch token cap from the sampling module', () => {
-    expect(find('agent', 'Tokens per dispatch turn').value).toBe(String(TOOL_TURN_MAX_TOKENS));
+    expect(find('agent', 'Tokens per dispatch turn').value).toBe(String(BUDGET.replyTokens.tool));
   });
 
   it('reads the step ceiling from the agent module', () => {
-    expect(find('agent', 'Max steps').value).toBe(String(MAX_AGENT_STEPS));
+    expect(find('agent', 'Max steps').value).toBe(String(BUDGET.run.steps));
   });
 
   it('lists the tools the agent is actually given', () => {
@@ -39,7 +41,7 @@ describe('the harness config surface', () => {
   });
 
   it('reads the plan budget from plan-mode', () => {
-    expect(find('chat', '/plan token budget').value).toBe(String(PLAN_MODE_MAX_TOKENS));
+    expect(find('chat', '/plan token budget').value).toBe(String(BUDGET.replyTokens.plan));
   });
 
   it('shows prompts verbatim, so what the model is told is inspectable', () => {

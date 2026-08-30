@@ -1,7 +1,7 @@
-import type { PersonaPack, SamplingConfig, WorkspaceScope } from '@koala/harness-types';
+import type { BudgetConfig, PersonaPack, SamplingConfig, WorkspaceScope } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
 import { MERGER_PERSONA } from './well-known-personas.js';
-import { RESEARCH_AGENT_STEPS, researchPacing } from './sandbox-tools.js';
+import { researchPacing } from './sandbox-tools.js';
 import { WEB_TOOL_NAMES } from './leaf-tools.js';
 
 const TUNED_FOR = 'Tabbyapi-Production';
@@ -24,6 +24,48 @@ const DEFAULT_SAMPLING: SamplingConfig = {
 
 const defaultSampling = (): SamplingConfig => structuredClone(DEFAULT_SAMPLING);
 
+/**
+ * What every pack spent when these were module constants, in the three files that owned them.
+ * Same rule as the sampler: each seed gets its own copy, so retuning one pack cannot retune nine.
+ *
+ * `rounds` is 8, which is what `MAX_TOOL_ROUNDS` was and what the harness config panel has always
+ * advertised as "Tool rounds per turn". The unified chat route ran 12 from an unnamed default
+ * parameter — one concept with two values, and this is the one that was written down.
+ */
+const DEFAULT_BUDGET: BudgetConfig = {
+  replyTokens: { tool: 800, thinking: 2000, writingFiles: 8000, plan: 8000, ceiling: 16000 },
+  contextTokens: 32_768,
+  contextMargin: 512,
+  minReplyTokens: 600,
+  rounds: 8,
+  proposalsPerReply: 8,
+  toolResultChars: 8_000,
+  conversationChars: 60_000,
+  conversationGrowth: 2,
+  messageChars: 6000,
+  run: { steps: 200, tokens: 1_000_000, researchSteps: 100, wrapUpSteps: 4 },
+  handoff: {
+    at: 0.55,
+    tail: 4,
+    reasoningKept: 6,
+    goalChars: 600,
+    discoveryChars: 160,
+    discoveries: 8,
+    listedProposals: 10,
+  },
+  record: {
+    callsPerRound: 6,
+    argChars: 400,
+    digestChars: 2000,
+    traceReasoning: 6000,
+    traceContent: 2000,
+    traceToolResult: 1200,
+    traceToolArgs: 2000,
+  },
+};
+
+const defaultBudget = (): BudgetConfig => structuredClone(DEFAULT_BUDGET);
+
 export interface PackSeed {
   slug: string;
   name: string;
@@ -33,6 +75,7 @@ export interface PackSeed {
   mcp?: string[];
   workspace?: WorkspaceScope;
   sampling: SamplingConfig;
+  budget: BudgetConfig;
   overrides: PersonaPack['overrides'];
 }
 
@@ -52,6 +95,7 @@ export const PACK_SEEDS: PackSeed[] = [
       'web_search', 'fetch_web_page',
     ],
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: {},
   },
   {
@@ -70,6 +114,7 @@ export const PACK_SEEDS: PackSeed[] = [
     run: { maxSteps: 20 },
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: { temperature: 0.3 },
   },
   {
@@ -85,12 +130,13 @@ export const PACK_SEEDS: PackSeed[] = [
     egress: [],
     tunedFor: TUNED_FOR,
     run: {
-    maxSteps: RESEARCH_AGENT_STEPS,
-    withdraw: { afterStep: Math.floor(RESEARCH_AGENT_STEPS / 2), tools: [...WEB_TOOL_NAMES] },
-    pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
+    maxSteps: DEFAULT_BUDGET.run.researchSteps,
+    withdraw: { afterStep: Math.floor(DEFAULT_BUDGET.run.researchSteps / 2), tools: [...WEB_TOOL_NAMES] },
+    pacing: researchPacing(DEFAULT_BUDGET.run.researchSteps, '/work/findings.md', DEFAULT_BUDGET.run.wrapUpSteps),
     },
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: { temperature: 0.4 },
   },
   {
@@ -109,6 +155,7 @@ export const PACK_SEEDS: PackSeed[] = [
     run: { maxSteps: 30 },
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: { temperature: 0.5 },
   },
   {
@@ -124,6 +171,7 @@ export const PACK_SEEDS: PackSeed[] = [
     run: { maxSteps: 30 },
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: { temperature: 0.2 },
   },
   {
@@ -141,6 +189,7 @@ export const PACK_SEEDS: PackSeed[] = [
     run: { maxSteps: 40 },
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: { temperature: 0.3 },
   },
   {
@@ -154,6 +203,7 @@ export const PACK_SEEDS: PackSeed[] = [
     language: 'base',
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: {},
   },
   {
@@ -167,6 +217,7 @@ export const PACK_SEEDS: PackSeed[] = [
     language: 'base',
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: { temperature: 0.1 },
   },
   {
@@ -181,6 +232,7 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     },
     sampling: defaultSampling(),
+    budget: defaultBudget(),
     overrides: {},
   },
 ];
@@ -214,6 +266,7 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       ...(seed.mcp ? { mcp: [...seed.mcp] } : {}),
       ...(seed.workspace ? { workspace: seed.workspace } : {}),
       sampling: structuredClone(seed.sampling),
+      budget: structuredClone(seed.budget),
       overrides: { ...seed.overrides },
       builtIn: true,
       createdAt: prior?.createdAt ?? new Date().toISOString(),

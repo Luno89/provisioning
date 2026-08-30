@@ -14,7 +14,7 @@ import type { ExperimentTask } from '@koala/harness-types';
 import type { ModelService } from '../../services/ModelService.js';
 import { acceptedTasks, type AuthoringService } from '../../services/AuthoringService.js';
 import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
-import { defaultSampling } from '../../lib/pack-sampling.js';
+import { defaultSampling } from '../../lib/pack-defaults.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 

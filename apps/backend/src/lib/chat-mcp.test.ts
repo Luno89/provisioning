@@ -139,7 +139,7 @@ describe('how the route uses it', () => {
 
   it('resolves once per turn rather than per round', () => {
     const decl = route.indexOf('let chatMcp = NO_CHAT_MCP;');
-    const loop = route.indexOf('for (let round = 0; round < MAX_TOOL_ROUNDS');
+    const loop = route.indexOf('for (let round = 0; round < budget.rounds');
     expect(decl).toBeGreaterThan(-1);
     expect(decl).toBeLessThan(loop);
   });

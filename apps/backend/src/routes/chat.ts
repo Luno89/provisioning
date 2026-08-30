@@ -10,7 +10,7 @@ import { withNotice } from '../lib/branch-notice.js';
 import { NO_CHAT_MCP, chatMcpFor } from '../lib/chat-mcp.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, extractServiceName, parseExtractionResult } from '../lib/extraction.js';
 import { buildOutboundMessages } from '../lib/leaf-context.js';
-import { MAX_TOOL_ROUNDS, ToolCallScanner } from '../lib/leaf-tools.js';
+import { ToolCallScanner } from '../lib/leaf-tools.js';
 import type { ToolCall } from '../lib/leaf-tools.js';
 import { deriveBranchTitle, trimTranscript } from '../lib/leaves.js';
 import type { Branch, BranchMessage, Leaf } from '../lib/leaves.js';
@@ -19,7 +19,7 @@ import { buildModelRequest } from '../lib/model-request.js';
 import { MAX_ASSIGNMENT_ROUNDS, buildAssignmentPrompt, buildUnassignedNotice, unassignedLeaves } from '../lib/persona-assignment.js';
 import { resolveConfig } from '../lib/personas.js';
 import type { Persona } from '../lib/personas.js';
-import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, planSystemPrompt, extractProposals, isChatMode, parseChatCommand } from '../lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, planSystemPrompt, extractProposals, isChatMode, parseChatCommand } from '../lib/plan-mode.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import type { ChatMode, LeafProposal } from '../lib/plan-mode.js';
 import { planNotice, reviewPlan } from '../lib/plan-review.js';
@@ -42,7 +42,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { ModelService } from '../services/ModelService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
-import { defaultSampling } from '../lib/pack-sampling.js';
+import { defaultSampling, requireBudget } from '../lib/pack-defaults.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
@@ -70,6 +70,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
   async function extractViaModel(
     extractor: { baseUrl: string; apiKey?: string; provider: { model: string; name: string } },
     turns: { role: string; content: string }[],
+    maxProposals: number,
   ): Promise<LeafProposal[]> {
     const payloadBase = {
       ...(extractor.provider.model ? { model: extractor.provider.model } : {}),
@@ -119,7 +120,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
 
         const body = (await res.json()) as any;
         const text = String(body?.choices?.[0]?.message?.content ?? '');
-        const proposals = parseExtractionResult(text, MAX_PROPOSALS_PER_REPLY);
+        const proposals = parseExtractionResult(text, maxProposals);
         if (proposals.length > 0) return proposals;
         if (text.trim()) return proposals;
       } catch (err: any) {
@@ -171,6 +172,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
      * there is no configuration left that only exists in code.
      */
     const sampling = chatPack?.sampling ?? await defaultSampling(db);
+    const budget = chatPack?.budget ?? await requireBudget(db);
     const resolved = resolveConfig(
       await db.getHarnessProfile(uid),
       chatPack,
@@ -206,7 +208,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       : [];
     const historyChars = JSON.stringify(messages).length;
     const personaPrompt = resolved.systemPrompt
-      ? composePersonaPrompt(resolved.systemPrompt, {
+      ? composePersonaPrompt(budget, resolved.systemPrompt, {
           toolRegistry,
           activeTools: activeToolNames,
           historyChars,
@@ -279,10 +281,10 @@ export function chatRouter(deps: ChatRouterDeps): Router {
         body: JSON.stringify(turnRequest(outboundMessages, {
           ...(offerTools ? { tools: turnTools } : {}),
           stream,
-          maxTokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
+          maxTokens: fittedMaxTokens(budget, rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
           reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
           extra: {
-            max_completion_tokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
+            max_completion_tokens: fittedMaxTokens(budget, rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
             ...(stream ? { stream_options: { include_usage: true } } : {}),
           },
         })),
@@ -350,7 +352,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
 
       let proposedViaTools = false;
 
-      for (let round = 0; round < MAX_TOOL_ROUNDS && calls.length > 0 && branchId; round++) {
+      for (let round = 0; round < budget.rounds && calls.length > 0 && branchId; round++) {
         conversation.push({
           role: 'assistant',
           content: null,
@@ -376,10 +378,10 @@ export function chatRouter(deps: ChatRouterDeps): Router {
           body: JSON.stringify(turnRequest(conversation, {
             tools: turnTools,
             stream: true,
-          maxTokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
+          maxTokens: fittedMaxTokens(budget, rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
             reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
             extra: {
-              max_completion_tokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
+              max_completion_tokens: fittedMaxTokens(budget, rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
               stream_options: { include_usage: true },
             },
           })),
@@ -474,7 +476,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       await settleProposals();
 
       if (calls.length > 0 && branchId) {
-        sendFrame(res, { interruptedReason: `Used all ${MAX_TOOL_ROUNDS} research steps — answering with what was found.` });
+        sendFrame(res, { interruptedReason: `Used all ${budget.rounds} research steps — answering with what was found.` });
         const dropped = [...new Set(calls.map((c) => c.name))].join(', ');
         conversation.push({
           role: 'user',
@@ -488,7 +490,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
           headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
           body: JSON.stringify(turnRequest(conversation, {
             stream: true,
-          maxTokens: fittedMaxTokens(rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
+          maxTokens: fittedMaxTokens(budget, rest.max_tokens ?? strategy.maxTokens, JSON.stringify(outboundMessages).length),
             reasoningEffort: rest.reasoning_effort ?? strategy.reasoningEffort,
             extra: { stream_options: { include_usage: true } },
           })),
@@ -602,12 +604,16 @@ export function chatRouter(deps: ChatRouterDeps): Router {
             const extractor =
               (await modelService.resolveExtractor((req as any).user.id).catch(() => undefined)) ??
               { provider, baseUrl, ...(apiKey ? { apiKey } : {}) };
-            extracted = await extractViaModel(extractor, [...messages.slice(0, lastIndex), { role: 'assistant', content: reply }]);
+            extracted = await extractViaModel(
+              extractor,
+              [...messages.slice(0, lastIndex), { role: 'assistant', content: reply }],
+              budget.proposalsPerReply,
+            );
           }
           if (explicitPlan && !reply.trim()) {
             console.warn(`[chat] /plan produced no content for branch ${branchId} — the reply was likely consumed by reasoning before reaching an answer; raise max_tokens`);
           }
-          const fromProse = extracted?.length ? extracted : extractProposals(reply);
+          const fromProse = extracted?.length ? extracted : extractProposals(reply, budget.proposalsPerReply);
           const already = (await ownedLeaves((req as any).user.id))
             .filter((l) => l.branchId === String(branchId))
             .map((l) => l.title);

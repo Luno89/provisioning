@@ -2,7 +2,7 @@ import { createDatabase } from '../lib/db-interface.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { readStreamedReply } from '../lib/agent-loop.js';
 import { buildModelRequest } from '../lib/model-request.js';
-import { fittedMaxTokens, THINKING_TURN_MAX_TOKENS } from '../lib/sampling.js';
+import { fittedMaxTokens } from '../lib/sampling.js';
 import { resolveConfig } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
 import { JUDGE_PERSONA } from '../lib/well-known-personas.js';
@@ -12,7 +12,7 @@ import {
   CODE_DIMENSIONS, type JudgeVerdict,
 } from '../lib/leaf-judge.js';
 import { calibrate, formatCalibration, type CalibrationRow } from '../lib/judge-calibration.js';
-import { defaultSampling } from '../lib/pack-sampling.js';
+import { defaultSampling, requireBudget } from '../lib/pack-defaults.js';
 
 const DECOY_DIFF = [
   'diff --git a/src/colours.ts b/src/colours.ts',
@@ -29,6 +29,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   const sampling = await defaultSampling(db);
+  const budget = await requireBudget(db);
 
   try {
     const wanted = process.argv[2];
@@ -69,7 +70,7 @@ async function main(): Promise<void> {
           { role: 'user', content: buildJudgePrompt(bundle, CODE_DIMENSIONS) },
         ],
         stream: true,
-        maxTokens: fittedMaxTokens(THINKING_TURN_MAX_TOKENS * 2, bundle.length),
+        maxTokens: fittedMaxTokens(budget, budget.replyTokens.thinking * 2, bundle.length),
         ...(provider.model ? { model: provider.model } : {}),
         overrides: resolved.overrides,
       }).body;

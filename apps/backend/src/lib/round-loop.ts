@@ -140,14 +140,11 @@ export interface RoundLoopConfig {
   trimPerRound?: (messages: unknown[]) => unknown[];
   onExhausted?: 'wrap-up';
   onEnabled?: (name: string) => void;
-  maxToolCallsPerMessage?: number;
-  maxToolCallArgs?: number;
-  maxToolCallDigest?: number;
+  /** What is recorded per round — the frame and the turn outcome, never the model's input. */
+  maxToolCallsPerMessage: number;
+  maxToolCallArgs: number;
+  maxToolCallDigest: number;
 }
-
-const MAX_TOOL_CALLS = 6;
-const MAX_TOOL_ARGS = 400;
-const MAX_TOOL_DIGEST = 2000;
 
 async function pump(
   body: unknown,
@@ -176,7 +173,7 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
   const {
     maxRounds, messages, call, emit, executeTool,
     trimPerRound, onExhausted,
-    maxToolCallsPerMessage = MAX_TOOL_CALLS, maxToolCallArgs = MAX_TOOL_ARGS, maxToolCallDigest = MAX_TOOL_DIGEST,
+    maxToolCallsPerMessage, maxToolCallArgs, maxToolCallDigest,
   } = cfg;
 
   let turn = messages;

@@ -75,6 +75,7 @@ import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { agentRunOptions, wantsWeb, wantsMcp } from '../lib/agent-run.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
+import { requireBudget } from '../lib/pack-defaults.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -577,7 +578,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                 console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: could not record step ${step.step}: ${err?.message}`);
               });
             },
-            ...agentRunOptions(pack, {
+            ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
               taskContext: currentTaskContext,
               overrides: adopted,
               sandboxSpec,

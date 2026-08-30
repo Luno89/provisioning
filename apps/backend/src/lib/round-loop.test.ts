@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createStreamParser, type StreamEvent, type RoundToolCall, type RoundLoopCall } from './round-loop.js';
 import { runToolRounds } from './round-loop.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 const sse = (obj: unknown) => `data: ${JSON.stringify(obj)}\n\n`;
 const delta = (d: Record<string, unknown>) => sse({ choices: [{ delta: d }] });
@@ -98,7 +101,7 @@ const toolBody = (id: string, name: string, args: string) =>
 describe('runToolRounds', () => {
   it('returns content alone when the model answers without calling tools', async () => {
     const call = vi.fn().mockResolvedValue({ ok: true, body: contentBody('The answer.') });
-    const result = await runToolRounds({
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 3,
       messages: [{ role: 'user', content: 'hi' }],
       tools: [],
@@ -118,7 +121,7 @@ describe('runToolRounds', () => {
       .mockResolvedValueOnce({ ok: true, body: contentBody('Here are the logs.') });
     const executeTool = vi.fn().mockResolvedValue({ content: 'log lines' });
 
-    const result = await runToolRounds({
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 3,
       messages: [{ role: 'user', content: 'check pod' }],
       tools: [],
@@ -145,7 +148,7 @@ describe('runToolRounds', () => {
       .mockResolvedValueOnce({ ok: true, body: contentBody('Found 2 project trees.') });
     const executeTool = vi.fn().mockResolvedValue({ content: 'tree1, tree2' });
 
-    const result = await runToolRounds({
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 3,
       messages: [{ role: 'user', content: 'list trees' }],
       tools: [],
@@ -165,7 +168,7 @@ describe('runToolRounds', () => {
       .mockResolvedValueOnce({ ok: true, body: toolBody('a', 't', '{}') })
       .mockResolvedValueOnce({ ok: true, body: toolBody('b', 't', '{}') })
       .mockResolvedValueOnce({ ok: true, body: contentBody('Final wrap-up.') });
-    const result = await runToolRounds({
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 2,
       messages: [{ role: 'user', content: 'go' }],
       tools: [],
@@ -185,7 +188,7 @@ describe('runToolRounds', () => {
       body: fakeStream([delts({ reasoning_content: 'hmm' }), delts({ content: 'answer' })]),
     });
     const emit = vi.fn();
-    await runToolRounds({
+    await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 2,
       messages: [{ role: 'user', content: 'hi' }],
       tools: [],
@@ -200,7 +203,7 @@ describe('runToolRounds', () => {
 
   it('stops cleanly when the model returns no tool calls on a round', async () => {
     const call = vi.fn().mockResolvedValue({ ok: true, body: contentBody('done') });
-    const result = await runToolRounds({
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 4,
       messages: [{ role: 'user', content: 'hi' }],
       tools: ['get_logs'],
@@ -219,7 +222,7 @@ describe('runToolRounds', () => {
       .mockResolvedValueOnce({ ok: true, body: contentBody('logs') });
     const seen: unknown[] = [];
     let messages: unknown[] = [{ role: 'user', content: 'hi' }];
-    await runToolRounds({
+    await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 3,
       messages,
       tools: [],
@@ -257,7 +260,7 @@ describe('runToolRounds', () => {
       };
     })();
     const call = vi.fn().mockResolvedValue({ ok: true, body: slow });
-    await runToolRounds({
+    await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 2,
       messages: [{ role: 'user', content: 'hi' }],
       tools: [],
@@ -276,7 +279,7 @@ describe('runToolRounds', () => {
       .mockResolvedValueOnce({ ok: true, body: toolBody('e', 'enable_mcp_server', '{"name":"svc"}') })
       .mockResolvedValueOnce({ ok: true, body: contentBody('done') });
     const onEnabled = vi.fn();
-    await runToolRounds({
+    await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
       maxRounds: 3,
       messages: [{ role: 'user', content: 'hi' }],
       tools: ['enable_mcp_server'],

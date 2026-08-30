@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import {
-  NO_THINKING,
-  TOOL_TURN_MAX_TOKENS,
-  TOOL_DISCIPLINE_PROMPT,
-} from './sampling.js';
+import { NO_THINKING, TOOL_DISCIPLINE_PROMPT } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
 import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 /**
  * These were properties of two functions. They are properties of every shipped pack now — which is
@@ -64,7 +62,7 @@ describe('what each kind of turn gets', () => {
   });
 
   it('caps a dispatch turn well below a conversational budget', () => {
-    expect(TOOL_TURN_MAX_TOKENS).toBeLessThan(2000);
+    expect(BUDGET.replyTokens.tool).toBeLessThan(2000);
   });
 });
 

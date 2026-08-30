@@ -6,6 +6,8 @@ import { seedTreeTypes } from '../lib/tree-types.js';
 import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from '../lib/workspace-image-seeds.js';
 import { seedsByLanguage as BY_LANGUAGE } from '../lib/workspace-image-seeds.js';
+import { seedPacks } from '../lib/pack-seeds.js';
+import { seedPersonas } from '../lib/persona-seeds.js';
 
 const resolveBaseUrl = vi.fn();
 const runAgentLoop = vi.fn();
@@ -41,6 +43,9 @@ const leaf = (over: Partial<Leaf> = {}): Leaf => ({
 const seeded = async (records: Leaf[], profile?: Record<string, unknown>) => {
   const fresh = new MemoryDB();
   await fresh.init();
+  // The budget is the pack's, so a run needs the shipped packs present.
+  await seedPersonas(fresh);
+  await seedPacks(fresh);
   for (const l of records) await fresh.saveLeaf(l);
   if (profile) {
     await fresh.saveHarnessProfile({

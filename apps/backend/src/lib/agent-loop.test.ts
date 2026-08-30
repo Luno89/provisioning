@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { runAgentLoop, type SandboxDriver } from './agent-loop.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 
+const BUDGET = PACK_SEEDS[0]!.budget;
+
 const sse = (frames: unknown[]) =>
   frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') + 'data: [DONE]\n\n';
 
@@ -44,7 +46,7 @@ const sandbox = (over: Partial<SandboxDriver> = {}): SandboxDriver => ({
 });
 
 const run = (fetchImpl: any, box = sandbox(), maxSteps = 6) =>
-  runAgentLoop({
+  runAgentLoop({ budget: BUDGET,
     baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl, maxSteps,
     // The sampler is the pack's now, not a base layer this module composes.
     sampling: PACK_SEEDS[0]!.sampling,
@@ -164,7 +166,7 @@ describe('runAgentLoop', () => {
 
   it('sends an overridden temperature, so an experiment varying it actually varies something', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       overrides: { temperature: 0.9 },
     });
@@ -173,7 +175,7 @@ describe('runAgentLoop', () => {
 
   it('reads loop-placement overrides instead of sending them', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       overrides: { maxSteps: 3 },
     });
@@ -184,7 +186,7 @@ describe('runAgentLoop', () => {
 
   it('appends extra instructions while keeping the generated environment description', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       overrides: { extraInstructions: 'Prefer small commits.' },
     });
@@ -195,7 +197,7 @@ describe('runAgentLoop', () => {
 
   it('replaces the whole system prompt but never the task', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       overrides: { systemPrompt: 'You are terse.' },
     });
@@ -207,7 +209,7 @@ describe('runAgentLoop', () => {
 
   it('reports a knob it could not send rather than pretending the variant differed', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       kind: 'vllm', overrides: { dry_multiplier: 0.8 },
     });
@@ -226,7 +228,7 @@ describe('runAgentLoop', () => {
       { tool_calls: [toolCall('write_file', { path: 'src/index.ts', content: big })] },
       { tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] },
     ]);
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       captureTrace: true,
     });
@@ -284,7 +286,7 @@ describe('the stored conversation', () => {
       { tool_calls: [toolCall('run_command', { command: 'ls' })] },
       { tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] },
     ]);
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl: model,
       captureTrace: true,
     });
@@ -313,7 +315,7 @@ describe('the stored conversation', () => {
       { tool_calls: [toolCall('run_command', { command: 'ls' })] },
       { tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] },
     ]);
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do it', sandbox: box, fetchImpl: model, captureTrace: true,
     });
     expect(result.conversation!.find((m) => m.role === 'tool')!.truncated).toBe(true);
@@ -398,7 +400,7 @@ describe('running out of budget is a stop, not a verdict', () => {
 describe('bounding by what actually costs', () => {
   it('stops on spend, and says so in those terms', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
-    const out = await runAgentLoop({
+    const out = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       maxSteps: 100, maxTokens: 25,
     });
@@ -411,7 +413,7 @@ describe('bounding by what actually costs', () => {
   it('never cuts a turn in half to enforce the budget', async () => {
     const box = sandbox();
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl: model,
       maxSteps: 100, maxTokens: 25,
     });
@@ -421,7 +423,7 @@ describe('bounding by what actually costs', () => {
   });
 
   it('lets a run finish normally well inside a generous budget', async () => {
-    const out = await runAgentLoop({
+    const out = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'Done.' })] }]),
       maxTokens: 1_000_000,
@@ -437,7 +439,7 @@ describe('stopping a run that is going in circles', () => {
       content: 'Rewrite the server to fix the port binding',
       tool_calls: [toolCall('write_file', { path: 'src/server.js', content: 'x' })],
     }]);
-    const out = await runAgentLoop({
+    const out = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       maxSteps: 40,
     });
@@ -453,7 +455,7 @@ describe('stopping a run that is going in circles', () => {
       content: 'Rewrite the server to fix the port binding',
       tool_calls: [toolCall('write_file', { path: 'src/server.js', content: 'x' })],
     }]);
-    const out = await runAgentLoop({
+    const out = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model, maxSteps: 40,
     });
     const last = JSON.parse((model.mock.calls as any[])[model.mock.calls.length - 1][1].body);
@@ -471,7 +473,7 @@ describe('stopping a run that is going in circles', () => {
         tool_calls: [toolCall('write_file', { path: `src/file${n}.js`, content: `${n}` })],
       }) as any;
     });
-    const out = await runAgentLoop({
+    const out = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model, maxSteps: 40,
     });
     expect(out.succeeded).toBe(true);
@@ -487,7 +489,7 @@ describe('tools from the servers this harness built', () => {
 
   it('offers them alongside the built-ins', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] }]);
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       remoteTools: [remoteTool('weather__get-forecast')],
     });
@@ -502,7 +504,7 @@ describe('tools from the servers this harness built', () => {
       name === 'weather__get-forecast' ? { text: '{"tempC":18}', isError: false } : undefined);
     const model = scriptedModel([{ tool_calls: [toolCall('weather__get-forecast', { city: 'London' })] }]);
 
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl: model,
       maxSteps: 2, remoteTools: [remoteTool('weather__get-forecast')], callRemote,
     });
@@ -517,7 +519,7 @@ describe('tools from the servers this harness built', () => {
     const callRemote = vi.fn(async () => ({ text: 'HIJACKED', isError: false }));
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
 
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl: model,
       maxSteps: 2, callRemote,
     });
@@ -528,7 +530,7 @@ describe('tools from the servers this harness built', () => {
 
   it('does not let a remote tool replace a built-in in the offer either', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'x' })] }]);
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       remoteTools: [remoteTool('run_command')],
     });
@@ -540,7 +542,7 @@ describe('tools from the servers this harness built', () => {
   it('reports a failing remote tool to the model instead of ending the run', async () => {
     const callRemote = vi.fn(async () => ({ text: 'city not found', isError: true }));
     const model = scriptedModel([{ tool_calls: [toolCall('weather__get-forecast', { city: 'zzz' })] }]);
-    const out = await runAgentLoop({
+    const out = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       maxSteps: 2, remoteTools: [remoteTool('weather__get-forecast')], callRemote,
     });
@@ -550,7 +552,7 @@ describe('tools from the servers this harness built', () => {
 
   it('respects a persona that named its tools', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'x' })] }]);
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
       allowTools: ['run_command', 'finish'], remoteTools: [remoteTool('weather__get-forecast')],
     });
@@ -561,7 +563,7 @@ describe('tools from the servers this harness built', () => {
 
 describe('checkpointing a run', () => {
   const withCheckpoint = (fetchImpl: any, checkpoint: any, maxTokens = 30) =>
-    runAgentLoop({
+    runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Add a rate limiter', sandbox: sandbox(),
       fetchImpl, maxSteps: 8, maxTokens, checkpoint,
     });
@@ -640,7 +642,7 @@ describe('checkpointing a run', () => {
   });
 
   it('does not checkpoint at all when the caller cannot save', async () => {
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: working(), maxSteps: 4, maxTokens: 30,
     });
@@ -652,7 +654,7 @@ describe('earning more room', () => {
   const working = () => scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
 
   const withBudget = (fetchImpl: any, extendBudget: any, maxSteps = 3) =>
-    runAgentLoop({
+    runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Add a rate limiter', sandbox: sandbox(),
       fetchImpl, maxSteps, extendBudget,
     });
@@ -720,7 +722,7 @@ describe('earning more room', () => {
   });
 
   it('does not extend at all when the caller cannot', async () => {
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: working(), maxSteps: 3,
     });
@@ -736,7 +738,7 @@ describe('saving a lesson', () => {
 
   it('actually writes it', async () => {
     const saveMemory = vi.fn(async () => ({ action: 'ADD' }));
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: asking(), maxSteps: 2, saveMemory,
     });
@@ -751,7 +753,7 @@ describe('saving a lesson', () => {
 
   it('tells the agent it is stored, now that it actually is', async () => {
     const model = asking();
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: model, maxSteps: 2, saveMemory: vi.fn(async () => ({ action: 'ADD' })),
     });
@@ -763,7 +765,7 @@ describe('saving a lesson', () => {
 
   it('says so when the bank already held it, rather than claiming a write', async () => {
     const model = asking();
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: model, maxSteps: 2, saveMemory: vi.fn(async () => ({ action: 'NOOP' })),
     });
@@ -775,7 +777,7 @@ describe('saving a lesson', () => {
 
   it('says it could not save rather than claiming it did', async () => {
     const model = asking();
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: model, maxSteps: 2,
     });
@@ -787,7 +789,7 @@ describe('saving a lesson', () => {
 
   it('reports a write that failed, instead of swallowing it', async () => {
     const model = asking();
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(),
       fetchImpl: model, maxSteps: 2,
       saveMemory: vi.fn(async () => { throw new Error('mongo is down'); }),

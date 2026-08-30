@@ -13,7 +13,7 @@ import type { SearchOutcome } from '../lib/web-tools.js';
 import { historyForPrompt } from '../lib/koala-context.js';
 import { enabledForSession, titleFrom } from '../lib/conversations.js';
 import { resolveConfig } from '../lib/personas.js';
-import { trimConversation } from '../lib/sandbox-tools.js';
+import { trimConversation, conversationBudget } from '../lib/sandbox-tools.js';
 import { openSse, sendFrame, endSse } from '../lib/sse.js';
 import { v4 as uuidv4 } from 'uuid';
 import { appendUserTurn } from '../lib/chat-pack-context.js';
@@ -312,7 +312,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
     const enabled = enabledForSession(conversation, sessionId);
     const systemPrompt = resolved.systemPrompt ?? persona.systemPrompt ?? '';
-    const thread = appendUserTurn(conversation, message, now);
+    const thread = appendUserTurn(pack.budget, conversation, message, now);
     await db.saveConversation(thread);
 
     openSse(res);
@@ -337,6 +337,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
         tools: toolSchemas as any,
         overrides: resolved.overrides,
         ...(pack.sampling ? { sampling: pack.sampling } : {}),
+        budget: pack.budget,
         ...(reqBody.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),
       });
       return fetch(`${baseUrl}/chat/completions`, {
@@ -365,7 +366,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       .map((m: any) => ({ role: String(m.role), content: String(m.content) }));
 
     const historyChars = historyMsgs.reduce((sum, m) => sum + m.content.length, 0);
-    const systemPromptContent = composePersonaPrompt(systemPrompt, {
+    const systemPromptContent = composePersonaPrompt(pack.budget, systemPrompt, {
       toolRegistry,
       activeTools: activeToolNames,
       servers,
@@ -377,6 +378,8 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     });
 
     const result = await runChatTurn({
+      maxRounds: pack.budget.rounds,
+      record: pack.budget.record,
       messages: [
         { role: 'system', content: systemPromptContent },
         ...historyMsgs,
@@ -384,7 +387,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       tools: enabled,
       call,
       executeTool,
-      trimPerRound: (m: unknown[]) => trimConversation(m as any),
+      trimPerRound: (m: unknown[]) => trimConversation(m as any, conversationBudget(pack.budget, provider?.contextTokens)),
       onFrame: (frame) => sendFrame(res, frame as any),
     });
 

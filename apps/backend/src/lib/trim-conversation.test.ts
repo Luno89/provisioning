@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { trimConversation, CONVERSATION_CHAR_BUDGET } from './sandbox-tools.js';
+import { trimConversation } from './sandbox-tools.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 const write = (path: string, bytes: number) => ({
   role: 'assistant',
@@ -24,8 +27,8 @@ describe('keeping a conversation inside the context', () => {
       { role: 'user', content: 'task' },
       ...Array.from({ length: 8 }, (_, i) => write(`src/f${i}.js`, 9000)),
     ];
-    expect(measure(convo)).toBeGreaterThan(CONVERSATION_CHAR_BUDGET);
-    expect(measure(trimConversation(convo as any))).toBeLessThanOrEqual(CONVERSATION_CHAR_BUDGET);
+    expect(measure(convo)).toBeGreaterThan(BUDGET.conversationChars);
+    expect(measure(trimConversation(convo as any, BUDGET.conversationChars))).toBeLessThanOrEqual(BUDGET.conversationChars);
   });
 
   it('keeps the call and drops only the payload', () => {
@@ -34,7 +37,7 @@ describe('keeping a conversation inside the context', () => {
       { role: 'user', content: 'task' },
       ...Array.from({ length: 10 }, (_, i) => write(`src/f${i}.js`, 9000)),
     ];
-    const out = trimConversation(convo as any) as any[];
+    const out = trimConversation(convo as any, BUDGET.conversationChars) as any[];
     const elided = out.filter((m) => m.tool_calls?.[0]?.function?.arguments?.includes('already written'));
     expect(elided.length).toBeGreaterThan(0);
     expect(elided[0].tool_calls[0].function.name).toBe('write_file');
@@ -47,7 +50,7 @@ describe('keeping a conversation inside the context', () => {
       { role: 'user', content: 'task' },
       ...Array.from({ length: 10 }, (_, i) => write(`src/f${i}.js`, 9000)),
     ];
-    const out = trimConversation(convo as any) as any[];
+    const out = trimConversation(convo as any, BUDGET.conversationChars) as any[];
     expect(out[out.length - 1].tool_calls[0].function.arguments).toContain('xxx');
   });
 
@@ -57,13 +60,13 @@ describe('keeping a conversation inside the context', () => {
       { role: 'user', content: 't'.repeat(5000) },
       ...Array.from({ length: 12 }, (_, i) => write(`src/f${i}.js`, 9000)),
     ];
-    const out = trimConversation(convo as any) as any[];
+    const out = trimConversation(convo as any, BUDGET.conversationChars) as any[];
     expect(out[0].content).toHaveLength(5000);
     expect(out[1].content).toHaveLength(5000);
   });
 
   it('leaves a small write alone', () => {
     const convo = [{ role: 'system', content: 's' }, { role: 'user', content: 't' }, write('a.txt', 40)];
-    expect(trimConversation(convo as any)).toEqual(convo);
+    expect(trimConversation(convo as any, BUDGET.conversationChars)).toEqual(convo);
   });
 });

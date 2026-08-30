@@ -5,6 +5,7 @@ import type {
 import type { WebTools } from './web-tools.js';
 import type { Overrides } from './tunables.js';
 import { WEB_TOOL_NAMES } from './leaf-tools.js';
+import type { BudgetConfig } from '@koala/harness-types';
 
 export interface RunInputs {
   taskContext: string;
@@ -41,6 +42,7 @@ export function wantsWeb(pack: Pick<PersonaPack, 'tools'> | null | undefined): b
 }
 
 export function agentRunOptions(
+  budget: BudgetConfig,
   pack: Pick<PersonaPack, 'tools' | 'workspace'> | null | undefined,
   inputs: RunInputs,
 ): Omit<AgentRunOptions, 'baseUrl' | 'model'> {
@@ -48,6 +50,7 @@ export function agentRunOptions(
   const tools = pack?.tools ?? [];
 
   return {
+    budget,
     taskContext: inputs.taskContext,
     sandbox: inputs.sandbox,
     overrides: inputs.overrides,

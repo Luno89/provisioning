@@ -1,10 +1,9 @@
-import { TOOL_TURN_MAX_TOKENS, TOOL_DISCIPLINE_PROMPT, NO_THINKING } from './sampling.js';
+import { TOOL_DISCIPLINE_PROMPT, NO_THINKING } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
-import type { SamplingConfig } from '@koala/harness-types';
-import { MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS, buildAgentPrompt } from './sandbox-tools.js';
+import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
+import { buildAgentPrompt } from './sandbox-tools.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
-import { MAX_TOOL_ROUNDS } from './leaf-tools.js';
-import { PLAN_MODE_MAX_TOKENS, MAX_PROPOSALS_PER_REPLY, planSystemPrompt, AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
+import { planSystemPrompt, AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
 import {
   DEFAULT_WORKSPACE_LANGUAGE,
   MAX_WORKSPACE_SECONDS,
@@ -45,10 +44,12 @@ export function buildHarnessConfig(
   images: readonly WorkspaceImageSpec[] = [],
   /** The pack whose sampler the panels describe. */
   sampling?: SamplingConfig,
+  /** And its budget, for the same reason. */
+  budget?: BudgetConfig,
 ): HarnessConfig {
   const surfaceNames = (s: 'planning' | 'sandbox') =>
     toolRows.filter((t) => t.surfaces?.includes(s)).map((t) => t.name).join(', ');
-  const live = effectiveConfig(profileOverrides, 'tabbyapi', sampling);
+  const live = effectiveConfig(profileOverrides, 'tabbyapi', sampling, budget);
   const knob = (key: string): EffectiveKnob | undefined => live.find((k) => k.key === key);
 
   const fromKnob = (key: string, label?: string): HarnessSetting => {
@@ -71,7 +72,7 @@ export function buildHarnessConfig(
           fromKnob('think'),
           fromKnob('maxSteps'),
           fromKnob('max_tokens'),
-          { label: 'Tool result cap', value: `${MAX_TOOL_RESULT_CHARS} chars`, note: 'Truncated from the FRONT, so exit codes and errors at the tail survive.', source: 'lib/sandbox-tools.ts' },
+          { label: 'Tool result cap', value: `${budget?.toolResultChars ?? 'unset'} chars`, note: 'Truncated from the FRONT, so exit codes and errors at the tail survive.', source: 'the pack' },
           { label: 'Tools', value: surfaceNames('sandbox'), source: 'the tool catalogue' },
           { label: 'Retries per leaf', value: String(MAX_LEAF_ATTEMPTS), note: 'Each retry re-reads the DB, so it sees why the last attempt failed.', source: 'lib/leaves.ts' },
         ],
@@ -103,9 +104,9 @@ export function buildHarnessConfig(
         settings: [
           { label: 'Reasoning', value: 'on', note: 'Deliberate decision. Only the decoding pathology is suppressed.', source: 'index.ts chat route' },
           { label: 'Loop guards', value: JSON.stringify(samplingFor(sampling, 'conversation', 'tabbyapi')), source: 'the pack' },
-          { label: '/plan token budget', value: String(PLAN_MODE_MAX_TOKENS), note: 'Measured: one turn produced 7,908 chars of reasoning before 1,210 of answer. At 900 the reply never arrived, silently.', source: 'lib/plan-mode.ts' },
-          { label: 'Tool rounds per turn', value: String(MAX_TOOL_ROUNDS), source: 'lib/leaf-tools.ts' },
-          { label: 'Proposals per reply', value: String(MAX_PROPOSALS_PER_REPLY), source: 'lib/plan-mode.ts' },
+          { label: '/plan token budget', value: String(budget?.replyTokens.plan ?? 'unset'), note: 'Measured: one turn produced 7,908 chars of reasoning before 1,210 of answer. At 900 the reply never arrived, silently.', source: 'the pack' },
+          { label: 'Tool rounds per turn', value: String(budget?.rounds ?? 'unset'), source: 'the pack' },
+          { label: 'Proposals per reply', value: String(budget?.proposalsPerReply ?? 'unset'), source: 'the pack' },
           { label: 'Planning tools', value: surfaceNames('planning'), source: 'the tool catalogue' },
         ],
       },
@@ -121,7 +122,7 @@ export function buildHarnessConfig(
       },
     ],
     prompts: [
-      { id: 'agent', title: 'Agent system prompt', text: buildAgentPrompt(images, undefined, '<the leaf being worked on>') },
+      { id: 'agent', title: 'Agent system prompt', text: buildAgentPrompt(images, undefined, '<the leaf being worked on>', budget?.run.steps ?? 0) },
       { id: 'sandbox', title: 'Sandbox description (generated)', text: describeSandbox(images) },
       { id: 'discipline', title: 'Tool discipline', text: TOOL_DISCIPLINE_PROMPT },
       { id: 'plan', title: 'Plan mode', text: planSystemPrompt(images) },

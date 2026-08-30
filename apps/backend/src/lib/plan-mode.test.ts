@@ -1,67 +1,70 @@
 import { describe, it, expect } from 'vitest';
-import { extractProposals, stripProposalBlock, parseChatCommand, isChatMode, MAX_PROPOSALS_PER_REPLY } from './plan-mode.js';
+import { extractProposals, stripProposalBlock, parseChatCommand, isChatMode } from './plan-mode.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 const fenced = (json: string) => '```json\n' + json + '\n```';
 
 describe('extractProposals', () => {
   it('reads a well-formed fenced block', () => {
     const reply = 'Here is what I would do.\n\n' + fenced('{"leaves":[{"title":"Add a rate limit","body":"Token bucket on /api/chat"}]}');
-    expect(extractProposals(reply)).toEqual([{ title: 'Add a rate limit', body: 'Token bucket on /api/chat' }]);
+    expect(extractProposals(reply, BUDGET.proposalsPerReply)).toEqual([{ title: 'Add a rate limit', body: 'Token bucket on /api/chat' }]);
   });
 
   it('proposes NOTHING when the model just talks', () => {
-    expect(extractProposals('That depends on whether you want per-user or global limits. Which?')).toEqual([]);
+    expect(extractProposals('That depends on whether you want per-user or global limits. Which?', BUDGET.proposalsPerReply)).toEqual([]);
   });
 
   it('ignores a fenced code sample that is not a proposal', () => {
     const reply = 'You could write:\n\n```ts\nconst x = 1;\n```\n\nWhat do you think?';
-    expect(extractProposals(reply)).toEqual([]);
+    expect(extractProposals(reply, BUDGET.proposalsPerReply)).toEqual([]);
   });
 
   it('survives malformed JSON rather than guessing', () => {
-    expect(extractProposals(fenced('{"leaves":[{"title":"Broken"'))).toEqual([]);
-    expect(extractProposals(fenced('not json at all'))).toEqual([]);
+    expect(extractProposals(fenced('{"leaves":[{"title":"Broken"'), BUDGET.proposalsPerReply)).toEqual([]);
+    expect(extractProposals(fenced('not json at all'), BUDGET.proposalsPerReply)).toEqual([]);
   });
 
   it('accepts a bare object when the model forgets the fence', () => {
-    expect(extractProposals('Sure: {"leaves":[{"title":"Do the thing"}]}')).toEqual([{ title: 'Do the thing' }]);
+    expect(extractProposals('Sure: {"leaves":[{"title":"Do the thing"}]}', BUDGET.proposalsPerReply)).toEqual([{ title: 'Do the thing' }]);
   });
 
   it('handles a block without the json language tag', () => {
-    expect(extractProposals('```\n{"leaves":[{"title":"Untagged"}]}\n```')).toEqual([{ title: 'Untagged' }]);
+    expect(extractProposals('```\n{"leaves":[{"title":"Untagged"}]}\n```', BUDGET.proposalsPerReply)).toEqual([{ title: 'Untagged' }]);
   });
 
   it('finds the real block when an illustrative one comes first', () => {
     const reply = '```ts\nfoo()\n```\nand then:\n' + fenced('{"leaves":[{"title":"Real work"}]}');
-    expect(extractProposals(reply)).toEqual([{ title: 'Real work' }]);
+    expect(extractProposals(reply, BUDGET.proposalsPerReply)).toEqual([{ title: 'Real work' }]);
   });
 
   it('drops a proposal with no title, which would render as an unjudgeable empty leaf', () => {
-    expect(extractProposals(fenced('{"leaves":[{"body":"orphan"},{"title":"Kept"}]}'))).toEqual([{ title: 'Kept' }]);
-    expect(extractProposals(fenced('{"leaves":[{"title":"   "}]}'))).toEqual([]);
+    expect(extractProposals(fenced('{"leaves":[{"body":"orphan"},{"title":"Kept"}]}'), BUDGET.proposalsPerReply)).toEqual([{ title: 'Kept' }]);
+    expect(extractProposals(fenced('{"leaves":[{"title":"   "}]}'), BUDGET.proposalsPerReply)).toEqual([]);
   });
 
   it('ignores a payload that is not a leaves array', () => {
-    expect(extractProposals(fenced('{"leaves":"soon"}'))).toEqual([]);
-    expect(extractProposals(fenced('{"tasks":[{"title":"wrong key"}]}'))).toEqual([]);
-    expect(extractProposals(fenced('[]'))).toEqual([]);
+    expect(extractProposals(fenced('{"leaves":"soon"}'), BUDGET.proposalsPerReply)).toEqual([]);
+    expect(extractProposals(fenced('{"tasks":[{"title":"wrong key"}]}'), BUDGET.proposalsPerReply)).toEqual([]);
+    expect(extractProposals(fenced('[]'), BUDGET.proposalsPerReply)).toEqual([]);
   });
 
   it('caps a runaway reply so one turn cannot flood a branch', () => {
     const many = Array.from({ length: 50 }, (_, i) => ({ title: `Leaf ${i}` }));
-    expect(extractProposals(fenced(JSON.stringify({ leaves: many }))).length).toBe(MAX_PROPOSALS_PER_REPLY);
+    expect(extractProposals(fenced(JSON.stringify({ leaves: many })), BUDGET.proposalsPerReply).length).toBe(BUDGET.proposalsPerReply);
   });
 
   it('truncates absurd fields rather than rejecting the proposal', () => {
     const long = 'x'.repeat(10_000);
-    const [p] = extractProposals(fenced(JSON.stringify({ leaves: [{ title: long, body: long }] })));
+    const [p] = extractProposals(fenced(JSON.stringify({ leaves: [{ title: long, body: long }] })), BUDGET.proposalsPerReply);
     expect(p!.title.length).toBeLessThanOrEqual(200);
     expect(p!.body!.length).toBeLessThanOrEqual(4000);
   });
 
   it('handles empty input', () => {
-    expect(extractProposals('')).toEqual([]);
-    expect(() => extractProposals('```json\n```')).not.toThrow();
+    expect(extractProposals('', BUDGET.proposalsPerReply)).toEqual([]);
+    expect(() => extractProposals('```json\n```', BUDGET.proposalsPerReply)).not.toThrow();
   });
 });
 

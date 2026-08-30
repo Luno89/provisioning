@@ -35,14 +35,14 @@ interface PersonaPack {
 
 ## §2 Token ceilings
 
-- [ ] `TOOL_TURN_MAX_TOKENS = 800` (`sampling.ts:30`) → `pack.budget.replyTokens.tool`
-- [ ] `THINKING_TURN_MAX_TOKENS = 2000` (`sampling.ts:32`) → `pack.budget.replyTokens.thinking`
-- [ ] `FILE_TURN_MAX_TOKENS = 8000` (`sampling.ts:34`) → `pack.budget.replyTokens.writingFiles`
-- [ ] `maxTokens = 16000` default (`chat-pack-model-call.ts:34`) → `pack.budget.replyTokens.ceiling`
-- [ ] `PLAN_MODE_MAX_TOKENS = 8000` (`plan-mode.ts:86`) → `pack.budget.replyTokens.plan`
-- [ ] `FALLBACK_CONTEXT_TOKENS = 32_768` (`sampling.ts:41`) → read from the model endpoint; `pack.budget.contextTokens` only as an override
-- [ ] `CONTEXT_MARGIN_TOKENS = 512` (`sampling.ts:43`) → `pack.budget.contextMargin`
-- [ ] `MIN_TURN_TOKENS = 600` (`sampling.ts:45`) → `pack.budget.minReplyTokens`
+- [x] `TOOL_TURN_MAX_TOKENS = 800` (`sampling.ts:30`) → `pack.budget.replyTokens.tool`
+- [x] `THINKING_TURN_MAX_TOKENS = 2000` (`sampling.ts:32`) → `pack.budget.replyTokens.thinking`
+- [x] `FILE_TURN_MAX_TOKENS = 8000` (`sampling.ts:34`) → `pack.budget.replyTokens.writingFiles`
+- [x] `maxTokens = 16000` default (`chat-pack-model-call.ts:34`) → `pack.budget.replyTokens.ceiling`
+- [x] `PLAN_MODE_MAX_TOKENS = 8000` (`plan-mode.ts:86`) → `pack.budget.replyTokens.plan`
+- [x] `FALLBACK_CONTEXT_TOKENS = 32_768` (`sampling.ts:41`) → read from the model endpoint; `pack.budget.contextTokens` only as an override
+- [x] `CONTEXT_MARGIN_TOKENS = 512` (`sampling.ts:43`) → `pack.budget.contextMargin`
+- [x] `MIN_TURN_TOKENS = 600` (`sampling.ts:45`) → `pack.budget.minReplyTokens`
 
 ## §3 Prompt sections injected around the pack's prompt
 
@@ -65,26 +65,26 @@ interface PersonaPack {
 
 ## §5 Loop budgets
 
-- [ ] `MAX_TOOL_ROUNDS = 8` (`leaf-tools.ts:5`) → `pack.budget.rounds`
-- [ ] `maxRounds = 12` default (`chat-runtime.ts`) → `pack.budget.rounds` (one value, not two)
-- [ ] `MAX_TOOL_CALLS = 6` per round (`round-loop.ts:148`) → `pack.budget.callsPerRound`
-- [ ] `MAX_TOOL_ARGS = 400` (`round-loop.ts:149`) → `pack.budget.toolArgChars`
-- [ ] `MAX_TOOL_DIGEST = 2000` (`round-loop.ts:150`) → `pack.budget.toolResultChars`
-- [ ] `MAX_PROPOSALS_PER_REPLY = 8` (`plan-mode.ts:88`) → `pack.behaviour.planMode.maxProposals`
+- [x] `MAX_TOOL_ROUNDS = 8` (`leaf-tools.ts:5`) → `pack.budget.rounds`
+- [x] `maxRounds = 12` default (`chat-runtime.ts`) → `pack.budget.rounds`. **The two collapsed to 8**, which is what `MAX_TOOL_ROUNDS` was and what the harness config panel already advertised; `/api/chat-pack` turns therefore take 8 rounds where they took 12
+- [x] `MAX_TOOL_CALLS = 6` per round (`round-loop.ts:148`) → `pack.budget.callsPerRound`
+- [x] `MAX_TOOL_ARGS = 400` (`round-loop.ts:149`) → `pack.budget.toolArgChars`
+- [x] `MAX_TOOL_DIGEST = 2000` (`round-loop.ts:150`) → `pack.budget.toolResultChars`
+- [x] `MAX_PROPOSALS_PER_REPLY = 8` (`plan-mode.ts:88`) → `pack.behaviour.planMode.maxProposals`
 
 ## §6 Trimming — what the model is actually shown
 
-- [ ] `KOALA_CONTEXT_PRESSURE = 0.55` (`koala-context.ts:4`) → `pack.budget.handoffAt`
-- [ ] `KOALA_HANDOFF_TAIL = 4` (`koala-context.ts:6`) → `pack.budget.handoffTail`
-- [ ] `MAX_GOAL_CHARS` / `MAX_DISCOVERY_CHARS` / `MAX_DISCOVERIES` / `MAX_LISTED_PROPOSALS` (`koala-context.ts:8-11`) → `pack.budget.handoff{...}`
-- [ ] `CONVERSATION_CHAR_BUDGET = 60_000` (`sandbox-tools.ts`) → `pack.budget.conversationChars`
-- [ ] `MAX_TOOL_RESULT_CHARS = 8_000` (`sandbox-tools.ts:59`) → `pack.budget.toolResultChars` (same knob as `MAX_TOOL_DIGEST`; pick one)
-- [ ] `MAX_AGENT_STEPS = 200` (`sandbox-tools.ts:4`) → `pack.workspace.run.maxSteps` (exists; the CEILING is what is hardcoded)
-- [ ] `MAX_AGENT_TOKENS = 1_000_000` (`sandbox-tools.ts:6`) → `pack.budget.runTokens`
-- [ ] `WRAPUP_STEPS = 4` (`sandbox-tools.ts:10`) → `pack.workspace.run.wrapUpSteps`
-- [ ] `DEFAULT_CONVERSATION_GROWTH = 2` (`sandbox-tools.ts`) → already a tunable; make the pack the layer that sets it
-- [ ] `MAX_CONVERSATION_MESSAGE = 6000` (`agent-loop.ts:69`) → `pack.budget.messageChars`
-- [ ] `MAX_TRACE_REASONING/CONTENT/TOOL_RESULT/TOOL_ARGS` (`agent-loop.ts:64-67`) → `pack.budget.trace{...}` (record shape, not model input — lowest priority)
+- [x] `KOALA_CONTEXT_PRESSURE = 0.55` (`koala-context.ts:4`) → `pack.budget.handoffAt`
+- [x] `KOALA_HANDOFF_TAIL = 4` (`koala-context.ts:6`) → `pack.budget.handoffTail`
+- [x] `MAX_GOAL_CHARS` / `MAX_DISCOVERY_CHARS` / `MAX_DISCOVERIES` / `MAX_LISTED_PROPOSALS` (`koala-context.ts:8-11`) → `pack.budget.handoff{...}`
+- [x] `CONVERSATION_CHAR_BUDGET = 60_000` (`sandbox-tools.ts`) → `pack.budget.conversationChars`
+- [x] `MAX_TOOL_RESULT_CHARS = 8_000` → `pack.budget.toolResultChars`. NOT the same knob as `MAX_TOOL_DIGEST` after all: this one clamps what the model is SHOWN, the digest clamps what is written to a frame. They live in `budget.toolResultChars` and `budget.record.digestChars`
+- [x] `MAX_AGENT_STEPS = 200` (`sandbox-tools.ts:4`) → `pack.workspace.run.maxSteps` (exists; the CEILING is what is hardcoded)
+- [x] `MAX_AGENT_TOKENS = 1_000_000` (`sandbox-tools.ts:6`) → `pack.budget.runTokens`
+- [x] `WRAPUP_STEPS = 4` (`sandbox-tools.ts:10`) → `pack.workspace.run.wrapUpSteps`
+- [x] `DEFAULT_CONVERSATION_GROWTH = 2` (`sandbox-tools.ts`) → already a tunable; make the pack the layer that sets it
+- [x] `MAX_CONVERSATION_MESSAGE = 6000` (`agent-loop.ts:69`) → `pack.budget.messageChars`
+- [x] `MAX_TRACE_REASONING/CONTENT/TOOL_RESULT/TOOL_ARGS` (`agent-loop.ts:64-67`) → `pack.budget.trace{...}` (record shape, not model input — lowest priority)
 
 ## §7 Tool metadata split across four tables
 

@@ -1,5 +1,6 @@
 
 import type { UnifiedFrame } from './chat-wire.js';
+import type { BudgetConfig } from '@koala/harness-types';
 
 export interface TurnOutcome {
   answer: string;
@@ -22,7 +23,10 @@ export interface ChatRuntimeDeps {
   messages: unknown[];
   tools?: string[];
   trimPerRound?: (messages: unknown[]) => unknown[];
-  maxRounds?: number;
+  /** Rounds of tool calling this turn may take. The pack's; there is no default here. */
+  maxRounds: number;
+  /** What the round loop records per round — also the pack's. */
+  record: BudgetConfig['record'];
   onFrame?: (frame: UnifiedFrame) => void;
   onEachToolResult?: (frame: UnifiedFrame) => void;
 }
@@ -37,7 +41,7 @@ export interface ChatTurnResult {
 export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult> {
   const {
     call, executeTool, messages, tools: initialTools = [],
-    trimPerRound, maxRounds = 12, onFrame: onFrameProp, onEachToolResult,
+    trimPerRound, maxRounds, record, onFrame: onFrameProp, onEachToolResult,
   } = deps;
 
   const emitFrame = onFrameProp ?? onEachToolResult;
@@ -57,6 +61,9 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
 
   const result = await round({
     maxRounds,
+    maxToolCallsPerMessage: record.callsPerRound,
+    maxToolCallArgs: record.argChars,
+    maxToolCallDigest: record.digestChars,
     messages,
     tools: initialTools,
     call: call as any,

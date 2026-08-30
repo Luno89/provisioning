@@ -18,14 +18,3 @@ export function samplingFor(
   };
 }
 
-/**
- * The sampler for a caller that names no pack — a plain chat turn, a probe, the suite author. It is
- * the shipped `koala` row, so it is a record the user can edit, not a constant this module keeps.
- * Undefined only when nothing is seeded, in which case the engine's own defaults apply.
- */
-export async function defaultSampling(
-  store: { getPersonaPacks(): Promise<{ slug: string; ownerId?: string | undefined; sampling?: SamplingConfig }[]> },
-): Promise<SamplingConfig | undefined> {
-  const rows = await store.getPersonaPacks();
-  return rows.find((p) => p.slug === 'koala' && p.ownerId === undefined)?.sampling;
-}

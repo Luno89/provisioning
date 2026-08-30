@@ -1,26 +1,19 @@
 import { describeSandbox, type WorkspaceLanguage, type WorkspaceSpec } from './workspace-spec.js';
 import { imageForLanguage } from './workspace-image-catalogue.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
-import { FALLBACK_CONTEXT_TOKENS } from './sampling.js';
-
-export const MAX_AGENT_STEPS = 200;
-
-export const MAX_AGENT_TOKENS = 1_000_000;
-
-export const RESEARCH_AGENT_STEPS = 100;
-
-export const WRAPUP_STEPS = 4;
+import type { BudgetConfig } from '@koala/harness-types';
 
 export interface PacingNote {
   atRemaining: number;
   message: string;
 }
 
-export const CODE_PACING: PacingNote[] = [
-  { atRemaining: WRAPUP_STEPS, message: 'Commit and push what you have NOW, then call `finish` — anything uncommitted is lost.' },
+/** The fallback pacing for a pack that states none. `wrapUpSteps` is the pack's. */
+export const codePacing = (wrapUpSteps: number): PacingNote[] => [
+  { atRemaining: wrapUpSteps, message: 'Commit and push what you have NOW, then call `finish` — anything uncommitted is lost.' },
 ];
 
-export function researchPacing(maxSteps: number, findingsPath: string): PacingNote[] {
+export function researchPacing(maxSteps: number, findingsPath: string, wrapUpSteps: number): PacingNote[] {
   return [
     {
       atRemaining: Math.floor(maxSteps / 2),
@@ -29,7 +22,7 @@ export function researchPacing(maxSteps: number, findingsPath: string): PacingNo
         + 'You can search again afterwards if something is missing, but the file must exist first.',
     },
     {
-      atRemaining: WRAPUP_STEPS,
+      atRemaining: wrapUpSteps,
       message:
         `Write ${findingsPath} NOW and call \`finish\`. It is the only thing kept — an answer that `
         + 'exists only in your replies is lost, and an empty file fails the leaf.',
@@ -58,22 +51,26 @@ export function pacingNoteFor(remaining: number, notes: PacingNote[]): PacingNot
     .sort((a, b) => a.atRemaining - b.atRemaining)[0];
 }
 
-export const MAX_TOOL_RESULT_CHARS = 8_000;
-
-export const CONVERSATION_CHAR_BUDGET = 60_000;
-
 const CHARS_PER_TOKEN = 4;
 
-const RETENTION_FRACTION = CONVERSATION_CHAR_BUDGET / (FALLBACK_CONTEXT_TOKENS * CHARS_PER_TOKEN);
-
-export const DEFAULT_CONVERSATION_GROWTH = 2;
-
+/**
+ * How many characters of conversation to keep, scaled to the window the endpoint actually has. The
+ * pack states the floor and how far above it a bigger window may go; the retention fraction is what
+ * that floor represents in the pack's own fallback window, so a pack that raises one raises both
+ * consistently.
+ */
 export function conversationBudget(
-  contextTokens: number = FALLBACK_CONTEXT_TOKENS,
-  growth: number = DEFAULT_CONVERSATION_GROWTH,
+  budget: BudgetConfig,
+  contextTokens?: number,
+  growth?: number,
 ): number {
-  const proportional = Math.floor(contextTokens * CHARS_PER_TOKEN * RETENTION_FRACTION);
-  return Math.max(CONVERSATION_CHAR_BUDGET, Math.min(proportional, CONVERSATION_CHAR_BUDGET * growth));
+  const window = contextTokens ?? budget.contextTokens;
+  const retention = budget.conversationChars / (budget.contextTokens * CHARS_PER_TOKEN);
+  const proportional = Math.floor(window * CHARS_PER_TOKEN * retention);
+  return Math.max(
+    budget.conversationChars,
+    Math.min(proportional, budget.conversationChars * (growth ?? budget.conversationGrowth)),
+  );
 }
 
 const DROPPED = '[earlier tool output dropped to fit the context window — re-run the tool if you still need it]';
@@ -104,7 +101,7 @@ function elideWrites(m: { tool_calls?: unknown }): unknown | undefined {
 
 export function trimConversation<T extends { role?: string; content?: unknown }>(
   messages: T[],
-  budget: number = CONVERSATION_CHAR_BUDGET,
+  budget: number,
 ): T[] {
   const size = (m: T) => {
     const content = typeof m.content === 'string' ? m.content.length : 0;
@@ -145,7 +142,7 @@ export function buildAgentPrompt(
   images: readonly WorkspaceImageSpec[],
   language: WorkspaceLanguage | undefined,
   taskContext: string,
-  maxSteps: number = MAX_AGENT_STEPS,
+  maxSteps: number,
   sandbox: Pick<WorkspaceSpec, 'egress' | 'env' | 'cpu' | 'memory'> = {},
 ): string {
   return [
@@ -167,8 +164,7 @@ export function buildAgentPrompt(
   ].join('\n');
 }
 
-export function clampToolResult(text: string, max: number | undefined = MAX_TOOL_RESULT_CHARS): string {
-  const cap = max ?? MAX_TOOL_RESULT_CHARS;
+export function clampToolResult(text: string, cap: number): string {
   if (text.length <= cap) return text;
   return `…[${text.length - cap} characters truncated]\n${text.slice(-cap)}`;
 }

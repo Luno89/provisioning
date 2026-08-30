@@ -84,15 +84,11 @@ export function parseChatCommand(message: string): ChatCommand {
   return { command: 'plan', text: (match[1] ?? '').trim() };
 }
 
-export const PLAN_MODE_MAX_TOKENS = 8000;
-
-export const MAX_PROPOSALS_PER_REPLY = 8;
-
 const MAX_TITLE = 200;
 const MAX_BODY = 4000;
 const MAX_PERSONA_NAME = 60;
 
-export function extractProposals(reply: string): LeafProposal[] {
+export function extractProposals(reply: string, maxProposals: number): LeafProposal[] {
   if (!reply) return [];
 
   const blocks = [...reply.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((m) => m[1] ?? '');
@@ -131,7 +127,7 @@ export function extractProposals(reply: string): LeafProposal[] {
         ...(projectId ? { projectId } : {}),
       });
 
-      if (proposals.length >= MAX_PROPOSALS_PER_REPLY) return proposals;
+      if (proposals.length >= maxProposals) return proposals;
     }
   }
 

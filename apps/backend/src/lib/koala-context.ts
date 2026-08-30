@@ -1,17 +1,13 @@
 import { contextPressure } from './sampling.js';
+import type { BudgetConfig } from '@koala/harness-types';
 import type { Conversation, ConversationMessage, ProposedTree, ProposedSpec } from './conversations.js';
 
-export const KOALA_CONTEXT_PRESSURE = 0.55;
-
-export const KOALA_HANDOFF_TAIL = 4;
-
-const MAX_GOAL_CHARS = 600;
-const MAX_DISCOVERY_CHARS = 160;
-const MAX_DISCOVERIES = 8;
-const MAX_LISTED_PROPOSALS = 10;
-
-export function needsHandoff(promptChars: number, incomingChars: number): boolean {
-  return contextPressure(promptChars + incomingChars) >= KOALA_CONTEXT_PRESSURE;
+export function needsHandoff(
+  budget: BudgetConfig,
+  promptChars: number,
+  incomingChars: number,
+): boolean {
+  return contextPressure(budget, promptChars + incomingChars) >= budget.handoff.at;
 }
 
 function lastHandoffIndex(messages: ConversationMessage[]): number {
@@ -26,30 +22,31 @@ export function historyForPrompt(messages: ConversationMessage[]): ConversationM
   return at === -1 ? messages : messages.slice(at);
 }
 
-function keyDiscoveries(messages: ConversationMessage[]): string[] {
+function keyDiscoveries(budget: BudgetConfig, messages: ConversationMessage[]): string[] {
   const out: string[] = [];
   for (const m of messages) {
     for (const call of m.toolCalls ?? []) {
       if (!call.ok) continue;
-      const digest = call.digest.replace(/\s+/g, ' ').trim().slice(0, MAX_DISCOVERY_CHARS);
+      const digest = call.digest.replace(/\s+/g, ' ').trim().slice(0, budget.handoff.discoveryChars);
       if (digest) out.push(`${call.name} → ${digest}`);
     }
   }
-  return out.reverse().slice(0, MAX_DISCOVERIES);
+  return out.reverse().slice(0, budget.handoff.discoveries);
 }
 
 function listProposals(
+  budget: BudgetConfig,
   trees: ProposedTree[] = [],
   specs: ProposedSpec[] = [],
 ): { open: string[]; accepted: string[] } {
   const open: string[] = [];
   const accepted: string[] = [];
 
-  for (const t of trees.slice(0, MAX_LISTED_PROPOSALS)) {
+  for (const t of trees.slice(0, budget.handoff.listedProposals)) {
     const line = `project "${t.name}" (${t.type}) — ${t.goal}`;
     (t.treeId ? accepted : open).push(line);
   }
-  for (const s of specs.slice(0, MAX_LISTED_PROPOSALS)) {
+  for (const s of specs.slice(0, budget.handoff.listedProposals)) {
     const id = (s.spec as { id?: string } | null)?.id ?? s.id;
     const line = `app spec "${id}"`;
     (s.acceptedAt ? accepted : open).push(line);
@@ -57,12 +54,16 @@ function listProposals(
   return { open, accepted };
 }
 
-export function buildHandoffNotice(conversation: Conversation, now = new Date().toISOString()): ConversationMessage {
+export function buildHandoffNotice(
+  budget: BudgetConfig,
+  conversation: Conversation,
+  now = new Date().toISOString(),
+): ConversationMessage {
   const messages = historyForPrompt(conversation.messages);
   const firstUser = messages.find((m) => m.role === 'user' && !m.notice);
-  const goal = (firstUser?.content ?? conversation.title).replace(/\s+/g, ' ').trim().slice(0, MAX_GOAL_CHARS);
-  const { open, accepted } = listProposals(conversation.proposedTrees, conversation.proposedSpecs);
-  const discoveries = keyDiscoveries(messages);
+  const goal = (firstUser?.content ?? conversation.title).replace(/\s+/g, ' ').trim().slice(0, budget.handoff.goalChars);
+  const { open, accepted } = listProposals(budget, conversation.proposedTrees, conversation.proposedSpecs);
+  const discoveries = keyDiscoveries(budget, messages);
 
   const lines = [
     'Earlier messages in this conversation were summarised to fit the context window.',
@@ -90,18 +91,20 @@ export function buildHandoffNotice(conversation: Conversation, now = new Date().
   return { role: 'assistant', content: lines.join('\n'), at: now, notice: true, handoff: true };
 }
 
-export function withHandoff(conversation: Conversation, now = new Date().toISOString()): ConversationMessage[] {
-  const notice = buildHandoffNotice(conversation, now);
+export function withHandoff(
+  budget: BudgetConfig,
+  conversation: Conversation,
+  now = new Date().toISOString(),
+): ConversationMessage[] {
+  const notice = buildHandoffNotice(budget, conversation, now);
   const current = historyForPrompt(conversation.messages);
-  const tail = current.filter((m) => !m.handoff).slice(-KOALA_HANDOFF_TAIL);
+  const tail = current.filter((m) => !m.handoff).slice(-budget.handoff.tail);
   const kept = conversation.messages.slice(0, conversation.messages.length - current.length);
   return [...kept, notice, ...tail];
 }
 
-export const KOALA_REASONING_KEPT = 6;
-
-export function trimKoalaThread(messages: ConversationMessage[]): ConversationMessage[] {
-  const cutoff = messages.length - KOALA_REASONING_KEPT;
+export function trimKoalaThread(budget: BudgetConfig, messages: ConversationMessage[]): ConversationMessage[] {
+  const cutoff = messages.length - budget.handoff.reasoningKept;
   return messages.map((m, i) => {
     if (i >= cutoff || !m.reasoning) return m;
     const { reasoning: _dropped, ...rest } = m;

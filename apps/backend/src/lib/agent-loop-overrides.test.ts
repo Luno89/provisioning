@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runAgentLoop, type SandboxDriver } from './agent-loop.js';
 import { TUNABLES } from './tunables.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 const sse = (frames: unknown[]) =>
   frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -45,7 +48,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] }]);
     const customPrompt = 'Custom System Prompt For Testing Only';
     
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model',
       taskContext: 'My Task',
       sandbox: sandbox(),
@@ -64,7 +67,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] }]);
     const extraText = 'ALWAYS USE DOUBLE QUOTES';
 
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model',
       taskContext: 'My Task',
       sandbox: sandbox(),
@@ -80,7 +83,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
   it('honours maxSteps override over option maxSteps', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
     
-    const result = await runAgentLoop({
+    const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model',
       taskContext: 'My Task',
       sandbox: sandbox(),
@@ -103,7 +106,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
       { tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] },
     ]);
 
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model',
       taskContext: 'My Task',
       sandbox: box,
@@ -119,7 +122,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
   it('passes think override as enable_thinking under template_vars', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] }]);
 
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model',
       taskContext: 'My Task',
       sandbox: sandbox(),
@@ -134,7 +137,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
   it('passes sampling overrides (temperature, top_p, etc.) to the wire body', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] }]);
 
-    await runAgentLoop({
+    await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model',
       taskContext: 'My Task',
       sandbox: sandbox(),

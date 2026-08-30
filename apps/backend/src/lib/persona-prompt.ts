@@ -1,6 +1,7 @@
 
-import { contextPressure, FALLBACK_CONTEXT_TOKENS } from './sampling.js';
+import { contextPressure } from './sampling.js';
 import { ALL_TOOL_SEEDS, type ToolRepositoryItem } from './tool-seeds.js';
+import type { BudgetConfig } from '@koala/harness-types';
 
 export interface McpServerItem {
   name: string;
@@ -22,13 +23,13 @@ export interface PersonaPromptOptions {
 }
 
 export function composePersonaPrompt(
+  budget: BudgetConfig,
   basePrompt: string,
   options?: PersonaPromptOptions,
 ): string {
   const sections: string[] = [basePrompt.trim()];
   const historyChars = options?.historyChars ?? 0;
-  const maxTokens = options?.maxContextTokens ?? FALLBACK_CONTEXT_TOKENS;
-  const pressure = contextPressure(basePrompt.length + historyChars, maxTokens);
+  const pressure = contextPressure(budget, basePrompt.length + historyChars, options?.maxContextTokens);
 
   if (options?.isAdmin) {
     sections.push(
@@ -142,6 +143,7 @@ export function composePersonaPrompt(
 }
 
 export function buildKoalaPrompt(
+  budget: BudgetConfig,
   base: string,
   servers: readonly McpServerItem[],
   enabled: readonly string[],
@@ -155,7 +157,7 @@ export function buildKoalaPrompt(
     toolRegistry?: readonly ToolRepositoryItem[];
   },
 ): string {
-  return composePersonaPrompt(base, {
+  return composePersonaPrompt(budget, base, {
     servers,
     enabledServers: enabled,
     activeTools,

@@ -6,6 +6,7 @@ import { validateOverrides } from '../lib/tunables.js';
 import { validatePack } from '../lib/packs.js';
 import type { PersonaPack } from '@koala/harness-types';
 import type { Database } from '../lib/db-interface.js';
+import { requireBudget } from '../lib/pack-defaults.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -42,7 +43,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
 
   router.post('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const { slug, name, description, personaId, tools, overrides, sampling } = req.body ?? {};
+    const { slug, name, description, personaId, tools, overrides, sampling, budget } = req.body ?? {};
 
     const existing = await visiblePacks(userId);
     const personas = await visiblePersonas(userId);
@@ -54,6 +55,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     if (invalid) return res.status(400).json({ error: invalid });
 
     const now = new Date().toISOString();
+    const template = existing.find((p) => p.builtIn) ?? existing[0];
     const pack: PersonaPack = {
       id: uuidv4(),
       ownerId: userId,
@@ -67,8 +69,8 @@ export function packsRouter(deps: PacksRouterDeps): Router {
        * than a constant — there is no module left to fall back to, and a pack with no sampler
        * would send none at all.
        */
-      sampling: sampling ?? existing.find((p) => p.builtIn)?.sampling ?? existing[0]?.sampling
-        ?? { toolTurn: {}, conversation: {} },
+      sampling: sampling ?? template?.sampling ?? { toolTurn: {}, conversation: {} },
+      budget: budget ?? template?.budget ?? await requireBudget(db),
       overrides: overrides ?? {},
       createdAt: now,
       updatedAt: now,

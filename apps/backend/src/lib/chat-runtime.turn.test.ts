@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runChatTurn } from './chat-runtime.js';
 import type { UnifiedFrame } from './chat-wire.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 function fakeStream(chunks: string[]) {
   const enc = new TextEncoder();
@@ -27,7 +30,7 @@ describe('runChatTurn (fake model)', () => {
     });
 
     const frames: UnifiedFrame[] = [];
-    const result = await runChatTurn({
+    const result = await runChatTurn({ maxRounds: BUDGET.rounds, record: BUDGET.record,
       messages: [{ role: 'system', content: 'You are Koala.' }, { role: 'user', content: 'check' }],
       tools: ['get_logs'],
       call,
@@ -50,7 +53,7 @@ describe('runChatTurn (fake model)', () => {
   it('streams content live through onEachToolResult as it parses', async () => {
     const call = vi.fn().mockResolvedValue({ ok: true, body: content('live-answer') });
     const live: UnifiedFrame[] = [];
-    const result = await runChatTurn({
+    const result = await runChatTurn({ maxRounds: BUDGET.rounds, record: BUDGET.record,
       messages: [{ role: 'user', content: 'hi' }],
       call,
       executeTool: async () => ({ content: '' }),
@@ -76,7 +79,7 @@ describe('runChatTurn (fake model)', () => {
       proposed: { id: 'tree-1', name: 'App' },
     });
 
-    const result = await runChatTurn({
+    const result = await runChatTurn({ maxRounds: BUDGET.rounds, record: BUDGET.record,
       messages: [{ role: 'user', content: 'test' }],
       tools: ['get_logs'],
       call,
@@ -103,7 +106,7 @@ describe('runChatTurn (fake model)', () => {
       .mockResolvedValueOnce({ ok: true, body: content('done') });
 
     const frames: UnifiedFrame[] = [];
-    await runChatTurn({
+    await runChatTurn({ maxRounds: BUDGET.rounds, record: BUDGET.record,
       messages: [{ role: 'user', content: 'go' }],
       tools: ['get_logs'],
       call,

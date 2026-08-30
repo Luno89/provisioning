@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { pacingNoteFor, researchPacing, CODE_PACING, trimConversation, toolsForStep } from './sandbox-tools.js';
+import { pacingNoteFor, researchPacing, codePacing, trimConversation, toolsForStep } from './sandbox-tools.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 
-const RESEARCH = researchPacing(40, '/work/findings.md');
+const BUDGET = PACK_SEEDS[0]!.budget;
+
+const RESEARCH = researchPacing(40, '/work/findings.md', BUDGET.run.wrapUpSteps);
 
 describe('pacing the agent towards saving its work', () => {
   it('says nothing while there is plenty of budget left', () => {
@@ -25,16 +28,16 @@ describe('pacing the agent towards saving its work', () => {
   });
 
   it('scales the halfway note with the budget rather than hardcoding a step count', () => {
-    expect(pacingNoteFor(50, researchPacing(100, '/work/findings.md'))?.message).toContain('STOP SEARCHING');
-    expect(pacingNoteFor(51, researchPacing(100, '/work/findings.md'))).toBeUndefined();
+    expect(pacingNoteFor(50, researchPacing(100, '/work/findings.md', BUDGET.run.wrapUpSteps))?.message).toContain('STOP SEARCHING');
+    expect(pacingNoteFor(51, researchPacing(100, '/work/findings.md', BUDGET.run.wrapUpSteps))).toBeUndefined();
   });
 
   it('still tells a coding leaf to commit and push', () => {
-    expect(pacingNoteFor(2, CODE_PACING)?.message).toContain('Commit and push');
+    expect(pacingNoteFor(2, codePacing(BUDGET.run.wrapUpSteps))?.message).toContain('Commit and push');
   });
 
   it('stops once the budget is spent — there is nothing left to act on', () => {
-    expect(pacingNoteFor(0, CODE_PACING)).toBeUndefined();
+    expect(pacingNoteFor(0, codePacing(BUDGET.run.wrapUpSteps))).toBeUndefined();
     expect(pacingNoteFor(-1, RESEARCH)).toBeUndefined();
   });
 });

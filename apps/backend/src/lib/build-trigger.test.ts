@@ -51,7 +51,7 @@ describe('a plan that mixes tool calls and prose', () => {
   const route = read('../routes/chat.ts');
 
   it('keeps prose proposals the tool calls did not cover', () => {
-    expect(route).toMatch(/const fromProse = extracted\?\.length \? extracted : extractProposals\(reply\)/);
+    expect(route).toMatch(/const fromProse = extracted\?\.length\s*\n?\s*\? extracted\s*\n?\s*: extractProposals\(reply, budget\.proposalsPerReply\)/);
     expect(route).toMatch(/newProposals\(fromProse/);
   });
 

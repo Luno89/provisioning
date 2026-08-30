@@ -23,6 +23,7 @@ import type {
   ExperimentRunFinished, ExperimentRunStarted, ExperimentStepEvent,
 } from '@koala/harness-types';
 import type { WebSearchFn } from '../lib/web-tools.js';
+import { requireBudget } from '../lib/pack-defaults.js';
 import {
   plannedRuns,
   experimentTasks,
@@ -387,7 +388,7 @@ export class ExperimentService {
             model: provider.model,
             ...(provider.kind ? { kind: provider.kind } : {}),
             language,
-            ...agentRunOptions(variantPack, {
+            ...agentRunOptions(variantPack?.budget ?? await requireBudget(this.db), variantPack, {
               taskContext: task.prompt,
               overrides: resolvedForVariant.overrides,
               memoryContext,

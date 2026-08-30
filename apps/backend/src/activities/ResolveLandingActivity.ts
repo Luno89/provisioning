@@ -20,6 +20,7 @@ import { buildVerifyScript, parseVerifyResult, defaultVerifyCommand } from '../l
 import type { ProjectMetadata } from '../lib/types.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
+import { requireBudget } from '../lib/pack-defaults.js';
 
 export interface ResolveLandingArgs {
   leafId: string;
@@ -127,7 +128,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
           model: provider.model,
           ...(provider.kind ? { kind: provider.kind } : {}),
           ...(language ? { language } : {}),
-          ...agentRunOptions(pack, {
+          ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
             taskContext: buildMergeTask(branch, state.files),
             overrides: resolved.overrides,
             sandbox: {

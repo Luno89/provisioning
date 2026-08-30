@@ -11,7 +11,7 @@ import { corpusEndpoints } from '../lib/web-tools-resolver.js';
 import { searchMemories, bodyOf } from '../lib/memory-index.js';
 import { admitMemory } from '../lib/memory-decide.js';
 import type { MemoryItem } from '../lib/memory-store.js';
-import { defaultSampling } from '../lib/pack-sampling.js';
+import { defaultSampling } from '../lib/pack-defaults.js';
 
 async function main(): Promise<void> {
   const db = createDatabase();

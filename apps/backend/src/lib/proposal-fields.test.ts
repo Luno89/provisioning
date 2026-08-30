@@ -3,6 +3,9 @@ import { extractProposals } from './plan-mode.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT } from './extraction.js';
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
 import { forSurface } from './tool-catalogue.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
 
@@ -37,23 +40,23 @@ describe('the prose parser, on the block the model actually wrote', () => {
   }) + '\n```';
 
   it('keeps both fields', () => {
-    const [p] = extractProposals(reply);
+    const [p] = extractProposals(reply, BUDGET.proposalsPerReply);
     expect(p!.persona).toBe('Builder');
     expect(p!.mcp).toEqual(['github-mcp']);
   });
 
   it('drops blanks and duplicates from mcp', () => {
-    const [p] = extractProposals('```json{"leaves":[{"title":"x","mcp":["a"," ","a",""]}]}```');
+    const [p] = extractProposals('```json{"leaves":[{"title":"x","mcp":["a"," ","a",""]}]}```', BUDGET.proposalsPerReply);
     expect(p!.mcp).toEqual(['a']);
   });
 
   it('omits mcp entirely rather than sending an empty array', () => {
-    const [p] = extractProposals('```json{"leaves":[{"title":"x"}]}```');
+    const [p] = extractProposals('```json{"leaves":[{"title":"x"}]}```', BUDGET.proposalsPerReply);
     expect(p).not.toHaveProperty('mcp');
   });
 
   it('ignores a non-array mcp', () => {
-    const [p] = extractProposals('```json{"leaves":[{"title":"x","mcp":"github-mcp"}]}```');
+    const [p] = extractProposals('```json{"leaves":[{"title":"x","mcp":"github-mcp"}]}```', BUDGET.proposalsPerReply);
     expect(p).not.toHaveProperty('mcp');
   });
 });
@@ -67,7 +70,7 @@ describe('the project a plan says the work belongs in', () => {
   });
 
   it('is carried by the prose parser', () => {
-    const [p] = extractProposals('```json{"leaves":[{"title":"Verify it","projectId":"p-9"}]}```');
+    const [p] = extractProposals('```json{"leaves":[{"title":"Verify it","projectId":"p-9"}]}```', BUDGET.proposalsPerReply);
     expect(p!.projectId).toBe('p-9');
   });
 
@@ -78,12 +81,12 @@ describe('the project a plan says the work belongs in', () => {
   });
 
   it('is omitted rather than sent empty', () => {
-    const [p] = extractProposals('```json{"leaves":[{"title":"x","projectId":"  "}]}```');
+    const [p] = extractProposals('```json{"leaves":[{"title":"x","projectId":"  "}]}```', BUDGET.proposalsPerReply);
     expect(p).not.toHaveProperty('projectId');
   });
 
   it('ignores a non-string', () => {
-    const [p] = extractProposals('```json{"leaves":[{"title":"x","projectId":{"id":"p-9"}}]}```');
+    const [p] = extractProposals('```json{"leaves":[{"title":"x","projectId":{"id":"p-9"}}]}```', BUDGET.proposalsPerReply);
     expect(p).not.toHaveProperty('projectId');
   });
 });

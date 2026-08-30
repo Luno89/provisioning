@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryDB } from '../lib/memory-db.js';
 import type { Leaf } from '../lib/leaves.js';
+import { seedPacks } from '../lib/pack-seeds.js';
+import { seedPersonas } from '../lib/persona-seeds.js';
 
 const resolveBaseUrl = vi.fn();
 const readStreamedReply = vi.fn();
@@ -27,6 +29,9 @@ const DIFF = '+const bucket = new TokenBucket(100);\n+// TODO: wire the middlewa
 const seeded = async (records: Leaf[], evidence?: any) => {
   const fresh = new MemoryDB();
   await fresh.init();
+  // The budget is the pack's, so a run needs the shipped packs present.
+  await seedPersonas(fresh);
+  await seedPacks(fresh);
   for (const l of records) await fresh.saveLeaf(l);
   if (evidence) {
     await fresh.saveLeafTrace({

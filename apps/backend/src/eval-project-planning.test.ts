@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { extractProposals, planSystemPrompt } from './lib/plan-mode.js';
 import { buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './lib/workspace-image-seeds.js';
+import { PACK_SEEDS } from './lib/pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 describe('Project Planning & Leaf Decomposition Rigorous Evaluator', () => {
   it('includes clear instructions in planSystemPrompt(IMAGES) for breaking down projects', () => {
@@ -48,7 +51,7 @@ Here is the plan to build the GitHub API client:
 \`\`\`
 `;
 
-    const proposals = extractProposals(reasoningReply);
+    const proposals = extractProposals(reasoningReply, BUDGET.proposalsPerReply);
     expect(proposals).toHaveLength(4);
 
     const imperativeVerbs = ['Implement', 'Create', 'Build', 'Add', 'Configure', 'Setup'];
@@ -66,7 +69,7 @@ GitHub's REST API exposes the \`/search/code\` endpoint which allows searching c
 To search for React projects, you can pass \`q=language:typescript+framework:react\`. Let me know if you want me to write code for this!
 `;
 
-    const proposals = extractProposals(qaReply);
+    const proposals = extractProposals(qaReply, BUDGET.proposalsPerReply);
     expect(proposals).toHaveLength(0);
   });
 

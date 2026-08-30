@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { buildChatCompletionRequest } from './chat-pack-model-call.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 describe('buildChatCompletionRequest — the provider request for a pack turn', () => {
   it('uses tool-turn sampling: no conversation penalties that kill tool calls', () => {
-    const req = buildChatCompletionRequest({
+    const req = buildChatCompletionRequest({ budget: BUDGET,
       baseUrl: 'http://x',
       provider: { kind: 'vllm', model: 'm' },
       messages: [{ role: 'user', content: 'hi' }],
@@ -16,7 +19,7 @@ describe('buildChatCompletionRequest — the provider request for a pack turn', 
   });
 
   it('passes messages, tools, and the provider model through', () => {
-    const req = buildChatCompletionRequest({
+    const req = buildChatCompletionRequest({ budget: BUDGET,
       baseUrl: 'http://x',
       provider: { kind: 'vllm', model: 'm' },
       messages: [{ role: 'user', content: 'hi' }],
@@ -29,7 +32,7 @@ describe('buildChatCompletionRequest — the provider request for a pack turn', 
   });
 
   it('adds a forced bare wrap-up when toolChoice is none', () => {
-    const req = buildChatCompletionRequest({
+    const req = buildChatCompletionRequest({ budget: BUDGET,
       baseUrl: 'http://x',
       provider: { kind: 'vllm' },
       messages: [], tools: [], overrides: {},

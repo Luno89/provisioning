@@ -1,8 +1,6 @@
 import type { ModelKind } from './model-registry.js';
-import { TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
-import type { SamplingConfig } from '@koala/harness-types';
-import { MAX_AGENT_TOKENS, MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS } from './sandbox-tools.js';
+import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
 import type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType } from '@koala/harness-types';
 
 export type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType };
@@ -88,10 +86,9 @@ export const TUNABLES: Tunable[] = [
     min: 64,
     max: 8192,
     step: 64,
-    default: TOOL_TURN_MAX_TOKENS,
-    suggested: [TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS],
+    suggested: [800, 2000],
     note: 'A dispatch turn that has not produced a tool call by here is looping, and the cheapest '
-      + `way out is to stop paying for it. Rises to ${THINKING_TURN_MAX_TOKENS} when reasoning is `
+      + 'way out is to stop paying for it. Rises to the pack\'s thinking cap when reasoning is '
       + 'on, because the reasoning pass spends the budget before the answer starts.',
     source: 'lib/sampling.ts',
   },
@@ -296,7 +293,6 @@ export const TUNABLES: Tunable[] = [
     min: 1_000,
     max: 5_000_000,
     step: 1_000,
-    default: MAX_AGENT_TOKENS,
     suggested: [200_000, 1_000_000],
     note: 'What a run actually costs, and the bound that should normally stop one. Measured here, '
       + 'a coding run ranges 43k to 604k tokens with a median of 149k.',
@@ -311,7 +307,6 @@ export const TUNABLES: Tunable[] = [
     min: 1,
     max: 500,
     step: 1,
-    default: MAX_AGENT_STEPS,
     suggested: [40, 100],
     note: 'A safety ceiling, not a working budget — a step can be 200 tokens or 20,000, so counting '
       + 'them bounds neither spend nor time. Use Max tokens for that. Running out of either earns a '
@@ -327,7 +322,6 @@ export const TUNABLES: Tunable[] = [
     min: 500,
     max: 32_000,
     step: 500,
-    default: MAX_TOOL_RESULT_CHARS,
     suggested: [4000, 8000],
     note: 'Truncated from the FRONT, so exit codes and errors at the tail survive.',
     source: 'lib/sandbox-tools.ts',
@@ -464,8 +458,21 @@ export function effectiveConfig(
   profileOverrides: Overrides = {},
   kind?: ModelKind,
   sampling?: SamplingConfig,
+  budget?: BudgetConfig,
 ): EffectiveKnob[] {
-  const fromPack = { ...samplingFor(sampling, 'tool-turn', kind), ...samplingFor(sampling, 'conversation', kind) };
+  const fromPack: Record<string, unknown> = {
+    ...samplingFor(sampling, 'tool-turn', kind),
+    ...(budget ? { max_tokens: budget.replyTokens.tool } : {}),
+    ...samplingFor(sampling, 'conversation', kind),
+    ...(budget
+      ? {
+          maxTokens: budget.run.tokens,
+          maxSteps: budget.run.steps,
+          maxToolResultChars: budget.toolResultChars,
+          conversationGrowth: budget.conversationGrowth,
+        }
+      : {}),
+  };
   return TUNABLES
     .filter((t) => !t.engine || t.engine === kind)
     .map((t) => {

@@ -3,13 +3,14 @@ import type { Leaf } from '../lib/leaves.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { readStreamedReply } from '../lib/agent-loop.js';
 import { buildModelRequest } from '../lib/model-request.js';
-import { fittedMaxTokens, THINKING_TURN_MAX_TOKENS } from '../lib/sampling.js';
+import { fittedMaxTokens } from '../lib/sampling.js';
 import { resolveConfig } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
 import { JUDGE_PERSONA } from '../lib/well-known-personas.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import type { Branch } from '../lib/leaves.js';
 import { withBuiltIns } from '../lib/ownership.js';
+import { requireBudget } from '../lib/pack-defaults.js';
 import {
   buildJudgeBundle, buildJudgePrompt, parseJudgeReply, combineJudgement, shouldJudge,
   CODE_DIMENSIONS, RESEARCH_DIMENSIONS, type JudgeVerdict,
@@ -73,6 +74,7 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
     });
     if (dropped.length) console.log(`[JudgeLeaf] ${leaf.id}: bundle dropped ${dropped.join(', ')}`);
 
+    const budget = pack?.budget ?? await requireBudget(db);
     const body = buildModelRequest({
       turn: 'conversation',
       ...(pack?.sampling ? { sampling: pack.sampling } : {}),
@@ -82,7 +84,7 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
         { role: 'user', content: buildJudgePrompt(bundle, dimensions) },
       ],
       stream: true,
-      maxTokens: fittedMaxTokens(THINKING_TURN_MAX_TOKENS * 3, bundle.length, provider.contextTokens),
+      maxTokens: fittedMaxTokens(budget, budget.replyTokens.thinking * 3, bundle.length, provider.contextTokens),
       ...(provider.model ? { model: provider.model } : {}),
       overrides: resolved.overrides,
     }).body;

@@ -1,4 +1,5 @@
 import type { Persona } from './personas.js';
+import type { BudgetConfig } from '@koala/harness-types';
 import { composePersonaPrompt, type McpServerItem, type PersonaPromptOptions } from './persona-prompt.js';
 
 export { composePersonaPrompt };
@@ -36,13 +37,14 @@ export const KOALA_PROMPT = [
 export const KOALA_TEMPERATURE = 0.7;
 
 export function buildKoalaPrompt(
+  budget: BudgetConfig,
   base: string,
   servers: readonly McpServerItem[],
   enabled: readonly string[],
   activeTools?: readonly string[],
   options?: PersonaPromptOptions,
 ): string {
-  return composePersonaPrompt(base, {
+  return composePersonaPrompt(budget, base, {
     servers,
     enabledServers: enabled,
     activeTools,

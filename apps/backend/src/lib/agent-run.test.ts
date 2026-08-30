@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { agentRunOptions, wantsWeb , wantsMcp, allowWithMcp } from './agent-run.js';
 import type { SandboxDriver } from './agent-loop.js';
 import type { WebTools } from './web-tools.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 const sandbox = {} as SandboxDriver;
 const web = { search: async () => [], fetchPage: async () => '', sources: {} } as unknown as WebTools;
@@ -20,7 +23,7 @@ const researcher = {
 
 describe('assembling an agent run from a persona', () => {
   it('always carries the parts a caller cannot leave out', () => {
-    const o = agentRunOptions(null, inputs({ overrides: { temperature: 0.3 }, memoryContext: 'the repo has a src/' }));
+    const o = agentRunOptions(BUDGET, null, inputs({ overrides: { temperature: 0.3 }, memoryContext: 'the repo has a src/' }));
     expect(o.overrides).toEqual({ temperature: 0.3 });
     expect(o.memoryContext).toBe('the repo has a src/');
     expect(o.taskContext).toBe('do the thing');
@@ -28,7 +31,7 @@ describe('assembling an agent run from a persona', () => {
   });
 
   it('reads the whole environment off the persona', () => {
-    const o = agentRunOptions(researcher, inputs({ web }));
+    const o = agentRunOptions(BUDGET, researcher, inputs({ web }));
     expect(o.allowTools).toEqual(researcher.tools);
     expect(o.maxSteps).toBe(100);
     expect(o.pacing).toEqual([{ atRemaining: 50, message: 'write it now' }]);
@@ -36,7 +39,7 @@ describe('assembling an agent run from a persona', () => {
   });
 
   it('leaves the loop defaults alone for a persona that declares nothing', () => {
-    const o = agentRunOptions({ tools: [], workspace: {} }, inputs({ web }));
+    const o = agentRunOptions(BUDGET, { tools: [], workspace: {} }, inputs({ web }));
     expect(o.allowTools).toBeUndefined();
     expect(o.maxSteps).toBeUndefined();
     expect(o.pacing).toBeUndefined();
@@ -44,16 +47,16 @@ describe('assembling an agent run from a persona', () => {
   });
 
   it('offers the web only when the persona asked AND the caller could build it', () => {
-    expect(agentRunOptions(researcher, inputs({ web })).web).toBe(web);
-    expect(agentRunOptions(researcher, inputs()).web).toBeUndefined();
-    expect(agentRunOptions({ tools: ['write_file'] }, inputs({ web })).web).toBeUndefined();
+    expect(agentRunOptions(BUDGET, researcher, inputs({ web })).web).toBe(web);
+    expect(agentRunOptions(BUDGET, researcher, inputs()).web).toBeUndefined();
+    expect(agentRunOptions(BUDGET, { tools: ['write_file'] }, inputs({ web })).web).toBeUndefined();
   });
 
   it('omits provenance rather than sending empty lists', () => {
-    const bare = agentRunOptions(null, inputs());
+    const bare = agentRunOptions(BUDGET, null, inputs());
     expect(bare.fromProfile).toBeUndefined();
     expect(bare.fromPersona).toBeUndefined();
-    const with_ = agentRunOptions(null, inputs({ fromProfile: ['temperature'], fromPersona: [] }));
+    const with_ = agentRunOptions(BUDGET, null, inputs({ fromProfile: ['temperature'], fromPersona: [] }));
     expect(with_.fromProfile).toEqual(['temperature']);
     expect(with_.fromPersona).toBeUndefined();
   });
@@ -92,7 +95,7 @@ describe('a persona reaching the services this harness built', () => {
 
   it('passes the tools and the handler through to the loop', () => {
     const callRemote = async () => undefined;
-    const opts = agentRunOptions({ tools: ['run_command'], workspace: { mcp: ['weather'],} } as never, {
+    const opts = agentRunOptions(BUDGET, { tools: ['run_command'], workspace: { mcp: ['weather'],} } as never, {
       taskContext: 'x', overrides: {}, sandbox: {} as never,
       remoteTools: [remote('weather__get-forecast')],
       remoteToolNames: ['weather__get-forecast'],
@@ -104,7 +107,7 @@ describe('a persona reaching the services this harness built', () => {
   });
 
   it('offers nothing when the caller resolved nothing', () => {
-    const opts = agentRunOptions({ mcp: ['weather'] } as never, {
+    const opts = agentRunOptions(BUDGET, { mcp: ['weather'] } as never, {
       taskContext: 'x', overrides: {}, sandbox: {} as never,
     });
     expect(opts.remoteTools).toBeUndefined();

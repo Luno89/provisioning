@@ -1,8 +1,6 @@
 import type { ToolEffect } from './action-gate.js';
 import type { Leaf } from './leaves.js';
 
-export const MAX_TOOL_ROUNDS = 8;
-
 export const WEB_TOOL_NAMES = ['web_search', 'fetch_web_page'] as const;
 
 

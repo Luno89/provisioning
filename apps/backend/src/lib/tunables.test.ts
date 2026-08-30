@@ -7,8 +7,10 @@ import {
   tunable,
   effectiveConfig,
 } from './tunables.js';
-import { TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
+
 import { PACK_SEEDS } from './pack-seeds.js';
+
+const BUDGET = PACK_SEEDS[0]!.budget;
 
 describe('every registered tunable reaches the wire', () => {
   const sampleFor = (type: string, spec: { min?: number; max?: number; options?: unknown[] }) => {
@@ -165,7 +167,9 @@ describe('effectiveConfig', () => {
 describe('the advertised token ceiling', () => {
   it('matches what the loop actually sends on a reasoning turn', () => {
     const maxTokens = TUNABLES.find((t) => t.key === 'max_tokens')!;
-    expect(maxTokens.suggested).toEqual([TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS]);
-    expect(maxTokens.note).toMatch(new RegExp(`Rises to ${THINKING_TURN_MAX_TOKENS}`));
+    expect(maxTokens.suggested).toEqual([BUDGET.replyTokens.tool, BUDGET.replyTokens.thinking]);
+    // The note names the pack's cap rather than restating a number, since the number is the
+    // pack's now and a note that restated it would drift the moment a pack was retuned.
+    expect(maxTokens.note).toMatch(/Rises to the pack's thinking cap/);
   });
 });
