@@ -21,6 +21,7 @@ import type { ProjectMetadata } from '../lib/types.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { requireBudget } from '../lib/pack-defaults.js';
+import { ranAs } from '../lib/run-provenance.js';
 
 export interface ResolveLandingArgs {
   leafId: string;
@@ -129,6 +130,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
           ...(provider.kind ? { kind: provider.kind } : {}),
           ...(language ? { language } : {}),
           ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
+            ...(ranAs(pack) ? { ranAs: ranAs(pack) } : {}),
             taskContext: buildMergeTask(branch, state.files),
             overrides: resolved.overrides,
             sandbox: {

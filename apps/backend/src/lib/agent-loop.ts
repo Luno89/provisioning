@@ -31,6 +31,7 @@ import { buildModelRequest } from './model-request.js';
 import type { AgentStep, AgentRequest, ConversationMessage } from '@koala/harness-types';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
+import type { RanAs } from './run-provenance.js';
 
 export type { AgentStep, AgentRequest, ConversationMessage };
 
@@ -115,6 +116,8 @@ export interface AgentRunOptions {
   sampling?: SamplingConfig | undefined;
   /** The pack's budget — what this run may spend and what the model is shown. */
   budget: BudgetConfig;
+  /** What the run was configured by, copied into the record. */
+  ranAs?: RanAs | undefined;
   callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
   pacing?: PacingNote[] | undefined;
   withdrawTools?: ToolWithdrawal | undefined;
@@ -246,6 +249,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     ...(opts.fromProfile?.length ? { fromProfile: opts.fromProfile } : {}),
     ...(opts.fromPersona?.length ? { fromPersona: opts.fromPersona } : {}),
     ...(opts.fromPack?.length ? { fromPack: opts.fromPack } : {}),
+    ...(opts.ranAs ? { ranAs: opts.ranAs } : {}),
     loop: {
       maxSteps,
       think,

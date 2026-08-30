@@ -33,6 +33,17 @@ export interface AgentRequest {
   fromProfile?: string[];
   fromPersona?: string[];
   fromPack?: string[];
+  /**
+   * The pack this run was configured by, with its values copied in at the moment the run started.
+   * A pack id alone would be a lie the first time the pack is edited.
+   */
+  ranAs?: {
+    packId: string;
+    slug: string;
+    packUpdatedAt: string;
+    sampling: SamplingConfig;
+    budget: BudgetConfig;
+  };
   loop?: { maxSteps: number; think: boolean; toolResultCap: number };
 }
 

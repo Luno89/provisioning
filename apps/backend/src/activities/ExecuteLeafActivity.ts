@@ -76,6 +76,7 @@ import { agentRunOptions, wantsWeb, wantsMcp } from '../lib/agent-run.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { requireBudget } from '../lib/pack-defaults.js';
+import { ranAs } from '../lib/run-provenance.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -581,6 +582,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
               taskContext: currentTaskContext,
               overrides: adopted,
+              ...(ranAs(pack) ? { ranAs: ranAs(pack) } : {}),
               sandboxSpec,
               ...(resolved.from.profile.length ? { fromProfile: resolved.from.profile } : {}),
                             ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),

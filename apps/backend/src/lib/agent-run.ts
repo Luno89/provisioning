@@ -6,6 +6,7 @@ import type { WebTools } from './web-tools.js';
 import type { Overrides } from './tunables.js';
 import { WEB_TOOL_NAMES } from './leaf-tools.js';
 import type { BudgetConfig } from '@koala/harness-types';
+import type { RanAs } from './run-provenance.js';
 
 export interface RunInputs {
   taskContext: string;
@@ -19,6 +20,7 @@ export interface RunInputs {
   fromProfile?: string[] | undefined;
   fromPersona?: string[] | undefined;
   fromPack?: string[] | undefined;
+  ranAs?: RanAs | undefined;
   remoteTools?: { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }[] | undefined;
   remoteToolNames?: string[] | undefined;
   callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
@@ -61,6 +63,7 @@ export function agentRunOptions(
     ...(inputs.fromProfile?.length ? { fromProfile: inputs.fromProfile } : {}),
     ...(inputs.fromPersona?.length ? { fromPersona: inputs.fromPersona } : {}),
     ...(inputs.fromPack?.length ? { fromPack: inputs.fromPack } : {}),
+    ...(inputs.ranAs ? { ranAs: inputs.ranAs } : {}),
     ...(inputs.web && wantsWeb(pack) ? { web: inputs.web } : {}),
     ...(tools.length ? { allowTools: allowWithMcp(tools, inputs.remoteToolNames ?? []) } : {}),
     ...(inputs.remoteTools?.length ? { remoteTools: inputs.remoteTools } : {}),
