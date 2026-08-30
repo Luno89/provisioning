@@ -43,10 +43,10 @@ describe('GET /api/packs', () => {
   });
 
   it('is idempotent — reading twice does not duplicate or revert', async () => {
-    await send('PUT', '/koala', { overrides: { temperature: 0.05 } });
+    await send('PUT', '/koala', { sampling: { toolTurn: { temperature: 0.05 } } });
     const { body } = await get();
     expect(body).toHaveLength(PACK_SEEDS.length);
-    expect(body.find((p: any) => p.slug === 'koala').overrides).toEqual({ temperature: 0.05 });
+    expect(body.find((p: any) => p.slug === 'koala').sampling.toolTurn.temperature).toBe(0.05);
   });
 
   it('resolves a pack by slug as well as by id, because the slug is the URL', async () => {
@@ -110,18 +110,22 @@ describe('writing a pack', () => {
     expect(body.error).toMatch(/temperature/i);
   });
 
-  it('replaces the overrides bag rather than merging it', async () => {
-    await send('PUT', '/koala', { overrides: { temperature: 0.9, top_p: 0.5 } });
-    const after = await send('PUT', '/koala', { overrides: { temperature: 0.9 } });
-    expect(after.body.overrides).toEqual({ temperature: 0.9 });
+  it('merges a partial edit rather than replacing the field', async () => {
+    // The opposite of what the overrides bag did. A knob grid sends one knob, and everything it
+    // does not name has to keep the value the pack already has — there is no layer underneath now.
+    await send('PUT', '/koala', { sampling: { toolTurn: { temperature: 0.9, top_p: 0.5 } } });
+    const after = await send('PUT', '/koala', { sampling: { toolTurn: { temperature: 0.8 } } });
+
+    expect(after.body.sampling.toolTurn.temperature).toBe(0.8);
+    expect(after.body.sampling.toolTurn.top_p).toBe(0.5);
   });
 
   it('accepts a model the user actually has, and refuses one they do not', async () => {
-    const ok = await send('PUT', '/koala', { overrides: { model: 'dep-1' } });
+    const ok = await send('PUT', '/koala', { model: { endpointId: 'dep-1' } });
     expect(ok.status).toBe(200);
-    const no = await send('PUT', '/koala', { overrides: { model: 'someone-elses' } });
+    const no = await send('PUT', '/koala', { model: { endpointId: 'someone-elses' } });
     expect(no.status).toBe(400);
-    expect(no.body.error).toMatch(/must be one of your models/i);
+    expect(no.body.error).toMatch(/no model someone-elses/i);
   });
 
   it('refuses to delete a built-in, since it is shared by everyone', async () => {
@@ -134,16 +138,60 @@ describe('writing a pack', () => {
     const shipped = await get('/synthesist');
     expect(shipped.body.ownerId).toBeUndefined();
 
-    await send('PUT', '/synthesist', { overrides: { temperature: 0.42 } });
+    await send('PUT', '/synthesist', { sampling: { toolTurn: { temperature: 0.42 } } });
     const mine = await get('/synthesist');
     expect(mine.body.ownerId).toBe(TEST_USER.id);
     expect(mine.body.id).not.toBe(shipped.body.id);
-    expect(mine.body.overrides.temperature).toBe(0.42);
+    expect(mine.body.sampling.toolTurn.temperature).toBe(0.42);
 
     const res = await send('DELETE', `/${mine.body.id}`, {});
     expect(res.status).toBe(200);
     const after = await get('/synthesist');
     expect(after.body.ownerId).toBeUndefined();
     expect(after.body.overrides).toEqual(shipped.body.overrides);
+  });
+});
+
+/**
+ * This is what the Lab's knob grid saves through: a partial pack, deep-merged into the row. It used
+ * to take a bag of `overrides`, so after the layering went it still accepted that field, wrote it to
+ * a pack that has no such field, and silently ignored the sampler and budget it was actually sent.
+ */
+describe('editing a pack\'s values', () => {
+  const koalaId = 'koala';
+
+  it('merges one sampler value without restating the rest of the pack', async () => {
+    const { status, body } = await send('PUT', `/${koalaId}`, {
+      sampling: { toolTurn: { temperature: 0.9 } },
+    });
+
+    expect(status).toBe(200);
+    expect(body.sampling.toolTurn.temperature).toBe(0.9);
+    expect(body.sampling.conversation.frequency_penalty).toBe(0.4);
+    expect(body.budget.rounds).toBe(8);
+  });
+
+  it('merges a budget the same way, at whatever depth', async () => {
+    const { body } = await send('PUT', `/${koalaId}`, { budget: { run: { steps: 42 } } });
+
+    expect(body.budget.run.steps).toBe(42);
+    expect(body.budget.run.tokens).toBe(1_000_000);
+    expect(body.budget.rounds).toBe(8);
+  });
+
+  it('refuses a value outside the range its knob declares', async () => {
+    const { status, body } = await send('PUT', `/${koalaId}`, {
+      sampling: { toolTurn: { temperature: 5 } },
+    });
+
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/temperature/i);
+  });
+
+  it('lets a pack blank a prompt section, which is how one is turned off', async () => {
+    const { body } = await send('PUT', `/${koalaId}`, { prompt: { sections: { secrets: '' } } });
+
+    expect(body.prompt.sections.secrets).toBe('');
+    expect(body.prompt.sections.toolGuidance).toBe('## Active Tools & Workflow Guidance');
   });
 });

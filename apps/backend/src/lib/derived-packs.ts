@@ -42,6 +42,19 @@ export function diffPacks(before: unknown, after: unknown, at = ''): PackChange[
     : [{ path: at, from: before, to: after }];
 }
 
+/**
+ * One pack, with a partial edit merged in field by field. The editor sends what changed; everything
+ * it did not name keeps the value the pack already has.
+ */
+export function mergeValues(pack: PersonaPack, edit: PackEdit): Partial<PersonaPack> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(edit)) {
+    if (value === undefined) continue;
+    out[key] = deepMerge((pack as unknown as Record<string, unknown>)[key], value);
+  }
+  return out as Partial<PersonaPack>;
+}
+
 export const derivedPackId = (experimentId: string, label: string): string =>
   `exp:${experimentId}:${label}`;
 

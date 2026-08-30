@@ -7,7 +7,7 @@ import { validatePack } from '../lib/packs.js';
 import type { PersonaPack } from '@koala/harness-types';
 import type { Database } from '../lib/db-interface.js';
 import { requireBudget, requirePrompt } from '../lib/pack-defaults.js';
-import { validatePackValues } from '../lib/derived-packs.js';
+import { validatePackValues, mergeValues } from '../lib/derived-packs.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -85,7 +85,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const pack = existing.find((p) => p.id === idOf(req) || p.slug === idOf(req));
     if (!pack) return res.status(404).json({ error: 'No such pack' });
 
-    const { slug, name, description, personaId, tools, overrides } = req.body ?? {};
+    const { slug, name, description, personaId, tools, sampling, budget, prompt, model } = req.body ?? {};
     const personas = await visiblePersonas(userId);
     const candidate = {
       slug: slug === undefined ? pack.slug : String(slug),
@@ -96,21 +96,33 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const refusal = validatePack(candidate, existing, personas, pack.id);
     if (refusal) return res.status(400).json({ error: refusal });
 
-    if (overrides !== undefined) {
-      const models = await modelIdsFor(userId);
-      const invalid = validateOverrides(overrides, { layer: 'pack', ...(models ? { models } : {}) });
-      if (invalid) return res.status(400).json({ error: invalid });
-    }
-
     const isBuiltIn = pack.ownerId === undefined;
     const updated: PersonaPack = {
       ...pack,
       ...candidate,
       ...(isBuiltIn ? { id: uuidv4(), ownerId: userId, builtIn: false, createdAt: new Date().toISOString() } : {}),
       ...(description !== undefined ? { description: String(description).slice(0, 200) } : {}),
-      ...(overrides !== undefined ? { overrides } : {}),
+      /**
+       * Deep-merged, so the editor can send one knob rather than the whole pack — which is what a
+       * knob grid has to do, and what `overrides` used to make possible by sitting on top instead.
+       */
+      ...mergeValues(pack, { sampling, budget, prompt, model }),
       updatedAt: new Date().toISOString(),
     };
+    const badValue = validatePackValues(updated);
+    if (badValue) return res.status(400).json({ error: badValue });
+
+    /**
+     * An endpoint the account does not have would surface much later as "model not found" in the
+     * middle of a run, so it is refused where it is set.
+     */
+    if (updated.model?.endpointId) {
+      const models = await modelIdsFor(userId);
+      if (models && !models.includes(updated.model.endpointId)) {
+        return res.status(400).json({ error: `No model ${updated.model.endpointId}` });
+      }
+    }
+
     await db.savePersonaPack(updated);
     res.json(updated);
   }));

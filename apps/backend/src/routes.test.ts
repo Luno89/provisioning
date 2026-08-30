@@ -100,11 +100,15 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     const before = await axios.get(getUrl('/api/packs'), auth);
     const koala = before.data.find((p: any) => p.slug === 'koala');
 
-    await axios.put(getUrl(`/api/packs/${koala.id}`), { overrides: { temperature: 0.11 } }, auth);
+    await axios.put(
+      getUrl(`/api/packs/${koala.id}`),
+      { sampling: { toolTurn: { temperature: 0.11 } } },
+      auth,
+    );
 
     const after = await axios.get(getUrl('/api/packs'), auth);
     expect(after.data).toHaveLength(before.data.length);
-    expect(after.data.find((p: any) => p.slug === 'koala').overrides.temperature).toBe(0.11);
+    expect(after.data.find((p: any) => p.slug === 'koala').sampling.toolTurn.temperature).toBe(0.11);
   });
 
   it('refuses a chat turn for a pack that does not exist', async () => {
