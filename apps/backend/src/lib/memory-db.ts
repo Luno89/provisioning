@@ -17,7 +17,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
-import { TOOL_REPOSITORY, type ToolRepositoryItem } from './tool-repository.js';
+import type { ToolRepositoryItem } from './tool-repository.js';
 
 export class MemoryDB implements Database {
   private clusters: ClusterMetadata[] = [];
@@ -44,7 +44,7 @@ export class MemoryDB implements Database {
   private personaPacks: PersonaPack[] = [];
   private memories: MemoryItem[] = [];
   private bindingTypes: BindingTypeRecord[] = [];
-  private customTools: ToolRepositoryItem[] = [];
+  private tools: ToolRepositoryItem[] = [];
 
   async init(): Promise<void> {
     this.clusters = [];
@@ -522,24 +522,16 @@ export class MemoryDB implements Database {
   }
 
   async getTools(): Promise<ToolRepositoryItem[]> {
-    const builtIns = TOOL_REPOSITORY.map((t) => ({ ...t, isBuiltIn: true }));
-    const customMap = new Map(this.customTools.map((t) => [t.id, t]));
-    const result = builtIns.map((t) => customMap.get(t.id) ?? t);
-    for (const c of this.customTools) {
-      if (!result.some((r) => r.id === c.id)) {
-        result.push(c);
-      }
-    }
-    return result;
+    return [...this.tools];
   }
 
   async saveTool(tool: ToolRepositoryItem): Promise<void> {
-    const idx = this.customTools.findIndex((t) => t.id === tool.id);
-    if (idx >= 0) this.customTools[idx] = tool;
-    else this.customTools.push(tool);
+    const idx = this.tools.findIndex((t) => t.id === tool.id);
+    if (idx >= 0) this.tools[idx] = tool;
+    else this.tools.push(tool);
   }
 
   async deleteTool(id: string): Promise<void> {
-    this.customTools = this.customTools.filter((t) => t.id !== id);
+    this.tools = this.tools.filter((t) => t.id !== id);
   }
 }

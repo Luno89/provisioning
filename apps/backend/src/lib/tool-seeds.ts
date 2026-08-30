@@ -5,6 +5,7 @@ import { SANDBOX_TOOLS } from './sandbox-tools.js';
 export interface ToolRepositoryItem {
   id: string;
   name: string;
+  ownerId?: string;
   effect?: ToolEffect;
   category: 'sandbox' | 'planning' | 'database' | 'git' | 'http' | 'linter' | 'assistant' | 'web' | 'custom';
   description: string;
@@ -537,13 +538,11 @@ export async function seedTools(store: ToolSeedStore): Promise<number> {
 
   for (const seed of ALL_TOOL_SEEDS) {
     const prev = existingMap.get(seed.name);
-    if (!prev || prev.isBuiltIn !== false) {
-      await store.saveTool({
-        ...seed,
-        id: prev?.id ?? seed.id,
-      });
-      seededCount++;
-    }
+    if (prev && prev.isBuiltIn === false) continue;
+    const next = { ...seed, id: prev?.id ?? seed.id };
+    if (prev && JSON.stringify(prev) === JSON.stringify(next)) continue;
+    await store.saveTool(next);
+    seededCount++;
   }
 
   return seededCount;

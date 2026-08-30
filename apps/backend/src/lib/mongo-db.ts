@@ -17,7 +17,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
-import { TOOL_REPOSITORY, type ToolRepositoryItem } from './tool-repository.js';
+import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 
@@ -691,18 +691,7 @@ export class MongoDB implements Database {
   }
 
   async getTools(): Promise<ToolRepositoryItem[]> {
-    const builtIns = TOOL_REPOSITORY.map((t) => ({ ...t, isBuiltIn: true }));
-    const customDocs = await this.tools.find({}).toArray();
-    const customItems = customDocs.map((d) => fromDoc<ToolRepositoryItem>(d));
-    const customMap = new Map(customItems.map((t) => [t.id, t]));
-    
-    const result = builtIns.map((t) => customMap.get(t.id) ?? t);
-    for (const c of customItems) {
-      if (!result.some((r) => r.id === c.id)) {
-        result.push(c);
-      }
-    }
-    return result;
+    return (await this.tools.find({}).toArray()).map((d) => fromDoc<ToolRepositoryItem>(d));
   }
 
   async saveTool(tool: ToolRepositoryItem): Promise<void> {
