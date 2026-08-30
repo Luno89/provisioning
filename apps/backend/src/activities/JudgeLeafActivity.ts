@@ -9,6 +9,7 @@ import { flattenPersona } from '../lib/persona-scope.js';
 import { JUDGE_PERSONA } from '../lib/well-known-personas.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import type { Branch } from '../lib/leaves.js';
+import { withBuiltIns } from '../lib/ownership.js';
 import {
   buildJudgeBundle, buildJudgePrompt, parseJudgeReply, combineJudgement, shouldJudge,
   CODE_DIMENSIONS, RESEARCH_DIMENSIONS, type JudgeVerdict,
@@ -49,8 +50,8 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
       return { leafId: args.leafId, verdict: 'unavailable' };
     }
 
-    const ownPersonas = (await db.getPersonas()).filter((p: any) => p.ownerId === undefined || p.ownerId === leaf.ownerId);
-    const packs = (await db.getPersonaPacks()).filter((p: any) => p.ownerId === undefined || p.ownerId === leaf.ownerId);
+    const ownPersonas = withBuiltIns(await db.getPersonas(), leaf.ownerId, (p) => p.name);
+    const packs = withBuiltIns(await db.getPersonaPacks(), leaf.ownerId, (p) => p.slug);
     const pack = packs.find((p: any) => p.name === JUDGE_PERSONA) ?? null;
     const assigned = pack ? ownPersonas.find((p: any) => p.id === pack.personaId) : undefined;
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;

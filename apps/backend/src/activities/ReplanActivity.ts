@@ -9,6 +9,7 @@ import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
+import { withBuiltIns } from '../lib/ownership.js';
 
 export interface ReplanArgs {
   leafId: string;
@@ -40,12 +41,12 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     const branch = (await db.getBranches()).find((b: Branch) => b.id === leaf.branchId);
     if (!branch) return { proposed: 0, skipped: 'branch is gone' };
 
-    const personas = (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId);
+    const personas = withBuiltIns(await db.getPersonas(), leaf.ownerId, (p) => p.name);
     const outcomes = summariseOutcomes(all, leaf.branchId, (id) => personas.find((p) => p.id === id)?.name);
     const request = branch.messages.find((m) => m.role === 'user')?.content ?? branch.title;
 
     const profile = await db.getHarnessProfile(leaf.ownerId);
-    const packs = (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === leaf.ownerId);
+    const packs = withBuiltIns(await db.getPersonaPacks(), leaf.ownerId, (p) => p.slug);
     const pack = profile?.packId ? packs.find((p) => p.id === profile.packId || p.slug === profile.packId) ?? null : null;
     const adopted = pack ? personas.find((p) => p.id === pack.personaId) : undefined;
     const persona = adopted ? flattenPersona(adopted, personas) : null;

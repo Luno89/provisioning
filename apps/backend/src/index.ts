@@ -167,6 +167,7 @@ import { generateSshKeypair } from './lib/ssh-keypair.js';
 import { getToolRepository } from './lib/tool-repository.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
+import { withBuiltIns } from './lib/ownership.js';
 
 dotenv.config();
 
@@ -518,7 +519,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   const ownedPersonas = async (userId: string): Promise<Persona[]> =>
-    (await db.getPersonas()).filter((p) => p.ownerId === userId);
+    withBuiltIns(await db.getPersonas(), userId, (p) => p.name);
 
   async function runLeafTool(userId: string, branchId: string, call: { name: string; arguments: string }): Promise<string> {
     return runLeafToolShared(

@@ -3,6 +3,7 @@ import { describeSandbox, WORKSPACE_IMAGES, isWorkspaceLanguage } from './worksp
 import { MAX_TASKS, MAX_TASK_CHARS, MAX_TASK_FILES, MAX_TASK_FILE_CHARS } from './experiments.js';
 import type { ExperimentTask } from '@koala/harness-types';
 import type { Database } from './db-interface.js';
+import { withBuiltIns } from './ownership.js';
 
 export const AUTHORING_SAMPLING = { template_vars: { enable_thinking: false } } as const;
 
@@ -317,7 +318,7 @@ export const unknownPersona = async (db: Pick<Database, 'getPersonas'>, userId: 
     .map((v) => (v && typeof v === 'object' ? (v as any).personaId : undefined))
     .filter((id): id is string => typeof id === 'string' && id !== '');
   if (!wanted.length) return undefined;
-  const mine = new Set((await db.getPersonas()).filter((p) => p.ownerId === userId).map((p) => p.id));
+  const mine = new Set(withBuiltIns(await db.getPersonas(), userId, (p) => p.name).map((p) => p.id));
   const missing = wanted.find((id) => !mine.has(id));
   return missing ? `No persona ${missing} — it may have been deleted.` : undefined;
 };

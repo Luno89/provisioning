@@ -5,6 +5,7 @@ import { withBuiltIns } from './ownership.js';
 import { resolveTreeType } from './tree-types.js';
 import { visibleAppSpecs } from './app-spec.js';
 import { ToolService } from '../services/ToolService.js';
+import { packForLeaf } from './packs.js';
 
 const fresh = async () => {
   const db = new MemoryDB();
@@ -55,5 +56,51 @@ describe('every per-user catalogue comes from the database', () => {
     const theirs = withBuiltIns(await db.getPersonaPacks(), 'u2', (p) => p.slug);
     expect(mine.find((p) => p.slug === 'koala')!.name).toBe('My Koala');
     expect(theirs.find((p) => p.slug === 'koala')!.name).toBe('Koala');
+  });
+});
+
+describe('a built-in is visible from every place that reads one', () => {
+  /**
+   * ExecuteLeafActivity filtered `ownerId === leaf.ownerId`, so once seeded rows became ownerless
+   * it saw 0 of 9 packs and every leaf ran with no pack, no persona, no checkout and no egress
+   * rules. It did not crash, which is why nothing caught it. `resolveTreeType` had the same bug an
+   * hour earlier: an ownership filter written before built-ins were ownerless.
+   *
+   * So this asserts the property rather than any one call site — a hand-written `=== ownerId`
+   * anywhere fails here.
+   */
+  it('leaves no hand-written owner comparison on a catalogue that has built-ins', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const here = path.dirname(new URL(import.meta.url).pathname);
+    const roots = [path.join(here, '..', 'activities'), path.join(here, '..', 'routes'), here];
+
+    const offenders: string[] = [];
+    const scan = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { scan(full); continue; }
+        if (!entry.name.endsWith('.ts') || entry.name.includes('.test.')) continue;
+        const src = fs.readFileSync(full, 'utf8');
+        for (const call of ['getPersonaPacks()', 'getPersonas()', 'getTools()']) {
+          const at = src.indexOf(call);
+          if (at < 0) continue;
+          const line = src.slice(at, src.indexOf('\n', at));
+          // `withBuiltIns` and `ownedBy` are the two sanctioned readers; a raw `.filter` on ownerId
+          // is the shape that silently drops every shipped row.
+          if (/\.filter\(.*ownerId ===/.test(line)) offenders.push(`${entry.name}: ${line.trim()}`);
+        }
+      }
+    };
+    for (const r of roots) if (fs.existsSync(r)) scan(r);
+
+    expect(offenders, `these drop ownerless built-ins:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('lets a leaf resolve a shipped pack it was never given a copy of', async () => {
+    const db = await fresh();
+    const packs = withBuiltIns(await db.getPersonaPacks(), 'u1', (p) => p.slug);
+    expect(packs.length).toBeGreaterThan(0);
+    expect(packForLeaf(packs, { packId: 'builder' })?.slug).toBe('builder');
   });
 });

@@ -18,6 +18,7 @@ import {
 } from '../lib/merge-agent.js';
 import { buildVerifyScript, parseVerifyResult, defaultVerifyCommand } from '../lib/leaf-verify.js';
 import type { ProjectMetadata } from '../lib/types.js';
+import { withBuiltIns } from '../lib/ownership.js';
 
 export interface ResolveLandingArgs {
   leafId: string;
@@ -62,9 +63,9 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     repos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
     checkout = await repos.checkoutCredential(ownerId, project);
 
-    const packs = (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === ownerId);
+    const packs = withBuiltIns(await db.getPersonaPacks(), ownerId, (p) => p.slug);
     const pack = packs.find((p) => p.name === MERGER_PERSONA) ?? null;
-    const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === undefined || p.ownerId === ownerId);
+    const ownPersonas = withBuiltIns(await db.getPersonas(), ownerId, (p) => p.name);
     const assigned = pack ? ownPersonas.find((p) => p.id === pack.personaId) : undefined;
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
     if (!pack) console.warn(`[ResolveLanding] no "${MERGER_PERSONA}" pack — running with harness defaults`);

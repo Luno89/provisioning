@@ -73,6 +73,7 @@ import { assessFindings } from '../lib/research-verify.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { agentRunOptions, wantsWeb, wantsMcp } from '../lib/agent-run.js';
+import { withBuiltIns } from '../lib/ownership.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -168,9 +169,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       const models = createModelService(db, process.env.JWT_SECRET ?? '');
 
       const profile = await db.getHarnessProfile(leaf.ownerId);
-      const ownPersonas = (await db.getPersonas()).filter((p) => p.ownerId === leaf.ownerId);
+      const ownPersonas = withBuiltIns(await db.getPersonas(), leaf.ownerId, (p) => p.name);
 
-      const ownPacks = (await db.getPersonaPacks()).filter((p) => p.ownerId === leaf.ownerId);
+      const ownPacks = withBuiltIns(await db.getPersonaPacks(), leaf.ownerId, (p) => p.slug);
       const pack = packForLeaf(ownPacks, leaf, profile?.packId);
       const wanted = pack?.personaId;
       const assigned = wanted ? ownPersonas.find((p) => p.id === wanted) : undefined;

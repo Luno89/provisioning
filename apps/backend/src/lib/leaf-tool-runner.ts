@@ -17,6 +17,7 @@ import { summariseLeaf, detailLeaf, parseToolArguments, LEAF_TOOLS } from './lea
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
+import { withBuiltIns } from './ownership.js';
 
 export interface LeafToolCall {
   name: string;
@@ -114,7 +115,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
     }
 
     if (call.name === 'list_personas') {
-      const mine = (await db.getPersonaPacks()).filter((p) => p.ownerId === undefined || p.ownerId === userId);
+      const mine = withBuiltIns(await db.getPersonaPacks(), userId, (p) => p.slug);
       return JSON.stringify({
         personas: mine.map((p) => ({ name: p.name, description: p.description ?? '' })),
       });
@@ -187,7 +188,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         ...(personaWarning
           ? {
               personaWarning,
-              availablePersonas: ((await db.getPersonas()).filter((p) => p.ownerId === userId))
+              availablePersonas: (withBuiltIns(await db.getPersonas(), userId, (p) => p.name))
                 .map((p) => ({ name: p.name, description: p.description ?? '' })),
             }
           : { persona: persona!.name }),
@@ -351,7 +352,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       const body = typeof args.body === 'string' ? args.body.trim() : '';
       const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
-      const mine = (await db.getPersonas()).filter((p) => p.ownerId === userId);
+      const mine = withBuiltIns(await db.getPersonas(), userId, (p) => p.name);
       const persona = resolvePersonaNamed(wantedPersona, mine);
       if (wantedPersona && !persona) {
         return JSON.stringify({
