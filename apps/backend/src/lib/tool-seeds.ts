@@ -1,12 +1,21 @@
 import type { ToolEffect } from './action-gate.js';
 import { LEAF_TOOLS } from './leaf-tools.js';
 import { SANDBOX_TOOLS } from './sandbox-tools.js';
+import { KOALA_TOOLS } from './koala-tools.js';
+
+export type ToolSurface = 'assistant' | 'planning' | 'sandbox';
 
 export interface ToolRepositoryItem {
   id: string;
   name: string;
   ownerId?: string;
   effect?: ToolEffect;
+  /**
+   * Which runtimes offer this tool. Reproduces what KOALA_TOOLS / LEAF_TOOLS / SANDBOX_TOOLS were:
+   * a grouping the code relied on, and one `category` cannot express because a tool can be on two
+   * surfaces at once — `list_mcp_servers` is offered to a chat and to a planner.
+   */
+  surfaces?: ToolSurface[];
   category: 'sandbox' | 'planning' | 'database' | 'git' | 'http' | 'linter' | 'assistant' | 'web' | 'custom';
   description: string;
   usageGuidance?: string;
@@ -521,10 +530,39 @@ function derivedSeeds(declared: readonly { function: { name: string; description
     }));
 }
 
+const SURFACE_ARRAYS: [ToolSurface, readonly { function: { name: string; parameters?: unknown } }[]][] = [
+  ['assistant', KOALA_TOOLS as never],
+  ['planning', LEAF_TOOLS as never],
+  ['sandbox', SANDBOX_TOOLS as never],
+];
+
+/**
+ * The surfaces and parameter schema each tool has, taken from the live declarations.
+ *
+ * Derived rather than restated while the arrays still exist: a hand-copied schema would be a second
+ * copy of a contract the dispatcher owns, and the last time this catalogue kept its own copy the
+ * two had drifted on 26 of 49 tools. The arrays are deleted once every reader takes rows, and the
+ * values are written out here at that point under a test that they match.
+ */
+function declaredFor(name: string): { surfaces: ToolSurface[]; parameters?: ToolRepositoryItem['parameters'] } {
+  const surfaces: ToolSurface[] = [];
+  let parameters: ToolRepositoryItem['parameters'];
+  for (const [surface, arr] of SURFACE_ARRAYS) {
+    const found = arr.find((t) => t.function.name === name);
+    if (!found) continue;
+    surfaces.push(surface);
+    parameters ??= found.function.parameters as ToolRepositoryItem['parameters'];
+  }
+  return { surfaces, ...(parameters ? { parameters } : {}) };
+}
+
 export const ALL_TOOL_SEEDS: ToolRepositoryItem[] = [
   ...TOOL_SEEDS,
   ...derivedSeeds([...LEAF_TOOLS, ...SANDBOX_TOOLS]),
-];
+].map((row): ToolRepositoryItem => {
+  const { surfaces, parameters } = declaredFor(row.name);
+  return { ...row, surfaces, ...(parameters ? { parameters } : {}) };
+});
 
 export interface ToolSeedStore {
   getTools(): Promise<ToolRepositoryItem[]>;

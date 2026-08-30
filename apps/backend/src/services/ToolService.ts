@@ -1,20 +1,35 @@
 import { BaseService } from './BaseService.js';
 import { withBuiltIns } from '../lib/ownership.js';
-import { formatToolRepoForOpenAI } from '../lib/tool-repository.js';
-import type { ToolRepositoryItem } from '../lib/tool-seeds.js';
+import { forSurface, namesForSurface, schemasFor, effectOf, parametersOf, type ToolSchema } from '../lib/tool-catalogue.js';
+import type { ToolRepositoryItem, ToolSurface } from '../lib/tool-seeds.js';
 
 export class ToolService extends BaseService {
   async list(userId: string): Promise<ToolRepositoryItem[]> {
     return withBuiltIns(await this.db.getTools(), userId, (t) => t.name);
   }
 
-  /**
-   * The catalogue as OpenAI function schemas, for a run's tool list.
-   *
-   * The leaf loop built these from `TOOL_REPOSITORY`, so a leaf was offered the compiled-in
-   * descriptions whatever the database said — and a user's edit reached the chat but never a run.
-   */
-  async schemas(userId: string) {
-    return formatToolRepoForOpenAI(await this.list(userId));
+  /** Every tool a runtime offers, as function schemas. Replaces the KOALA/LEAF/SANDBOX arrays. */
+  async surface(userId: string, surface: ToolSurface): Promise<ToolSchema[]> {
+    return forSurface(await this.list(userId), surface);
+  }
+
+  async surfaceNames(userId: string, surface: ToolSurface): Promise<string[]> {
+    return namesForSurface(await this.list(userId), surface);
+  }
+
+  async schemas(userId: string, names?: readonly string[]): Promise<ToolSchema[]> {
+    const rows = await this.list(userId);
+    return names ? schemasFor(rows, names) : rows.map((r) => ({
+      type: 'function' as const,
+      function: { name: r.name, description: r.description, parameters: r.parameters ?? { type: 'object', properties: {} } },
+    }));
+  }
+
+  async effectOf(userId: string, name: string) {
+    return effectOf(await this.list(userId), name);
+  }
+
+  async parametersOf(userId: string, name: string) {
+    return parametersOf(await this.list(userId), name);
   }
 }

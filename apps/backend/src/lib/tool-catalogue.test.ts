@@ -30,9 +30,13 @@ describe('the catalogue covers everything dispatchable', () => {
   });
 
   it('is a superset of the hand-written seeds, never a replacement', () => {
+    // The derived columns are added; nothing a hand-written row states is replaced.
     const all = new Map(ALL_TOOL_SEEDS.map((t) => [t.name, t]));
     for (const seed of TOOL_SEEDS) {
-      expect(all.get(seed.name), seed.name).toEqual(seed);
+      expect(all.get(seed.name), seed.name).toMatchObject({
+        id: seed.id, name: seed.name, description: seed.description,
+        category: seed.category, ...(seed.effect ? { effect: seed.effect } : {}),
+      });
     }
   });
 
@@ -67,15 +71,35 @@ describe('schema, handler and effect stay joined', () => {
 });
 
 describe('a tool is described in one place', () => {
-  it('keeps parameters only on the schema, never a second copy on the registry row', () => {
+  it('takes its parameters FROM the declaration, never a paraphrase of one', () => {
     /**
-     * The registry used to carry its own `parameters` beside the schema arrays, and the two had
-     * drifted on 26 of 49 tools — `get_logs` had gained a `namespace` property in one copy and not
-     * the other. Whichever copy a caller happened to read decided what the model was offered.
+     * The registry used to carry a hand-written `parameters` beside the arrays and the two had
+     * drifted on 26 of 49 tools — `get_logs` gained a `namespace` property in one copy and not the
+     * other, and whichever a caller happened to read decided what the model was offered.
+     *
+     * The row is the single copy now, derived from the declaration while the arrays still exist.
+     * This is what makes deleting them safe: the values are already identical.
      */
-    for (const row of ALL_TOOL_SEEDS) {
-      expect(row.parameters, `${row.name} carries a second copy of its parameters`).toBeUndefined();
+    // Five tools are declared on two surfaces and three of them word themselves differently on
+    // purpose. The row is one copy, so a precedence is needed and it is FIRST-WINS in the order
+    // assistant, planning, sandbox — the same order `declaredFor` uses. `keeps one PARAMETER SHAPE`
+    // below is what guarantees the loser differs only in prose.
+    const declared = new Map<string, unknown>();
+    for (const t of ([...KOALA_TOOLS, ...LEAF_TOOLS, ...SANDBOX_TOOLS] as unknown as ToolSchema[])) {
+      if (!declared.has(t.function.name)) declared.set(t.function.name, t.function.parameters);
     }
+    for (const row of ALL_TOOL_SEEDS) {
+      if (!declared.has(row.name)) continue;
+      expect(JSON.stringify(row.parameters), row.name).toBe(JSON.stringify(declared.get(row.name)));
+    }
+  });
+
+  it('marks each row with the surfaces that offer it', () => {
+    // Reproduces exactly what the three arrays were, so a reader can ask the catalogue instead.
+    const count = (s: string) => ALL_TOOL_SEEDS.filter((r) => r.surfaces?.includes(s as never)).length;
+    expect(count('assistant')).toBe(KOALA_TOOLS.length);
+    expect(count('planning')).toBe(LEAF_TOOLS.length);
+    expect(count('sandbox')).toBe(SANDBOX_TOOLS.length);
   });
 
   it('serves a declared schema, never a registry paraphrase of one', () => {
