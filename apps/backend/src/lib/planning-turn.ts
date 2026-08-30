@@ -2,7 +2,6 @@ import { buildOutboundMessages, type OutboundMessage } from './leaf-context.js';
 import { ToolCallScanner } from './leaf-tools.js';
 import { planSystemPrompt } from './plan-mode.js';
 import { estimatePromptComplexity } from './smart-token-controller.js';
-import { TOOL_DISCIPLINE_PROMPT } from './sampling.js';
 import { forSurface } from './tool-catalogue.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
 import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
@@ -15,7 +14,7 @@ import type { Leaf } from './leaves.js';
 import type { ModelKind } from '@koala/harness-types';
 import type { WebSearchFn } from './web-tools.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
-import type { SamplingConfig } from '@koala/harness-types';
+import type { PromptConfig, SamplingConfig } from '@koala/harness-types';
 
 /**
  * The planner's toolset: the planning surface without the web tools, plus `research`.
@@ -88,6 +87,8 @@ export interface PlanningTurnOptions {
   toolRows?: readonly ToolRepositoryItem[];
   images?: readonly WorkspaceImageSpec[];
   sampling?: SamplingConfig | undefined;
+  /** The pack's prompt sections. Named for the config to keep clear of `prompt`, the question. */
+  promptConfig?: PromptConfig | undefined;
   overrides?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
@@ -110,7 +111,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
     messages: [{ role: 'user', content: opts.prompt }],
     lastIndex: 0,
     prompt: planSystemPrompt(opts.images ?? []),
-    toolPrompt: TOOL_DISCIPLINE_PROMPT,
+    toolPrompt: opts.promptConfig?.sections.toolDiscipline ?? '',
     leaves: [],
     ...(resolved.systemPrompt ? { personaPrompt: resolved.systemPrompt } : {}),
   });

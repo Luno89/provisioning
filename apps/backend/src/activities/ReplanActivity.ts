@@ -12,6 +12,7 @@ import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { ToolService } from '../services/ToolService.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
+import { requirePrompt } from '../lib/pack-defaults.js';
 
 export interface ReplanArgs {
   leafId: string;
@@ -67,6 +68,7 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     await runPlanningTurn({
       toolRows: await new ToolService(db).list(leaf.ownerId),
       images: await new WorkspaceImageService(db).list(leaf.ownerId),
+      promptConfig: await requirePrompt(db),
       baseUrl,
       ...(apiKey ? { apiKey } : {}),
       model: provider.model,

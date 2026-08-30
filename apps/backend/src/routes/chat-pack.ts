@@ -366,7 +366,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       .map((m: any) => ({ role: String(m.role), content: String(m.content) }));
 
     const historyChars = historyMsgs.reduce((sum, m) => sum + m.content.length, 0);
-    const systemPromptContent = composePersonaPrompt(pack.budget, systemPrompt, {
+    const systemPromptContent = composePersonaPrompt(pack.budget, pack.prompt, systemPrompt, {
       toolRegistry,
       activeTools: activeToolNames,
       servers,

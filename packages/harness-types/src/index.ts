@@ -414,6 +414,37 @@ export interface BudgetConfig {
   };
 }
 
+/**
+ * Everything wrapped around a persona's own prompt, and the thresholds that reshape it.
+ *
+ * Sections are templates: `{{name}}` is filled at compose time. Only the escalated-role block and
+ * the pressure notice take a value today, but the placeholders are what let a user rewrite a
+ * section without losing the one piece the harness has to supply.
+ *
+ * A section set to an empty string is not emitted at all, which is how a pack turns one off.
+ */
+export interface PromptConfig {
+  /**
+   * Fractions of the context window at which the prompt changes shape. `compactAt` drops usage
+   * guidance, `minimalAt` drops to one phrase per tool, `noticeAt` appends the notice. They are
+   * independent: the notice sits between the two tool thresholds and is meant to.
+   */
+  pressure: { compactAt: number; minimalAt: number; noticeAt: number };
+  sections: {
+    /** Exactly one of these three is emitted, in this order of precedence. */
+    role: { admin: string; escalated: string; standard: string };
+    /** Emitted when the pack grants a secrets tool. */
+    secrets: string;
+    /** The heading above the active tool list. */
+    toolGuidance: string;
+    services: { none: string; heading: string };
+    memories: string;
+    pressureNotice: string;
+    /** Injected by a planning turn, beside the persona's prompt. */
+    toolDiscipline: string;
+  };
+}
+
 export interface PersonaPack {
   id: string;
   ownerId?: string;
@@ -427,6 +458,7 @@ export interface PersonaPack {
   workspace?: WorkspaceScope;
   sampling: SamplingConfig;
   budget: BudgetConfig;
+  prompt: PromptConfig;
 
   overrides: Overrides;
   builtIn?: boolean;

@@ -6,7 +6,7 @@ import { validateOverrides } from '../lib/tunables.js';
 import { validatePack } from '../lib/packs.js';
 import type { PersonaPack } from '@koala/harness-types';
 import type { Database } from '../lib/db-interface.js';
-import { requireBudget } from '../lib/pack-defaults.js';
+import { requireBudget, requirePrompt } from '../lib/pack-defaults.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -43,7 +43,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
 
   router.post('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const { slug, name, description, personaId, tools, overrides, sampling, budget } = req.body ?? {};
+    const { slug, name, description, personaId, tools, overrides, sampling, budget, prompt } = req.body ?? {};
 
     const existing = await visiblePacks(userId);
     const personas = await visiblePersonas(userId);
@@ -71,6 +71,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
        */
       sampling: sampling ?? template?.sampling ?? { toolTurn: {}, conversation: {} },
       budget: budget ?? template?.budget ?? await requireBudget(db),
+      prompt: prompt ?? template?.prompt ?? await requirePrompt(db),
       overrides: overrides ?? {},
       createdAt: now,
       updatedAt: now,

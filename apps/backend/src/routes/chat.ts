@@ -24,7 +24,7 @@ import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import type { ChatMode, LeafProposal } from '../lib/plan-mode.js';
 import { planNotice, reviewPlan } from '../lib/plan-review.js';
 import { duplicateNotice, newProposals, resolvePersonaNamed, suspectedDuplicates } from '../lib/proposal-merge.js';
-import { TOOL_DISCIPLINE_PROMPT, fittedMaxTokens } from '../lib/sampling.js';
+import { fittedMaxTokens } from '../lib/sampling.js';
 import { composePersonaPrompt } from '../lib/persona-prompt.js';
 import { claimNotice, claimService } from '../lib/service-claim.js';
 import { FinishReasonScanner, estimatePromptComplexity } from '../lib/smart-token-controller.js';
@@ -42,7 +42,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { ModelService } from '../services/ModelService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
-import { defaultSampling, requireBudget } from '../lib/pack-defaults.js';
+import { defaultSampling, requireBudget, requirePrompt } from '../lib/pack-defaults.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
@@ -173,6 +173,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
      */
     const sampling = chatPack?.sampling ?? await defaultSampling(db);
     const budget = chatPack?.budget ?? await requireBudget(db);
+    const promptConfig = chatPack?.prompt ?? await requirePrompt(db);
     const resolved = resolveConfig(
       await db.getHarnessProfile(uid),
       chatPack,
@@ -208,7 +209,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       : [];
     const historyChars = JSON.stringify(messages).length;
     const personaPrompt = resolved.systemPrompt
-      ? composePersonaPrompt(budget, resolved.systemPrompt, {
+      ? composePersonaPrompt(budget, promptConfig, resolved.systemPrompt, {
           toolRegistry,
           activeTools: activeToolNames,
           historyChars,
@@ -225,7 +226,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       leaves: branchLeaves,
       siblingLeaves,
       siblingBranches,
-      ...(offerTools ? { toolPrompt: TOOL_DISCIPLINE_PROMPT } : {}),
+      ...(offerTools ? { toolPrompt: promptConfig.sections.toolDiscipline } : {}),
       ...(explicitPlan ? { planText: command.text } : {}),
       ...(personaPrompt ? { personaPrompt } : {}),
     });

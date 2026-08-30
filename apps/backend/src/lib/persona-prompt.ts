@@ -1,7 +1,7 @@
 
 import { contextPressure } from './sampling.js';
 import { ALL_TOOL_SEEDS, type ToolRepositoryItem } from './tool-seeds.js';
-import type { BudgetConfig } from '@koala/harness-types';
+import type { BudgetConfig, PromptConfig } from '@koala/harness-types';
 
 export interface McpServerItem {
   name: string;
@@ -22,45 +22,39 @@ export interface PersonaPromptOptions {
   memoryContext?: string | undefined;
 }
 
+/**
+ * Fills `{{name}}` placeholders in a section. A section a pack has blanked emits nothing, which is
+ * how a pack turns a section off without the composer knowing which sections exist.
+ */
+function section(template: string, values: Record<string, string | number> = {}): string | undefined {
+  const text = template.replace(/\{\{(\w+)\}\}/g, (whole, key: string) =>
+    (key in values ? String(values[key]) : whole));
+  return text.trim() ? text : undefined;
+}
+
 export function composePersonaPrompt(
   budget: BudgetConfig,
+  prompt: PromptConfig,
   basePrompt: string,
   options?: PersonaPromptOptions,
 ): string {
   const sections: string[] = [basePrompt.trim()];
   const historyChars = options?.historyChars ?? 0;
   const pressure = contextPressure(budget, basePrompt.length + historyChars, options?.maxContextTokens);
+  const push = (text: string | undefined) => { if (text) sections.push(text); };
 
   if (options?.isAdmin) {
-    sections.push(
-      '## Platform Role: Administrator\n'
-      + 'You are interacting with a cluster Administrator. You have cluster-wide visibility across all namespaces, '
-      + 'including platform monitoring (Prometheus, Grafana, Alertmanager), logging (Loki), and git infrastructure (Gitea). '
-      + 'You may inspect system services and diagnose cluster health directly.',
-    );
+    push(section(prompt.sections.role.admin));
   } else if (options?.isEscalated) {
-    const ns = (options?.escalatedNamespaces ?? ['monitoring', 'gitea']).join(', ');
-    sections.push(
-      `## Escalated Privileges: Active\n`
-      + `Elevated cluster access has been approved for this session. Scope includes system namespaces: ${ns}. `
-      + `You may inspect diagnostics, logs, and events within these namespaces.`,
-    );
+    push(section(prompt.sections.role.escalated, {
+      namespaces: (options?.escalatedNamespaces ?? ['monitoring', 'gitea']).join(', '),
+    }));
   } else if (options?.activeTools?.includes('request_escalated_privileges')) {
-    sections.push(
-      '## Standard Tenant Boundaries\n'
-      + 'You are operating with standard tenant privileges. If diagnosing an issue requires access to cluster system '
-      + 'namespaces (e.g. monitoring, gitea, kube-system), call request_escalated_privileges with a clear, honest reason.',
-    );
+    push(section(prompt.sections.role.standard));
   }
 
   if (options?.activeTools?.includes('request_secret') || options?.activeTools?.includes('inject_secret_to_pod')) {
-    sections.push(
-      '## Secrets & Configuration Runtime Model\n'
-      + '- Applications run in Kubernetes containers where all secrets and configuration are injected as standard environment variables.\n'
-      + '- When authoring or scaffolding application code, ALWAYS write code that reads from environment variables (e.g. process.env.<KEY> in Node.js, os.environ["<KEY>"] in Python). Do NOT write code that calls external vault APIs directly from inside the app.\n'
-      + '- When an application requires a sensitive token, password, or API key from the user, NEVER ask them to paste it in plaintext chat. Always call request_secret to display a secure UI card.\n'
-      + '- Once the user vaults the secret in Infisical, call inject_secret_to_pod to update the pod\'s Kubernetes Secret (<app>-secrets) and trigger a rolling restart.',
-    );
+    push(section(prompt.sections.secrets));
   }
 
   const activeTools = options?.activeTools ?? [];
@@ -84,13 +78,13 @@ export function composePersonaPrompt(
   if (allActiveToolNames.length > 0) {
     const toolLines: string[] = [];
 
-    if (pressure >= 0.50) {
+    if (pressure >= prompt.pressure.minimalAt) {
       for (const name of allActiveToolNames) {
         const item = toolMap.get(name);
         const desc = item?.compactGuidance ?? item?.description ?? mcpToolList.find((m) => m.name === name)?.description ?? name;
         toolLines.push(`- \`${name}\`: ${desc}`);
       }
-    } else if (pressure >= 0.40) {
+    } else if (pressure >= prompt.pressure.compactAt) {
       for (const name of allActiveToolNames) {
         const item = toolMap.get(name);
         const mcpItem = mcpToolList.find((m) => m.name === name);
@@ -112,31 +106,32 @@ export function composePersonaPrompt(
       }
     }
 
-    sections.push(`## Active Tools & Workflow Guidance\n${toolLines.join('\n')}`);
+    const heading = section(prompt.sections.toolGuidance);
+    if (heading) sections.push(`${heading}\n${toolLines.join('\n')}`);
   }
 
   if (options?.servers) {
     if (!options.servers.length) {
-      sections.push('No services are deployed yet. Propose a project to build one.');
+      push(section(prompt.sections.services.none));
     } else {
       const serverLines = options.servers.map((s) => {
         const mark = enabledServers.includes(s.name) ? ' — ENABLED, its tools are loaded' : '';
         return `- ${s.name}${s.description ? `: ${s.description}` : ''}${mark}`;
       });
-      sections.push(`## Services You Can Hook Up (via enable_mcp_server)\n${serverLines.join('\n')}`);
+      const servicesHeading = section(prompt.sections.services.heading);
+      if (servicesHeading) sections.push(`${servicesHeading}\n${serverLines.join('\n')}`);
     }
   }
 
   if (options?.memoryContext?.trim()) {
-    sections.push(
-      '## Recalled Platform & Project Memories\n'
-      + 'Relevant lessons learned, environment facts, and proven patterns recalled from previous runs:\n\n'
-      + options.memoryContext.trim(),
-    );
+    const heading = section(prompt.sections.memories);
+    if (heading) sections.push(`${heading}\n\n${options.memoryContext.trim()}`);
   }
 
-  if (pressure >= 0.48) {
-    sections.push('[Notice: Context window is >48% full. Keep thoughts and answers concise.]');
+  if (pressure >= prompt.pressure.noticeAt) {
+    push(section(prompt.sections.pressureNotice, {
+      percent: Math.round(prompt.pressure.noticeAt * 100),
+    }));
   }
 
   return sections.join('\n\n');
@@ -144,6 +139,7 @@ export function composePersonaPrompt(
 
 export function buildKoalaPrompt(
   budget: BudgetConfig,
+  prompt: PromptConfig,
   base: string,
   servers: readonly McpServerItem[],
   enabled: readonly string[],
@@ -157,7 +153,7 @@ export function buildKoalaPrompt(
     toolRegistry?: readonly ToolRepositoryItem[];
   },
 ): string {
-  return composePersonaPrompt(budget, base, {
+  return composePersonaPrompt(budget, prompt, base, {
     servers,
     enabledServers: enabled,
     activeTools,

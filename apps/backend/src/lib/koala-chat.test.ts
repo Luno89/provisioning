@@ -11,6 +11,7 @@ import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
 import { forSurface } from './tool-catalogue.js';
 
 const BUDGET = PACK_SEEDS[0]!.budget;
+const PROMPT = PACK_SEEDS[0]!.prompt;
 
 const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
 const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
@@ -237,18 +238,18 @@ describe('the prompt Koala is given', () => {
   const servers = [{ name: 'github-mcp', description: 'GitHub API.' }, { name: 'weather' }];
 
   it('lists names, not tool schemas', () => {
-    const prompt = buildKoalaPrompt(BUDGET, 'BASE', servers, []);
+    const prompt = buildKoalaPrompt(BUDGET, PROMPT, 'BASE', servers, []);
     expect(prompt).toContain('github-mcp');
     expect(prompt).toContain('weather');
     expect(prompt).not.toContain('get-repo');
   });
 
   it('marks what is already enabled, so it is not enabled twice', () => {
-    expect(buildKoalaPrompt(BUDGET, 'BASE', servers, ['github-mcp'])).toMatch(/github-mcp.*ENABLED/);
+    expect(buildKoalaPrompt(BUDGET, PROMPT, 'BASE', servers, ['github-mcp'])).toMatch(/github-mcp.*ENABLED/);
   });
 
   it('says so when there is nothing deployed', () => {
-    expect(buildKoalaPrompt(BUDGET, 'BASE', [], [])).toMatch(/No services are deployed yet/);
+    expect(buildKoalaPrompt(BUDGET, PROMPT, 'BASE', [], [])).toMatch(/No services are deployed yet/);
   });
 });
 

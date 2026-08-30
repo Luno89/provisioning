@@ -1,4 +1,4 @@
-import type { BudgetConfig, PersonaPack, SamplingConfig, WorkspaceScope } from '@koala/harness-types';
+import type { BudgetConfig, PersonaPack, PromptConfig, SamplingConfig, WorkspaceScope } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
 import { MERGER_PERSONA } from './well-known-personas.js';
 import { researchPacing } from './sandbox-tools.js';
@@ -66,6 +66,54 @@ const DEFAULT_BUDGET: BudgetConfig = {
 
 const defaultBudget = (): BudgetConfig => structuredClone(DEFAULT_BUDGET);
 
+/**
+ * The sections that used to be string literals inside `composePersonaPrompt`, and the three
+ * thresholds that were written inline at the point of comparison. Same rule as the sampler and the
+ * budget: each seed gets its own copy.
+ */
+const DEFAULT_PROMPT: PromptConfig = {
+  pressure: { compactAt: 0.40, minimalAt: 0.50, noticeAt: 0.48 },
+  sections: {
+    role: {
+      admin:
+        '## Platform Role: Administrator\n'
+        + 'You are interacting with a cluster Administrator. You have cluster-wide visibility across all namespaces, '
+        + 'including platform monitoring (Prometheus, Grafana, Alertmanager), logging (Loki), and git infrastructure (Gitea). '
+        + 'You may inspect system services and diagnose cluster health directly.',
+      escalated:
+        '## Escalated Privileges: Active\n'
+        + 'Elevated cluster access has been approved for this session. Scope includes system namespaces: {{namespaces}}. '
+        + 'You may inspect diagnostics, logs, and events within these namespaces.',
+      standard:
+        '## Standard Tenant Boundaries\n'
+        + 'You are operating with standard tenant privileges. If diagnosing an issue requires access to cluster system '
+        + 'namespaces (e.g. monitoring, gitea, kube-system), call request_escalated_privileges with a clear, honest reason.',
+    },
+    secrets:
+      '## Secrets & Configuration Runtime Model\n'
+      + '- Applications run in Kubernetes containers where all secrets and configuration are injected as standard environment variables.\n'
+      + '- When authoring or scaffolding application code, ALWAYS write code that reads from environment variables (e.g. process.env.<KEY> in Node.js, os.environ["<KEY>"] in Python). Do NOT write code that calls external vault APIs directly from inside the app.\n'
+      + '- When an application requires a sensitive token, password, or API key from the user, NEVER ask them to paste it in plaintext chat. Always call request_secret to display a secure UI card.\n'
+      + '- Once the user vaults the secret in Infisical, call inject_secret_to_pod to update the pod\'s Kubernetes Secret (<app>-secrets) and trigger a rolling restart.',
+    toolGuidance: '## Active Tools & Workflow Guidance',
+    services: {
+      none: 'No services are deployed yet. Propose a project to build one.',
+      heading: '## Services You Can Hook Up (via enable_mcp_server)',
+    },
+    memories:
+      '## Recalled Platform & Project Memories\n'
+      + 'Relevant lessons learned, environment facts, and proven patterns recalled from previous runs:',
+    pressureNotice: '[Notice: Context window is >{{percent}}% full. Keep thoughts and answers concise.]',
+    toolDiscipline: [
+      'Never invent, predict, or write out a tool result. If you need data, call the tool and stop —',
+      'the result will be given to you in the next turn. Do not deliberate about output formatting;',
+      'call the tool directly.',
+    ].join('\n'),
+  },
+};
+
+const defaultPrompt = (): PromptConfig => structuredClone(DEFAULT_PROMPT);
+
 export interface PackSeed {
   slug: string;
   name: string;
@@ -76,6 +124,7 @@ export interface PackSeed {
   workspace?: WorkspaceScope;
   sampling: SamplingConfig;
   budget: BudgetConfig;
+  prompt: PromptConfig;
   overrides: PersonaPack['overrides'];
 }
 
@@ -96,6 +145,7 @@ export const PACK_SEEDS: PackSeed[] = [
     ],
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: {},
   },
   {
@@ -115,6 +165,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: { temperature: 0.3 },
   },
   {
@@ -137,6 +188,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: { temperature: 0.4 },
   },
   {
@@ -156,6 +208,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: { temperature: 0.5 },
   },
   {
@@ -172,6 +225,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: { temperature: 0.2 },
   },
   {
@@ -190,6 +244,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: { temperature: 0.3 },
   },
   {
@@ -204,6 +259,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: {},
   },
   {
@@ -218,6 +274,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: { temperature: 0.1 },
   },
   {
@@ -233,6 +290,7 @@ export const PACK_SEEDS: PackSeed[] = [
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
+    prompt: defaultPrompt(),
     overrides: {},
   },
 ];
@@ -267,6 +325,7 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       ...(seed.workspace ? { workspace: seed.workspace } : {}),
       sampling: structuredClone(seed.sampling),
       budget: structuredClone(seed.budget),
+      prompt: structuredClone(seed.prompt),
       overrides: { ...seed.overrides },
       builtIn: true,
       createdAt: prior?.createdAt ?? new Date().toISOString(),

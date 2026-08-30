@@ -40,8 +40,3 @@ export function contextPressure(
   return (promptTokens + budget.contextMargin) / window;
 }
 
-export const TOOL_DISCIPLINE_PROMPT = [
-  'Never invent, predict, or write out a tool result. If you need data, call the tool and stop —',
-  'the result will be given to you in the next turn. Do not deliberate about output formatting;',
-  'call the tool directly.',
-].join('\n');

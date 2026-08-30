@@ -89,7 +89,6 @@ import { AMBIENT_PROPOSAL_PROMPT, isChatMode, type ChatMode, extractProposals, p
 import { extractServiceName } from './lib/extraction.js';
 import { buildOutboundMessages } from './lib/leaf-context.js';
 import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
-import { TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js';
 import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token-controller.js';
 import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
 import { buildHarnessConfig } from './lib/harness-config.js';

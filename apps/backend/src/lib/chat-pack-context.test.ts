@@ -3,6 +3,7 @@ import { appendUserTurn, buildKoalaPrompt, type ChatThread } from './chat-pack-c
 import { PACK_SEEDS } from './pack-seeds.js';
 
 const BUDGET = PACK_SEEDS[0]!.budget;
+const PROMPT = PACK_SEEDS[0]!.prompt;
 
 describe('appendUserTurn (koala vault policy)', () => {
   it('titles the first message and appends the user turn', () => {
@@ -24,7 +25,7 @@ describe('appendUserTurn (koala vault policy)', () => {
   });
 
   it('builds the composition of the persona and enabled services speaking', () => {
-    const system = buildKoalaPrompt(BUDGET, 'You are Koala.', [], ['svc-a']);
+    const system = buildKoalaPrompt(BUDGET, PROMPT, 'You are Koala.', [], ['svc-a']);
     expect(system).toContain('You are Koala.');
     expect(system).toContain('deployed');
   });

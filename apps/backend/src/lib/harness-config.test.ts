@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { buildHarnessConfig } from './harness-config.js';
-import { TOOL_DISCIPLINE_PROMPT } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 
@@ -15,7 +14,7 @@ const BUDGET = PACK_SEEDS[0]!.budget;
 
 const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
 
-const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES, PACK_SEEDS[0]!.sampling, PACK_SEEDS[0]!.budget);
+const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES, PACK_SEEDS[0]!.sampling, PACK_SEEDS[0]!.budget, PACK_SEEDS[0]!.prompt);
 const find = (sectionId: string, label: string) =>
   config.sections.find((s) => s.id === sectionId)!.settings.find((x) => x.label === label)!;
 
@@ -46,7 +45,8 @@ describe('the harness config surface', () => {
 
   it('shows prompts verbatim, so what the model is told is inspectable', () => {
     expect(config.prompts.find((p) => p.id === 'plan')!.text).toBe(planSystemPrompt(IMAGES));
-    expect(config.prompts.find((p) => p.id === 'discipline')!.text).toBe(TOOL_DISCIPLINE_PROMPT);
+    expect(config.prompts.find((p) => p.id === 'discipline')!.text)
+      .toBe(PACK_SEEDS[0]!.prompt.sections.toolDiscipline);
   });
 
   it('offers exactly the languages the catalogue has', () => {

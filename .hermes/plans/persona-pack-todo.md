@@ -46,22 +46,27 @@ interface PersonaPack {
 
 ## §3 Prompt sections injected around the pack's prompt
 
-- [ ] Administrator status block (`persona-prompt.ts:34`) → `pack.prompt.sections.role`
-- [ ] Escalation-active block (`persona-prompt.ts:42`) → `pack.prompt.sections.role`
-- [ ] Standard-tenant-boundaries block (`persona-prompt.ts:48`) → `pack.prompt.sections.role`
-- [ ] Secrets runtime model block (`persona-prompt.ts:56`) → `pack.prompt.sections.secrets`
-- [ ] Active tools & workflow guidance (`persona-prompt.ts:114`) → `pack.prompt.sections.toolGuidance`
-- [ ] "No services are deployed yet" (`persona-prompt.ts:119`) → `pack.prompt.sections.services`
-- [ ] Services-you-can-hook-up listing (`persona-prompt.ts:125`) → `pack.prompt.sections.services`
-- [ ] Recalled memories block (`persona-prompt.ts:130`) → `pack.prompt.sections.memories`
-- [ ] Context-pressure notice (`persona-prompt.ts:138`) → `pack.prompt.sections.pressureNotice`
-- [ ] `TOOL_DISCIPLINE_PROMPT` injected by the planner (`sampling.ts:58` → `planning-turn.ts:99`) → `pack.prompt.sections.toolDiscipline`
+Sections are templates on `pack.prompt.sections`; `{{name}}` is filled at compose time and a section
+set to an empty string is not emitted, which is how a pack turns one off. None of the nine had a
+test before this — the 18 in `persona-prompt.test.ts` were written first, against the old code, so
+the move is provably a move and not a rewrite.
+
+- [x] Administrator status block (`persona-prompt.ts:34`) → `pack.prompt.sections.role`
+- [x] Escalation-active block (`persona-prompt.ts:42`) → `pack.prompt.sections.role`
+- [x] Standard-tenant-boundaries block (`persona-prompt.ts:48`) → `pack.prompt.sections.role`
+- [x] Secrets runtime model block (`persona-prompt.ts:56`) → `pack.prompt.sections.secrets`
+- [x] Active tools & workflow guidance (`persona-prompt.ts:114`) → `pack.prompt.sections.toolGuidance`
+- [x] "No services are deployed yet" (`persona-prompt.ts:119`) → `pack.prompt.sections.services`
+- [x] Services-you-can-hook-up listing (`persona-prompt.ts:125`) → `pack.prompt.sections.services`
+- [x] Recalled memories block (`persona-prompt.ts:130`) → `pack.prompt.sections.memories`
+- [x] Context-pressure notice (`persona-prompt.ts:138`) → `pack.prompt.sections.pressureNotice`
+- [x] `TOOL_DISCIPLINE_PROMPT` injected by the planner (`sampling.ts:58` → `planning-turn.ts:99`) → `pack.prompt.sections.toolDiscipline`
 
 ## §4 Prompt shape switched by context pressure
 
-- [ ] 0.50 → one-phrase tool guidance (`persona-prompt.ts:100`) → `pack.prompt.pressure.minimalAt`
-- [ ] 0.40 → one-line tool guidance (`persona-prompt.ts:107`) → `pack.prompt.pressure.compactAt`
-- [ ] 0.48 → append the pressure notice (`persona-prompt.ts:137`) → `pack.prompt.pressure.noticeAt`
+- [x] 0.50 → one-phrase tool guidance (`persona-prompt.ts:100`) → `pack.prompt.pressure.minimalAt`
+- [x] 0.40 → one-line tool guidance (`persona-prompt.ts:107`) → `pack.prompt.pressure.compactAt`
+- [x] 0.48 → append the pressure notice (`persona-prompt.ts:137`) → `pack.prompt.pressure.noticeAt`
 
 ## §5 Loop budgets
 

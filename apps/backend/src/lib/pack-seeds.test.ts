@@ -107,7 +107,7 @@ describe('seeding', () => {
     const s = shipped(builtInPersonas);
     await seedPacks(s);
     s.saved.push({
-      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0', tools: ['get_logs'], sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, overrides: { temperature: 0.1 },
+      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0', tools: ['get_logs'], sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt, overrides: { temperature: 0.1 },
       createdAt: '', updatedAt: '',
     } as PersonaPack);
     await seedPacks(s);

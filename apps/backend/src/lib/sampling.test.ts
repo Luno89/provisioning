@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NO_THINKING, TOOL_DISCIPLINE_PROMPT } from './sampling.js';
+import { NO_THINKING } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 
@@ -66,7 +66,8 @@ describe('what each kind of turn gets', () => {
   });
 });
 
-describe('TOOL_DISCIPLINE_PROMPT', () => {
+describe('the tool-discipline section every pack ships with', () => {
+  const TOOL_DISCIPLINE_PROMPT = PACK_SEEDS[0]!.prompt.sections.toolDiscipline;
   it('forbids inventing a tool result, which is the observed failure', () => {
     expect(TOOL_DISCIPLINE_PROMPT).toMatch(/never invent/i);
     expect(TOOL_DISCIPLINE_PROMPT).toMatch(/call the tool and stop/i);

@@ -1,6 +1,6 @@
-import { TOOL_DISCIPLINE_PROMPT, NO_THINKING } from './sampling.js';
+import { NO_THINKING } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
-import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
+import type { BudgetConfig, PromptConfig, SamplingConfig } from '@koala/harness-types';
 import { buildAgentPrompt } from './sandbox-tools.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
 import { planSystemPrompt, AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
@@ -46,6 +46,8 @@ export function buildHarnessConfig(
   sampling?: SamplingConfig,
   /** And its budget, for the same reason. */
   budget?: BudgetConfig,
+  /** And the sections it composes around a persona's prompt. */
+  prompt?: PromptConfig,
 ): HarnessConfig {
   const surfaceNames = (s: 'planning' | 'sandbox') =>
     toolRows.filter((t) => t.surfaces?.includes(s)).map((t) => t.name).join(', ');
@@ -124,7 +126,7 @@ export function buildHarnessConfig(
     prompts: [
       { id: 'agent', title: 'Agent system prompt', text: buildAgentPrompt(images, undefined, '<the leaf being worked on>', budget?.run.steps ?? 0) },
       { id: 'sandbox', title: 'Sandbox description (generated)', text: describeSandbox(images) },
-      { id: 'discipline', title: 'Tool discipline', text: TOOL_DISCIPLINE_PROMPT },
+      { id: 'discipline', title: 'Tool discipline', text: prompt?.sections.toolDiscipline ?? '' },
       { id: 'plan', title: 'Plan mode', text: planSystemPrompt(images) },
       { id: 'ambient', title: 'Ambient proposing', text: AMBIENT_PROPOSAL_PROMPT },
       { id: 'authoring', title: 'Task authoring (Koala writes the suite)', text: buildTaskAuthorPrompt(images) },

@@ -1,4 +1,4 @@
-import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
+import type { BudgetConfig, PromptConfig, SamplingConfig } from '@koala/harness-types';
 
 interface PackRowStore {
   getPersonaPacks(): Promise<{
@@ -6,6 +6,7 @@ interface PackRowStore {
     ownerId?: string | undefined;
     sampling?: SamplingConfig;
     budget?: BudgetConfig;
+    prompt?: PromptConfig;
   }[]>;
 }
 
@@ -27,6 +28,10 @@ export async function defaultBudget(store: PackRowStore): Promise<BudgetConfig |
   return (await defaultPack(store))?.budget;
 }
 
+export async function defaultPrompt(store: PackRowStore): Promise<PromptConfig | undefined> {
+  return (await defaultPack(store))?.prompt;
+}
+
 /**
  * Same, but for a caller that cannot proceed without one. An unseeded database used to surface far
  * downstream as a request with no token cap; this says which command was not run.
@@ -37,4 +42,12 @@ export async function requireBudget(store: PackRowStore): Promise<BudgetConfig> 
     throw new Error('No pack budget: nothing is seeded. Run the seeder (scripts/seed-all.ts).');
   }
   return budget;
+}
+
+export async function requirePrompt(store: PackRowStore): Promise<PromptConfig> {
+  const prompt = await defaultPrompt(store);
+  if (!prompt) {
+    throw new Error('No pack prompt: nothing is seeded. Run the seeder (scripts/seed-all.ts).');
+  }
+  return prompt;
 }
