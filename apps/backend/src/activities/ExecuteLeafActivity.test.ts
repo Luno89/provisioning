@@ -142,7 +142,7 @@ describe('which model a leaf runs against', () => {
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', 'dep-7');
+    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', 'dep-7', undefined);
   });
 
   it('leaves the choice open when nothing has been promoted', async () => {
@@ -150,7 +150,7 @@ describe('which model a leaf runs against', () => {
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', undefined);
+    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', undefined, undefined);
   });
 
   it('ignores a promoted model that is not a string, rather than resolving nonsense', async () => {
@@ -158,7 +158,7 @@ describe('which model a leaf runs against', () => {
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', undefined);
+    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', undefined, undefined);
   });
 
   it('sends the provider’s served model, never the id it was selected by', async () => {

@@ -63,7 +63,7 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
-    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen);
+    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
 
     const dimensions = evidence.findings && !evidence.diff ? RESEARCH_DIMENSIONS : CODE_DIMENSIONS;
     const { bundle, dropped } = buildJudgeBundle({

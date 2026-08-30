@@ -470,6 +470,12 @@ export interface PersonaPack {
   sampling: SamplingConfig;
   budget: BudgetConfig;
   prompt: PromptConfig;
+  /**
+   * Which engine this pack runs on. `endpointId` is a provider id from the owner's own list, so it
+   * is empty on a shipped pack — the platform ships no endpoints. Empty means the caller must name
+   * one; nothing named anywhere is an error rather than whichever endpoint was listed first.
+   */
+  model?: { endpointId?: string };
 
   overrides: Overrides;
   builtIn?: boolean;

@@ -206,7 +206,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         ? { ...resolved.overrides, systemPrompt: resolved.systemPrompt }
         : resolved.overrides;
       const chosen = typeof adopted.model === 'string' ? adopted.model : undefined;
-      const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen);
+      const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
       runSecrets = [apiKey];
 
       let branchName: string | undefined;

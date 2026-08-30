@@ -110,8 +110,8 @@ the move is provably a move and not a rewrite.
 
 ## §9 Model selection
 
-- [ ] `routeProvider` returns `providers[0]` when nothing is named (`model-registry.ts:167`) → `pack.model.endpointId`; no endpoint and no request model is an error, not a silent pick
-- [ ] `provider.kind` decides which sampler set applies (`model-request.ts:27`) → keep, but the pack declares per-engine values (§1)
+- [x] `routeProvider` returns `providers[0]` when nothing is named → `pack.model.endpointId`. It no longer guesses at all. `ModelService` supplies the sole endpoint when an account has exactly one — there is nothing to choose between — and errors naming the pack's own setting when there are several and nothing named one
+- [x] `provider.kind` decides which sampler set applies → kept; the pack declares per-engine values (§1, done)
 
 ## §10 Behaviour that lives in a route rather than a record
 

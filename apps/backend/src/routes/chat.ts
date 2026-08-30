@@ -233,7 +233,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
 
     let provider, baseUrl, apiKey;
     try {
-      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl((req as any).user.id, modelId));
+      ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl((req as any).user.id, modelId, chatPack?.model?.endpointId));
     } catch (err: any) {
       return res.status(404).json({ error: err.message });
     }

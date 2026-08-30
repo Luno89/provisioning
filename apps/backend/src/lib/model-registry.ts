@@ -84,7 +84,19 @@ export function listProviders(
   ];
 }
 
-export function routeProvider(providers: ModelProvider[], requestedId?: string): ModelProvider | undefined {
-  if (requestedId) return providers.find((p) => p.id === requestedId);
-  return providers[0];
+/**
+ * The endpoint a run reaches: what the caller asked for, else what its pack names.
+ *
+ * It used to return `providers[0]` when neither did, so a run silently took whichever endpoint
+ * happened to be listed first and nothing recorded which. Naming nothing is now an error the
+ * caller reports, not a quiet pick.
+ */
+export function routeProvider(
+  providers: ModelProvider[],
+  requestedId?: string,
+  packEndpointId?: string,
+): ModelProvider | undefined {
+  const wanted = requestedId ?? packEndpointId;
+  if (!wanted) return undefined;
+  return providers.find((p) => p.id === wanted);
 }

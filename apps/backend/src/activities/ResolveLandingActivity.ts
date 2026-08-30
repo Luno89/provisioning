@@ -107,7 +107,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     const language = (project.language ?? pack?.workspace?.language) as WorkspaceLanguage | undefined;
     const resolved = resolveConfig(profile, pack, {}, persona);
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
-    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen);
+    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen, pack?.model?.endpointId);
 
     let merged = true;
     for (const branch of branches) {

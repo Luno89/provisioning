@@ -56,7 +56,7 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     const resolved = resolveConfig(profile, pack, {}, persona);
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
-    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen);
+    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
 
     const before = all.filter((l: Leaf) => l.branchId === leaf.branchId).length;
     const gitea = new GiteaService(

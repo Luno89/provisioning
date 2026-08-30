@@ -292,6 +292,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl(
         userId,
         typeof chosenModel === 'string' ? chosenModel : undefined,
+        pack.model?.endpointId,
       ));
     } catch (err: any) {
       return res.status(404).json({ error: err.message });

@@ -55,15 +55,26 @@ export class ModelService extends BaseService {
   async resolveBaseUrl(
     userId: string,
     modelId?: string,
+    packEndpointId?: string,
   ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }> {
     const providers = await this.list(userId);
     if (providers.length === 0) {
       throw new Error('No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
     }
 
-    const provider = routeProvider(providers, modelId);
+    /**
+     * With one endpoint there is nothing to choose between, so a pack that names none still runs.
+     * With several there is, and picking the first silently is how a run ends up attributed to a
+     * model it did not use — so that is an error naming the packs' own setting.
+     */
+    const only = providers.length === 1 ? providers[0]!.id : undefined;
+    const provider = routeProvider(providers, modelId, packEndpointId ?? only);
     if (!provider) {
-      throw new Error(`Model ${modelId} not found`);
+      const named = modelId ?? packEndpointId;
+      throw new Error(named
+        ? `Model ${named} not found`
+        : `This account has ${providers.length} endpoints and nothing named one. `
+          + 'Set the pack\'s model.endpointId, or name a model on the request.');
     }
 
     if (provider.source === 'endpoint') return this.resolveEndpoint(userId, provider);

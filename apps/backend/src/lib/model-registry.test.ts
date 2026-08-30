@@ -154,8 +154,9 @@ describe('routeProvider', () => {
     expect(routeProvider(providers, 'd')?.id).toBe('d');
   });
 
-  it('falls back to the first available when nothing is requested', () => {
-    expect(routeProvider(providers)?.id).toBe('a');
+  it("falls back to the pack's endpoint, not to whichever was listed first", () => {
+    expect(routeProvider(providers, undefined, 'd')?.id).toBe('d');
+    expect(routeProvider(providers)).toBeUndefined();
   });
 
   it('returns undefined for an id the user does not own, rather than silently substituting one', () => {
