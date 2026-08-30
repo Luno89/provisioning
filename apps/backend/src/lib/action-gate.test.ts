@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { gate, ALL_EFFECTS, READ_ONLY, type ToolEffect } from './action-gate.js';
 import { KOALA_TOOLS, KOALA_TOOL_HANDLERS } from './koala-tools.js';
 import { LEAF_TOOLS } from './leaf-tools.js';
-import { effectOf } from './tool-schemas.js';
+import { ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { effectOf } from './tool-catalogue.js';
 
 describe('the action gate', () => {
   it('refuses a tool that declares no effect', () => {
@@ -41,7 +42,7 @@ describe('every tool declares what it does', () => {
     it(`gives every ${label} tool an effect in the registry`, () => {
       for (const tool of tools) {
         const name = tool.function.name;
-        const effect = effectOf(name);
+        const effect = effectOf(ALL_TOOL_SEEDS, name);
         expect(effect, `${name} has no effect row`).toBeDefined();
         expect(ALL_EFFECTS, `${name} declares "${effect}"`).toContain(effect);
       }
@@ -50,27 +51,27 @@ describe('every tool declares what it does', () => {
     it(`lets every ${label} tool through a gate that permits everything`, () => {
       for (const tool of tools) {
         const name = tool.function.name;
-        expect(gate(name, effectOf(name), ALL_EFFECTS).allowed, name).toBe(true);
+        expect(gate(name, effectOf(ALL_TOOL_SEEDS, name), ALL_EFFECTS).allowed, name).toBe(true);
       }
     });
   }
 
   it('gives every dispatchable handler an effect, so none can run ungated', () => {
     for (const name of Object.keys(KOALA_TOOL_HANDLERS)) {
-      expect(effectOf(name), `${name} is dispatchable with no effect`).toBeDefined();
+      expect(effectOf(ALL_TOOL_SEEDS, name), `${name} is dispatchable with no effect`).toBeDefined();
     }
   });
 
   it('calls the reading tools read, and the mutating ones not-read', () => {
-    expect(effectOf('get_logs')).toBe('read');
-    expect(effectOf('create_project')).toBe('write');
-    expect(effectOf('propose_tree')).toBe('propose');
+    expect(effectOf(ALL_TOOL_SEEDS, 'get_logs')).toBe('read');
+    expect(effectOf(ALL_TOOL_SEEDS, 'create_project')).toBe('write');
+    expect(effectOf(ALL_TOOL_SEEDS, 'propose_tree')).toBe('propose');
   });
 });
 
 describe('the runners consult the gate', () => {
   const ctx = (): Record<string, unknown> => ({
-    db: { getConversations: async () => [], getTrees: async () => [] },
+    db: { getConversations: async () => [], getTrees: async () => [], getTools: async () => ALL_TOOL_SEEDS },
     userId: 'u1',
     conversationId: 'c1',
     servers: [],
@@ -106,7 +107,10 @@ describe('the runners consult the gate', () => {
   it('refuses an undeclared leaf tool too', async () => {
     const { runLeafTool } = await import('./leaf-tool-runner.js');
     const out = await runLeafTool(
-      { db: { getLeaves: async () => [], getBranches: async () => [] }, userId: 'u1', branchId: 'b1' } as never,
+      {
+        db: { getLeaves: async () => [], getBranches: async () => [], getTools: async () => ALL_TOOL_SEEDS },
+        userId: 'u1', branchId: 'b1',
+      } as never,
       { name: 'not_a_leaf_tool', arguments: '{}' },
     );
     expect(out).toMatch(/Unknown tool|declares no effect/);

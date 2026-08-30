@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
 import { MemoryDB } from './memory-db.js';
 import type { AppSpec } from './app-spec.js';
+import { seedTools } from './tool-seeds.js';
 
 const MONGO_SPEC: AppSpec = {
   id: 'mongo',
@@ -16,6 +17,7 @@ const MONGO_SPEC: AppSpec = {
 
 const seeded = async () => {
   const db = new MemoryDB() as any;
+  await seedTools(db);
   await db.saveBranch({ id: 'b1', ownerId: 'u1', createdAt: 'n', updatedAt: 'n' });
   await db.saveProject({ id: 'p1', ownerId: 'u1', name: 'github-mcp', giteaOwner: 'o', giteaRepo: 'r', appType: 'gitapp', createdAt: 'n' });
   await db.saveAppSpec({ id: 'mongo', spec: MONGO_SPEC, builtIn: false, createdAt: 'n', updatedAt: 'n' });

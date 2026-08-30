@@ -1,5 +1,5 @@
 import { gate, ALL_EFFECTS, type ToolEffect } from './action-gate.js';
-import { effectOf } from './tool-schemas.js';
+import { effectOf, offeredOn } from './tool-catalogue.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolvePersonaNamed } from './proposal-merge.js';
 import type { McpRegistryService } from '../services/McpRegistryService.js';
@@ -44,13 +44,14 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
   const { db, userId, branchId, webSearch, fetchWebPage, projects, ingest, mcpRegistry } = ctx;
   const args = parseToolArguments(call.arguments);
 
-  if (!LEAF_TOOLS.some((t) => t.function.name === call.name)) {
+  const rows = withBuiltIns(await db.getTools(), userId, (t) => t.name);
+  if (!offeredOn(rows, 'planning', call.name)) {
     return JSON.stringify({ error: `Unknown tool ${call.name}` });
   }
 
   const decision = gate(
     call.name,
-    effectOf(call.name),
+    effectOf(rows, call.name),
     ctx.permitted ?? ALL_EFFECTS,
   );
   if (!decision.allowed) return JSON.stringify({ error: decision.reason });

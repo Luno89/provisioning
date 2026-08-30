@@ -9,6 +9,7 @@ import { PACK_SEEDS } from './pack-seeds.js';
 import { canRunLeaf } from './persona-scope.js';
 import { LEAF_TOOLS } from './leaf-tools.js';
 import { acceptLeaf } from './accept-leaf.js';
+import { seedTools } from './tool-seeds.js';
 
 const server = (over: Partial<any> = {}) => ({
   id: 'd1', name: 'github-mcp', url: 'http://x',
@@ -18,6 +19,7 @@ const server = (over: Partial<any> = {}) => ({
 
 const seeded = async (over: Partial<Conversation> = {}) => {
   const db = new MemoryDB() as any;
+  await seedTools(db);
   await db.saveConversation({
     id: 'c1', ownerId: 'u1', title: 'Chat', messages: [],
     createdAt: 'now', updatedAt: 'now', ...over,

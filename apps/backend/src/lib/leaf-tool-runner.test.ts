@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
 import type { Persona } from '@koala/harness-types';
+import { seedTools } from './tool-seeds.js';
 
 let db: MemoryDB;
 const ctx = (over: Partial<LeafToolContext> = {}): LeafToolContext => ({
@@ -28,6 +29,7 @@ const leavesOnBranch = async () => (await db.getLeaves()).filter((l) => l.branch
 
 beforeEach(async () => {
   db = new MemoryDB();
+  await seedTools(db);
   await db.init();
 });
 

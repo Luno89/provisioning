@@ -3,6 +3,7 @@ import { MemoryDB } from './memory-db.js';
 import { runPlanningTurn, MAX_PLANNING_ROUNDS, PLANNER_TOOLS } from './planning-turn.js';
 import type { LeafToolContext } from './leaf-tool-runner.js';
 import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
+import { seedTools } from './tool-seeds.js';
 
 let db: MemoryDB;
 
@@ -49,7 +50,7 @@ const run = (turns: Parameters<typeof scripted>[0], over: any = {}) => {
   }).then((result) => ({ result, sent: model.seen }));
 };
 
-beforeEach(async () => { db = new MemoryDB(); await db.init(); });
+beforeEach(async () => { db = new MemoryDB(); await db.init(); await seedTools(db); });
 
 describe('what the model is asked', () => {
   it('sends exactly one system message, first — the invariant chat templates enforce', async () => {

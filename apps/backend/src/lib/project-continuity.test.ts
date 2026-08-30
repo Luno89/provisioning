@@ -3,9 +3,11 @@ import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
 import { MemoryDB } from './memory-db.js';
 import { resolveLeafProject, autoRepoNameFor } from './leaf-project.js';
 import { withProject, primaryProjectId } from './trees.js';
+import { seedTools } from './tool-seeds.js';
 
 const seeded = async () => {
   const db = new MemoryDB() as any;
+  await seedTools(db);
   await db.saveTree({ id: 't1', ownerId: 'u1', name: 'GitHub API MCP', createdAt: 'now', updatedAt: 'now' });
   await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', createdAt: 'now', updatedAt: 'now' });
   return db;
@@ -58,6 +60,7 @@ describe('link one: creating a project attaches it to the tree', () => {
 
   it('still creates the project when the branch has no tree', async () => {
     const db = new MemoryDB() as any;
+    await seedTools(db);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', createdAt: 'now', updatedAt: 'now' });
     const out = JSON.parse(await runLeafTool(ctx(db, fakeProjects(db)), {
       name: 'create_project', arguments: JSON.stringify({ name: 'loose' }),

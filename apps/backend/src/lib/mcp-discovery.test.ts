@@ -2,9 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { LEAF_TOOLS } from './leaf-tools.js';
 import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
 import { MemoryDB } from './memory-db.js';
+import { seedTools } from './tool-seeds.js';
 
-const ctx = (overrides: Partial<LeafToolContext> = {}): LeafToolContext => ({
-  db: new MemoryDB() as any,
+const seededDb = async () => {
+  const db = new MemoryDB();
+  await seedTools(db);
+  return db as never;
+};
+
+const ctx = (db: unknown, overrides: Partial<LeafToolContext> = {}): LeafToolContext => ({
+  db: db as never,
   userId: 'u1',
   branchId: 'b1',
   webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }),
@@ -13,9 +20,9 @@ const ctx = (overrides: Partial<LeafToolContext> = {}): LeafToolContext => ({
   ...overrides,
 });
 
-const call = (registry: unknown, args = '{}') =>
+const call = async (registry: unknown, args = '{}') =>
   runLeafTool(
-    ctx(registry === undefined ? {} : { mcpRegistry: registry as any }),
+    ctx(await seededDb(), registry === undefined ? {} : { mcpRegistry: registry as any }),
     { name: 'list_mcp_servers', arguments: args },
   ).then((r) => JSON.parse(r));
 
@@ -107,7 +114,7 @@ describe('changing a server rather than calling it', () => {
 
   it('still reports the server when the project lookup fails outright', async () => {
     const out = await runLeafTool(
-      ctx({ mcpRegistry: withProject as any, projects: {} as any }),
+      ctx(await seededDb(), { mcpRegistry: withProject as any, projects: {} as any }),
       { name: 'list_mcp_servers', arguments: '{}' },
     ).then((r) => JSON.parse(r));
     expect(out.servers[0].projectId).toBe('p-9');

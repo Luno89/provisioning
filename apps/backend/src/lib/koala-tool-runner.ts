@@ -1,6 +1,8 @@
-import { KOALA_TOOLS, KOALA_TOOL_HANDLERS, type KoalaToolName } from './koala-tools.js';
+import { KOALA_TOOL_HANDLERS, type KoalaToolName } from './koala-tools.js';
 import { gate, ALL_EFFECTS } from './action-gate.js';
-import { effectOf } from './tool-schemas.js';
+import { effectOf, parametersOf } from './tool-catalogue.js';
+import { withBuiltIns } from './ownership.js';
+import type { ToolRepositoryItem } from './tool-seeds.js';
 import { json, type KoalaToolContext, type KoalaToolResult } from './koala-tool-handlers.js';
 
 export type { KoalaToolContext, KoalaToolResult };
@@ -8,10 +10,11 @@ export type { KoalaToolContext, KoalaToolResult };
 export const KOALA_TOOL_NAMES = Object.keys(KOALA_TOOL_HANDLERS) as KoalaToolName[];
 
 export function validateArgs(
+  rows: readonly ToolRepositoryItem[],
   name: string,
   args: Record<string, unknown>,
 ): string | undefined {
-  const schema = KOALA_TOOLS.find((t) => t.function.name === name)?.function.parameters as
+  const schema = parametersOf(rows, name) as
     | { properties?: Record<string, { type?: string }> }
     | undefined;
   if (!schema) return undefined;
@@ -41,12 +44,15 @@ export async function runKoalaTool(
   const handler = (KOALA_TOOL_HANDLERS as Record<string, typeof KOALA_TOOL_HANDLERS[KoalaToolName]>)[call.name];
   if (!handler) return json({ error: `No tool named "${call.name}".` });
 
-  const complaint = validateArgs(call.name, args);
+  // The catalogue this user sees decides the schema and the effect — both are rows now.
+  const rows = withBuiltIns(await ctx.db.getTools(), ctx.userId, (t) => t.name);
+
+  const complaint = validateArgs(rows, call.name, args);
   if (complaint) return json({ error: complaint });
 
   const decision = gate(
     call.name,
-    effectOf(call.name),
+    effectOf(rows, call.name),
     ctx.permitted ?? ALL_EFFECTS,
   );
   if (!decision.allowed) return json({ error: decision.reason });
