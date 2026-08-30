@@ -524,7 +524,7 @@ export class MongoDB implements Database {
   }
 
   async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
-    const filter = ownerId ? { ownerId } : {};
+    const filter = ownerId ? { $or: [{ ownerId }, { ownerId: { $exists: false } }] } : {};
     const docs = await this.treeTypes.find(filter).toArray();
     return docs.map(({ _id, ...rest }) => rest as unknown as TreeTypeSpec);
   }

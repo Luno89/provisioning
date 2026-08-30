@@ -156,6 +156,13 @@ docker compose -f docker-compose.headscale.yml up -d
 docker compose -f docker-compose.caddy.yml up -d
 ok "Mongo, Temporal, Headscale and Caddy running"
 
+# Nothing seeds the catalogues at server start any more, and this host never runs setup.sh — so
+# without this a fresh VPS comes up with no tools, personas, packs or tree types. Idempotent: a
+# re-run writes nothing when everything already matches.
+step "Seeding catalogues"
+npx tsx apps/backend/src/scripts/seed-all.ts
+ok "Catalogues seeded"
+
 step "Creating the management cluster"
 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 

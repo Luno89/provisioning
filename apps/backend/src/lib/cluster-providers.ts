@@ -37,3 +37,14 @@ export function providersToSeed(stored: ClusterProviderSpec[]): ClusterProviderS
   const present = new Set(stored.map((p) => p.value));
   return BUILT_IN_PROVIDERS.filter((p) => !present.has(p.value));
 }
+
+export interface ClusterProviderSeedStore {
+  getClusterProviders(): Promise<ClusterProviderSpec[]>;
+  saveClusterProvider(provider: ClusterProviderSpec): Promise<void>;
+}
+
+export async function seedClusterProviders(store: ClusterProviderSeedStore): Promise<number> {
+  const pending = providersToSeed(await store.getClusterProviders());
+  for (const provider of pending) await store.saveClusterProvider(provider);
+  return pending.length;
+}

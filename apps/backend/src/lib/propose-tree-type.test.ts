@@ -6,7 +6,7 @@ import { seedTreeTypes } from './tree-types.js';
 const ctx = async () => {
   const db = new MemoryDB();
   await db.init();
-  await seedTreeTypes(db, 'u1');
+  await seedTreeTypes(db);
   await db.saveConversation({ id: 'c1', ownerId: 'u1', messages: [] } as never);
   return { db, userId: 'u1', conversationId: 'c1', sessionId: 's1', servers: [] } as never;
 };

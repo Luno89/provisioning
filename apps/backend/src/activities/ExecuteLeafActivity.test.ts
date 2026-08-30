@@ -464,7 +464,7 @@ describe('what the tree type decides', () => {
       id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {},
       workspace: personaScope, createdAt: 'x', updatedAt: 'x',
     } as never);
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
     await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
     return (workspace.create.mock.calls[0] as unknown[] | undefined)?.[0] as { image?: string } | undefined;
   };

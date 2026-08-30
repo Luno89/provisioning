@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
 import { v4 as uuidv4 } from 'uuid';
-import { seedTreeTypes, resolveTreeType } from '../lib/tree-types.js';
+import { resolveTreeType } from '../lib/tree-types.js';
 import { normaliseTreeInput } from '../lib/trees.js';
 import { columnFor, changedSince, rollup } from '../lib/tree-board.js';
 import { blockedBy } from '../lib/leaves.js';
@@ -92,7 +92,6 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     const input = normaliseTreeInput(req.body ?? {});
     if (!input) return res.status(400).json({ error: 'name and type are required' });
 
-    await seedTreeTypes(db, userId).catch(() => undefined);
     const typeSpec = await resolveTreeType(db, userId, input.type);
     if (!typeSpec) {
       const available = await db.getTreeTypes(userId);

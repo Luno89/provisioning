@@ -285,7 +285,9 @@ export class MemoryDB implements Database {
   }
 
   async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
-    return ownerId ? this.treeTypes.filter((t) => t.ownerId === ownerId) : this.treeTypes;
+    return ownerId
+      ? this.treeTypes.filter((t) => t.ownerId === ownerId || t.ownerId === undefined)
+      : this.treeTypes;
   }
 
   async saveTreeType(treeType: TreeTypeSpec): Promise<void> {

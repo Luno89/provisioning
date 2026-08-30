@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
-import { seedTreeTypes, validateTreeType } from '../lib/tree-types.js';
+import { validateTreeType } from '../lib/tree-types.js';
 import type { Database } from '../lib/db-interface.js';
 
 export interface TreeTypesRouterDeps {
@@ -21,7 +21,6 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
 
   router.get('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    await seedTreeTypes(db, userId).catch((err: Error) => console.warn(`[tree-types] could not seed: ${err.message}`));
     res.json(await db.getTreeTypes(userId));
   }));
 

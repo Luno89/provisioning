@@ -22,7 +22,7 @@ const seeded = async (over: Partial<Conversation> = {}) => {
     id: 'c1', ownerId: 'u1', title: 'Chat', messages: [],
     createdAt: 'now', updatedAt: 'now', ...over,
   });
-  await seedTreeTypes(db, 'u1');
+  await seedTreeTypes(db);
   return db;
 };
 

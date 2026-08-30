@@ -49,7 +49,7 @@ import { appSchemasRouter } from './routes/app-schemas.js';
 import { ownsProject, ownedBy } from './lib/ownership.js';
 import { openSse, sendFrame, forwardChunk, endSse } from './lib/sse.js';
 import { mockOAuthAllowed } from './lib/oauth-gate.js';
-import { createDatabase } from './lib/db-interface.js';
+import { createDatabase, type Database } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
 
 import { InfrastructureService } from './services/InfrastructureService.js';
@@ -111,7 +111,6 @@ import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';
 import { specsToSeed, type AppSpec } from './lib/app-spec.js';
-import { seedPersonas } from './lib/persona-seeds.js';
 import { validateSpec, explainSpecProblems } from './lib/app-spec-validate.js';
 import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
 import type { AcceptanceCheck } from './lib/acceptance.js';
@@ -121,9 +120,6 @@ import {
   type Conversation, type ProposedTree, type ConversationToolCall,
 } from './lib/conversations.js';
 import { buildKoalaPrompt } from './lib/koala-persona.js';
-import { seedTools } from './lib/tool-seeds.js';
-import { seedPacks } from './lib/pack-seeds.js';
-import { seedBindingTypes } from './lib/binding-type-seeds.js';
 import { KOALA_TOOLS } from './lib/koala-tools.js';
 import { runKoalaTool } from './lib/koala-tool-runner.js';
 import { toLoopTools, routeCall } from './lib/mcp-tools.js';
@@ -202,7 +198,7 @@ function startHostTunnel(port = 8000) {
 
 const DEFAULT_LOG_LEVEL = 50;
 
-export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge }> {
+export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database }> {
   const app = express();
   const httpServer = createServer(app);
   const port = process.env.PORT || 3001;
@@ -225,16 +221,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const db = createDatabase();
   await db.init();
   await migrateLegacyOwnership(db);
-  await seedTools(db);
-  await seedBindingTypes(db);
-  await seedPersonas(db).then(
-    (n) => n && console.log(`[personas] seeded ${n} built-in persona(s)`),
-    (err: Error) => console.warn(`[personas] could not seed: ${err.message}`),
-  );
-  await seedPacks(db).then(
-    (n) => n && console.log(`[packs] seeded ${n} built-in pack(s)`),
-    (err: Error) => console.warn(`[packs] could not seed: ${err.message}`),
-  );
 
   const JWT_SECRET = process.env.JWT_SECRET || 'provisioning-platform-secret-12345';
   const infraService = new InfrastructureService();
@@ -618,43 +604,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const ownedLeaves = async (userId: string) => ownedBy(await db.getLeaves(), userId);
   const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
 
-  async function seedAppSpecs(): Promise<void> {
-    try {
-      const stored = await db.getAppSpecs();
-      const pending = specsToSeed(stored);
-      if (!pending.length) return;
-      const now = new Date().toISOString();
-      for (const spec of pending) {
-        const existing = stored.find((s) => s.id === spec.id);
-        await db.saveAppSpec({
-          id: spec.id,
-          spec,
-          builtIn: true,
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: now,
-        });
-      }
-      console.log(`[app-specs] seeded ${pending.length} built-in spec(s): ${pending.map((s) => s.id).join(', ')}`);
-    } catch (err: any) {
-      console.warn(`[app-specs] could not seed built-in specs: ${err.message}`);
-    }
-  }
-  await seedAppSpecs();
 
-  async function seedClusterProviders(): Promise<void> {
-    try {
-      const stored = await db.getClusterProviders();
-      const pending = providersToSeed(stored);
-      if (!pending.length) return;
-      for (const provider of pending) {
-        await db.saveClusterProvider(provider);
-      }
-      console.log(`[cluster-providers] seeded ${pending.length}: ${pending.map((p) => p.value).join(', ')}`);
-    } catch (err: any) {
-      console.warn(`[cluster-providers] could not seed built-in providers: ${err.message}`);
-    }
-  }
-  await seedClusterProviders();
 
   const NGINX_CONF_PATH = path.join(__dirname, '../data/nginx/nginx.conf');
 
@@ -764,7 +714,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  return { app, io, temporalBridge };
+  return { app, io, temporalBridge, db };
 }
 
 if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {

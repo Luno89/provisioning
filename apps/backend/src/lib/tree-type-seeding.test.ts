@@ -10,7 +10,7 @@ describe('seeding an owner\'s tree types', () => {
     const db = new MemoryDB();
     await db.init();
 
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
 
     expect((await owned(db)).map((t) => t.id).sort()).toEqual(TREE_TYPE_SEEDS.map((s) => s.id).sort());
   });
@@ -19,8 +19,8 @@ describe('seeding an owner\'s tree types', () => {
     const db = new MemoryDB();
     await db.init();
 
-    await seedTreeTypes(db, 'u1');
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
+    await seedTreeTypes(db);
 
     expect(await owned(db)).toHaveLength(TREE_TYPE_SEEDS.length);
   });
@@ -28,12 +28,12 @@ describe('seeding an owner\'s tree types', () => {
   it('never overwrites an edit', async () => {
     const db = new MemoryDB();
     await db.init();
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
 
     const mine = (await owned(db)).find((t) => t.id === 'research-paper')!;
     await db.saveTreeType({ ...mine, label: 'My renamed type', language: 'python' });
 
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
 
     const after = (await owned(db)).find((t) => t.id === 'research-paper')!;
     expect(after.label).toBe('My renamed type');
@@ -43,24 +43,36 @@ describe('seeding an owner\'s tree types', () => {
   it('adds a type shipped later without touching the rest', async () => {
     const db = new MemoryDB();
     await db.init();
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
     await db.deleteTreeType('library', 'u1');
     const renamed = (await owned(db)).find((t) => t.id === 'dataset')!;
     await db.saveTreeType({ ...renamed, label: 'Kept' });
 
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
 
     expect((await owned(db)).find((t) => t.id === 'library')).toBeDefined();
     expect((await owned(db)).find((t) => t.id === 'dataset')!.label).toBe('Kept');
   });
 
-  it('keeps one owner\'s types out of another\'s', async () => {
+  it('shows the shipped types to every owner, since they belong to the platform', async () => {
     const db = new MemoryDB();
     await db.init();
 
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
 
-    expect(await owned(db, 'u2')).toEqual([]);
+    // Seeded rows are ownerless now, the same as packs and personas. Copying them per user is what
+    // made a changed shipped type reach nobody who already had a copy.
+    expect((await owned(db, 'u1')).map((t) => t.id)).toContain('api-service');
+    expect((await owned(db, 'u2')).map((t) => t.id)).toContain('api-service');
+  });
+
+  it("keeps one owner's OWN types out of another's", async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await db.saveTreeType({ id: 'mine', ownerId: 'u1', label: 'Mine', summary: 's' } as never);
+
+    expect((await owned(db, 'u1')).map((t) => t.id)).toContain('mine');
+    expect((await owned(db, 'u2')).map((t) => t.id)).not.toContain('mine');
   });
 
   it('backfills validationRecipe when missing on legacy records while preserving user edits', async () => {
@@ -69,14 +81,13 @@ describe('seeding an owner\'s tree types', () => {
 
     await db.saveTreeType({
       id: 'api-service',
-      ownerId: 'u1',
       label: 'Custom Service Name',
       summary: 'Custom summary',
       language: 'node',
       produces: 'service',
     } as any);
 
-    await seedTreeTypes(db, 'u1');
+    await seedTreeTypes(db);
 
     const updated = (await owned(db)).find((t) => t.id === 'api-service')!;
     expect(updated.label).toBe('Custom Service Name');

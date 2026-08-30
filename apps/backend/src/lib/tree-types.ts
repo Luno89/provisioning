@@ -132,15 +132,15 @@ export interface TreeTypeSeedStore extends TreeTypeStore {
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;
 }
 
-export async function seedTreeTypes(store: TreeTypeSeedStore, ownerId: string): Promise<number> {
-  const mine = await store.getTreeTypes(ownerId).catch(() => [] as TreeTypeSpec[]);
-  const have = new Map(mine.map((t) => [t.id, t]));
+export async function seedTreeTypes(store: TreeTypeSeedStore): Promise<number> {
+  const stored = await store.getTreeTypes().catch(() => [] as TreeTypeSpec[]);
+  const have = new Map(stored.filter((t) => t.ownerId === undefined).map((t) => [t.id, t]));
 
   let updated = 0;
   for (const seed of TREE_TYPE_SEEDS_VALUE) {
     const existing = have.get(seed.id);
     if (!existing) {
-      await store.saveTreeType({ ...seed, ownerId });
+      await store.saveTreeType({ ...seed } as TreeTypeSpec);
       updated++;
     } else if (!existing.validationRecipe && seed.validationRecipe) {
       await store.saveTreeType({

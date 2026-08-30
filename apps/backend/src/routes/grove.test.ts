@@ -4,6 +4,7 @@ import { treeTypesRouter } from './tree-types.js';
 import { treesRouter } from './trees.js';
 import { branchesRouter } from './branches.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
+import { seedTreeTypes } from '../lib/tree-types.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -15,11 +16,13 @@ const bridge = () => ({
 }) as never;
 
 describe('the tree-type catalogue', () => {
-  it('seeds on first read, so a user who predates a type still gets it', async () => {
+  it('serves the seeded catalogue to every user', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
       router: (db) => treeTypesRouter({ db }),
     });
+    // Setup seeds; the route no longer does it lazily on read.
+    await seedTreeTypes(h.db);
     const res = await axios.get(h.url('/api/tree-types'));
     expect(res.status).toBe(200);
     expect(res.data.length).toBeGreaterThan(0);

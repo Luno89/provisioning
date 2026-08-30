@@ -197,7 +197,17 @@ if [ ! -f "apps/backend/.env" ]; then
     fi
 fi
 
-# 7. Setup management cluster
+# 7. Start MongoDB and seed the catalogues
+# The database is the runtime source for tools, personas, packs, tree types, app specs, binding
+# types and cluster providers. Nothing seeds them at server start any more, so a fresh install has
+# to do it here — and Mongo has to be up first.
+echo "🗄️  Ensuring MongoDB is running..."
+bash "$(dirname "$0")/ensure-mongo.sh"
+
+echo "🌱 Seeding catalogues..."
+npx tsx apps/backend/src/scripts/seed-all.ts
+
+# 8. Setup management cluster
 # This is the step that actually "makes the system cluster" — installing it (setup-root.sh) is
 # necessary but not sufficient; setup isn't done until it's up and Ready.
 # Linux: the native k3s management cluster (GPU-capable, no Docker-in-Docker nesting — see
@@ -305,7 +315,7 @@ docker run -d \
     -v "$NGINX_DATA_DIR/conf.d:/etc/nginx/conf.d:rw" \
     nginx:alpine
 
-# 8. Check Cloud CLIs (Optional, fallback to Mock Cloud Mode if missing)
+# 9. Check Cloud CLIs (Optional, fallback to Mock Cloud Mode if missing)
 echo "☁️ Checking cloud provider command-line tools..."
 if command -v aws &>/dev/null; then
     echo "  ✅ aws-cli detected"

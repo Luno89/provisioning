@@ -198,3 +198,26 @@ export function specsToSeed(
     return JSON.stringify(existing.spec) !== JSON.stringify(spec);
   });
 }
+
+export interface AppSpecSeedStore {
+  getAppSpecs(): Promise<StoredAppSpec[]>;
+  saveAppSpec(spec: StoredAppSpec): Promise<void>;
+}
+
+export async function seedAppSpecs(store: AppSpecSeedStore): Promise<number> {
+  const stored = await store.getAppSpecs();
+  const pending = specsToSeed(stored);
+  if (!pending.length) return 0;
+  const now = new Date().toISOString();
+  for (const spec of pending) {
+    const existing = stored.find((s) => s.id === spec.id);
+    await store.saveAppSpec({
+      id: spec.id,
+      spec,
+      builtIn: true,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+  return pending.length;
+}

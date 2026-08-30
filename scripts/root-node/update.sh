@@ -129,6 +129,12 @@ if ! build_and_check; then
 fi
 ok "Build, typecheck and lint clean"
 
+# A release that adds a tool, persona or pack has to put it in the database, and nothing does that
+# at server start any more. Before the restart, so the new version never comes up against a
+# catalogue missing what it expects. Idempotent — writes nothing when the release changed none.
+step "Seeding catalogues"
+npx tsx apps/backend/src/scripts/seed-all.ts || warn "seed failed — the new version may be missing catalogue entries"
+
 # ── 6. Restart ─────────────────────────────────────────────────────────────────────────────────
 # Restarts the backend AND both workers together, which is the entire point of doing it through
 # the unit: the workers run plain `tsx` and do not hot-reload, so a deploy that only bounced the

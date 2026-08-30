@@ -15,6 +15,11 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     const res = await bootstrap();
     app = res.app;
 
+    // Setup seeds the catalogues; the server no longer does it on start. This is the same call
+    // scripts/setup.sh makes, against the database the server actually opened.
+    const { seedAll } = await import('./scripts/seed-all.js');
+    await seedAll(res.db as never);
+
     server = http.createServer(app);
     await new Promise<void>((resolve) => {
       server.listen(0, '127.0.0.1', () => {
