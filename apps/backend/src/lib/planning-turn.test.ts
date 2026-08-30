@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
-import { runPlanningTurn, MAX_PLANNING_ROUNDS, PLANNER_TOOLS } from './planning-turn.js';
+import { runPlanningTurn, MAX_PLANNING_ROUNDS, plannerTools } from './planning-turn.js';
 import type { LeafToolContext } from './leaf-tool-runner.js';
 import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
-import { seedTools } from './tool-seeds.js';
+import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
 
 let db: MemoryDB;
 
@@ -45,6 +45,7 @@ const scripted = (turns: { content?: string; calls?: { name: string; args: unkno
 const run = (turns: Parameters<typeof scripted>[0], over: any = {}) => {
   const model = scripted(turns);
   return runPlanningTurn({
+    toolRows: ALL_TOOL_SEEDS,
     baseUrl: 'http://model', prompt: 'Build a GitHub API client',
     tools: tools(), fetchImpl: model.impl, ...over,
   }).then((result) => ({ result, sent: model.seen }));
@@ -176,6 +177,7 @@ describe('failure', () => {
   it('surfaces the engine’s own message when the call fails', async () => {
     const failing = (async () => ({ ok: false, status: 400, text: async () => 'bad sampler value' })) as unknown as typeof fetch;
     await expect(runPlanningTurn({
+      toolRows: ALL_TOOL_SEEDS,
       baseUrl: 'http://model', prompt: 'x', tools: tools(), fetchImpl: failing,
     })).rejects.toThrow(/400.*bad sampler value/);
   });
@@ -185,7 +187,7 @@ describe('research, because the planner has no web access', () => {
   const findings = (answer: string) => ({ ok: true, text: async () => sse({ content: answer }) });
 
   it('does not offer live search, so the model is never misled by an empty result', () => {
-    const names = PLANNER_TOOLS.map((t) => t.function.name);
+    const names = plannerTools(ALL_TOOL_SEEDS).map((t) => t.function.name);
     expect(names).not.toContain('web_search');
     expect(names).not.toContain('fetch_web_page');
     expect(names).toContain('research');
@@ -213,6 +215,7 @@ describe('research, because the planner has no web access', () => {
     }) as unknown as typeof fetch;
 
     const result = await runPlanningTurn({
+      toolRows: ALL_TOOL_SEEDS,
       baseUrl: 'http://model', prompt: 'Plan a GitHub client', tools: tools(), fetchImpl: impl,
       research: { webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '' },
     });

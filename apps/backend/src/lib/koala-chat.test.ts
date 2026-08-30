@@ -2,14 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { seedTreeTypes } from './tree-types.js';
 import { runKoalaTool, KOALA_TOOL_NAMES, type KoalaToolContext } from './koala-tool-runner.js';
-import { KOALA_TOOLS } from './koala-tools.js';
 import { titleFrom, enabledForSession, withEnabled, type Conversation } from './conversations.js';
 import { buildKoalaPrompt, KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 import { canRunLeaf } from './persona-scope.js';
-import { LEAF_TOOLS } from './leaf-tools.js';
 import { acceptLeaf } from './accept-leaf.js';
-import { seedTools } from './tool-seeds.js';
+import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { forSurface } from './tool-catalogue.js';
+
+const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
+const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
 
 const server = (over: Partial<any> = {}) => ({
   id: 'd1', name: 'github-mcp', url: 'http://x',

@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { buildHarnessConfig } from './harness-config.js';
 import { TOOL_TURN_MAX_TOKENS, toolTurnSampling, TOOL_DISCIPLINE_PROMPT } from './sampling.js';
-import { MAX_AGENT_STEPS, SANDBOX_TOOLS } from './sandbox-tools.js';
+import { MAX_AGENT_STEPS } from './sandbox-tools.js';
 import { PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT } from './plan-mode.js';
 import { WORKSPACE_IMAGES } from './workspace-spec.js';
+import { ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { forSurface } from './tool-catalogue.js';
 
-const config = buildHarnessConfig();
+const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
+
+const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS);
 const find = (sectionId: string, label: string) =>
   config.sections.find((s) => s.id === sectionId)!.settings.find((x) => x.label === label)!;
 

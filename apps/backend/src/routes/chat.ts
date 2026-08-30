@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { acceptLeaf } from '../lib/accept-leaf.js';
 import { ToolService } from '../services/ToolService.js';
+import { forSurface } from '../lib/tool-catalogue.js';
 import { usableAcceptancePlan } from '../lib/acceptance.js';
 import { wantsMcp } from '../lib/agent-run.js';
 import { DEFAULT_POLICY, reviewBatch } from '../lib/auto-accept.js';
@@ -9,7 +10,7 @@ import { withNotice } from '../lib/branch-notice.js';
 import { NO_CHAT_MCP, chatMcpFor } from '../lib/chat-mcp.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, extractServiceName, parseExtractionResult } from '../lib/extraction.js';
 import { buildOutboundMessages } from '../lib/leaf-context.js';
-import { LEAF_TOOLS, MAX_TOOL_ROUNDS, ToolCallScanner } from '../lib/leaf-tools.js';
+import { MAX_TOOL_ROUNDS, ToolCallScanner } from '../lib/leaf-tools.js';
 import type { ToolCall } from '../lib/leaf-tools.js';
 import { deriveBranchTitle, trimTranscript } from '../lib/leaves.js';
 import type { Branch, BranchMessage, Leaf } from '../lib/leaves.js';
@@ -189,7 +190,11 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const conventions = conventionsOf(planTreeType);
     const fileConventions = conventions ? describeConventions(conventions) : undefined;
     const toolRegistry = await new ToolService(db).list(uid);
-    const activeToolNames = offerTools ? (chatPack?.tools?.length ? chatPack.tools : LEAF_TOOLS.map((t) => t.function.name)) : [];
+    // The planning surface, from the catalogue — LEAF_TOOLS was a second list of the same thing.
+    const planningTools = forSurface(toolRegistry, 'planning');
+    const activeToolNames = offerTools
+      ? (chatPack?.tools?.length ? chatPack.tools : planningTools.map((t) => t.function.name))
+      : [];
     const historyChars = JSON.stringify(messages).length;
     const personaPrompt = resolved.systemPrompt
       ? composePersonaPrompt(resolved.systemPrompt, {
@@ -253,7 +258,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     } catch (err: any) {
       console.warn(`[chat] could not resolve MCP tools for this turn: ${err.message}`);
     }
-    const turnTools = chatMcp.tools.length ? [...LEAF_TOOLS, ...chatMcp.tools] : LEAF_TOOLS;
+    const turnTools = chatMcp.tools.length ? [...planningTools, ...chatMcp.tools] : planningTools;
 
     const upstream = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
@@ -388,7 +393,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
             method: 'POST',
             headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
             body: JSON.stringify(turnRequest(conversation, {
-              tools: LEAF_TOOLS,
+              tools: planningTools,
               stream: false,
               maxTokens: strategy.maxTokens,
             })),

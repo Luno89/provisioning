@@ -13,7 +13,7 @@ import { rewireDependents } from './plan-review.js';
 import { withProject } from './trees.js';
 import { describeInfrastructure } from './infrastructure.js';
 import { declareDependency } from './declare-dependency.js';
-import { summariseLeaf, detailLeaf, parseToolArguments, LEAF_TOOLS } from './leaf-tools.js';
+import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';

@@ -20,7 +20,7 @@ import { appendUserTurn } from '../lib/chat-pack-context.js';
 import { composePersonaPrompt } from '../lib/persona-prompt.js';
 import { buildChatCompletionRequest } from '../lib/chat-pack-model-call.js';
 import { makePackToolExecutor } from '../lib/chat-pack-tools.js';
-import { schemasFor } from '../lib/tool-schemas.js';
+import { schemasFor } from '../lib/tool-catalogue.js';
 import { toLoopTools } from '../lib/mcp-tools.js';
 import { validateSpec, explainSpecProblems } from '../lib/app-spec-validate.js';
 import { visibleAppSpecs, type AppSpec } from '../lib/app-spec.js';
@@ -317,7 +317,8 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
     openSse(res);
 
-    const ownTools = schemasFor(pack.tools);
+    const toolRegistry = await new ToolService(db).list(userId);
+    const ownTools = schemasFor(toolRegistry, pack.tools);
 
     const toolsFor = (enabledNames: string[]) => {
       const remote = servers
@@ -345,7 +346,6 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     };
 
     const user = (req as any).user ?? { id: userId, isAdmin: false };
-    const toolRegistry = await new ToolService(db).list(userId);
     const activeToolNames = ownTools.map((t) => t.function.name);
 
     const executeTool = makePackToolExecutor({

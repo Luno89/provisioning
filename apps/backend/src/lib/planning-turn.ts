@@ -1,8 +1,10 @@
 import { buildOutboundMessages, type OutboundMessage } from './leaf-context.js';
-import { LEAF_TOOLS, ToolCallScanner } from './leaf-tools.js';
+import { ToolCallScanner } from './leaf-tools.js';
 import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
 import { estimatePromptComplexity } from './smart-token-controller.js';
 import { TOOL_DISCIPLINE_PROMPT } from './sampling.js';
+import { forSurface } from './tool-catalogue.js';
+import type { ToolRepositoryItem } from './tool-seeds.js';
 import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
 import { runResearchAgent, type ResearchFinding } from './research-agent.js';
 import { serialiseBoard } from './planning-board.js';
@@ -13,8 +15,14 @@ import type { Leaf } from './leaves.js';
 import type { ModelKind } from '@koala/harness-types';
 import type { WebSearchFn } from './web-tools.js';
 
-export const PLANNER_TOOLS = [
-  ...LEAF_TOOLS.filter((t) => !['web_search', 'fetch_web_page'].includes(t.function.name)),
+/**
+ * The planner's toolset: the planning surface without the web tools, plus `research`.
+ *
+ * A function over rows rather than a constant, so it reflects the catalogue the caller's user
+ * actually has. `LEAF_TOOLS` was a second declaration of the same set.
+ */
+export const plannerTools = (rows: readonly ToolRepositoryItem[]) => [
+  ...forSurface(rows, 'planning').filter((t) => !['web_search', 'fetch_web_page'].includes(t.function.name)),
   {
     type: 'function' as const,
     function: {
@@ -74,6 +82,8 @@ export interface PlanningTurnOptions {
   profile?: HarnessProfile | null;
   persona?: Persona | null;
   pack?: { overrides?: Record<string, unknown> } | null;
+  /** The caller's tool catalogue. Rows, because the planner's set is a view of it. */
+  toolRows?: readonly ToolRepositoryItem[];
   overrides?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
@@ -137,7 +147,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
         ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
       },
       body: JSON.stringify({
-        ...parameters, messages: conversation, tools: PLANNER_TOOLS,
+        ...parameters, messages: conversation, tools: plannerTools(opts.toolRows ?? []),
         stream: true, stream_options: { include_usage: true },
       }),
       ...(opts.signal ? { signal: opts.signal } : {}),
@@ -272,7 +282,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
     request: {
       systemPrompt: String(messages[0]?.role === 'system' ? messages[0].content : ''),
       parameters,
-      tools: PLANNER_TOOLS.map((t) => t.function.name),
+      tools: plannerTools(opts.toolRows ?? []).map((t) => t.function.name),
     },
   };
 }

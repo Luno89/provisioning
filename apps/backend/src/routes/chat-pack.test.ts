@@ -5,6 +5,7 @@ import { mountRouter, type Harness } from './test-harness.js';
 import type { Database } from '../lib/db-interface.js';
 import type { Persona, PersonaPack } from '@koala/harness-types';
 import { TEST_USER } from './test-harness.js';
+import { seedTools } from '../lib/tool-seeds.js';
 
 const persona = (id: string, name: string, systemPrompt: string): Persona => ({
   id, ownerId: TEST_USER.id, name, systemPrompt,
@@ -85,6 +86,7 @@ const harness: Harness = await mountRouter({
 beforeAll(async () => {
   await startUpstream('hello-red-green');
   const db = harness.db;
+  await seedTools(db);
   await db.savePersona(persona('p1', 'Koala', 'You are Koala.'));
   await db.savePersona(persona('p2', 'Researcher', 'You are a rigorous Researcher. Cite sources.'));
   await db.savePersonaPack(pack('koala', 'p1'));

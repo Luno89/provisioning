@@ -1,6 +1,7 @@
 import { toolTurnSampling, conversationSampling, TOOL_TURN_MAX_TOKENS, TOOL_DISCIPLINE_PROMPT, NO_THINKING } from './sampling.js';
-import { SANDBOX_TOOLS, MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS, buildAgentPrompt } from './sandbox-tools.js';
-import { LEAF_TOOLS, MAX_TOOL_ROUNDS } from './leaf-tools.js';
+import { MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS, buildAgentPrompt } from './sandbox-tools.js';
+import type { ToolRepositoryItem } from './tool-seeds.js';
+import { MAX_TOOL_ROUNDS } from './leaf-tools.js';
 import { PLAN_MODE_MAX_TOKENS, MAX_PROPOSALS_PER_REPLY, PLAN_SYSTEM_PROMPT, AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
 import {
   WORKSPACE_IMAGES,
@@ -37,7 +38,11 @@ function withChoices(tunables: typeof TUNABLES, models: HarnessConfig['models'])
 export function buildHarnessConfig(
   profileOverrides: Overrides = {},
   models: HarnessConfig['models'] = [],
+  /** The caller's catalogue. The tool panels describe rows now, not a file. */
+  toolRows: readonly ToolRepositoryItem[] = [],
 ): HarnessConfig {
+  const surfaceNames = (s: 'planning' | 'sandbox') =>
+    toolRows.filter((t) => t.surfaces?.includes(s)).map((t) => t.name).join(', ');
   const tabby = toolTurnSampling('tabbyapi');
   const portable = toolTurnSampling(undefined);
 
@@ -65,7 +70,7 @@ export function buildHarnessConfig(
           fromKnob('maxSteps'),
           fromKnob('max_tokens'),
           { label: 'Tool result cap', value: `${MAX_TOOL_RESULT_CHARS} chars`, note: 'Truncated from the FRONT, so exit codes and errors at the tail survive.', source: 'lib/sandbox-tools.ts' },
-          { label: 'Tools', value: SANDBOX_TOOLS.map((t) => t.function.name).join(', '), source: 'lib/sandbox-tools.ts' },
+          { label: 'Tools', value: surfaceNames('sandbox'), source: 'the tool catalogue' },
           { label: 'Retries per leaf', value: String(MAX_LEAF_ATTEMPTS), note: 'Each retry re-reads the DB, so it sees why the last attempt failed.', source: 'lib/leaves.ts' },
         ],
       },
@@ -99,7 +104,7 @@ export function buildHarnessConfig(
           { label: '/plan token budget', value: String(PLAN_MODE_MAX_TOKENS), note: 'Measured: one turn produced 7,908 chars of reasoning before 1,210 of answer. At 900 the reply never arrived, silently.', source: 'lib/plan-mode.ts' },
           { label: 'Tool rounds per turn', value: String(MAX_TOOL_ROUNDS), source: 'lib/leaf-tools.ts' },
           { label: 'Proposals per reply', value: String(MAX_PROPOSALS_PER_REPLY), source: 'lib/plan-mode.ts' },
-          { label: 'Planning tools', value: LEAF_TOOLS.map((t) => t.function.name).join(', '), source: 'lib/leaf-tools.ts' },
+          { label: 'Planning tools', value: surfaceNames('planning'), source: 'the tool catalogue' },
         ],
       },
       {

@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { PACK_SEEDS, seedPacks, type PackSeedStore } from './pack-seeds.js';
 import { PERSONA_SEEDS } from './persona-seeds.js';
 import type { PersonaPack } from '@koala/harness-types';
-import { KOALA_TOOLS } from './koala-tools.js';
+import { ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { forSurface } from './tool-catalogue.js';
+
+const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
 
 const store = (packs: PersonaPack[], personas: { id: string; ownerId: string; name: string }[]): PackSeedStore & { saved: PersonaPack[] } => {
   const saved = [...packs];
@@ -36,7 +39,6 @@ describe('the seeds themselves', () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-
   it('grants every tool the assistant executor can actually dispatch', () => {
     const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
     const dispatchable = new Set(KOALA_TOOLS.map((t) => t.function.name as string));
@@ -54,7 +56,6 @@ describe('every persona has a pack to run as', () => {
       expect(packed, persona.name).toContain(persona.name);
     }
   });
-
 
   it('starts each work pack as what its persona already declared', () => {
     for (const seed of PERSONA_SEEDS.filter((p) => p.name !== 'Koala')) {

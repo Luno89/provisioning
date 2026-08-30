@@ -1,6 +1,5 @@
 import {
   conversationBudget,
-  SANDBOX_TOOLS,
   MAX_AGENT_STEPS,
   MAX_AGENT_TOKENS,
   MAX_TOOL_RESULT_CHARS,
@@ -13,7 +12,7 @@ import {
   type PacingNote,
   type ToolWithdrawal,
 } from './sandbox-tools.js';
-import { parseToolArguments, ToolCallScanner, WEB_TOOLS } from './leaf-tools.js';
+import { parseToolArguments, ToolCallScanner, WEB_TOOL_NAMES } from './leaf-tools.js';
 import {
   shouldCheckpoint, parseHandoff, assembleResetPrompt, HANDOFF_TOOL, type Handoff,
 } from './leaf-checkpoint.js';
@@ -133,8 +132,14 @@ export interface AgentRunOptions {
   validationRecipe?: ValidationRecipe | undefined;
 }
 
-const BUILT_IN_TOOL_NAMES = new Set(SANDBOX_TOOLS.map((t) => t.function.name));
-const isBuiltInTool = (name: string) => BUILT_IN_TOOL_NAMES.has(name as never) || name === 'finish';
+/**
+ * A tool this loop dispatches itself, rather than routing to a remote service.
+ *
+ * Read from the catalogue's sandbox surface. It was `SANDBOX_TOOLS`, which declared five of the
+ * eleven this loop actually handles — so six of its own tools did not count as built-in.
+ */
+const isBuiltInTool = (name: string) =>
+  TOOL_REPOSITORY.some((t) => t.name === name && t.surfaces?.includes('sandbox')) || name === 'finish';
 
 export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResult> {
   const doFetch = opts.fetchImpl ?? fetch;
@@ -193,16 +198,16 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     TOOL_REPOSITORY.filter((t) => t.surfaces?.includes('sandbox')),
   );
   const toolMap = new Map<string, any>();
-  for (const t of SANDBOX_TOOLS) {
-    toolMap.set(t.function.name, t);
-  }
   for (const t of toolRepoOpenAI) {
     if (!toolMap.has(t.function.name)) {
       toolMap.set(t.function.name, t);
     }
   }
   if (opts.web) {
-    for (const t of WEB_TOOLS) toolMap.set(t.function.name, t);
+    const web = formatToolRepoForOpenAI(
+      TOOL_REPOSITORY.filter((t) => (WEB_TOOL_NAMES as readonly string[]).includes(t.name)),
+    );
+    for (const t of web) toolMap.set(t.function.name, t);
   }
   const offered = Array.from(toolMap.values());
   for (const remote of opts.remoteTools ?? []) {

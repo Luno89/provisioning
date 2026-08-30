@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { gate, ALL_EFFECTS, READ_ONLY, type ToolEffect } from './action-gate.js';
-import { KOALA_TOOLS, KOALA_TOOL_HANDLERS } from './koala-tools.js';
-import { LEAF_TOOLS } from './leaf-tools.js';
+import { KOALA_TOOL_HANDLERS } from './koala-tools.js';
+
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { effectOf } from './tool-catalogue.js';
+import { effectOf, forSurface } from './tool-catalogue.js';
+
+const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
+const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
 
 describe('the action gate', () => {
   it('refuses a tool that declares no effect', () => {

@@ -3,9 +3,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { normaliseLeafInput } from './leaf-input.js';
-import { LEAF_TOOLS } from './leaf-tools.js';
+
 import { wantsMcp } from './agent-run.js';
 import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
+import { ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { forSurface } from './tool-catalogue.js';
+
+const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
 
 describe('a leaf can name the servers it needs', () => {
   it('keeps the names through normalisation', () => {

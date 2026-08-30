@@ -10,6 +10,7 @@ import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { withBuiltIns } from '../lib/ownership.js';
+import { ToolService } from '../services/ToolService.js';
 
 export interface ReplanArgs {
   leafId: string;
@@ -63,6 +64,7 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     );
     const web = await buildWebTools(db, leaf.ownerId);
     await runPlanningTurn({
+      toolRows: await new ToolService(db).list(leaf.ownerId),
       baseUrl,
       ...(apiKey ? { apiKey } : {}),
       model: provider.model,

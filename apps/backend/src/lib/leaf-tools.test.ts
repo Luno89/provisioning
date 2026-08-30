@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { ToolCallScanner, parseToolArguments, summariseLeaf, detailLeaf, LEAF_TOOLS } from './leaf-tools.js';
+import { ToolCallScanner, parseToolArguments, summariseLeaf, detailLeaf } from './leaf-tools.js';
+import { ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { forSurface } from './tool-catalogue.js';
+
+const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
 import type { Leaf } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
@@ -88,14 +92,15 @@ describe('tool results', () => {
   });
 });
 
-describe('LEAF_TOOLS', () => {
+describe('the planning surface', () => {
   it('covers what a planning turn needs: read, add, revise, withdraw, assign, ingest, and what already exists', () => {
-    expect(LEAF_TOOLS.map((t) => t.function.name)).toEqual([
-      'list_leaves', 'get_leaf', 'propose_leaf', 'set_acceptance', 'revise_leaf', 'replace_leaf', 'withdraw_leaf',
-      'start_ingest', 'ingest_status', 'search_corpus',
-      'list_personas',
-      'list_projects', 'create_project', 'set_leaf_project',
-      'add_project_dependency', 'list_infrastructure', 'list_mcp_servers', 'update_leaf_memory', 'web_search', 'fetch_web_page',
+    // Sorted: the surface is a set of rows now, so the order tools are offered in is no longer a
+    // property of a hand-written array and nothing depends on it.
+    expect(LEAF_TOOLS.map((t) => t.function.name).sort()).toEqual([
+      'add_project_dependency', 'create_project', 'fetch_web_page', 'get_leaf', 'ingest_status',
+      'list_infrastructure', 'list_leaves', 'list_mcp_servers', 'list_personas', 'list_projects',
+      'propose_leaf', 'replace_leaf', 'revise_leaf', 'search_corpus', 'set_acceptance', 'set_leaf_project',
+      'start_ingest', 'update_leaf_memory', 'web_search', 'withdraw_leaf',
     ]);
   });
 

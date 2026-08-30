@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { ALL_TOOL_SEEDS, TOOL_SEEDS } from './tool-seeds.js';
-import { KOALA_TOOLS, KOALA_TOOL_HANDLERS } from './koala-tools.js';
-import { effectOf, schemasFor, type ToolSchema } from './tool-schemas.js';
-import { LEAF_TOOLS } from './leaf-tools.js';
-import { SANDBOX_TOOLS } from './sandbox-tools.js';
+import { KOALA_TOOL_HANDLERS } from './koala-tools.js';
+import { effectOf, forSurface, schemasFor, type ToolSchema } from './tool-catalogue.js';
+
+const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
+const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
+const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
 
 const names = (tools: readonly { function: { name: string } }[]) => tools.map((t) => t.function.name);
 
@@ -53,7 +55,7 @@ describe('schema, handler and effect stay joined', () => {
 
     for (const name of names(KOALA_TOOLS)) {
       expect(handlers, name).toContain(name);
-      expect(effectOf(name), name).toBeDefined();
+      expect(effectOf(ALL_TOOL_SEEDS, name), name).toBeDefined();
     }
   });
 
@@ -119,13 +121,21 @@ describe('a tool is described in one place', () => {
     }
   });
 
-  it('serves a declared schema, never a registry paraphrase of one', () => {
-    const declared = ([...KOALA_TOOLS, ...LEAF_TOOLS, ...SANDBOX_TOOLS] as unknown as ToolSchema[]);
-    for (const schema of declared) {
-      const served = schemasFor([schema.function.name])[0];
-      expect(served, schema.function.name).toBeDefined();
-      expect(served, `${schema.function.name} is served a copy, not the declaration`)
-        .toBe(declared.find((t) => t.function.name === schema.function.name));
+  it('serves the row, and the row carries the declared parameters', () => {
+    /**
+     * This asserted object IDENTITY while the arrays were the source — a served schema had to BE
+     * the declaration, so no paraphrase could creep in. The row is the source now and `asSchema`
+     * builds from it, so the check is that the values still match what the arrays declare. That
+     * equality is what makes deleting them safe, and it goes when they do.
+     */
+    const declared = new Map<string, unknown>();
+    for (const t of ([...KOALA_TOOLS, ...LEAF_TOOLS, ...SANDBOX_TOOLS] as unknown as ToolSchema[])) {
+      if (!declared.has(t.function.name)) declared.set(t.function.name, t.function.parameters);
+    }
+    for (const [name, parameters] of declared) {
+      const served = schemasFor(ALL_TOOL_SEEDS, [name])[0];
+      expect(served, name).toBeDefined();
+      expect(JSON.stringify(served!.function.parameters), name).toBe(JSON.stringify(parameters));
     }
   });
 
@@ -152,7 +162,7 @@ describe('a tool is described in one place', () => {
   it('gives every in-process dispatchable tool an effect, and sandbox tools none', () => {
     // Sandbox tools run inside the pod, which is its own boundary; the gate only covers the
     // in-process runners, so an effect there would be a declaration nothing reads.
-    for (const name of names(KOALA_TOOLS)) expect(effectOf(name), name).toBeDefined();
-    for (const name of names(LEAF_TOOLS)) expect(effectOf(name), name).toBeDefined();
+    for (const name of names(KOALA_TOOLS)) expect(effectOf(ALL_TOOL_SEEDS, name), name).toBeDefined();
+    for (const name of names(LEAF_TOOLS)) expect(effectOf(ALL_TOOL_SEEDS, name), name).toBeDefined();
   });
 });

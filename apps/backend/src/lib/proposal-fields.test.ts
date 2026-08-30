@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { extractProposals } from './plan-mode.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT } from './extraction.js';
-import { LEAF_TOOLS } from './leaf-tools.js';
+import { ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { forSurface } from './tool-catalogue.js';
+
+const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
 
 describe('the extractor carries what it must not decide', () => {
   const props: any = (EXTRACTION_SCHEMA as any).properties.leaves.items.properties;

@@ -120,7 +120,6 @@ import {
   type Conversation, type ProposedTree, type ConversationToolCall,
 } from './lib/conversations.js';
 import { buildKoalaPrompt } from './lib/koala-persona.js';
-import { KOALA_TOOLS } from './lib/koala-tools.js';
 import { runKoalaTool } from './lib/koala-tool-runner.js';
 import { toLoopTools, routeCall } from './lib/mcp-tools.js';
 
@@ -160,14 +159,15 @@ import {
   type Experiment, type ExperimentTask,
 } from './lib/experiments.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
-import { SANDBOX_TOOLS, MAX_AGENT_STEPS, trimConversation } from './lib/sandbox-tools.js';
-import { LEAF_TOOLS, MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
+import { MAX_AGENT_STEPS, trimConversation } from './lib/sandbox-tools.js';
+import { MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
 import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, blockedBy, wouldCycle, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 import { getToolRepository } from './lib/tool-repository.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
 import { withBuiltIns } from './lib/ownership.js';
+import { ToolService } from './services/ToolService.js';
 
 dotenv.config();
 
@@ -562,7 +562,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       console.warn('[harness] could not list models:', err?.message ?? err);
     }
 
-    res.json(buildHarnessConfig(profile?.overrides ?? {}, models));
+    res.json(buildHarnessConfig(profile?.overrides ?? {}, models, await new ToolService(db).list(userId)));
   });
 
   app.get('/api/harness/export', async (req, res) => {
