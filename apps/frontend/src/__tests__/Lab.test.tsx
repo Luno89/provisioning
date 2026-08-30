@@ -113,7 +113,7 @@ const task = (id: string, name = id) => ({
 const experiment = (over: Record<string, unknown> = {}) => ({
   id: 'exp-1', name: 'reasoning on/off',
   tasks: [task('t1', 'fib')],
-  language: 'node', variants: [{ label: 'think=false', overrides: {} }], repeats: 1,
+  language: 'node', variants: [{ label: 'think=false', packId: 'pack-think=false' }], repeats: 1,
   status: 'complete', results: [], createdAt: '2026-08-03T00:00:00Z', ...over,
 });
 
@@ -122,7 +122,7 @@ const run = (taskId: string, label: string, verified: boolean, over: Record<stri
 
 const preview = {
   standing: { label: 'think=true', verified: 4, runs: 4, attempted: 4, broken: 0, tasks: 2, rank: 1, wasBest: true, behindBy: 0, medianTokens: 5000 },
-  changes: [{ key: 'think', label: 'Reasoning on dispatch turns', from: undefined, to: true }],
+  changes: [{ path: 'budget.rounds', from: 8, to: 12 }], target: { id: 'pack-koala', name: 'Koala' },
 };
 
 const mockApi = (
@@ -240,7 +240,7 @@ describe('results', () => {
 describe('the task matrix', () => {
   const suite = {
     tasks: [task('t1', 'fib'), task('t2', 'parse csv')],
-    variants: [{ label: 'a', overrides: {} }, { label: 'b', overrides: {} }],
+    variants: [{ label: 'a', packId: 'pack-a' }, { label: 'b', packId: 'pack-b' }],
   };
 
   it('shows which tasks a variant won, not just how many', async () => {
@@ -286,7 +286,7 @@ describe('the task matrix', () => {
     mockApi([{
       id: 'old', name: 'legacy', task: 'write fib', verifyCommand: 'node t.js', language: 'node',
       tasks: [{ id: 'task', name: 'Task' }],
-      variants: [{ label: 'think=false', overrides: {} }], repeats: 1, status: 'complete',
+      variants: [{ label: 'think=false', packId: 'pack-think=false' }], repeats: 1, status: 'complete',
       createdAt: '2026-08-01T00:00:00Z',
       results: [{ ...result(), taskId: 'task' }],
     }]);
@@ -301,8 +301,9 @@ describe('promoting a winning configuration', () => {
     mockApi([experiment({ results: [result()] })]);
     renderLab();
     fireEvent.click(await screen.findByText('Promote'));
-    expect(await screen.findByText(/Reasoning on dispatch turns/)).toBeInTheDocument();
-    expect(screen.getByText('default')).toBeInTheDocument();
+    // It says which pack it would overwrite, because promotion writes into that pack now.
+    expect(await screen.findByText(/budget\.rounds/)).toBeInTheDocument();
+    expect(screen.getByText('Koala')).toBeInTheDocument();
     expect(screen.getByText(/verified 4\/4 across 2 tasks/)).toBeInTheDocument();
   });
 
@@ -310,7 +311,7 @@ describe('promoting a winning configuration', () => {
     mockApi([experiment({ results: [result()] })], {
       preview: {
         standing: { label: 'a', verified: 1, runs: 4, attempted: 4, broken: 0, tasks: 2, rank: 2, wasBest: false, behindBy: 0.5, medianTokens: 100 },
-        changes: [{ key: 'think', label: 'Reasoning on dispatch turns', from: true, to: false }],
+        changes: [{ path: 'budget.rounds', from: 8, to: 12 }], target: { id: 'pack-koala', name: 'Koala' },
       },
     });
     renderLab();
@@ -322,19 +323,19 @@ describe('promoting a winning configuration', () => {
     mockApi([experiment({ results: [result()] })]);
     renderLab();
     fireEvent.click(await screen.findByText('Promote'));
-    fireEvent.click(await screen.findByText('Adopt'));
+    fireEvent.click(await screen.findByText(/Overwrite Koala/));
     await waitFor(() => expect(harnessApi.promoteVariant)
       .toHaveBeenCalledWith('exp-1', 'think=false'));
   });
 
   it('will not adopt a configuration that changes nothing', async () => {
     mockApi([experiment({ results: [result()] })], {
-      preview: { standing: preview.standing, changes: [] },
+      preview: { standing: preview.standing, changes: [], target: { id: 'pack-koala', name: 'Koala' } },
     });
     renderLab();
     fireEvent.click(await screen.findByText('Promote'));
-    expect(await screen.findByText(/already matches the defaults/)).toBeInTheDocument();
-    expect(screen.getByText('Adopt')).toBeDisabled();
+    expect(await screen.findByText(/already matches Koala/)).toBeInTheDocument();
+    expect(screen.getByText(/Overwrite Koala/)).toBeDisabled();
   });
 
   it('offers no promotion for a variant that never ran', async () => {
@@ -347,7 +348,7 @@ describe('promoting a winning configuration', () => {
   it('shows the adopted defaults with the experiment that earned them', async () => {
     mockApi([], {
       profile: {
-        overrides: { think: true, temperature: 0.2 },
+        packId: 'pack-koala',
         from: {
           experimentId: 'exp-1', experimentName: 'reasoning on/off', variantLabel: 'think=true',
           verified: 4, runs: 4, tasks: 2, wasBest: true, promotedAt: '2026-08-04T00:00:00Z',
@@ -357,16 +358,15 @@ describe('promoting a winning configuration', () => {
     });
     renderLab();
     await harnessTab();
-    const banner = (await screen.findByText('Adopted defaults')).closest('div')!;
-    expect(within(banner).getAllByText('think=true')).toHaveLength(2);
-    expect(within(banner).getByText('temperature=0.2')).toBeInTheDocument();
+    const banner = (await screen.findByText('Running as')).closest('div')!;
+    expect(within(banner).getByText('pack-koala')).toBeInTheDocument();
     expect(within(banner).getByText(/verified 4\/4 across 2 tasks/)).toBeInTheDocument();
   });
 
   it('says so on the banner when the adopted variant lost its experiment', async () => {
     mockApi([], {
       profile: {
-        overrides: { think: true },
+        packId: 'pack-koala',
         from: {
           experimentId: 'e', experimentName: 'x', variantLabel: 'think=true',
           verified: 1, runs: 4, tasks: 2, wasBest: false, promotedAt: '2026-08-04T00:00:00Z',
@@ -411,9 +411,10 @@ describe('what the model was actually sent', () => {
     fireEvent.click(await screen.findByTitle(/think=false — 0 of 1 verified/));
     fireEvent.click(await screen.findByText(/Sent to the model/));
 
+    // Every value came from one place now, so a row names the pack rather than a layer.
     const temp = (await screen.findByText('temperature')).closest('tr')!;
     expect(within(temp).getByText('0.7')).toBeInTheDocument();
-    expect(within(temp).getByText('override')).toBeInTheDocument();
+    expect(within(temp).getByText(/pack/)).toBeInTheDocument();
 
     const dry = screen.getByText('dry_multiplier').closest('tr')!;
     expect(within(dry).getByText(/DROPPED/)).toBeInTheDocument();
@@ -563,83 +564,37 @@ describe('the polled list stays small', () => {
   });
 });
 
-describe('what each variant actually changes', () => {
+describe('what each variant actually runs as', () => {
   const suite = (over: Record<string, unknown> = {}) => experiment({
     variants: [
-      { label: 'shipped-prompt', overrides: {} },
-      { label: 'terse-prompt', overrides: { systemPrompt: 'You are terse and you call tools. /work is writable. There is no network. Call finish when done.' } },
-      { label: 'with-extra', overrides: { extraInstructions: 'Prefer small commits.', temperature: 0.7 } },
+      { label: 'shipped-prompt', packId: 'pack-shipped-prompt' },
+      { label: 'terse-prompt', packId: 'pack-terse-prompt' },
     ],
     ...over,
   });
 
-  it('shows a variant its own system prompt in full', async () => {
+  it('names the pack each arm runs as, since an arm IS a pack now', async () => {
     mockApi([suite()]);
     renderLab();
     await cardTab(/^Variants/);
-    fireEvent.click(await screen.findByText('terse-prompt'));
-    expect(await screen.findByText(/You are terse and you call tools/)).toBeInTheDocument();
+    expect(await screen.findByText('terse-prompt')).toBeInTheDocument();
+    expect(screen.getAllByText(/names no pack|runs as/).length).toBeGreaterThan(0);
   });
 
-  it('shows the generated default for a variant that overrides nothing', async () => {
-    mockApi([suite()]);
+  it('says so when an arm names no pack, rather than showing it as default', async () => {
+    mockApi([experiment({ variants: [{ label: 'orphan', packId: '' }] })]);
     renderLab();
     await cardTab(/^Variants/);
-    fireEvent.click(await screen.findByText('shipped-prompt'));
-    expect(await screen.findByText(/GENERATED AGENT PROMPT/)).toBeInTheDocument();
-    expect(screen.getAllByText('harness default').length).toBeGreaterThan(0);
+    expect(await screen.findByText('names no pack')).toBeInTheDocument();
   });
 
-  it('shows appended instructions and other knobs separately', async () => {
+  it('opens an arm to show what it runs as', async () => {
     mockApi([suite()]);
     renderLab();
     await cardTab(/^Variants/);
-    fireEvent.click(await screen.findByText('with-extra'));
-    expect(await screen.findByText('Prefer small commits.')).toBeInTheDocument();
-    expect(screen.getByText('temperature')).toBeInTheDocument();
-    expect(screen.getByText('dry_multiplier')).toBeInTheDocument();
-    expect(screen.getAllByText('this variant')).toHaveLength(2);
-  });
-
-  it('is driven by the registry, not by a list of key names in the UI', async () => {
-    mockApi([suite()]);
-    renderLab();
-    await cardTab(/^Variants/);
-    fireEvent.click(await screen.findByText('shipped-prompt'));
-    for (const key of ['systemPrompt', 'extraInstructions', 'temperature', 'maxSteps', 'seed']) {
-      expect((await screen.findAllByText(key)).length).toBeGreaterThan(0);
-    }
-  });
-
-  it('lets a variant be edited, with an editor chosen from the declared type', async () => {
-    mockApi([suite()]);
-    renderLab();
-    await cardTab(/^Variants/);
-    fireEvent.click(await screen.findByText('terse-prompt'));
     fireEvent.click(await screen.findByText('Edit variants'));
-
-    const box = await screen.findByDisplayValue(/You are terse and you call tools/);
-    fireEvent.change(box, { target: { value: 'Reworded prompt.' } });
-    fireEvent.click(screen.getByText('Save variants'));
-
-    await waitFor(() => expect(harnessApi.updateExperiment).toHaveBeenCalledWith(
-      'exp-1',
-      { variants: expect.arrayContaining([
-        { label: 'terse-prompt', overrides: expect.objectContaining({ systemPrompt: 'Reworded prompt.' }) },
-      ]) },
-    ));
-  });
-
-  it('warns when a promoted default supplies a value the variant is named against', async () => {
-    mockApi([suite()], {
-      profile: { overrides: { systemPrompt: 'promoted terse prompt' }, updatedAt: 'x' },
-    });
-    renderLab();
-    await cardTab(/^Variants/);
-    const warnings = await screen.findAllByText(/inherits systemPrompt from adopted defaults/);
-    expect(warnings).toHaveLength(2);
-    expect(screen.getByText('terse-prompt').closest('div'))
-      .not.toHaveTextContent(/inherits systemPrompt/);
+    fireEvent.click(await screen.findByText('terse-prompt'));
+    expect(await screen.findAllByText(/runs as|names no pack/)).not.toHaveLength(0);
   });
 });
 
@@ -650,7 +605,7 @@ describe('full-screen focus mode', () => {
       seed: [{ path: 'data.txt', content: 'test data' }],
       solution: [{ path: 'read.js', content: 'console.log(1)' }],
     }],
-    variants: [{ label: 'terse', overrides: { temperature: 0.7 } }],
+    variants: [{ label: 'terse', packId: 'pack-terse' }],
     results: [result({
       taskId: 't1', label: 'terse', verified: false, succeeded: false,
       conversation: [
@@ -677,12 +632,13 @@ describe('full-screen focus mode', () => {
     expect(screen.getByText('Model output')).toBeInTheDocument();
   });
 
-  it('shows every knob as a raw editable value, with the default as the placeholder', async () => {
+  it("shows the arm's knobs as raw values, read-only, since an arm is its pack", async () => {
     mockApi([focusable()]);
     await openFocus();
     fireEvent.click(screen.getByRole('button', { name: 'options' }));
 
-    expect(screen.getByDisplayValue('0.7')).toBeInTheDocument();
+    // The pane names the pack the arm runs as; changing a value means changing that pack.
+    expect(await screen.findByText(/read-only/)).toBeInTheDocument();
     const think = screen.getByText('think').closest('tr')!;
     expect(within(think).getByPlaceholderText('false')).toBeInTheDocument();
   });
@@ -813,7 +769,7 @@ describe('full-screen focus mode', () => {
 describe('editing a long value full screen', () => {
   const focusableLong = () => experiment({
     tasks: [{ id: 't1', name: 'fib', prompt: 'a short prompt', verifyCommand: 'node t.js' }],
-    variants: [{ label: 'a', overrides: { systemPrompt: 'x'.repeat(400) } }],
+    variants: [{ label: 'a', packId: 'pack-a' }],
   });
 
   const openEditor = async (field: RegExp) => {
@@ -824,22 +780,22 @@ describe('editing a long value full screen', () => {
     fireEvent.click(await screen.findByTitle(field));
   };
 
-  it('expands a one-line table field into an editor that takes the left half', async () => {
+  it('expands a one-line task field into an editor that takes the left half', async () => {
+    // The options pane is read-only now, so this exercises the editor host through a task field —
+    // which is what the mechanism is for, and the only field still editable in full screen.
     mockApi([focusableLong()]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/Open full screen/));
     await screen.findByDisplayValue('node t.js');
-    fireEvent.click(screen.getByRole('button', { name: 'options' }));
 
-    fireEvent.click(await screen.findByTitle(/Edit System prompt \(full replace\) in the full editor/));
-    expect(await screen.findByText(/400 chars/)).toBeInTheDocument();
-    expect(screen.queryByText('Verify command')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByTitle(/Edit Prompt.*in the full editor/));
+    expect(await screen.findByText(/chars/)).toBeInTheDocument();
   });
 
   it('colours the text, picking the language from the field it came from', async () => {
     mockApi([experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'node t.js --strict "out"' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
     })]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/Open full screen/));
@@ -853,7 +809,7 @@ describe('editing a long value full screen', () => {
   it('opens an unset text knob on the value in force, not on nothing', async () => {
     mockApi([experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
     })]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/Open full screen/));
@@ -869,7 +825,7 @@ describe('editing a long value full screen', () => {
   it('offers the editor for text and not for numbers, which have nothing to expand into', async () => {
     mockApi([experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
     })]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/Open full screen/));
@@ -931,7 +887,7 @@ const detailFetches = () => vi.mocked(harnessApi.getExperiment).mock.calls.lengt
 describe('running and promoting from full screen', () => {
   const focusable = () => experiment({
     tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'node t.js' }],
-    variants: [{ label: 'a', overrides: {} }],
+    variants: [{ label: 'a', packId: 'pack-a' }],
     results: [{ taskId: 't1', label: 'a', verified: true, succeeded: true, steps: 2, tokensUsed: 10 }],
   });
 
@@ -988,7 +944,7 @@ describe('running and promoting from full screen', () => {
   it('will not start a suite that is already running', async () => {
     await openFocus(experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'node t.js' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
       status: 'running',
     }));
 
@@ -1001,13 +957,13 @@ describe('running and promoting from full screen', () => {
     fireEvent.click(screen.getByRole('button', { name: /Promote/ }));
 
     expect(await screen.findByText(/verified 4\/4 across 2 tasks/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Adopt' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Overwrite/ })).toBeInTheDocument();
   });
 
   it('refuses to promote a variant nothing has run', async () => {
     await openFocus(experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'node t.js' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
       results: [],
     }));
 
@@ -1031,7 +987,7 @@ describe('reading what came back', () => {
 
   const suite = (results: any[]) => experiment({
     tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'node t.js' }],
-    variants: [{ label: 'a', overrides: {} }],
+    variants: [{ label: 'a', packId: 'pack-a' }],
     results,
   });
 
@@ -1088,7 +1044,7 @@ describe('reading what came back', () => {
 describe('picking a model', () => {
   const withModel = () => experiment({
     tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
-    variants: [{ label: 'a', overrides: {} }],
+    variants: [{ label: 'a', packId: 'pack-a' }],
   });
 
   it('offers the model APIs that exist rather than taking a typed id', async () => {
@@ -1105,8 +1061,8 @@ describe('picking a model', () => {
     expect(within(picker).getByRole('option', { name: /unset/ })).toBeInTheDocument();
     expect(within(row).queryByRole('textbox')).not.toBeInTheDocument();
 
-    fireEvent.change(picker, { target: { value: 'end-1' } });
-    expect((picker as HTMLSelectElement).value).toBe('end-1');
+    // Read-only here: an arm runs as a pack, so the endpoint is changed on that pack.
+    expect(picker).toBeDisabled();
   });
 
   it('says so when there is nothing to pick, rather than showing an empty menu', async () => {
@@ -1130,7 +1086,7 @@ describe('hover descriptions on options', () => {
   it('explains what a knob does, what it is set to, and where to change it', async () => {
     mockApi([experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
     })]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/Open full screen/));
@@ -1148,7 +1104,7 @@ describe('hover descriptions on options', () => {
   it('says when the value in force is an adopted one rather than the built-in', async () => {
     mockApi([experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
     })]);
     renderLab();
     fireEvent.click(await screen.findByTitle(/Open full screen/));
@@ -1400,7 +1356,7 @@ describe('scoring over fair attempts', () => {
   it('leaves runs that never executed out of the denominator', async () => {
     mockApi([experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
       results: [
         result({ verified: true, succeeded: true }),
         result({ verified: true, succeeded: true }),
@@ -1418,7 +1374,7 @@ describe('scoring over fair attempts', () => {
   it('still counts a genuine failure against the arm', async () => {
     mockApi([experiment({
       tasks: [{ id: 't1', name: 'fib', prompt: 'p', verifyCommand: 'v' }],
-      variants: [{ label: 'a', overrides: {} }],
+      variants: [{ label: 'a', packId: 'pack-a' }],
       results: [result({ verified: true, succeeded: true }), result({ verified: false, succeeded: true })],
     })]);
     renderLab();

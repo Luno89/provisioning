@@ -4,7 +4,7 @@ import { createModelService } from '../lib/model-wiring.js';
 import { readStreamedReply } from '../lib/agent-loop.js';
 import { buildModelRequest } from '../lib/model-request.js';
 import { fittedMaxTokens } from '../lib/sampling.js';
-import { resolveConfig } from '../lib/personas.js';
+import { resolvePrompt } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
 import { JUDGE_PERSONA } from '../lib/well-known-personas.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
@@ -59,8 +59,9 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
     if (!pack) console.warn(`[JudgeLeaf] no "${JUDGE_PERSONA}" pack — running with harness defaults`);
 
     const profile = await db.getHarnessProfile(leaf.ownerId).catch(() => null);
-    const resolved = resolveConfig(profile, pack, {}, persona);
-    const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
+    const systemPrompt = resolvePrompt(persona);
+    // The engine is the pack's; nothing layered can name one any more.
+    const chosen = undefined;
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
@@ -80,13 +81,12 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
       ...(pack?.sampling ? { sampling: pack.sampling } : {}),
       ...(provider.kind ? { kind: provider.kind } : {}),
       messages: [
-        ...(resolved.systemPrompt ? [{ role: 'system', content: resolved.systemPrompt }] : []),
+        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
         { role: 'user', content: buildJudgePrompt(bundle, dimensions) },
       ],
       stream: true,
       maxTokens: fittedMaxTokens(budget, budget.replyTokens.thinking * 3, bundle.length, provider.contextTokens),
       ...(provider.model ? { model: provider.model } : {}),
-      overrides: resolved.overrides,
     }).body;
 
     const res = await withTimeout(fetch(`${baseUrl}/chat/completions`, {

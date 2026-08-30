@@ -15,7 +15,6 @@ export interface ChatCompletionRequest {
   provider?: ModelProviderInfo;
   messages: unknown[];
   tools: string[];
-  overrides: Record<string, unknown>;
   sampling?: SamplingConfig | undefined;
   budget: BudgetConfig;
   maxTokens?: number;
@@ -23,7 +22,7 @@ export interface ChatCompletionRequest {
 }
 
 export function buildChatCompletionRequest(input: ChatCompletionRequest) {
-  const { provider, messages, tools, overrides, sampling, budget, toolChoice } = input;
+  const { provider, messages, tools, sampling, budget, toolChoice } = input;
   const maxTokens = input.maxTokens ?? budget.replyTokens.ceiling;
   const built = buildModelRequest({
     turn: 'tool-turn',
@@ -33,7 +32,6 @@ export function buildChatCompletionRequest(input: ChatCompletionRequest) {
     stream: true,
     maxTokens: fittedMaxTokens(budget, maxTokens, JSON.stringify(messages).length),
     ...(provider?.model ? { model: provider.model } : {}),
-    overrides,
     ...(sampling ? { sampling } : {}),
     ...(toolChoice === 'none' ? { extra: { tool_choice: 'none' } } : {}),
   });

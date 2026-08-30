@@ -107,6 +107,16 @@ function dedupeEgress(rules: EgressRule[]): EgressRule[] {
   return out;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function deepMergeConfig(base: unknown, layer: unknown): unknown {
+  if (!isRecord(base) || !isRecord(layer)) return layer ?? base;
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(layer)) out[key] = deepMergeConfig(base[key], value);
+  return out;
+}
+
 export function flattenPack<T extends { id: string; slug?: string | undefined; basedOn?: string | undefined }>(
   pack: T,
   all: readonly T[],
@@ -124,7 +134,14 @@ export function flattenPack<T extends { id: string; slug?: string | undefined; b
     const b = base as Record<string, unknown>;
     const l = layer as Record<string, unknown>;
     const merged: Record<string, unknown> = { ...b, ...l };
-    merged.overrides = { ...(b.overrides as object ?? {}), ...(l.overrides as object ?? {}) };
+    /**
+     * The config objects merge field by field, so a pack based on another can raise one temperature
+     * without restating its sampler, budget and every prompt section. This merged `overrides` when
+     * a pack carried one; the same inheritance now has to reach the fields that replaced it.
+     */
+    for (const key of ['sampling', 'budget', 'prompt', 'model'] as const) {
+      if (b[key] || l[key]) merged[key] = deepMergeConfig(b[key], l[key]);
+    }
     if (b.workspace || l.workspace) {
       const bw = (b.workspace ?? {}) as Record<string, unknown>;
       const lw = (l.workspace ?? {}) as Record<string, unknown>;

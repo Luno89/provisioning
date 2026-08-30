@@ -8,6 +8,7 @@ import { WORKSPACE_IMAGE_SEEDS as IMAGES } from '../lib/workspace-image-seeds.js
 import { seedsByLanguage as BY_LANGUAGE } from '../lib/workspace-image-seeds.js';
 import { seedPacks } from '../lib/pack-seeds.js';
 import { seedPersonas } from '../lib/persona-seeds.js';
+import { PACK_SEEDS } from '../lib/pack-seeds.js';
 
 const resolveBaseUrl = vi.fn();
 const runAgentLoop = vi.fn();
@@ -137,12 +138,18 @@ describe('what a leaf is recorded as having consumed', () => {
 });
 
 describe('which model a leaf runs against', () => {
-  it('resolves the promoted model, so adopting one reaches real work', async () => {
-    db = await seeded([leaf()], { model: 'dep-7', temperature: 0.2 });
+  it("resolves the endpoint the leaf's pack names, so choosing one reaches real work", async () => {
+    const fresh = await seeded([leaf({ packId: 'pack-pinned' })]);
+    await fresh.savePersonaPack({
+      id: 'pack-pinned', ownerId: 'u1', slug: 'pinned', name: 'Pinned', personaId: 'p1', tools: [],
+      sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
+      model: { endpointId: 'dep-7' }, createdAt: '', updatedAt: '',
+    } as never);
+    db = fresh;
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', 'dep-7', undefined);
+    expect(resolveBaseUrl).toHaveBeenCalledWith('u1', undefined, 'dep-7');
   });
 
   it('leaves the choice open when nothing has been promoted', async () => {
@@ -169,12 +176,14 @@ describe('which model a leaf runs against', () => {
     expect(runAgentLoop.mock.calls[0]![0]).toMatchObject({ model: 'Qwen3-32B', kind: 'tabbyapi' });
   });
 
-  it('still hands the rest of the adopted profile to the loop', async () => {
-    db = await seeded([leaf()], { model: 'dep-7', temperature: 0.2, maxSteps: 9 });
+  it("hands the pack's own budget and sampler to the loop", async () => {
+    db = await seeded([leaf()]);
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    expect(runAgentLoop.mock.calls[0]![0].overrides).toMatchObject({ temperature: 0.2, maxSteps: 9 });
+    const opts = runAgentLoop.mock.calls[0]![0];
+    expect(opts.budget.rounds).toBe(PACK_SEEDS[0]!.budget.rounds);
+    expect(opts.budget.run.steps).toBe(PACK_SEEDS[0]!.budget.run.steps);
   });
 });
 
@@ -226,35 +235,36 @@ describe('personas on a leaf', () => {
     id: 'persona-1', ownerId: 'u1', slug: 'reviewer', name: 'Reviewer',
     personaId: 'rev-persona', tools: [],
     systemPrompt: 'You are terse and you review.',
-    overrides: { temperature: 0.1 },
+    sampling: { toolTurn: { temperature: 0.1 }, conversation: {} },
+    budget: PACK_SEEDS[0]!.budget,
+    prompt: PACK_SEEDS[0]!.prompt,
     createdAt: '2026-08-07T00:00:00.000Z', updatedAt: '2026-08-07T00:00:00.000Z',
   };
 
-  it('runs a leaf under its assigned persona', async () => {
+  it('runs a leaf under its assigned pack: that pack\'s sampler and its persona\'s prompt', async () => {
     db = await withPersona({ packId: 'persona-1' }, [reviewer]);
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
     const opts = runAgentLoop.mock.calls[0]![0];
-    expect(opts.overrides).toMatchObject({ temperature: 0.1, systemPrompt: 'You are terse and you review.' });
+    expect(opts.sampling.toolTurn.temperature).toBe(0.1);
+    expect(opts.systemPrompt).toBe('You are terse and you review.');
   });
 
-  it('lets the persona beat the adopted default, since assigning one is the more specific act', async () => {
-    db = await withPersona({ packId: 'persona-1' }, [reviewer], { temperature: 0.9, think: true });
+  it('records which pack it ran as, so a finished run is attributable', async () => {
+    db = await withPersona({ packId: 'persona-1' }, [reviewer]);
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    const opts = runAgentLoop.mock.calls[0]![0];
-    expect(opts.overrides.temperature).toBe(0.1);
-    expect(opts.overrides.think).toBe(true);
+    expect(runAgentLoop.mock.calls[0]![0].ranAs).toMatchObject({ packId: 'persona-1', slug: 'reviewer' });
   });
 
-  it('runs with no persona when the id dangles, rather than failing', async () => {
-    db = await withPersona({ packId: 'deleted' }, [], { temperature: 0.9 });
+  it('runs with no pack when the id dangles, rather than failing', async () => {
+    db = await withPersona({ packId: 'deleted' }, []);
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    expect(runAgentLoop.mock.calls[0]![0].overrides).toMatchObject({ temperature: 0.9 });
+    expect(runAgentLoop.mock.calls[0]![0].systemPrompt).toBeUndefined();
   });
 
   it('will not run a leaf under another user’s persona', async () => {
@@ -262,7 +272,7 @@ describe('personas on a leaf', () => {
 
     await ExecuteLeafActivity({ leafId: 'leaf-1' });
 
-    expect(runAgentLoop.mock.calls[0]![0].overrides.systemPrompt).toBeUndefined();
+    expect(runAgentLoop.mock.calls[0]![0].systemPrompt).toBeUndefined();
   });
 });
 

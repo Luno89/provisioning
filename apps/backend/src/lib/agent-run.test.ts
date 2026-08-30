@@ -8,7 +8,7 @@ const BUDGET = PACK_SEEDS[0]!.budget;
 
 const sandbox = {} as SandboxDriver;
 const web = { search: async () => [], fetchPage: async () => '', sources: {} } as unknown as WebTools;
-const inputs = (over = {}) => ({ taskContext: 'do the thing', sandbox, overrides: {}, ...over });
+const inputs = (over = {}) => ({ taskContext: 'do the thing', sandbox, ...over });
 
 const researcher = {
   tools: ['web_search', 'fetch_web_page', 'write_file', 'finish'],
@@ -23,8 +23,8 @@ const researcher = {
 
 describe('assembling an agent run from a persona', () => {
   it('always carries the parts a caller cannot leave out', () => {
-    const o = agentRunOptions(BUDGET, null, inputs({ overrides: { temperature: 0.3 }, memoryContext: 'the repo has a src/' }));
-    expect(o.overrides).toEqual({ temperature: 0.3 });
+    const o = agentRunOptions(BUDGET, null, inputs({ memoryContext: 'the repo has a src/' }));
+    expect(o.budget).toBe(BUDGET);
     expect(o.memoryContext).toBe('the repo has a src/');
     expect(o.taskContext).toBe('do the thing');
     expect(o.sandbox).toBe(sandbox);
@@ -52,13 +52,10 @@ describe('assembling an agent run from a persona', () => {
     expect(agentRunOptions(BUDGET, { tools: ['write_file'] }, inputs({ web })).web).toBeUndefined();
   });
 
-  it('omits provenance rather than sending empty lists', () => {
-    const bare = agentRunOptions(BUDGET, null, inputs());
-    expect(bare.fromProfile).toBeUndefined();
-    expect(bare.fromPersona).toBeUndefined();
-    const with_ = agentRunOptions(BUDGET, null, inputs({ fromProfile: ['temperature'], fromPersona: [] }));
-    expect(with_.fromProfile).toEqual(['temperature']);
-    expect(with_.fromPersona).toBeUndefined();
+  it('carries the pack it ran as, which is the provenance now', () => {
+    expect(agentRunOptions(BUDGET, null, inputs()).ranAs).toBeUndefined();
+    const ran = { packId: 'p1', slug: 'koala', packUpdatedAt: 'now', sampling: PACK_SEEDS[0]!.sampling, budget: BUDGET };
+    expect(agentRunOptions(BUDGET, null, inputs({ ranAs: ran })).ranAs).toEqual(ran);
   });
 });
 
@@ -96,7 +93,7 @@ describe('a persona reaching the services this harness built', () => {
   it('passes the tools and the handler through to the loop', () => {
     const callRemote = async () => undefined;
     const opts = agentRunOptions(BUDGET, { tools: ['run_command'], workspace: { mcp: ['weather'],} } as never, {
-      taskContext: 'x', overrides: {}, sandbox: {} as never,
+      taskContext: 'x', sandbox: {} as never,
       remoteTools: [remote('weather__get-forecast')],
       remoteToolNames: ['weather__get-forecast'],
       callRemote,
@@ -108,7 +105,7 @@ describe('a persona reaching the services this harness built', () => {
 
   it('offers nothing when the caller resolved nothing', () => {
     const opts = agentRunOptions(BUDGET, { mcp: ['weather'] } as never, {
-      taskContext: 'x', overrides: {}, sandbox: {} as never,
+      taskContext: 'x', sandbox: {} as never,
     });
     expect(opts.remoteTools).toBeUndefined();
     expect(opts.callRemote).toBeUndefined();

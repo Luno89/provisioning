@@ -164,20 +164,20 @@ describe('runAgentLoop', () => {
     expect(toolMessage.content).toContain('timedOut');
   });
 
-  it('sends an overridden temperature, so an experiment varying it actually varies something', async () => {
+  it("sends the pack's temperature, so an arm varying it actually varies something", async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
-      overrides: { temperature: 0.9 },
+      sampling: { toolTurn: { temperature: 0.9 }, conversation: {} },
     });
     expect(bodyOf(model, 0).temperature).toBe(0.9);
   });
 
-  it('reads loop-placement overrides instead of sending them', async () => {
+  it('reads a loop budget instead of sending it to the engine', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('run_command', { command: 'ls' })] }]);
-    const result = await runAgentLoop({ budget: BUDGET,
+    const result = await runAgentLoop({
+      budget: { ...BUDGET, run: { ...BUDGET.run, steps: 3 } },
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
-      overrides: { maxSteps: 3 },
     });
     expect(model).toHaveBeenCalledTimes(4);
     expect(result.summary).toMatch(/Ran out of steps \(3\)/);
@@ -188,7 +188,7 @@ describe('runAgentLoop', () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
-      overrides: { extraInstructions: 'Prefer small commits.' },
+      extraInstructions: 'Prefer small commits.',
     });
     const system = bodyOf(model, 0).messages[0].content;
     expect(system).toMatch(/Prefer small commits\./);
@@ -199,7 +199,7 @@ describe('runAgentLoop', () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
-      overrides: { systemPrompt: 'You are terse.' },
+      systemPrompt: 'You are terse.',
     });
     const system = bodyOf(model, 0).messages[0].content;
     expect(system).toContain('You are terse.');
@@ -211,7 +211,7 @@ describe('runAgentLoop', () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     const result = await runAgentLoop({ budget: BUDGET,
       baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: sandbox(), fetchImpl: model,
-      kind: 'vllm', overrides: { dry_multiplier: 0.8 },
+      kind: 'vllm', sampling: { toolTurn: {}, conversation: {}, byEngine: { vllm: { dry_multiplier: 0.8 } } },
     });
     expect(result.unsupported).toEqual(['dry_multiplier']);
   });

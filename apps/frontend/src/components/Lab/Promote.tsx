@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Award } from 'lucide-react';
-import { card, type HarnessProfile, type OverrideChange, type PromotionStanding } from './shared';
+import { card, type HarnessProfile, type PackChange, type PromotionStanding } from './shared';
 import { resetProfile, promoteVariant, previewProfile } from '../../api/harness';
 
 export function ProfileBanner({ profile, onChanged,
@@ -13,7 +13,7 @@ export function ProfileBanner({ profile, onChanged,
     onSuccess: onChanged,
   });
 
-  if (!profile?.overrides || !Object.keys(profile.overrides).length) return null;
+  if (!profile?.packId) return null;
   const from = profile.from;
 
   return (
@@ -21,13 +21,9 @@ export function ProfileBanner({ profile, onChanged,
       <div className="flex items-start gap-3">
         <Award size={16} className="text-[var(--leaf-light)] mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-semibold text-slate-200 mb-1">Adopted defaults</p>
+          <p className="text-[12px] font-semibold text-slate-200 mb-1">Running as</p>
           <div className="flex flex-wrap gap-x-3 gap-y-1 mb-2">
-            {Object.entries(profile.overrides).map(([key, value]) => (
-              <code key={key} className="text-[11px] text-[var(--leaf-light)]">
-                {key}={String(value)}
-              </code>
-            ))}
+            <code className="text-[11px] text-[var(--leaf-light)]">{profile.packId}</code>
           </div>
           {from ? (
             <p className="text-[11px] text-slate-500">
@@ -39,7 +35,7 @@ export function ProfileBanner({ profile, onChanged,
               )}
             </p>
           ) : (
-            <p className="text-[11px] text-slate-500">Set by hand — no experiment backs these.</p>
+            <p className="text-[11px] text-slate-500">Chosen by hand — no experiment backs it.</p>
           )}
         </div>
         <button
@@ -60,11 +56,14 @@ export function PromoteConfirm({ experimentId, label, onDone, onCancel,
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const { data, isPending } = useQuery<{ standing: PromotionStanding; changes: OverrideChange[] }>({
+  type Preview = {
+    standing: PromotionStanding;
+    changes: PackChange[];
+    target: { id: string; name: string };
+  };
+  const { data, isPending } = useQuery<Preview>({
     queryKey: ['promotion-preview', experimentId, label],
-    queryFn: () => previewProfile({ experimentId, label }) as Promise<
-      { standing: PromotionStanding; changes: OverrideChange[] }
-    >,
+    queryFn: () => previewProfile({ experimentId, label }) as Promise<Preview>,
   });
 
   const promote = useMutation({
@@ -73,12 +72,13 @@ export function PromoteConfirm({ experimentId, label, onDone, onCancel,
   });
 
   if (isPending || !data) return <span className="text-[11px] text-slate-500">Checking…</span>;
-  const { standing, changes } = data;
+  const { standing, changes, target } = data;
 
   return (
     <div className="bg-[var(--bark-900)]/70 border border-[var(--bark-600)] rounded-lg p-3 my-2">
       <p className="text-[11px] text-slate-400 mb-2">
-        Adopt <span className="font-mono text-slate-200">{label}</span> as the default — verified{' '}
+        Write <span className="font-mono text-slate-200">{label}</span> into the pack{' '}
+        <span className="font-mono text-slate-200">{target.name}</span>, overwriting it — verified{' '}
         {standing.verified}/{standing.attempted} across {standing.tasks} task{standing.tasks > 1 ? 's' : ''}
         {standing.broken ? (
           <span className="text-amber-400">
@@ -95,12 +95,14 @@ export function PromoteConfirm({ experimentId, label, onDone, onCancel,
       </p>
 
       {changes.length === 0 ? (
-        <p className="text-[11px] text-slate-500 mb-2">Changes nothing — it already matches the defaults.</p>
+        <p className="text-[11px] text-slate-500 mb-2">
+          Changes nothing — this arm already matches {target.name}.
+        </p>
       ) : (
         <div className="mb-2 space-y-0.5">
           {changes.map((c) => (
-            <p key={c.key} className="text-[11px] font-mono">
-              <span className="text-slate-400">{c.label}</span>{' '}
+            <p key={c.path} className="text-[11px] font-mono">
+              <span className="text-slate-400">{c.path}</span>{' '}
               <span className="text-slate-600">{c.from === undefined ? 'default' : String(c.from)}</span>
               <span className="text-slate-600"> → </span>
               <span className="text-[var(--leaf-light)]">{String(c.to)}</span>
@@ -115,7 +117,7 @@ export function PromoteConfirm({ experimentId, label, onDone, onCancel,
           disabled={promote.isPending || changes.length === 0}
           className="text-[12px] px-3 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white disabled:opacity-50"
         >
-          Adopt
+          Overwrite {target.name}
         </button>
         <button onClick={onCancel} className="text-[12px] text-slate-500 hover:text-slate-300">Cancel</button>
         <span className="text-[10px] text-slate-600">Applies to leaf runs too, not just experiments.</span>

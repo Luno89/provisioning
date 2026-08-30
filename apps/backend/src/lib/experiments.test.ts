@@ -44,8 +44,8 @@ const task = (id: string, over: Record<string, unknown> = {}) => ({
 describe('expandAxes', () => {
   it('turns one axis into one variant per value', () => {
     expect(expandAxes({ think: [false, true] })).toEqual([
-      { label: 'think=false', overrides: { think: false } },
-      { label: 'think=true', overrides: { think: true } },
+      { label: 'think=false', edit: {} },
+      { label: 'think=true', edit: {} },
     ]);
   });
 
@@ -56,7 +56,8 @@ describe('expandAxes', () => {
   });
 
   it('returns the whole cross product, leaving the ceiling to validation', () => {
-    const variants = expandAxes({ a: [1, 2, 3], b: [1, 2, 3], c: [1, 2, 3] });
+    const variants = expandAxes({ a: [1, 2, 3], b: [1, 2, 3], c: [1, 2, 3] })
+      .map((v) => ({ label: v.label, packId: 'pack-a' }));
     expect(variants).toHaveLength(27);
     expect(validateExperiment({
       name: 'n', task: 't', verifyCommand: 'v', variants, repeats: 1,
@@ -65,7 +66,7 @@ describe('expandAxes', () => {
 
   it('ignores empty axes instead of producing a variant that changes nothing', () => {
     expect(expandAxes({ think: [], maxSteps: [4] })).toEqual([
-      { label: 'maxSteps=4', overrides: { maxSteps: 4 } },
+      { label: 'maxSteps=4', edit: { budget: { run: { steps: 4 } } } },
     ]);
     expect(expandAxes({})).toEqual([]);
   });
@@ -271,7 +272,7 @@ describe('validateExperiment', () => {
   const valid = {
     name: 'thinking on/off',
     tasks: [task('t1'), task('t2')],
-    variants: expandAxes({ think: [false, true] }),
+    variants: expandAxes({ think: [false, true] }).map((v) => ({ label: v.label, packId: 'pack-a' })),
     repeats: 1,
   };
 
@@ -282,7 +283,7 @@ describe('validateExperiment', () => {
   it('still accepts a pre-suite experiment, so old records stay runnable', () => {
     expect(validateExperiment({
       name: 'legacy', task: 'write fib', verifyCommand: 'node t.js',
-      variants: expandAxes({ think: [false, true] }), repeats: 1,
+      variants: expandAxes({ think: [false, true] }).map((v) => ({ label: v.label, packId: 'pack-a' })), repeats: 1,
     })).toBeNull();
   });
 
@@ -307,7 +308,7 @@ describe('validateExperiment', () => {
     const message = validateExperiment({
       ...valid,
       tasks: Array.from({ length: 6 }, (_, i) => task(`t${i}`)),
-      variants: expandAxes({ think: [false, true], maxSteps: [8, 16] }),
+      variants: expandAxes({ think: [false, true], maxSteps: [8, 16] }).map((v) => ({ label: v.label, packId: 'pack-a' })),
       repeats: 5,
     });
     expect(message).toMatch(new RegExp(`over the limit of ${MAX_TOTAL_RUNS}`));
@@ -317,7 +318,7 @@ describe('validateExperiment', () => {
   it('rejects duplicate variant labels, which would make results unattributable', () => {
     expect(validateExperiment({
       ...valid,
-      variants: [{ label: 'same', overrides: {} }, { label: 'same', overrides: { think: true } }],
+      variants: [{ label: 'same', packId: 'pack-a' }, { label: 'same', packId: 'pack-b' }],
     })).toMatch(/share a label/i);
   });
 
@@ -334,7 +335,7 @@ describe('plannedRuns', () => {
   it('multiplies the suite in, since every task is run by every variant', () => {
     expect(plannedRuns({
       tasks: [task('t1'), task('t2'), task('t3')],
-      variants: expandAxes({ think: [false, true] }),
+      variants: expandAxes({ think: [false, true] }).map((v) => ({ label: v.label, packId: 'pack-a' })),
       repeats: 3,
       language: 'node',
     })).toBe(18);
@@ -343,7 +344,7 @@ describe('plannedRuns', () => {
   it('counts a pre-suite experiment as the one task it holds', () => {
     expect(plannedRuns({
       task: 'write fib', verifyCommand: 'node t.js', language: 'node',
-      variants: expandAxes({ think: [false, true] }), repeats: 3,
+      variants: expandAxes({ think: [false, true] }).map((v) => ({ label: v.label, packId: 'pack-a' })), repeats: 3,
     })).toBe(6);
   });
 });
@@ -418,7 +419,7 @@ describe('seed and solution', () => {
   const withFiles = (over: Record<string, unknown> = {}) => ({
     name: 'reader',
     task: 'x', verifyCommand: 'node t.js',
-    variants: expandAxes({ think: [false, true] }),
+    variants: expandAxes({ think: [false, true] }).map((v) => ({ label: v.label, packId: 'pack-a' })),
     repeats: 1,
     tasks: [task('t1', over)],
   });

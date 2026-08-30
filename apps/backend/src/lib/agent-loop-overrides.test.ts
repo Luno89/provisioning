@@ -43,7 +43,7 @@ const sandbox = (over: Partial<SandboxDriver> = {}): SandboxDriver => ({
   ...over,
 });
 
-describe('loop-level overrides reach the agent loop execution', () => {
+describe('what a pack sets reaches the agent loop', () => {
   it('replaces system prompt when systemPrompt override is set', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] }]);
     const customPrompt = 'Custom System Prompt For Testing Only';
@@ -53,7 +53,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
       taskContext: 'My Task',
       sandbox: sandbox(),
       fetchImpl: model,
-      overrides: { systemPrompt: customPrompt },
+      systemPrompt: customPrompt,
     });
 
     const body = bodyOf(model);
@@ -72,7 +72,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
       taskContext: 'My Task',
       sandbox: sandbox(),
       fetchImpl: model,
-      overrides: { extraInstructions: extraText },
+      extraInstructions: extraText,
     });
 
     const body = bodyOf(model);
@@ -89,7 +89,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
       sandbox: sandbox(),
       fetchImpl: model,
       maxSteps: 10,
-      overrides: { maxSteps: 3 },
+      sampling: { toolTurn: { maxSteps: 3 }, conversation: {} },
     });
 
     expect(result.succeeded).toBe(false);
@@ -106,13 +106,13 @@ describe('loop-level overrides reach the agent loop execution', () => {
       { tool_calls: [toolCall('finish', { succeeded: true, summary: 'done' })] },
     ]);
 
-    await runAgentLoop({ budget: BUDGET,
+    await runAgentLoop({
       baseUrl: 'http://model',
       taskContext: 'My Task',
       sandbox: box,
       fetchImpl: model,
       captureTrace: true,
-      overrides: { maxToolResultChars: 1000 },
+      budget: { ...BUDGET, toolResultChars: 1000 },
     });
 
     const toolMsg = bodyOf(model, 1).messages.find((m: any) => m.role === 'tool');
@@ -127,7 +127,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
       taskContext: 'My Task',
       sandbox: sandbox(),
       fetchImpl: model,
-      overrides: { think: true },
+      think: true,
     });
 
     const body = bodyOf(model);
@@ -142,7 +142,7 @@ describe('loop-level overrides reach the agent loop execution', () => {
       taskContext: 'My Task',
       sandbox: sandbox(),
       fetchImpl: model,
-      overrides: { temperature: 0.15, top_p: 0.95 },
+      sampling: { toolTurn: { temperature: 0.15, top_p: 0.95 }, conversation: {} },
     });
 
     const body = bodyOf(model);

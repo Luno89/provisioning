@@ -48,10 +48,10 @@ describe('whether a persona works in the repository', () => {
 });
 
 describe('a persona defined as "that one, but ..."', () => {
-  type Flat = { id: string; slug?: string; basedOn?: string; name?: string; systemPrompt?: string; overrides?: Record<string, unknown>; tools?: string[]; workspace?: Record<string, unknown> };
+  type Flat = { id: string; slug?: string; basedOn?: string; name?: string; systemPrompt?: string; sampling?: { toolTurn: Record<string, number>; conversation: Record<string, number> }; tools?: string[]; workspace?: Record<string, unknown> };
   const parent: Flat = {
     id: 'researcher', name: 'Researcher', systemPrompt: 'answer one question',
-    overrides: { temperature: 0.4 },
+    sampling: { toolTurn: { temperature: 0.4 }, conversation: {} },
     tools: ['web_search', 'write_file', 'finish'], workspace: {
       repo: false,
       output: '/work/findings.md',
@@ -60,7 +60,7 @@ describe('a persona defined as "that one, but ..."', () => {
   };
 
   it('inherits everything it does not change', () => {
-    const child: Flat = { id: 'short', name: 'Researcher (short)', overrides: {}, basedOn: 'researcher',
+    const child: Flat = { id: 'short', name: 'Researcher (short)', sampling: { toolTurn: { temperature: 0.4 }, conversation: {} }, basedOn: 'researcher',
       workspace: { run: { maxSteps: 40 } } };
     const flat = flattenPack(child, [parent, child]);
     expect((flat.workspace!.run as any).maxSteps).toBe(40);
@@ -69,24 +69,24 @@ describe('a persona defined as "that one, but ..."', () => {
     expect(flat.workspace!.repo).toBe(false);
     expect(flat.workspace!.output).toBe('/work/findings.md');
     expect((flat.workspace!.run as any).withdraw).toEqual({ afterStep: 50, tools: ['web_search'] });
-    expect(flat.overrides).toEqual({ temperature: 0.4 });
+    expect(flat.sampling!.toolTurn.temperature).toBe(0.4);
   });
 
   it('lets the child win field by field', () => {
-    const child: Flat = { id: 'cold', name: 'Researcher (cold)', overrides: { temperature: 0.1 }, basedOn: 'researcher' };
+    const child: Flat = { id: 'cold', name: 'Researcher (cold)', sampling: { toolTurn: { temperature: 0.1 }, conversation: {} }, basedOn: 'researcher' };
     const flat = flattenPack(child, [parent, child]);
-    expect(flat.overrides).toEqual({ temperature: 0.1 });
+    expect(flat.sampling!.toolTurn.temperature).toBe(0.1);
     expect((flat.workspace!.run as any).maxSteps).toBe(100);
   });
 
   it('ignores a parent that no longer exists rather than failing the work', () => {
-    const orphan: Flat = { id: 'x', name: 'Orphan', overrides: {}, basedOn: 'deleted' };
+    const orphan: Flat = { id: 'x', name: 'Orphan', sampling: { toolTurn: { temperature: 0.4 }, conversation: {} }, basedOn: 'deleted' };
     expect(flattenPack(orphan, [orphan]).name).toBe('Orphan');
   });
 
   it('stops at a cycle instead of looping forever', () => {
-    const a: Flat = { id: 'a', name: 'A', overrides: {}, basedOn: 'b' };
-    const b: Flat = { id: 'b', name: 'B', overrides: {}, basedOn: 'a' };
+    const a: Flat = { id: 'a', name: 'A', sampling: { toolTurn: { temperature: 0.4 }, conversation: {} }, basedOn: 'b' };
+    const b: Flat = { id: 'b', name: 'B', sampling: { toolTurn: { temperature: 0.4 }, conversation: {} }, basedOn: 'a' };
     expect(flattenPack(a, [a, b]).name).toBe('A');
   });
 });
@@ -199,5 +199,48 @@ describe('what a workspace can install', () => {
     const s = spec('base');
     expect((s.egress ?? []).find((r) => r.namespace === 'koala-egress')).toBeUndefined();
     expect((s.egress ?? []).find((r) => r.namespace === 'koala-registry')).toBeUndefined();
+  });
+});
+
+describe('a pack based on another inherits the config fields that replaced overrides', () => {
+  const parent = {
+    id: 'base', name: 'Base', slug: 'base',
+    sampling: { toolTurn: { temperature: 0.3, top_p: 0.9 }, conversation: { frequency_penalty: 0.4 } },
+    budget: { rounds: 8, run: { steps: 200, tokens: 1000 } },
+    prompt: { pressure: { compactAt: 0.4 }, sections: { secrets: 'parent secrets' } },
+  } as never;
+
+  it('takes one field from the child and the rest from the parent', () => {
+    const child = {
+      id: 'hot', name: 'Hot', slug: 'hot', basedOn: 'base',
+      sampling: { toolTurn: { temperature: 0.9 } },
+    } as never;
+    const flat = flattenPack(child, [parent, child]) as never as {
+      sampling: { toolTurn: Record<string, number>; conversation: Record<string, number> };
+      budget: { rounds: number; run: { steps: number } };
+      prompt: { sections: { secrets: string } };
+    };
+
+    expect(flat.sampling.toolTurn.temperature).toBe(0.9);
+    expect(flat.sampling.toolTurn.top_p).toBe(0.9);
+    expect(flat.sampling.conversation.frequency_penalty).toBe(0.4);
+    expect(flat.budget.rounds).toBe(8);
+    expect(flat.budget.run.steps).toBe(200);
+    expect(flat.prompt.sections.secrets).toBe('parent secrets');
+  });
+
+  it('lets a child blank a prompt section without losing the rest of the pack', () => {
+    const child = {
+      id: 'quiet', name: 'Quiet', slug: 'quiet', basedOn: 'base',
+      prompt: { sections: { secrets: '' } },
+    } as never;
+    const flat = flattenPack(child, [parent, child]) as never as {
+      prompt: { sections: { secrets: string }; pressure: { compactAt: number } };
+      budget: { rounds: number };
+    };
+
+    expect(flat.prompt.sections.secrets).toBe('');
+    expect(flat.prompt.pressure.compactAt).toBe(0.4);
+    expect(flat.budget.rounds).toBe(8);
   });
 });

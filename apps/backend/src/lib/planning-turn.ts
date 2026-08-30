@@ -8,7 +8,7 @@ import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
 import { runResearchAgent, type ResearchFinding } from './research-agent.js';
 import { serialiseBoard } from './planning-board.js';
 import { buildModelRequest } from './model-request.js';
-import { resolveConfig, type Persona } from './personas.js';
+import { resolvePrompt, type Persona } from './personas.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { Leaf } from './leaves.js';
 import type { ModelKind } from '@koala/harness-types';
@@ -105,7 +105,7 @@ interface WireToolCall {
 
 export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<PlanningTurn> {
   const doFetch = opts.fetchImpl ?? fetch;
-  const resolved = resolveConfig(opts.profile ?? null, opts.pack ?? null, opts.overrides ?? {}, opts.persona ?? null);
+  const personaPrompt = resolvePrompt(opts.persona ?? null);
 
   const messages = buildOutboundMessages({
     messages: [{ role: 'user', content: opts.prompt }],
@@ -113,7 +113,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
     prompt: planSystemPrompt(opts.images ?? []),
     toolPrompt: opts.promptConfig?.sections.toolDiscipline ?? '',
     leaves: [],
-    ...(resolved.systemPrompt ? { personaPrompt: resolved.systemPrompt } : {}),
+    ...(personaPrompt ? { personaPrompt } : {}),
   });
 
   const strategy = estimatePromptComplexity([{ role: 'user', content: opts.prompt }], 'plan', true);
@@ -126,7 +126,6 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
     maxTokens: strategy.maxTokens,
     reasoningEffort: strategy.reasoningEffort,
     ...(opts.model ? { model: opts.model } : {}),
-    overrides: resolved.overrides,
   });
   const { messages: _messages, stream: _stream, ...parameters } = built.body;
 
@@ -258,7 +257,6 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
           ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
           ...(opts.model ? { model: opts.model } : {}),
           ...(opts.kind ? { kind: opts.kind } : {}),
-          ...(resolved.overrides ? { overrides: resolved.overrides } : {}),
           ...(opts.sampling ? { sampling: opts.sampling } : {}),
           webSearch: opts.research.webSearch,
           fetchWebPage: opts.research.fetchWebPage,

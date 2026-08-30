@@ -107,13 +107,13 @@ describe('seeding', () => {
     const s = shipped(builtInPersonas);
     await seedPacks(s);
     s.saved.push({
-      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0', tools: ['get_logs'], sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt, overrides: { temperature: 0.1 },
+      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0', tools: ['get_logs'], sampling: { ...PACK_SEEDS[0]!.sampling, toolTurn: { ...PACK_SEEDS[0]!.sampling.toolTurn, temperature: 0.1 } }, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
       createdAt: '', updatedAt: '',
     } as PersonaPack);
     await seedPacks(s);
     const mine = s.saved.find((p) => p.id === 'mine')!;
     expect(mine.tools).toEqual(['get_logs']);
-    expect(mine.overrides).toEqual({ temperature: 0.1 });
+    expect(mine.sampling.toolTurn.temperature).toBe(0.1);
   });
 
   it('skips a pack whose persona does not exist rather than writing a dangling id', async () => {

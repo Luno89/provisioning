@@ -19,8 +19,7 @@ const pack = (slug: string, personaId: string, over: Partial<PersonaPack> = {}):
   tools: ['propose_tree', 'propose_spec', 'list_infrastructure', 'get_logs', 'get_events',
     'inspect_resources', 'cluster_capacity', 'list_trees', 'deploy_project', 'get_project_url',
     'list_mcp_servers', 'enable_mcp_server', 'web_search', 'fetch_web_page'],
-  sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
-  overrides: {}, createdAt: '', updatedAt: '', ...over,
+  sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt, createdAt: '', updatedAt: '', ...over,
 });
 
 const modelServiceStub = {
@@ -272,8 +271,7 @@ describe('a pack that cannot run', () => {
     await harness.db.savePersonaPack({
       id: 'pack-theirs', ownerId: 'someone-else', slug: 'theirs', name: 'Theirs',
       personaId: 'p1', tools: [],
-      sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
-      overrides: {}, createdAt: '', updatedAt: '',
+      sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt, createdAt: '', updatedAt: '',
     });
     const res = await fetch(harness.url('/api/chat-pack/theirs'), {
       method: 'POST',
@@ -318,8 +316,10 @@ describe('the pack decides the turn', () => {
     expect(system).not.toMatch(/deploy_project/);
   });
 
-  it('applies the pack\'s sampling overrides to the call', async () => {
-    await harness.db.savePersonaPack(pack('cold', 'p1', { overrides: { temperature: 0.05 } }));
+  it('applies the pack\'s own sampler to the call', async () => {
+    await harness.db.savePersonaPack(pack('cold', 'p1', {
+      sampling: { ...PACK_SEEDS[0]!.sampling, toolTurn: { temperature: 0.05 } },
+    }));
     await turn('cold', 'c-temp');
     expect(lastRequestBody?.temperature).toBe(0.05);
   });

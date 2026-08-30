@@ -1,7 +1,7 @@
 import { createDatabase } from '../lib/db-interface.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import { createModelService } from '../lib/model-wiring.js';
-import { resolveConfig } from '../lib/personas.js';
+import { resolvePrompt } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
 import { shouldReplan, summariseOutcomes, buildReplanPrompt } from '../lib/replan.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
@@ -53,9 +53,10 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     const pack = profile?.packId ? packs.find((p) => p.id === profile.packId || p.slug === profile.packId) ?? null : null;
     const adopted = pack ? personas.find((p) => p.id === pack.personaId) : undefined;
     const persona = adopted ? flattenPersona(adopted, personas) : null;
-    const resolved = resolveConfig(profile, pack, {}, persona);
+    const systemPrompt = resolvePrompt(persona);
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
-    const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
+    // The engine is the pack's; nothing layered can name one any more.
+    const chosen = undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
 
     const before = all.filter((l: Leaf) => l.branchId === leaf.branchId).length;

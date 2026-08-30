@@ -91,21 +91,23 @@ describe('writing a pack', () => {
   });
 
 
-  it('refuses an override the registry does not know', async () => {
-    const { status, body } = await send('POST', '', {
-      slug: 'bad-knob', name: 'Bad', personaId: 'builtin-persona-koala',
-      overrides: { temprature: 0.5 },
+  it('accepts an engine parameter the knob table does not model', async () => {
+    // These were refused as "unknown setting" when they arrived as overrides. A pack's sampler
+    // names its own engine's parameters, so refusing them would stop a pack describing its engine.
+    const { status } = await send('POST', '', {
+      slug: 'engine-knob', name: 'Engine', personaId: 'builtin-persona-koala',
+      sampling: { toolTurn: { some_engine_knob: 1 }, conversation: {} },
     });
-    expect(status).toBe(400);
-    expect(body.error).toMatch(/unknown setting/i);
+    expect(status).toBe(201);
   });
 
-  it('refuses an override outside its declared range', async () => {
-    const { status } = await send('POST', '', {
+  it('refuses a pack value outside its declared range', async () => {
+    const { status, body } = await send('POST', '', {
       slug: 'too-hot', name: 'Hot', personaId: 'builtin-persona-koala',
-      overrides: { temperature: 5 },
+      sampling: { toolTurn: { temperature: 5 }, conversation: {} },
     });
     expect(status).toBe(400);
+    expect(body.error).toMatch(/temperature/i);
   });
 
   it('replaces the overrides bag rather than merging it', async () => {

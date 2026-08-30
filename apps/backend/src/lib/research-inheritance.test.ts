@@ -18,12 +18,14 @@ function capture() {
   return { impl: impl as unknown as typeof fetch, bodies };
 }
 
-const run = (overrides?: Record<string, unknown>) => {
+/** The sub-agent inherits its caller's SAMPLER now — there is no override bag to inherit. */
+const run = (toolTurn?: Record<string, number | string | boolean>) => {
   const { impl, bodies } = capture();
   return runResearchAgent({
     question: 'q', baseUrl: 'http://m', kind: 'tabbyapi',
     webSearch: async () => ({ hits: [], unavailable: false, answeredBy: 'searxng' as const }), fetchWebPage: async () => '',
-    fetchImpl: impl, ...(overrides ? { overrides } : {}),
+    fetchImpl: impl,
+    ...(toolTurn ? { sampling: { toolTurn, conversation: {} } } : {}),
   }).then(() => bodies[0]);
 };
 
@@ -36,7 +38,7 @@ describe('what the research sub-agent runs under', () => {
   });
 
   it('keeps reasoning off even when the persona asks for it', async () => {
-    const body = await run({ think: true });
+    const body = await run({ think: true } as never);
 
     expect(body.template_vars).toMatchObject({ enable_thinking: false });
     expect(body.think).toBeUndefined();

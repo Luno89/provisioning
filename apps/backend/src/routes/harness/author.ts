@@ -9,7 +9,6 @@ import {
   AUTHORING_SAMPLING, AUTHORING_MAX_TOKENS, normaliseTasks, taskFiles,
 } from '../../lib/experiment-authoring.js';
 import { MAX_TASKS, MAX_TASK_CHARS } from '../../lib/experiments.js';
-import { resolveConfig } from '../../lib/personas.js';
 import type { ExperimentTask } from '@koala/harness-types';
 import type { ModelService } from '../../services/ModelService.js';
 import { acceptedTasks, type AuthoringService } from '../../services/AuthoringService.js';
@@ -66,7 +65,6 @@ export function authorRouter(deps: authorRouterDeps): Router {
           ],
           stream: false,
           maxTokens: AUTHORING_MAX_TOKENS,
-          overrides: resolveConfig(await db.getHarnessProfile(userOf(req).id), null).overrides,
           extra: AUTHORING_SAMPLING,
         }).body),
       });

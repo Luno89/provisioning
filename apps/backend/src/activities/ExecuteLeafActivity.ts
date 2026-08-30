@@ -11,7 +11,7 @@ import { McpRegistryService } from '../services/McpRegistryService.js';
 import { resolveForPersona, mcpGaps } from '../lib/mcp-registry.js';
 import { toLoopTools, routeCall } from '../lib/mcp-tools.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
-import { resolveConfig } from '../lib/personas.js';
+import { resolvePrompt } from '../lib/personas.js';
 import { packForLeaf } from '../lib/packs.js';
 import { ToolService } from '../services/ToolService.js';
 import { flattenPersona, usesRepo, personaWorkspace, allowedTools } from '../lib/persona-scope.js';
@@ -201,11 +201,8 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       const declaredOutput = pack?.workspace?.output;
       const outputPath = declaredOutput;
 
-      const resolved = resolveConfig(profile, pack ?? null, {}, persona);
-      const adopted = resolved.systemPrompt
-        ? { ...resolved.overrides, systemPrompt: resolved.systemPrompt }
-        : resolved.overrides;
-      const chosen = typeof adopted.model === 'string' ? adopted.model : undefined;
+      const systemPrompt = resolvePrompt(persona);
+      const chosen = undefined;
       const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
       runSecrets = [apiKey];
 
@@ -460,9 +457,8 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         let endsOnce: Promise<MemoryEndpoints> | undefined;
         const memoryEndpoints = () => (endsOnce ??= corpusEndpoints(db, leaf.ownerId));
 
-        const decideEnabled = typeof resolved.overrides.memoryDecide === 'boolean'
-          ? resolved.overrides.memoryDecide
-          : true;
+        // Always on: it was an override key, and there is no layer left to turn it off from.
+        const decideEnabled = true;
 
         const admit = async (candidate: MemoryItem): Promise<Decision> => {
           const gate = decideEnabled
@@ -490,7 +486,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                   stream: true,
                   maxTokens: 600,
                   ...(provider.model ? { model: provider.model } : {}),
-                  overrides: { ...resolved.overrides, think: false },
+                  overrides: { ...{}, think: false },
                 }).body;
 
                 const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -581,11 +577,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             },
             ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
               taskContext: currentTaskContext,
-              overrides: adopted,
               ...(ranAs(pack) ? { ranAs: ranAs(pack) } : {}),
+              ...(systemPrompt ? { systemPrompt } : {}),
               sandboxSpec,
-              ...(resolved.from.profile.length ? { fromProfile: resolved.from.profile } : {}),
-                            ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
               ...(provider.contextTokens ? { contextTokens: provider.contextTokens } : {}),
               ...(memoryContext ? { memoryContext } : {}),
               ...(project || bindings.length ? { bindingsContext: describeBindings(bindings.map(describable)) } : {}),

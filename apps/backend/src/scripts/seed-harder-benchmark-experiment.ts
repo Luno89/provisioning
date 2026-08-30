@@ -1,12 +1,39 @@
 import { MongoDB } from '../lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Experiment } from '@koala/harness-types';
+import { deriveArms } from '../lib/derived-packs.js';
+import { withBuiltIns } from '../lib/ownership.js';
 
 async function main() {
   const mongo = new MongoDB();
   await mongo.init();
 
   const now = new Date().toISOString();
+
+const ARMS: { label: string; knobs: Record<string, unknown> }[] = [
+      {
+        label: 'control-no-memories',
+        knobs: { useMemories: false },
+      },
+      {
+        label: 'memory-bank-enabled',
+        knobs: { useMemories: true },
+      },
+      {
+        label: 'finish-discipline',
+        knobs: {
+          extraInstructions: 'Call finish immediately after executing or verifying your work. Do not run diagnostic commands after the target file is created or fixed.',
+        },
+      },
+      {
+        label: 'max-steps-12',
+        knobs: { maxSteps: 12 },
+      },
+      {
+        label: 'top-p-0.1',
+        knobs: { top_p: 0.1 },
+      },
+    ];
   const ownerId = '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991';
 
   const name1 = 'Advanced Engineering & Comprehensive Harness Benchmarks';
@@ -25,30 +52,7 @@ async function main() {
     repeats: 2,
     createdAt: now,
     updatedAt: now,
-    variants: [
-      {
-        label: 'control-no-memories',
-        overrides: { useMemories: false },
-      },
-      {
-        label: 'memory-bank-enabled',
-        overrides: { useMemories: true },
-      },
-      {
-        label: 'finish-discipline',
-        overrides: {
-          extraInstructions: 'Call finish immediately after executing or verifying your work. Do not run diagnostic commands after the target file is created or fixed.',
-        },
-      },
-      {
-        label: 'max-steps-12',
-        overrides: { maxSteps: 12 },
-      },
-      {
-        label: 'top-p-0.1',
-        overrides: { top_p: 0.1 },
-      },
-    ],
+    variants: [] as { label: string; packId: string }[],
     tasks: [
       {
         id: 't1',
@@ -233,6 +237,16 @@ run().catch(err => {
     ],
   };
 
+  const base = withBuiltIns(await mongo.getPersonaPacks(), experiment1.ownerId, (p) => p.slug)
+    .find((p) => p.slug === 'koala');
+  if (!base) throw new Error('No koala pack — run scripts/seed-all.ts first.');
+
+  // An arm is a pack now, so each knob set becomes a pack derived from koala and scoped to this
+  // experiment. They stay out of the user's pack list; promoting one folds it back into koala.
+  const derived = deriveArms(base, experiment1.id, ARMS, now);
+  for (const pack of derived.packs) await mongo.savePersonaPack(pack);
+  experiment1.variants = derived.variants;
+
   await mongo.saveExperiment(experiment1);
   console.log(`Successfully created benchmark suite 1: "${experiment1.name}" (${experiment1.id}) with ${experiment1.tasks?.length ?? 0} tasks`);
 
@@ -252,20 +266,7 @@ run().catch(err => {
     repeats: 2,
     createdAt: now,
     updatedAt: now,
-    variants: [
-      {
-        label: 'control-no-memories',
-        overrides: { useMemories: false },
-      },
-      {
-        label: 'memory-bank-enabled',
-        overrides: { useMemories: true },
-      },
-      {
-        label: 'full-toolset-memory-active',
-        overrides: { useMemories: true, maxSteps: 16 },
-      },
-    ],
+    variants: [] as { label: string; packId: string }[],
     tasks: [
       {
         id: 'tool-git-inspect',

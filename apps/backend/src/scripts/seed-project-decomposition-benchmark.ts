@@ -38,35 +38,7 @@ export async function seedProjectDecompositionExperiment() {
         verifyCommand: 'test -s /work/proposals.json && grep -q "leaves" /work/proposals.json',
       },
     ],
-    variants: [
-      {
-        label: 'standard-plan-mode',
-        overrides: {
-          temperature: 0.7,
-          max_tokens: 3000,
-          presence_penalty: 0.0,
-          frequency_penalty: 0.0,
-        },
-      },
-      {
-        label: 'low-temp-schema-focused',
-        overrides: {
-          temperature: 0.2,
-          max_tokens: 3000,
-          presence_penalty: 0.0,
-          frequency_penalty: 0.0,
-        },
-      },
-      {
-        label: 'dry-sampler-boosted',
-        overrides: {
-          temperature: 0.7,
-          dry_multiplier: 0.8,
-          dry_base: 1.75,
-          dry_allowed_length: 2,
-        },
-      },
-    ],
+    variants: [] as { label: string; packId: string }[],
   };
 
   await db.saveExperiment(experiment);

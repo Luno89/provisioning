@@ -1,17 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
   standingOf,
-  promotedOverrides,
-  diffOverrides,
   buildPromotion,
-  effectiveOverrides,
   supersede,
   revertTo,
   MAX_PROFILE_HISTORY,
-  withOverrides,
   type HarnessProfile,
 } from './harness-profile.js';
 import type { Experiment, VariantResult } from './experiments.js';
+import { deriveVariantPack } from './derived-packs.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+import type { PersonaPack } from '@koala/harness-types';
 
 const run = (label: string, taskId: string, verified: boolean, over: Partial<VariantResult> = {}): VariantResult => ({
   label,
@@ -38,8 +37,8 @@ const experiment = (over: Partial<Experiment> = {}): Experiment => ({
   ],
   language: 'node',
   variants: [
-    { label: 'think=false', overrides: { think: false } },
-    { label: 'think=true', overrides: { think: true } },
+    { label: 'think=false', packId: 'exp:e1:think=false' },
+    { label: 'think=true', packId: 'exp:e1:think=true' },
   ],
   repeats: 1,
   status: 'complete',
@@ -100,105 +99,11 @@ describe('standingOf', () => {
   });
 });
 
-describe('promotedOverrides', () => {
-  it('folds the variant onto the profile it ran against', () => {
-    expect(promotedOverrides({ temperature: 0.2, think: false }, { think: true }))
-      .toEqual({ temperature: 0.2, think: true });
-  });
-
-  it('leaves language out, since it picks an image rather than a call parameter', () => {
-    expect(promotedOverrides({}, { think: true, language: 'go' })).toEqual({ think: true });
-  });
-});
-
-describe('diffOverrides', () => {
-  it('says what promoting would actually change, by label', () => {
-    const changes = diffOverrides({ temperature: 0.3 }, { temperature: 0.7, think: true });
-    expect(changes).toEqual([
-      { key: 'temperature', label: 'Temperature', from: 0.3, to: 0.7 },
-      { key: 'think', label: 'Reasoning on dispatch turns', from: undefined, to: true },
-    ]);
-  });
-
-  it('reports nothing when a promotion changes nothing', () => {
-    expect(diffOverrides({ think: true }, { think: true })).toEqual([]);
-  });
-});
-
-describe('buildPromotion', () => {
-  const won = experiment({ results: [
-    run('think=true', 't1', true), run('think=true', 't2', true),
-    run('think=false', 't1', false), run('think=false', 't2', false),
-  ] });
-
-  it('records the evidence with the values, so a default can explain itself later', () => {
-    const built = buildPromotion(won, 'think=true', null, 'u1', '2026-08-04T12:00:00.000Z')!;
-
-    expect(built.profile.overrides).toEqual({ think: true });
-    expect(built.profile.from).toEqual({
-      experimentId: 'e1',
-      experimentName: 'reasoning on dispatch turns',
-      variantLabel: 'think=true',
-      verified: 2,
-      runs: 2,
-      tasks: 2,
-      wasBest: true,
-      promotedAt: '2026-08-04T12:00:00.000Z',
-    });
-  });
-
-  it('allows promoting a variant that did not win, but says so', () => {
-    const built = buildPromotion(won, 'think=false', null, 'u1')!;
-    expect(built.standing.wasBest).toBe(false);
-    expect(built.standing.rank).toBe(2);
-    expect(built.profile.from!.wasBest).toBe(false);
-  });
-
-  it('builds on the profile already in force rather than replacing it wholesale', () => {
-    const current: HarnessProfile = {
-      ownerId: 'u1',
-      overrides: { temperature: 0.2, max_tokens: 900 },
-      updatedAt: '2026-08-01T00:00:00.000Z',
-    };
-    const built = buildPromotion(won, 'think=true', current, 'u1')!;
-
-    expect(built.profile.overrides).toEqual({ temperature: 0.2, max_tokens: 900, think: true });
-    expect(built.changes).toEqual([
-      { key: 'think', label: 'Reasoning on dispatch turns', from: undefined, to: true },
-    ]);
-  });
-
-  it('returns nothing for a variant the experiment does not have', () => {
-    expect(buildPromotion(won, 'nope', null, 'u1')).toBeNull();
-  });
-});
-
-describe('effectiveOverrides', () => {
-  it('puts the profile beneath the caller, so a promoted value stays testable', () => {
-    const profile: HarnessProfile = {
-      ownerId: 'u1', overrides: { think: true, temperature: 0.2 }, updatedAt: 'x',
-    };
-    expect(effectiveOverrides(profile, { think: false })).toEqual({ think: false, temperature: 0.2 });
-  });
-
-  it('is just the caller\'s own when nothing has been promoted', () => {
-    expect(effectiveOverrides(null, { think: true })).toEqual({ think: true });
-  });
-
-  it('lets null opt a variant out of an adopted default', () => {
-    const profile: HarnessProfile = {
-      ownerId: 'u1', overrides: { systemPrompt: 'promoted', temperature: 0.2 }, updatedAt: 'x',
-    };
-    expect(effectiveOverrides(profile, { systemPrompt: null }))
-      .toEqual({ temperature: 0.2 });
-  });
-});
-
 describe('profile history', () => {
   const now = '2026-08-04T12:00:00.000Z';
   const inForce: HarnessProfile = {
     ownerId: 'u1',
-    overrides: { think: true },
+    packId: 'pack-a',
     from: {
       experimentId: 'e1', experimentName: 'first', variantLabel: 'think=true',
       verified: 2, runs: 2, tasks: 2, wasBest: true, promotedAt: '2026-08-01T00:00:00.000Z',
@@ -206,27 +111,27 @@ describe('profile history', () => {
     updatedAt: '2026-08-01T00:00:00.000Z',
   };
 
-  it('files the outgoing configuration instead of overwriting it', () => {
-    const next = supersede(inForce, { ownerId: 'u1', overrides: { think: false }, updatedAt: '' }, now);
+  it('files the outgoing pack instead of overwriting it', () => {
+    const next = supersede(inForce, { ownerId: 'u1', packId: 'pack-b', updatedAt: '' }, now);
 
-    expect(next.overrides).toEqual({ think: false });
+    expect(next.packId).toBe('pack-b');
     expect(next.history).toHaveLength(1);
-    expect(next.history![0]!.overrides).toEqual({ think: true });
+    expect(next.history![0]!.packId).toBe('pack-a');
     expect(next.history![0]!.from!.experimentName).toBe('first');
     expect(next.history![0]!.supersededAt).toBe(now);
   });
 
   it('files nothing when there was nothing in force', () => {
-    expect(supersede(null, { ownerId: 'u1', overrides: { think: true }, updatedAt: '' }, now).history)
+    expect(supersede(null, { ownerId: 'u1', updatedAt: '' }, now).history)
       .toBeUndefined();
   });
 
-  it('restores a superseded configuration', () => {
-    const second = supersede(inForce, { ownerId: 'u1', overrides: { think: false }, updatedAt: '' }, now);
+  it('restores the pack that was superseded', () => {
+    const second = supersede(inForce, { ownerId: 'u1', packId: 'pack-b', updatedAt: '' }, now);
     const back = revertTo(second, second.history![0]!.id, now)!;
 
-    expect(back.overrides).toEqual({ think: true });
-    expect(back.history!.map((v) => v.overrides)).toEqual([{ think: true }, { think: false }]);
+    expect(back.packId).toBe('pack-a');
+    expect(back.history!.map((v) => v.packId)).toEqual(['pack-a', 'pack-b']);
   });
 
   it('returns nothing for a version that does not exist', () => {
@@ -236,39 +141,55 @@ describe('profile history', () => {
   it('keeps history bounded, dropping the oldest first', () => {
     let p: HarnessProfile = inForce;
     for (let i = 0; i < MAX_PROFILE_HISTORY + 5; i++) {
-      p = supersede(p, { ownerId: 'u1', overrides: { maxSteps: i }, updatedAt: '' }, now);
+      p = supersede(p, { ownerId: 'u1', packId: `pack-${i}`, updatedAt: '' }, now);
     }
     expect(p.history).toHaveLength(MAX_PROFILE_HISTORY);
-    expect(p.history![p.history!.length - 1]!.overrides).toEqual({ maxSteps: MAX_PROFILE_HISTORY + 3 });
+    expect(p.history![p.history!.length - 1]!.packId).toBe(`pack-${MAX_PROFILE_HISTORY + 3}`);
   });
 });
 
-describe('changing only the overrides', () => {
-  const promoted: HarnessProfile = {
-    ownerId: 'u1',
-    overrides: { temperature: 0.2 } as never,
-    packId: 'persona-that-won',
-    from: { experimentId: 'e1', variantId: 'v1', promotedAt: '2026-01-01T00:00:00.000Z' } as never,
-    updatedAt: '2026-01-01T00:00:00.000Z',
-  };
 
-  it('keeps the persona the promotion adopted', () => {
-    const next = withOverrides(promoted, { temperature: 0.9 } as never);
-    expect(next.packId).toBe('persona-that-won');
+describe('promoting an arm into the pack it came from', () => {
+  const won = experiment({ results: [
+    run('think=true', 't1', true), run('think=true', 't2', true),
+    run('think=false', 't1', false), run('think=false', 't2', false),
+  ] });
+  const koala = (): PersonaPack => structuredClone({
+    id: 'pack-koala', slug: 'koala', name: 'Koala', personaId: 'p1', tools: [],
+    sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
+    createdAt: '', updatedAt: '',
+  } as PersonaPack);
+  const arms = () => [
+    koala(),
+    deriveVariantPack(koala(), 'e1', 'think=true', { budget: { rounds: 12 } }, 'now'),
+    deriveVariantPack(koala(), 'e1', 'think=false', {}, 'now'),
+  ];
+
+  it('overwrites the pack the arm was derived from, keeping its identity', () => {
+    const built = buildPromotion(won, 'think=true', arms(), '2026-08-04T12:00:00.000Z')!;
+
+    expect(built.pack.id).toBe('pack-koala');
+    expect(built.pack.slug).toBe('koala');
+    expect(built.pack.budget.rounds).toBe(12);
+    expect(built.target.id).toBe('pack-koala');
   });
 
-  it('keeps where the promotion came from', () => {
-    expect(withOverrides(promoted, { temperature: 0.9 } as never).from).toEqual(promoted.from);
+  it('says what would change, so the user can be asked before it happens', () => {
+    const built = buildPromotion(won, 'think=true', arms(), 'now')!;
+    expect(built.changes).toEqual([{ path: 'budget.rounds', from: 8, to: 12 }]);
   });
 
-  it('applies the overrides it was given', () => {
-    expect(withOverrides(promoted, { temperature: 0.9 } as never).overrides).toEqual({ temperature: 0.9 });
+  it('records the evidence, so a promoted value can explain itself later', () => {
+    const built = buildPromotion(won, 'think=true', arms(), 'now')!;
+    expect(built.standing.verified).toBe(2);
+    expect(built.standing.wasBest).toBe(true);
   });
 
-  it('adds nothing to a profile that was never promoted', () => {
-    const plain: HarnessProfile = { ownerId: 'u1', overrides: {} as never, updatedAt: 'x' };
-    const next = withOverrides(plain, { temperature: 0.1 } as never);
-    expect('personaId' in next).toBe(false);
-    expect('from' in next).toBe(false);
+  it('allows promoting an arm that did not win, but says so', () => {
+    expect(buildPromotion(won, 'think=false', arms(), 'now')!.standing.wasBest).toBe(false);
+  });
+
+  it('returns nothing for an arm the experiment does not have', () => {
+    expect(buildPromotion(won, 'nope', arms(), 'now')).toBeNull();
   });
 });

@@ -13,7 +13,7 @@ export interface ExportedSuite {
 export interface ConfigExport {
   version: number;
   exportedAt: string;
-  profile?: { overrides: Overrides; from?: HarnessProfile['from'] };
+  profile?: { packId: string; from?: HarnessProfile['from'] | undefined };
   suites: ExportedSuite[];
 }
 
@@ -25,8 +25,8 @@ export function buildConfigExport(
   return {
     version: CONFIG_EXPORT_VERSION,
     exportedAt: now,
-    ...(profile && Object.keys(profile.overrides ?? {}).length
-      ? { profile: { overrides: profile.overrides, ...(profile.from ? { from: profile.from } : {}) } }
+    ...(profile?.packId
+      ? { profile: { packId: profile.packId, ...(profile.from ? { from: profile.from } : {}) } }
       : {}),
     suites: experiments.map((e) => ({
       name: e.name,
@@ -39,7 +39,7 @@ export function buildConfigExport(
 
 export interface ImportedConfig {
   suites: ExportedSuite[];
-  profile?: { overrides: Overrides; from?: HarnessProfile['from'] };
+  profile?: { packId: string; from?: HarnessProfile['from'] | undefined };
   rejected: string[];
 }
 
@@ -84,7 +84,7 @@ export function parseConfigExport(raw: unknown): ImportedConfig | { error: strin
 
   return {
     suites,
-    ...(doc.profile?.overrides ? { profile: doc.profile } : {}),
+    ...(doc.profile?.packId ? { profile: doc.profile } : {}),
     rejected,
   };
 }

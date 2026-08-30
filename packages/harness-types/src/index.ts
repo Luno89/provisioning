@@ -73,6 +73,11 @@ export interface Tunable {
    * and this table only describes the knob. Present for the ones a pack does not carry.
    */
   default?: unknown;
+  /**
+   * The pack field this knob sets, as a dotted path. This is what makes a knob editable: the pack
+   * editor and the Lab's axis picker write here, and a knob with no path is descriptive only.
+   */
+  path?: string;
   promptId?: string;
   suggested?: unknown[];
   note?: string;
@@ -93,8 +98,11 @@ export type ExperimentOverrides = Overrides & { language?: WorkspaceLanguage };
 
 export interface ExperimentVariant {
   label: string;
-  overrides: ExperimentOverrides;
-  packId?: string;
+  /**
+   * The pack this arm runs as. Required: an arm varies a pack now, not a bag of overrides layered
+   * under one. For an arm that changes a knob this is a derived pack (see `PersonaPack.derivedFrom`).
+   */
+  packId: string;
 }
 
 export interface TaskFile {
@@ -259,14 +267,15 @@ export interface PromotionProvenance {
 
 export interface ProfileVersion {
   id: string;
-  overrides: Overrides;
+  /** The pack this account was running as before the version that superseded it. */
+  packId?: string;
   from?: PromotionProvenance;
   supersededAt: string;
 }
 
 export interface HarnessProfile {
   ownerId: string;
-  overrides: Overrides;
+  /** Which pack this account runs as. The profile carries no values of its own any more. */
   packId?: string;
   from?: PromotionProvenance;
   history?: ProfileVersion[];
@@ -286,9 +295,9 @@ export interface PromotionStanding {
   medianTokens: number;
 }
 
-export interface OverrideChange {
-  key: string;
-  label: string;
+/** One pack value a promotion would overwrite, as a dotted path into the pack. */
+export interface PackChange {
+  path: string;
   from: unknown;
   to: unknown;
 }
@@ -476,8 +485,13 @@ export interface PersonaPack {
    * one; nothing named anywhere is an error rather than whichever endpoint was listed first.
    */
   model?: { endpointId?: string };
+  /**
+   * Set when this pack is one experiment arm's copy of another pack. Such a pack is scoped to its
+   * experiment and hidden from the user's pack list — an arm has to be a pack now that a variant
+   * varies a pack, and without this a five-arm experiment would leave five near-duplicates behind.
+   */
+  derivedFrom?: { packId: string; experimentId: string; label: string };
 
-  overrides: Overrides;
   builtIn?: boolean;
   createdAt: string;
   updatedAt: string;

@@ -57,7 +57,6 @@ export interface ResearchOptions {
   apiKey?: string | undefined;
   model?: string | undefined;
   kind?: ModelKind | undefined;
-  overrides?: Record<string, unknown> | undefined;
   sampling?: SamplingConfig | undefined;
   webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
@@ -93,7 +92,7 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         stream: true,
         maxTokens: 1500,
         ...(opts.model ? { model: opts.model } : {}),
-        overrides: { ...(opts.overrides ?? {}), think: false },
+        overrides: { think: false },
         extra: { stream_options: { include_usage: true } },
       }).body),
       ...(opts.signal ? { signal: opts.signal } : {}),

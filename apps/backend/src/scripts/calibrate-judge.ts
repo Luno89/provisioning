@@ -3,7 +3,7 @@ import { createModelService } from '../lib/model-wiring.js';
 import { readStreamedReply } from '../lib/agent-loop.js';
 import { buildModelRequest } from '../lib/model-request.js';
 import { fittedMaxTokens } from '../lib/sampling.js';
-import { resolveConfig } from '../lib/personas.js';
+import { resolvePrompt } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
 import { JUDGE_PERSONA } from '../lib/well-known-personas.js';
 import { attempted } from '../lib/run-outcome.js';
@@ -53,8 +53,8 @@ async function main(): Promise<void> {
     if (!assigned) console.warn(`No "${JUDGE_PERSONA}" persona — scoring with harness defaults.`);
 
     const profile = await db.getHarnessProfile(ownerId).catch(() => null);
-    const resolved = resolveConfig(profile, null, {}, persona);
-    const chosenModel = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
+    const systemPrompt = resolvePrompt(persona);
+    const chosenModel = undefined;
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosenModel);
     console.log(`Scoring with ${provider.name} (${provider.model ?? 'default'}).\n`);
@@ -66,13 +66,12 @@ async function main(): Promise<void> {
         ...(sampling ? { sampling } : {}),
         ...(provider.kind ? { kind: provider.kind } : {}),
         messages: [
-          ...(resolved.systemPrompt ? [{ role: 'system', content: resolved.systemPrompt }] : []),
+          ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
           { role: 'user', content: buildJudgePrompt(bundle, CODE_DIMENSIONS) },
         ],
         stream: true,
         maxTokens: fittedMaxTokens(budget, budget.replyTokens.thinking * 2, bundle.length),
         ...(provider.model ? { model: provider.model } : {}),
-        overrides: resolved.overrides,
       }).body;
 
       try {

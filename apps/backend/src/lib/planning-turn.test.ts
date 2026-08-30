@@ -87,30 +87,30 @@ describe('what the model is asked', () => {
     expect(sent[0].messages[0].content).toContain('YOU DECOMPOSE.');
   });
 
-  it('nests a template_vars knob rather than sending it flat', async () => {
+  it("sends the pack's own sampler, with nothing layered under it", async () => {
     const { sent } = await run([{ content: 'done' }], {
-      pack: { overrides: { think: true } },
-    });
-
-    expect(sent[0].think).toBeUndefined();
-    expect(sent[0].template_vars).toMatchObject({ enable_thinking: true });
-  });
-
-  it('lets the resolved chain beat the built-in sampling', async () => {
-    const { sent } = await run([{ content: 'done' }], {
-      pack: { overrides: { frequency_penalty: 0 } },
+      sampling: { toolTurn: {}, conversation: { frequency_penalty: 0 } },
     });
 
     expect(sent[0].frequency_penalty).toBe(0);
   });
 
-  it('applies the pack’s samplers but never sends a knob the loop only reads', async () => {
+  it('never sends a knob the loop only reads, whatever the pack puts in its sampler', async () => {
     const { sent } = await run([{ content: 'done' }], {
-      pack: { overrides: { temperature: 0.2, maxSteps: 30 } },
+      sampling: { toolTurn: {}, conversation: { temperature: 0.2, maxSteps: 30 } as never },
     });
 
     expect(sent[0].temperature).toBe(0.2);
     expect(sent[0].maxSteps).toBeUndefined();
+  });
+
+  it('nests a template_vars knob rather than sending it flat', async () => {
+    const { sent } = await run([{ content: 'done' }], {
+      sampling: { toolTurn: {}, conversation: { think: true } as never },
+    });
+
+    expect(sent[0].think).toBeUndefined();
+    expect(sent[0].template_vars).toMatchObject({ enable_thinking: true });
   });
 });
 

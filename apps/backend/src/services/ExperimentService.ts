@@ -8,7 +8,7 @@ import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
 import type { EgressRule } from '../lib/workspace-spec.js';
 import { WorkspaceImageService } from './WorkspaceImageService.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
-import { resolveConfig, type Persona } from '../lib/personas.js';
+import { resolvePrompt, type Persona } from '../lib/personas.js';
 import type { PersonaPack } from '@koala/harness-types';
 import { ToolService } from './ToolService.js';
 import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
@@ -148,7 +148,6 @@ export class ExperimentService {
       id: `r${Date.now().toString(36)}`,
       startedAt: new Date().toISOString(),
       status: 'running',
-      ...(profile?.overrides ? { profileOverrides: profile.overrides } : {}),
       results: [],
     };
     const prior = priorExecutions(experiment);
@@ -225,7 +224,7 @@ export class ExperimentService {
     runId: string,
     blank: Omit<VariantResult, 'durationMs'>,
     startedAt: number,
-    resolved: ReturnType<typeof resolveConfig>,
+    personaPrompt: string | undefined,
     persona: Persona | null,
     profile: HarnessProfile | null,
     provider: { model: string; kind?: ModelKind },
@@ -257,7 +256,6 @@ export class ExperimentService {
         },
         profile,
         persona,
-        overrides: variant.overrides,
         research: { webSearch: this.webSearch, fetchWebPage: this.fetchWebPage },
         ...(signal ? { signal } : {}),
       }),
@@ -297,9 +295,6 @@ export class ExperimentService {
           kickoff: task.prompt,
           tools: turn.request.tools.map((name) => ({ name, description: '' })),
           parameters: turn.request.parameters,
-          overrides: resolved.overrides,
-          fromProfile: resolved.from.profile,
-                    ...(resolved.from.pack.length ? { fromPack: resolved.from.pack } : {}),
         },
         expected: {
           verifyCommand: task.verifyCommand,
@@ -328,11 +323,8 @@ export class ExperimentService {
     const variantPersona = variantPack
       ? (() => { const found = personas.find((p) => p.id === variantPack.personaId); return found ? flattenPersona(found, personas) : null; })()
       : null;
-    const resolvedForVariant = resolveConfig(profile, variantPack, variant.overrides, variantPersona);
-    if (resolvedForVariant.systemPrompt) {
-      resolvedForVariant.overrides.systemPrompt = resolvedForVariant.systemPrompt;
-    }
-    const language = variant.overrides.language ?? task.language ?? experiment.language;
+    const variantPrompt = resolvePrompt(variantPersona);
+    const language = task.language ?? experiment.language;
     const runId = `exp-${executionId}-${slug(task.id, 10)}-${slug(variant.label, 12)}-${repeat}`;
     const startedAt = Date.now();
 
@@ -352,13 +344,14 @@ export class ExperimentService {
     try {
       const { provider, baseUrl, apiKey } = await this.models.resolveBaseUrl(
         experiment.ownerId,
-        typeof variant.overrides.model === 'string' ? variant.overrides.model : undefined,
+        undefined,
+        variantPack?.model?.endpointId,
       );
 
       if (task.planning || (task as { kind?: string }).kind === 'planning') {
         return await this.runPlanningVariant(
           experiment, task, variant, runId, blank, startedAt,
-          resolvedForVariant, variantPersona, profile,
+          variantPrompt, variantPersona, profile,
           { model: provider.model, ...(provider.kind ? { kind: provider.kind } : {}) },
           baseUrl, apiKey, signal,
         );
@@ -392,10 +385,7 @@ export class ExperimentService {
             ...agentRunOptions(variantPack?.budget ?? await requireBudget(this.db), variantPack, {
               ...(ranAs(variantPack) ? { ranAs: ranAs(variantPack) } : {}),
               taskContext: task.prompt,
-              overrides: resolvedForVariant.overrides,
               memoryContext,
-              fromProfile: resolvedForVariant.from.profile,
-                            fromPack: resolvedForVariant.from.pack,
               ...(wantsWeb(variantPack) ? { web: await buildWebTools(this.db, experiment.ownerId) } : {}),
               sandbox: {
                 exec: (command) => this.workspaces.exec(runId, command),

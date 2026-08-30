@@ -11,16 +11,14 @@ import type { RanAs } from './run-provenance.js';
 export interface RunInputs {
   taskContext: string;
   sandbox: SandboxDriver;
-  overrides: Overrides;
   memoryContext?: string | undefined;
   bindingsContext?: string | undefined;
   sandboxSpec?: AgentRunOptions['sandboxSpec'] | undefined;
   contextTokens?: number | undefined;
   web?: WebTools | undefined;
-  fromProfile?: string[] | undefined;
-  fromPersona?: string[] | undefined;
-  fromPack?: string[] | undefined;
   ranAs?: RanAs | undefined;
+  systemPrompt?: string | undefined;
+  extraInstructions?: string | undefined;
   remoteTools?: { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }[] | undefined;
   remoteToolNames?: string[] | undefined;
   callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
@@ -55,15 +53,13 @@ export function agentRunOptions(
     budget,
     taskContext: inputs.taskContext,
     sandbox: inputs.sandbox,
-    overrides: inputs.overrides,
     ...(inputs.memoryContext ? { memoryContext: inputs.memoryContext } : {}),
     ...(inputs.bindingsContext ? { bindingsContext: inputs.bindingsContext } : {}),
     ...(inputs.sandboxSpec ? { sandboxSpec: inputs.sandboxSpec } : {}),
     ...(inputs.contextTokens ? { contextTokens: inputs.contextTokens } : {}),
-    ...(inputs.fromProfile?.length ? { fromProfile: inputs.fromProfile } : {}),
-    ...(inputs.fromPersona?.length ? { fromPersona: inputs.fromPersona } : {}),
-    ...(inputs.fromPack?.length ? { fromPack: inputs.fromPack } : {}),
     ...(inputs.ranAs ? { ranAs: inputs.ranAs } : {}),
+    ...(inputs.systemPrompt ? { systemPrompt: inputs.systemPrompt } : {}),
+    ...(inputs.extraInstructions ? { extraInstructions: inputs.extraInstructions } : {}),
     ...(inputs.web && wantsWeb(pack) ? { web: inputs.web } : {}),
     ...(tools.length ? { allowTools: allowWithMcp(tools, inputs.remoteToolNames ?? []) } : {}),
     ...(inputs.remoteTools?.length ? { remoteTools: inputs.remoteTools } : {}),

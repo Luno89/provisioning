@@ -248,24 +248,25 @@ function SentToModel({ request }: { request: AgentRequest }) {
 }
 
 function Knobs({ request }: { request: AgentRequest }) {
-  const overrides = request.overrides ?? {};
   const sent = request.parameters ?? {};
   const dropped = new Set(request.unsupported ?? []);
+  /**
+   * Every value came from one place — the pack the run was configured by — so a row says which pack
+   * rather than which layer. `ranAs` carries that pack's values as they were when the run started,
+   * which is what makes a finished run readable after the pack has moved on.
+   */
+  const from = request.ranAs ? `pack "${request.ranAs.slug}"` : 'the pack';
 
   const wire = Object.keys(sent).filter((k) => k !== 'messages' && k !== 'tools' && k !== 'stream'
     && k !== 'stream_options' && k !== 'model');
   const rows = [
-    ...wire.map((key) => ({
-      key,
-      value: sent[key],
-      source: key in overrides ? 'override' : 'harness default',
-    })),
-    ...[...dropped].map((key) => ({ key, value: overrides[key], source: 'DROPPED — wrong engine' })),
+    ...wire.map((key) => ({ key, value: sent[key], source: from })),
+    ...[...dropped].map((key) => ({ key, value: undefined, source: 'DROPPED — wrong engine' })),
     ...(request.loop
       ? [
-          { key: 'maxSteps', value: request.loop.maxSteps, source: 'maxSteps' in overrides ? 'override' : 'harness default' },
-          { key: 'think', value: request.loop.think, source: 'think' in overrides ? 'override' : 'harness default' },
-          { key: 'maxToolResultChars', value: request.loop.toolResultCap, source: 'maxToolResultChars' in overrides ? 'override' : 'harness default' },
+          { key: 'maxSteps', value: request.loop.maxSteps, source: from },
+          { key: 'think', value: request.loop.think, source: from },
+          { key: 'maxToolResultChars', value: request.loop.toolResultCap, source: from },
         ]
       : []),
   ];

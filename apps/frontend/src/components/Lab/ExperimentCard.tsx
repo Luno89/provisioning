@@ -9,7 +9,7 @@ import { Results } from './Results';
 
 type Panel = 'results' | 'variants' | 'tasks' | 'history';
 
-export function ExperimentCard({ experiment: e, config, profile, live, openResult, setOpenResult,
+export function ExperimentCard({ experiment: e, live, openResult, setOpenResult,
   onFocus, onRun, onStop, onDuplicate, onDelete, onChanged, onPromoted,
 }: {
   experiment: Experiment;
@@ -135,15 +135,7 @@ export function ExperimentCard({ experiment: e, config, profile, live, openResul
           )
         )}
         {active === 'variants' && (
-          <VariantPanel
-            experiment={e}
-            tunables={config?.tunables ?? []}
-            effective={config?.effective ?? []}
-            prompts={Object.fromEntries((config?.prompts ?? []).map((p) => [p.id, p.text]))}
-            profile={profile}
-            disabled={running}
-            onSaved={onChanged}
-          />
+          <VariantPanel experiment={e} disabled={running} onSaved={onChanged} />
         )}
         {active === 'tasks' && (
           <TaskPanel experiment={e} disabled={running} onSaved={onChanged} />

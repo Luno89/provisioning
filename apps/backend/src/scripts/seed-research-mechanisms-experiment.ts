@@ -1,6 +1,8 @@
 import { MongoDB } from '../lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Experiment } from '@koala/harness-types';
+import { deriveArms } from '../lib/derived-packs.js';
+import { withBuiltIns } from '../lib/ownership.js';
 
 const OWNER = '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991';
 const NAME = 'Research mechanisms';
@@ -47,6 +49,17 @@ async function main() {
   );
 
   const now = new Date().toISOString();
+
+/**
+ * Three of these arms already name a pack of their own — this suite was always comparing packs.
+ * The fourth tuned a knob, which is a pack derived from koala now.
+ */
+const ARMS: { label: string; knobs?: Record<string, unknown>; packId?: string }[] = [
+  { label: 'no-persona', knobs: { temperature: 0.4 } },
+  { label: 'researcher', packId: researcher.id },
+  { label: 'short-budget', packId: shortBudget.id },
+  { label: 'search-kept', packId: noWithdrawal.id },
+];
   const experiment: Experiment = {
     id: uuidv4(),
     ownerId: OWNER,
@@ -57,12 +70,7 @@ async function main() {
     repeats: 2,
     createdAt: now,
     updatedAt: now,
-    variants: [
-      { label: 'no-persona', overrides: { temperature: 0.4 } },
-      { label: 'researcher', overrides: {}, packId: researcher.id },
-      { label: 'short-budget', overrides: {}, packId: shortBudget.id },
-      { label: 'search-kept', overrides: {}, packId: noWithdrawal.id },
-    ],
+    variants: [] as { label: string; packId: string }[],
     tasks: [
       {
         id: 'r1',
@@ -113,6 +121,16 @@ async function main() {
       },
     ],
   };
+
+  const base = withBuiltIns(await mongo.getPersonaPacks(), experiment.ownerId, (p) => p.slug)
+    .find((p) => p.slug === 'koala');
+  if (!base) throw new Error('No koala pack — run scripts/seed-all.ts first.');
+
+  // An arm is a pack now, so each knob set becomes a pack derived from koala and scoped to this
+  // experiment. They stay out of the user's pack list; promoting one folds it back into koala.
+  const derived = deriveArms(base, experiment.id, ARMS, now);
+  for (const pack of derived.packs) await mongo.savePersonaPack(pack);
+  experiment.variants = derived.variants;
 
   await mongo.saveExperiment(experiment);
   console.log(`Seeded "${NAME}" (${experiment.id}) — ${experiment.variants.length} arms x ${experiment.tasks!.length} tasks x ${experiment.repeats} repeats`);

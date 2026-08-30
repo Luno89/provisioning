@@ -9,7 +9,7 @@ const experiment = (over: Partial<Experiment> = {}): Experiment => ({
   name: 'suite',
   tasks: [{ id: 't1', name: 'fib', prompt: 'do it', verifyCommand: 'node t.js' }],
   language: 'node',
-  variants: [{ label: 'a', overrides: {} }, { label: 'b', overrides: {} }],
+  variants: [{ label: 'a', packId: 'pack-a' }, { label: 'b', packId: 'pack-b' }],
   repeats: 1,
   status: 'running',
   results: [],

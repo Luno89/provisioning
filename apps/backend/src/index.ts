@@ -103,7 +103,7 @@ import {
 } from './lib/experiment-authoring.js';
 import { AuthoringService, acceptedTasks } from './services/AuthoringService.js';
 import { WorkbenchService } from './services/WorkbenchService.js';
-import { buildPromotion, supersede, revertTo, withOverrides } from './lib/harness-profile.js';
+import { buildPromotion, supersede, revertTo, withPack } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { validateOverrides, loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
@@ -150,7 +150,7 @@ import { seedTreeTypes, validateTreeType, resolveTreeType } from './lib/tree-typ
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
-import { resolveConfig, validatePersona, validateScope, type Persona } from './lib/personas.js';
+import { validatePersona, validateScope, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
   expandAxes, validateExperiment, plannedRuns, experimentTasks, taskIdOf, summariseExperiment, normaliseExperiment, latestResults,
@@ -562,7 +562,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
 
     res.json(buildHarnessConfig(
-      profile?.overrides ?? {}, models,
+      {}, models,
       await new ToolService(db).list(userId),
       await new WorkspaceImageService(db).list(userId),
       await defaultSampling(db),

@@ -11,7 +11,6 @@ describe('buildChatCompletionRequest — the provider request for a pack turn', 
       provider: { kind: 'vllm', model: 'm' },
       messages: [{ role: 'user', content: 'hi' }],
       tools: ['get_logs'],
-      overrides: {},
     });
     expect(req.stream).toBe(true);
     expect(req.frequency_penalty).toBeUndefined();
@@ -24,7 +23,6 @@ describe('buildChatCompletionRequest — the provider request for a pack turn', 
       provider: { kind: 'vllm', model: 'm' },
       messages: [{ role: 'user', content: 'hi' }],
       tools: ['get_logs'],
-      overrides: {},
     });
     expect(req.model).toBe('m');
     expect(req.messages).toEqual([{ role: 'user', content: 'hi' }]);
@@ -35,7 +33,7 @@ describe('buildChatCompletionRequest — the provider request for a pack turn', 
     const req = buildChatCompletionRequest({ budget: BUDGET,
       baseUrl: 'http://x',
       provider: { kind: 'vllm' },
-      messages: [], tools: [], overrides: {},
+      messages: [], tools: [],
       toolChoice: 'none',
     });
     expect((req as any).tool_choice).toBe('none');

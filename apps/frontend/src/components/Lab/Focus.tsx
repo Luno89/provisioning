@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Play, Award, Loader2 } from 'lucide-react';
 import { Terminal } from './Terminal';
 import { ExpandableText, EditorHost } from './ExpandableText';
@@ -8,25 +8,11 @@ import { PromoteConfirm } from './Promote';
 import { OutputPane } from './Output';
 import type { LiveRun } from './Live';
 import {
-  useExperimentDetail, errorMessage, describeTunable, useEditorSlot, EditorSlot,
+  useExperimentDetail, errorMessage, describeTunable, useEditorSlot, EditorSlot, packValueAt,
   type ExperimentTask, type HarnessConfig, type TaskFile, type VariantResult,
 } from './shared';
 import { updateExperiment, runExperiment, validateAuthored } from '../../api/harness';
-
-const parseRaw = (raw: string, type: string): unknown => {
-  const text = raw.trim();
-  if (text === '') return undefined;
-  if (type === 'number') {
-    const n = Number(text);
-    return Number.isNaN(n) ? text : n;
-  }
-  if (type === 'boolean') {
-    if (text === 'true') return true;
-    if (text === 'false') return false;
-    return text;
-  }
-  return raw;
-};
+import { listPacks } from '../../api/packs';
 
 const showRaw = (value: unknown): string => {
   if (value === undefined || value === null) return '';
@@ -46,7 +32,7 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
   const [taskId, setTaskId] = useState<string | null>(null);
   const [label, setLabel] = useState<string | null>(null);
   const [draft, setDraft] = useState<ExperimentTask[] | null>(null);
-  const [overrides, setOverrides] = useState<Record<string, unknown> | null>(null);
+
   const [note, setNote] = useState('');
   const [pane, setPane] = useState<'prompt' | 'options' | 'chat'>('prompt');
   const [promoting, setPromoting] = useState(false);
@@ -61,11 +47,23 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const { data: packs } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['packs'],
+    queryFn: listPacks,
+  });
+
   const tasks = draft ?? exp?.tasks ?? [];
   const task = tasks.find((t) => t.id === taskId) ?? tasks[0];
   const variant = exp?.variants.find((v) => v.label === label) ?? exp?.variants[0];
-  const own = overrides ?? variant?.overrides ?? {};
-  const dirty = draft !== null || overrides !== null;
+  /**
+   * An arm's values live on the pack it runs as, so this pane reads that pack rather than a bag of
+   * overrides. It is read-only here: changing what an arm runs means changing its pack.
+   */
+  const armPack = (packs ?? []).find((p) => p.id === variant?.packId);
+  const own = Object.fromEntries((config?.tunables ?? [])
+    .map((t) => [t.key, packValueAt(armPack, t.path)])
+    .filter(([, v]) => v !== undefined));
+  const dirty = draft !== null;
   const running = Boolean(exp?.running) || exp?.status === 'running';
   const hasResults = (exp?.results ?? []).some((r) => r.label === variant?.label);
 
@@ -85,13 +83,13 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
           (v.label === variant?.label ? { label: v.label, overrides: own } : v)),
       },
     ),
-    onSuccess: () => { setNote('Saved.'); setDraft(null); setOverrides(null); refresh(); onSaved(); },
+    onSuccess: () => { setNote('Saved.'); setDraft(null); refresh(); onSaved(); },
     onError: (err: unknown) => setNote(errorMessage(err)),
   });
 
   const start = useMutation({
     mutationFn: async () => {
-      if (draft || overrides) await save.mutateAsync();
+      if (draft) await save.mutateAsync();
       return runExperiment(experimentId);
     },
     onSuccess: () => { setNote('Running…'); refresh(); },
@@ -135,7 +133,7 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
         <select
           className={`${field} w-auto`}
           value={variant?.label ?? ''}
-          onChange={(e) => { setLabel(e.target.value); setOverrides(null); setNote(''); slot.close(); }}
+          onChange={(e) => { setLabel(e.target.value); setNote(''); slot.close(); }}
         >
           {exp?.variants.map((v) => <option key={v.label} value={v.label}>{v.label}</option>)}
         </select>
@@ -173,7 +171,7 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
         </button>
         <button
           onClick={() => save.mutate()}
-          disabled={save.isPending || (!draft && !overrides)}
+          disabled={save.isPending || !draft}
           className="text-[12px] px-3 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white disabled:opacity-40"
         >
           Save experiment
@@ -294,7 +292,7 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
 
             {pane === 'options' && (
             <div>
-              <p className={heading}>Options — {variant?.label} (raw values)</p>
+              <p className={heading}>Options — {variant?.label} · pack {armPack?.name ?? '—'} (read-only)</p>
               <table className="w-full text-[11px]">
                 <tbody>
                   {(config?.tunables ?? []).map((t) => {
@@ -310,12 +308,7 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
                             <select
                               className={`${field} py-0.5`}
                               value={showRaw(own[t.key])}
-                              onChange={(e) => setOverrides((prev) => {
-                                const next = { ...(prev ?? variant?.overrides ?? {}) };
-                                if (e.target.value === '') delete next[t.key];
-                                else next[t.key] = e.target.value;
-                                return next;
-                              })}
+                              disabled
                             >
                               <option value="">
                                 {t.choices.length ? 'unset — first available' : 'no models available'}
@@ -339,13 +332,7 @@ export function Focus({ experimentId, config, live, onClose, onSaved,
                                 || (t.promptId ? generated(t.promptId) : ''),
                               fallbackNote: live?.source === 'adopted' ? 'adopted default' : 'harness default',
                             } : {})}
-                            onChange={(raw) => setOverrides((prev) => {
-                              const next = { ...(prev ?? variant?.overrides ?? {}) };
-                              const parsed = parseRaw(raw, t.type);
-                              if (parsed === undefined) delete next[t.key];
-                              else next[t.key] = parsed;
-                              return next;
-                            })}
+                            onChange={() => undefined}
                           />
                           )}
                         </td>

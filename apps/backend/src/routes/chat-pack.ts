@@ -12,7 +12,7 @@ import type { Conversation, ProposedTree, ProposedSpec } from '../lib/conversati
 import type { SearchOutcome } from '../lib/web-tools.js';
 import { historyForPrompt } from '../lib/koala-context.js';
 import { enabledForSession, titleFrom } from '../lib/conversations.js';
-import { resolveConfig } from '../lib/personas.js';
+import { resolvePrompt } from '../lib/personas.js';
 import { trimConversation, conversationBudget } from '../lib/sandbox-tools.js';
 import { openSse, sendFrame, endSse } from '../lib/sse.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -284,8 +284,8 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
     const servers = await deps.serversFor(userId);
 
-    const resolved = resolveConfig(await db.getHarnessProfile(userId), pack, {}, persona);
-    const chosenModel = modelId ?? resolved.overrides.model;
+    const systemPromptText = resolvePrompt(persona);
+    const chosenModel = modelId;
 
     let provider, baseUrl, apiKey;
     try {
@@ -312,7 +312,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     }
 
     const enabled = enabledForSession(conversation, sessionId);
-    const systemPrompt = resolved.systemPrompt ?? persona.systemPrompt ?? '';
+    const systemPrompt = systemPromptText ?? persona.systemPrompt ?? '';
     const thread = appendUserTurn(pack.budget, conversation, message, now);
     await db.saveConversation(thread);
 
@@ -336,7 +336,6 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
         ...(provider ? { provider } : {}),
         messages: reqBody.messages as any[],
         tools: toolSchemas as any,
-        overrides: resolved.overrides,
         ...(pack.sampling ? { sampling: pack.sampling } : {}),
         budget: pack.budget,
         ...(reqBody.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),

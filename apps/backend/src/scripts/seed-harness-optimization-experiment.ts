@@ -1,6 +1,8 @@
 import { MongoDB } from '../lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Experiment } from '@koala/harness-types';
+import { deriveArms } from '../lib/derived-packs.js';
+import { withBuiltIns } from '../lib/ownership.js';
 
 async function main() {
   const mongo = new MongoDB();
@@ -13,6 +15,28 @@ async function main() {
   }
 
   const now = new Date().toISOString();
+
+const ARMS: { label: string; knobs: Record<string, unknown> }[] = [
+      {
+        label: 'control-promoted',
+        knobs: { temperature: 0.0 },
+      },
+      {
+        label: 'finish-discipline',
+        knobs: {
+          temperature: 0.0,
+          extraInstructions: 'Call finish immediately after executing or verifying your work. Do not run diagnostic commands after the target file is created or fixed.',
+        },
+      },
+      {
+        label: 'max-steps-10',
+        knobs: { temperature: 0.0, maxSteps: 10 },
+      },
+      {
+        label: 'top-p-0.1',
+        knobs: { temperature: 0.0, top_p: 0.1 },
+      },
+    ];
   const experiment: Experiment = {
     id: existing[0]?.id ?? uuidv4(),
     ownerId: '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991',
@@ -23,27 +47,7 @@ async function main() {
     repeats: 2,
     createdAt: now,
     updatedAt: now,
-    variants: [
-      {
-        label: 'control-promoted',
-        overrides: { temperature: 0.0 },
-      },
-      {
-        label: 'finish-discipline',
-        overrides: {
-          temperature: 0.0,
-          extraInstructions: 'Call finish immediately after executing or verifying your work. Do not run diagnostic commands after the target file is created or fixed.',
-        },
-      },
-      {
-        label: 'max-steps-10',
-        overrides: { temperature: 0.0, maxSteps: 10 },
-      },
-      {
-        label: 'top-p-0.1',
-        overrides: { temperature: 0.0, top_p: 0.1 },
-      },
-    ],
+    variants: [] as { label: string; packId: string }[],
     tasks: [
       {
         id: 't1',
@@ -81,6 +85,16 @@ async function main() {
       },
     ],
   };
+
+  const base = withBuiltIns(await mongo.getPersonaPacks(), experiment.ownerId, (p) => p.slug)
+    .find((p) => p.slug === 'koala');
+  if (!base) throw new Error('No koala pack — run scripts/seed-all.ts first.');
+
+  // An arm is a pack now, so each knob set becomes a pack derived from koala and scoped to this
+  // experiment. They stay out of the user's pack list; promoting one folds it back into koala.
+  const derived = deriveArms(base, experiment.id, ARMS, now);
+  for (const pack of derived.packs) await mongo.savePersonaPack(pack);
+  experiment.variants = derived.variants;
 
   await mongo.saveExperiment(experiment);
   console.log(`Successfully created experiment suite: "${experiment.name}" (${experiment.id})`);

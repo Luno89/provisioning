@@ -6,8 +6,7 @@ import { PACK_SEEDS } from './pack-seeds.js';
 const pack = (over: Partial<PersonaPack> = {}): PersonaPack => ({
   id: 'pk1', ownerId: 'u1', slug: 'koala', name: 'Koala',
   personaId: 'p1', tools: [],
-  sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
-  overrides: {}, createdAt: '', updatedAt: '', ...over,
+  sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt, createdAt: '', updatedAt: '', ...over,
 });
 
 describe('validatePack', () => {

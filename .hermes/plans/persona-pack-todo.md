@@ -22,7 +22,6 @@ interface PersonaPack {
   behaviour?: PackBehaviour; // §10 plan mode, extraction, classifier
   model?: PackModel;         // §9  explicit engine, no providers[0] fallback
 
-  overrides: Overrides;      // every registered tunable, layered by resolveConfig
 }
 ```
 
@@ -133,3 +132,27 @@ the move is provably a move and not a rewrite.
 
 A knob reaches the model through `resolveConfig` or it does not reach the model. Anything still
 read directly from a module constant at call time is a bug, not a default.
+
+## S5 — the layering, deleted
+
+- [x] `resolveConfig` deleted. It layered profile over pack over request and reported which layer
+  won each key; with one source there is nothing to layer and nothing to attribute. What survives is
+  `resolvePrompt`, which returns the persona's own prompt
+- [x] `PersonaPack.overrides` deleted. Six shipped packs carried a temperature there — framer 0.3,
+  researcher 0.4, synthesist 0.5, merger 0.2, ingestor 0.3, judge 0.1 — folded into each pack's own
+  sampler under a test, so no persona was silently retuned to the default
+- [x] `HarnessProfile.overrides` deleted. The profile carries `packId` — which pack this account runs
+  as — and its history files packs rather than override bags
+- [x] `ExperimentVariant.overrides` deleted; `packId` is required. An arm IS a pack
+- [x] Arms are experiment-scoped derived packs (`PersonaPack.derivedFrom`), hidden from the pack list
+  so a five-arm experiment does not leave five near-duplicates of Koala behind
+- [x] Promotion overwrites the pack an arm was derived from, after asking: `/preview` returns the
+  changes and the target's name, and `/promote` refuses with 409 until `confirm: true`
+- [x] Provenance moved BEFORE the deletion: `AgentRequest.ranAs` copies the pack's id, slug,
+  last-edited time, sampler and budget into the run record at the moment it starts
+- [x] Pack inheritance (`basedOn`) now deep-merges sampling/budget/prompt/model, which is what
+  `overrides` merging used to do for the values those fields replaced
+- [x] Value validation survived the move: `validatePackValues` reads each knob's declared range
+  through its pack path. Unknown keys now pass — a pack's sampler names its own engine's parameters
+- [x] The Lab: the variant knob grid is a pack picker; Harness's knobs write into the pack the
+  profile names; Focus's options pane is read-only and names the arm's pack

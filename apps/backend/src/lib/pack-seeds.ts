@@ -125,7 +125,6 @@ export interface PackSeed {
   sampling: SamplingConfig;
   budget: BudgetConfig;
   prompt: PromptConfig;
-  overrides: PersonaPack['overrides'];
 }
 
 export const PACK_SEEDS: PackSeed[] = [
@@ -146,7 +145,6 @@ export const PACK_SEEDS: PackSeed[] = [
     sampling: defaultSampling(),
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: {},
   },
   {
     slug: 'framer',
@@ -163,10 +161,13 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 20 },
     },
-    sampling: defaultSampling(),
+    // Tuned lower/higher than the shipped default; this was an `overrides` entry on the pack,
+    // layered on at call time, and is now the value the pack states outright.
+    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
+    // time, and is now the value the pack states outright.
+    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.3 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: { temperature: 0.3 },
   },
   {
     slug: 'researcher',
@@ -186,10 +187,11 @@ export const PACK_SEEDS: PackSeed[] = [
     pacing: researchPacing(DEFAULT_BUDGET.run.researchSteps, '/work/findings.md', DEFAULT_BUDGET.run.wrapUpSteps),
     },
     },
-    sampling: defaultSampling(),
+    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
+    // time, and is now the value the pack states outright.
+    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.4 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: { temperature: 0.4 },
   },
   {
     slug: 'synthesist',
@@ -206,10 +208,11 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 30 },
     },
-    sampling: defaultSampling(),
+    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
+    // time, and is now the value the pack states outright.
+    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.5 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: { temperature: 0.5 },
   },
   {
     slug: 'merger',
@@ -223,10 +226,11 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 30 },
     },
-    sampling: defaultSampling(),
+    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
+    // time, and is now the value the pack states outright.
+    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.2 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: { temperature: 0.2 },
   },
   {
     slug: 'ingestor',
@@ -242,10 +246,11 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 40 },
     },
-    sampling: defaultSampling(),
+    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
+    // time, and is now the value the pack states outright.
+    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.3 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: { temperature: 0.3 },
   },
   {
     slug: 'reviewer',
@@ -260,7 +265,6 @@ export const PACK_SEEDS: PackSeed[] = [
     sampling: defaultSampling(),
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: {},
   },
   {
     slug: 'judge',
@@ -272,10 +276,13 @@ export const PACK_SEEDS: PackSeed[] = [
     repo: false,
     language: 'base',
     },
-    sampling: defaultSampling(),
+    // Tuned lower/higher than the shipped default; this was an `overrides` entry on the pack,
+    // layered on at call time, and is now the value the pack states outright.
+    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
+    // time, and is now the value the pack states outright.
+    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.1 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: { temperature: 0.1 },
   },
   {
     slug: 'builder',
@@ -291,7 +298,6 @@ export const PACK_SEEDS: PackSeed[] = [
     sampling: defaultSampling(),
     budget: defaultBudget(),
     prompt: defaultPrompt(),
-    overrides: {},
   },
 ];
 
@@ -326,7 +332,6 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       sampling: structuredClone(seed.sampling),
       budget: structuredClone(seed.budget),
       prompt: structuredClone(seed.prompt),
-      overrides: { ...seed.overrides },
       builtIn: true,
       createdAt: prior?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),

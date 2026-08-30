@@ -16,6 +16,7 @@ import type {
 import { validateOverrides } from './tunables.js';
 import { countOutcomes, attempted } from './run-outcome.js';
 import type { OutcomeCounts } from '@koala/harness-types';
+import { editFromKnobs, type PackEdit } from './derived-packs.js';
 
 export type {
   Experiment,
@@ -146,7 +147,7 @@ export const LEGACY_TASK_ID = 'task';
 
 export const taskIdOf = (result: VariantResult): string => result.taskId ?? LEGACY_TASK_ID;
 
-export function expandAxes(axes: Record<string, unknown[]>): ExperimentVariant[] {
+export function expandAxes(axes: Record<string, unknown[]>): { label: string; edit: PackEdit }[] {
   const keys = Object.keys(axes).filter((k) => Array.isArray(axes[k]) && axes[k]!.length);
   if (!keys.length) return [];
 
@@ -155,9 +156,11 @@ export function expandAxes(axes: Record<string, unknown[]>): ExperimentVariant[]
     combos = combos.flatMap((combo) => axes[key]!.map((value) => ({ ...combo, [key]: value })));
   }
 
-  return combos.map((overrides) => ({
-    label: keys.map((k) => `${k}=${String(overrides[k])}`).join(' '),
-    overrides: overrides as ExperimentOverrides,
+  // An axis combination is a pack edit now, not a bag of overrides: the caller derives one pack per
+  // arm from it. The label still names the knobs, which is what a result is read by.
+  return combos.map((knobs) => ({
+    label: keys.map((k) => `${k}=${String(knobs[k])}`).join(' '),
+    edit: editFromKnobs(knobs),
   }));
 }
 
@@ -295,9 +298,7 @@ export function validateExperiment(input: Partial<Experiment>): string | null {
     return 'Two variants share a label, so their results could not be told apart.';
   }
   for (const variant of input.variants) {
-    const { language: _language, ...callOverrides } = variant.overrides ?? {};
-    const bad = validateOverrides(callOverrides, { layer: 'request' });
-    if (bad) return `Variant "${variant.label}": ${bad}`;
+    if (!variant.packId) return `Variant "${variant.label}" names no pack to run as.`;
   }
   const repeats = input.repeats ?? 1;
   if (repeats < 1 || repeats > MAX_REPEATS) return `Repeats must be between 1 and ${MAX_REPEATS}.`;

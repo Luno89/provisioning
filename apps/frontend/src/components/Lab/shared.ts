@@ -1,13 +1,13 @@
 import { createContext, useMemo, useState } from 'react';
 import type {
   AgentRequest, AgentStep, ConversationMessage, EffectiveKnob, Experiment as ExperimentDetail, ExperimentSummary, ExperimentTask,
-  HarnessConfig, HarnessProfile, OverrideChange, PromotionStanding, ResultSummary, RunSummary, TaskFile,
+  HarnessConfig, HarnessProfile, PackChange, PromotionStanding, ResultSummary, RunSummary, TaskFile,
   Tunable, VariantResult,
 } from '@koala/harness-types';
 
 export type {
   AgentRequest, AgentStep, ConversationMessage, EffectiveKnob, ExperimentDetail, ExperimentSummary, ExperimentTask,
-  HarnessConfig, HarnessProfile, OverrideChange, PromotionStanding, ResultSummary, RunSummary, TaskFile,
+  HarnessConfig, HarnessProfile, PackChange, PromotionStanding, ResultSummary, RunSummary, TaskFile,
   Tunable, VariantResult,
 };
 
@@ -119,3 +119,39 @@ export function useEditorSlot() {
 
   return { slot, request };
 }
+
+/**
+ * A knob grid as a pack edit. Mirrors the backend's `editFromKnobs`: each tunable names the pack
+ * field it sets, so the Lab writes pack values rather than a bag layered over one.
+ *
+ * ── DUPLICATED, KNOWINGLY ──
+ * apps/backend/src/lib/derived-packs.ts owns this. It is repeated here because the editor has to
+ * show what it will write before it sends anything, and the paths come from the same `Tunable.path`
+ * the backend reads. If the two disagree, the backend wins — it is what actually saves.
+ */
+export function packEditFromKnobs(
+  knobs: Record<string, unknown>,
+  tunables: readonly { key: string; path?: string }[],
+): Record<string, unknown> {
+  const edit: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(knobs)) {
+    const path = tunables.find((t) => t.key === key)?.path;
+    if (!path || value === undefined) continue;
+
+    const parts = path.split('.');
+    let at = edit;
+    for (const part of parts.slice(0, -1)) {
+      at[part] ??= {};
+      at = at[part] as Record<string, unknown>;
+    }
+    at[parts[parts.length - 1]!] = value;
+  }
+  return edit;
+}
+
+/** Reads a dotted `Tunable.path` out of a pack, so a knob can show what the pack has it set to. */
+export const packValueAt = (pack: unknown, path: string | undefined): unknown =>
+  (path ? path.split('.').reduce<unknown>(
+    (at, key) => (at && typeof at === 'object' ? (at as Record<string, unknown>)[key] : undefined),
+    pack,
+  ) : undefined);

@@ -1,6 +1,8 @@
 import { MongoDB } from '../lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Experiment } from '@koala/harness-types';
+import { deriveArms } from '../lib/derived-packs.js';
+import { withBuiltIns } from '../lib/ownership.js';
 
 async function main() {
   const mongo = new MongoDB();
@@ -12,20 +14,11 @@ async function main() {
   }
 
   const now = new Date().toISOString();
-  const experiment: Experiment = {
-    id: existing[0]?.id ?? uuidv4(),
-    ownerId: '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991',
-    name: 'Chat Basic Q&A & Web Search Benchmark',
-    language: 'node',
-    status: 'draft',
-    results: [],
-    repeats: 2,
-    createdAt: now,
-    updatedAt: now,
-    variants: [
+
+const ARMS: { label: string; knobs: Record<string, unknown> }[] = [
       {
         label: 'proposed-anti-synonym-defaults',
-        overrides: {
+        knobs: {
           temperature: 0.7,
           frequency_penalty: 0.40,
           presence_penalty: 0.30,
@@ -39,7 +32,7 @@ async function main() {
       },
       {
         label: 'aggressive-anti-loop',
-        overrides: {
+        knobs: {
           temperature: 0.3,
           frequency_penalty: 0.60,
           presence_penalty: 0.50,
@@ -53,7 +46,7 @@ async function main() {
       },
       {
         label: 'legacy-baseline-no-penalties',
-        overrides: {
+        knobs: {
           temperature: 0.7,
           frequency_penalty: 0.0,
           presence_penalty: 0.0,
@@ -64,7 +57,7 @@ async function main() {
       },
       {
         label: 'low-temp-tool-dispatch',
-        overrides: {
+        knobs: {
           temperature: 0.2,
           frequency_penalty: 0.40,
           presence_penalty: 0.30,
@@ -73,7 +66,18 @@ async function main() {
           failurePredictionThreshold: 0.75,
         },
       },
-    ],
+    ];
+  const experiment: Experiment = {
+    id: existing[0]?.id ?? uuidv4(),
+    ownerId: '2d5fe7e1-e7fc-4e88-8faf-8f08ba8b8991',
+    name: 'Chat Basic Q&A & Web Search Benchmark',
+    language: 'node',
+    status: 'draft',
+    results: [],
+    repeats: 2,
+    createdAt: now,
+    updatedAt: now,
+    variants: [] as { label: string; packId: string }[],
     tasks: [
       {
         id: 'chat-t1',
@@ -107,6 +111,16 @@ async function main() {
       },
     ],
   };
+
+  const base = withBuiltIns(await mongo.getPersonaPacks(), experiment.ownerId, (p) => p.slug)
+    .find((p) => p.slug === 'koala');
+  if (!base) throw new Error('No koala pack — run scripts/seed-all.ts first.');
+
+  // An arm is a pack now, so each knob set becomes a pack derived from koala and scoped to this
+  // experiment. They stay out of the user's pack list; promoting one folds it back into koala.
+  const derived = deriveArms(base, experiment.id, ARMS, now);
+  for (const pack of derived.packs) await mongo.savePersonaPack(pack);
+  experiment.variants = derived.variants;
 
   await mongo.saveExperiment(experiment);
   console.log(`Successfully updated experiment suite with strict verification: "${experiment.name}" (${experiment.id})`);

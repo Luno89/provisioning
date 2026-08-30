@@ -12,7 +12,7 @@ import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
 import { ToolService } from '../services/ToolService.js';
 import type { WorkspaceLanguage } from '../lib/workspace-spec.js';
 import { MERGER_PERSONA } from '../lib/well-known-personas.js';
-import { resolveConfig } from '../lib/personas.js';
+import { resolvePrompt } from '../lib/personas.js';
 import {
   buildLandingSetupScript, buildMergeOneScript, buildMergeCompleteScript, parseLandingMerge, buildMergeTask,
 } from '../lib/merge-agent.js';
@@ -105,8 +105,9 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const profile = await db.getHarnessProfile(ownerId);
     const language = (project.language ?? pack?.workspace?.language) as WorkspaceLanguage | undefined;
-    const resolved = resolveConfig(profile, pack, {}, persona);
-    const chosen = typeof resolved.overrides.model === 'string' ? resolved.overrides.model : undefined;
+    const systemPrompt = resolvePrompt(persona);
+    // The engine is the pack's; nothing layered can name one any more.
+    const chosen = undefined;
     const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen, pack?.model?.endpointId);
 
     let merged = true;
@@ -132,7 +133,6 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
           ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
             ...(ranAs(pack) ? { ranAs: ranAs(pack) } : {}),
             taskContext: buildMergeTask(branch, state.files),
-            overrides: resolved.overrides,
             sandbox: {
               exec: (command) => workspaces.exec(workspaceId, command),
               readFile: (path) => workspaces.readFile(workspaceId, path),

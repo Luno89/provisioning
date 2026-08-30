@@ -87,7 +87,10 @@ export interface AgentRunOptions {
   maxSteps?: number;
   maxTokens?: number;
   kind?: ModelKind | undefined;
-  overrides?: Overrides | undefined;
+  /** The persona's prompt, used instead of the built one. Was `overrides.systemPrompt`. */
+  systemPrompt?: string | undefined;
+  /** Appended to whichever prompt is used. Was `overrides.extraInstructions`. */
+  extraInstructions?: string | undefined;
   fromProfile?: string[] | undefined;
   fromPersona?: string[] | undefined;
   fromPack?: string[] | undefined;
@@ -144,21 +147,14 @@ const isBuiltInTool = (name: string) =>
 
 export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResult> {
   const doFetch = opts.fetchImpl ?? fetch;
-  const overrides = opts.overrides ?? {};
 
-  const think = typeof overrides.think === 'boolean' ? overrides.think : Boolean(opts.think);
-  let maxSteps = typeof overrides.maxSteps === 'number'
-    ? overrides.maxSteps
-    : (opts.maxSteps ?? opts.budget.run.steps);
-  let maxTokens = typeof overrides.maxTokens === 'number'
-    ? overrides.maxTokens
-    : (opts.maxTokens ?? opts.budget.run.tokens);
+  const think = Boolean(opts.think);
+  let maxSteps = opts.maxSteps ?? opts.budget.run.steps;
+  let maxTokens = opts.maxTokens ?? opts.budget.run.tokens;
   const originalMaxSteps = maxSteps;
   const originalMaxTokens = maxTokens;
-  const toolResultCap = typeof overrides.maxToolResultChars === 'number'
-    ? overrides.maxToolResultChars
-    : undefined;
-  const model = typeof overrides.model === 'string' ? overrides.model : opts.model;
+  const toolResultCap = opts.budget.toolResultChars;
+  const model = opts.model;
 
   const transcript: string[] = [];
   const trace: AgentStep[] = [];
@@ -166,15 +162,12 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   let completionTokensUsed = 0;
   let consecutiveNoToolTurns = 0;
 
-  const useMemories = typeof overrides.useMemories === 'boolean' ? overrides.useMemories : true;
+  // Always on: it was an override key, and there is no layer left to turn it off from.
+  const useMemories = true;
   const memoryContext = useMemories && opts.memoryContext ? opts.memoryContext.trim() : '';
 
-  const custom = typeof overrides.systemPrompt === 'string' && overrides.systemPrompt.trim()
-    ? overrides.systemPrompt
-    : '';
-  const extra = typeof overrides.extraInstructions === 'string' && overrides.extraInstructions.trim()
-    ? overrides.extraInstructions
-    : '';
+  const custom = opts.systemPrompt?.trim() ? opts.systemPrompt : '';
+  const extra = opts.extraInstructions?.trim() ? opts.extraInstructions : '';
   const systemPrompt = [
     custom || buildAgentPrompt(opts.images ?? [], opts.language, opts.taskContext, maxSteps, opts.sandboxSpec ?? {}),
     ...(custom ? ['', 'YOUR TASK', opts.taskContext] : []),
@@ -233,7 +226,11 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     stream: true,
     maxTokens: turnCap,
     ...(model ? { model } : {}),
-    overrides: { ...(think ? {} : { think: false }), ...overrides },
+    /**
+     * Stated either way. It used to send `think: false` to suppress reasoning and nothing at all to
+     * allow it, so whether a run reasoned depended on the engine's default rather than on the pack.
+     */
+    overrides: { think },
     extra: { stream_options: { include_usage: true } },
   });
 
@@ -244,7 +241,6 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     model,
     tools: activeTools.map((t) => ({ name: t.function.name || t.name, description: t.function.description || t.description })),
     parameters,
-    overrides,
     unsupported,
     ...(opts.fromProfile?.length ? { fromProfile: opts.fromProfile } : {}),
     ...(opts.fromPersona?.length ? { fromPersona: opts.fromPersona } : {}),
@@ -392,7 +388,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
     requestBody.messages = trimConversation(
       messages,
-      conversationBudget(opts.budget, opts.contextTokens, typeof overrides.conversationGrowth === 'number' ? overrides.conversationGrowth : undefined),
+      conversationBudget(opts.budget, opts.contextTokens),
     );
     requestBody.max_tokens = fittedMaxTokens(opts.budget, turnCap, JSON.stringify(requestBody.messages).length, opts.contextTokens);
     requestBody.tools = toolsForStep(step, activeTools, opts.withdrawTools);

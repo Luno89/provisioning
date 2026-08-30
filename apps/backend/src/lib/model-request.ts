@@ -1,5 +1,5 @@
 import type { ModelKind, SamplingConfig } from '@koala/harness-types';
-import { samplingFor } from './pack-sampling.js';
+import { resolveSampling } from './pack-sampling.js';
 import { applyOverrides, type Overrides } from './tunables.js';
 
 export type TurnKind = 'conversation' | 'tool-turn';
@@ -28,14 +28,16 @@ export interface BuiltModelRequest {
 }
 
 export function buildModelRequest(spec: ModelRequestSpec): BuiltModelRequest {
+  const sampled = resolveSampling(spec.sampling, spec.turn, spec.kind);
   const base: Record<string, unknown> = {
-    ...samplingFor(spec.sampling, spec.turn, spec.kind),
+    ...sampled.body,
     max_tokens: spec.maxTokens,
     ...(spec.reasoningEffort ? { reasoning_effort: spec.reasoningEffort } : {}),
     ...(spec.model ? { model: spec.model } : {}),
   };
 
   const { body, unsupported } = applyOverrides(base, spec.overrides ?? {}, spec.kind);
+  const allUnsupported = [...new Set([...sampled.unsupported, ...unsupported])];
 
   return {
     body: {
@@ -45,6 +47,6 @@ export function buildModelRequest(spec: ModelRequestSpec): BuiltModelRequest {
       stream: spec.stream,
       ...(spec.extra ?? {}),
     },
-    unsupported,
+    unsupported: allUnsupported,
   };
 }

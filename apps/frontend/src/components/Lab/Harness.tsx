@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, ChevronDown, Download, Upload, Save, RefreshCw, CheckCircle2, Sliders } from 'lucide-react';
-import { card, describeValue, describeTunable, type HarnessConfig, type HarnessProfile, errorMessage } from './shared';
+import { card, describeValue, describeTunable, packEditFromKnobs, type HarnessConfig, type HarnessProfile, errorMessage } from './shared';
 import { ProfileBanner } from './Promote';
 import { Personas } from './Personas';
+import { updatePack } from '../../api/packs';
 import {
-  saveProfile as putProfile, resetProfile as clearProfile, importHarnessConfig,
+  resetProfile as clearProfile, importHarnessConfig,
   harnessExportUrl,
 } from '../../api/harness';
 
@@ -20,20 +21,18 @@ export function Harness({ config, profile, onProfileChanged, onImported,
   const [openPrompt, setOpenPrompt] = useState<string | null>(null);
   const [showKnobs, setShowKnobs] = useState(false);
   const [importNote, setImportNote] = useState('');
-  const [overrides, setOverrides] = useState<Record<string, any>>({});
+  /**
+   * These edit the PACK this account runs as, not a layer above it. A knob names the pack field it
+   * sets, so saving writes concrete values into that pack — there is nothing left to layer.
+   */
+  const [knobs, setKnobs] = useState<Record<string, any>>({});
   const [statusNote, setStatusNote] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (profile?.overrides) {
-      setOverrides({ ...profile.overrides });
-    } else {
-      setOverrides({});
-    }
-  }, [profile]);
+  useEffect(() => { setKnobs({}); }, [profile]);
 
   const saveProfile = useMutation({
-    mutationFn: (newOverrides: Record<string, any>) =>
-      putProfile({ overrides: newOverrides }),
+    mutationFn: (edited: Record<string, any>) =>
+      updatePack(profile?.packId ?? '', packEditFromKnobs(edited, config?.tunables ?? []) as never),
     onSuccess: () => {
       setStatusNote('Harness settings saved successfully!');
       onProfileChanged();
@@ -46,7 +45,7 @@ export function Harness({ config, profile, onProfileChanged, onImported,
     mutationFn: () =>
       clearProfile(),
     onSuccess: () => {
-      setOverrides({});
+      setKnobs({});
       setStatusNote('Harness reset to factory defaults.');
       onProfileChanged();
       setTimeout(() => setStatusNote(null), 4000);
@@ -77,7 +76,7 @@ export function Harness({ config, profile, onProfileChanged, onImported,
   };
 
   const setKnobValue = (key: string, val: any) => {
-    setOverrides((prev) => {
+    setKnobs((prev) => {
       if (val === undefined || val === '') {
         const copy = { ...prev };
         delete copy[key];
@@ -105,11 +104,11 @@ export function Harness({ config, profile, onProfileChanged, onImported,
               <RefreshCw size={12} /> Reset to Defaults
             </button>
             <button
-              onClick={() => saveProfile.mutate(overrides)}
+              onClick={() => saveProfile.mutate(knobs)}
               disabled={saveProfile.isPending}
               className="px-3 py-1 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-xs text-white flex items-center gap-1.5 font-medium transition-colors"
             >
-              <Save size={12} /> Save Overrides
+              <Save size={12} /> Save to pack
             </button>
           </div>
         </div>
@@ -123,13 +122,13 @@ export function Harness({ config, profile, onProfileChanged, onImported,
 
         <div className={`${card} p-4 space-y-4`}>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Modify any harness parameter directly below. Changes saved here become active defaults across all chat sessions and experiment runs.
+            Every value below belongs to the pack this account runs as. Saving writes them into that pack, which is what every chat turn and experiment run then reads.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             {(config?.tunables ?? []).map((t) => {
-              const currentValue = overrides[t.key] !== undefined ? overrides[t.key] : (config?.effective?.find((e) => e.key === t.key)?.value ?? t.default);
-              const isOverridden = overrides[t.key] !== undefined;
+              const currentValue = knobs[t.key] !== undefined ? knobs[t.key] : (config?.effective?.find((e) => e.key === t.key)?.value ?? t.default);
+              const isOverridden = knobs[t.key] !== undefined;
 
               return (
                 <div key={t.key} className="bg-[var(--bark-900)] border border-[var(--bark-700)] rounded-xl p-3 text-xs space-y-1.5">

@@ -17,7 +17,7 @@ import type { Branch, BranchMessage, Leaf } from '../lib/leaves.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { buildModelRequest } from '../lib/model-request.js';
 import { MAX_ASSIGNMENT_ROUNDS, buildAssignmentPrompt, buildUnassignedNotice, unassignedLeaves } from '../lib/persona-assignment.js';
-import { resolveConfig } from '../lib/personas.js';
+import { resolvePrompt } from '../lib/personas.js';
 import type { Persona } from '../lib/personas.js';
 import { AMBIENT_PROPOSAL_PROMPT, planSystemPrompt, extractProposals, isChatMode, parseChatCommand } from '../lib/plan-mode.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
@@ -174,12 +174,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const sampling = chatPack?.sampling ?? await defaultSampling(db);
     const budget = chatPack?.budget ?? await requireBudget(db);
     const promptConfig = chatPack?.prompt ?? await requirePrompt(db);
-    const resolved = resolveConfig(
-      await db.getHarnessProfile(uid),
-      chatPack,
-      rest,
-      chatPersona,
-    );
+    const personaPromptText = resolvePrompt(chatPersona);
 
     const planning = command.command === 'plan' || mode === 'plan';
     const explicitPlan = planning;
@@ -208,8 +203,8 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       ? (chatPack?.tools?.length ? chatPack.tools : planningTools.map((t) => t.function.name))
       : [];
     const historyChars = JSON.stringify(messages).length;
-    const personaPrompt = resolved.systemPrompt
-      ? composePersonaPrompt(budget, promptConfig, resolved.systemPrompt, {
+    const personaPrompt = personaPromptText
+      ? composePersonaPrompt(budget, promptConfig, personaPromptText, {
           toolRegistry,
           activeTools: activeToolNames,
           historyChars,
@@ -251,7 +246,6 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       maxTokens: opts.maxTokens,
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
       ...(provider.model ? { model: provider.model } : {}),
-      overrides: resolved.overrides,
       ...(opts.extra ? { extra: opts.extra } : {}),
     }).body;
 

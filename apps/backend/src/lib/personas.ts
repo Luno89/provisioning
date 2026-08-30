@@ -1,53 +1,15 @@
-import type { Overrides, Persona } from '@koala/harness-types';
-import type { HarnessProfile } from './harness-profile.js';
-import { RESET_TO_DEFAULT } from './harness-profile.js';
+import type { Persona } from '@koala/harness-types';
 
 export type { Persona };
 
-export type OverrideSource = 'profile' | 'pack' | 'request';
-
-export interface ResolvedConfig {
-  overrides: Overrides;
-  from: Record<OverrideSource, string[]>;
-  systemPrompt?: string;
-}
-
-export function resolveConfig(
-  profile: HarnessProfile | null,
-  pack: { overrides?: Overrides } | null,
-  request: Overrides = {},
-  persona?: { systemPrompt?: string } | null,
-): ResolvedConfig {
-  const layers: [OverrideSource, Overrides][] = [
-    ['profile', profile?.overrides ?? {}],
-    ['pack', pack?.overrides ?? {}],
-    ['request', request],
-  ];
-
-  const overrides: Overrides = {};
-  const owner = new Map<string, OverrideSource>();
-
-  for (const [source, bag] of layers) {
-    for (const [key, value] of Object.entries(bag)) {
-      if (value === RESET_TO_DEFAULT) {
-        overrides[key] = undefined;
-        delete overrides[key];
-        owner.delete(key);
-        continue;
-      }
-      overrides[key] = value;
-      owner.set(key, source);
-    }
-  }
-
-  const from: Record<OverrideSource, string[]> = { profile: [], pack: [], request: [] };
-  for (const [key, source] of owner) from[source].push(key);
-  for (const source of Object.keys(from) as OverrideSource[]) from[source].sort();
-
-  const prompt = persona?.systemPrompt?.trim()
-    || (typeof overrides.systemPrompt === 'string' ? overrides.systemPrompt.trim() : '');
-
-  return { overrides, from, ...(prompt ? { systemPrompt: prompt } : {}) };
+/**
+ * The prompt a run uses. This was `resolveConfig`, which layered profile over pack over request and
+ * reported which layer won each key. There are no layers now — every value is on the pack — so all
+ * that is left is the persona's own prompt.
+ */
+export function resolvePrompt(persona?: { systemPrompt?: string } | null): string | undefined {
+  const prompt = persona?.systemPrompt?.trim();
+  return prompt || undefined;
 }
 
 export const MAX_PERSONA_PROMPT = 8000;

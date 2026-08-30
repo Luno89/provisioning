@@ -5,7 +5,7 @@ import type { Experiment, HarnessProfile } from '@koala/harness-types';
 const experiment = (over: Partial<Experiment> = {}): Experiment => ({
   id: 'e1', ownerId: 'u1', name: 'prompt types', language: 'node',
   tasks: [{ id: 't1', name: 'fib', prompt: 'write fib', verifyCommand: 'node t.js' }],
-  variants: [{ label: 'a', overrides: { think: true } }],
+  variants: [{ label: 'a', packId: 'pack-a' }],
   repeats: 2, status: 'complete',
   results: [{
     label: 'a', taskId: 't1', succeeded: true, verified: true, verifyExitCode: 0,
@@ -17,7 +17,7 @@ const experiment = (over: Partial<Experiment> = {}): Experiment => ({
 
 const profile: HarnessProfile = {
   ownerId: 'u1',
-  overrides: { systemPrompt: 'terse' },
+  packId: 'pack-koala',
   from: {
     experimentId: 'e1', experimentName: 'prompt types', variantLabel: 'a',
     verified: 2, runs: 2, tasks: 1, wasBest: true, promotedAt: 'x',
@@ -30,7 +30,7 @@ describe('buildConfigExport', () => {
     const out = buildConfigExport([experiment()], null, 'now');
     expect(JSON.stringify(out)).not.toMatch(/trace|verified|tokensUsed/);
     expect(out.suites[0]!.tasks[0]!.prompt).toBe('write fib');
-    expect(out.suites[0]!.variants).toEqual([{ label: 'a', overrides: { think: true } }]);
+    expect(out.suites[0]!.variants).toEqual([{ label: 'a', packId: 'pack-a' }]);
   });
 
   it('drops task ids, which are positional and assigned on create', () => {
@@ -40,12 +40,12 @@ describe('buildConfigExport', () => {
 
   it('carries the adopted defaults with the evidence that earned them', () => {
     const out = buildConfigExport([], profile);
-    expect(out.profile!.overrides).toEqual({ systemPrompt: 'terse' });
+    expect(out.profile!.packId).toBe('pack-koala');
     expect(out.profile!.from!.experimentName).toBe('prompt types');
   });
 
   it('omits a profile that adopts nothing', () => {
-    expect(buildConfigExport([], { ownerId: 'u', overrides: {}, updatedAt: 'x' }).profile).toBeUndefined();
+    expect(buildConfigExport([], { ownerId: 'u', updatedAt: 'x' }).profile).toBeUndefined();
   });
 
   it('round-trips through parse', () => {
@@ -54,7 +54,7 @@ describe('buildConfigExport', () => {
     if ('error' in parsed) return;
     expect(parsed.suites).toHaveLength(1);
     expect(parsed.suites[0]!.tasks[0]!.verifyCommand).toBe('node t.js');
-    expect(parsed.profile!.overrides).toEqual({ systemPrompt: 'terse' });
+    expect(parsed.profile!.packId).toBe('pack-koala');
   });
 });
 

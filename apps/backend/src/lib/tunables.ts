@@ -8,6 +8,7 @@ export type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType }
 export const TUNABLES: Tunable[] = [
   {
     key: 'temperature',
+    path: 'sampling.toolTurn.temperature',
     label: 'Temperature',
     group: 'sampling',
     type: 'number',
@@ -22,6 +23,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'top_p',
+    path: 'sampling.toolTurn.top_p',
     label: 'Top-p',
     group: 'sampling',
     type: 'number',
@@ -38,6 +40,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'frequency_penalty',
+    path: 'sampling.conversation.frequency_penalty',
     label: 'Frequency penalty',
     group: 'sampling',
     type: 'number',
@@ -52,6 +55,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'presence_penalty',
+    path: 'sampling.conversation.presence_penalty',
     label: 'Presence penalty',
     group: 'sampling',
     type: 'number',
@@ -68,6 +72,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'seed',
+    path: 'sampling.toolTurn.seed',
     label: 'Seed',
     group: 'sampling',
     type: 'number',
@@ -79,6 +84,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'max_tokens',
+    path: 'budget.replyTokens.tool',
     label: 'Tokens per dispatch turn',
     group: 'sampling',
     type: 'number',
@@ -95,6 +101,7 @@ export const TUNABLES: Tunable[] = [
 
   {
     key: 'top_k',
+    path: 'sampling.toolTurn.top_k',
     label: 'Top-k',
     group: 'sampling',
     type: 'number',
@@ -111,6 +118,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'min_p',
+    path: 'sampling.toolTurn.min_p',
     label: 'Min-p',
     group: 'sampling',
     type: 'number',
@@ -127,6 +135,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'repetition_penalty',
+    path: 'sampling.toolTurn.repetition_penalty',
     label: 'Repetition penalty',
     group: 'sampling',
     type: 'number',
@@ -144,6 +153,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'dry_multiplier',
+    path: 'sampling.byEngine.tabbyapi.dry_multiplier',
     label: 'DRY multiplier',
     group: 'sampling',
     type: 'number',
@@ -160,6 +170,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'dry_base',
+    path: 'sampling.byEngine.tabbyapi.dry_base',
     label: 'DRY base',
     group: 'sampling',
     type: 'number',
@@ -174,6 +185,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'dry_allowed_length',
+    path: 'sampling.byEngine.tabbyapi.dry_allowed_length',
     label: 'DRY allowed length',
     group: 'sampling',
     type: 'number',
@@ -269,6 +281,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'conversationGrowth',
+    path: 'budget.conversationGrowth',
     label: 'Conversation retention multiplier',
     group: 'loop',
     type: 'number',
@@ -286,6 +299,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'maxTokens',
+    path: 'budget.run.tokens',
     label: 'Max tokens',
     group: 'loop',
     type: 'number',
@@ -300,6 +314,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'maxSteps',
+    path: 'budget.run.steps',
     label: 'Max steps',
     group: 'loop',
     type: 'number',
@@ -315,6 +330,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'maxToolResultChars',
+    path: 'budget.toolResultChars',
     label: 'Tool result cap',
     group: 'loop',
     type: 'number',
@@ -328,6 +344,7 @@ export const TUNABLES: Tunable[] = [
   },
   {
     key: 'model',
+    path: 'model.endpointId',
     label: 'Model',
     group: 'loop',
     type: 'string',
