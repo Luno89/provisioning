@@ -12,6 +12,9 @@ import { isWorkspaceLanguage } from '../../lib/workspace-image-catalogue.js';
 import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
 import type { Experiment, ExperimentTask } from '@koala/harness-types';
 import type { ExperimentService } from '../../services/ExperimentService.js';
+import { deriveArms } from '../../lib/derived-packs.js';
+import { withBuiltIns } from '../../lib/ownership.js';
+import type { PersonaPack } from '@koala/harness-types';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -25,6 +28,32 @@ export interface experimentsRouterDeps {
 
 export function experimentsRouter(deps: experimentsRouterDeps): Router {
   const { db, experimentService, modelIdsFor } = deps;
+
+  /**
+   * An axis combination is a pack edit, so each one becomes a pack derived from the base — the pack
+   * the caller names, else the one this account runs as, else koala. These are scoped to their
+   * experiment and hidden from the pack list, so varying three knobs does not leave three
+   * near-duplicates of Koala behind.
+   */
+  const armsFromAxes = async (
+    userId: string,
+    experimentId: string,
+    axes: unknown,
+    basePackId: unknown,
+    now: string,
+  ): Promise<{ variants: { label: string; packId: string }[]; packs: PersonaPack[] } | { error: string }> => {
+    const combos = expandAxes(axes && typeof axes === 'object' ? axes as never : {});
+    if (!combos.length) return { variants: [], packs: [] };
+
+    const packs = withBuiltIns(await db.getPersonaPacks(), userId, (p) => p.slug);
+    const profile = await db.getHarnessProfile(userId).catch(() => null);
+    const base = packs.find((p) => p.id === basePackId)
+      ?? packs.find((p) => p.id === profile?.packId)
+      ?? packs.find((p) => p.slug === 'koala');
+    if (!base) return { error: 'No pack to vary. Run the seeder, or name a basePackId.' };
+
+    return deriveArms(base, experimentId, combos, now);
+  };
   const router = Router();
 
   router.get('/', async (req, res) => {
@@ -44,11 +73,16 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
   });
 
   router.post('/', async (req, res) => {
-    const { name, tasks, task, verifyCommand, language, variants, axes, repeats } = req.body ?? {};
-    const images = await new WorkspaceImageService(db).list(userOf(req).id);
-    const resolved = Array.isArray(variants) && variants.length
-      ? variants
-      : expandAxes(axes && typeof axes === 'object' ? axes : {});
+    const { name, tasks, task, verifyCommand, language, variants, axes, repeats, basePackId } = req.body ?? {};
+    const userId = userOf(req).id;
+    const images = await new WorkspaceImageService(db).list(userId);
+    const experimentId = uuidv4();
+    const now = new Date().toISOString();
+
+    const fromAxes = await armsFromAxes(userId, experimentId, axes, basePackId, now);
+    if ('error' in fromAxes) return res.status(400).json({ error: fromAxes.error });
+    const resolved = Array.isArray(variants) && variants.length ? variants : fromAxes.variants;
+    const armPacks = fromAxes.packs;
 
     const suite: ExperimentTask[] = Array.isArray(tasks) && tasks.length
       ? normaliseTasks(images, tasks)
@@ -60,8 +94,8 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
         }];
 
     const draft: Experiment = {
-      id: uuidv4(),
-      ownerId: userOf(req).id,
+      id: experimentId,
+      ownerId: userId,
       name: String(name ?? '').trim().slice(0, 120),
       tasks: suite,
       language: isWorkspaceLanguage(images, language) ? language : 'node',
@@ -69,13 +103,14 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
       repeats: Math.max(1, Math.min(MAX_REPEATS, Number(repeats) || 1)),
       status: 'draft',
       results: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
 
     const invalid = validateExperiment(draft);
     if (invalid) return res.status(400).json({ error: invalid });
 
+    for (const pack of armPacks) await db.savePersonaPack(pack);
     await db.saveExperiment(draft);
     res.status(201).json(draft);
   });
@@ -95,11 +130,14 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     const badPersona = await unknownPersona(db, userOf(req).id, variants);
     if (badPersona) return res.status(400).json({ error: badPersona });
 
+    const editNow = new Date().toISOString();
+    const fromAxes = await armsFromAxes(
+      userOf(req).id, existing.id, axes, req.body?.basePackId, editNow,
+    );
+    if ('error' in fromAxes) return res.status(400).json({ error: fromAxes.error });
     const resolvedVariants = Array.isArray(variants) && variants.length
       ? variants
-      : axes && typeof axes === 'object'
-        ? expandAxes(axes)
-        : existing.variants;
+      : fromAxes.variants.length ? fromAxes.variants : existing.variants;
 
     const next: Experiment = {
       ...existing,
@@ -114,6 +152,8 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
 
     const invalid = validateExperiment(next);
     if (invalid) return res.status(400).json({ error: invalid });
+
+    for (const pack of fromAxes.packs) await db.savePersonaPack(pack);
 
     const changedTasks = suite
       .filter((t) => {
