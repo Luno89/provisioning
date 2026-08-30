@@ -286,6 +286,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
   {
     id: 'test_runner_tool',
     name: 'run_tests',
+    surfaces: ['sandbox'],
     category: 'sandbox',
     description: 'Execute unit tests (Vitest/Jest/Pytest/Go test) in the sandbox and return failing assertions.',
     usageGuidance: 'Run tests to verify code changes before finishing.',
@@ -296,6 +297,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
   {
     id: 'git_diff_inspector',
     name: 'inspect_git_diff',
+    surfaces: ['sandbox'],
     category: 'git',
     description: 'Inspect current uncommitted diffs and staged changes against the base branch in the sandbox.',
     usageGuidance: 'Check your modifications before concluding work.',
@@ -306,6 +308,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
   {
     id: 'http_request_tester',
     name: 'test_http_endpoint',
+    surfaces: ['sandbox'],
     category: 'http',
     description: 'Execute an HTTP request against a local running service port inside the sandbox.',
     usageGuidance: 'Verify that an HTTP server responds correctly to requests.',
@@ -316,6 +319,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
   {
     id: 'linter_audit_tool',
     name: 'run_linter_audit',
+    surfaces: ['sandbox'],
     category: 'linter',
     description: 'Run static code analysis or linter check on sandbox files and return structured warnings.',
     usageGuidance: 'Check code quality and type compliance.',
@@ -326,6 +330,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
   {
     id: 'db_query_tool',
     name: 'query_in_memory_db',
+    surfaces: ['sandbox'],
     category: 'database',
     description: 'Execute a read/write query against an in-memory test database instance in the sandbox.',
     usageGuidance: 'Verify test database state in sandbox runs.',
@@ -336,6 +341,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
   {
     id: 'save_harness_memory_tool',
     name: 'save_harness_memory',
+    surfaces: ['sandbox'],
     category: 'sandbox',
     description: 'Record a persistent lesson learned, environment fact, or prompt guidance rule into the Memory Bank.',
     usageGuidance: 'Preserve key findings or patterns learned during execution.',
@@ -396,16 +402,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     description: 'Withdraw a leaf proposal that is no longer needed.',
     usageGuidance: 'Remove duplicate or obsolete proposals.',
     compactGuidance: 'Withdraw unneeded leaf proposal.',
-    requiresBinaries: [],
-    isBuiltIn: true,
-  },
-  {
-    id: 'set_leaf_workspace_tool',
-    name: 'set_leaf_workspace',
-    category: 'planning',
-    description: 'Change which toolchain a leaf runs in (node, python, go, base).',
-    usageGuidance: 'Configure execution container language for a leaf.',
-    compactGuidance: 'Set toolchain language for leaf.',
     requiresBinaries: [],
     isBuiltIn: true,
   },
@@ -561,7 +557,14 @@ export const ALL_TOOL_SEEDS: ToolRepositoryItem[] = [
   ...derivedSeeds([...LEAF_TOOLS, ...SANDBOX_TOOLS]),
 ].map((row): ToolRepositoryItem => {
   const { surfaces, parameters } = declaredFor(row.name);
-  return { ...row, surfaces, ...(parameters ? { parameters } : {}) };
+  // A row may state a surface the arrays do not: six sandbox tools are dispatched by the agent
+  // loop and were never in SANDBOX_TOOLS, so deriving from the arrays alone dropped them.
+  const merged = [...new Set([...(row.surfaces ?? []), ...surfaces])];
+  return {
+    ...row,
+    ...(merged.length ? { surfaces: merged } : {}),
+    ...(parameters ? { parameters } : {}),
+  };
 });
 
 export interface ToolSeedStore {

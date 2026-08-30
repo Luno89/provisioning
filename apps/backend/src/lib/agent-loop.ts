@@ -182,7 +182,16 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     { role: 'user', content: 'Begin. Start by looking at what is in the workspace.' },
   ];
 
-  const toolRepoOpenAI = opts.catalogue ?? formatToolRepoForOpenAI(TOOL_REPOSITORY);
+  /**
+   * Only what this loop can actually dispatch.
+   *
+   * It used to offer the WHOLE registry -- 51 tools -- while handling 13, so a leaf was shown
+   * `deploy_project` and every other assistant tool and got `Unknown tool` if it called one. The
+   * catalogue says which surface offers a tool; the sandbox surface is this loop's own set.
+   */
+  const toolRepoOpenAI = opts.catalogue ?? formatToolRepoForOpenAI(
+    TOOL_REPOSITORY.filter((t) => t.surfaces?.includes('sandbox')),
+  );
   const toolMap = new Map<string, any>();
   for (const t of SANDBOX_TOOLS) {
     toolMap.set(t.function.name, t);

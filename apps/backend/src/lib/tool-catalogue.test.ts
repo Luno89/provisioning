@@ -96,10 +96,27 @@ describe('a tool is described in one place', () => {
 
   it('marks each row with the surfaces that offer it', () => {
     // Reproduces exactly what the three arrays were, so a reader can ask the catalogue instead.
-    const count = (s: string) => ALL_TOOL_SEEDS.filter((r) => r.surfaces?.includes(s as never)).length;
-    expect(count('assistant')).toBe(KOALA_TOOLS.length);
-    expect(count('planning')).toBe(LEAF_TOOLS.length);
-    expect(count('sandbox')).toBe(SANDBOX_TOOLS.length);
+    const named = (s: string) => ALL_TOOL_SEEDS.filter((r) => r.surfaces?.includes(s as never)).map((r) => r.name).sort();
+    expect(named('assistant')).toEqual(KOALA_TOOLS.map((t) => t.function.name).sort());
+    expect(named('planning')).toEqual(LEAF_TOOLS.map((t) => t.function.name).sort());
+
+    /**
+     * The sandbox surface is NOT `SANDBOX_TOOLS`. That array declares five, while the agent loop
+     * dispatches eleven — six were handled and never declared, which is why they read as orphans in
+     * the catalogue. The loop offered the whole 51-row registry and answered `Unknown tool` for the
+     * 38 it cannot run, so a leaf was shown `deploy_project` among others.
+     *
+     * Pinned as a list because it is a decision about what a leaf may do, not a derivation.
+     */
+    expect(named('sandbox')).toEqual([
+      'finish', 'inspect_git_diff', 'query_in_memory_db', 'read_file', 'run_command',
+      'run_linter_audit', 'run_tests', 'save_harness_memory', 'test_http_endpoint',
+      'validate_progress', 'write_file',
+    ]);
+    for (const t of SANDBOX_TOOLS) {
+      expect(named('sandbox'), `${t.function.name} is declared but not on the surface`)
+        .toContain(t.function.name);
+    }
   });
 
   it('serves a declared schema, never a registry paraphrase of one', () => {
