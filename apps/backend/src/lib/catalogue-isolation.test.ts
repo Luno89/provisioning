@@ -6,6 +6,11 @@ import { resolveTreeType } from './tree-types.js';
 import { visibleAppSpecs } from './app-spec.js';
 import { ToolService } from '../services/ToolService.js';
 import { packForLeaf } from './packs.js';
+import { buildModelRequest } from './model-request.js';
+import { agentRunOptions } from './agent-run.js';
+import { composePersonaPrompt } from './persona-prompt.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 
 const fresh = async () => {
   const db = new MemoryDB();
@@ -102,5 +107,88 @@ describe('a built-in is visible from every place that reads one', () => {
     const packs = withBuiltIns(await db.getPersonaPacks(), 'u1', (p) => p.slug);
     expect(packs.length).toBeGreaterThan(0);
     expect(packForLeaf(packs, { packId: 'builder' })?.slug).toBe('builder');
+  });
+});
+
+/**
+ * The capstone: a run's configuration is a database row, end to end. Every value below is edited in
+ * the database and then read back through the path a real turn takes — so a constant reappearing
+ * anywhere in that path fails here rather than silently retuning every run.
+ */
+describe('what a run is configured by, after the seeder has run', () => {
+  const editedKoala = async (db: MemoryDB, edit: Record<string, unknown>) => {
+    const koala = (await db.getPersonaPacks()).find((p) => p.slug === 'koala')!;
+    await db.savePersonaPack({ ...koala, ...edit } as never);
+    return koala.id;
+  };
+
+  it('samples at what the database says, not at what any module says', async () => {
+    const db = await fresh();
+    await editedKoala(db, {
+      sampling: { toolTurn: { temperature: 0.99 }, conversation: { frequency_penalty: 0.99 } },
+    });
+
+    const pack = (await db.getPersonaPacks()).find((p) => p.slug === 'koala')!;
+    expect(buildModelRequest({
+      turn: 'tool-turn', messages: [], stream: false, maxTokens: 100, sampling: pack.sampling,
+    }).body.temperature).toBe(0.99);
+  });
+
+  it('spends what the database says a run may spend', async () => {
+    const db = await fresh();
+    await editedKoala(db, {
+      budget: { ...PACK_SEEDS[0]!.budget, rounds: 3, run: { ...PACK_SEEDS[0]!.budget.run, steps: 7 } },
+    });
+
+    const pack = (await db.getPersonaPacks()).find((p) => p.slug === 'koala')!;
+    expect(pack.budget.rounds).toBe(3);
+    expect(agentRunOptions(pack.budget, pack, {
+      taskContext: 't', sandbox: {} as never,
+    }).budget.run.steps).toBe(7);
+  });
+
+  it('composes the prompt from sections in the database', async () => {
+    const db = await fresh();
+    await editedKoala(db, {
+      prompt: {
+        ...PACK_SEEDS[0]!.prompt,
+        sections: { ...PACK_SEEDS[0]!.prompt.sections, role: {
+          ...PACK_SEEDS[0]!.prompt.sections.role,
+          admin: '## I AM A ROW IN A DATABASE',
+        } },
+      },
+    });
+
+    const pack = (await db.getPersonaPacks()).find((p) => p.slug === 'koala')!;
+    expect(composePersonaPrompt(pack.budget, pack.prompt, 'base', { isAdmin: true }))
+      .toContain('## I AM A ROW IN A DATABASE');
+  });
+
+  it('runs in the image the database names for a language', async () => {
+    const db = await fresh();
+    const node = (await db.getWorkspaceImages()).find((i) => i.id === 'node')!;
+    await db.saveWorkspaceImage({ ...node, image: 'ghcr.io/mine/node:from-the-database' });
+
+    expect(await new WorkspaceImageService(db as never).imageFor('u1', 'node'))
+      .toBe('ghcr.io/mine/node:from-the-database');
+  });
+
+  it('offers the tools the database lists, with the schema the database gives them', async () => {
+    const db = await fresh();
+    const rows = await db.getTools();
+    const logs = rows.find((t) => t.name === 'get_logs')!;
+    await db.saveTool({ ...logs, description: 'FROM THE DATABASE', surfaces: ['assistant'] });
+
+    const offered = await new ToolService(db as never).surface('u1', 'assistant');
+    expect(offered.find((t) => t.function.name === 'get_logs')!.function.description)
+      .toBe('FROM THE DATABASE');
+  });
+
+  it('reaches the engine the database names on the pack', async () => {
+    const db = await fresh();
+    await editedKoala(db, { model: { endpointId: 'from-the-database' } });
+
+    const pack = (await db.getPersonaPacks()).find((p) => p.slug === 'koala')!;
+    expect(pack.model?.endpointId).toBe('from-the-database');
   });
 });

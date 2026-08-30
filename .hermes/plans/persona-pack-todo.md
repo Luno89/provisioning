@@ -156,3 +156,19 @@ read directly from a module constant at call time is a bug, not a default.
   through its pack path. Unknown keys now pass — a pack's sampler names its own engine's parameters
 - [x] The Lab: the variant knob grid is a pack picker; Harness's knobs write into the pack the
   profile names; Focus's options pane is read-only and names the arm's pack
+
+## Done, and what proves it
+
+`catalogue-isolation.test.ts` edits each value in the database and reads it back through the path a
+real turn takes: the sampler through `buildModelRequest`, the budget through `agentRunOptions`, a
+prompt section through `composePersonaPrompt`, the image through `WorkspaceImageService`, a tool's
+schema through `ToolService`, the engine through the pack. A constant reappearing anywhere in that
+path fails there rather than silently retuning every run.
+
+Still open, from decisions taken during this work rather than from the audit:
+
+- `list_clusters`, and making the diagnostic tools cluster-aware (§8's other half)
+- `WORKSPACE_KUBECONFIG` → `project.targetClusterId`; the variable then goes
+- a cluster per user at registration, and the system cluster admin-only
+- the pack editor UI: `tunables.ts` now carries `path` for every knob it can set, and the Lab's
+  Harness grid writes through it, but there is no dedicated pack editor yet
