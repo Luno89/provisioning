@@ -2,7 +2,6 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { v4 as uuidv4 } from 'uuid';
-import { validateOverrides } from '../lib/tunables.js';
 import { validatePack } from '../lib/packs.js';
 import type { PersonaPack } from '@koala/harness-types';
 import type { Database } from '../lib/db-interface.js';

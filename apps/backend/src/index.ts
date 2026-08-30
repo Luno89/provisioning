@@ -105,7 +105,7 @@ import { AuthoringService, acceptedTasks } from './services/AuthoringService.js'
 import { WorkbenchService } from './services/WorkbenchService.js';
 import { buildPromotion, supersede, revertTo, withPack } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
-import { validateOverrides, loopKeys } from './lib/tunables.js';
+import { loopKeys } from './lib/tunables.js';
 import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';

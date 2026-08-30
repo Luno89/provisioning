@@ -28,7 +28,6 @@ export interface AgentRequest {
   model?: string | undefined;
   tools: { name: string; description: string }[];
   parameters: Record<string, unknown>;
-  overrides?: Overrides;
   unsupported?: string[];
   fromProfile?: string[];
   fromPersona?: string[];

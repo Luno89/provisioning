@@ -13,7 +13,12 @@ export interface ModelRequestSpec {
   maxTokens: number;
   reasoningEffort?: string | undefined;
   model?: string | undefined;
-  overrides?: Overrides | undefined;
+  /**
+   * Whether this turn may reason. A per-run fact, not a pack value — the pack says what a run is
+   * allowed to spend, the caller says what this turn is for. Routed through the knob's own
+   * placement, so it lands in `template_vars` rather than flat.
+   */
+  think?: boolean | undefined;
   extra?: Record<string, unknown> | undefined;
   /**
    * The pack's sampler. Absent means send none — there is no base layer any more, so a caller with
@@ -36,7 +41,11 @@ export function buildModelRequest(spec: ModelRequestSpec): BuiltModelRequest {
     ...(spec.model ? { model: spec.model } : {}),
   };
 
-  const { body, unsupported } = applyOverrides(base, spec.overrides ?? {}, spec.kind);
+  const { body, unsupported } = applyOverrides(
+    base,
+    spec.think === undefined ? {} : { think: spec.think },
+    spec.kind,
+  );
   const allUnsupported = [...new Set([...sampled.unsupported, ...unsupported])];
 
   return {

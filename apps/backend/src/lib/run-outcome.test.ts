@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyOutcome, countOutcomes, attempted, claimGap, droppedOverrides } from './run-outcome.js';
+import { classifyOutcome, countOutcomes, attempted, claimGap, droppedValues } from './run-outcome.js';
 import type { VariantResult } from '@koala/harness-types';
 
 const run = (over: Partial<VariantResult> = {}): VariantResult => ({
@@ -90,68 +90,50 @@ describe('claimGap', () => {
   });
 });
 
-describe('droppedOverrides', () => {
+describe('droppedValues', () => {
   const request = (over: Record<string, unknown>) => ({
     systemPrompt: '', kickoff: '', tools: [], parameters: {}, ...over,
   }) as NonNullable<VariantResult['request']>;
 
   it('catches a knob that was asked for and never sent', () => {
-    const r = run({ request: request({ overrides: { temperature: 0.7 }, parameters: {} }) });
-    expect(droppedOverrides(r)).toEqual(['temperature']);
+    const r = run({ request: request({ ranAs: { packId: 'p', slug: 's', packUpdatedAt: '', budget: {} as never, sampling: { toolTurn: { temperature: 0.7 }, conversation: {} } }, parameters: {} }) });
+    expect(droppedValues(r)).toEqual(['temperature']);
   });
 
   it('accepts a knob that reached the wire', () => {
-    const r = run({ request: request({ overrides: { temperature: 0.7 }, parameters: { temperature: 0.7 } }) });
-    expect(droppedOverrides(r)).toEqual([]);
+    const r = run({ request: request({ ranAs: { packId: 'p', slug: 's', packUpdatedAt: '', budget: {} as never, sampling: { toolTurn: { temperature: 0.7 }, conversation: {} } }, parameters: { temperature: 0.7 } }) });
+    expect(droppedValues(r)).toEqual([]);
   });
 
   it('accepts a knob renamed on the wire', () => {
     const r = run({
       request: request({ overrides: { think: true }, parameters: { template_vars: { enable_thinking: true } } }),
     });
-    expect(droppedOverrides(r)).toEqual([]);
+    expect(droppedValues(r)).toEqual([]);
   });
 
   it('accepts a knob the loop reads instead of sending', () => {
     const r = run({
       request: request({ overrides: { maxSteps: 30 }, loop: { maxSteps: 30, think: false, toolResultCap: 8000 } }),
     });
-    expect(droppedOverrides(r)).toEqual([]);
+    expect(droppedValues(r)).toEqual([]);
   });
 
   it('does not flag a knob dropped deliberately for the engine', () => {
     const r = run({
       request: request({ overrides: { dry_multiplier: 0.8 }, parameters: {}, unsupported: ['dry_multiplier'] }),
     });
-    expect(droppedOverrides(r)).toEqual([]);
+    expect(droppedValues(r)).toEqual([]);
   });
 
   it('says nothing about a run that recorded no request', () => {
-    expect(droppedOverrides(run({}))).toEqual([]);
+    expect(droppedValues(run({}))).toEqual([]);
   });
 });
 
-describe('prompt-placement knobs are delivered as text', () => {
-  it('accepts extraInstructions appended to the prompt', () => {
-    const instruction = 'Call finish immediately after verifying your work.';
-    const r = run({
-      request: {
-        systemPrompt: `You are an agent.\n\n${instruction}`,
-        kickoff: '', tools: [], parameters: {},
-        overrides: { extraInstructions: instruction },
-      },
-    });
-    expect(droppedOverrides(r)).toEqual([]);
-  });
-
-  it('still flags a prompt override that never made it into the prompt', () => {
-    const r = run({
-      request: {
-        systemPrompt: 'the generated prompt, unchanged',
-        kickoff: '', tools: [], parameters: {},
-        overrides: { systemPrompt: 'THE REPLACEMENT NOBODY SENT' },
-      },
-    });
-    expect(droppedOverrides(r)).toEqual(['systemPrompt']);
-  });
-});
+/**
+ * A `describe` here once checked that a prompt override reached the prompt. There is no gap left
+ * for it to catch: the persona's prompt is passed to the loop as its own argument and recorded
+ * verbatim beside the run, so "asked for but never sent" is only expressible about the sampler now.
+ * agent-loop.test.ts pins the prompt itself.
+ */

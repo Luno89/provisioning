@@ -92,7 +92,7 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
         stream: true,
         maxTokens: 1500,
         ...(opts.model ? { model: opts.model } : {}),
-        overrides: { think: false },
+        think: false,
         extra: { stream_options: { include_usage: true } },
       }).body),
       ...(opts.signal ? { signal: opts.signal } : {}),

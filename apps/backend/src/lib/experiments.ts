@@ -13,7 +13,6 @@ import type {
   VariantResult,
   WorkspaceLanguage,
 } from '@koala/harness-types';
-import { validateOverrides } from './tunables.js';
 import { countOutcomes, attempted } from './run-outcome.js';
 import type { OutcomeCounts } from '@koala/harness-types';
 import { editFromKnobs, type PackEdit } from './derived-packs.js';

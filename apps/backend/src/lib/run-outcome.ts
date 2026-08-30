@@ -37,9 +37,18 @@ export function claimGap(results: VariantResult[]): { overclaimed: VariantResult
   };
 }
 
-export function droppedOverrides(result: VariantResult): string[] {
-  const asked = result.request?.overrides;
-  if (!asked) return [];
+/**
+ * Values the pack asked for that never reached the model — a run reporting a configuration it did
+ * not have. It read the overrides bag; it reads the sampler the run recorded in `ranAs`, which is
+ * where those values live now.
+ */
+export function droppedValues(result: VariantResult): string[] {
+  const ran = result.request?.ranAs;
+  const asked: Record<string, unknown> = {
+    ...(ran?.sampling.toolTurn ?? {}),
+    ...(ran?.sampling.conversation ?? {}),
+  };
+  if (!Object.keys(asked).length) return [];
   const sent = result.request?.parameters ?? {};
   const loop = result.request?.loop ?? {};
   const unsupported = new Set(result.request?.unsupported ?? []);

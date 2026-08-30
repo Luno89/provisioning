@@ -2,7 +2,6 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../../middleware/async-route.js';
 import { ownedBy, withBuiltIns } from '../../lib/ownership.js';
 import type { Database } from '../../lib/db-interface.js';
-import { validateOverrides } from '../../lib/tunables.js';
 import { buildPromotion, supersede, revertTo, withPack } from '../../lib/harness-profile.js';
 import { latestResults } from '../../lib/experiments.js';
 

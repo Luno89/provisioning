@@ -12,22 +12,24 @@ const spec = (over: Partial<Parameters<typeof buildModelRequest>[0]> = {}) => bu
   stream: true, maxTokens: 8192, ...over,
 });
 
-describe('precedence', () => {
-  it('lets an override beat the built-in sampling', () => {
-    const { body } = spec({ overrides: { frequency_penalty: 0, presence_penalty: 0 } });
+describe('what reaches the wire', () => {
+  it("sends the pack's sampler for the turn kind it is given", () => {
+    const { body } = spec({
+      sampling: { toolTurn: {}, conversation: { frequency_penalty: 0, presence_penalty: 0 } },
+    });
 
     expect(body.frequency_penalty).toBe(0);
     expect(body.presence_penalty).toBe(0);
   });
 
-  it('keeps the pack\'s value where nothing overrode it', () => {
-    const { body } = spec({ overrides: { temperature: 0.2 } });
+  it('sends nothing at all when no pack is given, rather than a hidden base', () => {
+    const { body } = spec({ sampling: undefined });
 
-    expect(body.temperature).toBe(0.2);
-    expect(body.frequency_penalty).toBeGreaterThan(0);
+    expect(body.temperature).toBeUndefined();
+    expect(body.frequency_penalty).toBeUndefined();
   });
 
-  it('never lets an override reach a transport field', () => {
+  it('never lets a knob reach a transport field', () => {
     const { body } = spec({ extra: { stream_options: { include_usage: true } } });
     expect(body.stream_options).toEqual({ include_usage: true });
   });
@@ -35,34 +37,41 @@ describe('precedence', () => {
 
 describe('placement — where a knob lands on the wire', () => {
   it('nests a template_vars knob instead of sending it flat', () => {
-    const { body } = spec({ overrides: { think: true } });
+    const { body } = spec({ think: true });
 
     expect(body.think).toBeUndefined();
     expect(body.template_vars).toMatchObject({ enable_thinking: true });
   });
 
   it('merges into template_vars rather than replacing what is there', () => {
-    const { body } = spec({
-      turn: 'tool-turn', overrides: { think: false },
-    });
+    const { body } = spec({ turn: 'tool-turn', think: false });
     expect(body.template_vars).toMatchObject({ enable_thinking: false });
   });
 
   it('never transmits a knob the loop reads locally', () => {
-    const { body } = spec({ overrides: { maxSteps: 30 } });
+    const { body } = spec({
+      sampling: { toolTurn: { maxSteps: 30 } as never, conversation: { maxSteps: 30 } as never },
+    });
     expect(body.maxSteps).toBeUndefined();
   });
 
   it('drops an engine-gated knob on the wrong engine, and says it did', () => {
-    const { body, unsupported } = spec({ kind: 'vllm', overrides: { dry_multiplier: 0.8 } });
+    const { body, unsupported } = spec({ kind: 'vllm', sampling: { toolTurn: { dry_multiplier: 0.8 }, conversation: { dry_multiplier: 0.8 } } });
 
     expect(body.dry_multiplier).toBeUndefined();
     expect(unsupported).toContain('dry_multiplier');
   });
 
-  it('reports a knob the registry has never heard of rather than sending it', () => {
-    const { unsupported } = spec({ overrides: { made_up_sampler: 1 } });
-    expect(unsupported).toContain('made_up_sampler');
+  it('sends a knob the table has never heard of, since engines have their own', () => {
+    // These were reported as unsupported when they arrived as overrides. A pack's sampler names its
+    // own engine's parameters, so refusing them would stop a pack describing its engine. A knob the
+    // table DOES know and gates by engine is still dropped and reported — the test above.
+    const { body, unsupported } = spec({
+      sampling: { toolTurn: { made_up_sampler: 1 }, conversation: { made_up_sampler: 1 } },
+    });
+
+    expect(body.made_up_sampler).toBe(1);
+    expect(unsupported).not.toContain('made_up_sampler');
   });
 });
 
@@ -80,7 +89,7 @@ describe('the two kinds of turn', () => {
   });
 
   it('still lets a dispatch turn be overridden back', () => {
-    const { body } = spec({ turn: 'tool-turn', overrides: { frequency_penalty: 0.4 } });
+    const { body } = spec({ turn: 'tool-turn', sampling: { toolTurn: { frequency_penalty: 0.4 }, conversation: { frequency_penalty: 0.4 } } });
     expect(body.frequency_penalty).toBe(0.4);
   });
 });

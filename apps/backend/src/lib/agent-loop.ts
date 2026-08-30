@@ -228,9 +228,9 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     ...(model ? { model } : {}),
     /**
      * Stated either way. It used to send `think: false` to suppress reasoning and nothing at all to
-     * allow it, so whether a run reasoned depended on the engine's default rather than on the pack.
+     * allow it, so whether a run reasoned depended on the engine's default rather than the caller.
      */
-    overrides: { think },
+    think,
     extra: { stream_options: { include_usage: true } },
   });
 

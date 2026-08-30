@@ -82,14 +82,12 @@ export interface PlanningTurnOptions {
   tools: LeafToolContext;
   profile?: HarnessProfile | null;
   persona?: Persona | null;
-  pack?: { overrides?: Record<string, unknown> } | null;
   /** The caller's tool catalogue. Rows, because the planner's set is a view of it. */
   toolRows?: readonly ToolRepositoryItem[];
   images?: readonly WorkspaceImageSpec[];
   sampling?: SamplingConfig | undefined;
   /** The pack's prompt sections. Named for the config to keep clear of `prompt`, the question. */
   promptConfig?: PromptConfig | undefined;
-  overrides?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
   research?: {

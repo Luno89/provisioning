@@ -486,7 +486,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                   stream: true,
                   maxTokens: 600,
                   ...(provider.model ? { model: provider.model } : {}),
-                  overrides: { ...{}, think: false },
+                  think: false,
                 }).body;
 
                 const res = await fetch(`${baseUrl}/chat/completions`, {
