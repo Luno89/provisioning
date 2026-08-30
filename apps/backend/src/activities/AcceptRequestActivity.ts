@@ -5,7 +5,7 @@ import { WorkspaceService } from '../services/WorkspaceService.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
-import { imageForLanguage } from '../lib/workspace-spec.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { buildAcceptanceScript, parseAcceptance, usableAcceptancePlan } from '../lib/acceptance.js';
 import { buildAcceptanceNotice, withNotice } from '../lib/branch-notice.js';
 import type { ProjectMetadata } from '../lib/types.js';
@@ -57,7 +57,7 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
     await workspaces.create({
       leafId: workspaceId,
       ownerId,
-      image: imageForLanguage(undefined),
+      image: await new WorkspaceImageService(db).imageFor(ownerId),
       egress: [{ namespace: 'gitea', ports: [3000] }, { cidr: '0.0.0.0/0' }],
     });
     await countWorkspace(db, args.leafId);

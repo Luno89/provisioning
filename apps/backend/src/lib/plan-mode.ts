@@ -1,3 +1,4 @@
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 
 import { describeSandbox } from './workspace-spec.js';
 
@@ -9,7 +10,7 @@ export interface LeafProposal {
   projectId?: string;
 }
 
-export const PLAN_SYSTEM_PROMPT = [
+export const planSystemPrompt = (images: readonly WorkspaceImageSpec[]): string => [
   'You are helping plan a piece of work. Discuss it naturally.',
   '',
   'When — and only when — you are confident about concrete work that should be done, propose it by',
@@ -55,7 +56,7 @@ export const PLAN_SYSTEM_PROMPT = [
   '- Each leaf is carried out later by an agent in the sandbox described below. Do not propose work',
   '  that environment cannot do.',
   '',
-  describeSandbox(),
+  describeSandbox(images),
 ].join('\n');
 
 export const AMBIENT_PROPOSAL_PROMPT = [

@@ -5,7 +5,8 @@ import { WorkspaceService } from './WorkspaceService.js';
 import { runAgentLoop } from '../lib/agent-loop.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { agentRunOptions, wantsWeb } from '../lib/agent-run.js';
-import { imageForLanguage, type EgressRule } from '../lib/workspace-spec.js';
+import type { EgressRule } from '../lib/workspace-spec.js';
+import { WorkspaceImageService } from './WorkspaceImageService.js';
 import { type HarnessProfile } from '../lib/harness-profile.js';
 import { resolveConfig, type Persona } from '../lib/personas.js';
 import type { PersonaPack } from '@koala/harness-types';
@@ -264,7 +265,9 @@ export class ExperimentService {
     await this.workspaces.create({
       leafId: runId,
       ownerId: experiment.ownerId,
-      image: imageForLanguage(task.language ?? experiment.language),
+      image: await new WorkspaceImageService(this.db).imageFor(
+        experiment.ownerId, task.language ?? experiment.language,
+      ),
     });
     try {
       for (const file of task.seed ?? []) {
@@ -359,7 +362,9 @@ export class ExperimentService {
         );
       }
 
-      await this.workspaces.create(personaWorkspace(variantPack,
+      await this.workspaces.create(personaWorkspace(
+        await new WorkspaceImageService(this.db).list(experiment.ownerId),
+        variantPack,
         { leafId: runId, ownerId: experiment.ownerId },
         { language },
       ));

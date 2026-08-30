@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryDB } from '../lib/memory-db.js';
 import type { Leaf } from '../lib/leaves.js';
-import { WORKSPACE_IMAGES } from '../lib/workspace-spec.js';
+
 import { seedTreeTypes } from '../lib/tree-types.js';
+import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from '../lib/workspace-image-seeds.js';
+import { seedsByLanguage as BY_LANGUAGE } from '../lib/workspace-image-seeds.js';
 
 const resolveBaseUrl = vi.fn();
 const runAgentLoop = vi.fn();
@@ -465,23 +468,24 @@ describe('what the tree type decides', () => {
       workspace: personaScope, createdAt: 'x', updatedAt: 'x',
     } as never);
     await seedTreeTypes(db);
+    await seedWorkspaceImages(db);
     await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
     return (workspace.create.mock.calls[0] as unknown[] | undefined)?.[0] as { image?: string } | undefined;
   };
 
   it('takes the workspace image from the type, not from the leaf or the persona', async () => {
     const spec = await onTree('dataset');
-    expect(spec?.image).toBe(WORKSPACE_IMAGES.python.image);
+    expect(spec?.image).toBe(BY_LANGUAGE.python.image);
   });
 
   it('lets a prose type keep its minimal image when there is no checkout', async () => {
     const spec = await onTree('research-paper', { tools: [] });
-    expect(spec?.image).toBe(WORKSPACE_IMAGES.base.image);
+    expect(spec?.image).toBe(BY_LANGUAGE.base.image);
   });
 
   it('upgrades that image once the leaf actually clones', async () => {
     const spec = await onTree('research-paper', { repo: true });
-    expect(spec?.image).not.toBe(WORKSPACE_IMAGES.base.image);
+    expect(spec?.image).not.toBe(BY_LANGUAGE.base.image);
   });
 });
 

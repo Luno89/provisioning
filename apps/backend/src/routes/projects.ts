@@ -2,7 +2,8 @@ import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import { encryptValue } from '../lib/crypto.js';
 import { asyncRoute } from '../middleware/async-route.js';
-import { isWorkspaceLanguage } from '../lib/workspace-spec.js';
+import { isWorkspaceLanguage } from '../lib/workspace-image-catalogue.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { v4 as uuidv4 } from 'uuid';
 import { ownsProject } from '../lib/ownership.js';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
@@ -68,7 +69,9 @@ export function projectsRouter(deps: Record<string, any>): Router {
         giteaOwner: owner,
         giteaRepo,
         ownerId: userOf(req).id,
-        ...(isWorkspaceLanguage(language) ? { language } : {}),
+        ...(isWorkspaceLanguage(await new WorkspaceImageService(db).list(userOf(req).id), language)
+          ? { language }
+          : {}),
         appType: 'gitapp',
         ...(targetClusterId ? { targetClusterId } : {}),
         ...(targetNamespace ? { targetNamespace } : {}),

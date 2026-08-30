@@ -1,9 +1,11 @@
 import { GITEA_EGRESS } from './leaf-checkout.js';
 import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
 import {
-  imageForLanguage, capableImage, egressForBindings, packageAccess,
+  egressForBindings,
   type EgressRule, type WorkspaceSpec, type WorkspaceLanguage, type WorkspaceBinding,
 } from './workspace-spec.js';
+import { capableImage, packageAccess } from './workspace-image-catalogue.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 
 export function allowedTools(pack: Pick<PersonaPack, 'tools'> | null | undefined, available: string[]): string[] {
   const declared = pack?.tools;
@@ -42,6 +44,7 @@ export function flattenPersona<T extends { id: string; basedOn?: string | undefi
 }
 
 export function personaWorkspace(
+  images: readonly WorkspaceImageSpec[],
   pack: Pick<PersonaPack, 'workspace'> | null | undefined,
   ids: { leafId: string; ownerId: string },
   work: {
@@ -55,11 +58,20 @@ export function personaWorkspace(
   const scope: WorkspaceScope | undefined = pack?.workspace;
 
   const language = work.language ?? scope?.language;
-  const image = language || work.requires?.length
-    ? capableImage(language, work.requires ?? [])
-    : undefined;
+  /**
+   * Always resolved, never left for a later fallback. The image used to be decided twice — here
+   * when a language was named, and again in `buildWorkspaceManifests` from a module constant when
+   * one was not — so a pod's image came from a different place depending on the caller.
+   */
+  const image = capableImage(images, language, work.requires ?? []);
+  /**
+   * Still gated on the work naming a language or a requirement, which is what decided whether an
+   * image was chosen at all before. A pod that named neither ran without registry env and without
+   * registry egress, and widening that here would quietly change what every such run can install.
+   */
+  const chosen = Boolean(language || work.requires?.length);
 
-  const packages = image ? packageAccess(language) : { env: [], egress: [] };
+  const packages = chosen ? packageAccess(images, language) : { env: [], egress: [] };
 
   const egress = dedupeEgress([
     ...((scope?.egress ?? []) as EgressRule[]),

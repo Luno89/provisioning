@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { allowedTools, usesRepo, flattenPack, personaWorkspace } from './persona-scope.js';
 import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
+import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
 const p = (name: string, over?: { tools?: string[]; workspace?: WorkspaceScope }) =>
   ({ name, tools: over?.tools ?? [], ...(over?.workspace ? { workspace: over.workspace } : {}) }) as
@@ -93,7 +95,7 @@ describe('the container a persona runs in', () => {
   const ids = { leafId: 'leaf-1', ownerId: 'u1' };
 
   it('takes everything it can from the record', () => {
-    const spec = personaWorkspace(
+    const spec = personaWorkspace(IMAGES, 
       p('Heavy', { workspace: { language: 'go', cpu: '4', memory: '8Gi', egress: [{ namespace: 'gitea', ports: [3000] }], env: [{ name: 'TOKEN', value: 'x' }] }}),
       ids,
     );
@@ -104,25 +106,29 @@ describe('the container a persona runs in', () => {
   });
 
   it("lets the project's toolchain win over the persona's own", () => {
-    const spec = personaWorkspace(p('Builder', { workspace: { language: 'node' }}), ids, { language: 'go' });
+    const spec = personaWorkspace(IMAGES, p('Builder', { workspace: { language: 'node' }}), ids, { language: 'go' });
     expect(spec.image).toContain('go-toolset');
   });
 
   it("uses the persona's own toolchain when there is no project", () => {
-    expect(personaWorkspace(p('Researcher', { workspace: { language: 'base' }}), ids).image).toContain('ubi');
+    expect(personaWorkspace(IMAGES, p('Researcher', { workspace: { language: 'base' }}), ids).image).toContain('ubi');
   });
 
-  it('carries no image at all when neither says', () => {
-    expect(personaWorkspace(p('Plain'), ids).image).toBeUndefined();
+  it('resolves the default image when neither the pack nor the work names a language', () => {
+    // It used to leave this undefined and let `buildWorkspaceManifests` fill it in from a module
+    // constant — the same node image, decided in a second place. The pod is unchanged; what the
+    // pack reports about itself is now the truth.
+    expect(personaWorkspace(IMAGES, p('Plain'), ids).image).toBe(BY_LANGUAGE.node.image);
   });
 
   it('distinguishes an unstated network from a deliberately closed one', () => {
-    expect(personaWorkspace(p('Unstated'), ids).egress).toBeUndefined();
-    expect(personaWorkspace(p('Closed', { workspace: { egress: [] }}), ids).egress).toEqual([]);
+    expect(personaWorkspace(IMAGES, p('Unstated'), ids).egress).toBeUndefined();
+    expect(personaWorkspace(IMAGES, p('Closed', { workspace: { egress: [] }}), ids).egress).toEqual([]);
   });
 
   it('carries nothing extra for a persona that declares nothing', () => {
-    expect(personaWorkspace(null, ids)).toEqual({ leafId: 'leaf-1', ownerId: 'u1' });
+    expect(personaWorkspace(IMAGES, null, ids))
+      .toEqual({ leafId: 'leaf-1', ownerId: 'u1', image: BY_LANGUAGE.node.image });
   });
 });
 
@@ -132,7 +138,7 @@ describe('the network a checkout needs', () => {
     (spec.egress ?? []).find((r) => r.namespace === 'gitea');
 
   it('opens Gitea for a persona that works in a repository but never said so', () => {
-    const spec = personaWorkspace(
+    const spec = personaWorkspace(IMAGES, 
       { id: 'p', ownerId: 'u', name: 'Researcher', systemPrompt: '', workspace: { repo: true } } as never,
       ids,
       { checkout: true },
@@ -141,7 +147,7 @@ describe('the network a checkout needs', () => {
   });
 
   it('leaves a persona with no checkout unable to reach it', () => {
-    const spec = personaWorkspace(
+    const spec = personaWorkspace(IMAGES, 
       { id: 'p', ownerId: 'u', name: 'Reviewer', systemPrompt: '', workspace: {} } as never,
       ids,
       {},
@@ -150,7 +156,7 @@ describe('the network a checkout needs', () => {
   });
 
   it('does not double the rule for a persona that already declared it', () => {
-    const spec = personaWorkspace(
+    const spec = personaWorkspace(IMAGES, 
       {
         id: 'p', ownerId: 'u', name: 'Builder', systemPrompt: '',
         workspace: { repo: true, egress: [{ namespace: 'gitea', ports: [3000] }] },
@@ -164,7 +170,7 @@ describe('the network a checkout needs', () => {
 
 describe('what a workspace can install', () => {
   const spec = (language: string | undefined, scope: Record<string, unknown> = {}) =>
-    personaWorkspace(
+    personaWorkspace(IMAGES, 
       { id: 'p', name: 'Worker', tools: [], workspace: scope } as never,
       { leafId: 'leaf-1', ownerId: 'u' },
       { language },

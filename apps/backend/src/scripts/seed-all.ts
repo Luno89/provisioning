@@ -8,11 +8,14 @@ import { seedPacks } from '../lib/pack-seeds.js';
 import { seedAppSpecs } from '../lib/app-spec.js';
 import { seedClusterProviders } from '../lib/cluster-providers.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
+import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 
 export async function seedAll(db: Parameters<typeof seedTools>[0] & Record<string, unknown>) {
   const counts: Record<string, number> = {};
   counts.tools = await seedTools(db as never);
   counts.bindingTypes = await seedBindingTypes(db as never);
+  // Images before tree types: a tree type's language must name one that exists.
+  counts.workspaceImages = await seedWorkspaceImages(db as never);
   counts.treeTypes = await seedTreeTypes(db as never);
   counts.appSpecs = await seedAppSpecs(db as never);
   counts.clusterProviders = await seedClusterProviders(db as never);

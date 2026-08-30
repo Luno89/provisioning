@@ -1,4 +1,6 @@
-import { describeSandbox, type WorkspaceLanguage, type WorkspaceSpec, imageForLanguage } from './workspace-spec.js';
+import { describeSandbox, type WorkspaceLanguage, type WorkspaceSpec } from './workspace-spec.js';
+import { imageForLanguage } from './workspace-image-catalogue.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import { FALLBACK_CONTEXT_TOKENS } from './sampling.js';
 
 export const MAX_AGENT_STEPS = 200;
@@ -140,6 +142,7 @@ export function trimConversation<T extends { role?: string; content?: unknown }>
 
 
 export function buildAgentPrompt(
+  images: readonly WorkspaceImageSpec[],
   language: WorkspaceLanguage | undefined,
   taskContext: string,
   maxSteps: number = MAX_AGENT_STEPS,
@@ -149,7 +152,7 @@ export function buildAgentPrompt(
     'You are completing one piece of work inside a sandboxed container. You have shell access and',
     'can read and write files. Work autonomously — nobody is available to answer questions.',
     '',
-    describeSandbox({ ...sandbox, image: imageForLanguage(language) }),
+    describeSandbox(images, { ...sandbox, image: imageForLanguage(images, language) }),
     '',
     'HOW TO WORK',
     '- Look before you edit: list the directory and read a file rather than assuming its contents.',

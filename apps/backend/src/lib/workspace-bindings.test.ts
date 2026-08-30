@@ -4,6 +4,7 @@ import { describable } from './binding-resolve.js';
 import { bindingSecretName, SERVICE_BINDING_ROOT } from './service-binding.js';
 import { readBindingCredentials } from './binding-project.js';
 import type { ResolvedBinding } from './binding-resolve.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 const binding = (over: Partial<ResolvedBinding> = {}): ResolvedBinding => ({
   name: 'qdrant',
@@ -46,7 +47,7 @@ describe('what reaches the sandbox', () => {
     egress: egressForBindings([binding()]),
     bindings: [{ name: 'qdrant', files: { type: 'qdrant', host: 'h', port: '6333', 'api-key': 'secret-value' } }],
   };
-  const manifests = buildWorkspaceManifests(spec);
+  const manifests = buildWorkspaceManifests(IMAGES, spec);
   const kind = (k: string) => manifests.filter((m) => (m as any).kind === k) as any[];
   const pod = kind('Pod')[0];
 
@@ -77,7 +78,7 @@ describe('what reaches the sandbox', () => {
   });
 
   it('changes nothing for a leaf with no bindings', () => {
-    const plain = buildWorkspaceManifests({ leafId: spec.leafId, ownerId: 'u1' }) as any[];
+    const plain = buildWorkspaceManifests(IMAGES, { leafId: spec.leafId, ownerId: 'u1' }) as any[];
     expect(plain.filter((m) => m.kind === 'Secret')).toEqual([]);
     const p = plain.find((m) => m.kind === 'Pod');
     expect(p.spec.containers[0].env.some((e: any) => e.name === 'SERVICE_BINDING_ROOT')).toBe(false);

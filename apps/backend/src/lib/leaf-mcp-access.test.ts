@@ -5,9 +5,10 @@ import { dirname, join } from 'node:path';
 import { normaliseLeafInput } from './leaf-input.js';
 
 import { wantsMcp } from './agent-run.js';
-import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
+import { planSystemPrompt } from './plan-mode.js';
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
 import { forSurface } from './tool-catalogue.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
 
@@ -65,11 +66,11 @@ describe('the leaf\'s servers reach the executor', () => {
 
 describe('asking the planner for an end-to-end check', () => {
   it('names set_acceptance in the plan rules, where it was never mentioned', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/Call set_acceptance once/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/Call set_acceptance once/);
   });
 
   it('says what it is for, since a test suite alone reads as sufficient', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/only\s*\n?\s*.*proves the finished thing works|proves the finished thing works/);
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/RUNNING it and calling it for/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/only\s*\n?\s*.*proves the finished thing works|proves the finished thing works/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/RUNNING it and calling it for/);
   });
 });

@@ -15,7 +15,8 @@ import { describeInfrastructure } from './infrastructure.js';
 import { declareDependency } from './declare-dependency.js';
 import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
-import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
+import { DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
+import { isWorkspaceLanguage } from './workspace-image-catalogue.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
 import { withBuiltIns } from './ownership.js';
 
@@ -239,7 +240,9 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         ...(typeof args.description === 'string' && args.description.trim()
           ? { description: args.description.trim().slice(0, 300) }
           : {}),
-        ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
+        ...(isWorkspaceLanguage(await db.getWorkspaceImages(userId), args.language)
+          ? { language: args.language }
+          : {}),
       });
       let attachedTo: string | undefined;
       const branch = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === userId);
@@ -309,7 +312,9 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         title: title.slice(0, 200),
         ...(typeof args.body === 'string' && args.body.trim() ? { body: args.body.trim().slice(0, 4000) } : {}),
         ...(Array.isArray(args.expects) ? { expects: usablePaths(args.expects.map(String)) } : {}),
-        ...(isWorkspaceLanguage(args.language) ? { language: args.language } : {}),
+        ...(isWorkspaceLanguage(await db.getWorkspaceImages(userId), args.language)
+          ? { language: args.language }
+          : {}),
         createdAt: now,
         updatedAt: now,
       };

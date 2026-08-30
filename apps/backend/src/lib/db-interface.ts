@@ -14,6 +14,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
@@ -70,6 +71,9 @@ export interface Database {
 
   getHarnessProfile(ownerId: string): Promise<HarnessProfile | null>;
   saveHarnessProfile(profile: HarnessProfile): Promise<void>;
+
+  getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
+  saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void>;
 
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;

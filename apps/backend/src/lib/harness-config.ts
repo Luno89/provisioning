@@ -2,14 +2,13 @@ import { toolTurnSampling, conversationSampling, TOOL_TURN_MAX_TOKENS, TOOL_DISC
 import { MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS, buildAgentPrompt } from './sandbox-tools.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
 import { MAX_TOOL_ROUNDS } from './leaf-tools.js';
-import { PLAN_MODE_MAX_TOKENS, MAX_PROPOSALS_PER_REPLY, PLAN_SYSTEM_PROMPT, AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
+import { PLAN_MODE_MAX_TOKENS, MAX_PROPOSALS_PER_REPLY, planSystemPrompt, AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
 import {
-  WORKSPACE_IMAGES,
   DEFAULT_WORKSPACE_LANGUAGE,
   MAX_WORKSPACE_SECONDS,
   describeSandbox,
-  type WorkspaceLanguage,
 } from './workspace-spec.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import { MAX_DEPTH, MAX_CHILDREN_PER_LEAF, MAX_LEAF_ATTEMPTS } from './leaves.js';
 import { MAX_VARIANTS, MAX_REPEATS, MAX_TASK_CHARS, MAX_TASKS, MAX_TOTAL_RUNS } from './experiments.js';
 import { TUNABLES, effectiveConfig, type EffectiveKnob } from './tunables.js';
@@ -40,6 +39,8 @@ export function buildHarnessConfig(
   models: HarnessConfig['models'] = [],
   /** The caller's catalogue. The tool panels describe rows now, not a file. */
   toolRows: readonly ToolRepositoryItem[] = [],
+  /** The caller's workspace images, for the same reason. */
+  images: readonly WorkspaceImageSpec[] = [],
 ): HarnessConfig {
   const surfaceNames = (s: 'planning' | 'sandbox') =>
     toolRows.filter((t) => t.surfaces?.includes(s)).map((t) => t.name).join(', ');
@@ -112,25 +113,21 @@ export function buildHarnessConfig(
         title: 'Sandbox',
         summary: 'Where the work runs. No service-account token, no general egress, no DNS.',
         settings: [
-          { label: 'Default language', value: DEFAULT_WORKSPACE_LANGUAGE, source: 'lib/workspace-spec.ts' },
+          { label: 'Default language', value: DEFAULT_WORKSPACE_LANGUAGE, source: 'the workspace-image catalogue' },
           { label: 'Lifetime', value: `${MAX_WORKSPACE_SECONDS / 60} min`, note: 'Backstop for a pod nobody is watching; teardown normally happens when the attempt ends.', source: 'lib/workspace-spec.ts' },
           { label: 'Leaf depth / fan-out', value: `${MAX_DEPTH} deep, ${MAX_CHILDREN_PER_LEAF} children`, note: 'Caps alone still permit 3×10×10 = 300 workspaces, which is why budgets are on the root.', source: 'lib/leaves.ts' },
         ],
       },
     ],
     prompts: [
-      { id: 'agent', title: 'Agent system prompt', text: buildAgentPrompt(undefined, '<the leaf being worked on>') },
-      { id: 'sandbox', title: 'Sandbox description (generated)', text: describeSandbox() },
+      { id: 'agent', title: 'Agent system prompt', text: buildAgentPrompt(images, undefined, '<the leaf being worked on>') },
+      { id: 'sandbox', title: 'Sandbox description (generated)', text: describeSandbox(images) },
       { id: 'discipline', title: 'Tool discipline', text: TOOL_DISCIPLINE_PROMPT },
-      { id: 'plan', title: 'Plan mode', text: PLAN_SYSTEM_PROMPT },
+      { id: 'plan', title: 'Plan mode', text: planSystemPrompt(images) },
       { id: 'ambient', title: 'Ambient proposing', text: AMBIENT_PROPOSAL_PROMPT },
-      { id: 'authoring', title: 'Task authoring (Koala writes the suite)', text: buildTaskAuthorPrompt() },
+      { id: 'authoring', title: 'Task authoring (Koala writes the suite)', text: buildTaskAuthorPrompt(images) },
     ],
-    languages: (Object.keys(WORKSPACE_IMAGES) as WorkspaceLanguage[]).map((id) => ({
-      id,
-      image: WORKSPACE_IMAGES[id].image,
-      summary: WORKSPACE_IMAGES[id].summary,
-    })),
+    languages: images.map((i) => ({ id: i.id, image: i.image, summary: i.summary })),
     models,
     limits: {
       maxVariants: MAX_VARIANTS,

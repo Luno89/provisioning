@@ -32,6 +32,7 @@ import {
 import { type Overrides } from './tunables.js';
 import { buildModelRequest } from './model-request.js';
 import type { AgentStep, AgentRequest, ConversationMessage } from '@koala/harness-types';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 
 export type { AgentStep, AgentRequest, ConversationMessage };
 
@@ -117,6 +118,8 @@ export interface AgentRunOptions {
    * Absent falls back to the constant, which is what a caller with no database does.
    */
   catalogue?: { type: 'function'; function: { name: string; description?: string; parameters?: unknown } }[] | undefined;
+  /** The caller's workspace images, for the same reason: the sandbox description is a row read. */
+  images?: readonly WorkspaceImageSpec[] | undefined;
   callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
   pacing?: PacingNote[] | undefined;
   withdrawTools?: ToolWithdrawal | undefined;
@@ -175,7 +178,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
     ? overrides.extraInstructions
     : '';
   const systemPrompt = [
-    custom || buildAgentPrompt(opts.language, opts.taskContext, maxSteps, opts.sandboxSpec ?? {}),
+    custom || buildAgentPrompt(opts.images ?? [], opts.language, opts.taskContext, maxSteps, opts.sandboxSpec ?? {}),
     ...(custom ? ['', 'YOUR TASK', opts.taskContext] : []),
     ...(extra ? ['', extra] : []),
     ...(opts.bindingsContext ? ['', opts.bindingsContext.trim()] : []),

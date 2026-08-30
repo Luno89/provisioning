@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryDB } from './memory-db.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 import {
   TREE_TYPE_SEEDS, validateTreeType, resolveTreeType, renderStarterFiles, type TreeTypeSpec,
 } from './tree-types.js';
@@ -18,29 +19,29 @@ const spec = (over: Partial<TreeTypeSpec> = {}): TreeTypeSpec => ({
 
 describe('what a tree type must declare', () => {
   it('accepts a complete record', () => {
-    expect(validateTreeType(spec())).toBeNull();
+    expect(validateTreeType(IMAGES, spec())).toBeNull();
   });
 
   it('refuses one with no language, because the language decides the workspace image', () => {
     const { language: _dropped, ...rest } = spec();
-    expect(validateTreeType(rest as TreeTypeSpec)).toMatch(/language/i);
+    expect(validateTreeType(IMAGES, rest as TreeTypeSpec)).toMatch(/language/i);
   });
 
   it('refuses a language no workspace image exists for', () => {
-    expect(validateTreeType(spec({ language: 'cobol' as never }))).toMatch(/language/i);
+    expect(validateTreeType(IMAGES, spec({ language: 'cobol' as never }))).toMatch(/language/i);
   });
 
   it('refuses a produces value outside service and artefact', () => {
-    expect(validateTreeType(spec({ produces: 'vibes' as never }))).toMatch(/produces/i);
+    expect(validateTreeType(IMAGES, spec({ produces: 'vibes' as never }))).toMatch(/produces/i);
   });
 
   it('refuses an id that would not survive a URL or a filename', () => {
-    expect(validateTreeType(spec({ id: 'Not A Slug!' }))).toMatch(/id/i);
+    expect(validateTreeType(IMAGES, spec({ id: 'Not A Slug!' }))).toMatch(/id/i);
   });
 
   it('refuses a starter file with an absolute or escaping path', () => {
-    expect(validateTreeType(spec({ files: [{ path: '/etc/passwd', content: 'x' }] }))).toMatch(/path/i);
-    expect(validateTreeType(spec({ files: [{ path: '../outside.md', content: 'x' }] }))).toMatch(/path/i);
+    expect(validateTreeType(IMAGES, spec({ files: [{ path: '/etc/passwd', content: 'x' }] }))).toMatch(/path/i);
+    expect(validateTreeType(IMAGES, spec({ files: [{ path: '../outside.md', content: 'x' }] }))).toMatch(/path/i);
   });
 });
 
@@ -71,7 +72,7 @@ describe('resolving a type for a tree', () => {
 describe('the seeds', () => {
   it('are all valid records', () => {
     for (const seed of TREE_TYPE_SEEDS) {
-      expect(validateTreeType({ ...seed, ownerId: 'u1' }), `seed ${seed.id}`).toBeNull();
+      expect(validateTreeType(IMAGES, { ...seed, ownerId: 'u1' }), `seed ${seed.id}`).toBeNull();
     }
   });
 

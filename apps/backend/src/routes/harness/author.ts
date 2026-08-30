@@ -10,10 +10,10 @@ import {
 } from '../../lib/experiment-authoring.js';
 import { MAX_TASKS, MAX_TASK_CHARS } from '../../lib/experiments.js';
 import { resolveConfig } from '../../lib/personas.js';
-import { isWorkspaceLanguage } from '../../lib/workspace-spec.js';
 import type { ExperimentTask } from '@koala/harness-types';
 import type { ModelService } from '../../services/ModelService.js';
 import { acceptedTasks, type AuthoringService } from '../../services/AuthoringService.js';
+import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -55,6 +55,7 @@ export function authorRouter(deps: authorRouterDeps): Router {
             {
               role: 'system',
               content: buildTaskAuthorPrompt(
+                await new WorkspaceImageService(db).list(userOf(req).id),
                 Array.isArray(existing) ? { existing: existing.map((n: unknown) => String(n)) } : {},
               ),
             },
@@ -72,7 +73,10 @@ export function authorRouter(deps: authorRouterDeps): Router {
       }
       const body: any = await upstream.json();
       const reply = body?.choices?.[0]?.message?.content ?? '';
-      const { tasks, rejected } = extractTaskProposals(reply);
+      const { tasks, rejected } = extractTaskProposals(
+        await new WorkspaceImageService(db).list(userOf(req).id),
+        reply,
+      );
 
       res.json({ tasks, rejected, note: stripTaskBlock(reply) });
     } catch (err: any) {
@@ -92,7 +96,9 @@ export function authorRouter(deps: authorRouterDeps): Router {
     try {
       const validated = await authoringService.validateOnEmptyWorkspace(
         userOf(req).id,
-        normaliseTasks(tasks),
+        normaliseTasks(await new WorkspaceImageService(db).list(userOf(req).id), tasks),
+        undefined,
+        await new WorkspaceImageService(db).list(userOf(req).id),
       );
       res.json({ tasks: validated, accepted: acceptedTasks(validated) });
     } catch (err: any) {

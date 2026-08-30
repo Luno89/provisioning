@@ -85,10 +85,10 @@ import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { budgetForNewRoot } from './lib/budget-policy.js';
 import { ContentScanner, UsageScanner } from './lib/token-usage.js';
-import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, isChatMode, type ChatMode, PLAN_MODE_MAX_TOKENS, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
 import { extractServiceName } from './lib/extraction.js';
 import { buildOutboundMessages } from './lib/leaf-context.js';
-import { isWorkspaceLanguage, imageForLanguage, WORKSPACE_IMAGES, DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
+import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
 import { TOOL_DISCIPLINE_PROMPT } from './lib/sampling.js';
 import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token-controller.js';
 import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
@@ -163,11 +163,11 @@ import { MAX_AGENT_STEPS, trimConversation } from './lib/sandbox-tools.js';
 import { MAX_TOOL_ROUNDS, ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
 import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, blockedBy, wouldCycle, type Leaf } from './lib/leaves.js';
 import { generateSshKeypair } from './lib/ssh-keypair.js';
-import { getToolRepository } from './lib/tool-repository.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
 import { withBuiltIns } from './lib/ownership.js';
 import { ToolService } from './services/ToolService.js';
+import { WorkspaceImageService } from './services/WorkspaceImageService.js';
 
 dotenv.config();
 
@@ -562,7 +562,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       console.warn('[harness] could not list models:', err?.message ?? err);
     }
 
-    res.json(buildHarnessConfig(profile?.overrides ?? {}, models, await new ToolService(db).list(userId)));
+    res.json(buildHarnessConfig(
+      profile?.overrides ?? {}, models,
+      await new ToolService(db).list(userId),
+      await new WorkspaceImageService(db).list(userId),
+    ));
   });
 
   app.get('/api/harness/export', async (req, res) => {
@@ -584,7 +588,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         id: uuidv4(),
         ownerId: userId,
         name: suite.name.slice(0, 120),
-        tasks: normaliseTasks(suite.tasks),
+        tasks: normaliseTasks(await new WorkspaceImageService(db).list(userId), suite.tasks),
         language: 'node',
         variants: suite.variants,
         repeats: Math.max(1, Math.min(MAX_REPEATS, suite.repeats)),

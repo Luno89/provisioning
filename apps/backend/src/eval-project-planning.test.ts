@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { extractProposals, PLAN_SYSTEM_PROMPT } from './lib/plan-mode.js';
+import { extractProposals, planSystemPrompt } from './lib/plan-mode.js';
 import { buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './lib/workspace-image-seeds.js';
 
 describe('Project Planning & Leaf Decomposition Rigorous Evaluator', () => {
-  it('includes clear instructions in PLAN_SYSTEM_PROMPT for breaking down projects', () => {
-    expect(PLAN_SYSTEM_PROMPT).toContain('You are helping plan a piece of work.');
-    expect(PLAN_SYSTEM_PROMPT).toContain('{"leaves":[');
-    expect(PLAN_SYSTEM_PROMPT).toContain('Short imperative title');
+  it('includes clear instructions in planSystemPrompt(IMAGES) for breaking down projects', () => {
+    expect(planSystemPrompt(IMAGES)).toContain('You are helping plan a piece of work.');
+    expect(planSystemPrompt(IMAGES)).toContain('{"leaves":[');
+    expect(planSystemPrompt(IMAGES)).toContain('Short imperative title');
   });
 
   it('handles reasoning monologues (<think>...</think>) preceding JSON proposal blocks', () => {

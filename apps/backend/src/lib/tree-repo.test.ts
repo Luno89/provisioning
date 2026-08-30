@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { usesRepo, personaWorkspace } from './persona-scope.js';
 import { primaryProjectId, withProject } from './trees.js';
 import { inRepo, REPO_MOUNT } from './leaf-checkout.js';
-import { WORKSPACE_IMAGES } from './workspace-spec.js';
+
 import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
 import type { Tree } from './trees.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
+import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
 const persona = (workspace: WorkspaceScope = {}) =>
   ({ id: 'p1', name: 'P', tools: [], workspace }) as unknown as PersonaPack;
@@ -71,8 +73,8 @@ describe('moving a deliverable into the checkout', () => {
 
 describe('the image a cloning persona needs', () => {
   it('records that the minimal image cannot clone', () => {
-    expect(WORKSPACE_IMAGES.base.absent).toContain('git');
-    expect(WORKSPACE_IMAGES.node.available.some((t) => t.startsWith('git'))).toBe(true);
+    expect(BY_LANGUAGE.base.absent).toContain('git');
+    expect(BY_LANGUAGE.node.available.some((t) => t.startsWith('git'))).toBe(true);
   });
 });
 
@@ -81,16 +83,16 @@ describe('the image a checkout needs', () => {
   const ids = { leafId: 'l1', ownerId: 'u1' };
 
   it('gives a prose leaf with a checkout an image that can clone', () => {
-    const spec = personaWorkspace(prose, ids, { requires: ['git'] });
-    expect(spec.image).not.toBe(WORKSPACE_IMAGES.base.image);
+    const spec = personaWorkspace(IMAGES, prose, ids, { requires: ['git'] });
+    expect(spec.image).not.toBe(BY_LANGUAGE.base.image);
   });
 
   it('leaves a leaf with no checkout on the minimal image', () => {
-    expect(personaWorkspace(prose, ids, {}).image).toBe(WORKSPACE_IMAGES.base.image);
+    expect(personaWorkspace(IMAGES, prose, ids, {}).image).toBe(BY_LANGUAGE.base.image);
   });
 
   it('never overrides a toolchain the work actually needs', () => {
-    expect(personaWorkspace(prose, ids, { requires: ['git'], language: 'go' }).image)
-      .toBe(WORKSPACE_IMAGES.go.image);
+    expect(personaWorkspace(IMAGES, prose, ids, { requires: ['git'], language: 'go' }).image)
+      .toBe(BY_LANGUAGE.go.image);
   });
 });

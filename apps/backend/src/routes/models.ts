@@ -4,7 +4,6 @@ import {
   getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
   getExl3ModelCollection, getHfModelBranches,
 } from '../lib/huggingface.js';
-import { isWorkspaceLanguage } from '../lib/workspace-spec.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 

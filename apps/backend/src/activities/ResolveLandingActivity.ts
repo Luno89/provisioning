@@ -19,6 +19,7 @@ import {
 import { buildVerifyScript, parseVerifyResult, defaultVerifyCommand } from '../lib/leaf-verify.js';
 import type { ProjectMetadata } from '../lib/types.js';
 import { withBuiltIns } from '../lib/ownership.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 
 export interface ResolveLandingArgs {
   leafId: string;
@@ -70,7 +71,10 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
     if (!pack) console.warn(`[ResolveLanding] no "${MERGER_PERSONA}" pack — running with harness defaults`);
     await workspaces.destroy(workspaceId).catch(() => undefined);
-    await workspaces.create(personaWorkspace(pack, { leafId: workspaceId, ownerId }, { language: project.language }));
+    await workspaces.create(personaWorkspace(
+      await new WorkspaceImageService(db).list(ownerId),
+      pack, { leafId: workspaceId, ownerId }, { language: project.language },
+    ));
     await countWorkspace(db, args.leafId);
 
     const cleanUrl = `${gitea.internalBaseUrl}/${project.giteaOwner}/${project.giteaRepo}.git`;

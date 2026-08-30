@@ -17,6 +17,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 
 export class MemoryDB implements Database {
@@ -40,6 +41,7 @@ export class MemoryDB implements Database {
   private experiments: Experiment[] = [];
   private harnessProfiles: HarnessProfile[] = [];
   private treeTypes: TreeTypeSpec[] = [];
+  private workspaceImages: WorkspaceImageSpec[] = [];
   private personas: Persona[] = [];
   private personaPacks: PersonaPack[] = [];
   private memories: MemoryItem[] = [];
@@ -282,6 +284,18 @@ export class MemoryDB implements Database {
 
   async deleteExperiment(id: string): Promise<void> {
     this.experiments = this.experiments.filter((e) => e.id !== id);
+  }
+
+  async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {
+    return ownerId
+      ? this.workspaceImages.filter((i) => i.ownerId === ownerId || i.ownerId === undefined)
+      : this.workspaceImages;
+  }
+
+  async saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void> {
+    const i = this.workspaceImages.findIndex((x) => x.id === image.id && x.ownerId === image.ownerId);
+    if (i >= 0) this.workspaceImages[i] = image;
+    else this.workspaceImages.push(image);
   }
 
   async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {

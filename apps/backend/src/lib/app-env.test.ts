@@ -3,6 +3,7 @@ import { resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } 
 import { appTypeFromName, isAppType, APP_TYPES } from './app-catalog.js';
 import { describeSandbox } from './workspace-spec.js';
 import type { DeploymentMetadata } from './types.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 const dep = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({
   id: 'd1', name: 'x', clusterId: 'c1', status: 'running', ...over,
@@ -106,17 +107,17 @@ describe('the app catalog', () => {
 
 describe('what the sandbox tells the agent about installing', () => {
   it('says installs fail when nothing is reachable', () => {
-    expect(describeSandbox({})).toMatch(/npm install.*WILL fail/i);
+    expect(describeSandbox(IMAGES, {})).toMatch(/npm install.*WILL fail/i);
   });
 
   it('still says so when the only egress is a service, not a registry', () => {
-    const out = describeSandbox({ egress: [{ namespace: 'gitea', ports: [3000] }] });
+    const out = describeSandbox(IMAGES, { egress: [{ namespace: 'gitea', ports: [3000] }] });
     expect(out).toMatch(/the gitea service/);
     expect(out).toMatch(/WILL fail/i);
   });
 
   it('says npm install works once a registry is injected', () => {
-    const out = describeSandbox({
+    const out = describeSandbox(IMAGES, {
       egress: [{ namespace: 'koala-registry', ports: [4873] }],
       env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://verdaccio.koala-registry.svc.cluster.local:4873' }],
     });

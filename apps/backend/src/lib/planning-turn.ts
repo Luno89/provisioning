@@ -1,6 +1,6 @@
 import { buildOutboundMessages, type OutboundMessage } from './leaf-context.js';
 import { ToolCallScanner } from './leaf-tools.js';
-import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
+import { planSystemPrompt } from './plan-mode.js';
 import { estimatePromptComplexity } from './smart-token-controller.js';
 import { TOOL_DISCIPLINE_PROMPT } from './sampling.js';
 import { forSurface } from './tool-catalogue.js';
@@ -14,6 +14,7 @@ import type { HarnessProfile } from './harness-profile.js';
 import type { Leaf } from './leaves.js';
 import type { ModelKind } from '@koala/harness-types';
 import type { WebSearchFn } from './web-tools.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 
 /**
  * The planner's toolset: the planning surface without the web tools, plus `research`.
@@ -84,6 +85,7 @@ export interface PlanningTurnOptions {
   pack?: { overrides?: Record<string, unknown> } | null;
   /** The caller's tool catalogue. Rows, because the planner's set is a view of it. */
   toolRows?: readonly ToolRepositoryItem[];
+  images?: readonly WorkspaceImageSpec[];
   overrides?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
@@ -105,7 +107,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
   const messages = buildOutboundMessages({
     messages: [{ role: 'user', content: opts.prompt }],
     lastIndex: 0,
-    prompt: PLAN_SYSTEM_PROMPT,
+    prompt: planSystemPrompt(opts.images ?? []),
     toolPrompt: TOOL_DISCIPLINE_PROMPT,
     leaves: [],
     ...(resolved.systemPrompt ? { personaPrompt: resolved.systemPrompt } : {}),

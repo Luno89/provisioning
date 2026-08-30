@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderSearchOutcome } from './web-tools.js';
 import { buildAgentPrompt } from './sandbox-tools.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 describe('what a search tells an agent', () => {
   it('says UNAVAILABLE when nothing looked, and that rephrasing will not help', () => {
@@ -40,11 +41,11 @@ describe('what a search tells an agent', () => {
 
 describe('what the prompt says about the network', () => {
   it('tells an agent with no egress that it has no network', () => {
-    expect(buildAgentPrompt('node', 'do the thing', 40)).toMatch(/NO outbound network/);
+    expect(buildAgentPrompt(IMAGES, 'node', 'do the thing', 40)).toMatch(/NO outbound network/);
   });
 
   it('names what an agent with a binding can actually reach', () => {
-    const prompt = buildAgentPrompt('node', 'do the thing', 40, {
+    const prompt = buildAgentPrompt(IMAGES, 'node', 'do the thing', 40, {
       egress: [{ namespace: 'koala-vectors', ports: [6333] }],
     });
 

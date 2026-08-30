@@ -10,6 +10,7 @@ import {
   extractTaskRevision,
 } from './experiment-authoring.js';
 import { MAX_TASKS, MAX_TASK_CHARS } from './experiments.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 const block = (tasks: unknown[]) => '```json\n' + JSON.stringify({ tasks }) + '\n```';
 
@@ -22,36 +23,36 @@ const good = (over: Record<string, unknown> = {}) => ({
 
 describe('buildTaskAuthorPrompt', () => {
   it('carries the real sandbox constraints, so a proposal cannot need the network', () => {
-    const prompt = buildTaskAuthorPrompt();
+    const prompt = buildTaskAuthorPrompt(IMAGES);
     expect(prompt).toMatch(/NO outbound network/);
     expect(prompt).toMatch(/read-only/);
   });
 
   it('teaches both properties that will actually be enforced', () => {
-    const prompt = buildTaskAuthorPrompt();
+    const prompt = buildTaskAuthorPrompt(IMAGES);
     expect(prompt).toMatch(/MUST FAIL with only the seed present/);
     expect(prompt).toMatch(/MUST PASS with seed \+ solution/);
     expect(prompt).toMatch(/checks the ARTEFACT|check the ARTEFACT/);
   });
 
   it('explains that a prompt referring to a file needs that file in the seed', () => {
-    const prompt = buildTaskAuthorPrompt();
+    const prompt = buildTaskAuthorPrompt(IMAGES);
     expect(prompt).toMatch(/MUST be in the seed/);
     expect(prompt).toMatch(/never sees it/);
   });
 
   it('permits proposing nothing, so a vague goal does not manufacture tasks', () => {
-    expect(buildTaskAuthorPrompt()).toMatch(/Propose nothing if the goal is unclear/);
+    expect(buildTaskAuthorPrompt(IMAGES)).toMatch(/Propose nothing if the goal is unclear/);
   });
 
   it('lists the existing suite so it proposes different work', () => {
-    const prompt = buildTaskAuthorPrompt({ existing: ['fib', 'parse csv'] });
+    const prompt = buildTaskAuthorPrompt(IMAGES, { existing: ['fib', 'parse csv'] });
     expect(prompt).toMatch(/- fib/);
     expect(prompt).toMatch(/- parse csv/);
   });
 
   it('offers only languages the sandbox actually has', () => {
-    const prompt = buildTaskAuthorPrompt();
+    const prompt = buildTaskAuthorPrompt(IMAGES);
     expect(prompt).toMatch(/node \(/);
     expect(prompt).toMatch(/go \(/);
   });
@@ -59,7 +60,7 @@ describe('buildTaskAuthorPrompt', () => {
 
 describe('extractTaskProposals', () => {
   it('reads a well-formed block', () => {
-    const { tasks, rejected } = extractTaskProposals(`Here you go:\n${block([good({ language: 'go' })])}`);
+    const { tasks, rejected } = extractTaskProposals(IMAGES, `Here you go:\n${block([good({ language: 'go' })])}`);
     expect(rejected).toEqual([]);
     expect(tasks).toEqual([{
       name: 'fib',
@@ -70,24 +71,24 @@ describe('extractTaskProposals', () => {
   });
 
   it('returns nothing for prose, rather than guessing', () => {
-    expect(extractTaskProposals('I would start by writing some tests.').tasks).toEqual([]);
+    expect(extractTaskProposals(IMAGES, 'I would start by writing some tests.').tasks).toEqual([]);
   });
 
   it('ignores a block that is not JSON', () => {
-    expect(extractTaskProposals('```\nnot json at all\n```').tasks).toEqual([]);
+    expect(extractTaskProposals(IMAGES, '```\nnot json at all\n```').tasks).toEqual([]);
   });
 
   it('scans every block, since the real one is not always last', () => {
     const reply = '```json\n{"example":true}\n```\ntext\n' + block([good()]);
-    expect(extractTaskProposals(reply).tasks).toHaveLength(1);
+    expect(extractTaskProposals(IMAGES, reply).tasks).toHaveLength(1);
   });
 
   it('accepts a bare object, which smaller models emit often enough to matter', () => {
-    expect(extractTaskProposals(JSON.stringify({ tasks: [good()] })).tasks).toHaveLength(1);
+    expect(extractTaskProposals(IMAGES, JSON.stringify({ tasks: [good()] })).tasks).toHaveLength(1);
   });
 
   it('drops an unknown language rather than inventing an image', () => {
-    const { tasks } = extractTaskProposals(block([good({ language: 'rust' })]));
+    const { tasks } = extractTaskProposals(IMAGES, block([good({ language: 'rust' })]));
     expect(tasks[0]!.language).toBeUndefined();
   });
 
@@ -96,18 +97,18 @@ describe('extractTaskProposals', () => {
       prompt: 'The file contains:\n```\nfoo\nbar\n```\nEdit it to say baz.',
     });
     const reply = '```json\n' + JSON.stringify({ tasks: [withFence] }) + '\n```';
-    const { tasks, rejected } = extractTaskProposals(reply);
+    const { tasks, rejected } = extractTaskProposals(IMAGES, reply);
     expect(rejected).toEqual([]);
     expect(tasks).toHaveLength(1);
     expect(tasks[0]!.prompt).toMatch(/foo/);
   });
 
   it('does not double-count a block the fallback also matches', () => {
-    expect(extractTaskProposals(block([good()])).tasks).toHaveLength(1);
+    expect(extractTaskProposals(IMAGES, block([good()])).tasks).toHaveLength(1);
   });
 
   it('keeps the first of two proposals sharing a name', () => {
-    const { tasks } = extractTaskProposals(block([
+    const { tasks } = extractTaskProposals(IMAGES, block([
       good({ prompt: 'first' }),
       good({ prompt: 'second' }),
     ]));
@@ -116,7 +117,7 @@ describe('extractTaskProposals', () => {
   });
 
   it('skips a proposal with no name, which could not even be reported on', () => {
-    const { tasks, rejected } = extractTaskProposals(block([good({ name: '  ' })]));
+    const { tasks, rejected } = extractTaskProposals(IMAGES, block([good({ name: '  ' })]));
     expect(tasks).toEqual([]);
     expect(rejected).toEqual([]);
   });
@@ -125,25 +126,25 @@ describe('extractTaskProposals', () => {
 describe('the verify command gate', () => {
   it('rejects a command that passes whatever the agent did', () => {
     for (const cmd of ['true', ':', 'exit 0', 'echo ok', 'echo PASS']) {
-      const { tasks, rejected } = extractTaskProposals(block([good({ verifyCommand: cmd })]));
+      const { tasks, rejected } = extractTaskProposals(IMAGES, block([good({ verifyCommand: cmd })]));
       expect(tasks).toEqual([]);
       expect(rejected[0]!.reason).toMatch(/passes whatever the agent did/);
     }
   });
 
   it('rejects a missing verify command', () => {
-    const { tasks, rejected } = extractTaskProposals(block([good({ verifyCommand: '' })]));
+    const { tasks, rejected } = extractTaskProposals(IMAGES, block([good({ verifyCommand: '' })]));
     expect(tasks).toEqual([]);
     expect(rejected).toEqual([{ name: 'fib', reason: 'has no verify command' }]);
   });
 
   it('keeps a real command that merely starts with echo', () => {
-    const { tasks } = extractTaskProposals(block([good({ verifyCommand: 'echo start && node t.js' })]));
+    const { tasks } = extractTaskProposals(IMAGES, block([good({ verifyCommand: 'echo start && node t.js' })]));
     expect(tasks).toHaveLength(1);
   });
 
   it('reports rejections rather than silently shrinking the batch', () => {
-    const { tasks, rejected } = extractTaskProposals(block([
+    const { tasks, rejected } = extractTaskProposals(IMAGES, block([
       good({ name: 'a' }),
       good({ name: 'b', verifyCommand: 'true' }),
       good({ name: 'c', prompt: '' }),
@@ -224,7 +225,7 @@ describe('selfProvisionedInputs', () => {
 describe('caps', () => {
   it('stops at the suite ceiling the create route enforces', () => {
     const many = Array.from({ length: MAX_TASKS + 5 }, (_, i) => good({ name: `t${i}` }));
-    expect(extractTaskProposals(block(many)).tasks).toHaveLength(MAX_TASKS);
+    expect(extractTaskProposals(IMAGES, block(many)).tasks).toHaveLength(MAX_TASKS);
   });
 
   it('counts accepted tasks toward the ceiling, not rejected ones', () => {
@@ -232,13 +233,13 @@ describe('caps', () => {
       ...Array.from({ length: 4 }, (_, i) => good({ name: `bad${i}`, verifyCommand: 'true' })),
       ...Array.from({ length: MAX_TASKS }, (_, i) => good({ name: `ok${i}` })),
     ];
-    const { tasks, rejected } = extractTaskProposals(block(mixed));
+    const { tasks, rejected } = extractTaskProposals(IMAGES, block(mixed));
     expect(tasks).toHaveLength(MAX_TASKS);
     expect(rejected).toHaveLength(4);
   });
 
   it('truncates an overlong prompt rather than rejecting the task', () => {
-    const { tasks } = extractTaskProposals(block([good({ prompt: 'x'.repeat(MAX_TASK_CHARS + 500) })]));
+    const { tasks } = extractTaskProposals(IMAGES, block([good({ prompt: 'x'.repeat(MAX_TASK_CHARS + 500) })]));
     expect(tasks[0]!.prompt).toHaveLength(MAX_TASK_CHARS);
   });
 });
@@ -256,7 +257,7 @@ describe('stripTaskBlock', () => {
     const stripped = stripTaskBlock(reply);
     expect(stripped).toBe('Here you go:');
     // And the pair still agree about what counted as a proposal.
-    expect(extractTaskProposals(reply).tasks).toHaveLength(1);
+    expect(extractTaskProposals(IMAGES, reply).tasks).toHaveLength(1);
   });
 
   it('removes a bare object with no fence at all', () => {
@@ -295,20 +296,20 @@ describe('the task conversation', () => {
   it('carries the task as it stands, so the model revises something concrete', () => {
     // Restating it each turn invites the model to invent from the last thing it said rather than
     // from what is actually stored.
-    const prompt = buildTaskChatPrompt(current as any);
+    const prompt = buildTaskChatPrompt(IMAGES, current as any);
     expect(prompt).toMatch(/THE TASK AS IT STANDS/);
     expect(prompt).toMatch(/verifyCommand: cd \/work && node test\.js/);
     expect(prompt).toMatch(/"path":"a\.txt"/);
   });
 
   it('explains the rule that a referenced file must be seeded', () => {
-    expect(buildTaskChatPrompt(current as any)).toMatch(/the agent never sees it/);
+    expect(buildTaskChatPrompt(IMAGES, current as any)).toMatch(/the agent never sees it/);
   });
 
   it('reads back only the fields the model actually changed', () => {
     // A merge that filled in omitted fields with defaults would quietly undo edits the
     // conversation never mentioned.
-    const revision = extractTaskRevision(
+    const revision = extractTaskRevision(IMAGES, 
       'Good catch — the file needs to exist first.\n```json\n'
       + JSON.stringify({ task: { seed: [{ path: 'data.txt', content: 'hello' }] } })
       + '\n```',
@@ -317,16 +318,16 @@ describe('the task conversation', () => {
   });
 
   it('returns nothing when the reply is only conversation', () => {
-    expect(extractTaskRevision('What should the file contain?')).toBeNull();
+    expect(extractTaskRevision(IMAGES, 'What should the file contain?')).toBeNull();
   });
 
   it('ignores a block with no usable field', () => {
-    expect(extractTaskRevision('```json\n{"task":{"nonsense":1}}\n```')).toBeNull();
+    expect(extractTaskRevision(IMAGES, '```json\n{"task":{"nonsense":1}}\n```')).toBeNull();
   });
 
   it('reads a revision the model never closed the fence on', () => {
     // Measured against the live deployment: it opens ```json and stops.
-    const revision = extractTaskRevision('Here:\n```json\n' + JSON.stringify({ task: { prompt: 'reworded' } }));
+    const revision = extractTaskRevision(IMAGES, 'Here:\n```json\n' + JSON.stringify({ task: { prompt: 'reworded' } }));
     expect(revision).toEqual({ prompt: 'reworded' });
   });
 });

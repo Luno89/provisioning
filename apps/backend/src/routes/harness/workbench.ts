@@ -2,7 +2,8 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../../middleware/async-route.js';
 import { ownedBy } from '../../lib/ownership.js';
 import type { Database } from '../../lib/db-interface.js';
-import { isWorkspaceLanguage } from '../../lib/workspace-spec.js';
+import { imageForLanguage, isWorkspaceLanguage } from '../../lib/workspace-image-catalogue.js';
+import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
 import { taskFiles } from '../../lib/experiment-authoring.js';
 import type { WorkbenchService } from '../../services/WorkbenchService.js';
 
@@ -23,8 +24,10 @@ export function workbenchRouter(deps: workbenchRouterDeps): Router {
   router.post('/open', async (req, res) => {
     try {
       const { language, seed } = req.body ?? {};
+      const images = await new WorkspaceImageService(db).list(userOf(req).id);
       res.json(await workbenchService.open(userOf(req).id, {
-        ...(isWorkspaceLanguage(language) ? { language } : {}),
+        ...(isWorkspaceLanguage(images, language) ? { language } : {}),
+        image: imageForLanguage(images, language),
         ...(Array.isArray(seed) ? { seed: taskFiles(seed) } : {}),
       }));
     } catch (err: any) {

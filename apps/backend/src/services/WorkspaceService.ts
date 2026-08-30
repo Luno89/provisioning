@@ -11,6 +11,7 @@ import {
 import { readBindingCredentials } from '../lib/binding-project.js';
 import { bindingFiles } from '../lib/binding-resolve.js';
 import type { ResolvedBinding } from '../lib/binding-resolve.js';
+import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 
 const BIN_DIR = path.join(process.cwd(), '..', '..', 'bin');
 
@@ -89,9 +90,13 @@ export class WorkspaceService {
     return out;
   }
 
-  async create(spec: WorkspaceSpec, readyTimeoutMs = 120_000): Promise<string> {
+  async create(
+    spec: WorkspaceSpec,
+    readyTimeoutMs = 120_000,
+    images: readonly WorkspaceImageSpec[] = [],
+  ): Promise<string> {
     const namespace = workspaceNamespace(spec.leafId);
-    const manifests = buildWorkspaceManifests(spec);
+    const manifests = buildWorkspaceManifests(images, spec);
     const doc = manifests.map((m) => JSON.stringify(m)).join('\n---\n');
 
     await this.waitForNamespaceGone(namespace);

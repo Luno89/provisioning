@@ -1,5 +1,4 @@
 import { WorkspaceService } from './WorkspaceService.js';
-import { imageForLanguage } from '../lib/workspace-spec.js';
 import type { TaskFile, WorkspaceLanguage } from '@koala/harness-types';
 
 const IDLE_MS = 10 * 60_000;
@@ -32,13 +31,16 @@ export class WorkbenchService {
 
   async open(
     ownerId: string,
-    opts: { language?: WorkspaceLanguage; seed?: TaskFile[] } = {},
+    opts: { language?: WorkspaceLanguage; seed?: TaskFile[]; image?: string } = {},
   ): Promise<{ sessionId: string }> {
     await this.reapIdle();
 
     const id = `wb-${ownerId.slice(0, 8)}-${Date.now().toString(36)}`;
     const language = opts.language ?? 'node';
-    await this.workspaces.create({ leafId: id, ownerId, image: imageForLanguage(language) });
+    await this.workspaces.create({
+      leafId: id, ownerId,
+      ...(opts.image ? { image: opts.image } : {}),
+    });
 
     const session: Session = { id, ownerId, language, seed: opts.seed ?? [], lastUsedAt: Date.now() };
     this.sessions.set(id, session);

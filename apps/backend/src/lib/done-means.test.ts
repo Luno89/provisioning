@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { TREE_TYPE_SEEDS } from './tree-type-seeds.js';
 import { buildOutboundMessages } from './leaf-context.js';
-import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
+import { planSystemPrompt } from './plan-mode.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 describe('every type says what finished means', () => {
   it('leaves none unsaid', () => {
@@ -43,31 +44,31 @@ describe('it reaches the planning turn', () => {
 
 describe('the plan rules that came out of the failed run', () => {
   it('asks for checks as an ordered sequence', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/install dependencies, then build or test, then run/);
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/fails on a missing package and/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/install dependencies, then build or test, then run/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/fails on a missing package and/);
   });
 
   it('asks for a final leaf that exercises the finished thing', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/End the plan with a leaf that exercises the FINISHED thing/);
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/Name what it must produce in\s*\n?\s*`expects`/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/End the plan with a leaf that exercises the FINISHED thing/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/Name what it must produce in\s*\n?\s*`expects`/);
   });
 });
 
 describe('verifying something that depends on a service', () => {
   it('says a sandbox cannot verify a binding', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/sandbox CANNOT verify the connection/);
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/bindings exist only in the deployed service/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/sandbox CANNOT verify the connection/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/bindings exist only in the deployed service/);
   });
 
   it('names the mechanism that makes the call possible', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/name the service in its `mcp`/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/name the service in its `mcp`/);
   });
 
   it('ties it to the declaration, not to a feeling', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/anything you declared with add_project_dependency/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/anything you declared with add_project_dependency/);
   });
 
   it('still lets the planner escalate on judgement', () => {
-    expect(PLAN_SYSTEM_PROMPT).toMatch(/fail in ways the individual pieces cannot/);
+    expect(planSystemPrompt(IMAGES)).toMatch(/fail in ways the individual pieces cannot/);
   });
 });

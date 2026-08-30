@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { runPlanningTurn, MAX_PLANNING_ROUNDS, plannerTools } from './planning-turn.js';
 import type { LeafToolContext } from './leaf-tool-runner.js';
-import { PLAN_SYSTEM_PROMPT } from './plan-mode.js';
+import { planSystemPrompt } from './plan-mode.js';
 import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 let db: MemoryDB;
 
@@ -46,6 +47,7 @@ const run = (turns: Parameters<typeof scripted>[0], over: any = {}) => {
   const model = scripted(turns);
   return runPlanningTurn({
     toolRows: ALL_TOOL_SEEDS,
+    images: IMAGES,
     baseUrl: 'http://model', prompt: 'Build a GitHub API client',
     tools: tools(), fetchImpl: model.impl, ...over,
   }).then((result) => ({ result, sent: model.seen }));
@@ -64,7 +66,7 @@ describe('what the model is asked', () => {
 
   it('asks for a plan explicitly rather than letting a heuristic decide', async () => {
     const { sent } = await run([{ content: 'done' }]);
-    expect(sent[0].messages[0].content).toContain(PLAN_SYSTEM_PROMPT);
+    expect(sent[0].messages[0].content).toContain(planSystemPrompt(IMAGES));
   });
 
   it('offers the leaf tools, including the ones that assign work', async () => {
@@ -168,7 +170,7 @@ describe('what the turn produces', () => {
 
   it('records what it asked, so a score has its input beside it', async () => {
     const { result } = await run([{ content: 'done' }]);
-    expect(result.request.systemPrompt).toContain(PLAN_SYSTEM_PROMPT);
+    expect(result.request.systemPrompt).toContain(planSystemPrompt(IMAGES));
     expect(result.request.tools).toContain('propose_leaf');
   });
 });

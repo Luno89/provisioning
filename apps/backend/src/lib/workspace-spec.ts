@@ -1,66 +1,12 @@
 import { bindingProjection, bindingSecretName } from './service-binding.js';
+import { detailsForImage, imageForLanguage } from './workspace-image-catalogue.js';
+import {
+  DEFAULT_WORKSPACE_LANGUAGE, EGRESS_PROXY_EGRESS, EGRESS_PROXY_HOST, WORKSPACE_MOUNT,
+  type EgressRule, type WorkspaceImageSpec,
+} from './workspace-image-seeds.js';
 
-export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base';
-
-export interface WorkspaceImage {
-  image: string;
-  summary: string;
-  available: string[];
-  absent: string[];
-}
-
-export const WORKSPACE_IMAGES: Record<WorkspaceLanguage, WorkspaceImage> = {
-  node: {
-    image: 'registry.access.redhat.com/ubi9/nodejs-22',
-    summary: 'Node.js 22 + npm. Also has Python 3.9, gcc and make.',
-    available: ['bash', 'git 2.52', 'node 22', 'npm', 'npx', 'python3 3.9', 'gcc', 'make', 'curl', 'tar'],
-    absent: ['go', 'pip', 'wget', 'jq'],
-  },
-  python: {
-    image: 'registry.access.redhat.com/ubi9/python-312',
-    summary: 'Python 3.12 + pip and venv. Also has Node 22, gcc and make.',
-    available: ['bash', 'git 2.52', 'python3 3.12', 'pip', 'venv', 'node 22', 'npm', 'gcc', 'make', 'curl', 'wget', 'tar'],
-    absent: ['go', 'jq'],
-  },
-  go: {
-    image: 'registry.access.redhat.com/ubi9/go-toolset',
-    summary: 'Go 1.26 toolchain. Also has Node 22, Python 3.9, gcc and make.',
-    available: ['bash', 'git 2.52', 'go 1.26', 'node 22', 'npm', 'python3 3.9', 'gcc', 'make', 'curl', 'wget', 'tar'],
-    absent: ['pip', 'jq'],
-  },
-  base: {
-    image: 'registry.access.redhat.com/ubi9/ubi',
-    summary: 'Minimal shell environment. No git, no compilers — shell and text editing only.',
-    available: ['bash', 'python3 3.9', 'curl', 'tar'],
-    absent: ['git', 'node', 'npm', 'go', 'pip', 'gcc', 'make', 'wget', 'jq'],
-  },
-};
-
-export const DEFAULT_WORKSPACE_LANGUAGE: WorkspaceLanguage = 'node';
-export const DEFAULT_WORKSPACE_IMAGE = WORKSPACE_IMAGES[DEFAULT_WORKSPACE_LANGUAGE].image;
-
-export function isWorkspaceLanguage(value: unknown): value is WorkspaceLanguage {
-  return typeof value === 'string' && value in WORKSPACE_IMAGES;
-}
-
-export function imageForLanguage(language?: string): string {
-  return isWorkspaceLanguage(language) ? WORKSPACE_IMAGES[language].image : DEFAULT_WORKSPACE_IMAGE;
-}
-
-export function capableImage(language: string | undefined, requires: readonly string[] = []): string {
-  const asked = imageForLanguage(language);
-  if (!requires.length) return asked;
-
-  const entry = Object.values(WORKSPACE_IMAGES).find((i) => i.image === asked);
-  const missing = requires.filter((tool) => entry?.absent.includes(tool));
-  if (!missing.length) return asked;
-
-  const capable = Object.values(WORKSPACE_IMAGES)
-    .find((i) => requires.every((tool) => !i.absent.includes(tool)));
-  return capable?.image ?? asked;
-}
-
-export const WORKSPACE_MOUNT = '/work';
+export type { WorkspaceLanguage, EgressRule } from './workspace-image-seeds.js';
+export { DEFAULT_WORKSPACE_LANGUAGE, WORKSPACE_MOUNT, EGRESS_PROXY_HOST, EGRESS_PROXY_EGRESS };
 
 export const MAX_WORKSPACE_SECONDS = 3600;
 
@@ -77,10 +23,6 @@ export interface WorkspaceSpec {
   bindings?: WorkspaceBinding[];
   env?: { name: string; value: string }[];
 }
-
-export type EgressRule =
-  | { cidr: string; namespace?: undefined; ports?: number[] }
-  | { namespace: string; cidr?: undefined; ports?: number[] };
 
 export interface WorkspaceBinding {
   name: string;
@@ -107,7 +49,22 @@ export function workspaceNamespace(leafId: string): string {
 
 export const WORKSPACE_POD = 'workspace';
 
-export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unknown>[] {
+/**
+ * Never an empty string: an unseeded catalogue used to surface as a pod whose image was '', which
+ * Kubernetes rejects with a message about the manifest rather than about the seed that is missing.
+ */
+function podImage(rows: readonly WorkspaceImageSpec[], spec: WorkspaceSpec): string {
+  const image = spec.image ?? imageForLanguage(rows);
+  if (!image) {
+    throw new Error('No workspace image: the catalogue is empty. Run the seeder (scripts/seed-all.ts).');
+  }
+  return image;
+}
+
+export function buildWorkspaceManifests(
+  rows: readonly WorkspaceImageSpec[],
+  spec: WorkspaceSpec,
+): Record<string, unknown>[] {
   const namespace = workspaceNamespace(spec.leafId);
   const labels = { 'koala.dev/leaf': spec.leafId, 'koala.dev/owner': spec.ownerId, 'app': 'koala-workspace' };
 
@@ -172,7 +129,7 @@ export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unk
         containers: [
           {
             name: 'workspace',
-            image: spec.image ?? DEFAULT_WORKSPACE_IMAGE,
+            image: podImage(rows, spec),
             command: ['sleep', String(MAX_WORKSPACE_SECONDS)],
             workingDir: WORKSPACE_MOUNT,
             env: [
@@ -213,60 +170,18 @@ export function buildWorkspaceManifests(spec: WorkspaceSpec): Record<string, unk
   ];
 }
 
-const IMAGE_DETAILS: Record<string, WorkspaceImage> = Object.fromEntries(
-  Object.values(WORKSPACE_IMAGES).map((entry) => [entry.image, entry]),
-);
-
-export const EGRESS_PROXY_HOST = 'egress-proxy.koala-egress.svc.cluster.local:8888';
-export const EGRESS_PROXY_EGRESS: EgressRule = { namespace: 'koala-egress', ports: [8888] };
-
-const PROXY_ENV = [
-  { name: 'HTTPS_PROXY', value: `http://${EGRESS_PROXY_HOST}` },
-  { name: 'https_proxy', value: `http://${EGRESS_PROXY_HOST}` },
-];
-
-const PACKAGE_ACCESS: Record<WorkspaceLanguage, { env: { name: string; value: string }[]; egress: EgressRule[] }> = {
-  node: {
-    env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://verdaccio.koala-registry.svc.cluster.local:4873' }],
-    egress: [{ namespace: 'koala-registry', ports: [4873] }],
-  },
-  python: {
-    env: [
-      { name: 'PIP_INDEX_URL', value: 'https://pypi.org/simple' },
-      { name: 'PIP_TARGET', value: `${WORKSPACE_MOUNT}/.python-packages` },
-      { name: 'PYTHONPATH', value: `${WORKSPACE_MOUNT}/.python-packages` },
-      ...PROXY_ENV,
-    ],
-    egress: [EGRESS_PROXY_EGRESS],
-  },
-  go: {
-    env: [
-      { name: 'GOPROXY', value: 'https://proxy.golang.org,direct' },
-      { name: 'GOSUMDB', value: 'sum.golang.org' },
-      ...PROXY_ENV,
-    ],
-    egress: [EGRESS_PROXY_EGRESS],
-  },
-  base: { env: [], egress: [] },
-};
-
-export function packageAccess(
-  language: string | undefined,
-): { env: { name: string; value: string }[]; egress: EgressRule[] } {
-  const key = isWorkspaceLanguage(language) ? language : DEFAULT_WORKSPACE_LANGUAGE;
-  const entry = PACKAGE_ACCESS[key];
-  return { env: entry.env.map((e) => ({ ...e })), egress: entry.egress.map((r) => ({ ...r, ...(r.ports ? { ports: [...r.ports] } : {}) })) };
-}
-
 const PACKAGE_MANAGERS = [
   { tool: 'npm', env: 'NPM_CONFIG_REGISTRY', command: 'npm install' },
   { tool: 'pip', env: 'PIP_INDEX_URL', command: 'pip install' },
   { tool: 'go', env: 'GOPROXY', command: 'go mod download' },
 ] as const;
 
-export function describeSandbox(spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'memory' | 'egress' | 'env'> = {}): string {
-  const image = spec.image ?? DEFAULT_WORKSPACE_IMAGE;
-  const tools = IMAGE_DETAILS[image];
+export function describeSandbox(
+  rows: readonly WorkspaceImageSpec[],
+  spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'memory' | 'egress' | 'env'> = {},
+): string {
+  const image = spec.image ?? imageForLanguage(rows);
+  const tools = detailsForImage(rows, image);
 
   const reachable = (spec.egress ?? []).map((rule) => {
     const ports = rule.ports?.length ? ` on port ${rule.ports.join(', ')}` : '';

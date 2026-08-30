@@ -8,7 +8,8 @@ import {
   latestResults, plannedRuns, experimentTasks, MAX_REPEATS, MAX_TASK_CHARS,
 } from '../../lib/experiments.js';
 import { normaliseTasks, taskFiles, unknownPersona } from '../../lib/experiment-authoring.js';
-import { isWorkspaceLanguage } from '../../lib/workspace-spec.js';
+import { isWorkspaceLanguage } from '../../lib/workspace-image-catalogue.js';
+import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
 import type { Experiment, ExperimentTask } from '@koala/harness-types';
 import type { ExperimentService } from '../../services/ExperimentService.js';
 
@@ -44,12 +45,13 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
 
   router.post('/', async (req, res) => {
     const { name, tasks, task, verifyCommand, language, variants, axes, repeats } = req.body ?? {};
+    const images = await new WorkspaceImageService(db).list(userOf(req).id);
     const resolved = Array.isArray(variants) && variants.length
       ? variants
       : expandAxes(axes && typeof axes === 'object' ? axes : {});
 
     const suite: ExperimentTask[] = Array.isArray(tasks) && tasks.length
-      ? normaliseTasks(tasks)
+      ? normaliseTasks(images, tasks)
       : [{
           id: 't1',
           name: 'Task',
@@ -62,7 +64,7 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
       ownerId: userOf(req).id,
       name: String(name ?? '').trim().slice(0, 120),
       tasks: suite,
-      language: isWorkspaceLanguage(language) ? language : 'node',
+      language: isWorkspaceLanguage(images, language) ? language : 'node',
       variants: resolved,
       repeats: Math.max(1, Math.min(MAX_REPEATS, Number(repeats) || 1)),
       status: 'draft',
@@ -88,7 +90,8 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
 
     const { name, tasks, variants, axes, repeats } = req.body ?? {};
     const before = experimentTasks(existing);
-    const suite = Array.isArray(tasks) && tasks.length ? normaliseTasks(tasks) : before;
+    const images = await new WorkspaceImageService(db).list(userOf(req).id);
+    const suite = Array.isArray(tasks) && tasks.length ? normaliseTasks(images, tasks) : before;
     const badPersona = await unknownPersona(db, userOf(req).id, variants);
     if (badPersona) return res.status(400).json({ error: badPersona });
 

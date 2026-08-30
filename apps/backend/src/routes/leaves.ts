@@ -18,6 +18,7 @@ import type { GiteaService } from '../services/GiteaService.js';
 import { acceptLeaf } from '../lib/accept-leaf.js';
 import type { Database } from '../lib/db-interface.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 
 export interface LeavesRouterDeps {
   db: Database;
@@ -207,8 +208,9 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
       ? (await db.getPersonaPacks()).find((p) => (p.id === leaf.packId || p.slug === leaf.packId)
           && (p.ownerId === undefined || p.ownerId === user.id))
       : undefined;
+    const images = await new WorkspaceImageService(db).list(user.id);
     const sandbox = ranAs
-      ? describeSandbox(personaWorkspace(ranAs, { leafId: leaf.id, ownerId: user.id }, {}))
+      ? describeSandbox(images, personaWorkspace(images, ranAs, { leafId: leaf.id, ownerId: user.id }, {}))
       : 'The pack this leaf ran as is no longer available, so its environment is unknown.';
 
     res.json({

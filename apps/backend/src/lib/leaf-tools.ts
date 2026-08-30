@@ -1,5 +1,4 @@
 import type { ToolEffect } from './action-gate.js';
-import { WORKSPACE_IMAGES, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 import type { Leaf } from './leaves.js';
 
 export const MAX_TOOL_ROUNDS = 8;

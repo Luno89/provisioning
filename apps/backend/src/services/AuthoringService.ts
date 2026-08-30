@@ -1,7 +1,9 @@
 import type { ExperimentTask } from '@koala/harness-types';
 import { boardFile } from '../lib/planning-board.js';
 import { WorkspaceService } from './WorkspaceService.js';
-import { imageForLanguage, DEFAULT_WORKSPACE_LANGUAGE } from '../lib/workspace-spec.js';
+import { DEFAULT_WORKSPACE_LANGUAGE } from '../lib/workspace-spec.js';
+import { imageForLanguage } from '../lib/workspace-image-catalogue.js';
+import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
 import {
   judgeEmptyRun, judgeSolutionRun, selfProvisionedInputs, type DraftTask,
 } from '../lib/experiment-authoring.js';
@@ -27,11 +29,15 @@ export class AuthoringService {
     ownerId: string,
     tasks: DraftTask[],
     runId = `authoring-${Date.now().toString(36)}`,
+    images: readonly WorkspaceImageSpec[] = [],
   ): Promise<ValidatedTask[]> {
     if (!tasks.length) return [];
 
     const language = tasks.find((t) => t.language)?.language ?? DEFAULT_WORKSPACE_LANGUAGE;
-    await this.workspaces.create({ leafId: runId, ownerId, image: imageForLanguage(language) });
+    await this.workspaces.create({
+      leafId: runId, ownerId,
+      ...(images.length ? { image: imageForLanguage(images, language) } : {}),
+    });
 
     try {
       const out: ValidatedTask[] = [];

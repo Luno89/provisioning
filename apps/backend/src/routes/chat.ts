@@ -19,7 +19,8 @@ import { buildModelRequest } from '../lib/model-request.js';
 import { MAX_ASSIGNMENT_ROUNDS, buildAssignmentPrompt, buildUnassignedNotice, unassignedLeaves } from '../lib/persona-assignment.js';
 import { resolveConfig } from '../lib/personas.js';
 import type { Persona } from '../lib/personas.js';
-import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, PLAN_SYSTEM_PROMPT, extractProposals, isChatMode, parseChatCommand } from '../lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, MAX_PROPOSALS_PER_REPLY, planSystemPrompt, extractProposals, isChatMode, parseChatCommand } from '../lib/plan-mode.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import type { ChatMode, LeafProposal } from '../lib/plan-mode.js';
 import { planNotice, reviewPlan } from '../lib/plan-review.js';
 import { duplicateNotice, newProposals, resolvePersonaNamed, suspectedDuplicates } from '../lib/proposal-merge.js';
@@ -190,6 +191,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const conventions = conventionsOf(planTreeType);
     const fileConventions = conventions ? describeConventions(conventions) : undefined;
     const toolRegistry = await new ToolService(db).list(uid);
+    const images = await new WorkspaceImageService(db).list(uid);
     // The planning surface, from the catalogue — LEAF_TOOLS was a second list of the same thing.
     const planningTools = forSurface(toolRegistry, 'planning');
     const activeToolNames = offerTools
@@ -210,7 +212,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       ...(fileConventions ? { fileConventions } : {}),
       messages,
       lastIndex,
-      prompt: explicitPlan ? PLAN_SYSTEM_PROMPT : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
+      prompt: explicitPlan ? planSystemPrompt(images) : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
       leaves: branchLeaves,
       siblingLeaves,
       siblingBranches,

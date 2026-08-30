@@ -1,5 +1,7 @@
 import type { TaskFile, WorkspaceLanguage  } from '@koala/harness-types';
-import { describeSandbox, WORKSPACE_IMAGES, isWorkspaceLanguage } from './workspace-spec.js';
+import { describeSandbox } from './workspace-spec.js';
+import { isWorkspaceLanguage } from './workspace-image-catalogue.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import { MAX_TASKS, MAX_TASK_CHARS, MAX_TASK_FILES, MAX_TASK_FILE_CHARS } from './experiments.js';
 import type { ExperimentTask } from '@koala/harness-types';
 import type { Database } from './db-interface.js';
@@ -42,10 +44,11 @@ const degenerate = (command: string): string | null => {
   return null;
 };
 
-export function buildTaskAuthorPrompt(opts: { existing?: string[] } = {}): string {
-  const languages = (Object.keys(WORKSPACE_IMAGES) as WorkspaceLanguage[])
-    .map((id) => `${id} (${WORKSPACE_IMAGES[id].summary})`)
-    .join('; ');
+export function buildTaskAuthorPrompt(
+  images: readonly WorkspaceImageSpec[],
+  opts: { existing?: string[] } = {},
+): string {
+  const languages = images.map((i) => `${i.id} (${i.summary})`).join('; ');
 
   return [
     'You are writing tasks for an evaluation suite. Each task is given to a coding agent working',
@@ -93,11 +96,11 @@ export function buildTaskAuthorPrompt(opts: { existing?: string[] } = {}): strin
           '',
         ]
       : []),
-    describeSandbox(),
+    describeSandbox(images),
   ].join('\n');
 }
 
-export function buildTaskChatPrompt(task: DraftTask): string {
+export function buildTaskChatPrompt(images: readonly WorkspaceImageSpec[], task: DraftTask): string {
   return [
     'You are helping write ONE task for an evaluation suite. Discuss it naturally.',
     '',
@@ -126,11 +129,11 @@ export function buildTaskChatPrompt(task: DraftTask): string {
     `seed: ${JSON.stringify(task.seed ?? [])}`,
     `solution: ${JSON.stringify(task.solution ?? [])}`,
     '',
-    describeSandbox(),
+    describeSandbox(images),
   ].join('\n');
 }
 
-export function extractTaskRevision(reply: string): Partial<DraftTask> | null {
+export function extractTaskRevision(images: readonly WorkspaceImageSpec[], reply: string): Partial<DraftTask> | null {
   const found = findTaskObject(reply, 'task');
   if (!found) return null;
 
@@ -150,7 +153,7 @@ export function extractTaskRevision(reply: string): Partial<DraftTask> | null {
   }
   if (Array.isArray(raw.seed)) out.seed = files(raw.seed);
   if (Array.isArray(raw.solution)) out.solution = files(raw.solution);
-  if (isWorkspaceLanguage(raw.language)) out.language = raw.language;
+  if (isWorkspaceLanguage(images, raw.language)) out.language = raw.language;
   return Object.keys(out).length ? out : null;
 }
 
@@ -188,7 +191,7 @@ function findTaskObject(
   return null;
 }
 
-export function extractTaskProposals(reply: string): AuthoredTasks {
+export function extractTaskProposals(images: readonly WorkspaceImageSpec[], reply: string): AuthoredTasks {
   const out: AuthoredTasks = { tasks: [], rejected: [] };
   if (!reply) return out;
 
@@ -234,7 +237,7 @@ export function extractTaskProposals(reply: string): AuthoredTasks {
         verifyCommand,
         ...(files((raw as any)?.seed).length ? { seed: files((raw as any)?.seed) } : {}),
         ...(files((raw as any)?.solution).length ? { solution: files((raw as any)?.solution) } : {}),
-        ...(isWorkspaceLanguage(language) ? { language } : {}),
+        ...(isWorkspaceLanguage(images, language) ? { language } : {}),
       });
 
       if (out.tasks.length >= MAX_TASKS) return out;
@@ -291,7 +294,7 @@ export function stripTaskBlock(reply: string): string {
   return (head + tail).trim();
 }
 
-export const normaliseTasks = (tasks: any[]): ExperimentTask[] =>
+export const normaliseTasks = (images: readonly WorkspaceImageSpec[], tasks: any[]): ExperimentTask[] =>
   tasks.slice(0, MAX_TASKS).map((t: any, i: number) => ({
     id: `t${i + 1}`,
     name: String(t?.name ?? '').trim().slice(0, 80) || `Task ${i + 1}`,
@@ -299,7 +302,7 @@ export const normaliseTasks = (tasks: any[]): ExperimentTask[] =>
     verifyCommand: String(t?.verifyCommand ?? '').trim().slice(0, 2000),
     ...(Array.isArray(t?.seed) && t.seed.length ? { seed: taskFiles(t.seed) } : {}),
     ...(Array.isArray(t?.solution) && t.solution.length ? { solution: taskFiles(t.solution) } : {}),
-    ...(isWorkspaceLanguage(t?.language) ? { language: t.language } : {}),
+    ...(isWorkspaceLanguage(images, t?.language) ? { language: t.language } : {}),
     ...(t?.planning === true || t?.kind === 'planning' ? { planning: true } : {}),
   }));
 

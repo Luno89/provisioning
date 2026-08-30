@@ -74,6 +74,7 @@ import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { agentRunOptions, wantsWeb, wantsMcp } from '../lib/agent-run.js';
 import { withBuiltIns } from '../lib/ownership.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 
 export interface ExecuteLeafArgs {
   leafId: string;
@@ -307,7 +308,9 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         })
         : [];
 
-      const sandboxSpec = personaWorkspace(pack,
+      const sandboxSpec = personaWorkspace(
+        await new WorkspaceImageService(db).list(leaf.ownerId),
+        pack,
         { leafId: leaf.id, ownerId: leaf.ownerId },
         {
           language: project?.language ?? treeType?.language,

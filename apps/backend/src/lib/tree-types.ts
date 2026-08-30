@@ -1,4 +1,5 @@
-import { WORKSPACE_IMAGES, type WorkspaceLanguage } from './workspace-spec.js';
+import type { WorkspaceLanguage } from './workspace-spec.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 
 export interface TreeTypeFile {
@@ -41,7 +42,10 @@ export interface TreeTypeSpec {
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const MAX_STARTER_FILES = 20;
 
-export function validateTreeType(candidate: Partial<TreeTypeSpec>): string | null {
+export function validateTreeType(
+  images: readonly WorkspaceImageSpec[],
+  candidate: Partial<TreeTypeSpec>,
+): string | null {
   if (!candidate.id || !SLUG.test(candidate.id)) {
     return 'id must be a slug: lowercase letters, numbers and single hyphens.';
   }
@@ -49,8 +53,8 @@ export function validateTreeType(candidate: Partial<TreeTypeSpec>): string | nul
   if (!candidate.summary?.trim()) return 'summary is required.';
   if (!candidate.doneMeans?.trim()) return 'doneMeans is required — it is what acceptance starts from.';
 
-  if (!candidate.language || !(candidate.language in WORKSPACE_IMAGES)) {
-    return `language must be one of ${Object.keys(WORKSPACE_IMAGES).join(', ')}.`;
+  if (!candidate.language || !images.some((i) => i.id === candidate.language)) {
+    return `language must be one of ${images.map((i) => i.id).join(', ')}.`;
   }
   if (candidate.produces !== 'service' && candidate.produces !== 'artefact') {
     return 'produces must be "service" or "artefact".';

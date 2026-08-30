@@ -2,7 +2,8 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
 import { ToolService } from '../services/ToolService.js';
-import { WORKSPACE_IMAGES, DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from '../lib/workspace-spec.js';
+import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from '../lib/workspace-spec.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { MAX_AGENT_STEPS } from '../lib/sandbox-tools.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { preferUsable } from '../lib/mcp-registry.js';
@@ -37,12 +38,12 @@ export function personaOptionsRouter(deps: PersonaOptionsRouterDeps): Router {
     }
     res.json({
       mcpServers,
-      languages: Object.entries(WORKSPACE_IMAGES).map(([id, spec]) => ({
-        id,
-        image: spec.image,
-        summary: spec.summary,
-        available: spec.available,
-        absent: spec.absent,
+      languages: (await new WorkspaceImageService(db).list(userOf(req).id)).map((i) => ({
+        id: i.id,
+        image: i.image,
+        summary: i.summary,
+        available: i.available,
+        absent: i.absent,
       })),
       tools: (await new ToolService(db).list(userOf(req).id))
         .map((t) => ({ name: t.name, description: t.description }))

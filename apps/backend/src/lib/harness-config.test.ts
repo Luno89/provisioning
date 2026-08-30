@@ -2,14 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { buildHarnessConfig } from './harness-config.js';
 import { TOOL_TURN_MAX_TOKENS, toolTurnSampling, TOOL_DISCIPLINE_PROMPT } from './sampling.js';
 import { MAX_AGENT_STEPS } from './sandbox-tools.js';
-import { PLAN_MODE_MAX_TOKENS, PLAN_SYSTEM_PROMPT } from './plan-mode.js';
-import { WORKSPACE_IMAGES } from './workspace-spec.js';
+import { PLAN_MODE_MAX_TOKENS, planSystemPrompt } from './plan-mode.js';
+
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
 import { forSurface } from './tool-catalogue.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
+import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
 const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
 
-const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS);
+const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES);
 const find = (sectionId: string, label: string) =>
   config.sections.find((s) => s.id === sectionId)!.settings.find((x) => x.label === label)!;
 
@@ -39,13 +41,13 @@ describe('the harness config surface', () => {
   });
 
   it('shows prompts verbatim, so what the model is told is inspectable', () => {
-    expect(config.prompts.find((p) => p.id === 'plan')!.text).toBe(PLAN_SYSTEM_PROMPT);
+    expect(config.prompts.find((p) => p.id === 'plan')!.text).toBe(planSystemPrompt(IMAGES));
     expect(config.prompts.find((p) => p.id === 'discipline')!.text).toBe(TOOL_DISCIPLINE_PROMPT);
   });
 
   it('offers exactly the languages the catalogue has', () => {
-    expect(config.languages.map((l) => l.id).sort()).toEqual(Object.keys(WORKSPACE_IMAGES).sort());
-    for (const l of config.languages) expect(l.image).toBe(WORKSPACE_IMAGES[l.id].image);
+    expect(config.languages.map((l) => l.id).sort()).toEqual(Object.keys(BY_LANGUAGE).sort());
+    for (const l of config.languages) expect(l.image).toBe(BY_LANGUAGE[l.id].image);
   });
 
   it('explains the values that exist because something broke', () => {

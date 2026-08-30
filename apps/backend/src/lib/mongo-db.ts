@@ -17,6 +17,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
+import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
@@ -84,6 +85,10 @@ export class MongoDB implements Database {
 
   private get personaPacks(): Collection {
     return this.db!.collection('personaPacks');
+  }
+
+  private get workspaceImages(): Collection {
+    return this.db!.collection('workspaceImages');
   }
 
   private get treeTypes(): Collection {
@@ -521,6 +526,21 @@ export class MongoDB implements Database {
 
   async deleteExperiment(id: string): Promise<void> {
     await this.experiments.deleteOne({ _id: id as any });
+  }
+
+  async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {
+    const filter = ownerId ? { $or: [{ ownerId }, { ownerId: { $exists: false } }] } : {};
+    const docs = await this.workspaceImages.find(filter).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as WorkspaceImageSpec);
+  }
+
+  async saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void> {
+    const { _id: _ignored, ...doc } = image as WorkspaceImageSpec & { _id?: unknown };
+    await this.workspaceImages.replaceOne(
+      { _id: `${image.ownerId}:${image.id}` } as never,
+      doc,
+      { upsert: true },
+    );
   }
 
   async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
