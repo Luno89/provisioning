@@ -11,10 +11,12 @@ import { corpusEndpoints } from '../lib/web-tools-resolver.js';
 import { searchMemories, bodyOf } from '../lib/memory-index.js';
 import { admitMemory } from '../lib/memory-decide.js';
 import type { MemoryItem } from '../lib/memory-store.js';
+import { defaultSampling } from '../lib/pack-sampling.js';
 
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
+  const sampling = await defaultSampling(db);
 
   try {
     const all = await db.getMemories();
@@ -41,6 +43,7 @@ async function main(): Promise<void> {
     const ask = async (prompt: string) => {
       const body = buildModelRequest({
         turn: 'tool-turn',
+        ...(sampling ? { sampling } : {}),
         ...(provider.kind ? { kind: provider.kind } : {}),
         messages: [{ role: 'user', content: prompt }],
         stream: true,

@@ -1,5 +1,5 @@
-import type { ModelKind } from '@koala/harness-types';
-import { conversationSampling, toolTurnSampling } from './sampling.js';
+import type { ModelKind, SamplingConfig } from '@koala/harness-types';
+import { samplingFor } from './pack-sampling.js';
 import { applyOverrides, type Overrides } from './tunables.js';
 
 export type TurnKind = 'conversation' | 'tool-turn';
@@ -15,6 +15,11 @@ export interface ModelRequestSpec {
   model?: string | undefined;
   overrides?: Overrides | undefined;
   extra?: Record<string, unknown> | undefined;
+  /**
+   * The pack's sampler. Absent means send none — there is no base layer any more, so a caller with
+   * no pack sends the engine's own defaults rather than values from a module nobody can edit.
+   */
+  sampling?: SamplingConfig | undefined;
 }
 
 export interface BuiltModelRequest {
@@ -24,7 +29,7 @@ export interface BuiltModelRequest {
 
 export function buildModelRequest(spec: ModelRequestSpec): BuiltModelRequest {
   const base: Record<string, unknown> = {
-    ...(spec.turn === 'tool-turn' ? toolTurnSampling(spec.kind) : conversationSampling(spec.kind)),
+    ...samplingFor(spec.sampling, spec.turn, spec.kind),
     max_tokens: spec.maxTokens,
     ...(spec.reasoningEffort ? { reasoning_effort: spec.reasoningEffort } : {}),
     ...(spec.model ? { model: spec.model } : {}),

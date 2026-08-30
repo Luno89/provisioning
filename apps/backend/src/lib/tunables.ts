@@ -1,12 +1,11 @@
 import type { ModelKind } from './model-registry.js';
-import { toolTurnSampling, TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
+import { TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
+import { samplingFor } from './pack-sampling.js';
+import type { SamplingConfig } from '@koala/harness-types';
 import { MAX_AGENT_TOKENS, MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS } from './sandbox-tools.js';
 import type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType } from '@koala/harness-types';
 
 export type { EffectiveKnob, Overrides, Tunable, TunablePlacement, TunableType };
-
-const dispatchDefaults = toolTurnSampling(undefined);
-const tabbyDefaults = toolTurnSampling('tabbyapi');
 
 export const TUNABLES: Tunable[] = [
   {
@@ -18,7 +17,6 @@ export const TUNABLES: Tunable[] = [
     min: 0,
     max: 2,
     step: 0.05,
-    default: dispatchDefaults.temperature,
     suggested: [0.2, 0.7],
     note: 'Low by default because choosing a tool is not a creative act, and a model sampling '
       + 'adventurously among tool names is how a leaf gets revised when it should have been withdrawn.',
@@ -49,7 +47,6 @@ export const TUNABLES: Tunable[] = [
     min: -2,
     max: 2,
     step: 0.1,
-    default: dispatchDefaults.frequency_penalty,
     suggested: [0, 0.3],
     note: 'Enough to make a second identical line expensive, low enough not to distort code, where '
       + 'real repetition is normal and correct.',
@@ -158,7 +155,6 @@ export const TUNABLES: Tunable[] = [
     min: 0,
     max: 5,
     step: 0.1,
-    default: tabbyDefaults.dry_multiplier,
     suggested: [0, 0.8],
     note: 'Penalises repeated SEQUENCES, so it cuts a repeating line without touching legitimately '
       + 'repetitive code. This is the sampler that exists for the forty-consecutive-"(Wait, I\'ll '
@@ -175,7 +171,6 @@ export const TUNABLES: Tunable[] = [
     min: 1,
     max: 4,
     step: 0.05,
-    default: tabbyDefaults.dry_base,
     note: 'How steeply the DRY penalty grows as a repeated sequence gets longer. Higher makes a '
       + 'long repetition escalate faster; the multiplier sets the overall strength.',
     source: 'lib/sampling.ts',
@@ -190,7 +185,6 @@ export const TUNABLES: Tunable[] = [
     min: 1,
     max: 20,
     step: 1,
-    default: tabbyDefaults.dry_allowed_length,
     note: 'Sequence length that repeats for free before DRY starts penalising. Too low and it '
       + 'suppresses common code constructs like "return result;".',
     source: 'lib/sampling.ts',
@@ -462,7 +456,16 @@ export function validateOverrides(overrides: Overrides, context: OverrideContext
   return null;
 }
 
-export function effectiveConfig(profileOverrides: Overrides = {}, kind?: ModelKind): EffectiveKnob[] {
+/**
+ * A knob's value when nothing has adopted it comes from the pack's sampler, not from this table.
+ * The table describes the knob — range, label, why it exists; the pack says what it is set to.
+ */
+export function effectiveConfig(
+  profileOverrides: Overrides = {},
+  kind?: ModelKind,
+  sampling?: SamplingConfig,
+): EffectiveKnob[] {
+  const fromPack = { ...samplingFor(sampling, 'tool-turn', kind), ...samplingFor(sampling, 'conversation', kind) };
   return TUNABLES
     .filter((t) => !t.engine || t.engine === kind)
     .map((t) => {
@@ -471,7 +474,7 @@ export function effectiveConfig(profileOverrides: Overrides = {}, kind?: ModelKi
         key: t.key,
         label: t.label,
         group: t.group,
-        value: adopted ? profileOverrides[t.key] : t.default,
+        value: adopted ? profileOverrides[t.key] : fromPack[t.key] ?? t.default,
         source: adopted ? 'adopted' as const : 'harness' as const,
         ...(t.note ? { note: t.note } : {}),
         sourceFile: t.source,
@@ -479,8 +482,11 @@ export function effectiveConfig(profileOverrides: Overrides = {}, kind?: ModelKi
     });
 }
 
-export function harnessDefaults(kind?: ModelKind): Overrides {
-  const out: Overrides = {};
+export function harnessDefaults(kind?: ModelKind, sampling?: SamplingConfig): Overrides {
+  const out: Overrides = {
+    ...samplingFor(sampling, 'tool-turn', kind),
+    ...(kind ? {} : {}),
+  } as Overrides;
   for (const spec of TUNABLES) {
     if (spec.default === undefined) continue;
     if (spec.engine && spec.engine !== kind) continue;

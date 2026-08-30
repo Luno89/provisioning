@@ -2,6 +2,7 @@ import type { ModelKind } from '@koala/harness-types';
 import { ToolCallScanner } from './leaf-tools.js';
 import { buildModelRequest } from './model-request.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
+import type { SamplingConfig } from '@koala/harness-types';
 
 export interface ResearchFinding {
   question: string;
@@ -57,6 +58,7 @@ export interface ResearchOptions {
   model?: string | undefined;
   kind?: ModelKind | undefined;
   overrides?: Record<string, unknown> | undefined;
+  sampling?: SamplingConfig | undefined;
   webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
   fetchImpl?: typeof fetch;
@@ -84,6 +86,7 @@ export async function runResearchAgent(opts: ResearchOptions): Promise<ResearchF
       },
       body: JSON.stringify(buildModelRequest({
         turn: 'tool-turn',
+        ...(opts.sampling ? { sampling: opts.sampling } : {}),
         ...(opts.kind ? { kind: opts.kind } : {}),
         messages,
         tools: RESEARCH_TOOLS,

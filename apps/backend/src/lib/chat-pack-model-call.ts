@@ -2,6 +2,7 @@
 import { buildModelRequest } from './model-request.js';
 import { fittedMaxTokens } from './sampling.js';
 import type { ModelKind } from './model-registry.js';
+import type { SamplingConfig } from '@koala/harness-types';
 
 export interface ModelProviderInfo {
   kind?: ModelKind;
@@ -15,12 +16,13 @@ export interface ChatCompletionRequest {
   messages: unknown[];
   tools: string[];
   overrides: Record<string, unknown>;
+  sampling?: SamplingConfig | undefined;
   maxTokens?: number;
   toolChoice?: 'none';
 }
 
 export function buildChatCompletionRequest(input: ChatCompletionRequest) {
-  const { provider, messages, tools, overrides, maxTokens = 16000, toolChoice } = input;
+  const { provider, messages, tools, overrides, sampling, maxTokens = 16000, toolChoice } = input;
   const built = buildModelRequest({
     turn: 'tool-turn',
     ...(provider?.kind ? { kind: provider.kind } : {}),
@@ -30,6 +32,7 @@ export function buildChatCompletionRequest(input: ChatCompletionRequest) {
     maxTokens: fittedMaxTokens(maxTokens, JSON.stringify(messages).length),
     ...(provider?.model ? { model: provider.model } : {}),
     overrides,
+    ...(sampling ? { sampling } : {}),
     ...(toolChoice === 'none' ? { extra: { tool_choice: 'none' } } : {}),
   });
   return built.body as Record<string, unknown>;

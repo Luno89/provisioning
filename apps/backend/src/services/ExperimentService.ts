@@ -380,6 +380,8 @@ export class ExperimentService {
         const run = await withTimeout(
           runAgentLoop({
             catalogue: await new ToolService(this.db).schemas(experiment.ownerId),
+            images: await new WorkspaceImageService(this.db).list(experiment.ownerId),
+            ...(variantPack?.sampling ? { sampling: variantPack.sampling } : {}),
             baseUrl,
             apiKey,
             model: provider.model,

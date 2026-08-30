@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runAgentLoop, type SandboxDriver } from './agent-loop.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 
 const sse = (frames: unknown[]) =>
   frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -43,7 +44,11 @@ const sandbox = (over: Partial<SandboxDriver> = {}): SandboxDriver => ({
 });
 
 const run = (fetchImpl: any, box = sandbox(), maxSteps = 6) =>
-  runAgentLoop({ baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl, maxSteps });
+  runAgentLoop({
+    baseUrl: 'http://model', taskContext: 'Do the thing', sandbox: box, fetchImpl, maxSteps,
+    // The sampler is the pack's now, not a base layer this module composes.
+    sampling: PACK_SEEDS[0]!.sampling,
+  });
 
 describe('runAgentLoop', () => {
   it('stops when the model calls finish, and reports what it said', async () => {
@@ -209,7 +214,7 @@ describe('runAgentLoop', () => {
     expect(result.unsupported).toEqual(['dry_multiplier']);
   });
 
-  it('keeps the harness default when no temperature is given', async () => {
+  it('samples at what the pack says when no temperature is given', async () => {
     const model = scriptedModel([{ tool_calls: [toolCall('finish', { succeeded: true, summary: 'ok' })] }]);
     await run(model);
     expect(bodyOf(model, 0).temperature).toBe(0.3);

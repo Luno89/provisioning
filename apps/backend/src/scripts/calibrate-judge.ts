@@ -12,6 +12,7 @@ import {
   CODE_DIMENSIONS, type JudgeVerdict,
 } from '../lib/leaf-judge.js';
 import { calibrate, formatCalibration, type CalibrationRow } from '../lib/judge-calibration.js';
+import { defaultSampling } from '../lib/pack-sampling.js';
 
 const DECOY_DIFF = [
   'diff --git a/src/colours.ts b/src/colours.ts',
@@ -27,6 +28,7 @@ const DECOY_DIFF = [
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
+  const sampling = await defaultSampling(db);
 
   try {
     const wanted = process.argv[2];
@@ -60,6 +62,7 @@ async function main(): Promise<void> {
       const { bundle } = buildJudgeBundle({ title, body, evidence: { capturedAt: 'n/a', diff } });
       const requestBody = buildModelRequest({
         turn: 'conversation',
+        ...(sampling ? { sampling } : {}),
         ...(provider.kind ? { kind: provider.kind } : {}),
         messages: [
           ...(resolved.systemPrompt ? [{ role: 'system', content: resolved.systemPrompt }] : []),

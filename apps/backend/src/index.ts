@@ -168,6 +168,7 @@ import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
 import { withBuiltIns } from './lib/ownership.js';
 import { ToolService } from './services/ToolService.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
+import { defaultSampling } from './lib/pack-sampling.js';
 
 dotenv.config();
 
@@ -566,6 +567,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       profile?.overrides ?? {}, models,
       await new ToolService(db).list(userId),
       await new WorkspaceImageService(db).list(userId),
+      await defaultSampling(db),
     ));
   });
 

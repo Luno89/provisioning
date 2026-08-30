@@ -33,6 +33,7 @@ import { type Overrides } from './tunables.js';
 import { buildModelRequest } from './model-request.js';
 import type { AgentStep, AgentRequest, ConversationMessage } from '@koala/harness-types';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
+import type { SamplingConfig } from '@koala/harness-types';
 
 export type { AgentStep, AgentRequest, ConversationMessage };
 
@@ -120,6 +121,8 @@ export interface AgentRunOptions {
   catalogue?: { type: 'function'; function: { name: string; description?: string; parameters?: unknown } }[] | undefined;
   /** The caller's workspace images, for the same reason: the sandbox description is a row read. */
   images?: readonly WorkspaceImageSpec[] | undefined;
+  /** The pack's sampler. Absent sends none, rather than a base layer from a module. */
+  sampling?: SamplingConfig | undefined;
   callRemote?: ((name: string, args: Record<string, unknown>) => Promise<{ text: string; isError: boolean } | undefined>) | undefined;
   pacing?: PacingNote[] | undefined;
   withdrawTools?: ToolWithdrawal | undefined;
@@ -228,6 +231,7 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
 
   const { body: requestBody, unsupported } = buildModelRequest({
     turn: 'tool-turn',
+    ...(opts.sampling ? { sampling: opts.sampling } : {}),
     ...(opts.kind ? { kind: opts.kind } : {}),
     messages,
     tools: activeTools,

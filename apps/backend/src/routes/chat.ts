@@ -42,6 +42,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { ModelService } from '../services/ModelService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { defaultSampling } from '../lib/pack-sampling.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
@@ -164,6 +165,12 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const chatPersona = chatPack
       ? (await db.getPersonas()).find((p) => p.id === chatPack.personaId) ?? null
       : null;
+    /**
+     * A turn with no pack named still has to sample somehow. It falls back to the shipped koala
+     * row — a record the user can edit — rather than the module constant it used to compose, so
+     * there is no configuration left that only exists in code.
+     */
+    const sampling = chatPack?.sampling ?? await defaultSampling(db);
     const resolved = resolveConfig(
       await db.getHarnessProfile(uid),
       chatPack,
@@ -233,6 +240,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       opts: { tools?: unknown; stream: boolean; maxTokens: number; reasoningEffort?: string; extra?: Record<string, unknown> },
     ) => buildModelRequest({
       turn: 'conversation',
+      ...(sampling ? { sampling } : {}),
       ...(provider.kind ? { kind: provider.kind } : {}),
       messages,
       ...(opts.tools ? { tools: opts.tools } : {}),

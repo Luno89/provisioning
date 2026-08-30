@@ -1,10 +1,28 @@
-import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
+import type { PersonaPack, SamplingConfig, WorkspaceScope } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
 import { MERGER_PERSONA } from './well-known-personas.js';
 import { RESEARCH_AGENT_STEPS, researchPacing } from './sandbox-tools.js';
 import { WEB_TOOL_NAMES } from './leaf-tools.js';
 
 const TUNED_FOR = 'Tabbyapi-Production';
+
+/**
+ * What every pack sampled at when this was a module constant. Stated here so a pack carries its own
+ * values and can be edited; shared by reference nowhere — each seed gets its own copy, so changing
+ * one pack cannot retune the rest.
+ *
+ * temperature 0.3 on a dispatch turn, penalties on a conversation turn, and TabbyAPI's DRY guards
+ * layered on top when that is the engine.
+ */
+const DEFAULT_SAMPLING: SamplingConfig = {
+  toolTurn: { temperature: 0.3 },
+  conversation: { frequency_penalty: 0.4, presence_penalty: 0.3 },
+  byEngine: {
+    tabbyapi: { dry_multiplier: 0.8, dry_base: 1.75, dry_allowed_length: 2 },
+  },
+};
+
+const defaultSampling = (): SamplingConfig => structuredClone(DEFAULT_SAMPLING);
 
 export interface PackSeed {
   slug: string;
@@ -14,6 +32,7 @@ export interface PackSeed {
   tools: string[];
   mcp?: string[];
   workspace?: WorkspaceScope;
+  sampling: SamplingConfig;
   overrides: PersonaPack['overrides'];
 }
 
@@ -32,6 +51,7 @@ export const PACK_SEEDS: PackSeed[] = [
       'get_project_secret', 'set_project_secret', 'list_project_secrets',
       'web_search', 'fetch_web_page',
     ],
+    sampling: defaultSampling(),
     overrides: {},
   },
   {
@@ -49,6 +69,7 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 20 },
     },
+    sampling: defaultSampling(),
     overrides: { temperature: 0.3 },
   },
   {
@@ -69,6 +90,7 @@ export const PACK_SEEDS: PackSeed[] = [
     pacing: researchPacing(RESEARCH_AGENT_STEPS, '/work/findings.md'),
     },
     },
+    sampling: defaultSampling(),
     overrides: { temperature: 0.4 },
   },
   {
@@ -86,6 +108,7 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 30 },
     },
+    sampling: defaultSampling(),
     overrides: { temperature: 0.5 },
   },
   {
@@ -100,6 +123,7 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 30 },
     },
+    sampling: defaultSampling(),
     overrides: { temperature: 0.2 },
   },
   {
@@ -116,6 +140,7 @@ export const PACK_SEEDS: PackSeed[] = [
     tunedFor: TUNED_FOR,
     run: { maxSteps: 40 },
     },
+    sampling: defaultSampling(),
     overrides: { temperature: 0.3 },
   },
   {
@@ -128,6 +153,7 @@ export const PACK_SEEDS: PackSeed[] = [
     repo: false,
     language: 'base',
     },
+    sampling: defaultSampling(),
     overrides: {},
   },
   {
@@ -140,6 +166,7 @@ export const PACK_SEEDS: PackSeed[] = [
     repo: false,
     language: 'base',
     },
+    sampling: defaultSampling(),
     overrides: { temperature: 0.1 },
   },
   {
@@ -153,6 +180,7 @@ export const PACK_SEEDS: PackSeed[] = [
     egress: [{ namespace: 'gitea', ports: [3000] }],
     tunedFor: TUNED_FOR,
     },
+    sampling: defaultSampling(),
     overrides: {},
   },
 ];
@@ -185,6 +213,7 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       tools: [...seed.tools],
       ...(seed.mcp ? { mcp: [...seed.mcp] } : {}),
       ...(seed.workspace ? { workspace: seed.workspace } : {}),
+      sampling: structuredClone(seed.sampling),
       overrides: { ...seed.overrides },
       builtIn: true,
       createdAt: prior?.createdAt ?? new Date().toISOString(),

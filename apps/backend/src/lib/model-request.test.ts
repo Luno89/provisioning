@@ -1,8 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { buildModelRequest } from './model-request.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 
+/**
+ * A pack is passed in because there is no base layer left: what used to be "the built-in sampling"
+ * is a record the caller supplies, so a request built without one carries no sampler at all.
+ */
 const spec = (over: Partial<Parameters<typeof buildModelRequest>[0]> = {}) => buildModelRequest({
   turn: 'conversation', kind: 'tabbyapi', messages: [{ role: 'user', content: 'hi' }],
+  sampling: PACK_SEEDS[0]!.sampling,
   stream: true, maxTokens: 8192, ...over,
 });
 
@@ -14,7 +20,7 @@ describe('precedence', () => {
     expect(body.presence_penalty).toBe(0);
   });
 
-  it('keeps the built-in where nothing overrode it', () => {
+  it('keeps the pack\'s value where nothing overrode it', () => {
     const { body } = spec({ overrides: { temperature: 0.2 } });
 
     expect(body.temperature).toBe(0.2);

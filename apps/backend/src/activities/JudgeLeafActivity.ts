@@ -75,6 +75,7 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
 
     const body = buildModelRequest({
       turn: 'conversation',
+      ...(pack?.sampling ? { sampling: pack.sampling } : {}),
       ...(provider.kind ? { kind: provider.kind } : {}),
       messages: [
         ...(resolved.systemPrompt ? [{ role: 'system', content: resolved.systemPrompt }] : []),

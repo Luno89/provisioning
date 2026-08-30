@@ -6,6 +6,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { Persona, PersonaPack } from '@koala/harness-types';
 import { TEST_USER } from './test-harness.js';
 import { seedTools } from '../lib/tool-seeds.js';
+import { PACK_SEEDS } from '../lib/pack-seeds.js';
 
 const persona = (id: string, name: string, systemPrompt: string): Persona => ({
   id, ownerId: TEST_USER.id, name, systemPrompt,
@@ -18,6 +19,7 @@ const pack = (slug: string, personaId: string, over: Partial<PersonaPack> = {}):
   tools: ['propose_tree', 'propose_spec', 'list_infrastructure', 'get_logs', 'get_events',
     'inspect_resources', 'cluster_capacity', 'list_trees', 'deploy_project', 'get_project_url',
     'list_mcp_servers', 'enable_mcp_server', 'web_search', 'fetch_web_page'],
+  sampling: PACK_SEEDS[0]!.sampling,
   overrides: {}, createdAt: '', updatedAt: '', ...over,
 });
 
@@ -270,6 +272,7 @@ describe('a pack that cannot run', () => {
     await harness.db.savePersonaPack({
       id: 'pack-theirs', ownerId: 'someone-else', slug: 'theirs', name: 'Theirs',
       personaId: 'p1', tools: [],
+      sampling: PACK_SEEDS[0]!.sampling,
       overrides: {}, createdAt: '', updatedAt: '',
     });
     const res = await fetch(harness.url('/api/chat-pack/theirs'), {

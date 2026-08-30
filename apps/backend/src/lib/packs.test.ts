@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { validatePack, packForLeaf } from './packs.js';
 import type { PersonaPack } from '@koala/harness-types';
+import { PACK_SEEDS } from './pack-seeds.js';
 
 const pack = (over: Partial<PersonaPack> = {}): PersonaPack => ({
   id: 'pk1', ownerId: 'u1', slug: 'koala', name: 'Koala',
   personaId: 'p1', tools: [],
+  sampling: PACK_SEEDS[0]!.sampling,
   overrides: {}, createdAt: '', updatedAt: '', ...over,
 });
 

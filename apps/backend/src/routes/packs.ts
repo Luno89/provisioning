@@ -42,7 +42,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
 
   router.post('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const { slug, name, description, personaId, tools, overrides } = req.body ?? {};
+    const { slug, name, description, personaId, tools, overrides, sampling } = req.body ?? {};
 
     const existing = await visiblePacks(userId);
     const personas = await visiblePersonas(userId);
@@ -62,6 +62,13 @@ export function packsRouter(deps: PacksRouterDeps): Router {
       ...(description ? { description: String(description).slice(0, 200) } : {}),
       personaId: String(personaId),
       tools: tools ?? [],
+      /**
+       * A new pack starts from what the shipped packs sample at, taken from the seeded row rather
+       * than a constant — there is no module left to fall back to, and a pack with no sampler
+       * would send none at all.
+       */
+      sampling: sampling ?? existing.find((p) => p.builtIn)?.sampling ?? existing[0]?.sampling
+        ?? { toolTurn: {}, conversation: {} },
       overrides: overrides ?? {},
       createdAt: now,
       updatedAt: now,

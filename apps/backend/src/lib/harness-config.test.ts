@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildHarnessConfig } from './harness-config.js';
-import { TOOL_TURN_MAX_TOKENS, toolTurnSampling, TOOL_DISCIPLINE_PROMPT } from './sampling.js';
+import { TOOL_TURN_MAX_TOKENS, TOOL_DISCIPLINE_PROMPT } from './sampling.js';
+import { samplingFor } from './pack-sampling.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 import { MAX_AGENT_STEPS } from './sandbox-tools.js';
 import { PLAN_MODE_MAX_TOKENS, planSystemPrompt } from './plan-mode.js';
 
@@ -11,7 +13,7 @@ import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
 const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
 
-const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES);
+const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES, PACK_SEEDS[0]!.sampling);
 const find = (sectionId: string, label: string) =>
   config.sections.find((s) => s.id === sectionId)!.settings.find((x) => x.label === label)!;
 
@@ -31,7 +33,7 @@ describe('the harness config surface', () => {
   });
 
   it('reads the sampler values rather than repeating them', () => {
-    const live = toolTurnSampling('tabbyapi');
+    const live = samplingFor(PACK_SEEDS[0]!.sampling, 'tool-turn', 'tabbyapi');
     expect(find('sampling', 'Dispatch temperature').value).toBe(String(live.temperature));
     expect(find('sampling', 'DRY (TabbyAPI only)').value).toContain(String(live.dry_multiplier));
   });

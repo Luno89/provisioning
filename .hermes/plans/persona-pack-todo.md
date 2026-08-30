@@ -28,10 +28,10 @@ interface PersonaPack {
 
 ## §1 Sampling — a base layer the pack silently sits on
 
-- [ ] `toolTurnSampling` temperature 0.3 (`sampling.ts:16`) → `pack.sampling.toolTurn.temperature`
-- [ ] `PORTABLE_LOOP_GUARD` frequency_penalty 0.4 / presence_penalty 0.3 (`sampling.ts:5`) → `pack.sampling.conversation`
-- [ ] `TABBY_LOOP_GUARD` dry_multiplier 0.8 / dry_base 1.75 / dry_allowed_length 2 (`sampling.ts:10`) → `pack.sampling.byEngine.tabbyapi`
-- [ ] turn-kind switch `tool-turn` vs conversation (`model-request.ts:27`) → the pack declares both; the caller names the kind, never the values
+- [x] `toolTurnSampling` temperature 0.3 → `pack.sampling.toolTurn.temperature`
+- [x] `PORTABLE_LOOP_GUARD` frequency_penalty 0.4 / presence_penalty 0.3 → `pack.sampling.conversation`
+- [x] `TABBY_LOOP_GUARD` dry_multiplier 0.8 / dry_base 1.75 / dry_allowed_length 2 → `pack.sampling.byEngine.tabbyapi`
+- [x] turn-kind switch `tool-turn` vs conversation → the pack declares both; the caller names the kind, never the values. `buildModelRequest` takes `sampling`; absent means send none, so there is no base layer left. A caller with no pack (a plain chat turn, the suite author, the probes) reads the shipped `koala` row via `defaultSampling(db)`. `TUNABLES` states no sampler default any more — the table describes a knob, the pack says what it is set to
 
 ## §2 Token ceilings
 
@@ -90,7 +90,9 @@ interface PersonaPack {
 
 - [x] `KOALA_TOOL_EFFECTS` / `LEAF_TOOL_EFFECTS` → `effect` column on the registry row; both tables deleted
 - [x] duplicated `parameters` on registry rows deleted — they had drifted from the arrays on 26 of 49 tools
-- [ ] `KOALA_TOOLS` / `LEAF_TOOLS` / `SANDBOX_TOOLS` arrays remain the schema source; folding them into the registry needs `description` to become per-pack first (§3), since two surfaces describe the same tool differently ON PURPOSE and both wordings are tested
+- [x] `KOALA_TOOLS` / `LEAF_TOOLS` / `SANDBOX_TOOLS` deleted; every schema a model is offered is a row, read on the `surfaces` it declares. Descriptions were taken from the arrays, not the catalogue's own wording — they had drifted on 29 of 44 tools and the array text is what the model actually received. The three tools described differently per surface on purpose reconcile to one wording each; per-pack `description` (§3) is what would restore the split
+- [x] six tools the agent loop dispatches (`run_tests`, `inspect_git_diff`, `test_http_endpoint`, `run_linter_audit`, `query_in_memory_db`, `save_harness_memory`) had handlers but no schema, so they were never callable; they now carry the parameters their handlers read
+- [x] `WORKSPACE_IMAGES` and `PACKAGE_ACCESS` deleted; the four images are seeded rows read through `WorkspaceImageService`. `describeSandbox`, `buildAgentPrompt`, `personaWorkspace`, `validateTreeType` and `planSystemPrompt` all take rows
 - [x] handler tables stay in code, keyed by name; `effectOf()` is the one lookup
 - [x] `ALL_TOOL_SEEDS` is the single seeded catalogue; `tool-catalogue.test.ts` pins one parameter SHAPE per tool and one copy of `parameters`
 

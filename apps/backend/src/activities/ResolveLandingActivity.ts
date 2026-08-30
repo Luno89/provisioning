@@ -120,6 +120,8 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
       for (let round = 0; round < MAX_ROUNDS && !settled; round++) {
         const run = await runAgentLoop({
           catalogue: await new ToolService(db).schemas(ownerId),
+          images: await new WorkspaceImageService(db).list(ownerId),
+          ...(pack?.sampling ? { sampling: pack.sampling } : {}),
           baseUrl,
           ...(apiKey ? { apiKey } : {}),
           model: provider.model,

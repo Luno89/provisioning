@@ -57,7 +57,11 @@ export interface Tunable {
   choicesFrom?: 'models';
   settableAt?: ('profile' | 'persona' | 'pack' | 'request')[];
   choices?: { value: string; label: string; note?: string }[];
-  default: unknown;
+  /**
+   * Optional because a sampler knob has no default here any more — the pack says what it is set to,
+   * and this table only describes the knob. Present for the ones a pack does not carry.
+   */
+  default?: unknown;
   promptId?: string;
   suggested?: unknown[];
   note?: string;
@@ -343,6 +347,18 @@ export interface Persona {
 }
 
 
+/**
+ * The sampler, stated per turn kind and per engine. Concrete values, not a diff: a pack that says
+ * nothing used to still run at temperature 0.3 with a frequency penalty, decided in a module the
+ * user cannot reach. `byEngine` is layered on top of the turn's values because a loop guard is a
+ * property of the engine — TabbyAPI's DRY parameters mean nothing to an OpenAI endpoint.
+ */
+export interface SamplingConfig {
+  toolTurn: Record<string, number | string | boolean>;
+  conversation: Record<string, number | string | boolean>;
+  byEngine?: Record<string, Record<string, number | string | boolean>>;
+}
+
 export interface PersonaPack {
   id: string;
   ownerId?: string;
@@ -354,7 +370,7 @@ export interface PersonaPack {
   tools: string[];
   mcp?: string[];
   workspace?: WorkspaceScope;
-
+  sampling: SamplingConfig;
 
   overrides: Overrides;
   builtIn?: boolean;

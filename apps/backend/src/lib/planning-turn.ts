@@ -15,6 +15,7 @@ import type { Leaf } from './leaves.js';
 import type { ModelKind } from '@koala/harness-types';
 import type { WebSearchFn } from './web-tools.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
+import type { SamplingConfig } from '@koala/harness-types';
 
 /**
  * The planner's toolset: the planning surface without the web tools, plus `research`.
@@ -86,6 +87,7 @@ export interface PlanningTurnOptions {
   /** The caller's tool catalogue. Rows, because the planner's set is a view of it. */
   toolRows?: readonly ToolRepositoryItem[];
   images?: readonly WorkspaceImageSpec[];
+  sampling?: SamplingConfig | undefined;
   overrides?: Record<string, unknown>;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
@@ -116,6 +118,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
   const strategy = estimatePromptComplexity([{ role: 'user', content: opts.prompt }], 'plan', true);
   const built = buildModelRequest({
     turn: 'conversation',
+    ...(opts.sampling ? { sampling: opts.sampling } : {}),
     ...(opts.kind ? { kind: opts.kind } : {}),
     messages: [],
     stream: true,
@@ -255,6 +258,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
           ...(opts.model ? { model: opts.model } : {}),
           ...(opts.kind ? { kind: opts.kind } : {}),
           ...(resolved.overrides ? { overrides: resolved.overrides } : {}),
+          ...(opts.sampling ? { sampling: opts.sampling } : {}),
           webSearch: opts.research.webSearch,
           fetchWebPage: opts.research.fetchWebPage,
           ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),

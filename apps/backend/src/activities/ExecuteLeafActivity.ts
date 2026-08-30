@@ -482,6 +482,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
               ask: async (prompt: string) => {
                 const body = buildModelRequest({
                   turn: 'tool-turn',
+                  ...(pack?.sampling ? { sampling: pack.sampling } : {}),
                   ...(provider.kind ? { kind: provider.kind } : {}),
                   messages: [{ role: 'user', content: prompt }],
                   stream: true,
@@ -554,6 +555,8 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           beat({ phase: 'agent', round: validationRound });
           const singleRun = await runAgentLoop({
             catalogue: await new ToolService(db).schemas(leaf.ownerId),
+            images: await new WorkspaceImageService(db).list(leaf.ownerId),
+            ...(pack?.sampling ? { sampling: pack.sampling } : {}),
             baseUrl,
             apiKey,
             model: provider.model,

@@ -1,11 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import {
-  toolTurnSampling,
-  conversationSampling,
   NO_THINKING,
   TOOL_TURN_MAX_TOKENS,
   TOOL_DISCIPLINE_PROMPT,
 } from './sampling.js';
+import { samplingFor } from './pack-sampling.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+
+/**
+ * These were properties of two functions. They are properties of every shipped pack now — which is
+ * the stronger check, because a pack that ships an unportable sampler is a pack that breaks a run
+ * on an engine that has never seen a DRY parameter.
+ */
+const toolTurnSampling = (kind: string | undefined) =>
+  samplingFor(PACK_SEEDS[0]!.sampling, 'tool-turn', kind);
+const conversationSampling = (kind: string | undefined) =>
+  samplingFor(PACK_SEEDS[0]!.sampling, 'conversation', kind);
 
 describe('sampler portability', () => {
   const OPENAI_STANDARD = ['temperature', 'frequency_penalty', 'presence_penalty', 'top_p', 'max_tokens'];
@@ -67,4 +77,17 @@ describe('TOOL_DISCIPLINE_PROMPT', () => {
   it('tells it not to deliberate about formatting', () => {
     expect(TOOL_DISCIPLINE_PROMPT).toMatch(/formatting/i);
   });
+});
+
+describe('every shipped pack samples the same way, since none is a special case', () => {
+  for (const seed of PACK_SEEDS) {
+    it(`${seed.slug} is portable, guards a conversation, and leaves a tool turn alone`, () => {
+      const conversation = samplingFor(seed.sampling, 'conversation', undefined);
+      const toolTurn = samplingFor(seed.sampling, 'tool-turn', undefined);
+      expect(Number(conversation.frequency_penalty)).toBeGreaterThan(0);
+      expect(toolTurn.frequency_penalty).toBeUndefined();
+      expect(samplingFor(seed.sampling, 'tool-turn', 'vllm')).not.toHaveProperty('dry_multiplier');
+      expect(samplingFor(seed.sampling, 'tool-turn', 'tabbyapi')).toHaveProperty('dry_multiplier');
+    });
+  }
 });

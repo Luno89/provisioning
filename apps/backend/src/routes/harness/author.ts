@@ -14,6 +14,7 @@ import type { ExperimentTask } from '@koala/harness-types';
 import type { ModelService } from '../../services/ModelService.js';
 import { acceptedTasks, type AuthoringService } from '../../services/AuthoringService.js';
 import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
+import { defaultSampling } from '../../lib/pack-sampling.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -41,6 +42,7 @@ export function authorRouter(deps: authorRouterDeps): Router {
     }
 
     try {
+      const sampling = await defaultSampling(db);
       const upstream = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -49,6 +51,7 @@ export function authorRouter(deps: authorRouterDeps): Router {
         },
         body: JSON.stringify(buildModelRequest({
           turn: 'conversation',
+          ...(sampling ? { sampling } : {}),
           ...(provider.kind ? { kind: provider.kind } : {}),
           ...(provider.model ? { model: provider.model } : {}),
           messages: [

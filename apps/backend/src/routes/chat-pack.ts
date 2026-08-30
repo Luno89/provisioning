@@ -336,6 +336,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
         messages: reqBody.messages as any[],
         tools: toolSchemas as any,
         overrides: resolved.overrides,
+        ...(pack.sampling ? { sampling: pack.sampling } : {}),
         ...(reqBody.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),
       });
       return fetch(`${baseUrl}/chat/completions`, {

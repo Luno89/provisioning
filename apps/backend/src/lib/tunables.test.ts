@@ -7,7 +7,8 @@ import {
   tunable,
   effectiveConfig,
 } from './tunables.js';
-import { toolTurnSampling, TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
+import { TOOL_TURN_MAX_TOKENS, THINKING_TURN_MAX_TOKENS } from './sampling.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 
 describe('every registered tunable reaches the wire', () => {
   const sampleFor = (type: string, spec: { min?: number; max?: number; options?: unknown[] }) => {
@@ -106,32 +107,34 @@ describe('validateOverrides', () => {
   });
 
   it('accepts the harness defaults it ships with', () => {
-    expect(validateOverrides(harnessDefaults('tabbyapi'))).toBeNull();
-    expect(validateOverrides(harnessDefaults(undefined))).toBeNull();
+    expect(validateOverrides(harnessDefaults('tabbyapi', PACK_SEEDS[0]!.sampling))).toBeNull();
+    expect(validateOverrides(harnessDefaults(undefined, PACK_SEEDS[0]!.sampling))).toBeNull();
   });
 });
 
 describe('harnessDefaults', () => {
   it('is the control arm — stated values, not an empty object', () => {
-    const defaults = harnessDefaults('tabbyapi');
+    const defaults = harnessDefaults('tabbyapi', PACK_SEEDS[0]!.sampling);
     expect(defaults.temperature).toBe(0.3);
     expect(defaults.think).toBe(false);
     expect(defaults.dry_multiplier).toBe(0.8);
   });
 
   it('leaves engine-specific knobs out for an engine that cannot take them', () => {
-    expect(harnessDefaults('vllm').dry_multiplier).toBeUndefined();
-    expect(harnessDefaults(undefined).dry_multiplier).toBeUndefined();
+    expect(harnessDefaults('vllm', PACK_SEEDS[0]!.sampling).dry_multiplier).toBeUndefined();
+    expect(harnessDefaults(undefined, PACK_SEEDS[0]!.sampling).dry_multiplier).toBeUndefined();
   });
 
-  it('reads defaults from the live constants rather than restating them', () => {
-    expect(tunable('temperature')!.default).toBe(toolTurnSampling(undefined).temperature);
+  it('states no sampler default of its own — the pack says what a knob is set to', () => {
+    for (const key of ['temperature', 'frequency_penalty', 'dry_multiplier', 'dry_base', 'dry_allowed_length']) {
+      expect(tunable(key)?.default, key).toBeUndefined();
+    }
   });
 });
 
 describe('effectiveConfig', () => {
-  it('is the built-in constant when nothing has been adopted', () => {
-    const live = effectiveConfig({}, 'tabbyapi');
+  it("is the pack's value when nothing has been adopted", () => {
+    const live = effectiveConfig({}, 'tabbyapi', PACK_SEEDS[0]!.sampling);
     const temp = live.find((k) => k.key === 'temperature')!;
     expect(temp.value).toBe(0.3);
     expect(temp.source).toBe('harness');

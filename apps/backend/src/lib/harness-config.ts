@@ -1,4 +1,6 @@
-import { toolTurnSampling, conversationSampling, TOOL_TURN_MAX_TOKENS, TOOL_DISCIPLINE_PROMPT, NO_THINKING } from './sampling.js';
+import { TOOL_TURN_MAX_TOKENS, TOOL_DISCIPLINE_PROMPT, NO_THINKING } from './sampling.js';
+import { samplingFor } from './pack-sampling.js';
+import type { SamplingConfig } from '@koala/harness-types';
 import { MAX_AGENT_STEPS, MAX_TOOL_RESULT_CHARS, buildAgentPrompt } from './sandbox-tools.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
 import { MAX_TOOL_ROUNDS } from './leaf-tools.js';
@@ -41,13 +43,12 @@ export function buildHarnessConfig(
   toolRows: readonly ToolRepositoryItem[] = [],
   /** The caller's workspace images, for the same reason. */
   images: readonly WorkspaceImageSpec[] = [],
+  /** The pack whose sampler the panels describe. */
+  sampling?: SamplingConfig,
 ): HarnessConfig {
   const surfaceNames = (s: 'planning' | 'sandbox') =>
     toolRows.filter((t) => t.surfaces?.includes(s)).map((t) => t.name).join(', ');
-  const tabby = toolTurnSampling('tabbyapi');
-  const portable = toolTurnSampling(undefined);
-
-  const live = effectiveConfig(profileOverrides, 'tabbyapi');
+  const live = effectiveConfig(profileOverrides, 'tabbyapi', sampling);
   const knob = (key: string): EffectiveKnob | undefined => live.find((k) => k.key === key);
 
   const fromKnob = (key: string, label?: string): HarnessSetting => {
@@ -101,7 +102,7 @@ export function buildHarnessConfig(
         summary: 'Reasoning stays ON here — it is what makes the conversation worth having.',
         settings: [
           { label: 'Reasoning', value: 'on', note: 'Deliberate decision. Only the decoding pathology is suppressed.', source: 'index.ts chat route' },
-          { label: 'Loop guards', value: JSON.stringify(conversationSampling('tabbyapi')), source: 'lib/sampling.ts' },
+          { label: 'Loop guards', value: JSON.stringify(samplingFor(sampling, 'conversation', 'tabbyapi')), source: 'the pack' },
           { label: '/plan token budget', value: String(PLAN_MODE_MAX_TOKENS), note: 'Measured: one turn produced 7,908 chars of reasoning before 1,210 of answer. At 900 the reply never arrived, silently.', source: 'lib/plan-mode.ts' },
           { label: 'Tool rounds per turn', value: String(MAX_TOOL_ROUNDS), source: 'lib/leaf-tools.ts' },
           { label: 'Proposals per reply', value: String(MAX_PROPOSALS_PER_REPLY), source: 'lib/plan-mode.ts' },
