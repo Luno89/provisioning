@@ -1,4 +1,5 @@
 import { gate, ALL_EFFECTS, type ToolEffect } from './action-gate.js';
+import { effectOf } from './tool-schemas.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolvePersonaNamed } from './proposal-merge.js';
 import type { McpRegistryService } from '../services/McpRegistryService.js';
@@ -12,7 +13,7 @@ import { rewireDependents } from './plan-review.js';
 import { withProject } from './trees.js';
 import { describeInfrastructure } from './infrastructure.js';
 import { declareDependency } from './declare-dependency.js';
-import { summariseLeaf, detailLeaf, parseToolArguments, LEAF_TOOLS, LEAF_TOOL_EFFECTS } from './leaf-tools.js';
+import { summariseLeaf, detailLeaf, parseToolArguments, LEAF_TOOLS } from './leaf-tools.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { isWorkspaceLanguage, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
@@ -48,7 +49,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
 
   const decision = gate(
     call.name,
-    (LEAF_TOOL_EFFECTS as Record<string, ToolEffect | undefined>)[call.name],
+    effectOf(call.name),
     ctx.permitted ?? ALL_EFFECTS,
   );
   if (!decision.allowed) return JSON.stringify({ error: decision.reason });

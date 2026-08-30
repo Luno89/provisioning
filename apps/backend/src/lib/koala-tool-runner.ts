@@ -1,5 +1,6 @@
-import { KOALA_TOOLS, KOALA_TOOL_HANDLERS, KOALA_TOOL_EFFECTS, type KoalaToolName } from './koala-tools.js';
-import { gate, ALL_EFFECTS, type ToolEffect } from './action-gate.js';
+import { KOALA_TOOLS, KOALA_TOOL_HANDLERS, type KoalaToolName } from './koala-tools.js';
+import { gate, ALL_EFFECTS } from './action-gate.js';
+import { effectOf } from './tool-schemas.js';
 import { json, type KoalaToolContext, type KoalaToolResult } from './koala-tool-handlers.js';
 
 export type { KoalaToolContext, KoalaToolResult };
@@ -45,7 +46,7 @@ export async function runKoalaTool(
 
   const decision = gate(
     call.name,
-    (KOALA_TOOL_EFFECTS as Record<string, ToolEffect | undefined>)[call.name],
+    effectOf(call.name),
     ctx.permitted ?? ALL_EFFECTS,
   );
   if (!decision.allowed) return json({ error: decision.reason });

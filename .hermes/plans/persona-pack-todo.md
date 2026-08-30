@@ -88,10 +88,11 @@ interface PersonaPack {
 
 ## §7 Tool metadata split across four tables
 
-- [ ] `KOALA_TOOL_EFFECTS` / `LEAF_TOOL_EFFECTS` → an `effect` column on the tool registry row; delete both tables
-- [ ] `KOALA_TOOLS` / `LEAF_TOOLS` / `SANDBOX_TOOLS` schemas → a `parameters` column on the registry row; `tool-schemas.ts` reads the registry instead of merging three arrays
-- [ ] handler tables stay in code (they are implementations), keyed by registry name
-- [ ] `ALL_TOOL_SEEDS` becomes the single seeded catalogue; `tool-catalogue.test.ts` keeps schema/handler/effect in step
+- [x] `KOALA_TOOL_EFFECTS` / `LEAF_TOOL_EFFECTS` → `effect` column on the registry row; both tables deleted
+- [x] duplicated `parameters` on registry rows deleted — they had drifted from the arrays on 26 of 49 tools
+- [ ] `KOALA_TOOLS` / `LEAF_TOOLS` / `SANDBOX_TOOLS` arrays remain the schema source; folding them into the registry needs `description` to become per-pack first (§3), since two surfaces describe the same tool differently ON PURPOSE and both wordings are tested
+- [x] handler tables stay in code, keyed by name; `effectOf()` is the one lookup
+- [x] `ALL_TOOL_SEEDS` is the single seeded catalogue; `tool-catalogue.test.ts` pins one parameter SHAPE per tool and one copy of `parameters`
 
 ## §8 Environment variables
 

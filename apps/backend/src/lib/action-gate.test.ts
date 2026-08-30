@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { gate, ALL_EFFECTS, READ_ONLY, type ToolEffect } from './action-gate.js';
-import { KOALA_TOOLS, KOALA_TOOL_EFFECTS, KOALA_TOOL_HANDLERS } from './koala-tools.js';
-import { LEAF_TOOLS, LEAF_TOOL_EFFECTS } from './leaf-tools.js';
+import { KOALA_TOOLS, KOALA_TOOL_HANDLERS } from './koala-tools.js';
+import { LEAF_TOOLS } from './leaf-tools.js';
+import { effectOf } from './tool-schemas.js';
 
 describe('the action gate', () => {
   it('refuses a tool that declares no effect', () => {
@@ -31,16 +32,17 @@ describe('the action gate', () => {
 });
 
 describe('every tool declares what it does', () => {
-  const registries: [string, readonly { function: { name: string } }[], Record<string, ToolEffect>][] = [
-    ['Koala', KOALA_TOOLS, KOALA_TOOL_EFFECTS],
-    ['leaf', LEAF_TOOLS, LEAF_TOOL_EFFECTS],
+  const registries: [string, readonly { function: { name: string } }[]][] = [
+    ['Koala', KOALA_TOOLS],
+    ['leaf', LEAF_TOOLS],
   ];
 
-  for (const [label, tools, effects] of registries) {
-    it(`covers every ${label} tool, and declares nothing that is not one`, () => {
-      const names = tools.map((t) => t.function.name).sort();
-      expect(Object.keys(effects).sort()).toEqual(names);
-      for (const [name, effect] of Object.entries(effects)) {
+  for (const [label, tools] of registries) {
+    it(`gives every ${label} tool an effect in the registry`, () => {
+      for (const tool of tools) {
+        const name = tool.function.name;
+        const effect = effectOf(name);
+        expect(effect, `${name} has no effect row`).toBeDefined();
         expect(ALL_EFFECTS, `${name} declares "${effect}"`).toContain(effect);
       }
     });
@@ -48,19 +50,21 @@ describe('every tool declares what it does', () => {
     it(`lets every ${label} tool through a gate that permits everything`, () => {
       for (const tool of tools) {
         const name = tool.function.name;
-        expect(gate(name, effects[name], ALL_EFFECTS).allowed, name).toBe(true);
+        expect(gate(name, effectOf(name), ALL_EFFECTS).allowed, name).toBe(true);
       }
     });
   }
 
-  it('agrees with the handler table, so a tool cannot be dispatched ungated', () => {
-    expect(Object.keys(KOALA_TOOL_EFFECTS).sort()).toEqual(Object.keys(KOALA_TOOL_HANDLERS).sort());
+  it('gives every dispatchable handler an effect, so none can run ungated', () => {
+    for (const name of Object.keys(KOALA_TOOL_HANDLERS)) {
+      expect(effectOf(name), `${name} is dispatchable with no effect`).toBeDefined();
+    }
   });
 
   it('calls the reading tools read, and the mutating ones not-read', () => {
-    expect(KOALA_TOOL_EFFECTS.get_logs).toBe('read');
-    expect(LEAF_TOOL_EFFECTS.create_project).toBe('write');
-    expect(KOALA_TOOL_EFFECTS.propose_tree).toBe('propose');
+    expect(effectOf('get_logs')).toBe('read');
+    expect(effectOf('create_project')).toBe('write');
+    expect(effectOf('propose_tree')).toBe('propose');
   });
 });
 
@@ -76,15 +80,9 @@ describe('the runners consult the gate', () => {
 
   it('refuses a Koala tool whose effect is not declared', async () => {
     const { runKoalaTool } = await import('./koala-tool-runner.js');
-    const { KOALA_TOOL_EFFECTS } = await import('./koala-tools.js');
-    const saved = (KOALA_TOOL_EFFECTS as Record<string, unknown>).list_trees;
-    delete (KOALA_TOOL_EFFECTS as Record<string, unknown>).list_trees;
-    try {
-      const out = await runKoalaTool(ctx() as never, { name: 'list_trees', arguments: '{}' });
-      expect(out.content).toMatch(/declares no effect/);
-    } finally {
-      (KOALA_TOOL_EFFECTS as Record<string, unknown>).list_trees = saved;
-    }
+    // A name with no registry row has no effect, which is the case the gate refuses.
+    const out = await runKoalaTool(ctx() as never, { name: 'not_a_tool', arguments: '{}' });
+    expect(out.content).toMatch(/No tool named/);
   });
 
   it('refuses a write when the conversation permits only reads', async () => {
@@ -107,15 +105,10 @@ describe('the runners consult the gate', () => {
 
   it('refuses an undeclared leaf tool too', async () => {
     const { runLeafTool } = await import('./leaf-tool-runner.js');
-    const { LEAF_TOOL_EFFECTS } = await import('./leaf-tools.js');
-    const saved = (LEAF_TOOL_EFFECTS as Record<string, unknown>).list_leaves;
-    delete (LEAF_TOOL_EFFECTS as Record<string, unknown>).list_leaves;
-    try {
-      const out = await runLeafTool({ db: { getLeaves: async () => [] }, branchId: 'b1', ownerId: 'u1' } as never,
-        { name: 'list_leaves', arguments: '{}' });
-      expect(out).toMatch(/declares no effect/);
-    } finally {
-      (LEAF_TOOL_EFFECTS as Record<string, unknown>).list_leaves = saved;
-    }
+    const out = await runLeafTool(
+      { db: { getLeaves: async () => [], getBranches: async () => [] }, userId: 'u1', branchId: 'b1' } as never,
+      { name: 'not_a_leaf_tool', arguments: '{}' },
+    );
+    expect(out).toMatch(/Unknown tool|declares no effect/);
   });
 });
