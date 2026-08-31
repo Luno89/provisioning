@@ -358,16 +358,11 @@ export default function Chat({
                 onChange={(e) => setModelId(e.target.value)}
                 className="w-full bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-lg px-3 py-1.5 text-[12px] text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
               >
-                {models.map((m) => {
-                  const prefix = m.source === 'deployment'
-                    ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')
-                    : m.name.includes(' · ') ? m.name.split(' · ')[0] : 'Gateway';
-                  return (
+                {models.map((m) => (
                     <option key={m.id} value={m.id}>
-                      [{prefix}] {m.model || m.name}
+                      [{m.sourceLabel || (m.source === 'deployment' ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM') : 'Custom')}] {m.model || m.name}
                     </option>
-                  );
-                })}
+                  ))}
               </select>
             </div>
 

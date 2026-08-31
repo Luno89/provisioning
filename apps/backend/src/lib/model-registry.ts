@@ -11,6 +11,8 @@ export interface ModelProvider {
   source: ModelSource;
   kind?: ModelKind;
   model: string;
+  /** Human label for where the model came from — vLLM, TabbyAPI, OpenRouter, etc. */
+  sourceLabel?: string;
 
   clusterId?: string;
   namespace?: string;
@@ -48,6 +50,7 @@ export function providerFromDeployment(dep: DeploymentMetadata): ModelProvider |
     name: dep.name,
     source: 'deployment',
     ...(isModelKind(dep.appType) ? { kind: dep.appType } : {}),
+    ...(spec.label ? { sourceLabel: spec.label } : {}),
     model,
     clusterId: dep.clusterId,
     namespace,
@@ -69,6 +72,9 @@ export function providerFromEndpoint(ep: ModelEndpointMetadata): ModelProvider {
     source: 'endpoint',
     model: ep.model ?? '',
     baseUrl: ep.baseUrl,
+    ...(ep.name.includes(' · ')
+      ? { sourceLabel: ep.name.split(' · ')[0]! }
+      : { sourceLabel: 'Custom' }),
     ...(ep.contextTokens ? { contextTokens: ep.contextTokens } : {}),
     ...(ep.isMesh ? { isMesh: true } : {}),
     ...(ep.apiKeyEnc ? { hasApiKey: true } : {}),

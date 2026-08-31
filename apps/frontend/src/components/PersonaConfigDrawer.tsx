@@ -248,16 +248,11 @@ export function PersonaConfigDrawer({
                     className="w-full bg-[var(--bark-950,#090d0b)] border border-[var(--bark-700,#24332b)] focus:border-emerald-500/80 rounded-md px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none"
                   >
                     <option value="">Pack default (pick in conversation)</option>
-                    {models.map((m) => {
-                      const prefix = m.source === 'deployment'
-                        ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')
-                        : m.name.includes(' · ') ? m.name.split(' · ')[0] : 'Gateway';
-                      return (
-                        <option key={m.id} value={m.id}>
-                          [{prefix}] {m.model || m.name}
-                        </option>
-                      );
-                    })}
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        [{m.sourceLabel || (m.source === 'deployment' ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM') : 'Custom')}] {m.model || m.name}
+                      </option>
+                    ))}
                     {models.length === 0 && (
                       <option value="" disabled>No models connected — add one in Cloud Accounts</option>
                     )}

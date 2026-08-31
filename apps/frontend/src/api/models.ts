@@ -149,6 +149,7 @@ export interface ModelProvider {
   name: string
   source: 'deployment' | 'endpoint'
   kind?: 'vllm' | 'tabbyapi'
+  sourceLabel?: string
   model: string
   baseUrl?: string
   isMesh?: boolean
