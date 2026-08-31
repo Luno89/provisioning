@@ -24,6 +24,11 @@ vi.mock('../api/harness/tools', async (orig) => ({
   listTools: vi.fn(),
 }));
 
+vi.mock('../api/models', () => ({
+  listModels: vi.fn().mockResolvedValue([]),
+  providerKeys: { list: () => ['models'] as const },
+}));
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 });
@@ -138,6 +143,7 @@ describe('PersonaConfigDrawer — pack tuning and tool matrix', () => {
         name: 'Koala',
         description: 'General Builder',
         tools: ['propose_tree', 'get_logs'],
+        model: { endpointId: null },
       });
     });
   });

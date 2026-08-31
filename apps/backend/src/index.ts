@@ -15,6 +15,7 @@ import { Server as SocketServer } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 
 import { credentialsRouter } from './routes/credentials.js';
+import { llmCredentialsRouter } from './routes/llm-credentials.js';
 import { backupRouter } from './routes/backup.js';
 import { clustersRouter } from './routes/clusters.js';
 import { deploymentsRouter } from './routes/deployments.js';
@@ -37,7 +38,6 @@ import { clusterProvidersRouter } from './routes/cluster-providers.js';
 import { providersToSeed } from './lib/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
 import { adminRouter } from './routes/admin.js';
-import { modelEndpointsRouter } from './routes/model-endpoints.js';
 import { modelsRouter } from './routes/models.js';
 import { temporalRouter } from './routes/temporal.js';
 import { workerRouter } from './routes/worker.js';
@@ -478,6 +478,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     publicUrl: PUBLIC_URL,
     appUrl: APP_URL,
   }));
+  app.use('/api/credentials', llmCredentialsRouter({ db, jwtSecret: JWT_SECRET }));
   app.use('/api/backup', backupRouter({ repoRoot: path.join(__dirname, '../../..') }));
 
   app.use('/api/clusters', clustersRouter({
@@ -628,9 +629,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   app.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
   app.use('/api/admin', adminRouter({ db, requireAdmin }));
-  app.use('/api/model-endpoints', modelEndpointsRouter({
-    modelService, db, headscaleService, jwtSecret: JWT_SECRET,
-  }));
   app.use('/api/models', modelsRouter({ modelService, db, credentialService }));
   app.use('/api/temporal', temporalRouter({ temporalBridge }));
   app.use('/api/worker', workerRouter({ workerService }));

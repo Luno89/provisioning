@@ -1,17 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { consumeChunk, splitThinkTags } from '../lib/stream-delta.js';
 import { KoalaSpot } from './Koala.js';
 import { splitProposalBlock } from '../lib/proposal-display.js';
 import Markdown from './Markdown.js';
-import { Bot, Loader2, Send, Square, User, AlertTriangle, Plus, Trash2, Network, Server, Sprout, Check, X, Sliders, Info } from 'lucide-react';
+import { Bot, Loader2, Send, Square, User, AlertTriangle, Sprout, Check, X, Sliders, Info } from 'lucide-react';
 import { openChatStream } from '../api/chat';
 import {
-  listModels, addModelEndpoint, removeModelEndpoint, providerKeys, type ModelProvider,
+  listModels, providerKeys, type ModelProvider,
 } from '../api/models';
 import { listPersonas, personaKeys } from '../api/personas';
 import { getConfig, profileKeys } from '../api/harness';
-import { errorMessage } from '../api/client';
 
 export interface ProposedLeaf {
   id: string;
@@ -65,7 +64,6 @@ export default function Chat({
   const observerRef = useRef<MutationObserver | null>(null);
   const qc = useQueryClient();
 
-  const [showEndpoints, setShowEndpoints] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [touched, setTouched] = useState<Record<string, number>>({});
   const setKnob = (key: string, value: number) => setTouched((t) => ({ ...t, [key]: value }));
@@ -73,8 +71,6 @@ export default function Chat({
   const [thoughtSensitivity, setThoughtSensitivity] = useState<'low' | 'medium' | 'high'>('medium');
   const [ngramCap, setNgramCap] = useState(5);
   const [failureThreshold, setFailureThreshold] = useState(0.85);
-  const [form, setForm] = useState({ name: '', baseUrl: '', model: '', apiKey: '' });
-  const [formError, setFormError] = useState<string | null>(null);
 
   const { data: models, isLoading } = useQuery<ModelProvider[]>({
     queryKey: providerKeys.list(),
@@ -112,90 +108,6 @@ export default function Chat({
   });
 
   const activePersona = personas?.find((p) => p.id === personaId);
-
-  const addEndpoint = useMutation({
-    mutationFn: () => addModelEndpoint(form),
-    onSuccess: () => {
-      setForm({ name: '', baseUrl: '', model: '', apiKey: '' });
-      setFormError(null);
-      qc.invalidateQueries({ queryKey: ['models'] });
-    },
-    onError: (e: unknown) => setFormError(errorMessage(e)),
-  });
-
-  const removeEndpoint = useMutation({
-    mutationFn: (id: string) => removeModelEndpoint(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['models'] }),
-  });
-
-  const endpointPanel = (
-    <div className="bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl p-5 mt-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="font-medium text-slate-200">Endpoints</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Any OpenAI-compatible API — Ollama, llama.cpp, LM Studio, or a hosted provider.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowEndpoints((v) => !v)}
-          className="px-3 py-1.5 rounded-lg bg-[var(--bark-700)] hover:bg-slate-700 text-sm flex items-center gap-2"
-        >
-          <Plus size={14} /> {showEndpoints ? 'Close' : 'Add'}
-        </button>
-      </div>
-
-      {showEndpoints && (
-        <div className="mt-4 space-y-3">
-          {([
-            ['name', 'Name', 'Laptop Ollama'],
-            ['baseUrl', 'Base URL', 'http://100.64.0.7:11434/v1'],
-            ['model', 'Model (optional)', 'llama3.1'],
-            ['apiKey', 'API key (optional)', ''],
-          ] as const).map(([key, label, placeholder]) => (
-            <div key={key}>
-              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{label}</label>
-              <input
-                type={key === 'apiKey' ? 'password' : 'text'}
-                value={form[key]}
-                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                placeholder={placeholder}
-                className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-lg px-3 py-2 text-sm font-mono focus:border-[var(--leaf)] focus:outline-none"
-              />
-            </div>
-          ))}
-          <p className="text-[11px] text-slate-500">
-            A machine on your mesh uses its <span className="font-mono">100.64.x.x</span> address — join it under
-            My Machines first. Private, loopback and internal addresses are refused.
-          </p>
-          {formError && <p className="text-[11px] text-red-400">{formError}</p>}
-          <button
-            onClick={() => addEndpoint.mutate()}
-            disabled={!form.name.trim() || !form.baseUrl.trim() || addEndpoint.isPending}
-            className="px-4 py-2 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] disabled:opacity-40 text-sm flex items-center gap-2"
-          >
-            {addEndpoint.isPending ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />} Register
-          </button>
-        </div>
-      )}
-
-      {models?.some((m) => m.source === 'endpoint') && (
-        <ul className="mt-4 space-y-2">
-          {models.filter((m) => m.source === 'endpoint').map((m) => (
-            <li key={m.id} className="flex items-center gap-3 text-sm bg-[var(--bark-900)] border border-[var(--bark-600)] rounded-lg px-3 py-2">
-              {m.isMesh ? <Network size={14} className="text-blue-400" /> : <Server size={14} className="text-slate-500" />}
-              <span className="text-slate-200">{m.name}</span>
-              <span className="font-mono text-[11px] text-slate-500 truncate flex-1">{m.baseUrl}</span>
-              {m.hasApiKey && <span className="text-[10px] text-slate-500 uppercase tracking-wider">key</span>}
-              <button onClick={() => removeEndpoint.mutate(m.id)} className="text-slate-500 hover:text-red-400">
-                <Trash2 size={14} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
 
   useEffect(() => {
     if (!modelId && models?.length) setModelId(models[0]!.id);
@@ -390,7 +302,6 @@ export default function Chat({
           </div>
         </div>
         {proposalPanel}
-        {endpointPanel}
       </div>
     );
   }

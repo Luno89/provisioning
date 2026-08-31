@@ -69,6 +69,7 @@ export function providerFromEndpoint(ep: ModelEndpointMetadata): ModelProvider {
     source: 'endpoint',
     model: ep.model ?? '',
     baseUrl: ep.baseUrl,
+    ...(ep.contextTokens ? { contextTokens: ep.contextTokens } : {}),
     ...(ep.isMesh ? { isMesh: true } : {}),
     ...(ep.apiKeyEnc ? { hasApiKey: true } : {}),
   };

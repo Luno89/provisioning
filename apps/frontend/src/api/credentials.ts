@@ -36,3 +36,20 @@ export const driveConnectUrl = (): string => `${api.defaults.baseURL}/credential
 
 export const runBackup = (): Promise<BackupResult> =>
   api.post<BackupResult>('/backup/run').then((r) => r.data)
+
+export const listLlmProviders = (): Promise<LlmProviderStatus[]> =>
+  api.get<{ providers: LlmProviderStatus[] }>('/credentials/llm').then((r) => r.data.providers)
+
+export const saveLlmCredentials = (data: {
+  provider: string; apiKey?: string; baseUrl?: string; model?: string
+}): Promise<{ endpoints: unknown[] }> =>
+  api.post<{ endpoints: unknown[] }>('/credentials/llm', data).then((r) => r.data)
+
+export const deleteLlmCredentials = (provider: string): Promise<{ removed: number }> =>
+  api.delete(`/credentials/llm/${provider}`).then((r) => r.data)
+
+export interface LlmProviderStatus {
+  provider: string; label: string; baseUrl: string; docsUrl: string
+  modelListAuth: boolean; icon: string; color: string
+  modelCount: number; hasKey: boolean
+}

@@ -147,6 +147,7 @@ export interface ModelEndpointMetadata {
   model?: string;
   apiKeyEnc?: string;
   isMesh?: boolean;
+  contextTokens?: number;
   createdAt: string;
   lastCheckedAt?: string;
   lastError?: string;

@@ -1,22 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Cloud, Check, Trash2, Loader2, AlertTriangle, Key, ExternalLink } from 'lucide-react';
+import { Cloud, Check, Trash2, Loader2, AlertTriangle, Key, ExternalLink, Sparkles } from 'lucide-react';
 import {
   credentialKeys, listProviders, saveCredentials, deleteCredentials, validateCredentials,
 } from '../api/credentials';
 import { errorMessage } from '../api/client';
 import type { ValidationResult } from '../types/credentials';
-import { PROVIDERS, PROVIDER_CAPABILITY } from './credential-providers';
+import { PROVIDERS, LLM_PROVIDERS, PROVIDER_CAPABILITY } from './credential-providers';
 import GoogleDriveCard from './GoogleDriveCard';
 import { driveNoticeFrom } from '../lib/drive-notice';
+import {
+  listLlmProviders, saveLlmCredentials, deleteLlmCredentials,
+  type LlmProviderStatus,
+} from '../api/credentials';
 
 export default function CloudAccounts() {
   const qc = useQueryClient();
 
   const providersQuery = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders });
+  const llmQuery = useQuery({ queryKey: ['credentials', 'llm'], queryFn: listLlmProviders });
 
   const statuses = providersQuery.data ?? [];
-  const loading = providersQuery.isPending;
+  const llmStatuses: LlmProviderStatus[] = llmQuery.data ?? [];
+  const loading = providersQuery.isPending || llmQuery.isPending;
 
   const refresh = () => qc.invalidateQueries({ queryKey: credentialKeys.all });
 
@@ -59,6 +65,31 @@ export default function CloudAccounts() {
   const saving = save.isPending;
   const deleting = remove.isPending ? remove.variables : null;
   const validating = validate.isPending;
+
+  // LLM provider state (separate from cloud providers)
+  const [llmExpanded, setLlmExpanded] = useState<string | null>(null);
+  const [llmForm, setLlmForm] = useState<Record<string, string>>({});
+  const [llmConfirmDelete, setLlmConfirmDelete] = useState<string | null>(null);
+  const [llmError, setLlmError] = useState<string | null>(null);
+  const llmRefresh = () => qc.invalidateQueries({ queryKey: ['credentials', 'llm'] });
+
+  const saveLlm = useMutation({
+    mutationFn: (data: { provider: string; apiKey?: string; baseUrl?: string; model?: string }) =>
+      saveLlmCredentials(data),
+    onSuccess: () => {
+      llmRefresh();
+      setLlmExpanded(null);
+      setLlmForm({});
+      setLlmError(null);
+    },
+    onError: (err) => setLlmError(errorMessage(err)),
+  });
+
+  const removeLlm = useMutation({
+    mutationFn: (provider: string) => deleteLlmCredentials(provider),
+    onSuccess: () => { llmRefresh(); setLlmConfirmDelete(null); },
+    onError: (err) => setLlmError(errorMessage(err)),
+  });
 
   const handleTestConnection = (providerKey: string) => {
     setValResult(null);
@@ -351,6 +382,154 @@ export default function CloudAccounts() {
       </div>
 
       <GoogleDriveCard />
+
+      {/* LLM Providers */}
+      <div className="mt-16">
+        <header className="mb-8">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Sparkles className="text-purple-400" size={22} />
+            LLM Providers
+          </h2>
+          <p className="text-slate-400 text-sm mt-1">Connect AI model providers for chat, planning, and coding.</p>
+        </header>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-4xl">
+          {LLM_PROVIDERS.map((provider) => {
+            const status = llmStatuses.find((s) => s.provider === provider.key);
+            const isConfigured = (status?.modelCount ?? 0) > 0 || !!status?.hasKey;
+            const isExpanded = llmExpanded === provider.key;
+
+            return (
+              <div
+                key={provider.key}
+                className={`relative bg-slate-800 border rounded-3xl overflow-hidden transition-all duration-300 ${
+                  isExpanded ? 'col-span-1 xl:col-span-2' : ''
+                } ${isConfigured ? 'border-slate-600' : 'border-slate-700/50'}`}
+              >
+                <div className="h-1 w-full" style={{ backgroundColor: isConfigured ? provider.color : 'transparent' }} />
+
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="text-2xl w-10 h-10 flex items-center justify-center rounded-xl"
+                        style={{ backgroundColor: `${provider.color}15`, color: provider.color }}
+                      >
+                        {provider.icon}
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-white text-lg">{provider.label}</h3>
+                          {provider.docsUrl && (
+                            <a href={provider.docsUrl} target="_blank" rel="noreferrer" className="text-slate-500 hover:text-slate-300" title="Get API Key">
+                              <ExternalLink size={14} />
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {isConfigured ? (
+                            <>
+                              <div className="w-2 h-2 rounded-full bg-green-500" />
+                              <span className="text-xs text-green-400 font-semibold">
+                                {status?.modelCount ?? 0} model{(status?.modelCount ?? 0) !== 1 ? 's' : ''} connected
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-2 h-2 rounded-full bg-slate-500" />
+                              <span className="text-xs text-slate-500 font-semibold">Not configured</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!isExpanded && (
+                    <div className="flex gap-3 mt-4">
+                      {isConfigured ? (
+                        <>
+                          <button onClick={() => { setLlmExpanded(provider.key); setLlmForm({}); setLlmError(null); }}
+                            className="flex-1 py-2.5 px-4 text-sm font-bold rounded-xl bg-slate-700/50 hover:bg-slate-700 text-slate-300">
+                            Change Key
+                          </button>
+                          <button onClick={() => setLlmConfirmDelete(provider.key)}
+                            className="py-2.5 px-4 text-sm font-bold rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400">
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <button onClick={() => { setLlmExpanded(provider.key); setLlmForm({}); setLlmError(null); }}
+                          className="flex-1 py-2.5 px-4 text-sm font-bold rounded-xl text-white"
+                          style={{ backgroundColor: `${provider.color}30`, color: provider.color }}>
+                          Configure
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {isExpanded && (
+                    <div className="mt-4 space-y-4">
+                      <div className="bg-slate-900/40 rounded-2xl p-6 border border-white/5 space-y-4">
+                        {provider.fields.map((field) => (
+                          <div key={field.key}>
+                            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                              {field.label}
+                            </label>
+                            <input
+                              type={field.sensitive ? 'password' : 'text'}
+                              placeholder={field.placeholder}
+                              value={llmForm[field.key] || ''}
+                              onChange={(e) => setLlmForm({ ...llmForm, [field.key]: e.target.value })}
+                              className="block w-full px-4 py-3 bg-slate-800/50 border border-white/5 rounded-xl text-white font-mono text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                        ))}
+
+                        {llmError && (
+                          <div className="p-3 rounded-xl text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2">
+                            <AlertTriangle size={14} />
+                            <span>{llmError}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button onClick={() => setLlmExpanded(null)}
+                          className="flex-1 py-3 px-4 text-sm font-bold rounded-xl bg-slate-700/50 hover:bg-slate-700 text-slate-300">
+                          Cancel
+                        </button>
+                        <button onClick={() => saveLlm.mutate({ provider: provider.key, ...llmForm })}
+                          disabled={saveLlm.isPending}
+                          className="flex-1 py-3 px-4 text-sm font-bold rounded-xl transition-all text-white disabled:opacity-50"
+                          style={{ backgroundColor: provider.color }}>
+                          {saveLlm.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Connect & Fetch Models'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {llmConfirmDelete === provider.key && (
+                  <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-sm flex flex-col items-center justify-center p-6 z-10">
+                    <AlertTriangle className="text-red-500 mb-3" size={32} />
+                    <h4 className="font-bold text-lg mb-1">Remove {provider.label}?</h4>
+                    <p className="text-slate-400 text-sm text-center mb-6">All models from this provider will be removed from your model list.</p>
+                    <div className="flex gap-3 w-full max-w-xs">
+                      <button onClick={() => setLlmConfirmDelete(null)}
+                        className="flex-1 py-2.5 px-4 text-sm font-bold rounded-xl bg-slate-700 hover:bg-slate-600">Cancel</button>
+                      <button onClick={() => removeLlm.mutate(provider.key)} disabled={removeLlm.isPending}
+                        className="flex-1 py-2.5 px-4 text-sm font-bold rounded-xl bg-red-600 hover:bg-red-500">
+                        {removeLlm.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Remove'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }

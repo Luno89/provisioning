@@ -156,6 +156,53 @@ export const PROVIDERS: ProviderMeta[] = [
 
 export const CLUSTER_CAPABLE_PROVIDERS = ['hetzner'] as const;
 
+export const LLM_PROVIDERS: ProviderMeta[] = [
+  {
+    key: 'openrouter',
+    label: 'OpenRouter',
+    color: '#FF6600',
+    icon: '◇',
+    docsUrl: 'https://openrouter.ai/keys',
+    fields: [{ key: 'apiKey', label: 'API Key', sensitive: true, placeholder: 'sk-or-v1-...' }],
+  },
+  {
+    key: 'groq',
+    label: 'Groq',
+    color: '#F55036',
+    icon: '⚡',
+    docsUrl: 'https://console.groq.com/keys',
+    fields: [{ key: 'apiKey', label: 'API Key', sensitive: true, placeholder: 'gsk_...' }],
+  },
+  {
+    key: 'together',
+    label: 'Together AI',
+    color: '#FF6B6B',
+    icon: '◆',
+    docsUrl: 'https://api.together.ai/settings/api-keys',
+    fields: [{ key: 'apiKey', label: 'API Key', sensitive: true, placeholder: 'xxxxxxxx' }],
+  },
+  {
+    key: 'mistral',
+    label: 'Mistral AI',
+    color: '#FF9900',
+    icon: '◈',
+    docsUrl: 'https://console.mistral.ai/api-keys/',
+    fields: [{ key: 'apiKey', label: 'API Key', sensitive: true, placeholder: 'xxxxxxxx' }],
+  },
+  {
+    key: 'custom',
+    label: 'Custom Endpoint',
+    color: '#6366F1',
+    icon: '🔌',
+    docsUrl: '',
+    fields: [
+      { key: 'baseUrl', label: 'Base URL', sensitive: false, placeholder: 'https://your-api.com/v1' },
+      { key: 'apiKey', label: 'API Key (optional)', sensitive: true, placeholder: 'sk-...' },
+      { key: 'model', label: 'Model Name', sensitive: false, placeholder: 'gpt-4o-mini' },
+    ],
+  },
+];
+
 export const PROVIDER_CAPABILITY: Record<string, string> = {
   hetzner: 'Live plan prices in the VPS Catalog, and full cluster provisioning.',
   vultr: 'Vultr plans are already in the VPS Catalog (public API) — a token is only needed for future provisioning.',

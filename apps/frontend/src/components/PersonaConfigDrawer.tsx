@@ -9,6 +9,7 @@ import {
   personaKeys
 } from '../api/personas.js';
 import { listPacks, updatePack, packKeys, type PersonaPack } from '../api/packs';
+import { listModels, providerKeys, type ModelProvider } from '../api/models';
 import { listTools, toolKeys } from '../api/harness/tools.js';
 import type { Persona } from './PersonaEditor.js';
 import { errorMessage } from '../api/client.js';
@@ -63,6 +64,12 @@ export function PersonaConfigDrawer({
     enabled: isOpen,
   });
 
+  const { data: models = [] } = useQuery<ModelProvider[]>({
+    queryKey: providerKeys.list(),
+    queryFn: listModels,
+    enabled: isOpen,
+  });
+
   const currentPack = packs.find((p) => p.id === selectedId || p.slug === selectedId);
   const currentPersona =
     personas.find((p) => p.id === currentPack?.personaId)
@@ -74,6 +81,7 @@ export function PersonaConfigDrawer({
   const [draftDesc, setDraftDesc] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftTools, setDraftTools] = useState<string[]>([]);
+  const [draftModelId, setDraftModelId] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
@@ -82,6 +90,7 @@ export function PersonaConfigDrawer({
     setDraftDesc(currentPack.description ?? '');
     setDraftPrompt(currentPersona?.systemPrompt ?? '');
     setDraftTools(currentPack.tools ?? []);
+    setDraftModelId((currentPack as any).model?.endpointId ?? '');
     setStatusMsg(null);
   }, [currentPack, currentPersona]);
 
@@ -93,6 +102,7 @@ export function PersonaConfigDrawer({
         name: draftName,
         description: draftDesc,
         tools: draftTools,
+        ...(draftModelId ? { model: { endpointId: draftModelId } } : { model: { endpointId: null } }),
       });
       if (currentPersona && draftPrompt !== (currentPersona.systemPrompt ?? '')) {
         await updatePersona(currentPersona.id, { systemPrompt: draftPrompt });
@@ -228,6 +238,25 @@ export function PersonaConfigDrawer({
                       className="w-full bg-[var(--bark-950,#090d0b)] border border-[var(--bark-700,#24332b)] focus:border-emerald-500/80 rounded-md p-2.5 text-xs text-slate-100 focus:outline-none leading-relaxed resize-y font-sans"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">Model</label>
+                  <select
+                    value={draftModelId}
+                    onChange={(e) => setDraftModelId(e.target.value)}
+                    className="w-full bg-[var(--bark-950,#090d0b)] border border-[var(--bark-700,#24332b)] focus:border-emerald-500/80 rounded-md px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none"
+                  >
+                    <option value="">Pack default (pick in conversation)</option>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}{m.model ? ` — ${m.model}` : ''}
+                      </option>
+                    ))}
+                    {models.length === 0 && (
+                      <option value="" disabled>No models connected — add one in Cloud Accounts</option>
+                    )}
+                  </select>
                 </div>
 
                 <div className="space-y-2.5">
