@@ -573,8 +573,8 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     category: 'web',
     effect: 'read',
     surfaces: ['assistant', 'planning'],
-    description: 'Search the live web for current information, documentation, package versions, or technical articles.',
-    usageGuidance: 'Use when looking up library documentation, API contracts, or current error messages.',
+    description: 'Search the live web for current information, documentation, package versions, or technical articles. Be specific — a search engine needs precise terms, not whole sentences. Include version numbers, library names, and error codes.',
+    usageGuidance: 'Use when looking up library documentation, API contracts, or current error messages. If the result set is empty, try different terms before reporting nothing exists.',
     compactGuidance: 'Search web for docs/APIs.',
     requiresBinaries: [],
     parameters: {

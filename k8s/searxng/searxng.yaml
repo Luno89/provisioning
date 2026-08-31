@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: searxng
+  labels:
+    name: searxng
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: searxng-secret
+  namespace: searxng
+type: Opaque
+stringData:
+  secret_key: "koala-dev-searxng-key"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-settings
+  namespace: searxng
+data:
+  settings.yml: |
+    use_default_settings: true
+    server:
+      secret_key: "@SEARXNG_SECRET@"
+      limiter: false
+      image_proxy: false
+    search:
+      formats:
+        - html
+        - json
+      default_lang: all
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      containers:
+        - name: searxng
+          image: searxng/searxng:latest
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - cp /config-src/settings.yml /etc/searxng/settings.yml && sed -i "s|@SEARXNG_SECRET@|$SEARXNG_SECRET|" /etc/searxng/settings.yml && exec /usr/local/searxng/entrypoint.sh
+          env:
+            - name: SEARXNG_BIND_ADDRESS
+              value: 0.0.0.0
+            - name: SEARXNG_PORT
+              value: "8080"
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: searxng-secret
+                  key: secret_key
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: settings
+              mountPath: /config-src
+              readOnly: true
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: 1000m
+            requests:
+              memory: 256Mi
+              cpu: 100m
+      volumes:
+        - name: settings
+          configMap:
+            name: searxng-settings
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+  namespace: searxng
+spec:
+  type: NodePort
+  selector:
+    app: searxng
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 32080

@@ -33,6 +33,17 @@ if [ ! -f "$KUBECTL" ] || ! "$KUBECTL" version --client >/dev/null 2>&1; then
   KUBECTL="kubectl"
 fi
 
+# Resolve which context to use: prefer the k3d-named context if it exists, else default.
+CLUSTER_CONTEXT="k3d-provisioning-lunorica"
+if ! "$KUBECTL" config get-contexts -o name 2>/dev/null | grep -qx "$CLUSTER_CONTEXT"; then
+  if "$KUBECTL" get nodes >/dev/null 2>&1; then
+    CLUSTER_CONTEXT="$( "$KUBECTL" config current-context 2>/dev/null || echo default )"
+  else
+    echo "  ❌  No reachable cluster — run ensure-cluster.sh after the cluster is up"
+    exit 1
+  fi
+fi
+
 if [ "$(uname -s)" = "Linux" ]; then
   # cluster.sh create already no-ops cheaply (a single `systemctl is-active` check) when the
   # native k3s instance is already running, so there's no need for a separate cached fast path
@@ -58,9 +69,9 @@ fi
 # manually (`npm run deploy-worker`) and persists across `npm run dev` sessions since it lives
 # in the cluster, not the npm process — scale it to 0 so local dev always wins, without
 # touching the manifest itself so `npm run deploy-worker` still works when deliberately wanted.
-if "$KUBECTL" --context "k3d-provisioning-lunorica" get deployment provisioning-worker &>/dev/null; then
+if "$KUBECTL" --context "$CLUSTER_CONTEXT" get deployment provisioning-worker &>/dev/null; then
   echo "  ▶  scaling down in-cluster worker pod (avoids stale-code conflicts with local dev)"
-  "$KUBECTL" --context "k3d-provisioning-lunorica" scale deployment/provisioning-worker --replicas=0 || true
+  "$KUBECTL" --context "$CLUSTER_CONTEXT" scale deployment/provisioning-worker --replicas=0 || true
 fi
 
 # Create the worker log directory BEFORE the stack apply below. LoggingStack mounts this exact
@@ -88,7 +99,34 @@ npx tsx "${ROOT}/scripts/ensure-cluster-stack.ts" || echo "  ⚠️  Monitoring/
 # state of every fresh machine.
 #
 # Idempotent: `apply` on an unchanged manifest is a no-op.
-"$KUBECTL" --context "k3d-provisioning-lunorica" apply -f "${ROOT}/k8s/koala-egress/" \
+"$KUBECTL" --context "$CLUSTER_CONTEXT" apply -f "${ROOT}/k8s/koala-egress/" \
   || echo "  ⚠️  Egress proxy apply failed — sandboxes will not be able to install packages"
+
+# SearXNG + Crawl4AI: the agent's web_search / fetch_web_page tools fall back to
+# DuckDuckGo + raw-HTML stripping when these aren't running, which silently breaks
+# when DDG serves a CAPTCHA or the page renders client-side. Same pattern as the
+# egress proxy: plain YAML applied to the management cluster, idempotent.
+"$KUBECTL" --context "$CLUSTER_CONTEXT" apply -f "${ROOT}/k8s/searxng/" \
+  || echo "  ⚠️  SearXNG apply failed — web_search will fall back to DuckDuckGo"
+"$KUBECTL" --context "$CLUSTER_CONTEXT" apply -f "${ROOT}/k8s/crawl4ai/" \
+  || echo "  ⚠️  Crawl4AI apply failed — fetch_web_page will fall back to raw HTML stripping"
+
+# Point the backend at the in-cluster services. NodePorts are reachable on localhost
+# for both native k3s (binds on host) and k3d (forwards from host). Overwrite any stale
+# values (e.g. from a previous docker-compose approach).
+ENV_FILE="${ROOT}/apps/backend/.env"
+if [ -f "$ENV_FILE" ]; then
+  for line in \
+    'SEARXNG_URL=http://127.0.0.1:32080' \
+    'CRAWL4AI_URL=http://127.0.0.1:31235' \
+    'CRAWL4AI_API_TOKEN=koala-dev-crawl4ai-token'; do
+    key="${line%%=*}"
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+      sed -i "s|^${key}=.*|${line}|" "$ENV_FILE"
+    else
+      echo "$line" >> "$ENV_FILE"
+    fi
+  done
+fi
 
 # Cluster is running, setup complete.
