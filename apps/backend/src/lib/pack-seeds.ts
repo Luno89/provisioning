@@ -6,14 +6,6 @@ import { WEB_TOOL_NAMES } from './leaf-tools.js';
 
 const TUNED_FOR = 'Tabbyapi-Production';
 
-/**
- * What every pack sampled at when this was a module constant. Stated here so a pack carries its own
- * values and can be edited; shared by reference nowhere — each seed gets its own copy, so changing
- * one pack cannot retune the rest.
- *
- * temperature 0.3 on a dispatch turn, penalties on a conversation turn, and TabbyAPI's DRY guards
- * layered on top when that is the engine.
- */
 const DEFAULT_SAMPLING: SamplingConfig = {
   toolTurn: { temperature: 0.3 },
   conversation: { frequency_penalty: 0.4, presence_penalty: 0.3 },
@@ -24,14 +16,6 @@ const DEFAULT_SAMPLING: SamplingConfig = {
 
 const defaultSampling = (): SamplingConfig => structuredClone(DEFAULT_SAMPLING);
 
-/**
- * What every pack spent when these were module constants, in the three files that owned them.
- * Same rule as the sampler: each seed gets its own copy, so retuning one pack cannot retune nine.
- *
- * `rounds` is 8, which is what `MAX_TOOL_ROUNDS` was and what the harness config panel has always
- * advertised as "Tool rounds per turn". The unified chat route ran 12 from an unnamed default
- * parameter — one concept with two values, and this is the one that was written down.
- */
 const DEFAULT_BUDGET: BudgetConfig = {
   replyTokens: { tool: 800, thinking: 2000, writingFiles: 8000, plan: 8000, ceiling: 16000 },
   contextTokens: 32_768,
@@ -45,32 +29,17 @@ const DEFAULT_BUDGET: BudgetConfig = {
   messageChars: 6000,
   run: { steps: 200, tokens: 1_000_000, researchSteps: 100, wrapUpSteps: 4 },
   handoff: {
-    at: 0.55,
-    tail: 4,
-    reasoningKept: 6,
-    goalChars: 600,
-    discoveryChars: 160,
-    discoveries: 8,
-    listedProposals: 10,
+    at: 0.55, tail: 4, reasoningKept: 6, goalChars: 600,
+    discoveryChars: 160, discoveries: 8, listedProposals: 10,
   },
   record: {
-    callsPerRound: 6,
-    argChars: 400,
-    digestChars: 2000,
-    traceReasoning: 6000,
-    traceContent: 2000,
-    traceToolResult: 1200,
-    traceToolArgs: 2000,
+    callsPerRound: 6, argChars: 400, digestChars: 2000,
+    traceReasoning: 6000, traceContent: 2000, traceToolResult: 1200, traceToolArgs: 2000,
   },
 };
 
 const defaultBudget = (): BudgetConfig => structuredClone(DEFAULT_BUDGET);
 
-/**
- * The sections that used to be string literals inside `composePersonaPrompt`, and the three
- * thresholds that were written inline at the point of comparison. Same rule as the sampler and the
- * budget: each seed gets its own copy.
- */
 const DEFAULT_PROMPT: PromptConfig = {
   pressure: { compactAt: 0.40, minimalAt: 0.50, noticeAt: 0.48 },
   sections: {
@@ -134,7 +103,7 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'General chat. Talks things through, operates projects, and proposes new builds.',
     personaName: KOALA_NAME,
     tools: [
-      'propose_tree', 'propose_spec', 'add_project_dependency', 'list_trees',
+      'propose_tree', 'list_tree_types', 'propose_spec', 'add_project_dependency', 'list_trees',
       'get_project_pipeline', 'get_project_env', 'set_project_env', 'deploy_project', 'get_project_url',
       'get_logs', 'get_events', 'inspect_resources', 'cluster_capacity', 'list_infrastructure',
       'list_mcp_servers', 'enable_mcp_server',
@@ -153,18 +122,11 @@ export const PACK_SEEDS: PackSeed[] = [
     personaName: 'Framer',
     tools: ['read_file', 'write_file', 'finish'],
     workspace: {
-    egress: [],
-    repo: false,
-    language: 'base',
-    output: '/work/questions.md',
-    requireSources: false,
-    tunedFor: TUNED_FOR,
-    run: { maxSteps: 20 },
+      egress: [], repo: false, language: 'base',
+      output: '/work/questions.md', requireSources: false,
+      tunedFor: TUNED_FOR,
+      run: { maxSteps: 20 },
     },
-    // Tuned lower/higher than the shipped default; this was an `overrides` entry on the pack,
-    // layered on at call time, and is now the value the pack states outright.
-    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
-    // time, and is now the value the pack states outright.
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.3 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -176,19 +138,14 @@ export const PACK_SEEDS: PackSeed[] = [
     personaName: 'Researcher',
     tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
     workspace: {
-    repo: false,
-    language: 'base',
-    output: '/work/findings.md',
-    egress: [],
-    tunedFor: TUNED_FOR,
-    run: {
-    maxSteps: DEFAULT_BUDGET.run.researchSteps,
-    withdraw: { afterStep: Math.floor(DEFAULT_BUDGET.run.researchSteps / 2), tools: [...WEB_TOOL_NAMES] },
-    pacing: researchPacing(DEFAULT_BUDGET.run.researchSteps, '/work/findings.md', DEFAULT_BUDGET.run.wrapUpSteps),
+      repo: false, language: 'base', output: '/work/findings.md', egress: [],
+      tunedFor: TUNED_FOR,
+      run: {
+        maxSteps: DEFAULT_BUDGET.run.researchSteps,
+        withdraw: { afterStep: Math.floor(DEFAULT_BUDGET.run.researchSteps / 2), tools: [...WEB_TOOL_NAMES] },
+        pacing: researchPacing(DEFAULT_BUDGET.run.researchSteps, '/work/findings.md', DEFAULT_BUDGET.run.wrapUpSteps),
+      },
     },
-    },
-    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
-    // time, and is now the value the pack states outright.
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.4 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -200,16 +157,11 @@ export const PACK_SEEDS: PackSeed[] = [
     personaName: 'Synthesist',
     tools: ['read_file', 'write_file', 'finish'],
     workspace: {
-    repo: false,
-    language: 'base',
-    output: '/work/findings.md',
-    requireSources: false,
-    egress: [],
-    tunedFor: TUNED_FOR,
-    run: { maxSteps: 30 },
+      repo: false, language: 'base', output: '/work/findings.md',
+      requireSources: false, egress: [],
+      tunedFor: TUNED_FOR,
+      run: { maxSteps: 30 },
     },
-    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
-    // time, and is now the value the pack states outright.
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.5 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -221,13 +173,9 @@ export const PACK_SEEDS: PackSeed[] = [
     personaName: MERGER_PERSONA,
     tools: ['run_command', 'read_file', 'write_file', 'finish'],
     workspace: {
-    repo: true,
-    egress: [{ namespace: 'gitea', ports: [3000] }],
-    tunedFor: TUNED_FOR,
-    run: { maxSteps: 30 },
+      repo: true, egress: [{ namespace: 'gitea', ports: [3000] }],
+      tunedFor: TUNED_FOR, run: { maxSteps: 30 },
     },
-    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
-    // time, and is now the value the pack states outright.
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.2 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -239,15 +187,9 @@ export const PACK_SEEDS: PackSeed[] = [
     personaName: 'Ingestor',
     tools: ['start_ingest', 'ingest_status', 'search_corpus', 'read_file', 'write_file', 'finish'],
     workspace: {
-    repo: false,
-    language: 'base',
-    output: '/work/findings.md',
-    egress: [],
-    tunedFor: TUNED_FOR,
-    run: { maxSteps: 40 },
+      repo: false, language: 'base', output: '/work/findings.md', egress: [],
+      tunedFor: TUNED_FOR, run: { maxSteps: 40 },
     },
-    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
-    // time, and is now the value the pack states outright.
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.3 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -258,10 +200,7 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Reads a failed leaf and says why it failed.',
     personaName: 'Reviewer',
     tools: [],
-    workspace: {
-    repo: false,
-    language: 'base',
-    },
+    workspace: { repo: false, language: 'base' },
     sampling: defaultSampling(),
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -272,14 +211,7 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Reads what a leaf produced and says whether the claim holds up.',
     personaName: 'Judge',
     tools: [],
-    workspace: {
-    repo: false,
-    language: 'base',
-    },
-    // Tuned lower/higher than the shipped default; this was an `overrides` entry on the pack,
-    // layered on at call time, and is now the value the pack states outright.
-    // Tuned away from the shipped default; this was an `overrides` entry layered on at call
-    // time, and is now the value the pack states outright.
+    workspace: { repo: false, language: 'base' },
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.1 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -291,9 +223,9 @@ export const PACK_SEEDS: PackSeed[] = [
     personaName: 'Builder',
     tools: ['run_command', 'read_file', 'write_file', 'finish'],
     workspace: {
-    repo: true,
-    egress: [{ namespace: 'gitea', ports: [3000] }],
-    tunedFor: TUNED_FOR,
+      repo: true,
+      egress: [{ namespace: 'gitea', ports: [3000] }],
+      tunedFor: TUNED_FOR,
     },
     sampling: defaultSampling(),
     budget: defaultBudget(),
@@ -312,32 +244,20 @@ export interface PackSeedStore {
 
 export async function seedPacks(store: PackSeedStore): Promise<number> {
   const stored = await store.getPersonaPacks();
-
-  const seen = new Map<string, PersonaPack>();
   for (const p of stored) {
-    if (p.ownerId != null) continue;
-    const prev = seen.get(p.slug);
-    if (prev && p.updatedAt < prev.updatedAt) {
-      await store.deletePersonaPack(p.id);
-    } else if (prev) {
-      await store.deletePersonaPack(prev.id);
-      seen.set(p.slug, p);
-    } else {
-      seen.set(p.slug, p);
-    }
+    if (p.ownerId == null) await store.deletePersonaPack(p.id);
   }
-  const cleaned = await store.getPersonaPacks();
-  const builtIns = new Map(cleaned.filter((p) => p.ownerId == null).map((p) => [p.slug, p]));
-  const personas = (await store.getPersonas()).filter((p) => p.ownerId == null);
 
-  let written = 0;
+  const personas = (await store.getPersonas()).filter((p) => p.ownerId == null);
+  const personaByName = new Map(personas.map((p) => [p.name, p]));
+
+  const now = new Date().toISOString();
   for (const seed of PACK_SEEDS) {
-    const persona = personas.find((p) => p.name === seed.personaName);
+    const persona = personaByName.get(seed.personaName);
     if (!persona) continue;
 
-    const prior = builtIns.get(seed.slug);
     const next: PersonaPack = {
-      id: prior?.id ?? builtInPackId(seed.slug),
+      id: builtInPackId(seed.slug),
       slug: seed.slug,
       name: seed.name,
       description: seed.description,
@@ -349,14 +269,14 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       budget: structuredClone(seed.budget),
       prompt: structuredClone(seed.prompt),
       builtIn: true,
-      createdAt: prior?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
-    if (prior && JSON.stringify({ ...prior, updatedAt: '' }) === JSON.stringify({ ...next, updatedAt: '' })) continue;
     await store.savePersonaPack(next);
-    written++;
   }
-  return written;
+  // Count only packs that were actually written (persona was found).
+  const all = await store.getPersonaPacks();
+  return all.filter((p) => p.ownerId == null).length;
 }
 
 export function packForLeaf(

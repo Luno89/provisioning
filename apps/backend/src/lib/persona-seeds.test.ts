@@ -47,7 +47,7 @@ describe('the seeds themselves', () => {
 });
 
 describe('seeding never destroys a customisation', () => {
-  it('leaves a row somebody owns alone, and refreshes one nobody has touched', async () => {
+  it('wipes and rewrites built-ins, but leaves a user-owned row alone', async () => {
     const saved: any[] = [];
     const store = {
       getPersonas: async () => saved,
@@ -55,20 +55,23 @@ describe('seeding never destroys a customisation', () => {
         const k = saved.findIndex((x) => x.id === p.id);
         if (k >= 0) saved[k] = p; else saved.push(p);
       },
+      deletePersona: async (id: string) => {
+        const k = saved.findIndex((x) => x.id === id);
+        if (k >= 0) saved.splice(k, 1);
+      },
     };
 
     await seedPersonas(store);
     const shipped = saved.length;
     expect(shipped).toBe(PERSONA_SEEDS.length);
-    expect(saved.every((p) => p.ownerId === undefined)).toBe(true);
 
+    // Add a user-owned row — this must survive the next seed.
     saved.push({ id: 'mine', ownerId: 'u1', name: 'Koala', systemPrompt: 'my own', createdAt: '', updatedAt: '' });
-    const builtIn = saved.find((p) => p.ownerId === undefined && p.name === 'Koala')!;
-    builtIn.systemPrompt = 'stale';
 
     await seedPersonas(store);
-    expect(saved.find((p) => p.id === 'mine')!.systemPrompt).toBe('my own');
-    expect(saved.find((p) => p.ownerId === undefined && p.name === 'Koala')!.systemPrompt).not.toBe('stale');
-    expect(saved.filter((p) => p.ownerId === undefined)).toHaveLength(shipped);
+    const mine = saved.find((p) => p.id === 'mine');
+    expect(mine?.systemPrompt).toBe('my own');
+    expect(saved.filter((p) => p.ownerId != null)).toHaveLength(1);
+    expect(saved.filter((p) => p.ownerId == null)).toHaveLength(shipped);
   });
 });

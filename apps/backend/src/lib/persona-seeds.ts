@@ -2,7 +2,6 @@ import type { Persona } from './personas.js';
 import { MERGER_PERSONA } from './well-known-personas.js';
 import { KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
 
-
 export const RETIRED_PERSONAS = [
   'Coder', 'Orchestrator', 'Debugger', 'Designer',
   'Builder (python)', 'Builder (go)',
@@ -171,36 +170,20 @@ export interface PersonaSeedStore {
 
 export async function seedPersonas(store: PersonaSeedStore): Promise<number> {
   const stored = await store.getPersonas();
-
-  const seen = new Map<string, number>();
   for (const p of stored) {
-    if (p.ownerId != null) continue;
-    const prev = seen.get(p.name);
-    if (prev !== undefined) {
-      const keep = p.updatedAt >= stored[prev]!.updatedAt ? p : stored[prev]!;
-      const drop = p.updatedAt >= stored[prev]!.updatedAt ? stored[prev]! : p;
-      await store.deletePersona(drop.id);
-      seen.set(keep.name, stored.indexOf(keep));
-    } else {
-      seen.set(p.name, stored.indexOf(p));
-    }
+    if (p.ownerId == null) await store.deletePersona(p.id);
   }
-  const cleaned = await store.getPersonas();
-  const builtIns = new Map(cleaned.filter((p) => p.ownerId == null).map((p) => [p.name, p]));
 
-  let written = 0;
+  const now = new Date().toISOString();
   for (const seed of PERSONA_SEEDS) {
-    const prior = builtIns.get(seed.name);
     const next: Persona = {
       ...seed,
-      id: prior?.id ?? builtInPersonaId(seed.name),
+      id: builtInPersonaId(seed.name),
       builtIn: true,
-      createdAt: prior?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     } as Persona;
-    if (prior && JSON.stringify({ ...prior, updatedAt: '' }) === JSON.stringify({ ...next, updatedAt: '' })) continue;
     await store.savePersona(next);
-    written++;
   }
-  return written;
+  return PERSONA_SEEDS.length;
 }

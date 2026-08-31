@@ -7,8 +7,8 @@ import { forSurface } from './tool-catalogue.js';
 
 const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
 
-const store = (packs: PersonaPack[], personas: { id: string; ownerId: string; name: string }[]): PackSeedStore & { saved: PersonaPack[] } => {
-  const saved = [...packs];
+const store = (personas: { id: string; name: string }[]): PackSeedStore & { saved: PersonaPack[] } => {
+  const saved: PersonaPack[] = [];
   return {
     saved,
     getPersonaPacks: async () => saved,
@@ -16,15 +16,15 @@ const store = (packs: PersonaPack[], personas: { id: string; ownerId: string; na
       const i = saved.findIndex((x) => x.id === p.id);
       if (i >= 0) saved[i] = p; else saved.push(p);
     },
+    deletePersonaPack: async (id) => {
+      const i = saved.findIndex((x) => x.id === id);
+      if (i >= 0) saved.splice(i, 1);
+    },
     getPersonas: async () => personas,
   };
 };
 
-const personasFor = (ownerId: string) =>
-  PERSONA_SEEDS.map((s, i) => ({ id: `p${i}`, ownerId, name: s.name }));
-
-let n = 0;
-const ids = () => `pack-${++n}`;
+const builtInPersonas = PERSONA_SEEDS.map((p, i) => ({ id: `bp${i}`, name: p.name }));
 
 describe('the seeds themselves', () => {
   it('names a persona that is actually seeded', () => {
@@ -34,12 +34,12 @@ describe('the seeds themselves', () => {
     }
   });
 
-  it('has unique slugs, which is what the URL and the seeder both match on', () => {
+  it('has unique slugs', () => {
     const slugs = PACK_SEEDS.map((p) => p.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-  it('grants every tool the assistant executor can actually dispatch', () => {
+  it('grants every tool the assistant executor can dispatch', () => {
     const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
     const dispatchable = new Set(KOALA_TOOLS.map((t) => t.function.name as string));
     for (const name of koala.tools) {
@@ -56,58 +56,30 @@ describe('every persona has a pack to run as', () => {
       expect(packed, persona.name).toContain(persona.name);
     }
   });
-
-  it('starts each work pack as what its persona already declared', () => {
-    for (const seed of PERSONA_SEEDS.filter((p) => p.name !== 'Koala')) {
-      const pack = PACK_SEEDS.find((p) => p.personaName === seed.name)!;
-      expect(pack.tools, seed.name).toBeDefined();
-    }
-  });
 });
 
 describe('seeding', () => {
-  const shipped = (personas: { id: string; name: string }[]) => {
-    const saved: PersonaPack[] = [];
-    return {
-      saved,
-      getPersonaPacks: async () => saved,
-      savePersonaPack: async (p: PersonaPack) => {
-        const k = saved.findIndex((x) => x.id === p.id);
-        if (k >= 0) saved[k] = p; else saved.push(p);
-      },
-      getPersonas: async () => personas,
-    };
-  };
-  const builtInPersonas = PERSONA_SEEDS.map((p, i) => ({ id: `bp${i}`, name: p.name }));
-
-  it('writes one ownerless row per shipped pack', async () => {
-    const s = shipped(builtInPersonas);
+  it('wipes old built-ins and writes fresh rows', async () => {
+    const s = store(builtInPersonas);
     expect(await seedPacks(s)).toBe(PACK_SEEDS.length);
     expect(s.saved.every((p) => p.ownerId === undefined)).toBe(true);
     expect(s.saved.every((p) => p.builtIn === true)).toBe(true);
   });
 
-  it('writes nothing on a second run when nothing shipped has changed', async () => {
-    const s = shipped(builtInPersonas);
+  it('writes fresh every time (wipes first)', async () => {
+    const s = store(builtInPersonas);
     await seedPacks(s);
-    expect(await seedPacks(s)).toBe(0);
+    expect(await seedPacks(s)).toBe(PACK_SEEDS.length);
     expect(s.saved).toHaveLength(PACK_SEEDS.length);
   });
 
-  it('updates a shipped pack nobody has customised', async () => {
-    const s = shipped(builtInPersonas);
-    await seedPacks(s);
-    const koala = s.saved.find((p) => p.slug === 'koala')!;
-    koala.tools = ['stale'];
-    expect(await seedPacks(s)).toBe(1);
-    expect(s.saved.find((p) => p.slug === 'koala')!.tools).not.toEqual(['stale']);
-  });
-
   it('never touches a row somebody owns', async () => {
-    const s = shipped(builtInPersonas);
+    const s = store(builtInPersonas);
     await seedPacks(s);
     s.saved.push({
-      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0', tools: ['get_logs'], sampling: { ...PACK_SEEDS[0]!.sampling, toolTurn: { ...PACK_SEEDS[0]!.sampling.toolTurn, temperature: 0.1 } }, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
+      id: 'mine', ownerId: 'u1', slug: 'koala', name: 'My Koala', personaId: 'bp0', tools: ['get_logs'],
+      sampling: { ...PACK_SEEDS[0]!.sampling, toolTurn: { ...PACK_SEEDS[0]!.sampling.toolTurn, temperature: 0.1 } },
+      budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
       createdAt: '', updatedAt: '',
     } as PersonaPack);
     await seedPacks(s);
@@ -116,16 +88,16 @@ describe('seeding', () => {
     expect(mine.sampling.toolTurn.temperature).toBe(0.1);
   });
 
-  it('skips a pack whose persona does not exist rather than writing a dangling id', async () => {
-    const s = shipped([]);
+  it('skips packs whose persona does not exist', async () => {
+    const s = store([]);
     expect(await seedPacks(s)).toBe(0);
     expect(s.saved).toEqual([]);
   });
 
-  it('gives a built-in a stable id, so a reference survives a restart', async () => {
-    const a = shipped(builtInPersonas);
+  it('gives a built-in a stable id across restarts', async () => {
+    const a = store(builtInPersonas);
     await seedPacks(a);
-    const b = shipped(builtInPersonas);
+    const b = store(builtInPersonas);
     await seedPacks(b);
     expect(a.saved.map((p) => p.id)).toEqual(b.saved.map((p) => p.id));
   });
