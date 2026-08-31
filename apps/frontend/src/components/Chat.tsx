@@ -295,9 +295,8 @@ export default function Chat({
           <div>
             <p className="text-slate-300 font-medium">No models yet</p>
             <p className="text-sm text-slate-500 mt-1">
-              Deploy a vLLM or TabbyAPI app to one of your clusters, or register any
-              OpenAI-compatible endpoint below — including one running on your own machine over the
-              mesh.
+              Deploy a vLLM or TabbyAPI app to your cluster, or connect an AI provider in
+              Cloud Accounts — they all appear here as options.
             </p>
           </div>
         </div>
@@ -359,11 +358,16 @@ export default function Chat({
                 onChange={(e) => setModelId(e.target.value)}
                 className="w-full bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-lg px-3 py-1.5 text-[12px] text-slate-200 focus:border-[var(--leaf)] focus:outline-none"
               >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} — {m.model || m.kind || (m.isMesh ? 'mesh' : 'endpoint')}
-                  </option>
-                ))}
+                {models.map((m) => {
+                  const prefix = m.source === 'deployment'
+                    ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM')
+                    : m.name.includes(' · ') ? m.name.split(' · ')[0] : 'Gateway';
+                  return (
+                    <option key={m.id} value={m.id}>
+                      [{prefix}] {m.model || m.name}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
