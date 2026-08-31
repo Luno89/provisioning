@@ -194,6 +194,6 @@ describe('editing a pack\'s values', () => {
     const { body } = await send('PUT', `/${koalaId}`, { prompt: { sections: { secrets: '' } } });
 
     expect(body.prompt.sections.secrets).toBe('');
-    expect(body.prompt.sections.toolGuidance).toBe('## Active Tools & Workflow Guidance');
+    expect(body.prompt.sections.toolGuidance).toBe('## Active Tools (each carries its own usage guidance — read it before calling)');
   });
 });

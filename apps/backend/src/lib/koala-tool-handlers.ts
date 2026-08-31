@@ -224,7 +224,7 @@ export async function handleListTrees(
   ctx: KoalaToolContext,
   args: Record<string, unknown>,
 ): Promise<KoalaToolResult> {
-  const { db, userId, conversationId, sessionId, servers, kubectl } = ctx;
+  const { db, userId } = ctx;
   const trees = (await db.getTrees()).filter((t) => t.ownerId === userId);
   const branches = (await db.getBranches()).filter((b) => b.ownerId === userId);
   const leaves = (await db.getLeaves()).filter((l) => l.ownerId === userId);

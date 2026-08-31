@@ -81,7 +81,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     effect: 'read',
     surfaces: ['assistant'],
     description: 'Check the CI/CD pipeline runs, latest commit SHA, built container image tag, and Kaniko build status for a project. Answers whether an image has been built from the project\'s code.',
-    usageGuidance: 'Call this to check if a project\'s code has been built by Kaniko, verify image tags, or inspect build failures before deploying.',
+    usageGuidance: 'Call this to check if a project\'s code has been built by Kaniko, verify image tags, or inspect build failures before deploying. Do NOT call propose_tree to redeploy — use deploy_project instead.',
     compactGuidance: 'Inspect CI/CD build runs and image tag.',
     requiresBinaries: [],
     parameters: {
@@ -315,7 +315,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     effect: 'read',
     surfaces: ['assistant', 'planning'],
     description: 'What is running in the cluster that a built service could use — databases, storage, search, embeddings — with the address a pod reaches each one at, and the full list of what this platform can deploy. Call this BEFORE proposing work that depends on a piece of infrastructure. Anything absent from both lists does not exist here and cannot be built: say so rather than planning around it. Never hard-code an address into a leaf — a service a project depends on is provided to it as a binding at deploy time, read from $SERVICE_BINDING_ROOT at runtime.',
-    usageGuidance: 'Call before proposing backing services or when checking if a database or platform service is running.',
+    usageGuidance: 'Call before proposing backing services or when checking if a database or platform service is running. Anything not listed does not exist here — say so plainly rather than planning around it.',
     compactGuidance: 'List running backing services and deployable specs.',
     requiresBinaries: [],
     parameters: {

@@ -2,15 +2,34 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Sliders, X, Check, Loader2, Sparkles, Wrench,
-  Layers, Cpu, Globe, Server, Save
+  Save
 } from 'lucide-react';
 import {
-  listPersonas, getPersonaOptions, updatePersona,
+  listPersonas, updatePersona,
   personaKeys
 } from '../api/personas.js';
 import { listPacks, updatePack, packKeys, type PersonaPack } from '../api/packs';
+import { listTools, toolKeys } from '../api/harness/tools.js';
 import type { Persona } from './PersonaEditor.js';
 import { errorMessage } from '../api/client.js';
+
+interface ToolItem {
+  name: string;
+  description?: string;
+  category: string;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  assistant: 'Project & Infra Tools',
+  web: 'Web & Search',
+  sandbox: 'Sandbox (Build)',
+  planning: 'Planning',
+  git: 'Git',
+  http: 'HTTP',
+  linter: 'Lint',
+  database: 'Database',
+  custom: 'Custom',
+};
 
 export function PersonaConfigDrawer({
   isOpen,
@@ -38,22 +57,23 @@ export function PersonaConfigDrawer({
     enabled: isOpen,
   });
 
-  const { data: options } = useQuery({
-    queryKey: personaKeys.options(),
-    queryFn: getPersonaOptions,
+  const { data: allTools = [] } = useQuery<ToolItem[]>({
+    queryKey: toolKeys.list(),
+    queryFn: listTools,
     enabled: isOpen,
   });
 
   const currentPack = packs.find((p) => p.id === selectedId || p.slug === selectedId);
-  const currentPersona = personas.find((p) => p.id === currentPack?.personaId);
+  const currentPersona =
+    personas.find((p) => p.id === currentPack?.personaId)
+    // A user's custom persona with the same name replaces the built-in in the
+    // visible list (withBuiltIns keys by name), so an ID match can miss.
+    ?? personas.find((p) => p.name === currentPack?.name);
 
   const [draftName, setDraftName] = useState('');
   const [draftDesc, setDraftDesc] = useState('');
   const [draftPrompt, setDraftPrompt] = useState('');
-  const [draftTemperature, setDraftTemperature] = useState<number>(0.7);
   const [draftTools, setDraftTools] = useState<string[]>([]);
-  const [draftMcp, setDraftMcp] = useState<string[]>([]);
-  const [draftMaxSteps, setDraftMaxSteps] = useState<number>(20);
   const [statusMsg, setStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
@@ -61,29 +81,18 @@ export function PersonaConfigDrawer({
     setDraftName(currentPack.name);
     setDraftDesc(currentPack.description ?? '');
     setDraftPrompt(currentPersona?.systemPrompt ?? '');
-    setDraftTemperature(
-      typeof currentPack.overrides?.temperature === 'number' ? currentPack.overrides.temperature : 0.7,
-    );
     setDraftTools(currentPack.tools ?? []);
-    setDraftMcp(currentPersona?.scope?.mcp ?? []);
-    setDraftMaxSteps(
-      typeof currentPack.overrides?.maxSteps === 'number' ? currentPack.overrides.maxSteps : 20,
-    );
     setStatusMsg(null);
   }, [currentPack, currentPersona]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!currentPack) return;
+      // Round-trip tools only; sampling/budget/prompt are not edited here.
       await updatePack(currentPack.id, {
         name: draftName,
         description: draftDesc,
         tools: draftTools,
-        overrides: {
-          ...(currentPack.overrides ?? {}),
-          temperature: draftTemperature,
-          maxSteps: draftMaxSteps,
-        },
       });
       if (currentPersona && draftPrompt !== (currentPersona.systemPrompt ?? '')) {
         await updatePersona(currentPersona.id, { systemPrompt: draftPrompt });
@@ -108,35 +117,14 @@ export function PersonaConfigDrawer({
     );
   };
 
-  const toggleMcp = (serverName: string) => {
-    setDraftMcp((prev) =>
-      prev.includes(serverName) ? prev.filter((s) => s !== serverName) : [...prev, serverName],
-    );
-  };
-
-  const toolCategories = [
-    {
-      id: 'proposals',
-      name: 'Project & Spec Proposals',
-      icon: Layers,
-      tools: ['propose_tree', 'propose_spec', 'add_project_dependency'],
-      description: 'Allows agent to propose structured projects and new container app specs.',
-    },
-    {
-      id: 'k8s',
-      name: 'Cluster & Diagnostics',
-      icon: Cpu,
-      tools: ['list_infrastructure', 'get_logs', 'get_events', 'inspect_resources', 'cluster_capacity', 'list_trees'],
-      description: 'Allows reading pod logs, events, capacity, and live cluster state.',
-    },
-    {
-      id: 'web',
-      name: 'Web & Intelligence',
-      icon: Globe,
-      tools: ['web_search', 'fetch_web_page', 'list_mcp_servers', 'enable_mcp_server'],
-      description: 'Web search, live webpage fetching, and dynamic MCP server discovery.',
-    },
-  ];
+  // Group tools by category, sorted by category label order
+  const categoryOrder = ['assistant', 'web', 'planning', 'sandbox', 'git', 'http', 'linter', 'database', 'custom'];
+  const grouped = new Map<string, ToolItem[]>();
+  for (const t of allTools) {
+    const cat = t.category || 'custom';
+    if (!grouped.has(cat)) grouped.set(cat, []);
+    grouped.get(cat)!.push(t);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150 font-sans">
@@ -179,8 +167,8 @@ export function PersonaConfigDrawer({
                     key={p.id}
                     type="button"
                     onClick={() => {
-                      setSelectedId(p.slug);
-                      onSelectPack(p.slug);
+                      setSelectedId(p.id);
+                      onSelectPack(p.id);
                     }}
                     className={`w-full text-left p-2.5 rounded-md border transition-colors text-xs flex items-center justify-between cursor-pointer ${
                       isSelected
@@ -217,29 +205,13 @@ export function PersonaConfigDrawer({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-semibold text-slate-300 block mb-1">
-                        Persona Name
+                        Pack Name
                       </label>
                       <input
                         type="text"
                         value={draftName}
                         onChange={(e) => setDraftName(e.target.value)}
                         className="w-full bg-[var(--bark-950,#090d0b)] border border-[var(--bark-700,#24332b)] focus:border-emerald-500/80 rounded-md px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-slate-300 block mb-1 flex items-center justify-between">
-                        <span>Sampling Temperature</span>
-                        <span className="text-emerald-400 font-mono font-bold">{draftTemperature}</span>
-                      </label>
-                      <input
-                        type="range"
-                        min="0.0"
-                        max="1.5"
-                        step="0.05"
-                        value={draftTemperature}
-                        onChange={(e) => setDraftTemperature(parseFloat(e.target.value))}
-                        className="w-full accent-emerald-500 mt-1 cursor-pointer"
                       />
                     </div>
                   </div>
@@ -265,34 +237,39 @@ export function PersonaConfigDrawer({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {toolCategories.map((cat) => {
-                      const Icon = cat.icon;
+                    {categoryOrder.map((cat) => {
+                      const tools = grouped.get(cat);
+                      if (!tools?.length) return null;
+                      const label = CATEGORY_LABELS[cat] || cat;
 
                       return (
                         <div
-                          key={cat.id}
+                          key={cat}
                           className="bg-[var(--bark-950,#090d0b)] border border-[var(--bark-800,#1b2620)] rounded-md p-3 space-y-2"
                         >
-                          <div className="flex items-center gap-1.5 text-slate-200 text-xs font-bold">
-                            <Icon size={13} className="text-emerald-400" />
-                            <span>{cat.name}</span>
-                          </div>
-                          <div className="text-[11px] text-slate-400 leading-snug font-sans">{cat.description}</div>
-                          <div className="pt-1.5 border-t border-[var(--bark-800,#1b2620)] space-y-1">
-                            {cat.tools.map((t) => {
-                              const isChecked = draftTools.length === 0 || draftTools.includes(t);
+                          <div className="text-slate-200 text-xs font-bold">{label}</div>
+                          <div className="pt-1.5 border-t border-[var(--bark-800,#1b2620)] space-y-1 max-h-48 overflow-y-auto">
+                            {tools.map((t) => {
+                              const isChecked = draftTools.includes(t.name);
                               return (
                                 <label
-                                  key={t}
-                                  className="flex items-center gap-2 text-[11px] font-mono text-slate-300 cursor-pointer hover:text-emerald-300"
+                                  key={t.name}
+                                  className="flex items-start gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-emerald-300 group"
                                 >
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
-                                    onChange={() => toggleTool(t)}
-                                    className="rounded border-[var(--bark-700,#24332b)] bg-[var(--bark-900,#111814)] text-emerald-500 focus:ring-0"
+                                    onChange={() => toggleTool(t.name)}
+                                    className="mt-0.5 rounded border-[var(--bark-700,#24332b)] bg-[var(--bark-900,#111814)] text-emerald-500 focus:ring-0"
                                   />
-                                  <span className="truncate">{t}</span>
+                                  <div className="min-w-0">
+                                    <div className="font-mono truncate">{t.name}</div>
+                                    {t.description && (
+                                      <div className="text-[10px] text-slate-500 group-hover:text-slate-400 leading-snug line-clamp-2">
+                                        {t.description}
+                                      </div>
+                                    )}
+                                  </div>
                                 </label>
                               );
                             })}
@@ -301,46 +278,6 @@ export function PersonaConfigDrawer({
                       );
                     })}
                   </div>
-                </div>
-
-                <div className="space-y-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
-                    <Server size={13} className="text-emerald-400" />
-                    <span>Attached Cluster MCP Services</span>
-                  </div>
-
-                  {(options?.mcpServers?.length ?? 0) === 0 ? (
-                    <div className="text-xs text-slate-400 bg-[var(--bark-950,#090d0b)] p-3 rounded-md border border-[var(--bark-800,#1b2620)] font-sans">
-                      No standalone external MCP servers currently deployed. Agents will discover and attach deployed cluster services dynamically.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {(options?.mcpServers ?? []).map((srv) => {
-                        const isAttached = draftMcp.includes(srv.name);
-                        return (
-                          <label
-                            key={srv.name}
-                            className={`flex items-center justify-between p-2.5 rounded-md border cursor-pointer text-xs transition-colors ${
-                              isAttached
-                                ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
-                                : 'bg-[var(--bark-950,#090d0b)] border-[var(--bark-800,#1b2620)] text-slate-400 hover:border-slate-600'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={isAttached}
-                                onChange={() => toggleMcp(srv.name)}
-                                className="rounded border-[var(--bark-700,#24332b)] bg-[var(--bark-900,#111814)] text-emerald-500 focus:ring-0"
-                              />
-                              <span className="font-semibold">{srv.name}</span>
-                            </div>
-                            <span className="text-[10px] font-mono text-slate-500">[{srv.tools} tools]</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               </>
             ) : (

@@ -142,6 +142,6 @@ describe('what context pressure does to the shape of the prompt', () => {
   });
 
   it('heads the list the same way whatever the pressure', () => {
-    for (const p of [0.10, 0.42, 0.51]) expect(at(p)).toContain('## Active Tools & Workflow Guidance');
+    for (const p of [0.10, 0.42, 0.51]) expect(at(p)).toContain('## Active Tools (each carries its own usage guidance — read it before calling)');
   });
 });

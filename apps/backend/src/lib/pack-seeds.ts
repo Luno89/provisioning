@@ -95,7 +95,7 @@ const DEFAULT_PROMPT: PromptConfig = {
       + '- When authoring or scaffolding application code, ALWAYS write code that reads from environment variables (e.g. process.env.<KEY> in Node.js, os.environ["<KEY>"] in Python). Do NOT write code that calls external vault APIs directly from inside the app.\n'
       + '- When an application requires a sensitive token, password, or API key from the user, NEVER ask them to paste it in plaintext chat. Always call request_secret to display a secure UI card.\n'
       + '- Once the user vaults the secret in Infisical, call inject_secret_to_pod to update the pod\'s Kubernetes Secret (<app>-secrets) and trigger a rolling restart.',
-    toolGuidance: '## Active Tools & Workflow Guidance',
+    toolGuidance: '## Active Tools (each carries its own usage guidance — read it before calling)',
     services: {
       none: 'No services are deployed yet. Propose a project to build one.',
       heading: '## Services You Can Hook Up (via enable_mcp_server)',
