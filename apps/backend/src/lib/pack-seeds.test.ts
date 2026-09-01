@@ -3,9 +3,10 @@ import { PACK_SEEDS, seedPacks, type PackSeedStore } from './pack-seeds.js';
 import { PERSONA_SEEDS } from './persona-seeds.js';
 import type { PersonaPack } from '@koala/harness-types';
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { forSurface } from './tool-catalogue.js';
+import { TOOL_HANDLERS } from './tool-registry.js';
+import { schemasFor } from './tool-catalogue.js';
 
-const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
+const KOALA_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'koala')!.tools);
 
 const store = (personas: { id: string; name: string }[]): PackSeedStore & { saved: PersonaPack[] } => {
   const saved: PersonaPack[] = [];
@@ -39,13 +40,30 @@ describe('the seeds themselves', () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-  it('grants every tool the assistant executor can dispatch', () => {
-    const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
-    const dispatchable = new Set(KOALA_TOOLS.map((t) => t.function.name as string));
-    for (const name of koala.tools) {
-      expect(dispatchable, name).toContain(name);
+  it('still gives the chat pack the web', () => {
+    expect(PACK_SEEDS.find((p) => p.slug === 'koala')!.tools).toContain('web_search');
+    expect(KOALA_TOOLS.map((t) => t.function.name)).toContain('web_search');
+  });
+
+  /**
+   * The guardrail that was missing.
+   *
+   * This used to check only the shipped koala pack against the assistant surface, so an EDITED
+   * pack -- the kind a person actually makes -- was checked by nothing. One granted seventeen
+   * planning tools to a chat, which offered them to the model and then answered `No tool named
+   * "get_leaf"` for every call. There is one dispatcher now, so the question is simply whether the
+   * name is a tool at all, and that is a question every pack can be asked.
+   */
+  it('grants only names that are tools', () => {
+    const catalogue = new Set(ALL_TOOL_SEEDS.map((t) => t.name));
+    for (const pack of PACK_SEEDS) {
+      for (const name of pack.tools) {
+        expect(TOOL_HANDLERS, `${pack.slug} grants ${name}, which nothing implements`)
+          .toHaveProperty(name);
+        expect(catalogue, `${pack.slug} grants ${name}, which is not in the catalogue`)
+          .toContain(name);
+      }
     }
-    expect(koala.tools).toContain('web_search');
   });
 });
 

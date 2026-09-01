@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
+import { runLeafTool, type LeafToolContext } from './tool-registry.js';
 import { MemoryDB } from './memory-db.js';
 import type { AppSpec } from './app-spec.js';
 import { seedTools } from './tool-seeds.js';

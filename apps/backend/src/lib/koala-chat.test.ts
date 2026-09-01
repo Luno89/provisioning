@@ -8,13 +8,14 @@ import { PACK_SEEDS } from './pack-seeds.js';
 import { canRunLeaf } from './persona-scope.js';
 import { acceptLeaf } from './accept-leaf.js';
 import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { forSurface } from './tool-catalogue.js';
+import { TOOL_HANDLERS } from './tool-registry.js';
+import { schemasFor } from './tool-catalogue.js';
 
 const BUDGET = PACK_SEEDS[0]!.budget;
 const PROMPT = PACK_SEEDS[0]!.prompt;
 
-const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
-const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
+const KOALA_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'koala')!.tools);
+const LEAF_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'planner')!.tools);
 
 const server = (over: Partial<any> = {}) => ({
   id: 'd1', name: 'github-mcp', url: 'http://x',
@@ -186,21 +187,29 @@ describe('ownership', () => {
 });
 
 describe('every declared tool can be run, and every runnable tool is declared', () => {
-  it('has a schema for each dispatchable name', () => {
+  it('has a schema for each name whose handler lives with the chat tools', () => {
     for (const name of KOALA_TOOL_NAMES) {
-      expect(KOALA_TOOLS.map((t) => t.function.name), name).toContain(name);
+      expect(ALL_TOOL_SEEDS.map((t) => t.name), name).toContain(name);
     }
   });
 
-  it('has a handler for each declared schema', () => {
+  /**
+   * Against the registry, not against `KOALA_TOOL_NAMES`.
+   *
+   * A chat pack grants `list_mcp_servers`, whose handler lives with the planning tools -- and that
+   * is fine now, because there is one dispatcher. Asking whether a granted name has a handler in
+   * one PARTICULAR module is the question that used to be asked, and answering it "no" is what
+   * produced `No tool named "get_leaf"` for a tool the platform implements perfectly well.
+   */
+  it('has a handler for every tool the chat pack grants, wherever that handler lives', () => {
     for (const t of KOALA_TOOLS) {
-      expect(KOALA_TOOL_NAMES, t.function.name).toContain(t.function.name);
+      expect(TOOL_HANDLERS, t.function.name).toHaveProperty(t.function.name);
     }
   });
 
-  it('refuses a name it cannot dispatch, rather than pretending', async () => {
+  it('refuses a name that is not a tool at all, rather than pretending', async () => {
     const db = await seeded();
-    expect((await run(db, 'call_platform_api', { method: 'DELETE' })).body.error).toMatch(/No tool named/);
+    expect((await run(db, 'call_platform_api', { method: 'DELETE' })).body.error).toMatch(/no tool called/);
   });
 });
 

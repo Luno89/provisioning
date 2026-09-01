@@ -552,7 +552,16 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         while (validationRound <= maxValidationRounds) {
           beat({ phase: 'agent', round: validationRound });
           const singleRun = await runAgentLoop({
-            catalogue: await new ToolService(db).schemas(leaf.ownerId),
+            // What the pack grants, not the whole catalogue. Passing everything is what showed a
+            // leaf `list_mcp_servers` and then answered `Unknown tool` when it called it.
+            catalogue: await new ToolService(db).schemas(leaf.ownerId, pack?.tools),
+            runtime: {
+              db,
+              userId: leaf.ownerId,
+              branchId: leaf.branchId,
+              ...(repos ? { projects: repos } : {}),
+              mcpRegistry: new McpRegistryService(db, leaf.ownerId, (name: string) => resolveMcpProbeUrl(name)),
+            },
             images: await new WorkspaceImageService(db).list(leaf.ownerId),
             ...(pack?.sampling ? { sampling: pack.sampling } : {}),
             baseUrl,

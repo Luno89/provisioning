@@ -1,17 +1,23 @@
 import type { ToolEffect } from './action-gate.js';
 
-export type ToolSurface = 'assistant' | 'planning' | 'sandbox';
-
 export interface ToolRepositoryItem {
   id: string;
   name: string;
   ownerId?: string;
+  /**
+   * Read or write or propose. The gate gives every row one, and refuses a row without one -- so
+   * this is the only property of a row that can stop a granted tool.
+   */
   effect?: ToolEffect;
   /**
-   * Which runtimes offer this tool. A tool can be on two surfaces at once — `list_mcp_servers` is
-   * offered to a chat and to a planner — which is why `category` cannot carry this.
+   * What kind of tool this is, for grouping in the grant list. Nothing at run time reads it.
+   *
+   * There was a `surfaces` field here too, naming which runtimes were allowed to offer a tool. It
+   * is gone: a pack's grant list is edited against the whole catalogue, so a second, invisible list
+   * saying where a tool was allowed could only ever disagree with it -- and did, which is how a
+   * chat came to be offered `get_leaf` and then answer `No tool named "get_leaf"`. What a tool
+   * genuinely cannot run without is a RESOURCE, and it declares that in the registry's `needs`.
    */
-  surfaces?: ToolSurface[];
   category: 'sandbox' | 'planning' | 'database' | 'git' | 'http' | 'linter' | 'assistant' | 'web' | 'custom';
   description: string;
   usageGuidance?: string;
@@ -33,7 +39,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'propose_tree',
     category: 'assistant',
     effect: 'propose',
-    surfaces: ['assistant'],
     description: 'Propose a PROJECT to build. It is created as a proposal for a human to accept — calling this starts nothing and creates nothing. Propose one when the work is clear enough to name and describe; ask a question instead when it is not. One project per separately deliverable thing, not one per step of building it.',
     usageGuidance: 'Use this ONLY when creating a brand-new project from scratch. NEVER call this to fix, configure, or redeploy an existing project.',
     compactGuidance: 'Propose brand new project only; never use for existing project fixes.',
@@ -53,6 +58,18 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
           type: 'string',
           description: 'What done looks like, in a sentence or two. This is what the planner reads when the project is opened, so write what someone would need to know without this conversation.',
         },
+        brief: {
+          type: 'string',
+          description: 'What the user actually asked for, in THEIR words, plus the constraints you established together. The planner never sees this conversation, so anything you paraphrase away is lost. Quote them rather than summarising.',
+        },
+        context: {
+          type: 'string',
+          description: 'What you already found out: which MCP servers are running, what is deployed, what related projects exist, what you learned from searching. Without this the planner will propose rebuilding things that already exist here.',
+        },
+        openQuestions: {
+          type: 'string',
+          description: 'What is still undecided, and what was explicitly ruled OUT. Naming a non-goal is the most useful thing you can hand a planner — it is what stops the plan growing past what was asked for.',
+        },
       },
       required: ['name', 'goal'],
     },
@@ -63,7 +80,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'list_trees',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'The projects that already exist, with how their work is going. Call this before proposing anything, so you extend what is there instead of proposing a second copy of it — and to answer questions about how something is coming along.',
     usageGuidance: 'Call this to discover what projects already exist before creating anything new, or when answering questions about current project status.',
     compactGuidance: 'List existing projects and workspaces.',
@@ -79,7 +95,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'get_project_pipeline',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'Check the CI/CD pipeline runs, latest commit SHA, built container image tag, and Kaniko build status for a project. Answers whether an image has been built from the project\'s code.',
     usageGuidance: 'Call this to check if a project\'s code has been built by Kaniko, verify image tags, or inspect build failures before deploying. Do NOT call propose_tree to redeploy — use deploy_project instead.',
     compactGuidance: 'Inspect CI/CD build runs and image tag.',
@@ -104,7 +119,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'get_project_env',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'View the currently configured runtime environment variables (deployEnv) for an existing project.',
     usageGuidance: 'Inspect current environment variables and service bindings configured on a project before deploying or when troubleshooting credentials.',
     compactGuidance: 'View project runtime env variables.',
@@ -129,7 +143,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'set_project_env',
     category: 'assistant',
     effect: 'write',
-    surfaces: ['assistant'],
     description: 'Set or update runtime environment variables (e.g. GITEA_URL, GITEA_TOKEN, API keys) on an existing project.',
     usageGuidance: 'Call this to supply needed credentials or URLs before calling deploy_project. Format variables as KEY=VALUE lines or key-value object.',
     compactGuidance: 'Configure runtime env variables on project.',
@@ -159,7 +172,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'deploy_project',
     category: 'assistant',
     effect: 'write',
-    surfaces: ['assistant'],
     description: 'Promote and deploy a project\'s built container image to its target Kubernetes cluster. Use this when the project has built successfully and needs to be deployed as a running service.',
     usageGuidance: 'Use this to deploy or redeploy a project after code builds or environment variables are updated. Do NOT use propose_tree to redeploy.',
     compactGuidance: 'Promote and deploy project container image.',
@@ -188,7 +200,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'get_project_url',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'Get the live reachable URL, listening port, cluster namespace, and health status for a deployed project.',
     usageGuidance: 'Call this to find the live endpoint and port for a deployed application.',
     compactGuidance: 'Get live URL and health of deployed project.',
@@ -213,7 +224,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'get_logs',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'The recent output of a deployment, for working out WHY it is not working. Read this before saying what is wrong with something in `broken` — the cause is almost always in the last few lines, and guessing from the app name sends the fix in the wrong direction.',
     usageGuidance: 'ALWAYS check container logs before diagnosing why a pod or service is in CrashLoopBackOff. Do not guess root causes from app names.',
     compactGuidance: 'Retrieve container stdout/stderr logs.',
@@ -235,7 +245,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'get_events',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'Recent Kubernetes events for a deployment. Answers the failures logs cannot: an image that will not pull, a volume that never bound, a pod that was never scheduled. Use it when get_logs is empty — a container that never started has no output.',
     usageGuidance: 'Call this when get_logs is empty or when pods fail to start or schedule.',
     compactGuidance: 'Inspect k8s pod/deployment events.',
@@ -257,7 +266,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'inspect_resources',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'Read the live state of Kubernetes objects belonging to one of your deployments or leaf sandboxes — `get` for a list, `describe` for the detail including events and why a pod is pending. Use it when get_logs is empty or the cause is not in the output: a pod that never scheduled, a volume that never bound, a container stuck pulling. Read-only.',
     usageGuidance: 'Use verb "get" or "describe" to inspect status, pending reasons, or PVC bindings.',
     compactGuidance: 'Read-only k8s resource inspector.',
@@ -292,7 +300,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'cluster_capacity',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'What the cluster has left: node CPU and memory usage, and node conditions such as disk or memory pressure. The question behind "why is everything slow" and "why will nothing schedule" — both of which look like application bugs from inside a single deployment.',
     usageGuidance: 'Call when wondering why pods cannot schedule or why things run slowly.',
     compactGuidance: 'Check node CPU, memory, and pressure.',
@@ -313,7 +320,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'list_infrastructure',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant', 'planning'],
     description: 'What is running in the cluster that a built service could use — databases, storage, search, embeddings — with the address a pod reaches each one at, and the full list of what this platform can deploy. Call this BEFORE proposing work that depends on a piece of infrastructure. Anything absent from both lists does not exist here and cannot be built: say so rather than planning around it. Never hard-code an address into a leaf — a service a project depends on is provided to it as a binding at deploy time, read from $SERVICE_BINDING_ROOT at runtime.',
     usageGuidance: 'Call before proposing backing services or when checking if a database or platform service is running. Anything not listed does not exist here — say so plainly rather than planning around it.',
     compactGuidance: 'List running backing services and deployable specs.',
@@ -329,7 +335,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'add_project_dependency',
     category: 'assistant',
     effect: 'write',
-    surfaces: ['assistant', 'planning'],
     description: 'Declare that an existing project depends on a running service, so its deployment is given the address and credentials for it. Use the projectId reported by list_mcp_servers or list_trees. Call this before proposing work that connects to something — the work then reads the connection from $SERVICE_BINDING_ROOT at runtime rather than being told it now. The service must be one list_infrastructure reports. Nothing is deployed by this — the binding is provided the next time that project deploys.',
     usageGuidance: 'Binds a project to a running database or cache reported by list_infrastructure.',
     compactGuidance: 'Bind project to running backing service.',
@@ -359,7 +364,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'propose_spec',
     category: 'assistant',
     effect: 'propose',
-    surfaces: ['assistant'],
     description: 'Propose a new deployable app type, so this platform can deploy something it currently cannot — a database, a cache, a queue. It is created as a PROPOSAL for a human to accept; nothing is deployed and nothing is added to the catalogue by calling this. Check list_infrastructure first: if it is already deployable, propose nothing.',
     usageGuidance: 'Use when the user needs an infrastructure type not in list_infrastructure.',
     compactGuidance: 'Propose new backing service app spec.',
@@ -495,7 +499,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'request_escalated_privileges',
     category: 'assistant',
     effect: 'propose',
-    surfaces: ['assistant'],
     description: 'Request elevated access to cluster-wide system namespaces (monitoring, gitea, kube-system) or administrator privileges when diagnosing platform infrastructure. State a clear, honest reason.',
     usageGuidance: 'Call this when you need to inspect cluster system services (Prometheus, Grafana, Loki, Gitea) or diagnose nodes outside user tenancy. State a clear, honest reason.',
     compactGuidance: 'Request elevated cluster privileges.',
@@ -529,7 +532,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'list_mcp_servers',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant', 'planning'],
     description: 'List the MCP servers deployed under your account, the tools each one exposes, and whether each is answering. These are real, running services — including ones built here — and a leaf that names a server in its body can call its tools while it runs. The names alone are already in your prompt: call this when you need to know what a service can DO, before deciding whether to hook one up or planning work that needs a capability, to find out whether it already exists. Each server also reports the projectId of the repository it is built from, so an existing server can be EXTENDED with set_leaf_project rather than replaced by a second one.',
     usageGuidance: 'Call when you need to know what tools an MCP service offers before deciding whether to enable it.',
     compactGuidance: 'List deployed MCP services and exposed tools.',
@@ -550,7 +552,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'enable_mcp_server',
     category: 'assistant',
     effect: 'write',
-    surfaces: ['assistant'],
     description: 'Hook up one of the services listed in your prompt, loading its tools so you can call them. They become available IMMEDIATELY — in this same reply — so you can enable a service and then use it without waiting for the user to say anything. Enable one when you need it, not in advance.',
     usageGuidance: 'Enable a service when you need its tools. Its tools become available immediately in this same reply.',
     compactGuidance: 'Attach MCP service and load its tools.',
@@ -572,7 +573,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'list_tree_types',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant', 'planning'],
     description: 'List every project type this platform can build, with what each is for. Call this before calling propose_tree so the type you give is one that actually exists.',
     usageGuidance: 'Call before proposing a project to see what types are available. Every type carries starter files, a validation recipe, and a workspace image.',
     compactGuidance: 'List available project types.',
@@ -585,7 +585,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'web_search',
     category: 'web',
     effect: 'read',
-    surfaces: ['assistant', 'planning'],
     description: 'Search the live web for current information, documentation, package versions, or technical articles. Be specific — a search engine needs precise terms, not whole sentences. Include version numbers, library names, and error codes.',
     usageGuidance: 'Use when looking up library documentation, API contracts, or current error messages. If the result set is empty, try different terms before reporting nothing exists.',
     compactGuidance: 'Search web for docs/APIs.',
@@ -607,7 +606,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'fetch_web_page',
     category: 'web',
     effect: 'read',
-    surfaces: ['assistant', 'planning'],
     description: 'Fetch and extract clean text content from a web page URL.',
     usageGuidance: 'Use after web_search to read full documentation pages or specifications.',
     compactGuidance: 'Fetch markdown of web URL.',
@@ -628,7 +626,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'read_file_tool',
     name: 'read_file',
     category: 'sandbox',
-    surfaces: ['sandbox'],
+    effect: 'read',
     description: 'Read a file back out of the sandbox.',
     usageGuidance: 'Inspect existing code or configuration before modifying it.',
     compactGuidance: 'Read file from /work sandbox.',
@@ -649,7 +647,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'write_file_tool',
     name: 'write_file',
     category: 'sandbox',
-    surfaces: ['sandbox'],
+    effect: 'write',
     description: 'Write a file, creating parent directories as needed. Replaces the whole file. Use this rather than shell heredocs, which mangle quotes and backticks.',
     usageGuidance: 'Write complete, fully-implemented code. Never write placeholders or TODOs.',
     compactGuidance: 'Create/overwrite file in /work sandbox.',
@@ -674,7 +672,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'run_command_tool',
     name: 'run_command',
     category: 'sandbox',
-    surfaces: ['sandbox'],
+    effect: 'write',
     description: 'Run a shell command in the sandbox and get back stdout, stderr and the exit code. Each call is a FRESH shell — `cd` and environment variables do not persist, so chain steps with && or use absolute paths.',
     usageGuidance: 'Run builds, tests, or scripts inside the isolated sandbox.',
     compactGuidance: 'Execute bash command in sandbox.',
@@ -695,7 +693,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'finish_tool',
     name: 'finish',
     category: 'sandbox',
-    surfaces: ['sandbox'],
+    effect: 'write',
     description: 'Call this when the task is complete, or when you are certain you cannot complete it. This ends the attempt — nothing runs afterwards, so verify your work BEFORE calling it.',
     usageGuidance: 'Call when all work is done and tests have verified success.',
     compactGuidance: 'Signal task completion.',
@@ -720,7 +718,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'test_runner_tool',
     name: 'run_tests',
     category: 'sandbox',
-    surfaces: ['sandbox'],
+    effect: 'write',
     description: 'Execute unit tests (Vitest/Jest/Pytest/Go test) in the sandbox and return failing assertions.',
     usageGuidance: 'Run tests to verify code changes before finishing.',
     compactGuidance: 'Run unit test suite in sandbox.',
@@ -740,7 +738,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'git_diff_inspector',
     name: 'inspect_git_diff',
     category: 'git',
-    surfaces: ['sandbox'],
+    effect: 'read',
     description: 'Inspect current uncommitted diffs and staged changes against the base branch in the sandbox.',
     usageGuidance: 'Check your modifications before concluding work.',
     compactGuidance: 'Inspect uncommitted git diffs in sandbox.',
@@ -755,7 +753,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'http_request_tester',
     name: 'test_http_endpoint',
     category: 'http',
-    surfaces: ['sandbox'],
+    effect: 'write',
     description: 'Execute an HTTP request against a local running service port inside the sandbox.',
     usageGuidance: 'Verify that an HTTP server responds correctly to requests.',
     compactGuidance: 'Execute local HTTP request in sandbox.',
@@ -779,7 +777,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'linter_audit_tool',
     name: 'run_linter_audit',
     category: 'linter',
-    surfaces: ['sandbox'],
+    effect: 'write',
     description: 'Run static code analysis or linter check on sandbox files and return structured warnings.',
     usageGuidance: 'Check code quality and type compliance.',
     compactGuidance: 'Run static linter analysis.',
@@ -799,7 +797,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'db_query_tool',
     name: 'query_in_memory_db',
     category: 'database',
-    surfaces: ['sandbox'],
+    effect: 'read',
     description: 'Execute a read/write query against an in-memory test database instance in the sandbox.',
     usageGuidance: 'Verify test database state in sandbox runs.',
     compactGuidance: 'Query in-memory test database.',
@@ -819,7 +817,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'save_harness_memory_tool',
     name: 'save_harness_memory',
     category: 'sandbox',
-    surfaces: ['sandbox'],
+    effect: 'write',
     description: 'Record a persistent lesson learned, environment fact, or prompt guidance rule into the Memory Bank.',
     usageGuidance: 'Preserve key findings or patterns learned during execution.',
     compactGuidance: 'Record lesson/fact into Memory Bank.',
@@ -855,7 +853,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'list_leaves',
     category: 'planning',
     effect: 'read',
-    surfaces: ['planning'],
     description: 'List the work items (leaves) already tracked on this branch. Call this before proposing anything, to avoid duplicating work that exists.',
     usageGuidance: 'Check existing leaves before proposing new tasks.',
     compactGuidance: 'List tracked work leaves on branch.',
@@ -868,6 +865,10 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
           enum: ['proposed', 'pending', 'running', 'succeeded', 'failed', 'cancelled'],
           description: 'Only return leaves in this state. Omit for all.',
         },
+        treeId: {
+          type: 'string',
+          description: 'Only leaves belonging to this project. Omit to list every leaf you have, across all of them — each result says which tree and branch it is on.',
+        },
       },
     },
     isBuiltIn: true,
@@ -877,7 +878,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'get_leaf',
     category: 'planning',
     effect: 'read',
-    surfaces: ['planning'],
     description: 'Full detail of one leaf: its description, its sub-items, and every failed attempt with the error. Use this when asked why something failed or what a leaf involves.',
     usageGuidance: 'Read full leaf specifications and test output.',
     compactGuidance: 'Fetch detailed leaf specification and logs.',
@@ -899,7 +899,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'propose_leaf',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Propose a new piece of work. It is created as a PROPOSAL for a human to accept — calling this does not start any work. Propose one leaf per separately deliverable piece.',
     usageGuidance: 'Propose an atomic, concrete unit of engineering work on the current branch.',
     compactGuidance: 'Propose new leaf on current branch.',
@@ -907,6 +906,10 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     parameters: {
       type: 'object',
       properties: {
+        treeId: {
+          type: 'string',
+          description: 'Which project this belongs to. Required when you are not already working inside one — a chat is not. Get it from list_leaves or list_trees.',
+        },
         title: {
           type: 'string',
           description: 'Short imperative title, e.g. "Add a rate limit to /api/chat".',
@@ -958,7 +961,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'revise_leaf',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Change the title, description, or assigned persona of a leaf that is still a PROPOSAL. Use this when asked to reword something already proposed, or to say who should do it, instead of proposing a near-duplicate. Accepted or running work cannot be edited.',
     usageGuidance: 'Refine or clarify a proposed task.',
     compactGuidance: 'Update proposed leaf title/body.',
@@ -992,7 +994,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'withdraw_leaf',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Withdraw a PROPOSAL you no longer stand behind — a duplicate, or something the user ruled out. Only works while it is still a proposal; accepted work is the human\'s to cancel.',
     usageGuidance: 'Remove duplicate or obsolete proposals.',
     compactGuidance: 'Withdraw unneeded leaf proposal.',
@@ -1018,7 +1019,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'list_projects',
     category: 'planning',
     effect: 'read',
-    surfaces: ['planning'],
     description: 'List the git repositories this user has registered. Call this before creating one, and before attaching work to a project, so you use an existing repository rather than a new one.',
     usageGuidance: 'Find existing git repos to attach leaves to.',
     compactGuidance: 'List registered user git repositories.',
@@ -1034,7 +1034,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'create_project',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Create a new private git repository for this user. Use it only when the work needs a repository that does not exist yet — check list_projects first. The repository belongs to the user you are talking to; you cannot see or touch anyone else\'s.',
     usageGuidance: 'Create a git repository in Gitea for project code.',
     compactGuidance: 'Create private git repository.',
@@ -1065,7 +1064,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'set_leaf_project',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Attach a leaf to a project, so the work is done against that repository — it is cloned into the sandbox, and the agent commits and pushes to a branch. Work with no project runs in an empty sandbox and is thrown away when it finishes.',
     usageGuidance: 'Bind a leaf to a specific git repository for code commits.',
     compactGuidance: 'Attach leaf to git repository project.',
@@ -1091,7 +1089,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'request_secret',
     category: 'assistant',
     effect: 'propose',
-    surfaces: ['assistant'],
     description: 'Request a sensitive credential, token, or API key from the user via a secure interactive UI card. The secret is encrypted and vaulted directly in Infisical without appearing in chat logs.',
     usageGuidance: 'Call this tool whenever an application requires a sensitive token, API key, or password. NEVER ask the user to type sensitive credentials into chat text. Once the user submits the secret, write the application code to read it via standard environment variables (process.env.<KEY>), and inject it into the pod with inject_secret_to_pod.',
     compactGuidance: 'Prompt user with secure modal to vault a token or API key directly into Infisical.',
@@ -1125,7 +1122,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'inject_secret_to_pod',
     category: 'assistant',
     effect: 'write',
-    surfaces: ['assistant'],
     description: 'Inject a vaulted secret into a deployed project pod via Kubernetes Secret (<app>-secrets) as an environment variable or file, and trigger a rolling restart.',
     usageGuidance: 'Mounts a vaulted Infisical secret reference into the target pod\'s Kubernetes Secret as a standard environment variable accessible to the application runtime, and restarts the pod.',
     compactGuidance: 'Inject vaulted secret into pod as env var and trigger rolling restart.',
@@ -1164,7 +1160,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'get_project_secret',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'Retrieve metadata and vault reference for a project secret in Infisical.',
     usageGuidance: 'Check whether a secret key is already vaulted for a project.',
     compactGuidance: 'Retrieve secret metadata from Infisical vault.',
@@ -1190,7 +1185,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'set_project_secret',
     category: 'assistant',
     effect: 'write',
-    surfaces: ['assistant'],
     description: 'Set or update a secret in a project\'s Infisical vault.',
     usageGuidance: 'Store or update an encrypted secret in Infisical. Returns a vault reference URI.',
     compactGuidance: 'Save encrypted secret in Infisical vault.',
@@ -1224,7 +1218,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'list_project_secrets',
     category: 'assistant',
     effect: 'read',
-    surfaces: ['assistant'],
     description: 'List configured secret keys in Infisical for a project with masked previews (never raw plaintext).',
     usageGuidance: 'List all vaulted secrets for a project. Values are masked for security.',
     compactGuidance: 'List project secrets with masked values.',
@@ -1246,12 +1239,15 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'set_acceptance',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Declare how we will know this request actually delivered. These checks run in order against the finished, merged result once every leaf is done, and the verdict goes to the user. Set this for any request that produces something — it is the only thing that proves the ASSEMBLED whole works, where per-leaf checks only prove each piece.\nChoose checks that fit what is being built:\n- Software: install dependencies, run the test suite, then RUN the thing the way the user described it — `node src/cli.js "Fall City, WA"`. The run is the important one; a test suite alone will happily pass while the entry point is still a stub.\n- Research or writing: check the deliverable exists and is substantial, and that its claims are traceable — for example that the write-up contains source links.\n- Configuration or infrastructure: check the file parses or validates with whatever tool reads it.\nEach check must exit non-zero when that aspect is broken, or it proves nothing.\nChecks already run from the repository root, so use paths relative to it and do NOT cd anywhere: write `node verify.js`, never `cd /work && node verify.js`.',
     requiresBinaries: [],
     parameters: {
       type: 'object',
       properties: {
+        treeId: {
+          type: 'string',
+          description: 'Which project this belongs to. Required when you are not already working inside one — a chat is not. Get it from list_leaves or list_trees.',
+        },
         checks: {
           type: 'array',
           items: {
@@ -1280,7 +1276,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'replace_leaf',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Swap a PROPOSAL for a better version, carrying anything that depends on it across to the replacement. Use this instead of withdrawing and proposing again: a withdrawn leaf is deleted, and anything that named it silently loses the ordering and starts without it.',
     requiresBinaries: [],
     parameters: {
@@ -1315,7 +1310,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'start_ingest',
     category: 'web',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Crawl a site into this platform\'s corpus, so it can be searched later. Returns immediately with an id — the crawl runs as a background job and the pages are NEVER returned to you. Use this instead of fetch_web_page whenever you want more than a couple of pages, or a document too large to read: there is no size limit here because nothing passes through this conversation.',
     requiresBinaries: [],
     parameters: {
@@ -1357,7 +1351,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'ingest_status',
     category: 'web',
     effect: 'read',
-    surfaces: ['planning'],
     description: 'Whether a crawl has finished, and what it fetched. Use the id from start_ingest.',
     requiresBinaries: [],
     parameters: {
@@ -1377,7 +1370,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'search_corpus',
     category: 'web',
     effect: 'read',
-    surfaces: ['planning'],
     description: 'Find a phrase in everything that has been ingested. Returns short snippets with their source URLs — never whole pages, which is what lets the corpus be far larger than this conversation could hold. Matching is plain text, not a pattern. Anything you put in quotation marks must be copied from a snippet character for character. If you want to restate a snippet in your own words, do it without quotation marks so it reads as your summary rather than as the source.',
     requiresBinaries: [],
     parameters: {
@@ -1397,11 +1389,59 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     isBuiltIn: true,
   },
   {
+    id: 'tool_research',
+    name: 'research',
+    category: 'planning',
+    effect: 'read',
+    description: 'You have NO web access. Ask for findings on specific questions and they will be researched and returned to you. Break what you need to know into separate, answerable questions — ask only what you genuinely cannot decompose the work without, and use what comes back rather than asking again.',
+    requiresBinaries: [],
+    parameters: {
+      type: 'object',
+      properties: {
+        questions: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'One or more specific questions. Not topics — questions with answers.',
+        },
+      },
+      required: ['questions'],
+    },
+    isBuiltIn: true,
+  },
+  {
+    id: 'tool_write_plan_document',
+    name: 'write_plan_document',
+    category: 'planning',
+    effect: 'write',
+    description: 'Commit the plan to the project repository, so every leaf that clones it can read the shape of the whole. Write what no single leaf owns: the architecture, how the pieces fit, and the order they have to happen in. Not a copy of the leaf titles — they are already tracked.',
+    usageGuidance: 'Call once, after the leaves are proposed and before you finish. Committing again with the same path replaces nothing — choose a path that does not exist yet if you need a second document.',
+    compactGuidance: 'Commit the plan document once, after proposing leaves.',
+    requiresBinaries: [],
+    parameters: {
+      type: 'object',
+      properties: {
+        treeId: {
+          type: 'string',
+          description: 'Which project this belongs to. Required when you are not already working inside one — a chat is not. Get it from list_leaves or list_trees.',
+        },
+        path: {
+          type: 'string',
+          description: 'Repository-relative path, e.g. "PLAN.md". Must stay inside the repository.',
+        },
+        content: {
+          type: 'string',
+          description: 'The document, in Markdown.',
+        },
+      },
+      required: ['content'],
+    },
+    isBuiltIn: true,
+  },
+  {
     id: 'tool_list_personas',
     name: 'list_personas',
     category: 'planning',
     effect: 'read',
-    surfaces: ['planning'],
     description: 'List the personas available to assign work to, with what each is for. Call this before assigning personas so the names you use are real ones.',
     requiresBinaries: [],
     parameters: {
@@ -1415,7 +1455,6 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'update_leaf_memory',
     category: 'planning',
     effect: 'write',
-    surfaces: ['planning'],
     description: 'Record a persistent memory item (a lesson learned, environment fact, or prompt rule) in the Memory Bank.',
     requiresBinaries: [],
     parameters: {
@@ -1443,7 +1482,7 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     id: 'tool_validate_progress',
     name: 'validate_progress',
     category: 'planning',
-    surfaces: ['sandbox'],
+    effect: 'read',
     description: 'Run the project validation recipe/contract against the current workspace/branch. Executes all required verification checks (build, test, file assertions, content patterns, or runtime probes) and returns detailed diagnostic results. Call this tool during development to confirm your changes before calling finish.',
     requiresBinaries: [],
     parameters: {
@@ -1465,11 +1504,13 @@ export const ALL_TOOL_SEEDS: ToolRepositoryItem[] = TOOL_SEEDS;
 export interface ToolSeedStore {
   getTools(): Promise<ToolRepositoryItem[]>;
   saveTool(tool: ToolRepositoryItem): Promise<void>;
+  deleteTool(id: string): Promise<void>;
 }
 
 export async function seedTools(store: ToolSeedStore): Promise<number> {
   const existing = await store.getTools();
   const existingMap = new Map(existing.map((t) => [t.name, t]));
+  const shipped = new Set(ALL_TOOL_SEEDS.map((t) => t.name));
   let seededCount = 0;
 
   for (const seed of ALL_TOOL_SEEDS) {
@@ -1478,6 +1519,20 @@ export async function seedTools(store: ToolSeedStore): Promise<number> {
     const next = { ...seed, id: prev?.id ?? seed.id };
     if (prev && JSON.stringify(prev) === JSON.stringify(next)) continue;
     await store.saveTool(next);
+    seededCount++;
+  }
+
+  /**
+   * A built-in the seeds no longer ship must go, the way `seedPacks` already retires a pack.
+   *
+   * This only upserted, so a removed tool lingered in the catalogue for ever: grantable in the UI,
+   * offered to a model, and implemented by nothing. `set_leaf_workspace` sat there for months and
+   * was still in a live pack's grant list. A row someone made themselves is not ours to delete.
+   */
+  for (const row of existing) {
+    if (row.ownerId != null || row.isBuiltIn === false) continue;
+    if (shipped.has(row.name)) continue;
+    await store.deleteTool(row.id);
     seededCount++;
   }
 

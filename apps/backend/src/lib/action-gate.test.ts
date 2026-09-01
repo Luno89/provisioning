@@ -3,10 +3,11 @@ import { gate, ALL_EFFECTS, READ_ONLY, type ToolEffect } from './action-gate.js'
 import { KOALA_TOOL_HANDLERS } from './koala-tools.js';
 
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { effectOf, forSurface } from './tool-catalogue.js';
+import { effectOf, schemasFor } from './tool-catalogue.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 
-const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
-const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
+const KOALA_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'koala')!.tools);
+const LEAF_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'planner')!.tools);
 
 describe('the action gate', () => {
   it('refuses a tool that declares no effect', () => {
@@ -86,7 +87,7 @@ describe('the runners consult the gate', () => {
     const { runKoalaTool } = await import('./koala-tool-runner.js');
     // A name with no registry row has no effect, which is the case the gate refuses.
     const out = await runKoalaTool(ctx() as never, { name: 'not_a_tool', arguments: '{}' });
-    expect(out.content).toMatch(/No tool named/);
+    expect(out.content).toMatch(/no tool called/);
   });
 
   it('refuses a write when the conversation permits only reads', async () => {
@@ -108,7 +109,7 @@ describe('the runners consult the gate', () => {
   });
 
   it('refuses an undeclared leaf tool too', async () => {
-    const { runLeafTool } = await import('./leaf-tool-runner.js');
+    const { runLeafTool } = await import('./tool-registry.js');
     const out = await runLeafTool(
       {
         db: { getLeaves: async () => [], getBranches: async () => [], getTools: async () => ALL_TOOL_SEEDS },
@@ -116,6 +117,6 @@ describe('the runners consult the gate', () => {
       } as never,
       { name: 'not_a_leaf_tool', arguments: '{}' },
     );
-    expect(out).toMatch(/Unknown tool|declares no effect/);
+    expect(out).toMatch(/no tool called|declares no effect/);
   });
 });

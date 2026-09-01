@@ -2,12 +2,14 @@ import { NO_THINKING } from './sampling.js';
 import { samplingFor } from './pack-sampling.js';
 import type { BudgetConfig, PromptConfig, SamplingConfig } from '@koala/harness-types';
 import { buildAgentPrompt } from './sandbox-tools.js';
+import { toolsNeeding } from './tool-registry.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
-import { planSystemPrompt, AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
 import {
   DEFAULT_WORKSPACE_LANGUAGE,
   MAX_WORKSPACE_SECONDS,
   describeSandbox,
+  describeWorkerSandbox,
 } from './workspace-spec.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import { MAX_DEPTH, MAX_CHILDREN_PER_LEAF, MAX_LEAF_ATTEMPTS } from './leaves.js';
@@ -49,8 +51,14 @@ export function buildHarnessConfig(
   /** And the sections it composes around a persona's prompt. */
   prompt?: PromptConfig,
 ): HarnessConfig {
-  const surfaceNames = (s: 'planning' | 'sandbox') =>
-    toolRows.filter((t) => t.surfaces?.includes(s)).map((t) => t.name).join(', ');
+  /**
+   * Which of the caller's tools need a sandbox and which do not, asked of the registry rather than
+   * of a field on the row. There is no "planning surface" any more -- a pack's grant list decides
+   * what a given run is offered -- so what a panel can honestly report is the resource split.
+   */
+  const needsSandbox = new Set(toolsNeeding('sandbox'));
+  const sandboxToolNames = () => toolRows.filter((t) => needsSandbox.has(t.name)).map((t) => t.name).join(', ');
+  const unsandboxedToolNames = () => toolRows.filter((t) => !needsSandbox.has(t.name)).map((t) => t.name).join(', ');
   const live = effectiveConfig(profileOverrides, 'tabbyapi', sampling, budget);
   const knob = (key: string): EffectiveKnob | undefined => live.find((k) => k.key === key);
 
@@ -75,7 +83,7 @@ export function buildHarnessConfig(
           fromKnob('maxSteps'),
           fromKnob('max_tokens'),
           { label: 'Tool result cap', value: `${budget?.toolResultChars ?? 'unset'} chars`, note: 'Truncated from the FRONT, so exit codes and errors at the tail survive.', source: 'the pack' },
-          { label: 'Tools', value: surfaceNames('sandbox'), source: 'the tool catalogue' },
+          { label: 'Tools', value: sandboxToolNames(), source: 'the tool catalogue' },
           { label: 'Retries per leaf', value: String(MAX_LEAF_ATTEMPTS), note: 'Each retry re-reads the DB, so it sees why the last attempt failed.', source: 'lib/leaves.ts' },
         ],
       },
@@ -109,7 +117,7 @@ export function buildHarnessConfig(
           { label: '/plan token budget', value: String(budget?.replyTokens.plan ?? 'unset'), note: 'Measured: one turn produced 7,908 chars of reasoning before 1,210 of answer. At 900 the reply never arrived, silently.', source: 'the pack' },
           { label: 'Tool rounds per turn', value: String(budget?.rounds ?? 'unset'), source: 'the pack' },
           { label: 'Proposals per reply', value: String(budget?.proposalsPerReply ?? 'unset'), source: 'the pack' },
-          { label: 'Planning tools', value: surfaceNames('planning'), source: 'the tool catalogue' },
+          { label: 'Grantable without a sandbox', value: unsandboxedToolNames(), note: 'A pack grants from the whole catalogue; these are the ones a run with no sandbox can still serve.', source: 'the tool catalogue' },
         ],
       },
       {
@@ -127,7 +135,8 @@ export function buildHarnessConfig(
       { id: 'agent', title: 'Agent system prompt', text: buildAgentPrompt(images, undefined, '<the leaf being worked on>', budget?.run.steps ?? 0) },
       { id: 'sandbox', title: 'Sandbox description (generated)', text: describeSandbox(images) },
       { id: 'discipline', title: 'Tool discipline', text: prompt?.sections.toolDiscipline ?? '' },
-      { id: 'plan', title: 'Plan mode', text: planSystemPrompt(images) },
+      { id: 'plan', title: 'Plan mode (the planner pack\u2019s contract)', text: prompt?.sections.planning ?? '' },
+      { id: 'plan-sandbox', title: 'Environment note shown to a planner', text: describeWorkerSandbox(images) },
       { id: 'ambient', title: 'Ambient proposing', text: AMBIENT_PROPOSAL_PROMPT },
       { id: 'authoring', title: 'Task authoring (Koala writes the suite)', text: buildTaskAuthorPrompt(images) },
     ],

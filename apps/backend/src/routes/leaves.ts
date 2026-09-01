@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { asyncRoute } from '../middleware/async-route.js';
-import { ownedBy } from '../lib/ownership.js';
+import { ownedBy, withBuiltIns } from '../lib/ownership.js';
 import {
   LEAF_COLUMNS, isLeafColumn, deriveLeafStatus, budgetExceeded, aggregateUsage,
   rootLeaf, subtreeOf, blockedBy, canAddChild, childrenOf, wouldCycle, type Leaf,
@@ -12,7 +12,7 @@ import { canRecheck, recheckVerdict, statusAfterRecheck } from '../lib/leaf-rech
 import { describeSandbox } from '../lib/workspace-spec.js';
 import { droppedCount } from '../lib/leaf-trace.js';
 import { normaliseLeafInput } from '../lib/leaf-input.js';
-import { personaWorkspace } from '../lib/persona-scope.js';
+import { personaWorkspace, canRunLeaf } from '../lib/persona-scope.js';
 import { usablePaths } from '../lib/leaf-artifacts.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import { acceptLeaf } from '../lib/accept-leaf.js';
@@ -165,9 +165,30 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
     const leaf = leaves.find((c) => c.id === idOf(req));
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
 
-    const { column, title, body, personaId, maxTokens } = req.body ?? {};
+    const { column, title, body, personaId, packId, maxTokens } = req.body ?? {};
     if (column !== undefined && !isLeafColumn(column)) {
       return res.status(400).json({ error: `column must be one of: ${LEAF_COLUMNS.join(', ')}` });
+    }
+
+    /**
+     * Who runs this leaf. `packId` is the field `Leaf` declares and the one `packForLeaf` reads
+     * first; `personaId` was accepted here but never declared on the type, so the two disagreed.
+     * A pack id or slug is resolved to the pack, and a persona id is accepted too — the UI used to
+     * send one — by finding the pack that adopts it.
+     */
+    let assignment: Partial<Leaf> = {};
+    const wantedPack = packId ?? personaId;
+    if (wantedPack !== undefined) {
+      const packs = withBuiltIns(await db.getPersonaPacks(), user.id, (p) => p.slug);
+      const pack = packs.find((p) => p.id === wantedPack || p.slug === wantedPack)
+        ?? packs.find((p) => p.personaId === wantedPack);
+      if (!pack) return res.status(400).json({ error: 'No pack or persona with that id.' });
+      if (!canRunLeaf(pack)) {
+        return res.status(400).json({
+          error: `"${pack.name}" has no sandbox, so it cannot carry out work. It plans or chats instead.`,
+        });
+      }
+      assignment = { packId: pack.id };
     }
 
     let budgetPatch: Partial<Leaf> = {};
@@ -189,7 +210,7 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
       ...(column ? { column } : {}),
       ...(title ? { title: String(title).trim() } : {}),
       ...(body !== undefined ? { body: String(body) } : {}),
-      ...(personaId !== undefined ? { personaId: String(personaId) } : {}),
+      ...assignment,
       ...budgetPatch,
       updatedAt: new Date().toISOString(),
     };

@@ -1,10 +1,10 @@
 import { buildOutboundMessages, type OutboundMessage } from './leaf-context.js';
 import { ToolCallScanner } from './leaf-tools.js';
-import { planSystemPrompt } from './plan-mode.js';
-import { estimatePromptComplexity } from './smart-token-controller.js';
-import { forSurface } from './tool-catalogue.js';
+import { describeWorkerSandbox } from './workspace-spec.js';
+import { fittedMaxTokens } from './sampling.js';
+import { schemasFor } from './tool-catalogue.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
-import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
+import { runTool, type LeafToolContext } from './tool-registry.js';
 import { runResearchAgent, type ResearchFinding } from './research-agent.js';
 import { serialiseBoard } from './planning-board.js';
 import { buildModelRequest } from './model-request.js';
@@ -14,39 +14,19 @@ import type { Leaf } from './leaves.js';
 import type { ModelKind } from '@koala/harness-types';
 import type { WebSearchFn } from './web-tools.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
-import type { PromptConfig, SamplingConfig } from '@koala/harness-types';
+import type { BudgetConfig, PromptConfig, SamplingConfig } from '@koala/harness-types';
 
 /**
- * The planner's toolset: the planning surface without the web tools, plus `research`.
+ * The planner's toolset: exactly what its pack grants.
  *
- * A function over rows rather than a constant, so it reflects the catalogue the caller's user
- * actually has. `LEAF_TOOLS` was a second declaration of the same set.
+ * This used to be "the planning surface, minus the web tools", with the grant list only able to
+ * narrow it. A surface is not a thing a person edits; a grant list is. So the grant list decides,
+ * and an empty one offers nothing rather than quietly offering everything.
  */
-export const plannerTools = (rows: readonly ToolRepositoryItem[]) => [
-  ...forSurface(rows, 'planning').filter((t) => !['web_search', 'fetch_web_page'].includes(t.function.name)),
-  {
-    type: 'function' as const,
-    function: {
-      name: 'research',
-      description:
-        'You have NO web access. Ask for findings on specific questions and they will be researched '
-        + 'and returned to you. Break what you need to know into separate, answerable questions — '
-        + 'ask only what you genuinely cannot decompose the work without, and use what comes back '
-        + 'rather than asking again.',
-      parameters: {
-        type: 'object',
-        properties: {
-          questions: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'One or more specific questions. Not topics — questions with answers.',
-          },
-        },
-        required: ['questions'],
-      },
-    },
-  },
-];
+export const plannerTools = (
+  rows: readonly ToolRepositoryItem[],
+  granted?: readonly string[],
+) => schemasFor(rows, granted ?? []);
 
 export type PlanningExit =
   | 'satisfied'
@@ -54,7 +34,9 @@ export type PlanningExit =
   | 'converged'
   | 'capped';
 
+/** Fallbacks only. A planning turn given a pack uses the pack's `budget`. */
 export const MAX_PLANNING_ROUNDS = 8;
+const DEFAULT_PLAN_TOKENS = 8000;
 
 export interface PlanningToolCall {
   name: string;
@@ -88,6 +70,10 @@ export interface PlanningTurnOptions {
   sampling?: SamplingConfig | undefined;
   /** The pack's prompt sections. Named for the config to keep clear of `prompt`, the question. */
   promptConfig?: PromptConfig | undefined;
+  /** The pack's budget. Rounds and reply size are its call, not a constant in this file. */
+  budget?: BudgetConfig | undefined;
+  /** The pack's tool list. Empty or absent means the whole planning surface, minus the web tools. */
+  grantedTools?: readonly string[] | undefined;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
   research?: {
@@ -105,24 +91,36 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
   const doFetch = opts.fetchImpl ?? fetch;
   const personaPrompt = resolvePrompt(opts.persona ?? null);
 
+  // The output contract is the pack's, and the environment note is written in the third person:
+  // this turn has no sandbox, and saying otherwise is what made planners try to build.
+  const planPrompt = [
+    opts.promptConfig?.sections.planning ?? '',
+    describeWorkerSandbox(opts.images ?? []),
+  ].filter(Boolean).join('\n\n');
+
   const messages = buildOutboundMessages({
     messages: [{ role: 'user', content: opts.prompt }],
     lastIndex: 0,
-    prompt: planSystemPrompt(opts.images ?? []),
+    prompt: planPrompt,
     toolPrompt: opts.promptConfig?.sections.toolDiscipline ?? '',
     leaves: [],
     ...(personaPrompt ? { personaPrompt } : {}),
   });
 
-  const strategy = estimatePromptComplexity([{ role: 'user', content: opts.prompt }], 'plan', true);
+  const maxRounds = opts.budget?.rounds ?? MAX_PLANNING_ROUNDS;
   const built = buildModelRequest({
     turn: 'conversation',
     ...(opts.sampling ? { sampling: opts.sampling } : {}),
     ...(opts.kind ? { kind: opts.kind } : {}),
     messages: [],
     stream: true,
-    maxTokens: strategy.maxTokens,
-    reasoningEffort: strategy.reasoningEffort,
+    maxTokens: opts.budget
+      ? fittedMaxTokens(
+          opts.budget,
+          opts.budget.replyTokens.plan,
+          messages.reduce((n, m) => n + String(m.content ?? '').length, 0),
+        )
+      : DEFAULT_PLAN_TOKENS,
     ...(opts.model ? { model: opts.model } : {}),
   });
   const { messages: _messages, stream: _stream, ...parameters } = built.body;
@@ -134,7 +132,48 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
   let reply = '';
   let tokensUsed = 0;
   let rounds = 0;
+  let repeated = false;
   let exit: PlanningExit = 'capped';
+
+  /**
+   * `research` is an ordinary tool now; what stays here is the bookkeeping only this turn can do --
+   * which questions have already been asked, and the findings to report back with the plan.
+   * Re-asking one is how a planner spins, so it ends the turn rather than answering twice.
+   */
+  const answerResearch = async (questions: string[]): Promise<ResearchFinding[]> => {
+    const answers: ResearchFinding[] = [];
+    for (const question of questions) {
+      const key = question.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '');
+      if (asked.has(key)) {
+        repeated = true;
+        const earlier = research.find((r) => r.question.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '') === key);
+        answers.push(earlier ?? { question, findings: '', sources: [], rounds: 0, tokensUsed: 0 });
+        continue;
+      }
+      asked.add(key);
+      const finding = await runResearchAgent({
+        question,
+        baseUrl: opts.baseUrl,
+        ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.kind ? { kind: opts.kind } : {}),
+        ...(opts.sampling ? { sampling: opts.sampling } : {}),
+        webSearch: opts.research!.webSearch,
+        fetchWebPage: opts.research!.fetchWebPage,
+        ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      research.push(finding);
+      answers.push(finding);
+      tokensUsed += finding.tokensUsed;
+    }
+    return answers;
+  };
+
+  const runtime: LeafToolContext = {
+    ...opts.tools,
+    ...(opts.research ? { research: answerResearch } : {}),
+  };
 
   const boardNow = async () => {
     const current = (await opts.tools.db.getLeaves())
@@ -142,7 +181,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
     return JSON.stringify(serialiseBoard(current));
   };
 
-  for (; rounds < MAX_PLANNING_ROUNDS; rounds++) {
+  for (; rounds < maxRounds; rounds++) {
     const response = await doFetch(`${opts.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -150,7 +189,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
         ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
       },
       body: JSON.stringify({
-        ...parameters, messages: conversation, tools: plannerTools(opts.toolRows ?? []),
+        ...parameters, messages: conversation, tools: plannerTools(opts.toolRows ?? [], opts.grantedTools),
         stream: true, stream_options: { include_usage: true },
       }),
       ...(opts.signal ? { signal: opts.signal } : {}),
@@ -199,7 +238,6 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
       })),
     });
 
-    let repeated = false;
     let researched = false;
     const boardBefore = await boardNow();
 
@@ -208,12 +246,8 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
       const args = c.function?.arguments ?? '{}';
       let result: string;
 
-      if (name === 'research') {
-        researched = true;
-        result = await answerResearch(args);
-      } else {
-        result = await runLeafTool(opts.tools, { name, arguments: args });
-      }
+      if (name === 'research') researched = true;
+      result = (await runTool(runtime, { name, arguments: args })).content;
 
       toolCalls.push({ name, arguments: args, result });
       conversation.push({
@@ -227,48 +261,6 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
     if (repeated) { exit = 'repeating'; break; }
     if (researched && (await boardNow()) === boardBefore && rounds > 0) { exit = 'converged'; break; }
 
-    // eslint-disable-next-line no-inner-declarations
-    async function answerResearch(raw: string): Promise<string> {
-      if (!opts.research) {
-        return JSON.stringify({ error: 'Research is unavailable on this run. Plan with what you know.' });
-      }
-      let questions: string[] = [];
-      try {
-        const parsed = JSON.parse(raw) as { questions?: unknown };
-        questions = Array.isArray(parsed.questions) ? parsed.questions.map(String) : [];
-      } catch { questions = []; }
-      if (!questions.length) return JSON.stringify({ error: 'Give one or more specific questions.' });
-
-      const answers: ResearchFinding[] = [];
-      for (const question of questions) {
-        const key = question.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '');
-        if (asked.has(key)) {
-          repeated = true;
-          const earlier = research.find((r) => r.question.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '') === key);
-          answers.push(earlier ?? { question, findings: '', sources: [], rounds: 0, tokensUsed: 0 });
-          continue;
-        }
-        asked.add(key);
-        const finding = await runResearchAgent({
-          question,
-          baseUrl: opts.baseUrl,
-          ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
-          ...(opts.model ? { model: opts.model } : {}),
-          ...(opts.kind ? { kind: opts.kind } : {}),
-          ...(opts.sampling ? { sampling: opts.sampling } : {}),
-          webSearch: opts.research.webSearch,
-          fetchWebPage: opts.research.fetchWebPage,
-          ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-          ...(opts.signal ? { signal: opts.signal } : {}),
-        });
-        research.push(finding);
-        answers.push(finding);
-        tokensUsed += finding.tokensUsed;
-      }
-      return JSON.stringify({
-        findings: answers.map((a) => ({ question: a.question, answer: a.findings, sources: a.sources })),
-      });
-    }
   }
 
   const leaves = (await opts.tools.db.getLeaves())
@@ -285,7 +277,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
     request: {
       systemPrompt: String(messages[0]?.role === 'system' ? messages[0].content : ''),
       parameters,
-      tools: plannerTools(opts.toolRows ?? []).map((t) => t.function.name),
+      tools: plannerTools(opts.toolRows ?? [], opts.grantedTools).map((t) => t.function.name),
     },
   };
 }

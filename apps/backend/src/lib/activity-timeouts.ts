@@ -48,6 +48,12 @@ export const acceptRequestActivityMeta = { name: 'AcceptRequestActivity', startT
 
 export const replanActivityMeta = { startToCloseTimeout: '10 minutes' } as const;
 
+/**
+ * The first plan for a project. Longer than a replan: it starts cold and usually spends a round or
+ * two on `research`, each of which is its own multi-round agent.
+ */
+export const planProjectActivityMeta = { startToCloseTimeout: '20 minutes' } as const;
+
 export const crawlActivityMeta = {
   startToCloseTimeout: '2 minutes',
   storeTimeout: '5 minutes',

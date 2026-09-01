@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { asyncRoute } from '../../middleware/async-route.js';
 import { ownedBy } from '../../lib/ownership.js';
 import { ToolService } from '../../services/ToolService.js';
+import { TOOL_HANDLERS } from '../../lib/tool-registry.js';
 import type { Database } from '../../lib/db-interface.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -21,11 +22,15 @@ export function toolsRouter(deps: toolsRouterDeps): Router {
 
   router.get('/', async (req, res) => {
     const category = typeof req.query.category === 'string' ? req.query.category : undefined;
-    const all = await new ToolService(db).list(userOf(req).id);
+    // What each tool cannot run without, so the grant list can say so before a run finds out.
+    const withNeeds = (await new ToolService(db).list(userOf(req).id)).map((t) => ({
+      ...t,
+      needs: [...(TOOL_HANDLERS[t.name]?.needs ?? [])],
+    }));
     if (category && category !== 'all') {
-      return res.json(all.filter((t) => t.category === category));
+      return res.json(withNeeds.filter((t) => t.category === category));
     }
-    res.json(all);
+    res.json(withNeeds);
   });
 
   router.post('/', async (req, res) => {

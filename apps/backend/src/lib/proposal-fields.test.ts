@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { extractProposals } from './plan-mode.js';
 import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT } from './extraction.js';
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { forSurface } from './tool-catalogue.js';
+import { schemasFor } from './tool-catalogue.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 
 const BUDGET = PACK_SEEDS[0]!.budget;
 
-const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
+const LEAF_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'planner')!.tools);
 
 describe('the extractor carries what it must not decide', () => {
   const props: any = (EXTRACTION_SCHEMA as any).properties.leaves.items.properties;

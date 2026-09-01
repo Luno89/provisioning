@@ -15,6 +15,7 @@ import { ResolveLandingActivity } from './activities/ResolveLandingActivity.js';
 import { JudgeLeafActivity } from './activities/JudgeLeafActivity.js';
 import { AcceptRequestActivity } from './activities/AcceptRequestActivity.js';
 import { ReplanActivity } from './activities/ReplanActivity.js';
+import { PlanProjectActivity } from './activities/PlanProjectActivity.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
@@ -63,6 +64,7 @@ async function main() {
           JudgeLeafActivity,
           AcceptRequestActivity,
           ReplanActivity,
+          PlanProjectActivity,
           CrawlBatchActivity,
           NextBatchActivity,
           SeedFrontierActivity,

@@ -1,6 +1,5 @@
 import type { BudgetConfig, PersonaPack, PromptConfig, SamplingConfig, WorkspaceScope } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
-import { MERGER_PERSONA } from './well-known-personas.js';
 import { researchPacing } from './sandbox-tools.js';
 import { WEB_TOOL_NAMES } from './leaf-tools.js';
 import { sameSeededRow } from './seed-diff.js';
@@ -84,6 +83,65 @@ const DEFAULT_PROMPT: PromptConfig = {
 
 const defaultPrompt = (): PromptConfig => structuredClone(DEFAULT_PROMPT);
 
+/**
+ * The planner's output contract. This was `planSystemPrompt` in `lib/plan-mode.ts` — literal text
+ * in code, sitting beside a seeded persona row that said some of the same things differently.
+ *
+ * What belongs here is the SHAPE of a proposal. Who the planner is and how it should think belongs
+ * on the persona. The sandbox description is composed at run time from the workspace image rows,
+ * in the third person — the planner does not have a sandbox, and telling it "you run shell
+ * commands in a Linux container" is what made it try to build.
+ */
+const PLANNING_CONTRACT = [
+  'When — and only when — you are confident about concrete work that should be done, propose it by',
+  'ending your reply with a fenced json block:',
+  '',
+  '```json',
+  '{"leaves":[{"title":"Short imperative title","body":"What doing this involves",',
+  '            "persona":"Name of the persona that should do it"}],',
+  ' "serviceName":"short-name"}',
+  '```',
+  '',
+  'Rules:',
+  '- `serviceName` is optional and only for work that produces a service other agents will call.',
+  '  Short, lowercase, one or two words, no version — `weather`, `github-api`. It becomes the prefix',
+  '  on every tool the service exposes, so a long or generic one makes them hard to tell apart.',
+  '- `persona` is REQUIRED on every leaf. Use a name from the personas listed for you, exactly as',
+  '  written. A persona decides the toolchain, what the work may reach, and how long it may run —',
+  '  a leaf with no persona, or with a name that is not real, cannot be started by anyone.',
+  '- Before proposing work that needs a capability, call list_mcp_servers to see what is already',
+  '  running. Servers deployed here are real and their tools are callable from a leaf, so prefer',
+  '  using one over rebuilding it. When the work BUILDS a server, propose a final leaf that calls',
+  '  its tools for real — a server nothing has ever called is not known to work.',
+  '- Call set_acceptance once, for the request as a whole. Per-leaf checks prove each piece; only',
+  '  this proves the finished thing works. For a service, that means RUNNING it and calling it for',
+  '  real, not just running the test suite.',
+  '  Write the checks as a SEQUENCE: install dependencies, then build or test, then run the thing.',
+  '  A check that runs the product without installing it first fails on a missing package and',
+  '  proves nothing about the product.',
+  '- End the plan with a leaf that exercises the FINISHED thing the way a user would: call the',
+  '  deployed service, run the entry point, open the artefact. Name what it must produce in',
+  '  `expects`, so its success is a file that exists rather than a claim.',
+  '- When this project depends on a service (anything you declared with add_project_dependency), a',
+  '  sandbox CANNOT verify the connection — bindings exist only in the deployed service. That final',
+  '  leaf must call the DEPLOYED thing instead: name the service in its `mcp` so it can call its',
+  '  tools for real, and check the response is what a user would get.',
+  '  Do the same whenever the assembled result could fail in ways the individual pieces cannot.',
+  '- Record the plan with write_plan_document before you finish. It is committed to the project',
+  '  repository, so every leaf that clones it can read the shape of the whole.',
+  '- Propose nothing if the work is still unclear. Ask a question instead.',
+  '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
+  '- Never propose the same work twice under different wording. Naming the file in one title and',
+  '  the action in another still describes one leaf.',
+  '- Titles are imperative and specific: "Add a rate limit to /api/chat", not "Rate limiting".',
+  '- Anything you propose is only a suggestion; a human accepts it before it runs.',
+].join('\n');
+
+const plannerPrompt = (): PromptConfig => ({
+  ...structuredClone(DEFAULT_PROMPT),
+  sections: { ...structuredClone(DEFAULT_PROMPT.sections), planning: PLANNING_CONTRACT },
+});
+
 export interface PackSeed {
   slug: string;
   name: string;
@@ -117,20 +175,24 @@ export const PACK_SEEDS: PackSeed[] = [
     prompt: defaultPrompt(),
   },
   {
-    slug: 'framer',
-    name: 'Framer',
-    description: 'Breaks a large question into small ones that can each be answered on their own.',
-    personaName: 'Framer',
-    tools: ['read_file', 'write_file', 'finish'],
-    workspace: {
-      egress: [], repo: false, language: 'base',
-      output: '/work/questions.md', requireSources: false,
-      tunedFor: TUNED_FOR,
-      run: { maxSteps: 20 },
-    },
+    slug: 'planner',
+    name: 'Planner',
+    description: 'Turns a proposed project goal into a concrete plan of executable leaves.',
+    personaName: 'Planner',
+    /**
+     * No `workspace`. A planner runs as a planning turn, not in a sandbox — the sandbox agent loop
+     * can only dispatch `sandbox`-surface tools, so a planner given one could write files and never
+     * propose a leaf. That is exactly what the old `framer` pack did.
+     */
+    tools: [
+      'list_leaves', 'get_leaf', 'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'replace_leaf',
+      'set_acceptance', 'list_personas', 'list_mcp_servers', 'list_tree_types',
+      'list_projects', 'create_project', 'set_leaf_project', 'add_project_dependency',
+      'write_plan_document', 'research',
+    ],
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.3 } },
     budget: defaultBudget(),
-    prompt: defaultPrompt(),
+    prompt: plannerPrompt(),
   },
   {
     slug: 'researcher',
@@ -169,9 +231,9 @@ export const PACK_SEEDS: PackSeed[] = [
   },
   {
     slug: 'merger',
-    name: MERGER_PERSONA,
+    name: 'Merger',
     description: 'Resolves merge conflicts when leaves land on the default branch.',
-    personaName: MERGER_PERSONA,
+    personaName: 'Merger',
     tools: ['run_command', 'read_file', 'write_file', 'finish'],
     workspace: {
       repo: true, egress: [{ namespace: 'gitea', ports: [3000] }],

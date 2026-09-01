@@ -110,6 +110,22 @@ export class ProjectRepoService {
     return { project: next, problems };
   }
 
+  /**
+   * Commit a document into the project repository over the Gitea contents API.
+   *
+   * No checkout and no sandbox: this is the same path `seedTemplate` uses to scaffold a tree
+   * type's starter files. A planner needs to leave a document behind, and giving it a container
+   * to do that in would also give it a shell it has no business having.
+   */
+  async writeDocument(
+    project: Pick<ProjectMetadata, 'giteaOwner' | 'giteaRepo'>,
+    path: string,
+    content: string,
+    message: string,
+  ): Promise<boolean> {
+    return this.gitea.ensureFile(project.giteaOwner, project.giteaRepo, path, content, message);
+  }
+
   async listForOwner(ownerId: string): Promise<ProjectMetadata[]> {
     return (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
   }

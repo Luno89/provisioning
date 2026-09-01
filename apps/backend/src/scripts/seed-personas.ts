@@ -1,7 +1,6 @@
 import { MongoDB } from '../lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { Persona } from '@koala/harness-types';
-import { MERGER_PERSONA } from '../lib/well-known-personas.js';
 import { WEB_TOOL_NAMES } from '../lib/leaf-tools.js';
 import { PERSONA_SEEDS, RETIRED_PERSONAS } from '../lib/persona-seeds.js';
 

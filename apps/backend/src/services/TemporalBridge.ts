@@ -32,6 +32,7 @@ import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-
 import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
 import { LeafWorkflow } from '../workflows/LeafWorkflow.js'
+import { ProjectPlanWorkflow } from '../workflows/ProjectPlanWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
 import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
 import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
@@ -411,6 +412,27 @@ export class TemporalBridge {
     } catch (err: any) {
       if (/already started/i.test(err?.message ?? '')) return workflowId
       console.warn(`[TemporalBridge] Could not start leaf workflow ${workflowId}: ${err.message}`)
+      return undefined
+    }
+  }
+
+  /**
+   * The first planning turn for a newly accepted project. Fire-and-forget: the accept request
+   * returns as soon as the tree exists, and the plan arrives in the Grove as proposals.
+   */
+  async planProject(treeId: string, branchId: string): Promise<string | undefined> {
+    if (!this.client) return undefined
+    const workflowId = `plan-${treeId}`
+    try {
+      await this.client.workflow.start(ProjectPlanWorkflow, {
+        workflowId,
+        taskQueue: HOST_QUEUE,
+        args: [{ treeId, branchId }],
+      })
+      return workflowId
+    } catch (err: any) {
+      if (/already started/i.test(err?.message ?? '')) return workflowId
+      console.warn(`[TemporalBridge] Could not start planning workflow ${workflowId}: ${err.message}`)
       return undefined
     }
   }

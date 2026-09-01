@@ -40,10 +40,19 @@ describe('assembling an agent run from a persona', () => {
 
   it('leaves the loop defaults alone for a persona that declares nothing', () => {
     const o = agentRunOptions(BUDGET, { tools: [], workspace: {} }, inputs({ web }));
-    expect(o.allowTools).toBeUndefined();
     expect(o.maxSteps).toBeUndefined();
     expect(o.pacing).toBeUndefined();
     expect(o.withdrawTools).toBeUndefined();
+  });
+
+  /**
+   * A pack granting nothing used to leave `allowTools` unset, which the loop read as "offer
+   * everything" -- the opposite of what an empty grant list says. No pack at all is the different
+   * case: there is no list to honour, so the loop keeps its own default.
+   */
+  it('grants nothing for a pack that grants nothing, and defers only when there is no pack', () => {
+    expect(agentRunOptions(BUDGET, { tools: [], workspace: {} }, inputs({ web })).allowTools).toEqual([]);
+    expect(agentRunOptions(BUDGET, null, inputs({ web })).allowTools).toBeUndefined();
   });
 
   it('offers the web only when the persona asked AND the caller could build it', () => {

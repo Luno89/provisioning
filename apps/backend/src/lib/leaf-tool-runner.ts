@@ -1,83 +1,109 @@
-import { gate, ALL_EFFECTS, type ToolEffect } from './action-gate.js';
-import { effectOf, offeredOn } from './tool-catalogue.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolvePersonaNamed } from './proposal-merge.js';
-import type { McpRegistryService } from '../services/McpRegistryService.js';
-import type { Database } from './db-interface.js';
-import { canAddChild, childrenOf, subtreeOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
+import { canAddChild, childrenOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
 import { usablePaths } from './leaf-artifacts.js';
 import { normaliseLeafInput } from './leaf-input.js';
 import { usableAcceptancePlan } from './acceptance.js';
 import { hollowChecks, explainHollow } from './acceptance-validation.js';
 import { rewireDependents } from './plan-review.js';
 import { withProject } from './trees.js';
-import { describeInfrastructure } from './infrastructure.js';
-import { declareDependency } from './declare-dependency.js';
-import { summariseLeaf, detailLeaf, parseToolArguments } from './leaf-tools.js';
-import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { summariseLeaf, detailLeaf } from './leaf-tools.js';
 import { DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 import { isWorkspaceLanguage } from './workspace-image-catalogue.js';
-import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
 import { withBuiltIns } from './ownership.js';
+import type { ToolRuntime } from './tool-runtime.js';
 
-export interface LeafToolCall {
-  name: string;
-  arguments: string;
-}
+/**
+ * Tools that write to one branch, and so must be able to name which.
+ *
+ * `create_project` is deliberately absent: it attaches the new repository to a tree when there is
+ * one, and works perfectly well when there is not.
+ */
+const NEEDS_BRANCH = new Set([
+  'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'replace_leaf',
+  'set_acceptance', 'set_leaf_project', 'write_plan_document',
+]);
 
-export interface LeafToolContext {
-  db: Database;
-  ingest?: {
-    start: (args: { ownerId: string; url: string; maxDepth?: number; maxPages?: number; domains?: string[]; keywords?: string[] }) => Promise<{ workflowId: string }>;
-    status: (workflowId: string) => Promise<{ state: string; receipt?: unknown; error?: string }>;
-    search: (args: { ownerId: string; query: string; ingestId?: string }) => Promise<{ hits: { url: string; snippet: string }[] }>;
-  };
-  userId: string;
-  branchId: string;
-  webSearch: WebSearchFn;
-  fetchWebPage: (url: string) => Promise<string>;
-  projects: ProjectRepoService;
-  mcpRegistry?: Pick<McpRegistryService, 'listWithTools'>;
-  permitted?: readonly ToolEffect[] | undefined;
-}
+/**
+ * The planning tools, dispatched by name.
+ *
+ * Reads and id lookups run over everything the owner has; only the relationship logic -- parents,
+ * children, dependency titles, cycles -- is branch-scoped, because only it is meaningful within
+ * one branch. Scoping the WHOLE toolset to one branch is what made `list_leaves` unusable from
+ * anywhere without an ambient branch, chat included.
+ */
+export async function runPlanningTool(
+  rt: ToolRuntime,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const { db, userId, ingest, mcpRegistry } = rt;
+  const projects = rt.projects!;
 
-export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Promise<string> {
-  const { db, userId, branchId, webSearch, fetchWebPage, projects, ingest, mcpRegistry } = ctx;
-  const args = parseToolArguments(call.arguments);
+  const ownedLeaves = (await db.getLeaves()).filter((l) => l.ownerId === userId);
+  const ownedBranches = (await db.getBranches()).filter((b) => b.ownerId === userId);
 
-  const rows = withBuiltIns(await db.getTools(), userId, (t) => t.name);
-  if (!offeredOn(rows, 'planning', call.name)) {
-    return JSON.stringify({ error: `Unknown tool ${call.name}` });
+  // Which branch a write attaches to. An explicit argument wins; failing that, the branch of the
+  // leaf being changed; failing that, the branch the caller already works in. A chat turn has only
+  // the first two, which is why they exist.
+  const asked = typeof args.branchId === 'string' && args.branchId.trim()
+    ? { kind: 'branchId' as const, value: args.branchId.trim() }
+    : typeof args.treeId === 'string' && args.treeId.trim()
+      ? { kind: 'treeId' as const, value: args.treeId.trim() }
+      : undefined;
+  const fromArgs = asked
+    ? (asked.kind === 'branchId'
+        ? ownedBranches.find((b) => b.id === asked.value)?.id
+        : ownedBranches.find((b) => b.treeId === asked.value)?.id)
+    : undefined;
+  const fromLeaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''))?.branchId;
+  const branchId = fromArgs ?? fromLeaf ?? rt.branchId;
+  const leaves = ownedLeaves.filter((l) => l.branchId === branchId);
+
+  if (asked && !fromArgs) {
+    return JSON.stringify({ error: `You have no ${asked.kind} "${asked.value}".` });
+  }
+  if (NEEDS_BRANCH.has(name) && !branchId) {
+    return JSON.stringify({
+      error: `${name} works on one branch, and this run is not in one. Pass treeId (or branchId), `
+        + 'or name an existing leaf in id. list_leaves reports both for every leaf you have.',
+    });
   }
 
-  const decision = gate(
-    call.name,
-    effectOf(rows, call.name),
-    ctx.permitted ?? ALL_EFFECTS,
-  );
-  if (!decision.allowed) return JSON.stringify({ error: decision.reason });
-
-  const leaves = ((await db.getLeaves()).filter((l) => l.ownerId === userId)).filter((l) => l.branchId === branchId);
-
   try {
-    if (call.name === 'list_leaves') {
+    if (name === 'list_leaves') {
       const status = typeof args.status === 'string' ? args.status : undefined;
-      const filtered = status ? leaves.filter((l) => l.status === status) : leaves;
-      return JSON.stringify({ leaves: filtered.map(summariseLeaf) });
+      // An explicit treeId/branchId narrows, and an ambient branch is a default. With neither,
+      // every leaf the owner has -- which is what "list my leaves" means asked from a chat.
+      const scoped = asked || rt.branchId
+        ? ownedLeaves.filter((l) => l.branchId === branchId)
+        : ownedLeaves;
+      const filtered = status ? scoped.filter((l) => l.status === status) : scoped;
+      const trees = (await db.getTrees()).filter((t) => t.ownerId === userId);
+      // Which tree and branch each leaf is on, so a list spanning several is still readable.
+      const where = (leaf: Leaf) => {
+        const branch = ownedBranches.find((b) => b.id === leaf.branchId);
+        const tree = branch?.treeId ? trees.find((t) => t.id === branch.treeId) : undefined;
+        return { branchId: leaf.branchId, ...(tree ? { treeId: tree.id, tree: tree.name } : {}) };
+      };
+      return JSON.stringify({ leaves: filtered.map((l) => ({ ...summariseLeaf(l), ...where(l) })) });
     }
 
-    if (call.name === 'get_leaf') {
-      const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-      if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
-      return JSON.stringify(detailLeaf(leaf, childrenOf(leaves, leaf.id)));
+    if (name === 'get_leaf') {
+      // By id across everything the owner has: leaf ids are uuids, so no branch is needed to
+      // find one. Its children still come from its own branch, which is where they live.
+      const leaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
+      if (!leaf) return JSON.stringify({ error: 'You have no leaf with that id.' });
+      const siblings = ownedLeaves.filter((l) => l.branchId === leaf.branchId);
+      return JSON.stringify(detailLeaf(leaf, childrenOf(siblings, leaf.id)));
     }
 
-    if (call.name === 'start_ingest' || call.name === 'ingest_status' || call.name === 'search_corpus') {
+    if (name === 'start_ingest' || name === 'ingest_status' || name === 'search_corpus') {
       if (!ingest) {
         return JSON.stringify({ error: 'Ingestion is not available here.' });
       }
 
-      if (call.name === 'start_ingest') {
+      if (name === 'start_ingest') {
         const url = typeof args.url === 'string' ? args.url.trim() : '';
         if (!/^https?:\/\//i.test(url)) return JSON.stringify({ error: 'url must be an http or https address.' });
         const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
@@ -96,7 +122,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         });
       }
 
-      if (call.name === 'ingest_status') {
+      if (name === 'ingest_status') {
         const id = typeof args.id === 'string' ? args.id.trim() : '';
         if (!id) return JSON.stringify({ error: 'id is required.' });
         return JSON.stringify(await ingest.status(id));
@@ -116,14 +142,49 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'list_personas') {
+    if (name === 'list_personas') {
       const mine = withBuiltIns(await db.getPersonaPacks(), userId, (p) => p.slug);
       return JSON.stringify({
         personas: mine.map((p) => ({ name: p.name, description: p.description ?? '' })),
       });
     }
 
-    if (call.name === 'propose_leaf') {
+    if (name === 'write_plan_document') {
+      const content = typeof args.content === 'string' ? args.content.trim() : '';
+      if (!content) return JSON.stringify({ error: 'content is required — the document itself.' });
+
+      const rawPath = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : 'PLAN.md';
+      const path = rawPath.replace(/^\/+/, '');
+      if (!path || path.split('/').includes('..')) {
+        return JSON.stringify({ error: 'path must be relative and stay inside the repository.' });
+      }
+
+      const branch = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === userId);
+      const tree = branch?.treeId
+        ? (await db.getTrees()).find((t) => t.id === branch.treeId && t.ownerId === userId)
+        : undefined;
+      const projectId = tree?.projectIds?.[0];
+      if (!projectId) {
+        return JSON.stringify({
+          error: 'This project has no repository yet. Call create_project first, then write the plan.',
+        });
+      }
+      const project = (await projects.listForOwner(userId)).find((p) => p.id === projectId);
+      if (!project) return JSON.stringify({ error: 'The project repository is no longer available.' });
+
+      try {
+        const written = await projects.writeDocument(
+          project, path, content, `Plan: ${tree?.name ?? 'project'}`,
+        );
+        return JSON.stringify(written
+          ? { written: path, repo: `${project.giteaOwner}/${project.giteaRepo}` }
+          : { error: `${path} already exists in the repository; nothing was overwritten.` });
+      } catch (err) {
+        return JSON.stringify({ error: `Could not commit ${path}: ${(err as Error).message}` });
+      }
+    }
+
+    if (name === 'propose_leaf') {
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       if (!title) return JSON.stringify({ error: 'title is required' });
 
@@ -160,7 +221,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       const leaf: Leaf = {
         id,
         ownerId: userId,
-        branchId,
+        branchId: branchId!,
         ...normaliseLeafInput(args),
         title: title.slice(0, 200),
         ...(dependsOn.length ? { dependsOn } : {}),
@@ -206,7 +267,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'set_acceptance') {
+    if (name === 'set_acceptance') {
       const plan = usableAcceptancePlan(args.checks ?? args.command);
       if (plan.length === 0) {
         return JSON.stringify({
@@ -226,14 +287,14 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       return JSON.stringify({ acceptance: plan });
     }
 
-    if (call.name === 'list_projects') {
+    if (name === 'list_projects') {
       const mine = await projects.listForOwner(userId);
       return JSON.stringify({
         projects: mine.map((p) => ({ id: p.id, name: p.name, repo: `${p.giteaOwner}/${p.giteaRepo}` })),
       });
     }
 
-    if (call.name === 'create_project') {
+    if (name === 'create_project') {
       const name = typeof args.name === 'string' ? args.name.trim() : '';
       if (!name) return JSON.stringify({ error: 'name is required' });
       const project = await projects.register(userId, name, {
@@ -265,9 +326,9 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'set_leaf_project') {
-      const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-      if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+    if (name === 'set_leaf_project') {
+      const leaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
+      if (!leaf) return JSON.stringify({ error: 'You have no leaf with that id.' });
       const project = (await projects.listForOwner(userId))
         .find((p) => p.id === String(args.projectId ?? ''));
       if (!project) return JSON.stringify({ error: 'No project with that id.' });
@@ -294,9 +355,9 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'replace_leaf') {
-      const old = leaves.find((l) => l.id === String(args.id ?? ''));
-      if (!old) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+    if (name === 'replace_leaf') {
+      const old = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
+      if (!old) return JSON.stringify({ error: 'You have no leaf with that id.' });
       if (old.status !== 'proposed') {
         return JSON.stringify({
           error: `That leaf is already ${old.status}, so it is no longer yours to change. Say what you would do differently and let the user decide.`,
@@ -330,16 +391,16 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'revise_leaf' || call.name === 'withdraw_leaf') {
-      const leaf = leaves.find((l) => l.id === String(args.id ?? ''));
-      if (!leaf) return JSON.stringify({ error: 'No leaf with that id on this branch.' });
+    if (name === 'revise_leaf' || name === 'withdraw_leaf') {
+      const leaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
+      if (!leaf) return JSON.stringify({ error: 'You have no leaf with that id.' });
       if (leaf.status !== 'proposed') {
         return JSON.stringify({
           error: `That leaf is already ${leaf.status}, so it is no longer yours to change. Say what you would do differently and let the user decide.`,
         });
       }
 
-      if (call.name === 'withdraw_leaf') {
+      if (name === 'withdraw_leaf') {
         const doomed = [leaf, ...childrenOf(leaves, leaf.id)];
         const orphaned = doomed.flatMap((d) => dependentsOf(d.id, leaves))
           .filter((l) => !doomed.some((d) => d.id === l.id));
@@ -383,24 +444,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'add_project_dependency') {
-      return JSON.stringify(await declareDependency(db, userId, args));
-    }
-
-    if (call.name === 'list_infrastructure') {
-      const infra = describeInfrastructure(await db.getDeployments(), userId, await db.getAppSpecs());
-      return JSON.stringify({
-        running: infra.running,
-        ...(infra.broken.length ? { broken: infra.broken } : {}),
-        deployable: infra.deployable,
-        note: 'Anything not in `running` and not in `deployable` does not exist here and cannot be '
-          + 'built — say so rather than planning around it. A service this project depends on is '
-          + 'provided as a binding at deploy time, so a leaf reads its address and credentials from '
-          + '$SERVICE_BINDING_ROOT at runtime rather than being given them now.',
-      });
-    }
-
-    if (call.name === 'list_mcp_servers') {
+    if (name === 'list_mcp_servers') {
       if (!mcpRegistry) {
         return JSON.stringify({
           error: 'The MCP registry is not available here, so it is not known which servers exist. Do not conclude there are none.',
@@ -414,7 +458,7 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
         });
       }
       let mine: { id: string; name: string }[] = [];
-      try { mine = (await projects.listForOwner(userId)) as any[]; } catch { mine = []; }
+      try { mine = (await rt.projects?.listForOwner(userId) ?? []) as any[]; } catch { mine = []; }
       const editable = servers.filter((s) => s.projectId);
       return JSON.stringify({
         servers: servers.map((s) => ({
@@ -441,27 +485,14 @@ export async function runLeafTool(ctx: LeafToolContext, call: LeafToolCall): Pro
       });
     }
 
-    if (call.name === 'update_leaf_memory') {
+    if (name === 'update_leaf_memory') {
       const category = String(args.category ?? 'lessons_learned');
       const title = String(args.title ?? '');
       const text = String(args.text ?? '');
       return JSON.stringify({ savedMemory: { category, title, text, timestamp: new Date().toISOString() } });
     }
 
-    if (call.name === 'web_search') {
-      const query = String(args.query ?? '').trim();
-      if (!query) return JSON.stringify({ error: 'query parameter is required' });
-      return JSON.stringify(renderSearchOutcome(query, await webSearch(query)));
-    }
-
-    if (call.name === 'fetch_web_page') {
-      const url = String(args.url ?? '').trim();
-      if (!url) return JSON.stringify({ error: 'url parameter is required' });
-      const content = await fetchWebPage(url);
-      return JSON.stringify({ url, content });
-    }
-
-    return JSON.stringify({ error: `Unknown tool ${call.name}` });
+    return JSON.stringify({ error: `${name} is not one of the planning tools.` });
   } catch (err: any) {
     return JSON.stringify({ error: String(err?.message ?? err).slice(0, 300) });
   }

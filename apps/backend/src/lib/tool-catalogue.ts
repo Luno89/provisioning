@@ -1,5 +1,5 @@
 import type { ToolEffect } from './action-gate.js';
-import type { ToolRepositoryItem, ToolSurface } from './tool-seeds.js';
+import type { ToolRepositoryItem } from './tool-seeds.js';
 
 export type ToolSchema = {
   type: 'function';
@@ -17,14 +17,13 @@ export const asSchema = (row: ToolRepositoryItem): ToolSchema => ({
   },
 });
 
-export function forSurface(rows: readonly ToolRepositoryItem[], surface: ToolSurface): ToolSchema[] {
-  return rows.filter((r) => r.surfaces?.includes(surface)).map(asSchema);
-}
-
-export function namesForSurface(rows: readonly ToolRepositoryItem[], surface: ToolSurface): string[] {
-  return rows.filter((r) => r.surfaces?.includes(surface)).map((r) => r.name);
-}
-
+/**
+ * The schemas for the named tools, in the order they were granted.
+ *
+ * This is the only way a runtime decides what to offer now. It used to be one of two, the other
+ * being `forSurface` -- and because a pack's grant list is edited against the whole catalogue while
+ * the surface was a field on the row, the two disagreed the moment anyone granted across them.
+ */
 export function schemasFor(rows: readonly ToolRepositoryItem[], names: readonly string[]): ToolSchema[] {
   const byName = new Map(rows.map((r) => [r.name, r]));
   return names.flatMap((n) => {
@@ -39,8 +38,4 @@ export function effectOf(rows: readonly ToolRepositoryItem[], name: string): Too
 
 export function parametersOf(rows: readonly ToolRepositoryItem[], name: string): ToolRepositoryItem['parameters'] {
   return rows.find((r) => r.name === name)?.parameters;
-}
-
-export function offeredOn(rows: readonly ToolRepositoryItem[], surface: ToolSurface, name: string): boolean {
-  return rows.some((r) => r.name === name && r.surfaces?.includes(surface));
 }

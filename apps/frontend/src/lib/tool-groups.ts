@@ -2,6 +2,22 @@ export interface GroupableTool {
   name: string
   description?: string | undefined
   category: string
+  /**
+   * What this tool cannot run without, as the backend's registry declares it.
+   *
+   * ── DUPLICATED, KNOWINGLY ──
+   * The authority is `ToolEntry.needs` in `apps/backend/src/lib/tool-registry.ts`, served on each
+   * row by `GET /api/harness/tools`. Only the one value this list acts on is named here.
+   */
+  needs?: readonly string[] | undefined
+}
+
+/** A pack with no workspace has no sandbox, so a tool needing one cannot run for it. */
+export function unrunnable(tool: GroupableTool, hasSandbox: boolean): string | undefined {
+  if (!hasSandbox && tool.needs?.includes('sandbox')) {
+    return 'Needs a sandbox — give this pack a workspace, or it will say so when called.'
+  }
+  return undefined
 }
 
 export interface ToolGroup<T extends GroupableTool> {

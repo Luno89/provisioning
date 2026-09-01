@@ -2,8 +2,10 @@
 import { routeCall } from './mcp-tools.js';
 import { resolveMcpProbeUrl } from './mcp-probe-url.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
-import { runKoalaTool } from './koala-tool-runner.js';
+import { runTool } from './tool-registry.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
+import { GiteaService } from '../services/GiteaService.js';
+import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import type { Database } from './db-interface.js';
 import type { McpServer } from './mcp-registry.js';
 import type { SearchOutcome } from './web-tools.js';
@@ -22,7 +24,8 @@ export interface PackToolContext {
   webSearch: (query: string) => Promise<SearchOutcome>;
   fetchWebPage: (url: string) => Promise<string>;
   toolRefused: (result: string) => boolean;
-  registry?: Pick<McpRegistryService, 'call'>;
+  registry?: Pick<McpRegistryService, 'call' | 'listWithTools'>;
+  projects?: ProjectRepoService;
   kubectl?: (args: string[]) => Promise<string>;
   temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'>;
   infisicalService?: InfisicalService | undefined;
@@ -52,6 +55,20 @@ export function makePackToolExecutor(ctx: PackToolContext) {
   const registry = ctx.registry ?? new McpRegistryService(ctx.db, ctx.userId, (n: string) => resolveMcpProbeUrl(n));
   const kubectl = ctx.kubectl ?? ((a: string[]) =>
     new InfrastructureService().runKubectl(a).then((r: any) => typeof r === 'string' ? r : (r?.stdout ?? '')));
+  /**
+   * A chat can reach the project repositories and the MCP registry, so the tools that need them
+   * work here too. Withholding them is what made `list_projects` answer `No tool named` in a chat
+   * whose own pack granted it.
+   */
+  const projects = ctx.projects ?? new ProjectRepoService(
+    ctx.db,
+    new GiteaService(
+      new InfrastructureService(),
+      process.env.JWT_SECRET ?? '',
+      process.env.MANAGEMENT_KUBECONFIG ?? '/tmp/kubeconfig-provisioning-lunorica',
+    ),
+    process.env.JWT_SECRET ?? '',
+  );
 
   return async (c: ToolCall): Promise<ToolExecResult> => {
     const route = routeCall(c.name, ctx.enabledNames);
@@ -69,11 +86,13 @@ export function makePackToolExecutor(ctx: PackToolContext) {
       return { content: text, ok: !ctx.toolRefused(text) };
     }
 
-    const out = await runKoalaTool(
+    const out = await runTool(
       {
         db: ctx.db, userId: ctx.userId, conversationId: ctx.conversationId, sessionId: ctx.sessionId,
         servers: ctx.servers, webSearch: ctx.webSearch, fetchWebPage: ctx.fetchWebPage,
         kubectl,
+        projects,
+        mcpRegistry: registry,
         temporalBridge: ctx.temporalBridge,
         infisicalService: ctx.infisicalService,
         isAdmin: ctx.isAdmin,

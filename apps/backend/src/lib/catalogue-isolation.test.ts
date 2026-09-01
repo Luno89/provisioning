@@ -178,10 +178,10 @@ describe('what a run is configured by, after the seeder has run', () => {
     const db = await fresh();
     const rows = await db.getTools();
     const logs = rows.find((t) => t.name === 'get_logs')!;
-    await db.saveTool({ ...logs, description: 'FROM THE DATABASE', surfaces: ['assistant'] });
+    await db.saveTool({ ...logs, description: 'FROM THE DATABASE' });
 
-    const offered = await new ToolService(db as never).surface('u1', 'assistant');
-    expect(offered.find((t) => t.function.name === 'get_logs')!.function.description)
+    const offered = await new ToolService(db as never).schemas('u1', ['get_logs']);
+    expect(offered.find((t: { function: { name: string } }) => t.function.name === 'get_logs')!.function.description)
       .toBe('FROM THE DATABASE');
   });
 

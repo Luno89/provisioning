@@ -20,6 +20,7 @@ interface ToolItem {
   name: string;
   description?: string;
   category: string;
+  needs?: string[];
 }
 
 export function PersonaConfigDrawer({
@@ -92,10 +93,15 @@ export function PersonaConfigDrawer({
     mutationFn: async () => {
       if (!currentPack) return;
       // Round-trip tools only; sampling/budget/prompt are not edited here.
+      //
+      // Send only names the catalogue still has. A pack can outlive a tool -- a retired one is
+      // deleted from the catalogue on the next seed -- and the server refuses a grant list naming
+      // something that is not a tool, so a dead name would block an edit the drawer never showed.
+      const known = new Set(allTools.map((t) => t.name));
       await updatePack(currentPack.id, {
         name: draftName,
         description: draftDesc,
-        tools: draftTools,
+        tools: draftTools.filter((t) => known.has(t)),
         ...(draftModelId ? { model: { endpointId: draftModelId } } : { model: { endpointId: null } }),
       });
       if (currentPersona && draftPrompt !== (currentPersona.systemPrompt ?? '')) {
@@ -248,6 +254,7 @@ export function PersonaConfigDrawer({
                     tools={allTools}
                     selected={draftTools}
                     onChange={setDraftTools}
+                    hasSandbox={Boolean(currentPack?.workspace)}
                   />
 
                 </div>

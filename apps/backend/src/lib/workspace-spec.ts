@@ -176,6 +176,31 @@ const PACKAGE_MANAGERS = [
   { tool: 'go', env: 'GOPROXY', command: 'go mod download' },
 ] as const;
 
+/**
+ * The same environment, in the third person, for whoever is PLANNING work rather than doing it.
+ *
+ * `describeSandbox` is written to the agent that is inside the container ("you run shell commands",
+ * "you have 2 CPUs"). Appending that to a planner's prompt told it that it had a shell, which is
+ * how the planner ended up trying to build the product instead of decomposing it. The facts are
+ * the same and still come from the seeded image rows; only the addressee changes.
+ */
+export function describeWorkerSandbox(rows: readonly WorkspaceImageSpec[]): string {
+  const languages = [...new Set(rows.map((r) => r.id))];
+  return [
+    'THE ENVIRONMENT THE WORK RUNS IN',
+    '',
+    'You are not in this environment and cannot reach it. Each leaf you propose is carried out later',
+    'by a different agent inside a Linux container. Do not propose work it cannot do:',
+    '',
+    `- The container has a shell and a writable ${WORKSPACE_MOUNT}. Its root filesystem is read-only`,
+    '  and there is no sudo, so nothing can install system packages.',
+    '- There is no general internet. A package registry is mirrored inside the cluster, so a package',
+    '  install works; fetching an arbitrary URL does not.',
+    `- It is destroyed after ${MAX_WORKSPACE_SECONDS / 60} minutes, taking anything uncommitted with it.`,
+    ...(languages.length ? [`- Available images: ${languages.join(', ')}.`] : []),
+  ].join('\n');
+}
+
 export function describeSandbox(
   rows: readonly WorkspaceImageSpec[],
   spec: Pick<WorkspaceSpec, 'image' | 'cpu' | 'memory' | 'egress' | 'env'> = {},

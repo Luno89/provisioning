@@ -6,7 +6,8 @@ import { buildModelRequest } from '../lib/model-request.js';
 import { fittedMaxTokens } from '../lib/sampling.js';
 import { resolvePrompt } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
-import { JUDGE_PERSONA } from '../lib/well-known-personas.js';
+import { packForRole } from '../lib/tree-type-packs.js';
+import { treeTypeForLeaf } from '../lib/tree-type-packs.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import type { Branch } from '../lib/leaves.js';
 import { withBuiltIns } from '../lib/ownership.js';
@@ -52,11 +53,11 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
     }
 
     const ownPersonas = withBuiltIns(await db.getPersonas(), leaf.ownerId, (p) => p.name);
-    const packs = withBuiltIns(await db.getPersonaPacks(), leaf.ownerId, (p) => p.slug);
-    const pack = packs.find((p: any) => p.name === JUDGE_PERSONA) ?? null;
+    const treeType = await treeTypeForLeaf(db, leaf);
+    const pack = await packForRole(db, leaf.ownerId, treeType, 'judge') ?? null;
     const assigned = pack ? ownPersonas.find((p: any) => p.id === pack.personaId) : undefined;
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-    if (!pack) console.warn(`[JudgeLeaf] no "${JUDGE_PERSONA}" pack — running with harness defaults`);
+    if (!pack) console.warn(`[JudgeLeaf] ${treeType?.id ?? 'this tree type'} names no judge pack — running with harness defaults`);
 
     const profile = await db.getHarnessProfile(leaf.ownerId).catch(() => null);
     const systemPrompt = resolvePrompt(persona);

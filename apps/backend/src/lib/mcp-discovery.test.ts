@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
-import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
+import { runLeafTool, type LeafToolContext } from './tool-registry.js';
 import { MemoryDB } from './memory-db.js';
 import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { forSurface } from './tool-catalogue.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+import { schemasFor } from './tool-catalogue.js';
 
-const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
+const LEAF_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'planner')!.tools);
 
 const seededDb = async () => {
   const db = new MemoryDB();

@@ -5,6 +5,7 @@ import { resolvePrompt } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
 import { shouldReplan, summariseOutcomes, buildReplanPrompt } from '../lib/replan.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
+import { packForRole, treeTypeForLeaf } from '../lib/tree-type-packs.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -49,8 +50,10 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     const request = branch.messages.find((m) => m.role === 'user')?.content ?? branch.title;
 
     const profile = await db.getHarnessProfile(leaf.ownerId);
-    const packs = withBuiltIns(await db.getPersonaPacks(), leaf.ownerId, (p) => p.slug);
-    const pack = profile?.packId ? packs.find((p) => p.id === profile.packId || p.slug === profile.packId) ?? null : null;
+    // Replanning is planning: it uses the planner this tree type names. It used to take whatever
+    // pack the account happened to default to, which was usually a chat or worker pack.
+    const treeType = await treeTypeForLeaf(db, leaf);
+    const pack = await packForRole(db, leaf.ownerId, treeType, 'planner') ?? null;
     const adopted = pack ? personas.find((p) => p.id === pack.personaId) : undefined;
     const persona = adopted ? flattenPersona(adopted, personas) : null;
     const systemPrompt = resolvePrompt(persona);
@@ -69,7 +72,10 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     await runPlanningTurn({
       toolRows: await new ToolService(db).list(leaf.ownerId),
       images: await new WorkspaceImageService(db).list(leaf.ownerId),
-      promptConfig: await requirePrompt(db),
+      promptConfig: pack?.prompt ?? await requirePrompt(db),
+      ...(pack?.budget ? { budget: pack.budget } : {}),
+      ...(pack?.sampling ? { sampling: pack.sampling } : {}),
+      ...(pack?.tools?.length ? { grantedTools: pack.tools } : {}),
       baseUrl,
       ...(apiKey ? { apiKey } : {}),
       model: provider.model,

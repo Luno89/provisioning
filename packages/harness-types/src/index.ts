@@ -467,6 +467,12 @@ export interface PromptConfig {
     pressureNotice: string;
     /** Injected by a planning turn, beside the persona's prompt. */
     toolDiscipline: string;
+    /**
+     * The planner's output contract — the shape a proposal must take. Optional because only a
+     * planning pack has one. This used to be `planSystemPrompt`, 48 lines of literal text in
+     * `lib/plan-mode.ts` that duplicated and partly contradicted the persona row beside it.
+     */
+    planning?: string;
   };
 }
 

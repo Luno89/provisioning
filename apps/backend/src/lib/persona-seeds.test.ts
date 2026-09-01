@@ -3,6 +3,7 @@ import { PERSONA_SEEDS, RETIRED_PERSONAS, seedPersonas } from './persona-seeds.j
 import { KOALA_NAME } from './koala-persona.js';
 import { canRunLeaf } from './persona-scope.js';
 import { PACK_SEEDS } from './pack-seeds.js';
+import { toolsNeeding } from './tool-registry.js';
 import { validateScope } from './personas.js';
 
 describe('the seeds themselves', () => {
@@ -22,14 +23,35 @@ describe('the seeds themselves', () => {
     expect(PERSONA_SEEDS.map((s) => s.name)).toContain(KOALA_NAME);
   });
 
-  it('gives the chat pack no workspace, which is what makes it chat-only', () => {
-    const koala = PACK_SEEDS.find((p) => p.slug === 'koala')!;
-    expect(canRunLeaf(koala as never)).toBe(false);
+  /**
+   * Derived from the catalogue rather than from a list of exempt names.
+   *
+   * This used to say "every pack except koala", exempting the chat pack by name. Adding the
+   * planner — which also has no sandbox, on purpose — would have meant a second name in the
+   * exemption. The real invariant is about tools: a pack that can run a shell needs somewhere to
+   * run it, and a pack that cannot must not be handed a sandbox it would only be tempted by.
+   */
+  const sandboxTools = new Set(toolsNeeding('sandbox'));
+  const runsSandboxWork = (pack: { tools: string[] }) =>
+    pack.tools.some((t) => sandboxTools.has(t));
+
+  it('gives a workspace to every pack whose tools need one', () => {
+    for (const pack of PACK_SEEDS.filter(runsSandboxWork)) {
+      expect(canRunLeaf(pack as never), pack.slug).toBe(true);
+    }
   });
 
-  it('gives every work pack an environment it can actually run in', () => {
-    for (const pack of PACK_SEEDS.filter((p) => p.slug !== 'koala')) {
-      expect(canRunLeaf(pack as never), pack.slug).toBe(true);
+  /**
+   * Not the converse: `reviewer` and `judge` ship `tools: []` and a workspace. They are offered
+   * nothing now -- an empty grant list means an empty grant list -- and neither reaches the agent
+   * loop anyway, so a workspace they never use is harmless.
+   */
+
+  it('keeps the chat and planning packs out of a sandbox', () => {
+    for (const slug of ['koala', 'planner']) {
+      const pack = PACK_SEEDS.find((p) => p.slug === slug)!;
+      expect(runsSandboxWork(pack), slug).toBe(false);
+      expect(canRunLeaf(pack as never), slug).toBe(false);
     }
   });
 

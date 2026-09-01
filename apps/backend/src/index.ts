@@ -106,7 +106,7 @@ import { WorkbenchService } from './services/WorkbenchService.js';
 import { buildPromotion, supersede, revertTo, withPack } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { loopKeys } from './lib/tunables.js';
-import { runLeafTool as runLeafToolShared } from './lib/leaf-tool-runner.js';
+import { runLeafTool as runLeafToolShared } from './lib/tool-registry.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';
 import { specsToSeed, type AppSpec } from './lib/app-spec.js';
@@ -119,7 +119,6 @@ import {
   type Conversation, type ProposedTree, type ConversationToolCall,
 } from './lib/conversations.js';
 import { buildKoalaPrompt } from './lib/koala-persona.js';
-import { runKoalaTool } from './lib/koala-tool-runner.js';
 import { toLoopTools, routeCall } from './lib/mcp-tools.js';
 
 import { claimService, claimNotice } from './lib/service-claim.js';

@@ -16,6 +16,12 @@ export function validatePack(
   existing: Pick<PersonaPack, 'id' | 'slug'>[],
   personas: { id: string }[],
   id?: string,
+  /**
+   * Every tool name this account has. A grant list is the authority for what a run is offered, so
+   * a name in it that names nothing is a tool silently missing from every run that pack makes --
+   * which is only visible much later, as a model calling something that does not answer.
+   */
+  known?: readonly string[],
 ): string | undefined {
   const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
   if (!name) return 'A pack needs a name.';
@@ -39,6 +45,13 @@ export function validatePack(
   if (candidate.tools !== undefined) {
     if (!Array.isArray(candidate.tools) || candidate.tools.some((t) => typeof t !== 'string')) {
       return 'Tools must be a list of tool names.';
+    }
+    if (known) {
+      const unknown = (candidate.tools as string[]).filter((t) => !known.includes(t));
+      if (unknown.length) {
+        return `No tool is called ${unknown.map((t) => `"${t}"`).join(', ')}. `
+          + 'Grant a name from the tool catalogue.';
+      }
     }
   }
 

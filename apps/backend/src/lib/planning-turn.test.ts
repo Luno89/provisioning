@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { runPlanningTurn, MAX_PLANNING_ROUNDS, plannerTools } from './planning-turn.js';
-import type { LeafToolContext } from './leaf-tool-runner.js';
-import { planSystemPrompt } from './plan-mode.js';
+import type { LeafToolContext } from './tool-registry.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
+
+const PLANNER_PACK = PACK_SEEDS.find((p) => p.slug === 'planner')!;
+const PLAN_CONTRACT = PLANNER_PACK.prompt.sections.planning ?? '';
 
 let db: MemoryDB;
 
@@ -48,6 +51,10 @@ const run = (turns: Parameters<typeof scripted>[0], over: any = {}) => {
   return runPlanningTurn({
     toolRows: ALL_TOOL_SEEDS,
     images: IMAGES,
+    // The contract AND the toolset are the pack's now, not constants in the module under test — so
+    // a turn given no pack is given neither, and this harness hands it the shipped planner's.
+    promptConfig: PLANNER_PACK.prompt,
+    grantedTools: PLANNER_PACK.tools,
     baseUrl: 'http://model', prompt: 'Build a GitHub API client',
     tools: tools(), fetchImpl: model.impl, ...over,
   }).then((result) => ({ result, sent: model.seen }));
@@ -66,7 +73,7 @@ describe('what the model is asked', () => {
 
   it('asks for a plan explicitly rather than letting a heuristic decide', async () => {
     const { sent } = await run([{ content: 'done' }]);
-    expect(sent[0].messages[0].content).toContain(planSystemPrompt(IMAGES));
+    expect(sent[0].messages[0].content).toContain(PLAN_CONTRACT);
   });
 
   it('offers the leaf tools, including the ones that assign work', async () => {
@@ -170,7 +177,7 @@ describe('what the turn produces', () => {
 
   it('records what it asked, so a score has its input beside it', async () => {
     const { result } = await run([{ content: 'done' }]);
-    expect(result.request.systemPrompt).toContain(planSystemPrompt(IMAGES));
+    expect(result.request.systemPrompt).toContain(PLAN_CONTRACT);
     expect(result.request.tools).toContain('propose_leaf');
   });
 });
@@ -189,7 +196,7 @@ describe('research, because the planner has no web access', () => {
   const findings = (answer: string) => ({ ok: true, text: async () => sse({ content: answer }) });
 
   it('does not offer live search, so the model is never misled by an empty result', () => {
-    const names = plannerTools(ALL_TOOL_SEEDS).map((t) => t.function.name);
+    const names = plannerTools(ALL_TOOL_SEEDS, PLANNER_PACK.tools).map((t) => t.function.name);
     expect(names).not.toContain('web_search');
     expect(names).not.toContain('fetch_web_page');
     expect(names).toContain('research');

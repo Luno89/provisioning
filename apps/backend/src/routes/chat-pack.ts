@@ -130,8 +130,8 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     res.json({
       tree: bootstrapped.tree,
       branch: bootstrapped.branch,
-      leaf: bootstrapped.leaf,
       project: bootstrapped.project,
+      planning: Boolean(bootstrapped.planWorkflowId),
     });
   };
 

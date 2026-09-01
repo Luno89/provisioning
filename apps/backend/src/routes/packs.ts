@@ -6,7 +6,9 @@ import type { PersonaPack } from '@koala/harness-types';
 import type { Database } from '../lib/db-interface.js';
 import { requireBudget, requirePrompt } from '../lib/pack-defaults.js';
 import { validatePackValues, mergeValues } from '../lib/derived-packs.js';
+import { validateScope } from '../lib/personas.js';
 import type { PersonaPackService } from '../services/PersonaPackService.js';
+import { ToolService } from '../services/ToolService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -25,6 +27,10 @@ export function packsRouter(deps: PacksRouterDeps): Router {
 
   const findPack = async (userId: string, id: string) =>
     packs.resolvePack(userId, id);
+
+  /** What this account may grant: its own catalogue, so a custom tool is grantable too. */
+  const toolNames = async (userId: string) =>
+    (await new ToolService(db).list(userId)).map((t) => t.name);
   router.get('/', asyncRoute(async (req, res) => {
     res.json(await packs.visiblePacks(userOf(req).id));
   }));
@@ -37,11 +43,11 @@ export function packsRouter(deps: PacksRouterDeps): Router {
 
   router.post('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const { slug, name, description, personaId, tools, sampling, budget, prompt } = req.body ?? {};
+    const { slug, name, description, personaId, tools, mcp, workspace, sampling, budget, prompt } = req.body ?? {};
 
     const existing = await packs.visiblePacks(userId);
     const personas = await packs.referenceablePersonas(userId);
-    const refusal = validatePack({ slug, name, personaId, tools }, existing, personas);
+    const refusal = validatePack({ slug, name, personaId, tools }, existing, personas, undefined, await toolNames(userId));
     if (refusal) return res.status(400).json({ error: refusal });
 
     const now = new Date().toISOString();
@@ -54,6 +60,8 @@ export function packsRouter(deps: PacksRouterDeps): Router {
       ...(description ? { description: String(description).slice(0, 200) } : {}),
       personaId: String(personaId),
       tools: tools ?? [],
+      ...(Array.isArray(mcp) ? { mcp: mcp.map(String) } : {}),
+      ...(workspace !== undefined ? { workspace } : {}),
       /**
        * A new pack starts from what the shipped packs sample at, taken from the seeded row rather
        * than a constant — there is no module left to fall back to, and a pack with no sampler
@@ -67,6 +75,8 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     };
     const badValue = validatePackValues(pack);
     if (badValue) return res.status(400).json({ error: badValue });
+    const badScope = validateScope(pack.workspace);
+    if (badScope) return res.status(400).json({ error: badScope });
 
     await db.savePersonaPack(pack);
     res.status(201).json(pack);
@@ -78,7 +88,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const pack = existing.find((p) => p.id === idOf(req) || p.slug === idOf(req));
     if (!pack) return res.status(404).json({ error: 'No such pack' });
 
-    const { slug, name, description, personaId, tools, sampling, budget, prompt, model } = req.body ?? {};
+    const { slug, name, description, personaId, tools, mcp, workspace, sampling, budget, prompt, model } = req.body ?? {};
     const personas = await packs.referenceablePersonas(userId);
     const candidate = {
       slug: slug === undefined ? pack.slug : String(slug),
@@ -86,7 +96,12 @@ export function packsRouter(deps: PacksRouterDeps): Router {
       personaId: personaId === undefined ? pack.personaId : String(personaId),
       tools: tools === undefined ? pack.tools : tools,
     };
-    const refusal = validatePack(candidate, existing, personas, pack.id);
+    // Only what this request actually sets. Re-checking an untouched grant list would make a pack
+    // that already names a since-retired tool impossible to edit -- including to fix that name.
+    const refusal = validatePack(
+      candidate, existing, personas, pack.id,
+      tools === undefined ? undefined : await toolNames(userId),
+    );
     if (refusal) return res.status(400).json({ error: refusal });
 
     const isBuiltIn = pack.ownerId == null;
@@ -99,11 +114,15 @@ export function packsRouter(deps: PacksRouterDeps): Router {
        * Deep-merged, so the editor can send one knob rather than the whole pack — which is what a
        * knob grid has to do, and what `overrides` used to make possible by sitting on top instead.
        */
+      ...(Array.isArray(mcp) ? { mcp: mcp.map(String) } : {}),
+      ...(workspace !== undefined ? { workspace } : {}),
       ...mergeValues(pack, { sampling, budget, prompt, model }),
       updatedAt: new Date().toISOString(),
     };
     const badValue = validatePackValues(updated);
     if (badValue) return res.status(400).json({ error: badValue });
+    const badScope = validateScope(updated.workspace);
+    if (badScope) return res.status(400).json({ error: badScope });
 
     /**
      * An endpoint the account does not have would surface much later as "model not found" in the

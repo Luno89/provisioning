@@ -3,18 +3,26 @@ import { buildHarnessConfig } from './harness-config.js';
 import { samplingFor } from './pack-sampling.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 
-import { planSystemPrompt } from './plan-mode.js';
 
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { forSurface } from './tool-catalogue.js';
+import { SANDBOX_ENTRIES } from './tool-handlers/sandbox.js';
+import { schemasFor } from './tool-catalogue.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
+const PLAN_CONTRACT = PACK_SEEDS.find((p) => p.slug === 'planner')!.prompt.sections.planning ?? '';
+
 const BUDGET = PACK_SEEDS[0]!.budget;
 
-const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
+const SANDBOX_TOOLS = schemasFor(ALL_TOOL_SEEDS, Object.keys(SANDBOX_ENTRIES));
 
 const config = buildHarnessConfig({}, [], ALL_TOOL_SEEDS, IMAGES, PACK_SEEDS[0]!.sampling, PACK_SEEDS[0]!.budget, PACK_SEEDS[0]!.prompt);
+// The plan contract belongs to the planner pack, so previewing it means handing that pack's prompt.
+const plannerConfig = buildHarnessConfig(
+  {}, [], ALL_TOOL_SEEDS, IMAGES,
+  PACK_SEEDS[0]!.sampling, PACK_SEEDS[0]!.budget,
+  PACK_SEEDS.find((p) => p.slug === 'planner')!.prompt,
+);
 const find = (sectionId: string, label: string) =>
   config.sections.find((s) => s.id === sectionId)!.settings.find((x) => x.label === label)!;
 
@@ -44,7 +52,9 @@ describe('the harness config surface', () => {
   });
 
   it('shows prompts verbatim, so what the model is told is inspectable', () => {
-    expect(config.prompts.find((p) => p.id === 'plan')!.text).toBe(planSystemPrompt(IMAGES));
+    expect(plannerConfig.prompts.find((p) => p.id === 'plan')!.text).toBe(PLAN_CONTRACT);
+    // A pack with no planning section shows nothing rather than a literal from the codebase.
+    expect(config.prompts.find((p) => p.id === 'plan')!.text).toBe('');
     expect(config.prompts.find((p) => p.id === 'discipline')!.text)
       .toBe(PACK_SEEDS[0]!.prompt.sections.toolDiscipline);
   });

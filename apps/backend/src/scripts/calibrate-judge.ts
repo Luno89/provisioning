@@ -5,7 +5,6 @@ import { buildModelRequest } from '../lib/model-request.js';
 import { fittedMaxTokens } from '../lib/sampling.js';
 import { resolvePrompt } from '../lib/personas.js';
 import { flattenPersona } from '../lib/persona-scope.js';
-import { JUDGE_PERSONA } from '../lib/well-known-personas.js';
 import { attempted } from '../lib/run-outcome.js';
 import {
   buildJudgeBundle, buildJudgePrompt, parseJudgeReply, combineJudgement,
@@ -48,9 +47,10 @@ async function main(): Promise<void> {
       return;
     }
     const ownPersonas = (await db.getPersonas()).filter((p: any) => p.ownerId === ownerId);
-    const assigned = ownPersonas.find((p: any) => p.name === JUDGE_PERSONA);
+    const judgePack = (await db.getPersonaPacks()).find((p: any) => p.slug === 'judge');
+    const assigned = ownPersonas.find((p: any) => p.id === judgePack?.personaId);
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-    if (!assigned) console.warn(`No "${JUDGE_PERSONA}" persona — scoring with harness defaults.`);
+    if (!assigned) console.warn('No "judge" pack — scoring with harness defaults.');
 
     const profile = await db.getHarnessProfile(ownerId).catch(() => null);
     const systemPrompt = resolvePrompt(persona);

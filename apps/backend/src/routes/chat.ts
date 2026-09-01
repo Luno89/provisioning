@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { acceptLeaf } from '../lib/accept-leaf.js';
 import { ToolService } from '../services/ToolService.js';
-import { forSurface } from '../lib/tool-catalogue.js';
+import { schemasFor } from '../lib/tool-catalogue.js';
 import { usableAcceptancePlan } from '../lib/acceptance.js';
 import { wantsMcp } from '../lib/agent-run.js';
 import { DEFAULT_POLICY, reviewBatch } from '../lib/auto-accept.js';
@@ -19,7 +19,9 @@ import { buildModelRequest } from '../lib/model-request.js';
 import { MAX_ASSIGNMENT_ROUNDS, buildAssignmentPrompt, buildUnassignedNotice, unassignedLeaves } from '../lib/persona-assignment.js';
 import { resolvePrompt } from '../lib/personas.js';
 import type { Persona } from '../lib/personas.js';
-import { AMBIENT_PROPOSAL_PROMPT, planSystemPrompt, extractProposals, isChatMode, parseChatCommand } from '../lib/plan-mode.js';
+import { AMBIENT_PROPOSAL_PROMPT, extractProposals, isChatMode, parseChatCommand } from '../lib/plan-mode.js';
+import { packForRole } from '../lib/tree-type-packs.js';
+import { describeWorkerSandbox } from '../lib/workspace-spec.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import type { ChatMode, LeafProposal } from '../lib/plan-mode.js';
 import { planNotice, reviewPlan } from '../lib/plan-review.js';
@@ -192,16 +194,23 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const planTreeType = planTree
       ? await resolveTreeType(db, planTree.ownerId, planTree.type)
       : undefined;
+    // The plan-mode contract is the planner pack's, named by this tree type — not a literal in
+    // `plan-mode.ts`. The sandbox note is third person: whoever is planning is not inside one.
+    const plannerPack = await packForRole(db, uid, planTreeType, 'planner');
+    const planPrompt = [
+      plannerPack?.prompt?.sections.planning ?? '',
+      describeWorkerSandbox(await new WorkspaceImageService(db).list(uid)),
+    ].filter(Boolean).join('\n\n');
     const doneMeans = planTreeType?.doneMeans;
     const conventions = conventionsOf(planTreeType);
     const fileConventions = conventions ? describeConventions(conventions) : undefined;
     const toolRegistry = await new ToolService(db).list(uid);
     const images = await new WorkspaceImageService(db).list(uid);
-    // The planning surface, from the catalogue — LEAF_TOOLS was a second list of the same thing.
-    const planningTools = forSurface(toolRegistry, 'planning');
-    const activeToolNames = offerTools
-      ? (chatPack?.tools?.length ? chatPack.tools : planningTools.map((t) => t.function.name))
-      : [];
+    // What the pack grants, and nothing else. This was "the planning surface", which a pack could
+    // only narrow -- so a grant naming anything outside it was offered and then refused.
+    const grantedNames = chatPack?.tools ?? plannerPack?.tools ?? [];
+    const planningTools = schemasFor(toolRegistry, grantedNames);
+    const activeToolNames = offerTools ? [...grantedNames] : [];
     const historyChars = JSON.stringify(messages).length;
     const personaPrompt = personaPromptText
       ? composePersonaPrompt(budget, promptConfig, personaPromptText, {
@@ -217,7 +226,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       ...(fileConventions ? { fileConventions } : {}),
       messages,
       lastIndex,
-      prompt: explicitPlan ? planSystemPrompt(images) : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
+      prompt: explicitPlan ? planPrompt : extracting ? AMBIENT_PROPOSAL_PROMPT : undefined,
       leaves: branchLeaves,
       siblingLeaves,
       siblingBranches,

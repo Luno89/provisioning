@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
-import { runLeafTool, type LeafToolContext } from './leaf-tool-runner.js';
+import { runLeafTool, type LeafToolContext } from './tool-registry.js';
 import type { Persona } from '@koala/harness-types';
 import { seedTools } from './tool-seeds.js';
 
@@ -175,10 +175,100 @@ describe('branch and owner scoping', () => {
   });
 });
 
+/**
+ * The bug this whole change came from: a chat has no branch, so every leaf tool was unreachable
+ * from one -- and rather than saying so, dispatch answered `No tool named "get_leaf"`.
+ */
+describe('reading leaves from somewhere with no branch', () => {
+  const noBranch = () => ctx({ branchId: undefined });
+
+  const twoBranches = async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'on b1' }));
+    await runLeafTool(ctx({ branchId: 'b2' }), call('propose_leaf', { title: 'on b2' }));
+  };
+
+  it('lists every leaf the owner has, not the ones on one branch', async () => {
+    await twoBranches();
+    const out = JSON.parse(await runLeafTool(noBranch(), call('list_leaves')));
+    expect(out.leaves.map((l: { title: string }) => l.title).sort()).toEqual(['on b1', 'on b2']);
+  });
+
+  it('says which branch and tree each leaf is on, so a list spanning both still reads', async () => {
+    await db.saveBranch({
+      id: 'b1', ownerId: 'u1', treeId: 't1', title: 'Request', messages: [],
+      createdAt: 'now', updatedAt: 'now',
+    } as never);
+    await db.saveTree({ id: 't1', ownerId: 'u1', name: 'The Client' } as never);
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'on b1' }));
+
+    const [leaf] = JSON.parse(await runLeafTool(noBranch(), call('list_leaves'))).leaves;
+    expect(leaf.branchId).toBe('b1');
+    expect(leaf.tree).toBe('The Client');
+  });
+
+  it('narrows to one tree when asked, and refuses a tree that is not yours', async () => {
+    await db.saveBranch({
+      id: 'b1', ownerId: 'u1', treeId: 't1', title: 'Request', messages: [],
+      createdAt: 'now', updatedAt: 'now',
+    } as never);
+    await twoBranches();
+
+    const mine = JSON.parse(await runLeafTool(noBranch(), call('list_leaves', { treeId: 't1' })));
+    expect(mine.leaves.map((l: { title: string }) => l.title)).toEqual(['on b1']);
+
+    const nope = JSON.parse(await runLeafTool(noBranch(), call('list_leaves', { treeId: 'nope' })));
+    expect(nope.error).toMatch(/no treeId "nope"/);
+  });
+
+  it('finds a leaf by id wherever it lives, because an id is an id', async () => {
+    await runLeafTool(ctx({ branchId: 'b2' }), call('propose_leaf', { title: 'elsewhere' }));
+    const [leaf] = await db.getLeaves();
+
+    const out = JSON.parse(await runLeafTool(noBranch(), call('get_leaf', { id: leaf!.id })));
+    expect(out.title).toBe('elsewhere');
+  });
+
+  it('tells a write which argument would give it a branch, rather than refusing the tool', async () => {
+    const out = JSON.parse(await runLeafTool(noBranch(), call('propose_leaf', { title: 'x' })));
+    expect(out.error).toMatch(/works on one branch/);
+    expect(out.error).toMatch(/treeId/);
+  });
+
+  it('lets a write name its branch, so proposing from a chat works', async () => {
+    await db.saveBranch({
+      id: 'b1', ownerId: 'u1', treeId: 't1', title: 'Request', messages: [],
+      createdAt: 'now', updatedAt: 'now',
+    } as never);
+
+    const out = JSON.parse(await runLeafTool(noBranch(), call('propose_leaf', { title: 'from chat', treeId: 't1' })));
+    expect(out.error).toBeUndefined();
+    expect((await db.getLeaves())[0]!.branchId).toBe('b1');
+  });
+
+  it('changes a leaf found by id without being told which branch it is on', async () => {
+    await runLeafTool(ctx({ branchId: 'b2' }), call('propose_leaf', { title: 'elsewhere' }));
+    const [leaf] = await db.getLeaves();
+
+    const out = JSON.parse(await runLeafTool(noBranch(), call('revise_leaf', { id: leaf!.id, title: 'renamed' })));
+    expect(out.revised.title).toBe('renamed');
+  });
+});
+
 describe('failure handling', () => {
   it('reports an unknown tool rather than throwing', async () => {
     const out = JSON.parse(await runLeafTool(ctx(), call('do_something_else')));
-    expect(out.error).toMatch(/Unknown tool/);
+    expect(out.error).toMatch(/no tool called/);
+  });
+
+  /**
+   * A granted tool that this run cannot serve must say what is missing. Answering "no such tool"
+   * was a lie -- the tool existed, was granted, and was offered -- and it sent the model looking
+   * for a different tool instead of for the argument or the runtime it needed.
+   */
+  it('names the resource a granted tool is missing, rather than denying the tool exists', async () => {
+    const out = JSON.parse(await runLeafTool(ctx({ projects: undefined }), call('list_projects')));
+    expect(out.error).toMatch(/list_projects needs/);
+    expect(out.error).not.toMatch(/no tool called/);
   });
 
   it('turns a thrown error into a tool result the loop can carry on from', async () => {

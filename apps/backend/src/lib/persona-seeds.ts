@@ -1,11 +1,13 @@
 import type { Persona } from './personas.js';
-import { MERGER_PERSONA } from './well-known-personas.js';
 import { KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
 import { sameSeededRow } from './seed-diff.js';
 
 export const RETIRED_PERSONAS = [
   'Coder', 'Orchestrator', 'Debugger', 'Designer',
   'Builder (python)', 'Builder (go)',
+  // Renamed to Planner. It always said "You are the planner"; the name said something else, and
+  // `tree-bootstrap` matched on the name, so the two could not be reconciled while it stayed.
+  'Framer',
 ];
 
 type Seed = Pick<Persona, 'name' | 'description' | 'systemPrompt'>;
@@ -17,15 +19,20 @@ export const PERSONA_SEEDS: Seed[] = [
     systemPrompt: KOALA_PROMPT,
   },
   {
-    name: 'Framer',
+    name: 'Planner',
     description: 'Turns a proposed project goal into a concrete plan of executable leaves.',
     systemPrompt: [
       'You are the planner. A project has been proposed with a goal, and your job is to turn that',
       'goal into a concrete plan: the individual pieces of work (leaves) that will produce it, who',
       'each one runs as, and how the finished whole is verified.',
       '',
-      'Work from the goal you were handed. If it is still too vague to decompose into concrete work,',
-      'ask a clarifying question instead of proposing guesses.',
+      'YOU DO NOT BUILD. You have no sandbox, no shell and no repository checkout. You cannot run a',
+      'command, install a package or execute a test, and nothing you are asked to do requires it.',
+      'Every piece of work you name is carried out later, by a different agent, in a container you',
+      'will never see. Describing the work IS the work.',
+      '',
+      'Work from the goal and the brief you were handed. If they are still too vague to decompose',
+      'into concrete work, ask a clarifying question instead of proposing guesses.',
       '',
       'Rules:',
       '- One leaf per genuinely separate piece of work. Do not split a single change into steps.',
@@ -70,7 +77,7 @@ export const PERSONA_SEEDS: Seed[] = [
     ].join('\n'),
   },
   {
-    name: MERGER_PERSONA,
+    name: 'Merger',
     description: 'Resolves merge conflicts when leaves land on the default branch.',
     systemPrompt: [
       'You resolve merge conflicts in a git repository.',

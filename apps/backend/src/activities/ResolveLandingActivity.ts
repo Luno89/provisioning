@@ -11,7 +11,7 @@ import { agentRunOptions } from '../lib/agent-run.js';
 import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
 import { ToolService } from '../services/ToolService.js';
 import type { WorkspaceLanguage } from '../lib/workspace-spec.js';
-import { MERGER_PERSONA } from '../lib/well-known-personas.js';
+import { packForRole, treeTypeForLeaf } from '../lib/tree-type-packs.js';
 import { resolvePrompt } from '../lib/personas.js';
 import {
   buildLandingSetupScript, buildMergeOneScript, buildMergeCompleteScript, parseLandingMerge, buildMergeTask,
@@ -66,12 +66,12 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     repos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
     checkout = await repos.checkoutCredential(ownerId, project);
 
-    const packs = withBuiltIns(await db.getPersonaPacks(), ownerId, (p) => p.slug);
-    const pack = packs.find((p) => p.name === MERGER_PERSONA) ?? null;
+    const treeType = await treeTypeForLeaf(db, outstanding[0]!);
+    const pack = await packForRole(db, ownerId, treeType, 'merger') ?? null;
     const ownPersonas = withBuiltIns(await db.getPersonas(), ownerId, (p) => p.name);
     const assigned = pack ? ownPersonas.find((p) => p.id === pack.personaId) : undefined;
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-    if (!pack) console.warn(`[ResolveLanding] no "${MERGER_PERSONA}" pack — running with harness defaults`);
+    if (!pack) console.warn(`[ResolveLanding] ${treeType?.id ?? 'this tree type'} names no merger pack — running with harness defaults`);
     await workspaces.destroy(workspaceId).catch(() => undefined);
     await workspaces.create(personaWorkspace(
       await new WorkspaceImageService(db).list(ownerId),
@@ -122,7 +122,8 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
       let settled = false;
       for (let round = 0; round < MAX_ROUNDS && !settled; round++) {
         const run = await runAgentLoop({
-          catalogue: await new ToolService(db).schemas(ownerId),
+          catalogue: await new ToolService(db).schemas(ownerId, pack?.tools),
+          runtime: { db, userId: ownerId, ...(repos ? { projects: repos } : {}) },
           images: await new WorkspaceImageService(db).list(ownerId),
           ...(pack?.sampling ? { sampling: pack.sampling } : {}),
           baseUrl,

@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, ShieldCheck,
   ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Stethoscope, Loader2,
@@ -10,6 +10,7 @@ import {
   acceptLeaf, cancelLeaf, retryLeaf, reviewLeaf, deleteLeaf, patchLeaf,
 } from '../api/grove';
 import { errorMessage } from '../api/client';
+import { listPacks, packKeys } from '../api/packs';
 
 export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
   leaf: Leaf;
@@ -32,6 +33,20 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
     leaf.id,
     { maxTokens: (leaf.budget?.maxTokens ?? 0) * 2 },
   )));
+
+  /**
+   * Which pack carries this leaf out. Only packs with a sandbox are offered: the chat and planner
+   * packs have none, and the API refuses them for the same reason.
+   */
+  const { data: packs = [] } = useQuery({ queryKey: packKeys.list(), queryFn: listPacks });
+  const runnable = packs.filter((p) => p.workspace && Object.keys(p.workspace).length > 0);
+  const assignedPack = runnable.find((p) => p.id === leaf.packId)
+    ?? runnable.find((p) => p.personaId === leaf.personaId);
+  const reassign = useMutation({
+    mutationFn: (packId: string) => patchLeaf(leaf.id, { packId }),
+    onSuccess: invalidate,
+  });
+  const canReassign = leaf.status === 'proposed' || leaf.status === 'pending' || leaf.status === 'failed';
 
   const retry = useMutation(call(() => retryLeaf(leaf.id)));
   const review = useMutation({
@@ -68,6 +83,30 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
             >
               {state ? STATE_LABEL[state] : 'Cancelled'}
             </span>
+            {runnable.length > 0 && (canReassign ? (
+              <label className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                runs as
+                <select
+                  value={assignedPack?.id ?? ''}
+                  disabled={reassign.isPending}
+                  onChange={(e) => e.target.value && reassign.mutate(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200 disabled:opacity-50"
+                  title="Which pack carries this out — its tools, sandbox and budget"
+                >
+                  <option value="" disabled>unassigned</option>
+                  {runnable.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : assignedPack && (
+              <span className="text-[11px] text-slate-600" title="Already under way — reassign before it starts">
+                runs as {assignedPack.name}
+              </span>
+            ))}
+            {reassign.isError && (
+              <span className="text-[11px] text-red-400">{errorMessage(reassign.error)}</span>
+            )}
             {derived && <span className="text-[11px] text-slate-600">derived from {subLeaves.length} sub-leaves</span>}
             {leaf.parentLeafId && (
               <span className="text-[11px] text-slate-600 flex items-center gap-1"

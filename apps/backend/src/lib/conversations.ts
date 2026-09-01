@@ -30,6 +30,17 @@ export interface ProposedTree {
   name: string;
   type: string;
   goal: string;
+  /**
+   * What the conversation established, carried across the boundary.
+   *
+   * The goal alone is one or two sentences, and everything else Koala worked out — the user's own
+   * words, what it found already running, what was ruled out — used to be dropped here, leaving
+   * the planner to start cold and sometimes plan to rebuild something that already existed.
+   */
+  brief?: string;
+  context?: string;
+  openQuestions?: string;
+  conversationId?: string;
   proposedAt: string;
   treeId?: string;
 }

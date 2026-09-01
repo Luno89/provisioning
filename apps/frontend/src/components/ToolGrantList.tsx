@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Minus, Check, ChevronRight } from 'lucide-react';
 import {
-  groupTools, groupState, toggleGroup, toggleTool,
+  groupTools, groupState, toggleGroup, toggleTool, unrunnable,
   type GroupableTool, type GroupState,
 } from '../lib/tool-groups';
 
@@ -14,13 +14,19 @@ import {
  *
  * The box and the name are separate targets on purpose: expanding a group to see what is in it
  * must not change what it grants.
+ *
+ * Every tool is grantable. A grant is the authority for what a run is offered, so nothing here
+ * refuses one -- but a tool this pack has no way to run is marked, because the alternative is
+ * finding out from a model that called it.
  */
 export function ToolGrantList<T extends GroupableTool>({
-  tools, selected, onChange,
+  tools, selected, onChange, hasSandbox = true,
 }: {
   tools: T[];
   selected: string[];
   onChange: (next: string[]) => void;
+  /** Whether this pack has a workspace. Without one, the sandbox tools cannot run for it. */
+  hasSandbox?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const groups = groupTools(tools);
@@ -86,6 +92,7 @@ export function ToolGrantList<T extends GroupableTool>({
               <div className="pb-1 bg-[var(--bark-900,#111814)]/40">
                 {group.tools.map((t) => {
                   const isChecked = selected.includes(t.name);
+                  const warning = isChecked ? unrunnable(t, hasSandbox) : undefined;
                   return (
                     <label
                       key={t.name}
@@ -102,6 +109,11 @@ export function ToolGrantList<T extends GroupableTool>({
                         {t.description && (
                           <span className="block text-[10px] text-slate-500 group-hover:text-slate-400 leading-snug line-clamp-2">
                             {t.description}
+                          </span>
+                        )}
+                        {warning && (
+                          <span className="block text-[10px] text-amber-400/90 leading-snug" role="note">
+                            {warning}
                           </span>
                         )}
                       </span>

@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { ToolCallScanner, parseToolArguments, summariseLeaf, detailLeaf } from './leaf-tools.js';
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { forSurface } from './tool-catalogue.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+import { schemasFor } from './tool-catalogue.js';
 
-const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
+const LEAF_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'planner')!.tools);
 import type { Leaf } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
@@ -92,19 +93,31 @@ describe('tool results', () => {
   });
 });
 
-describe('the planning surface', () => {
-  it('covers what a planning turn needs: read, add, revise, withdraw, assign, ingest, and what already exists', () => {
-    // Sorted: the surface is a set of rows now, so the order tools are offered in is no longer a
-    // property of a hand-written array and nothing depends on it.
+describe('what a planner is offered', () => {
+  /**
+   * The pack's grant list, and nothing else. This used to read the `planning` surface off the
+   * catalogue rows, which meant the answer to "what can a planner call" lived in two places -- the
+   * grant list a person edits, and a field on the row -- and they were free to disagree.
+   */
+  it('is exactly what its pack grants', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name).sort()).toEqual([
-      'add_project_dependency', 'create_project', 'fetch_web_page', 'get_leaf', 'ingest_status',
-      'list_infrastructure', 'list_leaves', 'list_mcp_servers', 'list_personas', 'list_projects',
-      // `propose_tree` requires a type id that exists, and this is how a planning turn learns them —
-      // the row declares `surfaces: ['assistant', 'planning']` itself.
+      'add_project_dependency', 'create_project', 'get_leaf', 'list_leaves', 'list_mcp_servers',
+      'list_personas', 'list_projects',
+      // `propose_tree` needs a type id that exists, and this is how a planning turn learns them.
       'list_tree_types',
-      'propose_leaf', 'replace_leaf', 'revise_leaf', 'search_corpus', 'set_acceptance', 'set_leaf_project',
-      'start_ingest', 'update_leaf_memory', 'web_search', 'withdraw_leaf',
+      'propose_leaf', 'replace_leaf',
+      // `research` was a synthetic schema built inside planning-turn.ts; it is a catalogue row with
+      // an ordinary handler now, so a pack can grant or withhold it like anything else.
+      'research',
+      'revise_leaf', 'set_acceptance', 'set_leaf_project', 'withdraw_leaf', 'write_plan_document',
     ]);
+  });
+
+  it('has no live search, so an empty result never misleads it — it researches instead', () => {
+    const names = LEAF_TOOLS.map((t) => t.function.name);
+    expect(names).not.toContain('web_search');
+    expect(names).not.toContain('fetch_web_page');
+    expect(names).toContain('research');
   });
 
   it('lets only a PROJECT declare a toolchain, never a leaf or a persona', () => {

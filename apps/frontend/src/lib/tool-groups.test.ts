@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  groupTools, groupState, toggleGroup, toggleTool, categoryLabel, CATEGORY_ORDER,
+  groupTools, groupState, toggleGroup, toggleTool, categoryLabel, CATEGORY_ORDER, unrunnable,
 } from './tool-groups'
 
 const tool = (name: string, category: string) => ({ name, category })
@@ -78,5 +78,19 @@ describe('toggleTool', () => {
   it('adds and removes one grant', () => {
     expect(toggleTool([], 'a')).toEqual(['a'])
     expect(toggleTool(['a', 'b'], 'a')).toEqual(['b'])
+  })
+})
+
+describe('a tool this pack has no way to run', () => {
+  const sandboxTool = { name: 'run_command', category: 'sandbox', needs: ['sandbox'] }
+
+  it('is marked when the pack has no workspace, and left alone when it has one', () => {
+    expect(unrunnable(sandboxTool, false)).toMatch(/Needs a sandbox/)
+    expect(unrunnable(sandboxTool, true)).toBeUndefined()
+  })
+
+  it('says nothing about a tool that needs nothing, wherever it is granted', () => {
+    expect(unrunnable({ name: 'list_leaves', category: 'planning', needs: [] }, false)).toBeUndefined()
+    expect(unrunnable({ name: 'list_trees', category: 'assistant' }, false)).toBeUndefined()
   })
 })

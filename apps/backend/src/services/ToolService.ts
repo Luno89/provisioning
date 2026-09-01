@@ -1,20 +1,11 @@
 import { BaseService } from './BaseService.js';
 import { withBuiltIns } from '../lib/ownership.js';
-import { forSurface, namesForSurface, schemasFor, effectOf, parametersOf, type ToolSchema } from '../lib/tool-catalogue.js';
-import type { ToolRepositoryItem, ToolSurface } from '../lib/tool-seeds.js';
+import { schemasFor, effectOf, parametersOf, type ToolSchema } from '../lib/tool-catalogue.js';
+import type { ToolRepositoryItem } from '../lib/tool-seeds.js';
 
 export class ToolService extends BaseService {
   async list(userId: string): Promise<ToolRepositoryItem[]> {
     return withBuiltIns(await this.db.getTools(), userId, (t) => t.name);
-  }
-
-  /** Every tool a runtime offers, as function schemas. Replaces the KOALA/LEAF/SANDBOX arrays. */
-  async surface(userId: string, surface: ToolSurface): Promise<ToolSchema[]> {
-    return forSurface(await this.list(userId), surface);
-  }
-
-  async surfaceNames(userId: string, surface: ToolSurface): Promise<string[]> {
-    return namesForSurface(await this.list(userId), surface);
   }
 
   async schemas(userId: string, names?: readonly string[]): Promise<ToolSchema[]> {

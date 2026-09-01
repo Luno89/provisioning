@@ -285,11 +285,21 @@ export async function handleProposeTree(
     });
   }
 
+  const carried = (key: string, cap: number): string =>
+    (typeof args[key] === 'string' ? (args[key] as string).trim().slice(0, cap) : '');
+  const brief = carried('brief', 6000);
+  const context = carried('context', 6000);
+  const openQuestions = carried('openQuestions', 2000);
+
   const proposal: ProposedTree = {
     id: uuidv4(),
     name: name.slice(0, 120),
     type,
     goal: goal.slice(0, 2000),
+    ...(brief ? { brief } : {}),
+    ...(context ? { context } : {}),
+    ...(openQuestions ? { openQuestions } : {}),
+    conversationId,
     proposedAt: new Date().toISOString(),
   };
   await db.saveConversation({

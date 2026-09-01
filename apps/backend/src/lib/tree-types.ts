@@ -26,6 +26,24 @@ export interface ValidationRecipe {
   timeoutMs?: number | undefined;
 }
 
+/**
+ * Which pack fills each role for this kind of project, by pack slug.
+ *
+ * The binding lives here rather than in code because it is the same kind of fact as
+ * `validationRecipe` — what proves an mcp-server is not what proves a research paper, and what
+ * plans one is not what plans the other. Selecting a pack by matching a persona NAME in code is
+ * what this replaces: a display name is user-editable, so the lookup broke whenever it was renamed.
+ */
+export interface TreeTypePacks {
+  planner?: string | undefined;
+  judge?: string | undefined;
+  merger?: string | undefined;
+}
+
+export const TREE_TYPE_PACK_ROLES = ['planner', 'judge', 'merger'] as const;
+
+export type TreeTypePackRole = typeof TREE_TYPE_PACK_ROLES[number];
+
 export interface TreeTypeSpec {
   id: string;
   ownerId: string;
@@ -37,6 +55,7 @@ export interface TreeTypeSpec {
   files: TreeTypeFile[];
   validationRecipe?: ValidationRecipe | undefined;
   defaultBindings?: string[] | undefined;
+  packs?: TreeTypePacks | undefined;
 }
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -45,6 +64,7 @@ export const MAX_STARTER_FILES = 20;
 export function validateTreeType(
   images: readonly WorkspaceImageSpec[],
   candidate: Partial<TreeTypeSpec>,
+  packSlugs?: readonly string[],
 ): string | null {
   if (!candidate.id || !SLUG.test(candidate.id)) {
     return 'id must be a slug: lowercase letters, numbers and single hyphens.';
@@ -81,6 +101,23 @@ export function validateTreeType(
       if (!c.name || typeof c.name !== 'string') return 'Each check must have a string name.';
       if (!['file-exists', 'content-matches', 'run-command', 'http-probe', 'mcp-probe'].includes(c.type)) {
         return `Unknown check type "${c.type}" in validationRecipe.`;
+      }
+    }
+  }
+
+  if (candidate.packs) {
+    if (typeof candidate.packs !== 'object' || Array.isArray(candidate.packs)) {
+      return 'packs must be an object mapping a role to a pack slug.';
+    }
+    for (const [role, slug] of Object.entries(candidate.packs)) {
+      if (slug === undefined) continue;
+      if (!(TREE_TYPE_PACK_ROLES as readonly string[]).includes(role)) {
+        return `Unknown pack role "${role}". Roles are ${TREE_TYPE_PACK_ROLES.join(', ')}.`;
+      }
+      if (typeof slug !== 'string' || !slug.trim()) return `packs.${role} must be a pack slug.`;
+      // Only checked when the caller knows the catalogue; the seed test validates without one.
+      if (packSlugs && !packSlugs.includes(slug)) {
+        return `packs.${role} names no pack you can use: "${slug}".`;
       }
     }
   }
@@ -123,11 +160,12 @@ export async function resolveTreeType(
 
   // Backfill only what a legacy row is missing, from the seed it was written from.
   const seed = TREE_TYPE_SEEDS_VALUE.find((s) => s.id === id);
-  if (seed && (!found.validationRecipe || !found.files?.length)) {
+  if (seed && (!found.validationRecipe || !found.files?.length || !found.packs)) {
     return {
       ...found,
       validationRecipe: found.validationRecipe ?? seed.validationRecipe,
       files: found.files?.length ? found.files : seed.files,
+      ...(found.packs ?? seed.packs ? { packs: found.packs ?? seed.packs } : {}),
     };
   }
   return found;
@@ -151,11 +189,12 @@ export async function seedTreeTypes(store: TreeTypeSeedStore): Promise<number> {
     if (!existing) {
       await store.saveTreeType({ ...seed } as TreeTypeSpec);
       updated++;
-    } else if (!existing.validationRecipe && seed.validationRecipe) {
+    } else if ((!existing.validationRecipe && seed.validationRecipe) || (!existing.packs && seed.packs)) {
       await store.saveTreeType({
         ...existing,
-        validationRecipe: seed.validationRecipe,
+        validationRecipe: existing.validationRecipe ?? seed.validationRecipe,
         files: existing.files?.length ? existing.files : seed.files,
+        ...(seed.packs ? { packs: existing.packs ?? seed.packs } : {}),
       });
       updated++;
     }

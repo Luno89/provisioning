@@ -14,7 +14,7 @@ import { ToolService } from './ToolService.js';
 import { flattenPersona, personaWorkspace } from '../lib/persona-scope.js';
 import { runPlanningTurn } from '../lib/planning-turn.js';
 import { boardFile } from '../lib/planning-board.js';
-import type { LeafToolContext } from '../lib/leaf-tool-runner.js';
+import type { LeafToolContext } from '../lib/tool-registry.js';
 import type { ModelKind } from '@koala/harness-types';
 import { buildMemoryContext, type MemoryItem } from '../lib/memory-store.js';
 import { buildDiffScript, trimDiff } from '../lib/leaf-evidence.js';
@@ -230,6 +230,7 @@ export class ExperimentService {
     provider: { model: string; kind?: ModelKind },
     baseUrl: string,
     apiKey: string | undefined,
+    pack: PersonaPack | null,
     signal?: AbortSignal,
   ): Promise<VariantResult> {
     const branchId = `plan-${runId}`;
@@ -242,6 +243,14 @@ export class ExperimentService {
         ...(apiKey ? { apiKey } : {}),
         model: provider.model,
         ...(provider.kind ? { kind: provider.kind } : {}),
+        // A planning turn is offered exactly what its pack grants, so a variant that passes no
+        // catalogue and no grant list is offered nothing at all -- which is what this did.
+        toolRows: await new ToolService(this.db).list(experiment.ownerId),
+        images: await new WorkspaceImageService(this.db).list(experiment.ownerId),
+        ...(pack?.tools ? { grantedTools: pack.tools } : {}),
+        ...(pack?.prompt ? { promptConfig: pack.prompt } : {}),
+        ...(pack?.budget ? { budget: pack.budget } : {}),
+        ...(pack?.sampling ? { sampling: pack.sampling } : {}),
         prompt: task.prompt,
         tools: {
           db: this.db,
@@ -353,7 +362,7 @@ export class ExperimentService {
           experiment, task, variant, runId, blank, startedAt,
           variantPrompt, variantPersona, profile,
           { model: provider.model, ...(provider.kind ? { kind: provider.kind } : {}) },
-          baseUrl, apiKey, signal,
+          baseUrl, apiKey, variantPack, signal,
         );
       }
 
@@ -374,7 +383,8 @@ export class ExperimentService {
 
         const run = await withTimeout(
           runAgentLoop({
-            catalogue: await new ToolService(this.db).schemas(experiment.ownerId),
+            catalogue: await new ToolService(this.db).schemas(experiment.ownerId, variantPack?.tools),
+            runtime: { db: this.db, userId: experiment.ownerId },
             images: await new WorkspaceImageService(this.db).list(experiment.ownerId),
             ...(variantPack?.sampling ? { sampling: variantPack.sampling } : {}),
             baseUrl,

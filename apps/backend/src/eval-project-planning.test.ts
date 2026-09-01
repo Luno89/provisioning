@@ -1,16 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { extractProposals, planSystemPrompt } from './lib/plan-mode.js';
+import { extractProposals } from './lib/plan-mode.js';
+import { PACK_SEEDS } from './lib/pack-seeds.js';
+import { PERSONA_SEEDS } from './lib/persona-seeds.js';
 import { buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './lib/workspace-image-seeds.js';
-import { PACK_SEEDS } from './lib/pack-seeds.js';
+
+const PLAN_CONTRACT = PACK_SEEDS.find((p) => p.slug === 'planner')!.prompt.sections.planning ?? '';
 
 const BUDGET = PACK_SEEDS[0]!.budget;
+const PLANNER_PERSONA = PERSONA_SEEDS.find((p) => p.name === 'Planner')!;
 
 describe('Project Planning & Leaf Decomposition Rigorous Evaluator', () => {
-  it('includes clear instructions in planSystemPrompt(IMAGES) for breaking down projects', () => {
-    expect(planSystemPrompt(IMAGES)).toContain('You are helping plan a piece of work.');
-    expect(planSystemPrompt(IMAGES)).toContain('{"leaves":[');
-    expect(planSystemPrompt(IMAGES)).toContain('Short imperative title');
+  it('includes clear instructions in PLAN_CONTRACT for breaking down projects', () => {
+    // Who the planner is lives on the persona; the shape of a proposal lives on the pack.
+    expect(PLANNER_PERSONA.systemPrompt).toContain('You are the planner.');
+    expect(PLAN_CONTRACT).toContain('{"leaves":[');
+    expect(PLAN_CONTRACT).toContain('Short imperative title');
+  });
+
+  it('tells the planner it has no sandbox, which is what stopped it building', () => {
+    expect(PLANNER_PERSONA.systemPrompt).toContain('YOU DO NOT BUILD');
   });
 
   it('handles reasoning monologues (<think>...</think>) preceding JSON proposal blocks', () => {

@@ -5,12 +5,14 @@ import { dirname, join } from 'node:path';
 import { normaliseLeafInput } from './leaf-input.js';
 
 import { wantsMcp } from './agent-run.js';
-import { planSystemPrompt } from './plan-mode.js';
+import { PACK_SEEDS } from './pack-seeds.js';
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
-import { forSurface } from './tool-catalogue.js';
+import { schemasFor } from './tool-catalogue.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
-const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
+const PLAN_CONTRACT = PACK_SEEDS.find((p) => p.slug === 'planner')!.prompt.sections.planning ?? '';
+
+const LEAF_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'planner')!.tools);
 
 describe('a leaf can name the servers it needs', () => {
   it('keeps the names through normalisation', () => {
@@ -66,11 +68,11 @@ describe('the leaf\'s servers reach the executor', () => {
 
 describe('asking the planner for an end-to-end check', () => {
   it('names set_acceptance in the plan rules, where it was never mentioned', () => {
-    expect(planSystemPrompt(IMAGES)).toMatch(/Call set_acceptance once/);
+    expect(PLAN_CONTRACT).toMatch(/Call set_acceptance once/);
   });
 
   it('says what it is for, since a test suite alone reads as sufficient', () => {
-    expect(planSystemPrompt(IMAGES)).toMatch(/only\s*\n?\s*.*proves the finished thing works|proves the finished thing works/);
-    expect(planSystemPrompt(IMAGES)).toMatch(/RUNNING it and calling it for/);
+    expect(PLAN_CONTRACT).toMatch(/only\s*\n?\s*.*proves the finished thing works|proves the finished thing works/);
+    expect(PLAN_CONTRACT).toMatch(/RUNNING it and calling it for/);
   });
 });

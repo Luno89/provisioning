@@ -10,7 +10,7 @@ describe('the temperature each shipped pack was tuned to', () => {
   const at = (slug: string) => PACK_SEEDS.find((p) => p.slug === slug)!.sampling.toolTurn.temperature;
 
   it('keeps the value each persona had', () => {
-    expect(at('framer')).toBe(0.3);
+    expect(at('planner')).toBe(0.3);
     expect(at('researcher')).toBe(0.4);
     expect(at('synthesist')).toBe(0.5);
     expect(at('merger')).toBe(0.2);

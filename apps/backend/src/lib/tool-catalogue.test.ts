@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { ALL_TOOL_SEEDS, TOOL_SEEDS } from './tool-seeds.js';
 import { KOALA_TOOL_HANDLERS } from './koala-tools.js';
-import { effectOf, forSurface, schemasFor, type ToolSchema } from './tool-catalogue.js';
+import { effectOf, schemasFor, type ToolSchema } from './tool-catalogue.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+import { TOOL_HANDLERS } from './tool-registry.js';
+import { SANDBOX_ENTRIES } from './tool-handlers/sandbox.js';
 
-const KOALA_TOOLS = forSurface(ALL_TOOL_SEEDS, 'assistant');
-const LEAF_TOOLS = forSurface(ALL_TOOL_SEEDS, 'planning');
-const SANDBOX_TOOLS = forSurface(ALL_TOOL_SEEDS, 'sandbox');
+const KOALA_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'koala')!.tools);
+const LEAF_TOOLS = schemasFor(ALL_TOOL_SEEDS, PACK_SEEDS.find((p) => p.slug === 'planner')!.tools);
+const SANDBOX_TOOLS = schemasFor(ALL_TOOL_SEEDS, Object.keys(SANDBOX_ENTRIES));
 
 const names = (tools: readonly { function: { name: string } }[]) => tools.map((t) => t.function.name);
 
@@ -96,29 +99,20 @@ describe('a tool is described in one place', () => {
     }
   });
 
-  it('marks each row with the surfaces that offer it', () => {
-    // Reproduces exactly what the three arrays were, so a reader can ask the catalogue instead.
-    const named = (s: string) => ALL_TOOL_SEEDS.filter((r) => r.surfaces?.includes(s as never)).map((r) => r.name).sort();
-    expect(named('assistant')).toEqual(KOALA_TOOLS.map((t) => t.function.name).sort());
-    expect(named('planning')).toEqual(LEAF_TOOLS.map((t) => t.function.name).sort());
+  /**
+   * The guardrail this file exists for.
+   *
+   * A catalogue row with no handler is a tool a pack can grant, a model can be offered, and nothing
+   * can run -- which is exactly what `get_leaf` was to a chat. A handler with no row is a tool
+   * nobody can grant. Either way the two lists must be the same list, and a mismatch is a red test
+   * rather than an error string at run time.
+   */
+  it('has a handler for every row, and a row for every handler', () => {
+    expect(Object.keys(TOOL_HANDLERS).sort()).toEqual(ALL_TOOL_SEEDS.map((r) => r.name).sort());
+  });
 
-    /**
-     * The sandbox surface is NOT `SANDBOX_TOOLS`. That array declares five, while the agent loop
-     * dispatches eleven — six were handled and never declared, which is why they read as orphans in
-     * the catalogue. The loop offered the whole 51-row registry and answered `Unknown tool` for the
-     * 38 it cannot run, so a leaf was shown `deploy_project` among others.
-     *
-     * Pinned as a list because it is a decision about what a leaf may do, not a derivation.
-     */
-    expect(named('sandbox')).toEqual([
-      'finish', 'inspect_git_diff', 'query_in_memory_db', 'read_file', 'run_command',
-      'run_linter_audit', 'run_tests', 'save_harness_memory', 'test_http_endpoint',
-      'validate_progress', 'write_file',
-    ]);
-    for (const t of SANDBOX_TOOLS) {
-      expect(named('sandbox'), `${t.function.name} is declared but not on the surface`)
-        .toContain(t.function.name);
-    }
+  it('declares an effect on every row, because the gate refuses a row without one', () => {
+    for (const row of ALL_TOOL_SEEDS) expect(row.effect, row.name).toBeDefined();
   });
 
   it('serves the row, and the row carries the declared parameters', () => {

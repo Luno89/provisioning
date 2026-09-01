@@ -61,7 +61,9 @@ export function agentRunOptions(
     ...(inputs.systemPrompt ? { systemPrompt: inputs.systemPrompt } : {}),
     ...(inputs.extraInstructions ? { extraInstructions: inputs.extraInstructions } : {}),
     ...(inputs.web && wantsWeb(pack) ? { web: inputs.web } : {}),
-    ...(tools.length ? { allowTools: allowWithMcp(tools, inputs.remoteToolNames ?? []) } : {}),
+    // A pack's grant list decides, and an empty one grants nothing. No pack at all is different:
+    // there is no list to honour, so the loop falls back to the whole catalogue as it always did.
+    ...(pack ? { allowTools: allowWithMcp(tools, inputs.remoteToolNames ?? []) } : {}),
     ...(inputs.remoteTools?.length ? { remoteTools: inputs.remoteTools } : {}),
     ...(inputs.callRemote ? { callRemote: inputs.callRemote } : {}),
     ...(inputs.checkpoint ? { checkpoint: inputs.checkpoint } : {}),
