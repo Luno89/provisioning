@@ -144,6 +144,16 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     expect(screen.getByText('code')).toBeInTheDocument();
   });
 
+  it('shows the koala while a conversation is being fetched, not an empty thread', () => {
+    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    expect(screen.getByRole('status')).toHaveTextContent(/Fetching this conversation/i);
+  });
+
+  it('keeps the composer usable while the conversation loads', () => {
+    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    expect(screen.getByPlaceholderText(/message/i)).toBeInTheDocument();
+  });
+
   it('renders starter prompt chips in empty state and sends when clicked', async () => {
     const mockRes = new Response(makeSseStream([
       '{"type":"content","delta":"Generated project spec"}',
@@ -152,19 +162,22 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
 
     renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
 
-    expect(screen.getByText('Propose Project Tree')).toBeInTheDocument();
+    // The conversation is fetched first — the hero would otherwise flash and be replaced.
+    expect(await screen.findByText('Propose Project Tree')).toBeInTheDocument();
     expect(screen.getByText('Inspect Infrastructure')).toBeInTheDocument();
     expect(screen.getByText('Propose App Spec')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Propose Project Tree'));
 
-    expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
+    // `pack-koala`, not the `koala` slug it mounted with: once the packs load, ChatSurface
+    // resolves the slug to the row's id, and that is what the route receives.
+    await waitFor(() => expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        packId: 'koala',
+        packId: 'pack-koala',
         message: expect.stringContaining('Propose a new project architecture'),
       }),
       expect.any(AbortSignal),
-    );
+    ));
   });
 
   it('renders avatars for user and assistant messages in conversation stream', async () => {

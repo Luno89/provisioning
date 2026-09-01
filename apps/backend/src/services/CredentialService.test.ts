@@ -106,6 +106,7 @@ describe('CredentialService', () => {
         [
           'aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface',
           'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'cloudflare',
+          'artificialanalysis',
         ].sort(),
       );
 

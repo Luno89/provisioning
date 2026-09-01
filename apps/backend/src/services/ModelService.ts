@@ -3,7 +3,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { AppService } from './AppService.js';
 import type { ClusterService } from './ClusterService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
-import { listProviders, routeProvider, type ModelProvider } from '../lib/model-registry.js';
+import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress } from '../lib/endpoint-url-safety.js';
 import { decryptValue } from '../lib/crypto.js';
 import type { HeadscaleService } from './HeadscaleService.js';
@@ -54,31 +54,38 @@ export class ModelService extends BaseService {
 
   async resolveBaseUrl(
     userId: string,
-    modelId?: string,
-    packEndpointId?: string,
-  ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string }> {
+    modelId?: string | null,
+    packEndpointId?: string | null,
+  ): Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string; source: EndpointSource }> {
     const providers = await this.list(userId);
     if (providers.length === 0) {
       throw new Error('No models available. Deploy a vLLM or TabbyAPI app, or register an OpenAI-compatible endpoint.');
     }
 
-    /**
-     * With one endpoint there is nothing to choose between, so a pack that names none still runs.
-     * With several there is, and picking the first silently is how a run ends up attributed to a
-     * model it did not use — so that is an error naming the packs' own setting.
-     */
-    const only = providers.length === 1 ? providers[0]!.id : undefined;
-    const provider = routeProvider(providers, modelId, packEndpointId ?? only);
-    if (!provider) {
-      const named = modelId ?? packEndpointId;
+    const user = await this.db.getUserById(userId);
+    const routed = routeProvider(providers, modelId, packEndpointId, user?.defaultModelId,
+      { overrideGlobal: user?.globalModelOverride === true })
+      /**
+       * With one endpoint there is nothing to choose between, so a pack that names none still runs.
+       * With several there is, and picking the first silently is how a run ends up attributed to a
+       * model it did not use — so that is an error naming the settings that would fix it.
+       */
+      ?? (providers.length === 1 ? { provider: providers[0]!, source: 'sole' as const } : undefined);
+
+    if (!routed) {
+      const named = modelId ?? packEndpointId ?? user?.defaultModelId;
       throw new Error(named
         ? `Model ${named} not found`
         : `This account has ${providers.length} endpoints and nothing named one. `
-          + 'Set the pack\'s model.endpointId, or name a model on the request.');
+          + 'Set a default model for the account, the pack\'s model.endpointId, '
+          + 'or name a model on the request.');
     }
 
-    if (provider.source === 'endpoint') return this.resolveEndpoint(userId, provider);
-    return this.resolveDeployment(userId, provider);
+    const { provider, source } = routed;
+    const resolved = provider.source === 'endpoint'
+      ? await this.resolveEndpoint(userId, provider)
+      : await this.resolveDeployment(userId, provider);
+    return { ...resolved, source };
   }
 
   private async resolveEndpoint(

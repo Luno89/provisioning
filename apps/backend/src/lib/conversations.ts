@@ -72,6 +72,11 @@ export interface Conversation {
   title: string;
   messages: ConversationMessage[];
   sessionId?: string;
+  /**
+   * The engine this conversation was last sent on, so reopening it does not silently move to
+   * whatever the account defaults to today. Absent means it follows the pack and the default.
+   */
+  modelId?: string | undefined;
   enabledMcp?: string[];
   proposedTrees?: ProposedTree[];
   proposedSpecs?: ProposedSpec[];

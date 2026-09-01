@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { Send, Square, Sliders, ChevronDown, Sparkles } from 'lucide-react';
+import React, { useRef, useEffect } from 'react';
+import { Send, Square, Sliders, Cpu, Sparkles } from 'lucide-react';
 
 export interface PersonaPackOption {
   id: string;
@@ -15,13 +15,15 @@ export interface ChatComposerProps {
   onStop: () => void;
   isStreaming: boolean;
   activePack?: PersonaPackOption | undefined;
-  personaPacks: PersonaPackOption[];
-  onSelectPack: (packId: string) => void;
+  /**
+   * One control, not three. The pack menu, the tool count and the drawer button were separate
+   * entries that all led to the same editor, so which one you pressed changed nothing.
+   */
   onOpenPersonaDrawer: () => void;
-  models?: { id: string; name: string }[];
-  selectedModel?: string;
-  onSelectModel?: (modelId: string) => void;
   toolCount?: number;
+  /** What this conversation runs on; the label reads as inherited when nothing is pinned. */
+  modelLabel?: string;
+  onOpenModelDrawer?: (() => void) | undefined;
   placeholder?: string;
   className?: string;
 }
@@ -33,18 +35,14 @@ export function ChatComposer({
   onStop,
   isStreaming,
   activePack,
-  personaPacks,
-  onSelectPack,
   onOpenPersonaDrawer,
-  models = [],
-  selectedModel = '',
-  onSelectModel,
-  toolCount = 13,
+  toolCount,
+  modelLabel,
+  onOpenModelDrawer,
   placeholder,
   className = '',
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const [showPackMenu, setShowPackMenu] = useState(false);
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChangeInput(e.target.value);
@@ -83,67 +81,30 @@ export function ChatComposer({
 
       <div className="flex items-center justify-between pt-1 border-t border-[var(--bark-800,#1b2620)] px-0.5 select-none">
         <div className="flex items-center gap-1.5 relative">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowPackMenu(!showPackMenu)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Select persona pack"
-            >
-              <Sparkles size={11} className="text-emerald-400" />
-              <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
-              <ChevronDown size={11} className="text-slate-500" />
-            </button>
-
-            {showPackMenu && (
-              <div className="absolute bottom-full left-0 mb-1 w-48 bg-[var(--bark-900,#111814)] border border-[var(--bark-700,#24332b)] rounded-md shadow-lg p-1 z-30 text-xs">
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-2 py-1">
-                  Persona Packs
-                </div>
-                {personaPacks.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      onSelectPack(p.id);
-                      setShowPackMenu(false);
-                    }}
-                    className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between cursor-pointer transition-colors ${
-                      p.id === activePack?.id
-                        ? 'bg-emerald-950/70 text-emerald-300 font-medium'
-                        : 'text-slate-300 hover:bg-[var(--bark-800,#1b2620)]'
-                    }`}
-                  >
-                    <span>{p.name}</span>
-                    <span className="text-[10px] text-slate-500">{p.desc}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
           <button
             type="button"
             onClick={onOpenPersonaDrawer}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-            title="Configure persona directives and capability tools"
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
+            title="Pick the pack, and edit its directives and tools"
           >
-            <Sliders size={11} className="text-emerald-400" />
-            <span className="text-[11px] text-slate-400">({toolCount} tools)</span>
+            <Sparkles size={11} className="text-emerald-400" />
+            <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
+            {toolCount !== undefined && (
+              <span className="text-[11px] text-slate-500">· {toolCount} tools</span>
+            )}
+            <Sliders size={11} className="text-slate-500" />
           </button>
 
-          {models.length > 0 && onSelectModel && (
-            <select
-              value={selectedModel}
-              onChange={(e) => onSelectModel(e.target.value)}
-              className="bg-[var(--bark-950,#090d0b)] border border-[var(--bark-700,#24332b)] text-slate-300 text-xs rounded px-2 py-1 cursor-pointer focus:outline-none"
+          {onOpenModelDrawer && (
+            <button
+              type="button"
+              onClick={onOpenModelDrawer}
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer max-w-[240px]"
+              title="Which model answers in this conversation"
             >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
+              <Cpu size={11} className="text-emerald-400" />
+              <span className="truncate font-mono text-[11px]">{modelLabel ?? 'Model'}</span>
+            </button>
           )}
         </div>
 

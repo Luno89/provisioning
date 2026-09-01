@@ -244,6 +244,21 @@ export async function handleListTrees(
   });
 }
 
+export async function handleListTreeTypes(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const types = await db.getTreeTypes(userId);
+  return json({
+    types: types.map((t) => ({
+      id: t.id,
+      ...(t.label ? { label: t.label } : {}),
+      ...(t.summary ? { summary: t.summary } : {}),
+    })),
+  });
+}
+
 export async function handleProposeTree(
   ctx: KoalaToolContext,
   args: Record<string, unknown>,

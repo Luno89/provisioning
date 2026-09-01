@@ -7,6 +7,7 @@ import { visibleAppSpecs } from './app-spec.js';
 import { ToolService } from '../services/ToolService.js';
 import { packForLeaf } from './packs.js';
 import { buildModelRequest } from './model-request.js';
+import { routeProvider } from './model-registry.js';
 import { agentRunOptions } from './agent-run.js';
 import { composePersonaPrompt } from './persona-prompt.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
@@ -190,5 +191,48 @@ describe('what a run is configured by, after the seeder has run', () => {
 
     const pack = (await db.getPersonaPacks()).find((p) => p.slug === 'koala')!;
     expect(pack.model?.endpointId).toBe('from-the-database');
+  });
+
+  /**
+   * Switching provider is one setting, not an edit per pack. Every shipped pack names no engine,
+   * so the account default is what they all run on — and a pack that does name one is unmoved by
+   * it, which is what a Lab arm pinned to a specific engine depends on.
+   */
+  it('carries every pack that names no engine on the account default', async () => {
+    const db = await fresh();
+    const providers = [
+      { id: 'openrouter-1', name: 'OpenRouter · a', source: 'endpoint', model: 'a' },
+      { id: 'local-vllm', name: 'Local', source: 'deployment', kind: 'vllm', model: 'b' },
+    ] as unknown as Parameters<typeof routeProvider>[0];
+
+    const shipped = await db.getPersonaPacks();
+    expect(shipped.length).toBeGreaterThan(1);
+    expect(shipped.every((p) => !p.model?.endpointId)).toBe(true);
+
+    for (const pack of shipped) {
+      const routed = routeProvider(providers, undefined, pack.model?.endpointId, 'openrouter-1');
+      expect(routed?.provider.id).toBe('openrouter-1');
+      expect(routed?.source).toBe('global');
+    }
+
+    // One edit moves all of them.
+    for (const pack of shipped) {
+      expect(routeProvider(providers, undefined, pack.model?.endpointId, 'local-vllm')?.provider.id)
+        .toBe('local-vllm');
+    }
+  });
+
+  it('leaves a pack that pins its own engine on it, whatever the account default says', async () => {
+    const db = await fresh();
+    await editedKoala(db, { model: { endpointId: 'local-vllm' } });
+    const providers = [
+      { id: 'openrouter-1', name: 'OpenRouter · a', source: 'endpoint', model: 'a' },
+      { id: 'local-vllm', name: 'Local', source: 'deployment', kind: 'vllm', model: 'b' },
+    ] as unknown as Parameters<typeof routeProvider>[0];
+
+    const pack = (await db.getPersonaPacks()).find((p) => p.slug === 'koala')!;
+    const routed = routeProvider(providers, undefined, pack.model?.endpointId, 'openrouter-1');
+    expect(routed?.provider.id).toBe('local-vllm');
+    expect(routed?.source).toBe('pack');
   });
 });

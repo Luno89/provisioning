@@ -286,21 +286,30 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     const servers = await deps.serversFor(userId);
 
     const systemPromptText = resolvePrompt(persona);
-    const chosenModel = modelId;
+
+    const now = new Date().toISOString();
+    let conversation = (await deps.ownedConversations(userId)).find((c) => c.id === String(conversationId));
+
+    /**
+     * What the caller asked for, else what this conversation last ran on. A conversation that was
+     * pinned to an engine keeps it — reopening it a week later must not quietly move it onto
+     * whatever the account now defaults to.
+     */
+    const chosenModel = typeof modelId === 'string' && modelId
+      ? modelId
+      : conversation?.modelId;
 
     let provider, baseUrl, apiKey;
     try {
       ({ provider, baseUrl, apiKey } = await modelService.resolveBaseUrl(
         userId,
-        typeof chosenModel === 'string' ? chosenModel : undefined,
+        chosenModel,
         pack.model?.endpointId,
       ));
     } catch (err: any) {
       return res.status(404).json({ error: err.message });
     }
 
-    const now = new Date().toISOString();
-    let conversation = (await deps.ownedConversations(userId)).find((c) => c.id === String(conversationId));
     if (!conversation) {
       conversation = {
         id: String(conversationId ?? uuidv4()),
@@ -311,6 +320,9 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
         updatedAt: now,
       };
     }
+
+    // Only an explicit pick sticks; inheriting the default must not silently become a pin.
+    if (typeof modelId === 'string' && modelId) conversation.modelId = modelId;
 
     const enabled = enabledForSession(conversation, sessionId);
     const systemPrompt = systemPromptText ?? persona.systemPrompt ?? '';

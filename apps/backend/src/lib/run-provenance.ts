@@ -1,4 +1,5 @@
 import type { BudgetConfig, PersonaPack, SamplingConfig } from '@koala/harness-types';
+import type { EndpointSource } from './model-registry.js';
 
 export interface RanAs {
   packId: string;
@@ -6,6 +7,7 @@ export interface RanAs {
   packUpdatedAt: string;
   sampling: SamplingConfig;
   budget: BudgetConfig;
+  endpoint?: { id: string; source: EndpointSource };
 }
 
 /**
@@ -17,6 +19,7 @@ export interface RanAs {
  */
 export function ranAs(
   pack: Pick<PersonaPack, 'id' | 'slug' | 'updatedAt' | 'sampling' | 'budget'> | null | undefined,
+  endpoint?: { id: string; source: EndpointSource } | undefined,
 ): RanAs | undefined {
   if (!pack) return undefined;
   return {
@@ -25,5 +28,6 @@ export function ranAs(
     packUpdatedAt: pack.updatedAt,
     sampling: structuredClone(pack.sampling),
     budget: structuredClone(pack.budget),
+    ...(endpoint ? { endpoint: { ...endpoint } } : {}),
   };
 }

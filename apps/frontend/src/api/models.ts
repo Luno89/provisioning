@@ -155,6 +155,16 @@ export interface ModelProvider {
   isMesh?: boolean
   hasApiKey?: boolean
   gpuCount?: number
+  clusterId?: string
+  contextTokens?: number
+  /**
+   * ── DUPLICATED, KNOWINGLY ──
+   * Authority: `ModelProvider.pricing` in apps/backend/src/lib/model-registry.ts, written from
+   * `ModelEndpointMetadata.pricing`. Dollars per million tokens, as the gateway quoted them.
+   */
+  pricing?: { promptPerMTok: number; completionPerMTok: number }
+  /** Artificial Analysis Intelligence Index, when their catalogue matched this model. */
+  intelligence?: number
 }
 
 export const providerKeys = {
@@ -171,3 +181,35 @@ export const addModelEndpoint = (form: {
 
 export const removeModelEndpoint = (id: string): Promise<void> =>
   api.delete(`/model-endpoints/${id}`).then(() => undefined)
+
+/**
+ * The account's default engine. A pack that names no endpoint of its own runs on this, so moving
+ * every pack from one provider to another is this one setting rather than an edit per pack.
+ */
+export const defaultModelKeys = {
+  current: () => ['default-model'] as const,
+}
+
+export interface DefaultModelSetting {
+  defaultModelId: string | null
+  /** When true the default beats a pack's own engine instead of only filling in for one. */
+  globalModelOverride: boolean
+}
+
+export const getDefaultModel = (): Promise<DefaultModelSetting> =>
+  api.get<DefaultModelSetting>('/models/default').then((r) => r.data)
+
+export const setGlobalModelOverride = (override: boolean): Promise<boolean> =>
+  api.put<{ globalModelOverride: boolean }>('/models/default/override', { override })
+    .then((r) => r.data.globalModelOverride)
+
+export const setDefaultModel = (modelId: string | null): Promise<string | null> =>
+  api.put<{ defaultModelId: string | null }>('/models/default', { modelId })
+    .then((r) => r.data.defaultModelId)
+
+export function useDefaultModel() {
+  return useQuery({
+    queryKey: defaultModelKeys.current(),
+    queryFn: getDefaultModel,
+  })
+}

@@ -57,6 +57,8 @@ export interface ChatConversation {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   messageCount?: number | undefined;
+  /** The engine this conversation was last sent on; absent means it follows pack and default. */
+  modelId?: string | null | undefined;
   messages?: ChatConversationMessage[] | undefined;
   proposedTrees?: any[] | undefined;
   proposedSpecs?: any[] | undefined;

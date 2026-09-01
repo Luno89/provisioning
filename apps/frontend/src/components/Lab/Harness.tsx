@@ -4,6 +4,7 @@ import { ChevronRight, ChevronDown, Download, Upload, Save, RefreshCw, CheckCirc
 import { card, describeValue, describeTunable, packEditFromKnobs, type HarnessConfig, type HarnessProfile, errorMessage } from './shared';
 import { ProfileBanner } from './Promote';
 import { Personas } from './Personas';
+import { DefaultModelPicker } from './DefaultModelPicker';
 import { updatePack } from '../../api/packs';
 import {
   resetProfile as clearProfile, importHarnessConfig,
@@ -89,6 +90,10 @@ export function Harness({ config, profile, onProfileChanged, onImported,
   return (
     <div className="space-y-6">
       <ProfileBanner profile={profile} onChanged={onProfileChanged} />
+
+      <section>
+        <DefaultModelPicker />
+      </section>
 
       <section>
         <div className="flex items-center justify-between mb-2">

@@ -9,6 +9,14 @@ let db: MongoDB;
 let raw: MongoClient;
 const OWNERS = ['roundtrip-owner-a', 'roundtrip-owner-b'];
 
+/**
+ * `getTreeTypes(owner)` deliberately returns the owner's rows AND every built-in, so these
+ * assertions have to be about what the OWNER has. Counting the whole result only ever worked on a
+ * database with nothing seeded into it.
+ */
+const owned = async (owner: string) =>
+  (await db.getTreeTypes(owner)).filter((t) => t.ownerId === owner);
+
 beforeAll(async () => {
   try {
     raw = await MongoClient.connect(URI, { serverSelectionTimeoutMS: 5000 });
@@ -34,7 +42,7 @@ describe.skipIf(!process.env.MONGO_URI && process.env.CI)('tree types in real Mo
     const seed = { ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! };
     await db.saveTreeType(seed);
 
-    const back = await db.getTreeTypes(OWNERS[0]);
+    const back = await owned(OWNERS[0]!);
     expect(back).toHaveLength(1);
     expect(back[0]!.id).toBe(seed.id);
     expect(back[0]!.language).toBe(seed.language);
@@ -47,7 +55,7 @@ describe.skipIf(!process.env.MONGO_URI && process.env.CI)('tree types in real Mo
     const seed = { ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! };
     await db.saveTreeType(seed);
     await db.saveTreeType({ ...seed, label: 'Edited' });
-    const back = await db.getTreeTypes(OWNERS[0]);
+    const back = await owned(OWNERS[0]!);
     expect(back).toHaveLength(1);
     expect(back[0]!.label).toBe('Edited');
   }, 15_000);
@@ -56,8 +64,8 @@ describe.skipIf(!process.env.MONGO_URI && process.env.CI)('tree types in real Mo
     if (!reachable) return;
     await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]!, label: 'Mine' });
     await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[1]!, label: 'Theirs' });
-    expect((await db.getTreeTypes(OWNERS[0]))[0]!.label).toBe('Mine');
-    expect((await db.getTreeTypes(OWNERS[1]))[0]!.label).toBe('Theirs');
+    expect((await owned(OWNERS[0]!))[0]!.label).toBe('Mine');
+    expect((await owned(OWNERS[1]!))[0]!.label).toBe('Theirs');
   }, 15_000);
 
   it('deletes only the owner it was asked about', async () => {
@@ -65,8 +73,11 @@ describe.skipIf(!process.env.MONGO_URI && process.env.CI)('tree types in real Mo
     await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[0]! });
     await db.saveTreeType({ ...TREE_TYPE_SEEDS[0]!, ownerId: OWNERS[1]! });
     await db.deleteTreeType(TREE_TYPE_SEEDS[0]!.id, OWNERS[0]!);
-    expect(await db.getTreeTypes(OWNERS[0])).toHaveLength(0);
-    expect(await db.getTreeTypes(OWNERS[1])).toHaveLength(1);
+    expect(await owned(OWNERS[0]!)).toHaveLength(0);
+    expect(await owned(OWNERS[1]!)).toHaveLength(1);
+
+    // The built-ins a tenant reads alongside their own are untouched by their delete.
+    expect((await db.getTreeTypes(OWNERS[0])).some((t) => t.ownerId == null)).toBe(true);
   }, 15_000);
 });
 

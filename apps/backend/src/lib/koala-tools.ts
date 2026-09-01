@@ -1,6 +1,6 @@
 import {
   handleListMcpServers, handleEnableMcpServer, handleAddProjectDependency, handleListInfrastructure,
-  handleProposeSpec, handleGetLogs, handleListTrees, handleProposeTree, handleWebSearch,
+  handleProposeSpec, handleGetLogs, handleListTrees, handleListTreeTypes, handleProposeTree, handleWebSearch,
   handleInspectResources, handleClusterCapacity,
   handleGetProjectPipeline, handleDeployProject, handleGetProjectUrl,
   handleFetchWebPage, handleRequestEscalatedPrivileges, handleGetProjectEnv, handleSetProjectEnv,
@@ -19,6 +19,7 @@ export const KOALA_TOOL_HANDLERS = {
   inspect_resources: handleInspectResources,
   cluster_capacity: handleClusterCapacity,
   list_trees: handleListTrees,
+  list_tree_types: handleListTreeTypes,
   propose_tree: handleProposeTree,
   get_project_pipeline: handleGetProjectPipeline,
   deploy_project: handleDeployProject,

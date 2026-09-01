@@ -10,7 +10,8 @@ export type { ToolEffect } from '@koala/harness-types'
  * compiler had no second shape to compare, backend tests test the backend, and the frontend's own
  * tests mock these modules. Only Playwright crosses the wire, and it needs Docker to run.
  */
-export type { PersonaPack } from '@koala/harness-types'
+import type { PersonaPack } from '@koala/harness-types'
+export type { PersonaPack }
 
 export const packKeys = {
   list: () => ['packs'] as const,

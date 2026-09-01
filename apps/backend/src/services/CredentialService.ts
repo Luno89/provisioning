@@ -20,6 +20,7 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   hostinger: ['token'],
   contabo: ['clientId', 'clientSecret', 'apiPassword'],
   huggingface: ['hfToken'],
+  artificialanalysis: ['apiKey'],
   github: ['token'],
   googledrive: ['refreshToken', 'backupPassword'],
 };
@@ -37,6 +38,7 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   hostinger: [],
   contabo: ['apiUser'],
   huggingface: ['defaultModel'],
+  artificialanalysis: [],
   github: ['username'],
   googledrive: ['email'],
 };
@@ -307,6 +309,7 @@ export class CredentialService {
 
     const providers: { key: CloudProvider; label: string }[] = [
       { key: 'huggingface', label: 'Hugging Face' },
+      { key: 'artificialanalysis', label: 'Artificial Analysis' },
       { key: 'github', label: 'GitHub' },
       { key: 'aws', label: 'Amazon Web Services' },
       { key: 'gcp', label: 'Google Cloud Platform' },

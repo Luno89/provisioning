@@ -9,28 +9,18 @@ import {
   personaKeys
 } from '../api/personas.js';
 import { listPacks, updatePack, packKeys, type PersonaPack } from '../api/packs';
-import { listModels, providerKeys, type ModelProvider } from '../api/models';
+import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../api/models';
+import { modelOptionLabel } from '../lib/model-label';
 import { listTools, toolKeys } from '../api/harness/tools.js';
 import type { Persona } from './PersonaEditor.js';
 import { errorMessage } from '../api/client.js';
+import ToolGrantList from './ToolGrantList.js';
 
 interface ToolItem {
   name: string;
   description?: string;
   category: string;
 }
-
-const CATEGORY_LABELS: Record<string, string> = {
-  assistant: 'Project & Infra Tools',
-  web: 'Web & Search',
-  sandbox: 'Sandbox (Build)',
-  planning: 'Planning',
-  git: 'Git',
-  http: 'HTTP',
-  linter: 'Lint',
-  database: 'Database',
-  custom: 'Custom',
-};
 
 export function PersonaConfigDrawer({
   isOpen,
@@ -69,6 +59,10 @@ export function PersonaConfigDrawer({
     queryFn: listModels,
     enabled: isOpen,
   });
+
+  const { data: defaultSetting } = useDefaultModel();
+  const defaultModelId = defaultSetting?.defaultModelId ?? null;
+  const defaultModel = models.find((m) => m.id === defaultModelId);
 
   const currentPack = packs.find((p) => p.id === selectedId || p.slug === selectedId);
   const currentPersona =
@@ -120,21 +114,6 @@ export function PersonaConfigDrawer({
   });
 
   if (!isOpen) return null;
-
-  const toggleTool = (toolName: string) => {
-    setDraftTools((prev) =>
-      prev.includes(toolName) ? prev.filter((t) => t !== toolName) : [...prev, toolName],
-    );
-  };
-
-  // Group tools by category, sorted by category label order
-  const categoryOrder = ['assistant', 'web', 'planning', 'sandbox', 'git', 'http', 'linter', 'database', 'custom'];
-  const grouped = new Map<string, ToolItem[]>();
-  for (const t of allTools) {
-    const cat = t.category || 'custom';
-    if (!grouped.has(cat)) grouped.set(cat, []);
-    grouped.get(cat)!.push(t);
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150 font-sans">
@@ -247,10 +226,10 @@ export function PersonaConfigDrawer({
                     onChange={(e) => setDraftModelId(e.target.value)}
                     className="w-full bg-[var(--bark-950,#090d0b)] border border-[var(--bark-700,#24332b)] focus:border-emerald-500/80 rounded-md px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none"
                   >
-                    <option value="">Pack default (pick in conversation)</option>
+                    <option value="">Use the account default{defaultModel ? ` (${modelOptionLabel(defaultModel)})` : ' — none set'}</option>
                     {models.map((m) => (
                       <option key={m.id} value={m.id}>
-                        [{m.sourceLabel || (m.source === 'deployment' ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM') : 'Custom')}] {m.model || m.name}
+                        {modelOptionLabel(m)}
                       </option>
                     ))}
                     {models.length === 0 && (
@@ -265,48 +244,12 @@ export function PersonaConfigDrawer({
                     <span>Enabled Capabilities & Tools</span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {categoryOrder.map((cat) => {
-                      const tools = grouped.get(cat);
-                      if (!tools?.length) return null;
-                      const label = CATEGORY_LABELS[cat] || cat;
+                  <ToolGrantList
+                    tools={allTools}
+                    selected={draftTools}
+                    onChange={setDraftTools}
+                  />
 
-                      return (
-                        <div
-                          key={cat}
-                          className="bg-[var(--bark-950,#090d0b)] border border-[var(--bark-800,#1b2620)] rounded-md p-3 space-y-2"
-                        >
-                          <div className="text-slate-200 text-xs font-bold">{label}</div>
-                          <div className="pt-1.5 border-t border-[var(--bark-800,#1b2620)] space-y-1 max-h-48 overflow-y-auto">
-                            {tools.map((t) => {
-                              const isChecked = draftTools.includes(t.name);
-                              return (
-                                <label
-                                  key={t.name}
-                                  className="flex items-start gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-emerald-300 group"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => toggleTool(t.name)}
-                                    className="mt-0.5 rounded border-[var(--bark-700,#24332b)] bg-[var(--bark-900,#111814)] text-emerald-500 focus:ring-0"
-                                  />
-                                  <div className="min-w-0">
-                                    <div className="font-mono truncate">{t.name}</div>
-                                    {t.description && (
-                                      <div className="text-[10px] text-slate-500 group-hover:text-slate-400 leading-snug line-clamp-2">
-                                        {t.description}
-                                      </div>
-                                    )}
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
                 </div>
               </>
             ) : (

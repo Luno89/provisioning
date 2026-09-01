@@ -27,6 +27,7 @@ vi.mock('../api/harness/tools', async (orig) => ({
 vi.mock('../api/models', () => ({
   listModels: vi.fn().mockResolvedValue([]),
   providerKeys: { list: () => ['models'] as const },
+  useDefaultModel: vi.fn(() => ({ data: null })),
 }));
 
 const queryClient = new QueryClient({
@@ -89,9 +90,36 @@ describe('PersonaConfigDrawer — pack tuning and tool matrix', () => {
       expect(screen.getByText('Koala')).toBeInTheDocument();
       expect(screen.getByText('Researcher')).toBeInTheDocument();
       expect(screen.getByText('Enabled Capabilities & Tools')).toBeInTheDocument();
-      expect(screen.getByText('propose_tree')).toBeInTheDocument();
-      expect(screen.getByText('web_search')).toBeInTheDocument();
+      // Groups are collapsed, so the overview shows categories and grant counts, not tool names.
+      expect(screen.getByText('Project & Infra Tools')).toBeInTheDocument();
+      expect(screen.getByText('2/2')).toBeInTheDocument();
+      expect(screen.getByText('Web & Search')).toBeInTheDocument();
+      expect(screen.getByText('0/1')).toBeInTheDocument();
+      expect(screen.queryByText('propose_tree')).not.toBeInTheDocument();
     });
+  });
+
+  it('reveals the tools in a group when it is expanded', async () => {
+    vi.mocked(packsApi.listPacks).mockResolvedValue(mockPacks as any);
+    vi.mocked(personasApi.listPersonas).mockResolvedValue(mockPersonas as any);
+    vi.mocked(toolsApi.listTools).mockResolvedValue(mockTools as any);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PersonaConfigDrawer
+          isOpen={true}
+          onClose={vi.fn()}
+          activePackId="pack-koala"
+          onSelectPack={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getByText('Project & Infra Tools')).toBeInTheDocument());
+    screen.getByLabelText('Expand Project & Infra Tools').click();
+
+    await waitFor(() => expect(screen.getByText('propose_tree')).toBeInTheDocument());
+    expect(screen.getByText('get_logs')).toBeInTheDocument();
   });
 
   it('hands back the pack ID, which is what the route carries', async () => {

@@ -203,7 +203,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
 
       const systemPrompt = resolvePrompt(persona);
       const chosen = undefined;
-      const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
+      const { provider, baseUrl, apiKey, source: endpointSource } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
       runSecrets = [apiKey];
 
       let branchName: string | undefined;
@@ -577,7 +577,10 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             },
             ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
               taskContext: currentTaskContext,
-              ...(ranAs(pack) ? { ranAs: ranAs(pack) } : {}),
+              ...(() => {
+              const provenance = ranAs(pack, { id: provider.id, source: endpointSource });
+              return provenance ? { ranAs: provenance } : {};
+            })(),
               ...(systemPrompt ? { systemPrompt } : {}),
               sandboxSpec,
               ...(provider.contextTokens ? { contextTokens: provider.contextTokens } : {}),

@@ -473,7 +473,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
   });
 
-  app.use('/api/credentials', llmCredentialsRouter({ db, jwtSecret: JWT_SECRET }));
+  app.use('/api/credentials', llmCredentialsRouter({ db, jwtSecret: JWT_SECRET, credentialService }));
   app.use('/api/credentials', credentialsRouter({
     credentialService,
     publicUrl: PUBLIC_URL,

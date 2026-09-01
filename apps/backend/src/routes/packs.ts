@@ -23,12 +23,8 @@ export function packsRouter(deps: PacksRouterDeps): Router {
   const { db, modelIdsFor, packs } = deps;
   const router = Router();
 
-  const visiblePersonas = async (userId: string) =>
-    packs.visiblePersonas(userId);
-
   const findPack = async (userId: string, id: string) =>
     packs.resolvePack(userId, id);
-
   router.get('/', asyncRoute(async (req, res) => {
     res.json(await packs.visiblePacks(userOf(req).id));
   }));
@@ -44,7 +40,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     const { slug, name, description, personaId, tools, sampling, budget, prompt } = req.body ?? {};
 
     const existing = await packs.visiblePacks(userId);
-    const personas = await visiblePersonas(userId);
+    const personas = await packs.referenceablePersonas(userId);
     const refusal = validatePack({ slug, name, personaId, tools }, existing, personas);
     if (refusal) return res.status(400).json({ error: refusal });
 
@@ -83,7 +79,7 @@ export function packsRouter(deps: PacksRouterDeps): Router {
     if (!pack) return res.status(404).json({ error: 'No such pack' });
 
     const { slug, name, description, personaId, tools, sampling, budget, prompt, model } = req.body ?? {};
-    const personas = await visiblePersonas(userId);
+    const personas = await packs.referenceablePersonas(userId);
     const candidate = {
       slug: slug === undefined ? pack.slug : String(slug),
       name: name === undefined ? pack.name : String(name),

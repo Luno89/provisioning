@@ -19,6 +19,12 @@ export class PersonaPackService extends BaseService {
     return withBuiltIns(await this.db.getPersonas(), userId, (p) => p.name);
   }
 
+  /** The full persona catalogue this user may reference: built-ins and their own rows. */
+  async referenceablePersonas(userId: string): Promise<Persona[]> {
+    const all = await this.db.getPersonas();
+    return all.filter((p) => p.ownerId == null || p.ownerId === userId);
+  }
+
   async resolvePersona(userId: string, personaId: string): Promise<Persona | undefined> {
     const personas = await this.visiblePersonas(userId);
     const found = personas.find((p) => p.id === personaId);

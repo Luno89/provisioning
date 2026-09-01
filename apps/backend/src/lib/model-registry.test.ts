@@ -151,12 +151,36 @@ describe('routeProvider', () => {
   const providers = listProviders([dep({ id: 'a' }), dep({ id: 'd', name: 'Second' })]);
 
   it('honours an explicit selection', () => {
-    expect(routeProvider(providers, 'd')?.id).toBe('d');
+    expect(routeProvider(providers, 'd')?.provider.id).toBe('d');
+    expect(routeProvider(providers, 'd')?.source).toBe('request');
   });
 
   it("falls back to the pack's endpoint, not to whichever was listed first", () => {
-    expect(routeProvider(providers, undefined, 'd')?.id).toBe('d');
+    expect(routeProvider(providers, undefined, 'd')?.provider.id).toBe('d');
+    expect(routeProvider(providers, undefined, 'd')?.source).toBe('pack');
     expect(routeProvider(providers)).toBeUndefined();
+  });
+
+  it("falls back to the account's default when neither the request nor the pack names one", () => {
+    expect(routeProvider(providers, undefined, undefined, 'd')?.provider.id).toBe('d');
+    expect(routeProvider(providers, undefined, undefined, 'd')?.source).toBe('global');
+  });
+
+  it('lets a pack pin an engine the account default does not change', () => {
+    const routed = routeProvider(providers, undefined, 'a', 'd');
+    expect(routed?.provider.id).toBe('a');
+    expect(routed?.source).toBe('pack');
+  });
+
+  it('lets an explicit request beat both the pack and the account default', () => {
+    expect(routeProvider(providers, 'a', 'd', 'd')?.provider.id).toBe('a');
+    expect(routeProvider(providers, 'a', 'd', 'd')?.source).toBe('request');
+  });
+
+  it('errors rather than falling through when a named endpoint is gone', () => {
+    // Falling back to the global here would be the silent substitution §9 exists to prevent.
+    expect(routeProvider(providers, undefined, 'deleted', 'd')).toBeUndefined();
+    expect(routeProvider(providers, 'deleted', 'a', 'd')).toBeUndefined();
   });
 
   it('returns undefined for an id the user does not own, rather than silently substituting one', () => {
@@ -165,11 +189,12 @@ describe('routeProvider', () => {
 
   it('returns undefined when there are no providers at all', () => {
     expect(routeProvider([])).toBeUndefined();
+    expect(routeProvider([], undefined, undefined, 'd')).toBeUndefined();
   });
 
   it('matches on the provider id and never on the model it serves', () => {
     const served = listProviders([dep({ id: 'dep-a', vllmModel: 'Qwen3-32B' })]);
-    expect(routeProvider(served, 'dep-a')?.model).toBe('Qwen3-32B');
+    expect(routeProvider(served, 'dep-a')?.provider.model).toBe('Qwen3-32B');
     expect(routeProvider(served, 'Qwen3-32B')).toBeUndefined();
   });
 });

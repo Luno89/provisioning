@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { consumeChunk, splitThinkTags } from '../lib/stream-delta.js';
 import { KoalaSpot } from './Koala.js';
 import { splitProposalBlock } from '../lib/proposal-display.js';
@@ -9,6 +9,7 @@ import { openChatStream } from '../api/chat';
 import {
   listModels, providerKeys, type ModelProvider,
 } from '../api/models';
+import { modelOptionLabel } from '../lib/model-label';
 import { listPersonas, personaKeys } from '../api/personas';
 import { getConfig, profileKeys } from '../api/harness';
 
@@ -62,7 +63,6 @@ export default function Chat({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pinnedRef = useRef(true);
   const observerRef = useRef<MutationObserver | null>(null);
-  const qc = useQueryClient();
 
   const [showSettings, setShowSettings] = useState(false);
   const [touched, setTouched] = useState<Record<string, number>>({});
@@ -360,7 +360,7 @@ export default function Chat({
               >
                 {models.map((m) => (
                     <option key={m.id} value={m.id}>
-                      [{m.sourceLabel || (m.source === 'deployment' ? (m.kind === 'tabbyapi' ? 'TabbyAPI' : 'vLLM') : 'Custom')}] {m.model || m.name}
+                      {modelOptionLabel(m)}
                     </option>
                   ))}
               </select>

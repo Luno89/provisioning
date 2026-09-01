@@ -66,11 +66,30 @@ describe('seeding', () => {
     expect(s.saved.every((p) => p.builtIn === true)).toBe(true);
   });
 
-  it('writes fresh every time (wipes first)', async () => {
+  /**
+   * This asserted the opposite — that seeding rewrote every built-in on every run — which
+   * contradicted `seed-all.test.ts`'s "writes nothing on a second run" and moved each pack's
+   * `updatedAt`. `ranAs.packUpdatedAt` records that timestamp to say which configuration a run
+   * used, so rewriting made every past run look as though its pack had since been edited.
+   */
+  it('writes nothing on a second run, leaving the rows and their timestamps alone', async () => {
+    const s = store(builtInPersonas);
+    expect(await seedPacks(s)).toBe(PACK_SEEDS.length);
+    const stamps = s.saved.map((p) => p.updatedAt);
+
+    expect(await seedPacks(s)).toBe(0);
+    expect(s.saved).toHaveLength(PACK_SEEDS.length);
+    expect(s.saved.map((p) => p.updatedAt)).toEqual(stamps);
+  });
+
+  it('brings a built-in that drifted from its seed back into line', async () => {
     const s = store(builtInPersonas);
     await seedPacks(s);
-    expect(await seedPacks(s)).toBe(PACK_SEEDS.length);
-    expect(s.saved).toHaveLength(PACK_SEEDS.length);
+    const drifted = s.saved.find((p) => p.ownerId == null)!;
+    drifted.tools = ['nothing_like_the_seed'];
+
+    expect(await seedPacks(s)).toBe(1);
+    expect(s.saved.find((p) => p.id === drifted.id)!.tools).not.toEqual(['nothing_like_the_seed']);
   });
 
   it('never touches a row somebody owns', async () => {

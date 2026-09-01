@@ -108,7 +108,7 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     const systemPrompt = resolvePrompt(persona);
     // The engine is the pack's; nothing layered can name one any more.
     const chosen = undefined;
-    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(ownerId, chosen, pack?.model?.endpointId);
+    const { provider, baseUrl, apiKey, source: endpointSource } = await models.resolveBaseUrl(ownerId, chosen, pack?.model?.endpointId);
 
     let merged = true;
     for (const branch of branches) {
@@ -131,7 +131,10 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
           ...(provider.kind ? { kind: provider.kind } : {}),
           ...(language ? { language } : {}),
           ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
-            ...(ranAs(pack) ? { ranAs: ranAs(pack) } : {}),
+            ...(() => {
+              const provenance = ranAs(pack, { id: provider.id, source: endpointSource });
+              return provenance ? { ranAs: provenance } : {};
+            })(),
             taskContext: buildMergeTask(branch, state.files),
             sandbox: {
               exec: (command) => workspaces.exec(workspaceId, command),

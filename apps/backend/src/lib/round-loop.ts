@@ -247,6 +247,12 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
       const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
       await pump(last.body, acc, cfg.emit);
       if (acc.answer) answer = acc.answer;
+      /**
+       * The wrap-up reasons too, and `pump` has already emitted it — so it was watched live and
+       * then thrown away here, which is why a long tool-using turn showed a trace that vanished
+       * the moment the conversation was reopened.
+       */
+      if (acc.thinking) thinking += acc.thinking;
     }
   }
 

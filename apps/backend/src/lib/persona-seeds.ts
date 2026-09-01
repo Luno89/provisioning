@@ -1,6 +1,7 @@
 import type { Persona } from './personas.js';
 import { MERGER_PERSONA } from './well-known-personas.js';
 import { KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
+import { sameSeededRow } from './seed-diff.js';
 
 export const RETIRED_PERSONAS = [
   'Coder', 'Orchestrator', 'Debugger', 'Designer',
@@ -168,22 +169,44 @@ export interface PersonaSeedStore {
   deletePersona(id: string): Promise<void>;
 }
 
+/**
+ * Built-ins, brought in line with the seeds. Returns how many rows actually CHANGED.
+ *
+ * This used to delete every built-in and write it back, so a second run reported the full count and
+ * moved each row's `updatedAt` even when nothing differed. Writing only what differs keeps the seed
+ * the source of truth for built-ins while leaving an unchanged row — and its timestamp — alone.
+ */
 export async function seedPersonas(store: PersonaSeedStore): Promise<number> {
   const stored = await store.getPersonas();
-  for (const p of stored) {
-    if (p.ownerId == null) await store.deletePersona(p.id);
-  }
+  const builtIns = new Map(stored.filter((p) => p.ownerId == null).map((p) => [p.id, p]));
 
   const now = new Date().toISOString();
+  const seeded = new Set<string>();
+  let written = 0;
+
   for (const seed of PERSONA_SEEDS) {
+    const id = builtInPersonaId(seed.name);
+    seeded.add(id);
+    const existing = builtIns.get(id);
     const next: Persona = {
       ...seed,
-      id: builtInPersonaId(seed.name),
+      id,
       builtIn: true,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: existing?.updatedAt ?? now,
     } as Persona;
-    await store.savePersona(next);
+
+    if (existing && sameSeededRow(existing, next)) continue;
+    await store.savePersona({ ...next, updatedAt: now });
+    written++;
   }
-  return PERSONA_SEEDS.length;
+
+  // A built-in the seeds no longer ship should not linger.
+  for (const id of builtIns.keys()) {
+    if (seeded.has(id)) continue;
+    await store.deletePersona(id);
+    written++;
+  }
+
+  return written;
 }

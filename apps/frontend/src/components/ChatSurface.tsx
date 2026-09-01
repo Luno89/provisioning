@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Plus, History, ChevronDown, Sparkles, Sliders, ArrowDown, AlertTriangle, X, ShieldAlert,
+  Plus, History, ChevronDown, ArrowDown, AlertTriangle, X, ShieldAlert,
   Key, Eye, EyeOff, Lock, Check,
 } from 'lucide-react';
 import {
@@ -26,11 +26,15 @@ import { reduceUnifiedFrames, emptyChatRenderState, type ChatRenderState } from 
 import SpecProposal, { type Spec } from './SpecProposal.js';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import PersonaConfigDrawer from './PersonaConfigDrawer.js';
+import ModelConfigDrawer from './ModelConfigDrawer.js';
+import KoalaLoading from './KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
 import ChatMessageRow, { type ChatMessageData, ProposedTreeCard } from './Chat/ChatMessageRow.js';
 import { errorMessage } from '../api/client.js';
 import { listPacks, packKeys, type PersonaPack } from '../api/packs';
+import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../api/models';
+import { modelOptionLabel } from '../lib/model-label';
 
 export interface ProposedTreeRecord {
   id: string;
@@ -86,6 +90,13 @@ export default function ChatSurface({
   const [showHistory, setShowHistory] = useState<boolean>(false);
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState<boolean>(false);
+  const [showModelDrawer, setShowModelDrawer] = useState<boolean>(false);
+  /**
+   * Picks not yet sent, keyed by conversation. The stored pin lives on the conversation itself, so
+   * this only holds a choice made since it loaded — derived rather than synced by an effect, which
+   * is what keeps switching threads from briefly showing the previous one's engine.
+   */
+  const [unsavedModelPicks, setUnsavedModelPicks] = useState<Record<string, string | null>>({});
   const [isAtBottom, setIsAtBottom] = useState<boolean>(true);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -126,10 +137,11 @@ export default function ChatSurface({
     queryFn: listChatConversations,
   });
 
-  const { data: activeConversation } = useQuery<ChatConversation | null>({
+  const { data: activeConversation, isFetching: loadingConversation } = useQuery<ChatConversation | null>({
     queryKey: chatPackKeys.conversation(selectedConvId ?? ''),
     queryFn: () => (selectedConvId ? getChatConversation(selectedConvId) : null),
     enabled: Boolean(selectedConvId),
+    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -275,6 +287,22 @@ export default function ChatSurface({
     return () => ro.disconnect();
   }, [isAtBottom]);
 
+  const { data: defaultSetting } = useDefaultModel();
+  const accountDefaultId = defaultSetting?.defaultModelId ?? null;
+
+  /**
+   * What this conversation runs on: a pick made since it loaded, else the engine it last ran on,
+   * else what the surface was opened with — nothing meaning it follows the pack and the account
+   * default. Derived rather than synced by an effect, so switching threads never briefly shows the
+   * previous one's engine.
+   */
+  const conversationKey = activeConversation?.id ?? 'unsent';
+  const pinnedModelId = conversationKey in unsavedModelPicks
+    ? unsavedModelPicks[conversationKey]!
+    : (activeConversation?.modelId ?? modelId ?? null);
+  const setPinnedModelId = (id: string | null) =>
+    setUnsavedModelPicks((prev) => ({ ...prev, [conversationKey]: id }));
+
   const handleSend = useCallback(async (explicitText?: string) => {
     const text = (typeof explicitText === 'string' ? explicitText : input).trim();
     if (!text || streaming) return;
@@ -318,7 +346,7 @@ export default function ChatSurface({
           conversationId: targetConvId,
           message: text,
           sessionId: localSessionId.current,
-          modelId,
+          ...(pinnedModelId ? { modelId: pinnedModelId } : {}),
         },
         abort.signal,
       );
@@ -393,7 +421,7 @@ export default function ChatSurface({
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [input, streaming, selectedConvId, currentPackId, modelId, onConversationChange, qc, scrollToBottomInstant]);
+  }, [input, streaming, selectedConvId, currentPackId, pinnedModelId, onConversationChange, qc, scrollToBottomInstant]);
 
   const handleStop = useCallback(() => {
     if (abortRef.current) {
@@ -422,6 +450,27 @@ export default function ChatSurface({
 
   const activePack = personaPacks.find((p) => p.id === currentPackId);
 
+  /**
+   * 425 endpoint rows is ~236KB, and registering a gateway is the only thing that changes it — so
+   * refetching on every mount and window focus is pure cost on a screen that only needs the
+   * selected model's name.
+   */
+  const { data: models = [] } = useQuery<ModelProvider[]>({
+    queryKey: providerKeys.list(),
+    queryFn: listModels,
+    staleTime: 5 * 60_000,
+  });
+
+
+  /** What actually answers: this conversation's pin, else the account default. */
+  const effectiveModel = models.find((m) => m.id === (pinnedModelId ?? accountDefaultId));
+  const modelLabel = effectiveModel
+    ? modelOptionLabel(effectiveModel)
+    : pinnedModelId ?? 'No model';
+
+  /** The pack's real grant count — the composer used to show a hardcoded 13. */
+  const toolCount = packs.find((p) => p.id === currentPackId || p.slug === currentPackId)?.tools?.length;
+
   const liveTrees = useMemo(
     () => liveState.proposals.filter((p) => p.kind === 'tree').map((p) => p.payload),
     [liveState.proposals],
@@ -439,7 +488,9 @@ export default function ChatSurface({
     [liveState.proposals],
   );
 
-  const isConversationEmpty = renderedMessages.length === 0 && !streaming;
+  /** Nothing to show YET is not the same as nothing to show — the hero would flash otherwise. */
+  const isLoadingThread = loadingConversation && renderedMessages.length === 0 && !streaming;
+  const isConversationEmpty = renderedMessages.length === 0 && !streaming && !isLoadingThread;
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full bg-[var(--bark-950,#090d0b)] text-slate-200 font-sans overflow-hidden">
@@ -464,19 +515,6 @@ export default function ChatSurface({
               <span className="hidden sm:inline">History</span>
             </button>
           )}
-
-          <div className="relative group">
-            <button
-              type="button"
-              onClick={() => setShowPersonaDrawer(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-200 transition-colors cursor-pointer"
-              title="Configure persona directives and capability tools"
-            >
-              <Sparkles size={13} className="text-emerald-400" />
-              <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
-              <Sliders size={11} className="text-slate-400 ml-0.5" />
-            </button>
-          </div>
 
           <div className="relative">
             <button
@@ -575,9 +613,10 @@ export default function ChatSurface({
                   onStop={handleStop}
                   isStreaming={streaming}
                   activePack={activePack}
-                  personaPacks={personaPacks}
-                  onSelectPack={(id) => { setCurrentPackId(id); onPackChange?.(id); }}
                   onOpenPersonaDrawer={() => setShowPersonaDrawer(true)}
+                  {...(toolCount !== undefined ? { toolCount } : {})}
+                  modelLabel={modelLabel}
+                  onOpenModelDrawer={() => setShowModelDrawer(true)}
                 />
               </div>
             </div>
@@ -589,6 +628,7 @@ export default function ChatSurface({
                 className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-2 relative"
               >
                 <div className="max-w-4xl mx-auto w-full space-y-0 pb-36">
+                  {isLoadingThread && <KoalaLoading label="Fetching this conversation…" />}
                   {renderedMessages.map((msg, idx) => (
                     <ChatMessageRow
                       key={idx}
@@ -807,9 +847,10 @@ export default function ChatSurface({
                     onStop={handleStop}
                     isStreaming={streaming}
                     activePack={activePack}
-                    personaPacks={personaPacks}
-                    onSelectPack={(id) => { setCurrentPackId(id); onPackChange?.(id); }}
                     onOpenPersonaDrawer={() => setShowPersonaDrawer(true)}
+                    {...(toolCount !== undefined ? { toolCount } : {})}
+                    modelLabel={modelLabel}
+                    onOpenModelDrawer={() => setShowModelDrawer(true)}
                   />
                 </div>
               </div>
@@ -817,6 +858,13 @@ export default function ChatSurface({
           )}
         </div>
       </div>
+
+      <ModelConfigDrawer
+        isOpen={showModelDrawer}
+        onClose={() => setShowModelDrawer(false)}
+        selectedModelId={pinnedModelId}
+        onSelectModel={setPinnedModelId}
+      />
 
       <PersonaConfigDrawer
         isOpen={showPersonaDrawer}

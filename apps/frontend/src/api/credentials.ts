@@ -7,6 +7,7 @@ export const credentialKeys = {
   all: ['credentials'] as const,
   list: () => [...credentialKeys.all, 'list'] as const,
   one: (provider: string) => [...credentialKeys.all, provider] as const,
+  llm: () => [...credentialKeys.all, 'llm'] as const,
 }
 
 export const listProviders = (): Promise<ProviderStatus[]> =>

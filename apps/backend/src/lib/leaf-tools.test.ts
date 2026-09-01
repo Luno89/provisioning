@@ -99,6 +99,9 @@ describe('the planning surface', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name).sort()).toEqual([
       'add_project_dependency', 'create_project', 'fetch_web_page', 'get_leaf', 'ingest_status',
       'list_infrastructure', 'list_leaves', 'list_mcp_servers', 'list_personas', 'list_projects',
+      // `propose_tree` requires a type id that exists, and this is how a planning turn learns them —
+      // the row declares `surfaces: ['assistant', 'planning']` itself.
+      'list_tree_types',
       'propose_leaf', 'replace_leaf', 'revise_leaf', 'search_corpus', 'set_acceptance', 'set_leaf_project',
       'start_ingest', 'update_leaf_memory', 'web_search', 'withdraw_leaf',
     ]);

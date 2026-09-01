@@ -1,6 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { InfisicalService } from './InfisicalService.js';
 
+/**
+ * There is no Infisical to talk to in a unit run.
+ *
+ * The service writes to its encrypted in-memory store first and only then tries the vault, so these
+ * assertions held all along — but each call sat on a 4s axios timeout, and two of them overran
+ * vitest's 5s limit. Rejecting immediately exercises the same fallback path in milliseconds, and
+ * asserts the thing that actually matters: an unreachable vault must not lose the secret.
+ */
+vi.mock('axios', () => {
+  const unreachable = () => Promise.reject(new Error('ECONNREFUSED (no vault in a unit run)'));
+  return { default: { post: unreachable, get: unreachable, delete: unreachable, patch: unreachable } };
+});
+
 describe('InfisicalService', () => {
   const masterKey = 'test-jwt-secret-key-that-is-at-least-32-chars-long';
   const kubeconfigPath = '/tmp/test-kubeconfig.yaml';

@@ -3,6 +3,7 @@ import { KOALA_NAME } from './koala-persona.js';
 import { MERGER_PERSONA } from './well-known-personas.js';
 import { researchPacing } from './sandbox-tools.js';
 import { WEB_TOOL_NAMES } from './leaf-tools.js';
+import { sameSeededRow } from './seed-diff.js';
 
 const TUNED_FOR = 'Tabbyapi-Production';
 
@@ -242,22 +243,34 @@ export interface PackSeedStore {
   getPersonas(): Promise<{ id: string; ownerId?: string | undefined; name: string }[]>;
 }
 
+/**
+ * Built-in packs, brought in line with the seeds. Returns how many rows actually CHANGED.
+ *
+ * This used to delete every built-in and write it back, which moved each pack's `updatedAt` on
+ * every run — and `AgentRequest.ranAs` copies that timestamp to say which configuration a run used,
+ * so seeding made every past run look as though its pack had been edited since.
+ */
 export async function seedPacks(store: PackSeedStore): Promise<number> {
   const stored = await store.getPersonaPacks();
-  for (const p of stored) {
-    if (p.ownerId == null) await store.deletePersonaPack(p.id);
-  }
+  const builtIns = new Map(stored.filter((p) => p.ownerId == null).map((p) => [p.id, p]));
 
   const personas = (await store.getPersonas()).filter((p) => p.ownerId == null);
   const personaByName = new Map(personas.map((p) => [p.name, p]));
 
   const now = new Date().toISOString();
+  const seeded = new Set<string>();
+  let written = 0;
+
   for (const seed of PACK_SEEDS) {
     const persona = personaByName.get(seed.personaName);
     if (!persona) continue;
 
+    const id = builtInPackId(seed.slug);
+    seeded.add(id);
+    const existing = builtIns.get(id);
+
     const next: PersonaPack = {
-      id: builtInPackId(seed.slug),
+      id,
       slug: seed.slug,
       name: seed.name,
       description: seed.description,
@@ -269,14 +282,26 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       budget: structuredClone(seed.budget),
       prompt: structuredClone(seed.prompt),
       builtIn: true,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: existing?.updatedAt ?? now,
     };
-    await store.savePersonaPack(next);
+
+    if (existing && sameSeededRow(existing, next)) continue;
+    await store.savePersonaPack({ ...next, updatedAt: now });
+    written++;
   }
-  // Count only packs that were actually written (persona was found).
-  const all = await store.getPersonaPacks();
-  return all.filter((p) => p.ownerId == null).length;
+
+  /**
+   * A built-in the seeds no longer ship, or one whose persona is missing this run, should not
+   * linger — but an arm's derived pack is not a built-in and is left alone.
+   */
+  for (const id of builtIns.keys()) {
+    if (seeded.has(id)) continue;
+    await store.deletePersonaPack(id);
+    written++;
+  }
+
+  return written;
 }
 
 export function packForLeaf(

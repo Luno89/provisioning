@@ -182,6 +182,63 @@ describe('runToolRounds', () => {
     expect(call).toHaveBeenCalledTimes(3);
   });
 
+  /**
+   * The wrap-up round reasons like any other, and `pump` emits it — so it was watched live and then
+   * dropped, which is why a long tool-using turn showed a trace that vanished on reopening the
+   * conversation. Only what is RETURNED reaches the saved message.
+   */
+  it('keeps the reasoning from the wrap-up round, not just its answer', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, body: toolBody('a', 't', '{}') })
+      .mockResolvedValueOnce({ ok: true, body: toolBody('b', 't', '{}') })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: fakeStream([
+          delts({ reasoning_content: 'weighing what the tools returned' }),
+          delts({ content: 'Final wrap-up.' }),
+        ]),
+      });
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'go' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: 'r' }),
+      onExhausted: 'wrap-up',
+    });
+    expect(result.answer).toBe('Final wrap-up.');
+    expect(result.thinking).toContain('weighing what the tools returned');
+  });
+
+  it('adds the wrap-up reasoning to what the earlier rounds already thought', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        body: fakeStream([
+          delts({ reasoning_content: 'first round thought' }),
+          delts({ tool_calls: [{ index: 0, id: 'a', function: { name: 't', arguments: '{}' } }] }),
+        ]),
+      })
+      .mockResolvedValueOnce({ ok: true, body: toolBody('b', 't', '{}') })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: fakeStream([delts({ reasoning_content: ' and the wrap-up thought' })]),
+      });
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'go' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: 'r' }),
+      onExhausted: 'wrap-up',
+    });
+    expect(result.thinking).toBe('first round thought and the wrap-up thought');
+  });
+
   it('emits reasoning and content events as it parses each round', async () => {
     const call = vi.fn().mockResolvedValue({
       ok: true,

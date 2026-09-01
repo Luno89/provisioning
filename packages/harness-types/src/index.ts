@@ -42,6 +42,12 @@ export interface AgentRequest {
     packUpdatedAt: string;
     sampling: SamplingConfig;
     budget: BudgetConfig;
+    /**
+     * The engine this run actually reached, and which layer named it. Without `source` an account
+     * default is indistinguishable from a pack that pinned the same endpoint, so flipping the
+     * default would silently re-attribute every past run — the §9 bug in a new place.
+     */
+    endpoint?: { id: string; source: 'request' | 'pack' | 'global' | 'sole' };
   };
   loop?: { maxSteps: number; think: boolean; toolResultCap: number };
 }
@@ -483,7 +489,11 @@ export interface PersonaPack {
    * is empty on a shipped pack — the platform ships no endpoints. Empty means the caller must name
    * one; nothing named anywhere is an error rather than whichever endpoint was listed first.
    */
-  model?: { endpointId?: string };
+  /**
+   * `null` is how the editor clears it — `mergeValues` deep-merges, so omitting the key leaves
+   * the old endpoint in place and only an explicit null unsets it.
+   */
+  model?: { endpointId?: string | null };
   /**
    * Set when this pack is one experiment arm's copy of another pack. Such a pack is scoped to its
    * experiment and hidden from the user's pack list — an arm has to be a pack now that a variant

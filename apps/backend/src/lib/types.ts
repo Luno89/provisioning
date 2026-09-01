@@ -148,6 +148,10 @@ export interface ModelEndpointMetadata {
   apiKeyEnc?: string;
   isMesh?: boolean;
   contextTokens?: number;
+  /** Dollars per million tokens, as the gateway quoted them when the row was written. */
+  pricing?: { promptPerMTok: number; completionPerMTok: number };
+  /** Artificial Analysis Intelligence Index, when their catalogue has a match for this model. */
+  intelligence?: number;
   createdAt: string;
   lastCheckedAt?: string;
   lastError?: string;
@@ -333,6 +337,11 @@ export interface HuggingFaceCredentials {
   defaultModel?: string;
 }
 
+/** artificialanalysis.ai — the Intelligence Index shown beside a model. */
+export interface ArtificialAnalysisCredentials {
+  apiKey: string;
+}
+
 export interface GitHubCredentials {
   token: string;
   username?: string;
@@ -357,6 +366,7 @@ export interface CloudCredentials {
   hostinger?: HostingerCredentials;
   contabo?: ContaboCredentials;
   huggingface?: HuggingFaceCredentials;
+  artificialanalysis?: ArtificialAnalysisCredentials;
   github?: GitHubCredentials;
   googledrive?: GoogleDriveCredentials;
 }
@@ -365,7 +375,7 @@ export const CLOUD_PROVIDERS = [
   'aws', 'gcp', 'azure', 'do', 'hetzner',
   'vultr', 'linode', 'scaleway', 'hostinger', 'contabo',
   'cloudflare',
-  'huggingface', 'github', 'googledrive',
+  'huggingface', 'artificialanalysis', 'github', 'googledrive',
 ] as const;
 
 export type CloudProvider = typeof CLOUD_PROVIDERS[number];
@@ -389,6 +399,16 @@ export interface UserMetadata {
   credentials?: CloudCredentials;
   isAdmin?: boolean;
   extractionModelId?: string;
+  /** The account's default engine: what a pack naming no endpoint of its own runs on. */
+  defaultModelId?: string;
+  /**
+   * Make `defaultModelId` beat a pack's own engine rather than only filling in for one.
+   *
+   * Off, a pack that names an engine keeps it. On, everything runs on the default — and because
+   * this is a flag rather than an edit to each pack, turning it off puts every pack back on what
+   * it named.
+   */
+  globalModelOverride?: boolean;
 }
 
 export interface InviteMetadata {

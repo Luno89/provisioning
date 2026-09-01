@@ -54,8 +54,17 @@ html, body, #root {
 }
 .sway { animation: sway 6s ease-in-out infinite; transform-origin: bottom center; }
 
+/* Loading, not decoration — quick enough to read as "working", slow enough not to nag. The 6s
+   sway above is deliberately too slow to say anything is happening. */
+@keyframes koala-bob {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50%      { transform: translateY(-6px) rotate(3deg); }
+}
+.koala-bob { animation: koala-bob 1.4s ease-in-out infinite; transform-origin: bottom center; }
+
 /* Respect the OS setting. A mascot is not worth making someone motion-sick. */
 @media (prefers-reduced-motion: reduce) {
   .sway { animation: none; }
+  .koala-bob { animation: none; }
   svg animate, svg animateTransform { display: none; }
 }
