@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Wrench, CheckCircle2, Code2, Plus, Edit3, Trash2, Save, X, Terminal, AlertTriangle, RotateCcw } from 'lucide-react';
-import { card } from './shared';
-import { listTools, createTool, updateTool, deleteTool } from '../../api/harness';
+import { card } from '../lib/pack-editor.js';
+import { listTools, createTool, updateTool, deleteTool } from '../api/harness';
 
 interface ToolRepositoryItem {
   id: string;

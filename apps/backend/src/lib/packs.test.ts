@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validatePack, packForLeaf } from './packs.js';
+import { validatePack } from './packs.js';
 import type { PersonaPack } from '@koala/harness-types';
 import { PACK_SEEDS } from './pack-seeds.js';
 
@@ -44,34 +44,3 @@ describe('validatePack', () => {
 
 });
 
-describe('packForLeaf', () => {
-  const koala = pack({ id: 'pk-koala', slug: 'koala', personaId: 'p1' });
-  const builder = pack({ id: 'pk-builder', slug: 'builder', personaId: 'p2',  });
-  const packs = [koala, builder];
-
-  it('uses the pack a leaf names, by id or by slug', () => {
-    expect(packForLeaf(packs, { packId: 'pk-builder' })).toBe(builder);
-    expect(packForLeaf(packs, { packId: 'builder' })).toBe(builder);
-  });
-
-  it('falls back to the pack built for the persona the leaf was assigned', () => {
-    expect(packForLeaf(packs, { personaId: 'p2' })).toBe(builder);
-  });
-
-  it('prefers the named pack over the persona\'s, since naming one is the more specific choice', () => {
-    expect(packForLeaf(packs, { packId: 'koala', personaId: 'p2' })).toBe(koala);
-  });
-
-  it('falls back to the persona when the named pack is gone', () => {
-    expect(packForLeaf(packs, { packId: 'deleted', personaId: 'p2' })).toBe(builder);
-  });
-
-  it('uses the profile persona when the leaf names neither', () => {
-    expect(packForLeaf(packs, {}, 'p1')).toBe(koala);
-  });
-
-  it('returns nothing rather than guessing', () => {
-    expect(packForLeaf(packs, {})).toBeUndefined();
-    expect(packForLeaf(packs, { personaId: 'nobody' })).toBeUndefined();
-  });
-});

@@ -17,7 +17,9 @@ import type { InfisicalService } from '../services/InfisicalService.js';
 export interface PackToolContext {
   db: Database;
   userId: string;
-  conversationId: string;
+  /** A tool call attaches to whichever scope is talking — a conversation, or a tree-scoped branch. */
+  conversationId?: string;
+  branchId?: string;
   sessionId: string;
   enabledNames: string[];
   servers: McpServer[];
@@ -88,7 +90,10 @@ export function makePackToolExecutor(ctx: PackToolContext) {
 
     const out = await runTool(
       {
-        db: ctx.db, userId: ctx.userId, conversationId: ctx.conversationId, sessionId: ctx.sessionId,
+        db: ctx.db, userId: ctx.userId,
+        ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+        ...(ctx.branchId ? { branchId: ctx.branchId } : {}),
+        sessionId: ctx.sessionId,
         servers: ctx.servers, webSearch: ctx.webSearch, fetchWebPage: ctx.fetchWebPage,
         kubectl,
         projects,
@@ -102,6 +107,7 @@ export function makePackToolExecutor(ctx: PackToolContext) {
       },
       { name: c.name, arguments: c.arguments },
     );
+    if (out.enabled && !ctx.enabledNames.includes(out.enabled)) ctx.enabledNames.push(out.enabled);
     return {
       content: out.content,
       ok: !ctx.toolRefused(out.content),

@@ -301,8 +301,7 @@ describe('what a finished leaf leaves to read', () => {
 describe('saving a leaf partway through', () => {
   const researcher = {
     id: 'p-res', ownerId: 'u1', slug: 'researcher', name: 'Researcher',
-    personaId: 'res-persona', tools: [], overrides: {},
-    workspace: { output: '/work/findings.md', requireSources: false },
+    personaId: 'res-persona', tools: [], output: '/work/findings.md',
     createdAt: 'x', updatedAt: 'x',
   };
 
@@ -338,7 +337,7 @@ describe('saving a leaf partway through', () => {
 
   it('reports which check the deliverable currently fails', async () => {
     const { saved } = await withOneCheckpoint('too short');
-    expect(saved.artifact).toContain(researcher.workspace.output);
+    expect(saved.artifact).toContain(researcher.output);
     expect(saved.artifact).toMatch(/unverified|failed/);
   });
 
@@ -474,13 +473,13 @@ describe('when the run diagnoses itself', () => {
 });
 
 describe('what the tree type decides', () => {
-  const onTree = async (type: string, personaScope: Record<string, unknown> = {}) => {
+  const onTree = async (type: string) => {
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type, projectIds: [] } as never);
     await db.savePersonaPack({
-      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {},
-      workspace: personaScope, createdAt: 'x', updatedAt: 'x',
+      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [],
+      createdAt: 'x', updatedAt: 'x',
     } as never);
     await seedTreeTypes(db);
     await seedWorkspaceImages(db);
@@ -493,25 +492,38 @@ describe('what the tree type decides', () => {
     expect(spec?.image).toBe(BY_LANGUAGE.python.image);
   });
 
-  it('lets a prose type keep its minimal image when there is no checkout', async () => {
-    const spec = await onTree('research-paper', { tools: [] });
+  it('lets an artefact type keep its minimal image, since it never checks out', async () => {
+    const spec = await onTree('research-paper');
     expect(spec?.image).toBe(BY_LANGUAGE.base.image);
   });
 
-  it('upgrades that image once the leaf actually clones', async () => {
-    const spec = await onTree('research-paper', { repo: true });
+  it('upgrades the image once the tree type itself requires a checkout', async () => {
+    db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
+    await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
+    await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'minimal-service', projectIds: [] } as never);
+    await db.savePersonaPack({
+      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [],
+      createdAt: 'x', updatedAt: 'x',
+    } as never);
+    await db.saveTreeType({
+      id: 'minimal-service', ownerId: 'u1', label: 'Minimal service', summary: 's',
+      language: 'base', produces: 'service', doneMeans: 'it runs', files: [],
+    } as never);
+    await seedWorkspaceImages(db);
+    await ExecuteLeafActivity({ leafId: 'leaf-1' }).catch(() => undefined);
+    const spec = (workspace.create.mock.calls[0] as unknown[] | undefined)?.[0] as { image?: string } | undefined;
     expect(spec?.image).not.toBe(BY_LANGUAGE.base.image);
   });
 });
 
-describe('the verify command follows the same language as the workspace', () => {
-  const verifyOn = async (language: string, personaScope: Record<string, unknown> = { repo: true }) => {
+describe('the verify command follows the tree type\'s language', () => {
+  const verifyOn = async (language: string) => {
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
     await db.savePersonaPack({
-      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {},
-      workspace: personaScope, createdAt: 'x', updatedAt: 'x',
+      id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [],
+      createdAt: 'x', updatedAt: 'x',
     } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
@@ -529,10 +541,6 @@ describe('the verify command follows the same language as the workspace', () => 
   it('uses the node runner on a node type', async () => {
     expect(await verifyOn('node')).toMatch(/node --test/);
   });
-
-  it('still lets a persona override it', async () => {
-    expect(await verifyOn('python', { repo: true, language: 'node' })).toMatch(/node --test/);
-  });
 });
 
 describe('validationRecipe evaluates during post-run verification and enables merge', () => {
@@ -540,7 +548,7 @@ describe('validationRecipe evaluates during post-run verification and enables me
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -562,7 +570,7 @@ describe('worker <-> validator iterative loop', () => {
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -605,7 +613,7 @@ describe('worker <-> validator iterative loop', () => {
     db = await seeded([leaf({ branchId: 'b1', packId: 'p1' } as never)]);
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'probe', projectIds: [] } as never);
-    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], overrides: {}, workspace: { repo: true }, createdAt: 'x', updatedAt: 'x' } as never);
+    await db.savePersonaPack({ id: 'p1', ownerId: 'u1', slug: 'p1', name: 'Worker', personaId: 'p1-persona', tools: [], createdAt: 'x', updatedAt: 'x' } as never);
     await db.saveTreeType({
       id: 'probe', ownerId: 'u1', label: 'Probe', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
@@ -658,13 +666,14 @@ describe('worker <-> validator iterative loop', () => {
     await db.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as never);
     await db.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'api-service', projectIds: [] } as never);
     await db.savePersonaPack({
-      id: 'p-framer', ownerId: 'u1', slug: 'framer', name: 'Framer', personaId: 'framer-persona', tools: [], overrides: {},
-      workspace: { repo: false, output: '/work/questions.md', requireSources: false },
+      id: 'p-framer', ownerId: 'u1', slug: 'framer', name: 'Framer', personaId: 'framer-persona', tools: [],
+      output: '/work/questions.md',
       createdAt: 'x', updatedAt: 'x',
     } as never);
     await db.saveTreeType({
       id: 'api-service', ownerId: 'u1', label: 'API Service', summary: 's',
       language: 'node', produces: 'service', doneMeans: 'it runs', files: [],
+      requireSources: false,
       validationRecipe: {
         recipeId: 'node-service',
         checks: [{ id: 'jest-tests', name: 'Unit tests', type: 'run-command', command: 'npm test' }],

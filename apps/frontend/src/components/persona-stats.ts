@@ -19,8 +19,8 @@ export function median(values: number[]): number {
 
 const FINISHED = new Set(['succeeded', 'failed']);
 
-export function statsFor(personaId: string, leaves: Leaf[]): PersonaStats {
-  const mine = leaves.filter((l) => l.personaId === personaId);
+export function statsFor(packId: string | undefined, leaves: Leaf[]): PersonaStats {
+  const mine = packId ? leaves.filter((l) => l.packId === packId) : [];
   const finished = mine.filter((l) => FINISHED.has(l.status));
   const verified = finished.filter((l) => l.verified === true);
   const tokens = mine.map((l) => l.usage?.tokens ?? 0).filter((t) => t > 0);

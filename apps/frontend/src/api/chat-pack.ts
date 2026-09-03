@@ -2,7 +2,6 @@
 import { api, postStream, type StreamResponse } from './client.js';
 
 export interface ChatPackTurnRequest {
-  packId: string;
   conversationId?: string | undefined;
   message: string;
   sessionId?: string | undefined;
@@ -17,10 +16,8 @@ export const chatPackKeys = {
 export const openChatPackStream = (
   body: ChatPackTurnRequest,
   signal?: AbortSignal,
-): Promise<StreamResponse> => {
-  const { packId, ...rest } = body;
-  return postStream(`/chat-pack/${packId}`, rest, signal);
-};
+): Promise<StreamResponse> =>
+  postStream('/chat-pack', body, signal);
 
 export interface ChatConversationMessage {
   role: 'user' | 'assistant';

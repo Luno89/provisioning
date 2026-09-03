@@ -369,20 +369,34 @@ export class GiteaService {
     return { fullName: body.full_name, cloneUrl: body.clone_url };
   }
 
-  async createPushToken(username: string, password: string): Promise<{ name: string; token: string }> {
+  private async mintUserToken(
+    username: string,
+    password: string,
+    namePrefix: string,
+    scopes: string[],
+  ): Promise<{ name: string; token: string }> {
     const baseUrl = await this.resolveBaseUrl();
-    const tokenName = `koala-run-${crypto.randomBytes(4).toString('hex')}`;
+    const tokenName = `${namePrefix}-${crypto.randomBytes(4).toString('hex')}`;
     const res = await fetch(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
       },
-      body: JSON.stringify({ name: tokenName, scopes: ['write:repository'] }),
+      body: JSON.stringify({ name: tokenName, scopes }),
     });
-    if (!res.ok) throw new Error(`Failed to mint push token for ${username}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) throw new Error(`Failed to mint token for ${username}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
     const body = await res.json() as { sha1: string };
     return { name: tokenName, token: body.sha1 };
+  }
+
+  async createPushToken(username: string, password: string): Promise<{ name: string; token: string }> {
+    return this.mintUserToken(username, password, 'koala-run', ['write:repository']);
+  }
+
+  /** A long-lived, read-only token for a user's own account — e.g. so the Gitea MCP server can call the API as them. read:user covers /user/repos; the rest is /repos/{owner}/{name}/* under read:repository. */
+  async createReadToken(username: string, password: string): Promise<{ name: string; token: string }> {
+    return this.mintUserToken(username, password, 'koala-mcp', ['read:repository', 'read:user']);
   }
 
   async revokeUserToken(username: string, password: string, tokenName: string): Promise<void> {

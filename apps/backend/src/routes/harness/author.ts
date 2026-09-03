@@ -13,7 +13,7 @@ import type { ExperimentTask } from '@koala/harness-types';
 import type { ModelService } from '../../services/ModelService.js';
 import { acceptedTasks, type AuthoringService } from '../../services/AuthoringService.js';
 import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
-import { defaultSampling } from '../../lib/pack-defaults.js';
+import { withBuiltIns } from '../../lib/ownership.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -41,7 +41,8 @@ export function authorRouter(deps: authorRouterDeps): Router {
     }
 
     try {
-      const sampling = await defaultSampling(db);
+      const sampling = withBuiltIns(await db.getPersonaPacks(), userOf(req).id, (p) => p.slug)
+        .find((p) => p.slug === 'koala')?.sampling;
       const upstream = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {

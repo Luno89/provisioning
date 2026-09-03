@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Response } from 'express';
-import { openSse, sendFrame, forwardChunk, endSse } from './sse.js';
+import { openSse, sendFrame, endSse } from './sse.js';
 
 const fakeRes = () => {
   const written: string[] = [];
@@ -45,15 +45,6 @@ describe('a frame', () => {
     const { res, written } = fakeRes();
     sendFrame(res, { toolResult: { id: 't1', ok: true } });
     expect(written[0]).toBe('data: {"toolResult":{"id":"t1","ok":true}}\n\n');
-  });
-});
-
-describe('forwarding a chunk', () => {
-  it('passes the upstream bytes through unchanged', () => {
-    const { res, written } = fakeRes();
-    const raw = 'data: {"choices":[{"delta":{"content":"x"}}]}\n\n';
-    forwardChunk(res, new TextEncoder().encode(raw));
-    expect(written[0]).toBe(raw);
   });
 });
 

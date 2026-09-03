@@ -171,6 +171,8 @@ describe('PersonaConfigDrawer — pack tuning and tool matrix', () => {
         name: 'Koala',
         description: 'General Builder',
         tools: ['propose_tree', 'get_logs'],
+        mcp: [],
+        canRunLeaf: false,
         model: { endpointId: null },
       });
     });

@@ -44,3 +44,6 @@ export const reviewLeaf = (id: string): Promise<{ branchId: string; prompt: stri
 
 export const listTreeTypes = (): Promise<TreeType[]> =>
   api.get<TreeType[]>('/tree-types').then((r) => r.data)
+
+export const updateTreeType = (id: string, body: Record<string, unknown>): Promise<Record<string, unknown>> =>
+  api.put<Record<string, unknown>>(`/tree-types/${id}`, body).then((r) => r.data)

@@ -1,6 +1,8 @@
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
+import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
+import { validateEgressRules } from './personas.js';
 
 export interface TreeTypeFile {
   path: string;
@@ -52,10 +54,25 @@ export interface TreeTypeSpec {
   language: WorkspaceLanguage;
   produces: 'service' | 'artefact';
   doneMeans: string;
+  /** Whether this kind of project's output must carry sources — checked by assessFindings, not just prompted. */
+  requireSources?: boolean | undefined;
   files: TreeTypeFile[];
   validationRecipe?: ValidationRecipe | undefined;
   defaultBindings?: string[] | undefined;
+  /** Reachability every leaf of this project type gets, beyond what defaultBindings already implies. */
+  egress?: PersonaEgressRule[] | undefined;
+  env?: { name: string; value: string }[] | undefined;
   packs?: TreeTypePacks | undefined;
+  /** How readily a proposed leaf on this project type auto-accepts. Replaces the old hardcoded DEFAULT_POLICY. */
+  autoAccept?: {
+    enabled?: boolean;
+    requirePersona?: boolean;
+    max?: number;
+    minTitleChars?: number;
+    minBodyChars?: number;
+  } | undefined;
+  /** 0-1 similarity above which two leaves get flagged as possible duplicates. Replaces SIMILAR_ENOUGH_TO_ASK. */
+  duplicateThreshold?: number | undefined;
 }
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -120,6 +137,38 @@ export function validateTreeType(
         return `packs.${role} names no pack you can use: "${slug}".`;
       }
     }
+  }
+
+  const badEgress = validateEgressRules(candidate.egress);
+  if (badEgress) return badEgress;
+
+  if (candidate.env !== undefined) {
+    if (!Array.isArray(candidate.env)) return 'env must be a list of {name, value} pairs.';
+    for (const e of candidate.env) {
+      if (!e || typeof e.name !== 'string' || !e.name.trim() || typeof e.value !== 'string') {
+        return 'Each env entry needs a string name and a string value.';
+      }
+    }
+  }
+
+  if (candidate.autoAccept !== undefined) {
+    const a = candidate.autoAccept;
+    if (typeof a !== 'object' || a === null || Array.isArray(a)) return 'autoAccept must be an object.';
+    if (a.enabled !== undefined && typeof a.enabled !== 'boolean') return 'autoAccept.enabled must be true or false.';
+    if (a.requirePersona !== undefined && typeof a.requirePersona !== 'boolean') {
+      return 'autoAccept.requirePersona must be true or false.';
+    }
+    for (const key of ['max', 'minTitleChars', 'minBodyChars'] as const) {
+      const v = a[key];
+      if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 0)) {
+        return `autoAccept.${key} must be a non-negative integer.`;
+      }
+    }
+  }
+
+  if (candidate.duplicateThreshold !== undefined) {
+    const t = candidate.duplicateThreshold;
+    if (typeof t !== 'number' || t < 0 || t > 1) return 'duplicateThreshold must be a number between 0 and 1.';
   }
 
   return null;

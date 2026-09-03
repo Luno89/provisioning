@@ -51,8 +51,6 @@ const run = (turns: Parameters<typeof scripted>[0], over: any = {}) => {
   return runPlanningTurn({
     toolRows: ALL_TOOL_SEEDS,
     images: IMAGES,
-    // The contract AND the toolset are the pack's now, not constants in the module under test — so
-    // a turn given no pack is given neither, and this harness hands it the shipped planner's.
     promptConfig: PLANNER_PACK.prompt,
     grantedTools: PLANNER_PACK.tools,
     baseUrl: 'http://model', prompt: 'Build a GitHub API client',
@@ -96,7 +94,7 @@ describe('what the model is asked', () => {
 
   it("sends the pack's own sampler, with nothing layered under it", async () => {
     const { sent } = await run([{ content: 'done' }], {
-      sampling: { toolTurn: {}, conversation: { frequency_penalty: 0 } },
+      sampling: { toolTurn: { frequency_penalty: 0 }, conversation: {} },
     });
 
     expect(sent[0].frequency_penalty).toBe(0);
@@ -104,7 +102,7 @@ describe('what the model is asked', () => {
 
   it('never sends a knob the loop only reads, whatever the pack puts in its sampler', async () => {
     const { sent } = await run([{ content: 'done' }], {
-      sampling: { toolTurn: {}, conversation: { temperature: 0.2, maxSteps: 30 } as never },
+      sampling: { toolTurn: { temperature: 0.2, maxSteps: 30 } as never, conversation: {} },
     });
 
     expect(sent[0].temperature).toBe(0.2);
@@ -113,7 +111,7 @@ describe('what the model is asked', () => {
 
   it('nests a template_vars knob rather than sending it flat', async () => {
     const { sent } = await run([{ content: 'done' }], {
-      sampling: { toolTurn: {}, conversation: { think: true } as never },
+      sampling: { toolTurn: { think: true } as never, conversation: {} },
     });
 
     expect(sent[0].think).toBeUndefined();

@@ -315,13 +315,18 @@ export const taskFiles = (raw: any[]): { path: string; content: string }[] =>
     }))
     .filter((f) => f.path && !f.path.startsWith('/') && !f.path.includes('..'));
 
-export const unknownPersona = async (db: Pick<Database, 'getPersonas'>, userId: string, variants: unknown): Promise<string | undefined> => {
+/**
+ * Was checking `variant.personaId` against `db.getPersonas()` — `ExperimentVariant` declares only
+ * `packId`, so `wanted` was always empty and this never actually validated anything. An arm naming
+ * a deleted pack saved cleanly and only failed once the experiment tried to run it.
+ */
+export const unknownPack = async (db: Pick<Database, 'getPersonaPacks'>, userId: string, variants: unknown): Promise<string | undefined> => {
   if (!Array.isArray(variants)) return undefined;
   const wanted = variants
-    .map((v) => (v && typeof v === 'object' ? (v as any).personaId : undefined))
+    .map((v) => (v && typeof v === 'object' ? (v as any).packId : undefined))
     .filter((id): id is string => typeof id === 'string' && id !== '');
   if (!wanted.length) return undefined;
-  const mine = new Set(withBuiltIns(await db.getPersonas(), userId, (p) => p.name).map((p) => p.id));
+  const mine = new Set(withBuiltIns(await db.getPersonaPacks(), userId, (p) => p.slug).map((p) => p.id));
   const missing = wanted.find((id) => !mine.has(id));
-  return missing ? `No persona ${missing} — it may have been deleted.` : undefined;
+  return missing ? `No pack ${missing} — it may have been deleted.` : undefined;
 };

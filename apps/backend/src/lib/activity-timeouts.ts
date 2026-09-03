@@ -6,6 +6,7 @@ export const provisionClusterActivityMeta = { name: 'ProvisionClusterActivity', 
 export const syncConfigActivityMeta = { name: 'SyncConfigActivity', startToCloseTimeout: '80 minutes' } as const;
 export const checkWorkloadActivityMeta = { name: 'CheckWorkloadActivity', startToCloseTimeout: '2 minutes' } as const;
 export const downloadModelActivityMeta = { name: 'DownloadModelActivity', startToCloseTimeout: '80 minutes' } as const;
+export const verifyGpuRuntimeActivityMeta = { name: 'VerifyGpuRuntimeActivity', startToCloseTimeout: '2 minutes' } as const;
 export const runPipelineActivityMeta = { name: 'RunPipelineActivity', startToCloseTimeout: '30 minutes' } as const;
 export const updateLeafActivityMeta = { name: 'UpdateLeafActivity', startToCloseTimeout: '1 minute' } as const;
 export const executeLeafActivityMeta = {
@@ -48,10 +49,6 @@ export const acceptRequestActivityMeta = { name: 'AcceptRequestActivity', startT
 
 export const replanActivityMeta = { startToCloseTimeout: '10 minutes' } as const;
 
-/**
- * The first plan for a project. Longer than a replan: it starts cold and usually spends a round or
- * two on `research`, each of which is its own multi-round agent.
- */
 export const planProjectActivityMeta = { startToCloseTimeout: '20 minutes' } as const;
 
 export const crawlActivityMeta = {

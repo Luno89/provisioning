@@ -27,9 +27,7 @@ bash "${ROOT}/scripts/ensure-gitea.sh"
 bash "${ROOT}/scripts/ensure-temporal.sh"
 bash "${ROOT}/scripts/ensure-mongo.sh"
 bash "${ROOT}/scripts/ensure-headscale.sh"
-if [ -n "${WITH_INFISICAL:-}" ]; then
-  bash "${ROOT}/scripts/ensure-infisical.sh"
-fi
+bash "${ROOT}/scripts/ensure-infisical.sh"
 
 # ── 2. PORT & PROCESS RECLAIM ────────────────────────────────────────
 echo "▶ [2/3] Checking ports and resolving stale processes..."

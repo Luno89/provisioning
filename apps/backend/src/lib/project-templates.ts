@@ -573,6 +573,10 @@ echo "Reproducing failure case for {{projectName}}..."
   },
 ];
 
+/** Starts the server — mcp-probe/http-probe checks never start it themselves. */
+const START_SERVER_COMMAND =
+  "(node src/server.js > /tmp/__server.log 2>&1 &); sleep 1; echo started";
+
 export const MCP_SERVER_RECIPE: ValidationRecipe = {
   type: 'runtime-service',
   checks: [
@@ -580,6 +584,7 @@ export const MCP_SERVER_RECIPE: ValidationRecipe = {
     { id: 'src-server', name: 'Server entrypoint exists', type: 'file-exists', target: 'src/server.js' },
     { id: 'dockerfile', name: 'Dockerfile exists', type: 'file-exists', target: 'Dockerfile' },
     { id: 'unit-tests', name: 'Unit tests pass', type: 'run-command', command: 'npm test' },
+    { id: 'start-server', name: 'Start the server for probing', type: 'run-command', command: START_SERVER_COMMAND },
     { id: 'mcp-probe', name: 'MCP initialize probe', type: 'mcp-probe', target: 'http://127.0.0.1:8080/mcp' },
   ],
 };
@@ -590,6 +595,7 @@ export const NODE_SERVICE_RECIPE: ValidationRecipe = {
     { id: 'pkg-json', name: 'package.json exists', type: 'file-exists', target: 'package.json' },
     { id: 'src-server', name: 'Server entrypoint exists', type: 'file-exists', target: 'src/server.js' },
     { id: 'unit-tests', name: 'Unit tests pass', type: 'run-command', command: 'npm test' },
+    { id: 'start-server', name: 'Start the server for probing', type: 'run-command', command: START_SERVER_COMMAND },
     { id: 'health-probe', name: 'Health check responds 200', type: 'http-probe', target: 'http://127.0.0.1:8080/health', expectedStatus: 200 },
   ],
 };

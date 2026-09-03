@@ -1,13 +1,13 @@
-import { useSocketEvent, useLogSocket } from '../stores/socket';
+import { useSocketEvent } from '../stores/socket';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   GitBranch, Plus, X, Loader2, CheckCircle2, XCircle, Clock, Rocket,
   RefreshCw, AlertTriangle, ExternalLink, Box, Terminal, ShieldCheck,
 } from 'lucide-react';
-import { AnsiText } from './AnsiText.js';
+import PipelineLogModal from './PipelineLogModal.js';
 import {
-  listProjects, listProjectRuns, getPipelineLog, projectKeys,
+  listProjects, listProjectRuns, projectKeys,
   createProject as createProjectApi, promoteRun as promoteRunApi,
 } from '../api/projects';
 
@@ -91,7 +91,6 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [logRunId, setLogRunId] = useState<string | null>(null);
-  const [socketLogs, setSocketLogs] = useState('');
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: projectKeys.list(),
@@ -115,18 +114,6 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
     mutationFn: ({ projectId, runId }: { projectId: string; runId: string }) =>
       promoteRunApi(projectId, runId),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['deployments'] }); queryClient.invalidateQueries({ queryKey: ['projects'] }); },
-  });
-
-  const { data: initialLog } = useQuery({
-    queryKey: projectKeys.log(logRunId),
-    queryFn: () => getPipelineLog(logRunId!),
-    enabled: !!logRunId,
-  });
-
-  useLogSocket({
-    room: logRunId,
-    onChunk: (chunk) => setSocketLogs((prev) => prev + chunk),
-    onReconnect: () => setSocketLogs(''),
   });
 
   useSocketEvent('deployment-updated', () => {
@@ -404,27 +391,7 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
         </div>
       )}
 
-      {logRunId && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
-          <div className="bg-[var(--bark-950)] border border-[var(--bark-700)] rounded-lg w-full max-w-4xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
-            <div className="flex justify-between items-center px-4 py-3 border-b border-[var(--bark-800)] bg-[var(--bark-900)]">
-              <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-2 font-mono">
-                <Terminal size={15} className="text-blue-400" /> Kaniko Build Pipeline Output
-              </h3>
-              <button
-                onClick={() => setLogRunId(null)}
-                className="text-slate-400 hover:text-white transition-colors"
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 bg-slate-950 font-mono text-xs text-slate-200 custom-scrollbar leading-relaxed">
-              <AnsiText text={((initialLog?.content || '') + socketLogs) || 'Connecting to build log stream...'} />
-            </div>
-          </div>
-        </div>
-      )}
+      {logRunId && <PipelineLogModal runId={logRunId} onClose={() => setLogRunId(null)} />}
     </div>
   );
 }

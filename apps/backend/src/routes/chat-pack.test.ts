@@ -89,16 +89,13 @@ beforeAll(async () => {
   const db = harness.db;
   await seedTools(db);
   await db.savePersona(persona('p1', 'Koala', 'You are Koala.'));
-  await db.savePersona(persona('p2', 'Researcher', 'You are a rigorous Researcher. Cite sources.'));
   await db.savePersonaPack(pack('koala', 'p1'));
-  await db.savePersonaPack(pack('researcher', 'p2'));
-  await db.savePersonaPack(pack('orphan', 'gone'));
 });
 afterAll(async () => { await harness.close(); upstream?.close?.(); });
 
-describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
+describe('POST /api/chat-pack — unified wire, always koala', () => {
   it('goes through the engine and returns a typed frame', async () => {
-    const res = await fetch(harness.url('/api/chat-pack/koala'), {
+    const res = await fetch(harness.url('/api/chat-pack'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ conversationId: 'c1', message: 'hi' }),
@@ -112,21 +109,8 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
     expect(first.delta).toBe('hello-red-green');
   });
 
-  it('serves a DIFFERENT persona pack with its own system prompt', async () => {
-    const res = await fetch(harness.url('/api/chat-pack/researcher'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ conversationId: 'c2', message: 'research something' }),
-    });
-    expect(res.status).toBe(200);
-    await res.text();
-    const system = lastRequestBody?.messages?.find((m: any) => m.role === 'system');
-    expect(system?.content ?? '').toContain('rigorous Researcher');
-    expect(system?.content ?? '').not.toContain('Koala');
-  });
-
   it('rejects an empty message before streaming', async () => {
-    const res = await fetch(harness.url('/api/chat-pack/koala'), {
+    const res = await fetch(harness.url('/api/chat-pack'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: '  ' }),
@@ -136,7 +120,7 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
 
   it('persists the assistant message to the conversation in the database', async () => {
     const convId = 'persist-test-1';
-    const res = await fetch(harness.url('/api/chat-pack/koala'), {
+    const res = await fetch(harness.url('/api/chat-pack'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ conversationId: convId, message: 'tell me a joke' }),
@@ -220,7 +204,7 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
   });
 
   it('supplies the granted tools as function schemas to the provider', async () => {
-    const res = await fetch(harness.url('/api/chat-pack/koala'), {
+    const res = await fetch(harness.url('/api/chat-pack'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ conversationId: 'tools-check-conv', message: 'check tools' }),
@@ -245,82 +229,64 @@ describe('POST /api/chat-pack/:packId — unified wire (RED gate)', () => {
   });
 });
 
-describe('a pack that cannot run', () => {
-  it('404s an unknown pack instead of throwing a 500', async () => {
-    const res = await fetch(harness.url('/api/chat-pack/does-not-exist'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ conversationId: 'c-404', message: 'hi' }),
-    });
-    expect(res.status).toBe(404);
-  });
-
-  it('refuses a pack whose persona is gone, rather than silently running as Koala', async () => {
-    const res = await fetch(harness.url('/api/chat-pack/orphan'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ conversationId: 'c-409', message: 'hi' }),
-    });
-    expect(res.status).toBe(409);
-    const body = await res.json() as any;
-    expect(body.error).toMatch(/no longer exists/i);
-    expect(body.error).toMatch(/orphan/);
-  });
-
-  it('does not serve another user\'s pack', async () => {
-    await harness.db.savePersonaPack({
-      id: 'pack-theirs', ownerId: 'someone-else', slug: 'theirs', name: 'Theirs',
-      personaId: 'p1', tools: [],
-      sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt, createdAt: '', updatedAt: '',
-    });
-    const res = await fetch(harness.url('/api/chat-pack/theirs'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ conversationId: 'c-x', message: 'hi' }),
-    });
-    expect(res.status).toBe(404);
+describe('when koala cannot run', () => {
+  it('refuses when koala\'s own persona is gone, rather than silently substituting one', async () => {
+    await harness.db.savePersonaPack(pack('koala', 'gone'));
+    try {
+      const res = await fetch(harness.url('/api/chat-pack'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversationId: 'c-409', message: 'hi' }),
+      });
+      expect(res.status).toBe(409);
+      const body = await res.json() as any;
+      expect(body.error).toMatch(/no longer exists/i);
+    } finally {
+      await harness.db.savePersonaPack(pack('koala', 'p1'));
+    }
   });
 });
 
-describe('the pack decides the turn', () => {
-  const turn = (slug: string, id: string) => fetch(harness.url(`/api/chat-pack/${slug}`), {
+describe('koala\'s own configured pack decides the turn', () => {
+  const turn = (id: string) => fetch(harness.url('/api/chat-pack'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ conversationId: id, message: 'go' }),
   }).then((r) => r.text());
 
   it('offers only the tools the pack grants', async () => {
-    await harness.db.savePersonaPack(pack('narrow', 'p1', { tools: ['get_logs'] }));
-    await turn('narrow', 'c-tools');
+    await harness.db.savePersonaPack(pack('koala', 'p1', { tools: ['get_logs'] }));
+    await turn('c-tools');
     const names = (lastRequestBody?.tools ?? []).map((t: any) => t.function.name);
     expect(names).toEqual(['get_logs']);
   });
 
   it('offers nothing when the pack grants nothing', async () => {
-    await harness.db.savePersonaPack(pack('empty', 'p1', { tools: [] }));
-    await turn('empty', 'c-none');
+    await harness.db.savePersonaPack(pack('koala', 'p1', { tools: [] }));
+    await turn('c-none');
     expect(lastRequestBody?.tools ?? []).toEqual([]);
   });
 
   it('ignores a granted name that is not a real tool', async () => {
-    await harness.db.savePersonaPack(pack('typo', 'p1', { tools: ['get_logs', 'gte_logs'] }));
-    await turn('typo', 'c-typo');
+    await harness.db.savePersonaPack(pack('koala', 'p1', { tools: ['get_logs', 'gte_logs'] }));
+    await turn('c-typo');
     const names = (lastRequestBody?.tools ?? []).map((t: any) => t.function.name);
     expect(names).toEqual(['get_logs']);
   });
 
   it('puts the granted tools in the prompt, and only those', async () => {
-    await turn('narrow', 'c-prompt');
+    await harness.db.savePersonaPack(pack('koala', 'p1', { tools: ['get_logs'] }));
+    await turn('c-prompt');
     const system = lastRequestBody?.messages?.find((m: any) => m.role === 'system')?.content ?? '';
     expect(system).toMatch(/get_logs/);
     expect(system).not.toMatch(/deploy_project/);
   });
 
   it('applies the pack\'s own sampler to the call', async () => {
-    await harness.db.savePersonaPack(pack('cold', 'p1', {
+    await harness.db.savePersonaPack(pack('koala', 'p1', {
       sampling: { ...PACK_SEEDS[0]!.sampling, toolTurn: { temperature: 0.05 } },
     }));
-    await turn('cold', 'c-temp');
+    await turn('c-temp');
     expect(lastRequestBody?.temperature).toBe(0.05);
   });
 });

@@ -1,8 +1,9 @@
 import { GITEA_EGRESS } from './leaf-checkout.js';
-import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
+import type { PersonaPack } from '@koala/harness-types';
+import type { TreeTypeSpec } from './tree-types.js';
 import {
   egressForBindings,
-  type EgressRule, type WorkspaceSpec, type WorkspaceLanguage, type WorkspaceBinding,
+  type EgressRule, type WorkspaceSpec, type WorkspaceBinding,
 } from './workspace-spec.js';
 import { capableImage, packageAccess } from './workspace-image-catalogue.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -13,14 +14,14 @@ export function allowedTools(pack: Pick<PersonaPack, 'tools'> | null | undefined
   return available.filter((t) => declared.includes(t));
 }
 
-export function canRunLeaf(pack: Pick<PersonaPack, 'workspace'> | null | undefined): boolean {
-  const w = pack?.workspace;
-  if (!w) return false;
-  return Object.keys(w).length > 0;
+/** A pack does sandboxed work (vs. a conversation-only role like planner/judge/merger). */
+export function canRunLeaf(pack: Pick<PersonaPack, 'canRunLeaf'> | null | undefined): boolean {
+  return pack?.canRunLeaf === true;
 }
 
-export function usesRepo(pack: Pick<PersonaPack, 'workspace'> | null | undefined): boolean {
-  return pack?.workspace?.repo === true;
+/** Whether this kind of project gets a repository checkout — the tree type's call, not the pack's. */
+export function usesRepo(treeType: Pick<TreeTypeSpec, 'produces'> | null | undefined): boolean {
+  return treeType?.produces === 'service';
 }
 
 export function flattenPersona<T extends { id: string; basedOn?: string | undefined; systemPrompt?: string | undefined }>(
@@ -45,7 +46,6 @@ export function flattenPersona<T extends { id: string; basedOn?: string | undefi
 
 export function personaWorkspace(
   images: readonly WorkspaceImageSpec[],
-  pack: Pick<PersonaPack, 'workspace'> | null | undefined,
   ids: { leafId: string; ownerId: string },
   work: {
     language?: string | undefined;
@@ -53,11 +53,12 @@ export function personaWorkspace(
     files?: WorkspaceBinding[] | undefined;
     requires?: readonly string[] | undefined;
     checkout?: boolean | undefined;
+    /** From the tree type — see TreeTypeSpec.egress/.env. */
+    egress?: readonly EgressRule[] | undefined;
+    env?: readonly { name: string; value: string }[] | undefined;
   } = {},
 ): WorkspaceSpec {
-  const scope: WorkspaceScope | undefined = pack?.workspace;
-
-  const language = work.language ?? scope?.language;
+  const language = work.language;
   /**
    * Always resolved, never left for a later fallback. The image used to be decided twice — here
    * when a language was named, and again in `buildWorkspaceManifests` from a module constant when
@@ -74,22 +75,20 @@ export function personaWorkspace(
   const packages = chosen ? packageAccess(images, language) : { env: [], egress: [] };
 
   const egress = dedupeEgress([
-    ...((scope?.egress ?? []) as EgressRule[]),
+    ...((work.egress ?? []) as EgressRule[]),
     ...egressForBindings(work.bindings ?? []),
     ...(work.checkout ? [{ ...GITEA_EGRESS, ports: [...GITEA_EGRESS.ports] }] : []),
     ...packages.egress,
   ]);
 
-  const env = [...(scope?.env ?? []), ...packages.env]
+  const env = [...(work.env ?? []), ...packages.env]
     .filter((e, i, all) => all.findIndex((o) => o.name === e.name) === i);
 
   return {
     leafId: ids.leafId,
     ownerId: ids.ownerId,
     ...(image ? { image } : {}),
-    ...(scope?.cpu ? { cpu: scope.cpu } : {}),
-    ...(scope?.memory ? { memory: scope.memory } : {}),
-    ...(egress.length || scope?.egress ? { egress } : {}),
+    ...(egress.length || work.egress ? { egress } : {}),
     ...(env.length ? { env } : {}),
     ...(work.files?.length ? { bindings: work.files } : {}),
   };
@@ -141,15 +140,6 @@ export function flattenPack<T extends { id: string; slug?: string | undefined; b
      */
     for (const key of ['sampling', 'budget', 'prompt', 'model'] as const) {
       if (b[key] || l[key]) merged[key] = deepMergeConfig(b[key], l[key]);
-    }
-    if (b.workspace || l.workspace) {
-      const bw = (b.workspace ?? {}) as Record<string, unknown>;
-      const lw = (l.workspace ?? {}) as Record<string, unknown>;
-      merged.workspace = {
-        ...bw,
-        ...lw,
-        ...(bw.run || lw.run ? { run: { ...(bw.run as object ?? {}), ...(lw.run as object ?? {}) } } : {}),
-      };
     }
     return merged as T;
   }, chain[chain.length - 1]!);

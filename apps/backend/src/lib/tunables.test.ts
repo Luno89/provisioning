@@ -119,7 +119,7 @@ describe('harnessDefaults', () => {
     const defaults = harnessDefaults('tabbyapi', PACK_SEEDS[0]!.sampling);
     expect(defaults.temperature).toBe(0.3);
     expect(defaults.think).toBe(false);
-    expect(defaults.dry_multiplier).toBe(0.8);
+    expect(defaults.dry_multiplier).toBe(0);
   });
 
   it('leaves engine-specific knobs out for an engine that cannot take them', () => {

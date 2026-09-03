@@ -14,6 +14,11 @@ export function giteaUsernameFor(ownerId: string): string {
   return `koala-${slug}`.slice(0, MAX_GITEA_USERNAME);
 }
 
+/** The k8s namespace a project's own deployment lands in — must match DeployAppActivity's SANITIZE exactly. */
+export function sanitiseNamespaceName(name: string): string {
+  return (name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+
 export function sanitiseRepoName(name: string): string {
   const cleaned = (name ?? '')
     .trim()

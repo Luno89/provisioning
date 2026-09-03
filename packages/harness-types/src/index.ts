@@ -341,24 +341,6 @@ export type PersonaEgressRule =
   | { cidr: string; namespace?: undefined; ports?: number[] }
   | { namespace: string; cidr?: undefined; ports?: number[] };
 
-export interface WorkspaceScope {
-  language?: string;
-  cpu?: string;
-  memory?: string;
-  env?: { name: string; value: string }[];
-  repo?: boolean;
-  output?: string;
-  requireSources?: boolean;
-  egress?: PersonaEgressRule[];
-  run?: {
-    maxSteps?: number;
-    maxTokens?: number;
-    withdraw?: { afterStep: number; tools: string[] };
-    pacing?: { atRemaining: number; message: string }[];
-  };
-  tunedFor?: string;
-}
-
 export interface Persona {
   id: string;
   ownerId?: string;
@@ -417,7 +399,11 @@ export interface BudgetConfig {
   conversationChars: number;
   conversationGrowth: number;
   messageChars: number;
-  run: { steps: number; tokens: number; researchSteps: number; wrapUpSteps: number };
+  run: {
+    steps: number; tokens: number; researchSteps: number; wrapUpSteps: number;
+    withdraw?: { afterStep: number; tools: string[] };
+    pacing?: { atRemaining: number; message: string }[];
+  };
   handoff: {
     /** Fraction of the context window at which a conversation is handed off rather than continued. */
     at: number;
@@ -473,6 +459,12 @@ export interface PromptConfig {
      * `lib/plan-mode.ts` that duplicated and partly contradicted the persona row beside it.
      */
     planning?: string;
+    /** Output contract for ambient (mid-conversation, text-parsed) proposals — not `planning`'s tool-call contract. */
+    ambientPlanning?: string;
+    /** System prompt for the secondary model call that extracts leaf proposals out of reply text. */
+    extraction?: string;
+    /** Framing for the nudge sent when a proposed leaf has no persona assigned. */
+    assignmentNudge?: string;
   };
 }
 
@@ -486,7 +478,12 @@ export interface PersonaPack {
   basedOn?: string;
   tools: string[];
   mcp?: string[];
-  workspace?: WorkspaceScope;
+  /** Whether this pack does sandboxed work (a leaf can be assigned to it) vs. conversation-only (planner/judge/merger roles). No workspace of its own — the tree type supplies the environment. */
+  canRunLeaf?: boolean;
+  /** Where this pack's product lands in the shared workspace, e.g. '/work/findings.md'. */
+  output?: string;
+  /** Which deployment this pack's sampling/DRY values were tuned against. */
+  tunedFor?: string;
   sampling: SamplingConfig;
   budget: BudgetConfig;
   prompt: PromptConfig;
@@ -506,6 +503,24 @@ export interface PersonaPack {
    * varies a pack, and without this a five-arm experiment would leave five near-duplicates behind.
    */
   derivedFrom?: { packId: string; experimentId: string; label: string };
+
+  /**
+   * The runaway-generation monitor's own tuning — how quick it is to interrupt a turn that has
+   * gone into a repetition loop or lost the thread. Was a per-request client override
+   * (`thoughtMonitorSensitivity`/`ngramRepeatThreshold`/`failurePredictionThreshold`); moved here
+   * because a pack is the only thing allowed to decide how a turn runs — a client-side slider
+   * overriding it per-turn was exactly the "independently configured" pattern this whole
+   * persona-pack architecture exists to remove. No UI to edit this yet (that's still open, same as
+   * several `sampling`/`budget` fields); absent means the defaults below.
+   */
+  overthinking?: {
+    /** Default 'medium'. */
+    sensitivity?: 'low' | 'medium' | 'high';
+    /** Times a sequence may repeat before it counts as a loop. Default 5. */
+    ngramRepeatCap?: number;
+    /** Predicted-failure probability that interrupts the turn. Default 0.65. */
+    failureThreshold?: number;
+  };
 
   builtIn?: boolean;
   createdAt: string;

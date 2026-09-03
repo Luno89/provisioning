@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import * as harnessApi from '../api/harness';
 import Lab from '../components/Lab';
+import Harness from '../components/Harness';
 
 const handlers = new Map<string, (payload: any) => void>();
 const mockSocket = () => {
@@ -157,7 +158,6 @@ beforeEach(() => {
   ]) vi.mocked(fn).mockResolvedValue({} as never);
 });
 
-const harnessTab = async () => fireEvent.click(await screen.findByRole('button', { name: /^Harness$/ }));
 const cardTab = async (name: RegExp | string) =>
   fireEvent.click(await screen.findByRole('button', { name }));
 
@@ -168,10 +168,16 @@ const renderLab = () => {
   );
 };
 
+const renderHarness = () => {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}><Harness /></QueryClientProvider>,
+  );
+};
+
 describe('the configuration surface', () => {
   it('shows live settings with the reason they are set that way', async () => {
-    renderLab();
-    await harnessTab();
+    renderHarness();
     await waitFor(() => expect(screen.getByText('Max steps')).toBeInTheDocument());
     expect(screen.getByText('24')).toBeInTheDocument();
     expect(screen.getByText(/each step is an inference pass/)).toBeInTheDocument();
@@ -179,8 +185,7 @@ describe('the configuration surface', () => {
   });
 
   it('shows a prompt verbatim when expanded, rather than describing it', async () => {
-    renderLab();
-    await harnessTab();
+    renderHarness();
     await waitFor(() => expect(screen.getByText('Plan mode')).toBeInTheDocument());
     expect(screen.queryByText('YOU ARE PLANNING')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Plan mode'));
@@ -356,8 +361,7 @@ describe('promoting a winning configuration', () => {
         updatedAt: '2026-08-04T00:00:00Z',
       },
     });
-    renderLab();
-    await harnessTab();
+    renderHarness();
     const banner = (await screen.findByText('Running as')).closest('div')!;
     expect(within(banner).getByText('pack-koala')).toBeInTheDocument();
     expect(within(banner).getByText(/verified 4\/4 across 2 tasks/)).toBeInTheDocument();
@@ -374,8 +378,7 @@ describe('promoting a winning configuration', () => {
         updatedAt: '2026-08-04T00:00:00Z',
       },
     });
-    renderLab();
-    await harnessTab();
+    renderHarness();
     expect(await screen.findByText(/did not win its experiment/)).toBeInTheDocument();
   });
 });

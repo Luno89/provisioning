@@ -18,8 +18,10 @@ export interface ChatComposerProps {
   /**
    * One control, not three. The pack menu, the tool count and the drawer button were separate
    * entries that all led to the same editor, so which one you pressed changed nothing.
+   * Omitted entirely (not just unclicked) when there is no pack config surface to open —
+   * a scope with no pack picker shows no button rather than a permanent "Loading…".
    */
-  onOpenPersonaDrawer: () => void;
+  onOpenPersonaDrawer?: (() => void) | undefined;
   toolCount?: number;
   /** What this conversation runs on; the label reads as inherited when nothing is pinned. */
   modelLabel?: string;
@@ -81,19 +83,21 @@ export function ChatComposer({
 
       <div className="flex items-center justify-between pt-1 border-t border-[var(--bark-800,#1b2620)] px-0.5 select-none">
         <div className="flex items-center gap-1.5 relative">
-          <button
-            type="button"
-            onClick={onOpenPersonaDrawer}
-            className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
-            title="Pick the pack, and edit its directives and tools"
-          >
-            <Sparkles size={11} className="text-emerald-400" />
-            <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
-            {toolCount !== undefined && (
-              <span className="text-[11px] text-slate-500">· {toolCount} tools</span>
-            )}
-            <Sliders size={11} className="text-slate-500" />
-          </button>
+          {onOpenPersonaDrawer && (
+            <button
+              type="button"
+              onClick={onOpenPersonaDrawer}
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
+              title="Pick the pack, and edit its directives and tools"
+            >
+              <Sparkles size={11} className="text-emerald-400" />
+              <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
+              {toolCount !== undefined && (
+                <span className="text-[11px] text-slate-500">· {toolCount} tools</span>
+              )}
+              <Sliders size={11} className="text-slate-500" />
+            </button>
+          )}
 
           {onOpenModelDrawer && (
             <button

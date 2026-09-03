@@ -3,31 +3,33 @@ import { usesRepo, personaWorkspace } from './persona-scope.js';
 import { primaryProjectId, withProject } from './trees.js';
 import { inRepo, REPO_MOUNT } from './leaf-checkout.js';
 
-import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
+import type { PersonaPack } from '@koala/harness-types';
 import type { Tree } from './trees.js';
+import type { TreeTypeSpec } from './tree-types.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
-const persona = (workspace: WorkspaceScope = {}) =>
-  ({ id: 'p1', name: 'P', tools: [], workspace }) as unknown as PersonaPack;
+const treeType = (produces?: TreeTypeSpec['produces']) =>
+  ({ produces }) as Pick<TreeTypeSpec, 'produces'>;
+
+const pack = (output?: string) => ({ id: 'p1', name: 'P', tools: [], output }) as unknown as PersonaPack;
 
 describe('what the record decides', () => {
-  it('gives a checkout to whatever declares one, document or code', () => {
-    expect(usesRepo(persona({ repo: true, output: '/work/repo/findings.md' }))).toBe(true);
-    expect(usesRepo(persona({ repo: true }))).toBe(true);
+  it('gives a checkout to a service tree type, document or code pack', () => {
+    expect(usesRepo(treeType('service'))).toBe(true);
   });
 
-  it('treats an absent repo flag as no', () => {
-    expect(usesRepo(persona({}))).toBe(false);
+  it('treats an artefact tree type as no', () => {
+    expect(usesRepo(treeType('artefact'))).toBe(false);
     expect(usesRepo(null)).toBe(false);
   });
 
-  it('separates producing a document from producing code, by the output field', () => {
-    const document = persona({ repo: true, output: '/work/repo/findings.md' });
-    const code = persona({ repo: true });
+  it('separates producing a document from producing code, by the pack\'s output field', () => {
+    const document = pack('/work/repo/findings.md');
+    const code = pack();
 
-    expect(Boolean(document.workspace?.output)).toBe(true);
-    expect(Boolean(code.workspace?.output)).toBe(false);
+    expect(Boolean(document.output)).toBe(true);
+    expect(Boolean(code.output)).toBe(false);
   });
 });
 
@@ -79,20 +81,19 @@ describe('the image a cloning persona needs', () => {
 });
 
 describe('the image a checkout needs', () => {
-  const prose = { id: 'p', ownerId: 'u1', name: 'Researcher', systemPrompt: '', workspace: { language: 'base' } } as never;
   const ids = { leafId: 'l1', ownerId: 'u1' };
 
   it('gives a prose leaf with a checkout an image that can clone', () => {
-    const spec = personaWorkspace(IMAGES, prose, ids, { requires: ['git'] });
+    const spec = personaWorkspace(IMAGES, ids, { language: 'base', requires: ['git'] });
     expect(spec.image).not.toBe(BY_LANGUAGE.base.image);
   });
 
   it('leaves a leaf with no checkout on the minimal image', () => {
-    expect(personaWorkspace(IMAGES, prose, ids, {}).image).toBe(BY_LANGUAGE.base.image);
+    expect(personaWorkspace(IMAGES, ids, { language: 'base' }).image).toBe(BY_LANGUAGE.base.image);
   });
 
   it('never overrides a toolchain the work actually needs', () => {
-    expect(personaWorkspace(IMAGES, prose, ids, { requires: ['git'], language: 'go' }).image)
+    expect(personaWorkspace(IMAGES, ids, { requires: ['git'], language: 'go' }).image)
       .toBe(BY_LANGUAGE.go.image);
   });
 });

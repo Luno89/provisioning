@@ -5,13 +5,12 @@ import { withBuiltIns } from './ownership.js';
 import { resolveTreeType } from './tree-types.js';
 import { visibleAppSpecs } from './app-spec.js';
 import { ToolService } from '../services/ToolService.js';
-import { packForLeaf } from './packs.js';
 import { buildModelRequest } from './model-request.js';
 import { routeProvider } from './model-registry.js';
 import { agentRunOptions } from './agent-run.js';
 import { composePersonaPrompt } from './persona-prompt.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { PACK_SEEDS } from './pack-seeds.js';
+import { PACK_SEEDS, packForLeaf } from './pack-seeds.js';
 
 const fresh = async () => {
   const db = new MemoryDB();

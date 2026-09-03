@@ -31,7 +31,10 @@ export interface SuspectedDuplicate {
   score: number;
 }
 
-export function suspectedDuplicates(titles: readonly string[]): SuspectedDuplicate[] {
+export function suspectedDuplicates(
+  titles: readonly string[],
+  threshold: number = SIMILAR_ENOUGH_TO_ASK,
+): SuspectedDuplicate[] {
   const found: SuspectedDuplicate[] = [];
   for (let i = 0; i < titles.length; i++) {
     for (let j = i + 1; j < titles.length; j++) {
@@ -39,7 +42,7 @@ export function suspectedDuplicates(titles: readonly string[]): SuspectedDuplica
       const b = titles[j]!;
       if (norm(a) === norm(b)) continue;
       const score = similarity(a, b);
-      if (score >= SIMILAR_ENOUGH_TO_ASK) found.push({ a, b, score });
+      if (score >= threshold) found.push({ a, b, score });
     }
   }
   return found.sort((x, y) => y.score - x.score);

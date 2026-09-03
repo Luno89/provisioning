@@ -77,6 +77,14 @@ describe('createStreamParser', () => {
     const events = [...p.push(sse({ choices: [], usage: { prompt_tokens: 10 } })), ...p.flush()];
     expect(events).toEqual([{ kind: 'usage', usage: { prompt_tokens: 10 } }]);
   });
+  it('reports finish_reason when the upstream carries it', () => {
+    const p = createStreamParser();
+    const events = [
+      ...p.push(sse({ choices: [{ delta: {}, finish_reason: 'length' }] })),
+      ...p.flush(),
+    ];
+    expect(events).toEqual([{ kind: 'finish', reason: 'length' }]);
+  });
 });
 
 const fakeStream = (chunks: string[]) => {
@@ -346,5 +354,149 @@ describe('runToolRounds', () => {
       onEnabled,
     });
     expect(onEnabled).toHaveBeenCalledWith('svc');
+  });
+});
+
+describe('runToolRounds — finish reason, usage, interrupts, post-passes', () => {
+  const finishBody = (text: string, reason: string) => fakeStream([
+    delts({ content: text }),
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: reason }] })}\n\n`,
+  ]);
+  const usageBody = (text: string, usage: Record<string, unknown>) => fakeStream([
+    delts({ content: text }),
+    `data: ${JSON.stringify({ choices: [], usage })}\n\n`,
+  ]);
+
+  it('surfaces the finish reason on the result', async () => {
+    const call = vi.fn().mockResolvedValue({ ok: true, body: finishBody('cut off', 'length') });
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: '' }),
+    });
+    expect(result.answer).toBe('cut off');
+    expect(result.finishReason).toBe('length');
+  });
+
+  it('surfaces usage on the result', async () => {
+    const call = vi.fn().mockResolvedValue({ ok: true, body: usageBody('ok', { prompt_tokens: 5, completion_tokens: 2 }) });
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: '' }),
+    });
+    expect(result.usage).toEqual({ prompt_tokens: 5, completion_tokens: 2 });
+  });
+
+  it('stops immediately when the emit hook returns an interrupt reason, skipping wrap-up', async () => {
+    const call = vi.fn().mockResolvedValue({
+      ok: true,
+      body: fakeStream([delts({ reasoning_content: 'going in circles' }), delts({ content: 'never reached' })]),
+    });
+    const emit = vi.fn((frame: any) => (frame.kind === 'reasoning' ? 'circling' : undefined));
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 3,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      call,
+      emit,
+      executeTool: async () => ({ content: '' }),
+      onExhausted: 'wrap-up',
+    });
+    expect(result.interrupted).toBe('circling');
+    expect(result.answer).toBe('');
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'interrupted', reason: 'circling' }));
+  });
+
+  it('runs a post-pass when its condition matches, and adopts its answer', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, body: finishBody('cut off mid-', 'length') })
+      .mockResolvedValueOnce({ ok: true, body: contentBody('cut off mid-thought, now finished.') });
+    const buildMessages = vi.fn((ctx) => [...ctx.originalMessages, { role: 'user', content: 'continue' }]);
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: '' }),
+      postPasses: [{
+        id: 'length-continuation',
+        when: (ctx) => ctx.finishReason === 'length',
+        buildMessages,
+      }],
+    });
+    expect(result.answer).toBe('cut off mid-thought, now finished.');
+    expect(buildMessages).toHaveBeenCalledWith(expect.objectContaining({ finishReason: 'length' }));
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips a post-pass whose condition does not match', async () => {
+    const call = vi.fn().mockResolvedValue({ ok: true, body: contentBody('a normal answer') });
+    const buildMessages = vi.fn();
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: '' }),
+      postPasses: [{
+        id: 'length-continuation',
+        when: (ctx) => ctx.finishReason === 'length',
+        buildMessages,
+      }],
+    });
+    expect(result.answer).toBe('a normal answer');
+    expect(buildMessages).not.toHaveBeenCalled();
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it('never runs post-passes when the turn was interrupted', async () => {
+    const call = vi.fn().mockResolvedValue({ ok: true, body: finishBody('stopping', 'length') });
+    const emit = vi.fn(() => 'stop it');
+    const buildMessages = vi.fn();
+    const result = await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 2,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      call,
+      emit,
+      executeTool: async () => ({ content: '' }),
+      postPasses: [{ id: 'x', when: () => true, buildMessages }],
+    });
+    expect(result.interrupted).toBe('stop it');
+    expect(buildMessages).not.toHaveBeenCalled();
+  });
+
+  it('gives a post-pass the pre-round messages, not the mutated tool-call transcript', async () => {
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, body: toolBody('t1', 'get_logs', '{}') })
+      .mockResolvedValueOnce({ ok: true, body: finishBody('partial', 'length') })
+      .mockResolvedValueOnce({ ok: true, body: contentBody('finished') });
+    let seenOriginal: unknown[] | undefined;
+    await runToolRounds({ maxToolCallsPerMessage: BUDGET.record.callsPerRound, maxToolCallArgs: BUDGET.record.argChars, maxToolCallDigest: BUDGET.record.digestChars,
+      maxRounds: 3,
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+      call,
+      emit: vi.fn(),
+      executeTool: async () => ({ content: 'logs' }),
+      postPasses: [{
+        id: 'length-continuation',
+        when: (ctx) => ctx.finishReason === 'length',
+        buildMessages: (ctx) => { seenOriginal = ctx.originalMessages; return ctx.originalMessages; },
+      }],
+    });
+    expect(seenOriginal).toEqual([{ role: 'user', content: 'hi' }]);
   });
 });

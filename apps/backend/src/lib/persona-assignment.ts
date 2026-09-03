@@ -9,14 +9,12 @@ export function unassignedLeaves(leaves: Leaf[], branchId: string): Leaf[] {
 export function buildAssignmentPrompt(
   leaves: Pick<Leaf, 'title'>[],
   personas: { name: string; description?: string | undefined }[],
+  nudge: string,
 ): string {
   return [
     `${leaves.length === 1 ? 'This leaf has' : 'These leaves have'} no persona assigned:`,
     ...leaves.map((l) => `- ${l.title}`),
-    '',
-    'A persona carries the whole environment the work runs in — its toolchain image, what it may',
-    'reach on the network, which tools it can call, how long it gets, and where its output goes.',
-    'Work with nobody assigned cannot run.',
+    ...(nudge ? ['', nudge] : []),
     '',
     'Available personas:',
     ...personas.map((p) => `- ${p.name}${p.description ? ` — ${p.description}` : ''}`),

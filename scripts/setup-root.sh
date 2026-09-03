@@ -47,6 +47,30 @@ if ! docker info &>/dev/null; then
 fi
 echo "✅ Docker ready."
 
+# Add the invoking user to the docker group so they can talk to the daemon without
+# sudo. Without this every `docker …` command fails with "permission denied while
+# trying to connect to the docker API at unix:///var/run/docker.sock" — the socket
+# is root:docker 0660 and a user outside the group simply can't reach it.
+TARGET_USER="${SUDO_USER:-$(logname 2>/dev/null || true)}"
+if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
+  echo "⚠️  Could not determine the non-root user to add to the docker group (are you running this"
+  echo "   via 'sudo bash …' rather than as an actual root login?) — skipping. You'll need to"
+  echo "   add yourself manually: sudo usermod -aG docker \$USER"
+else
+  if id -nG "$TARGET_USER" | grep -qw docker; then
+    echo "▶  ${TARGET_USER} is already in the docker group — skipping"
+  else
+    echo "🔄 Adding ${TARGET_USER} to the docker group..."
+    usermod -aG docker "$TARGET_USER"
+    echo "✅ ${TARGET_USER} added to the docker group."
+    echo ""
+    echo "   Group membership doesn't apply to your current shell — pick one:"
+    echo "     • Log out and back in (cleanest)"
+    echo "     • Run: newgrp docker"
+    echo "   Then verify with: docker info"
+  fi
+fi
+
 # 2. GPU container toolkit (NVIDIA auto-install / AMD detection) — folded in here rather than
 #    a separate `sudo bash scripts/setup-gpu.sh` invocation so there's exactly one root-requiring
 #    entry point for the whole host setup, not two. Already root (inherited from this script's

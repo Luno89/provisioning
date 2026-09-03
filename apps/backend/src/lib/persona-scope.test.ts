@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { allowedTools, usesRepo, flattenPack, personaWorkspace } from './persona-scope.js';
-import type { PersonaPack, WorkspaceScope } from '@koala/harness-types';
+import type { PersonaPack } from '@koala/harness-types';
+import type { TreeTypeSpec } from './tree-types.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 import { seedsByLanguage as BY_LANGUAGE } from './workspace-image-seeds.js';
 
-const p = (name: string, over?: { tools?: string[]; workspace?: WorkspaceScope }) =>
-  ({ name, tools: over?.tools ?? [], ...(over?.workspace ? { workspace: over.workspace } : {}) }) as
-    Pick<PersonaPack, 'name' | 'tools' | 'workspace'>;
+const p = (name: string, over?: { tools?: string[] }) =>
+  ({ name, tools: over?.tools ?? [] }) as Pick<PersonaPack, 'name' | 'tools'>;
+
+const tt = (over?: { produces?: TreeTypeSpec['produces'] }) =>
+  ({ produces: over?.produces }) as Pick<TreeTypeSpec, 'produces'>;
 
 describe('the tools a persona actually gets', () => {
   const ALL = ['run_command', 'write_file', 'read_file', 'finish', 'web_search', 'fetch_web_page'];
@@ -31,44 +34,36 @@ describe('the tools a persona actually gets', () => {
   });
 });
 
-describe('whether a persona works in the repository', () => {
-  it('defaults to NO, because most work is not a codebase', () => {
-    expect(usesRepo(p('Researcher'))).toBe(false);
-    expect(usesRepo(p('Researcher', {}))).toBe(false);
+describe('whether a tree type works in the repository', () => {
+  it('defaults to NO for an artefact — most work is not a codebase', () => {
+    expect(usesRepo(tt({ produces: 'artefact' }))).toBe(false);
     expect(usesRepo(null)).toBe(false);
   });
 
-  it('gives one to a persona that asks', () => {
-    expect(usesRepo(p('Builder', { workspace: { repo: true }}))).toBe(true);
-  });
-
-  it('treats an explicit false the same as saying nothing', () => {
-    expect(usesRepo(p('Researcher', { workspace: { repo: false }}))).toBe(false);
+  it('gives one to a tree type that produces a service', () => {
+    expect(usesRepo(tt({ produces: 'service' }))).toBe(true);
   });
 });
 
 describe('a persona defined as "that one, but ..."', () => {
-  type Flat = { id: string; slug?: string; basedOn?: string; name?: string; systemPrompt?: string; sampling?: { toolTurn: Record<string, number>; conversation: Record<string, number> }; tools?: string[]; workspace?: Record<string, unknown> };
+  type Flat = { id: string; slug?: string; basedOn?: string; name?: string; systemPrompt?: string; sampling?: { toolTurn: Record<string, number>; conversation: Record<string, number> }; tools?: string[]; output?: string; budget?: { run?: { steps?: number; withdraw?: { afterStep: number; tools: string[] } } } };
   const parent: Flat = {
     id: 'researcher', name: 'Researcher', systemPrompt: 'answer one question',
     sampling: { toolTurn: { temperature: 0.4 }, conversation: {} },
-    tools: ['web_search', 'write_file', 'finish'], workspace: {
-      repo: false,
-      output: '/work/findings.md',
-      run: { maxSteps: 100, withdraw: { afterStep: 50, tools: ['web_search'] } },
-    },
+    tools: ['web_search', 'write_file', 'finish'],
+    output: '/work/findings.md',
+    budget: { run: { steps: 100, withdraw: { afterStep: 50, tools: ['web_search'] } } },
   };
 
   it('inherits everything it does not change', () => {
     const child: Flat = { id: 'short', name: 'Researcher (short)', sampling: { toolTurn: { temperature: 0.4 }, conversation: {} }, basedOn: 'researcher',
-      workspace: { run: { maxSteps: 40 } } };
+      budget: { run: { steps: 40 } } };
     const flat = flattenPack(child, [parent, child]);
-    expect((flat.workspace!.run as any).maxSteps).toBe(40);
+    expect(flat.budget!.run!.steps).toBe(40);
     expect(flat.systemPrompt).toBe('answer one question');
     expect(flat.tools).toEqual(['web_search', 'write_file', 'finish']);
-    expect(flat.workspace!.repo).toBe(false);
-    expect(flat.workspace!.output).toBe('/work/findings.md');
-    expect((flat.workspace!.run as any).withdraw).toEqual({ afterStep: 50, tools: ['web_search'] });
+    expect(flat.output).toBe('/work/findings.md');
+    expect(flat.budget!.run!.withdraw).toEqual({ afterStep: 50, tools: ['web_search'] });
     expect(flat.sampling!.toolTurn.temperature).toBe(0.4);
   });
 
@@ -76,7 +71,7 @@ describe('a persona defined as "that one, but ..."', () => {
     const child: Flat = { id: 'cold', name: 'Researcher (cold)', sampling: { toolTurn: { temperature: 0.1 }, conversation: {} }, basedOn: 'researcher' };
     const flat = flattenPack(child, [parent, child]);
     expect(flat.sampling!.toolTurn.temperature).toBe(0.1);
-    expect((flat.workspace!.run as any).maxSteps).toBe(100);
+    expect(flat.budget!.run!.steps).toBe(100);
   });
 
   it('ignores a parent that no longer exists rather than failing the work', () => {
@@ -91,43 +86,40 @@ describe('a persona defined as "that one, but ..."', () => {
   });
 });
 
-describe('the container a persona runs in', () => {
+describe('the container a leaf runs in', () => {
   const ids = { leafId: 'leaf-1', ownerId: 'u1' };
 
-  it('takes everything it can from the record', () => {
-    const spec = personaWorkspace(IMAGES, 
-      p('Heavy', { workspace: { language: 'go', cpu: '4', memory: '8Gi', egress: [{ namespace: 'gitea', ports: [3000] }], env: [{ name: 'TOKEN', value: 'x' }] }}),
-      ids,
-    );
-    expect(spec).toMatchObject({ leafId: 'leaf-1', ownerId: 'u1', cpu: '4', memory: '8Gi' });
+  it('takes everything it can from the work', () => {
+    const spec = personaWorkspace(IMAGES, ids, {
+      language: 'go',
+      egress: [{ namespace: 'gitea', ports: [3000] }],
+      env: [{ name: 'TOKEN', value: 'x' }],
+    });
+    expect(spec).toMatchObject({ leafId: 'leaf-1', ownerId: 'u1' });
     expect(spec.egress).toContainEqual({ namespace: 'gitea', ports: [3000] });
     expect(spec.env).toContainEqual({ name: 'TOKEN', value: 'x' });
     expect(spec.image).toContain('go-toolset');
   });
 
-  it("lets the project's toolchain win over the persona's own", () => {
-    const spec = personaWorkspace(IMAGES, p('Builder', { workspace: { language: 'node' }}), ids, { language: 'go' });
+  it("lets the project's toolchain win when both are named", () => {
+    const spec = personaWorkspace(IMAGES, ids, { language: 'go' });
     expect(spec.image).toContain('go-toolset');
   });
 
-  it("uses the persona's own toolchain when there is no project", () => {
-    expect(personaWorkspace(IMAGES, p('Researcher', { workspace: { language: 'base' }}), ids).image).toContain('ubi');
-  });
-
-  it('resolves the default image when neither the pack nor the work names a language', () => {
+  it('resolves the default image when no language is named', () => {
     // It used to leave this undefined and let `buildWorkspaceManifests` fill it in from a module
     // constant — the same node image, decided in a second place. The pod is unchanged; what the
-    // pack reports about itself is now the truth.
-    expect(personaWorkspace(IMAGES, p('Plain'), ids).image).toBe(BY_LANGUAGE.node.image);
+    // work declares is now the truth.
+    expect(personaWorkspace(IMAGES, ids, {}).image).toBe(BY_LANGUAGE.node.image);
   });
 
   it('distinguishes an unstated network from a deliberately closed one', () => {
-    expect(personaWorkspace(IMAGES, p('Unstated'), ids).egress).toBeUndefined();
-    expect(personaWorkspace(IMAGES, p('Closed', { workspace: { egress: [] }}), ids).egress).toEqual([]);
+    expect(personaWorkspace(IMAGES, ids, {}).egress).toBeUndefined();
+    expect(personaWorkspace(IMAGES, ids, { egress: [] }).egress).toEqual([]);
   });
 
-  it('carries nothing extra for a persona that declares nothing', () => {
-    expect(personaWorkspace(IMAGES, null, ids))
+  it('carries nothing extra when the work declares nothing', () => {
+    expect(personaWorkspace(IMAGES, ids, {}))
       .toEqual({ leafId: 'leaf-1', ownerId: 'u1', image: BY_LANGUAGE.node.image });
   });
 });
@@ -137,46 +129,30 @@ describe('the network a checkout needs', () => {
   const gitea = (spec: { egress?: readonly { namespace?: string | undefined; ports?: number[] | undefined }[] | undefined }) =>
     (spec.egress ?? []).find((r) => r.namespace === 'gitea');
 
-  it('opens Gitea for a persona that works in a repository but never said so', () => {
-    const spec = personaWorkspace(IMAGES, 
-      { id: 'p', ownerId: 'u', name: 'Researcher', systemPrompt: '', workspace: { repo: true } } as never,
-      ids,
-      { checkout: true },
-    );
+  it('opens Gitea for work checking out a repository', () => {
+    const spec = personaWorkspace(IMAGES, ids, { checkout: true });
     expect(gitea(spec)?.ports).toContain(3000);
   });
 
-  it('leaves a persona with no checkout unable to reach it', () => {
-    const spec = personaWorkspace(IMAGES, 
-      { id: 'p', ownerId: 'u', name: 'Reviewer', systemPrompt: '', workspace: {} } as never,
-      ids,
-      {},
-    );
+  it('leaves work with no checkout unable to reach it', () => {
+    const spec = personaWorkspace(IMAGES, ids, {});
     expect(gitea(spec)).toBeUndefined();
   });
 
-  it('does not double the rule for a persona that already declared it', () => {
-    const spec = personaWorkspace(IMAGES, 
-      {
-        id: 'p', ownerId: 'u', name: 'Builder', systemPrompt: '',
-        workspace: { repo: true, egress: [{ namespace: 'gitea', ports: [3000] }] },
-      } as never,
-      ids,
-      { checkout: true },
-    );
+  it('does not double the rule when the tree type already declared it', () => {
+    const spec = personaWorkspace(IMAGES, ids, {
+      checkout: true,
+      egress: [{ namespace: 'gitea', ports: [3000] }],
+    });
     expect((spec.egress ?? []).filter((r) => r.namespace === 'gitea')).toHaveLength(1);
   });
 });
 
 describe('what a workspace can install', () => {
-  const spec = (language: string | undefined, scope: Record<string, unknown> = {}) =>
-    personaWorkspace(IMAGES, 
-      { id: 'p', name: 'Worker', tools: [], workspace: scope } as never,
-      { leafId: 'leaf-1', ownerId: 'u' },
-      { language },
-    );
+  const spec = (language: string | undefined, over: { env?: { name: string; value: string }[] } = {}) =>
+    personaWorkspace(IMAGES, { leafId: 'leaf-1', ownerId: 'u' }, { language, ...over });
 
-  it('gives a python workspace pip access with no persona configuration at all', () => {
+  it('gives a python workspace pip access with no tree-type env at all', () => {
     const s = spec('python');
     expect((s.env ?? []).find((e) => e.name === 'PIP_INDEX_URL')).toBeTruthy();
     expect((s.egress ?? []).find((r) => r.namespace === 'koala-egress')?.ports).toContain(8888);
@@ -188,7 +164,7 @@ describe('what a workspace can install', () => {
     expect((s.egress ?? []).find((r) => r.namespace === 'koala-egress')).toBeUndefined();
   });
 
-  it('lets a persona override the index without ending up with two of them', () => {
+  it('lets a tree type override the index without ending up with two of them', () => {
     const s = spec('node', { env: [{ name: 'NPM_CONFIG_REGISTRY', value: 'http://internal:4873' }] });
     const npm = (s.env ?? []).filter((e) => e.name === 'NPM_CONFIG_REGISTRY');
     expect(npm).toHaveLength(1);

@@ -14,8 +14,8 @@ describe('Project Planning & Leaf Decomposition Rigorous Evaluator', () => {
   it('includes clear instructions in PLAN_CONTRACT for breaking down projects', () => {
     // Who the planner is lives on the persona; the shape of a proposal lives on the pack.
     expect(PLANNER_PERSONA.systemPrompt).toContain('You are the planner.');
-    expect(PLAN_CONTRACT).toContain('{"leaves":[');
-    expect(PLAN_CONTRACT).toContain('Short imperative title');
+    expect(PLAN_CONTRACT).toContain('propose_leaf');
+    expect(PLAN_CONTRACT).toContain('imperative');
   });
 
   it('tells the planner it has no sandbox, which is what stopped it building', () => {

@@ -25,7 +25,9 @@ export function buildChatCompletionRequest(input: ChatCompletionRequest) {
   const { provider, messages, tools, sampling, budget, toolChoice } = input;
   const maxTokens = input.maxTokens ?? budget.replyTokens.ceiling;
   const built = buildModelRequest({
-    turn: 'tool-turn',
+    // Which of the pack's own sampler profiles applies — per round, not hardcoded. A round
+    // offering tool schemas samples as a tool-turn; a round with none samples as a conversation.
+    turn: Array.isArray(tools) && tools.length > 0 ? 'tool-turn' : 'conversation',
     ...(provider?.kind ? { kind: provider.kind } : {}),
     messages: messages as any,
     tools: tools as unknown as any[],

@@ -62,8 +62,7 @@ export interface Leaf {
   projectId?: string;
   expects?: string[];
   dependsOn?: string[];
-  personaId?: string;
-  /** Which pack carries this leaf out. `personaId` predates it and is no longer written. */
+  /** Which pack carries this leaf out. */
   packId?: string;
   summary?: string;
   findings?: string;

@@ -102,7 +102,7 @@ describe('the dashboard proxies', () => {
   it('exposes one route per service and 404s an unknown cluster on each', async () => {
     const { h, svc } = await mount();
     svc.clusterService.getById.mockResolvedValue(undefined as never);
-    for (const service of ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager']) {
+    for (const service of ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager', 'infisical']) {
       const err = await axios.get(h.url(`/api/clusters/c1/proxy/${service}`)).catch((e) => e);
       expect(err.response?.status, service).toBe(404);
     }

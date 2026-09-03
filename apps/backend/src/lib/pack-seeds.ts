@@ -1,16 +1,27 @@
-import type { BudgetConfig, PersonaPack, PromptConfig, SamplingConfig, WorkspaceScope } from '@koala/harness-types';
+import type { BudgetConfig, PersonaPack, PromptConfig, SamplingConfig } from '@koala/harness-types';
 import { KOALA_NAME } from './koala-persona.js';
 import { researchPacing } from './sandbox-tools.js';
 import { WEB_TOOL_NAMES } from './leaf-tools.js';
 import { sameSeededRow } from './seed-diff.js';
+import { EXTRACTION_SYSTEM_PROMPT } from './extraction.js';
 
 const TUNED_FOR = 'Tabbyapi-Production';
 
 const DEFAULT_SAMPLING: SamplingConfig = {
   toolTurn: { temperature: 0.3 },
-  conversation: { frequency_penalty: 0.4, presence_penalty: 0.3 },
+  /**
+   * Verified live against Tabbyapi-Production (turboderp/Qwen3.8-27B-exl3): 0.4/0.3 reliably drove
+   * a long "thinking" turn into multilingual word-salad — the penalty compounds across a long
+   * reasoning trace until the sampler is forced off-distribution. Reproduced with a raw request
+   * replayed straight at the model (bypassing this app entirely), isolated to these two fields
+   * alone, and confirmed fixed at these values with the same replayed request. Not proven safe for
+   * every model this pack could run on — a value this sensitive to a specific engine's behavior is
+   * exactly what `byEngine` exists for, but this default has to be non-catastrophic everywhere
+   * since most packs never set an override.
+   */
+  conversation: { frequency_penalty: 0.1, presence_penalty: 0.1 },
   byEngine: {
-    tabbyapi: { dry_multiplier: 0.8, dry_base: 1.75, dry_allowed_length: 2 },
+    tabbyapi: { dry_multiplier: 0 },
   },
 };
 
@@ -83,32 +94,16 @@ const DEFAULT_PROMPT: PromptConfig = {
 
 const defaultPrompt = (): PromptConfig => structuredClone(DEFAULT_PROMPT);
 
-/**
- * The planner's output contract. This was `planSystemPrompt` in `lib/plan-mode.ts` — literal text
- * in code, sitting beside a seeded persona row that said some of the same things differently.
- *
- * What belongs here is the SHAPE of a proposal. Who the planner is and how it should think belongs
- * on the persona. The sandbox description is composed at run time from the workspace image rows,
- * in the third person — the planner does not have a sandbox, and telling it "you run shell
- * commands in a Linux container" is what made it try to build.
- */
 const PLANNING_CONTRACT = [
   'When — and only when — you are confident about concrete work that should be done, propose it by',
-  'ending your reply with a fenced json block:',
-  '',
-  '```json',
-  '{"leaves":[{"title":"Short imperative title","body":"What doing this involves",',
-  '            "persona":"Name of the persona that should do it"}],',
-  ' "serviceName":"short-name"}',
-  '```',
+  'calling propose_leaf once per separately deliverable piece. Do not describe the plan in your reply',
+  'text instead of calling the tool — a plan that exists only as prose was never actually proposed,',
+  'and nothing downstream ever reads your reply text for it.',
   '',
   'Rules:',
-  '- `serviceName` is optional and only for work that produces a service other agents will call.',
-  '  Short, lowercase, one or two words, no version — `weather`, `github-api`. It becomes the prefix',
-  '  on every tool the service exposes, so a long or generic one makes them hard to tell apart.',
-  '- `persona` is REQUIRED on every leaf. Use a name from the personas listed for you, exactly as',
-  '  written. A persona decides the toolchain, what the work may reach, and how long it may run —',
-  '  a leaf with no persona, or with a name that is not real, cannot be started by anyone.',
+  '- `persona` is REQUIRED on every propose_leaf call. Use a name from the personas listed for you,',
+  '  exactly as written. A persona decides the toolchain, what the work may reach, and how long it',
+  '  may run — a leaf with no persona, or with a name that is not real, cannot be started by anyone.',
   '- Before proposing work that needs a capability, call list_mcp_servers to see what is already',
   '  running. Servers deployed here are real and their tools are callable from a leaf, so prefer',
   '  using one over rebuilding it. When the work BUILDS a server, propose a final leaf that calls',
@@ -137,9 +132,39 @@ const PLANNING_CONTRACT = [
   '- Anything you propose is only a suggestion; a human accepts it before it runs.',
 ].join('\n');
 
-const plannerPrompt = (): PromptConfig => ({
+const AMBIENT_PLANNING_CONTRACT = [
+  'If you become confident about concrete work that should be done, you may end your reply with:',
+  '```json',
+  '{"leaves":[{"title":"Imperative title","body":"What it involves","persona":"Persona name"}]}',
+  '```',
+  'Only when the work is clear. Otherwise just talk, or ask a question.',
+].join('\n');
+
+const ASSIGNMENT_NUDGE = [
+  'A leaf needs a persona assigned before it can run — the toolchain, network access and time',
+  'budget it gets all come from the tree type once accepted, but nothing starts until someone is named.',
+].join('\n');
+
+/**
+ * Extracting proposals from prose and nudging an unassigned leaf are turn-level mechanics that run
+ * for any chat pack, koala included — not specific to the planner role's propose_leaf tool contract.
+ */
+const chatMechanicsPrompt = (): PromptConfig => ({
   ...structuredClone(DEFAULT_PROMPT),
-  sections: { ...structuredClone(DEFAULT_PROMPT.sections), planning: PLANNING_CONTRACT },
+  sections: {
+    ...structuredClone(DEFAULT_PROMPT.sections),
+    extraction: EXTRACTION_SYSTEM_PROMPT,
+    assignmentNudge: ASSIGNMENT_NUDGE,
+  },
+});
+
+const plannerPrompt = (): PromptConfig => ({
+  ...chatMechanicsPrompt(),
+  sections: {
+    ...chatMechanicsPrompt().sections,
+    planning: PLANNING_CONTRACT,
+    ambientPlanning: AMBIENT_PLANNING_CONTRACT,
+  },
 });
 
 export interface PackSeed {
@@ -149,7 +174,10 @@ export interface PackSeed {
   personaName: string;
   tools: string[];
   mcp?: string[];
-  workspace?: WorkspaceScope;
+  /** Does sandboxed work (a leaf can be assigned to it) — false/omitted for chat-only roles (koala, planner). */
+  canRunLeaf?: boolean;
+  output?: string;
+  tunedFor?: string;
   sampling: SamplingConfig;
   budget: BudgetConfig;
   prompt: PromptConfig;
@@ -172,18 +200,13 @@ export const PACK_SEEDS: PackSeed[] = [
     ],
     sampling: defaultSampling(),
     budget: defaultBudget(),
-    prompt: defaultPrompt(),
+    prompt: chatMechanicsPrompt(),
   },
   {
     slug: 'planner',
     name: 'Planner',
     description: 'Turns a proposed project goal into a concrete plan of executable leaves.',
     personaName: 'Planner',
-    /**
-     * No `workspace`. A planner runs as a planning turn, not in a sandbox — the sandbox agent loop
-     * can only dispatch `sandbox`-surface tools, so a planner given one could write files and never
-     * propose a leaf. That is exactly what the old `framer` pack did.
-     */
     tools: [
       'list_leaves', 'get_leaf', 'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'replace_leaf',
       'set_acceptance', 'list_personas', 'list_mcp_servers', 'list_tree_types',
@@ -200,17 +223,19 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Answers one narrow question from sources, and cites them.',
     personaName: 'Researcher',
     tools: ['web_search', 'fetch_web_page', 'read_file', 'write_file', 'finish'],
-    workspace: {
-      repo: false, language: 'base', output: '/work/findings.md', egress: [],
-      tunedFor: TUNED_FOR,
+    canRunLeaf: true,
+    output: '/work/findings.md',
+    tunedFor: TUNED_FOR,
+    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.4 } },
+    budget: {
+      ...defaultBudget(),
       run: {
-        maxSteps: DEFAULT_BUDGET.run.researchSteps,
+        ...defaultBudget().run,
+        steps: DEFAULT_BUDGET.run.researchSteps,
         withdraw: { afterStep: Math.floor(DEFAULT_BUDGET.run.researchSteps / 2), tools: [...WEB_TOOL_NAMES] },
         pacing: researchPacing(DEFAULT_BUDGET.run.researchSteps, '/work/findings.md', DEFAULT_BUDGET.run.wrapUpSteps),
       },
     },
-    sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.4 } },
-    budget: defaultBudget(),
     prompt: defaultPrompt(),
   },
   {
@@ -219,14 +244,11 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Turns a pile of separate answers into one piece of writing.',
     personaName: 'Synthesist',
     tools: ['read_file', 'write_file', 'finish'],
-    workspace: {
-      repo: false, language: 'base', output: '/work/findings.md',
-      requireSources: false, egress: [],
-      tunedFor: TUNED_FOR,
-      run: { maxSteps: 30 },
-    },
+    canRunLeaf: true,
+    output: '/work/findings.md',
+    tunedFor: TUNED_FOR,
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.5 } },
-    budget: defaultBudget(),
+    budget: { ...defaultBudget(), run: { ...defaultBudget().run, steps: 30 } },
     prompt: defaultPrompt(),
   },
   {
@@ -235,12 +257,10 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Resolves merge conflicts when leaves land on the default branch.',
     personaName: 'Merger',
     tools: ['run_command', 'read_file', 'write_file', 'finish'],
-    workspace: {
-      repo: true, egress: [{ namespace: 'gitea', ports: [3000] }],
-      tunedFor: TUNED_FOR, run: { maxSteps: 30 },
-    },
+    canRunLeaf: true,
+    tunedFor: TUNED_FOR,
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.2 } },
-    budget: defaultBudget(),
+    budget: { ...defaultBudget(), run: { ...defaultBudget().run, steps: 30 } },
     prompt: defaultPrompt(),
   },
   {
@@ -249,12 +269,11 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Crawls sites into the corpus, and answers from it.',
     personaName: 'Ingestor',
     tools: ['start_ingest', 'ingest_status', 'search_corpus', 'read_file', 'write_file', 'finish'],
-    workspace: {
-      repo: false, language: 'base', output: '/work/findings.md', egress: [],
-      tunedFor: TUNED_FOR, run: { maxSteps: 40 },
-    },
+    canRunLeaf: true,
+    output: '/work/findings.md',
+    tunedFor: TUNED_FOR,
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.3 } },
-    budget: defaultBudget(),
+    budget: { ...defaultBudget(), run: { ...defaultBudget().run, steps: 40 } },
     prompt: defaultPrompt(),
   },
   {
@@ -263,7 +282,7 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Reads a failed leaf and says why it failed.',
     personaName: 'Reviewer',
     tools: [],
-    workspace: { repo: false, language: 'base' },
+    canRunLeaf: true,
     sampling: defaultSampling(),
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -274,7 +293,7 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Reads what a leaf produced and says whether the claim holds up.',
     personaName: 'Judge',
     tools: [],
-    workspace: { repo: false, language: 'base' },
+    canRunLeaf: true,
     sampling: { ...defaultSampling(), toolTurn: { ...defaultSampling().toolTurn, temperature: 0.1 } },
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -285,11 +304,8 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Writes code in a repository, with tests, and commits it.',
     personaName: 'Builder',
     tools: ['run_command', 'read_file', 'write_file', 'finish'],
-    workspace: {
-      repo: true,
-      egress: [{ namespace: 'gitea', ports: [3000] }],
-      tunedFor: TUNED_FOR,
-    },
+    canRunLeaf: true,
+    tunedFor: TUNED_FOR,
     sampling: defaultSampling(),
     budget: defaultBudget(),
     prompt: defaultPrompt(),
@@ -305,13 +321,6 @@ export interface PackSeedStore {
   getPersonas(): Promise<{ id: string; ownerId?: string | undefined; name: string }[]>;
 }
 
-/**
- * Built-in packs, brought in line with the seeds. Returns how many rows actually CHANGED.
- *
- * This used to delete every built-in and write it back, which moved each pack's `updatedAt` on
- * every run — and `AgentRequest.ranAs` copies that timestamp to say which configuration a run used,
- * so seeding made every past run look as though its pack had been edited since.
- */
 export async function seedPacks(store: PackSeedStore): Promise<number> {
   const stored = await store.getPersonaPacks();
   const builtIns = new Map(stored.filter((p) => p.ownerId == null).map((p) => [p.id, p]));
@@ -339,7 +348,9 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
       personaId: persona.id,
       tools: [...seed.tools],
       ...(seed.mcp ? { mcp: [...seed.mcp] } : {}),
-      ...(seed.workspace ? { workspace: seed.workspace } : {}),
+      ...(seed.canRunLeaf ? { canRunLeaf: seed.canRunLeaf } : {}),
+      ...(seed.output ? { output: seed.output } : {}),
+      ...(seed.tunedFor ? { tunedFor: seed.tunedFor } : {}),
       sampling: structuredClone(seed.sampling),
       budget: structuredClone(seed.budget),
       prompt: structuredClone(seed.prompt),
@@ -353,10 +364,6 @@ export async function seedPacks(store: PackSeedStore): Promise<number> {
     written++;
   }
 
-  /**
-   * A built-in the seeds no longer ship, or one whose persona is missing this run, should not
-   * linger — but an arm's derived pack is not a built-in and is left alone.
-   */
   for (const id of builtIns.keys()) {
     if (seeded.has(id)) continue;
     await store.deletePersonaPack(id);

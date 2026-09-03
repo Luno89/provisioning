@@ -58,17 +58,3 @@ export function validatePack(
   return undefined;
 }
 
-export function packForLeaf(
-  packs: readonly PersonaPack[],
-  leaf: { packId?: string | undefined; personaId?: string | undefined },
-  fallbackPersonaId?: string | undefined,
-): PersonaPack | undefined {
-  if (leaf.packId) {
-    const named = packs.find((p) => p.id === leaf.packId || p.slug === leaf.packId);
-    if (named) return named;
-  }
-  const personaId = leaf.personaId ?? fallbackPersonaId;
-  if (!personaId) return undefined;
-  return packs.find((p) => p.personaId === personaId);
-}
-

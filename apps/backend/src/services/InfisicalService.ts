@@ -3,13 +3,13 @@ import fs from 'fs/promises';
 import axios from 'axios';
 import { maskSecret, encryptValue, decryptValue } from '../lib/crypto.js';
 import type { InfrastructureService } from './InfrastructureService.js';
+import type { ClusterProxyService } from './ClusterProxyService.js';
 
 const NAMESPACE = 'infisical';
 const DATA_DIR = path.join(process.cwd(), 'data');
 const ENCRYPTION_KEY_FILE = path.join(DATA_DIR, '.infisical-encryption-key');
 const AUTH_SECRET_FILE = path.join(DATA_DIR, '.infisical-auth-secret');
 const ADMIN_PASSWORD_FILE = path.join(DATA_DIR, '.infisical-admin-password');
-const TOKEN_CACHE_FILE = path.join(DATA_DIR, '.infisical-token-cache');
 
 export interface InfisicalSecretRecord {
   key: string;
@@ -46,6 +46,8 @@ export interface InjectSecretToPodResult {
 export class InfisicalService {
   private baseUrlCache: string | null = null;
   private tokenCache: string | null = null;
+  private orgId: string | null = null;
+  private readonly workspaceCache = new Map<string, string>();
   private readonly memoryStore = new Map<string, Map<string, string>>();
 
   constructor(
@@ -53,19 +55,33 @@ export class InfisicalService {
     private readonly masterKey: string,
     private readonly kubeconfigPath: string,
     private readonly customBaseUrl?: string,
+    private readonly clusterProxy?: Pick<ClusterProxyService, 'ensurePortForward'>,
   ) {}
 
   async resolveBaseUrl(): Promise<string> {
     if (this.customBaseUrl) return this.customBaseUrl;
     if (this.baseUrlCache) return this.baseUrlCache;
 
+    // The Helm-deployed Infisical service is ClusterIP-only (no NodePort) — confirmed live, the
+    // NodePort lookup below always fell through to a stale fallback address, so route through the
+    // same kubectl port-forward mechanism ClusterProxyService already uses successfully elsewhere.
+    if (this.clusterProxy) {
+      try {
+        const url = await this.clusterProxy.ensurePortForward('platform', 'infisical', this.kubeconfigPath);
+        this.baseUrlCache = url.replace(/\/$/, '');
+        return this.baseUrlCache;
+      } catch (err: any) {
+        console.warn(`[InfisicalService] port-forward failed, falling back to NodePort lookup: ${err.message}`);
+      }
+    }
+
     try {
       const svcJson = await this.infra.runKubectl(
-        ['get', 'svc', 'infisical', '-n', NAMESPACE, '-o', 'json'],
+        ['get', 'svc', 'infisical-infisical-standalone-infisical', '-n', NAMESPACE, '-o', 'json'],
         this.kubeconfigPath,
       ).catch(() =>
         this.infra.runKubectl(
-          ['get', 'svc', 'infisical-standalone', '-n', NAMESPACE, '-o', 'json'],
+          ['get', 'svc', 'infisical', '-n', NAMESPACE, '-o', 'json'],
           this.kubeconfigPath,
         )
       );
@@ -94,49 +110,141 @@ export class InfisicalService {
     }
   }
 
-  async authenticate(): Promise<string> {
-    if (this.tokenCache) return this.tokenCache;
-
-    const baseUrl = await this.resolveBaseUrl();
+  async getAdminCredentials(): Promise<{ username: string; password: string }> {
     let adminPassword = 'dev-admin-password-1234';
     try {
       const read = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8');
       if (read.trim()) adminPassword = read.trim();
     } catch { /* ignored */ }
+    return { username: 'admin', password: adminPassword };
+  }
+
+  private async loadAuthCreds(): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {
+    try {
+      const parsed = JSON.parse(await fs.readFile(AUTH_SECRET_FILE, 'utf8'));
+      if (parsed?.clientId && parsed?.clientSecret && parsed?.orgId) return parsed;
+    } catch { /* ignored */ }
+    return null;
+  }
+
+  private async saveAuthCreds(creds: { clientId: string; clientSecret: string; orgId: string }): Promise<void> {
+    try {
+      await fs.mkdir(DATA_DIR, { recursive: true });
+      await fs.writeFile(AUTH_SECRET_FILE, JSON.stringify(creds), 'utf8');
+    } catch (err: any) {
+      console.warn(`[InfisicalService] could not persist auth credentials: ${err.message}`);
+    }
+  }
+
+  /**
+   * A fresh instance has no credential to log in with — bootstrap it into a permanent, non-expiring
+   * Universal Auth machine identity (clientId/clientSecret) instead of relying on the bootstrap
+   * response's own identity token, which is a one-off: /admin/bootstrap 400s "already been set up"
+   * on every call after the first, so that token can never be re-derived once lost. Runs at most
+   * once per instance, ever.
+   */
+  private async provisionMachineIdentity(): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {
+    const baseUrl = await this.resolveBaseUrl();
+    const { password: adminPassword } = await this.getAdminCredentials();
 
     try {
       const bootstrapRes = await axios.post(
         `${baseUrl}/api/v1/admin/bootstrap`,
-        {
-          email: 'admin@provisioning.local',
-          password: adminPassword,
-          organization: 'provisioning',
-        },
-        { timeout: 3000, proxy: false },
-      ).catch(() => null);
+        { email: 'admin@provisioning.local', password: adminPassword, organization: 'provisioning' },
+        { timeout: 5000, proxy: false },
+      );
+      const bootstrapToken = bootstrapRes.data?.identity?.credentials?.token;
+      const identityId = bootstrapRes.data?.identity?.id;
+      const orgId = bootstrapRes.data?.organization?.id;
+      if (!bootstrapToken || !identityId || !orgId) return null;
 
-      if (bootstrapRes?.data?.token) {
-        this.tokenCache = bootstrapRes.data.token;
-        return this.tokenCache!;
+      const headers = { Authorization: `Bearer ${bootstrapToken}` };
+      const attachRes = await axios.post(
+        `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}`,
+        { accessTokenTTL: 31536000, accessTokenMaxTTL: 31536000, accessTokenNumUsesLimit: 0 },
+        { headers, timeout: 5000, proxy: false },
+      );
+      const clientId = attachRes.data?.identityUniversalAuth?.clientId;
+      if (!clientId) return null;
+
+      const secretRes = await axios.post(
+        `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}/client-secrets`,
+        { description: 'provisioning backend', ttl: 0, numUsesLimit: 0 },
+        { headers, timeout: 5000, proxy: false },
+      );
+      const clientSecret = secretRes.data?.clientSecret;
+      if (!clientSecret) return null;
+
+      const creds = { clientId, clientSecret, orgId };
+      await this.saveAuthCreds(creds);
+      return creds;
+    } catch (err: any) {
+      console.warn(`[InfisicalService] could not provision a machine identity: ${err.message}`);
+      return null;
+    }
+  }
+
+  async authenticate(): Promise<string> {
+    if (this.tokenCache) return this.tokenCache;
+
+    const creds = (await this.loadAuthCreds()) ?? (await this.provisionMachineIdentity());
+    if (!creds) {
+      this.tokenCache = 'infisical-local-fallback-token';
+      return this.tokenCache;
+    }
+    this.orgId = creds.orgId;
+
+    try {
+      const baseUrl = await this.resolveBaseUrl();
+      const res = await axios.post(
+        `${baseUrl}/api/v1/auth/universal-auth/login`,
+        { clientId: creds.clientId, clientSecret: creds.clientSecret },
+        { timeout: 5000, proxy: false },
+      );
+      if (res.data?.accessToken) {
+        this.tokenCache = res.data.accessToken;
+        return res.data.accessToken;
       }
-
-      const loginRes = await axios.post(
-        `${baseUrl}/api/v1/auth/login`,
-        {
-          email: 'admin@provisioning.local',
-          password: adminPassword,
-        },
-        { timeout: 3000, proxy: false },
-      ).catch(() => null);
-
-      if (loginRes?.data?.token) {
-        this.tokenCache = loginRes.data.token;
-        return this.tokenCache!;
-      }
-    } catch { /* ignored */ }
+    } catch (err: any) {
+      console.warn(`[InfisicalService] universal-auth login failed: ${err.message}`);
+    }
 
     this.tokenCache = 'infisical-local-fallback-token';
     return this.tokenCache;
+  }
+
+  /** Our own project ids are never real Infisical workspace ids — find-or-create the mapping. */
+  private async ensureWorkspace(projectId: string): Promise<string | null> {
+    if (this.workspaceCache.has(projectId)) return this.workspaceCache.get(projectId)!;
+
+    const token = await this.authenticate();
+    if (token === 'infisical-local-fallback-token') return null;
+    const baseUrl = await this.resolveBaseUrl();
+    const projectName = `provisioning-${projectId}`;
+    const headers = { Authorization: `Bearer ${token}` };
+
+    try {
+      const list = await axios.get(`${baseUrl}/api/v1/workspace`, { headers, timeout: 4000, proxy: false });
+      const found = (list.data?.workspaces ?? []).find((w: any) => w.name === projectName);
+      if (found?.id) {
+        this.workspaceCache.set(projectId, found.id);
+        return found.id;
+      }
+
+      const created = await axios.post(
+        `${baseUrl}/api/v2/workspace`,
+        { projectName, organizationId: this.orgId },
+        { headers, timeout: 4000, proxy: false },
+      );
+      const id = created.data?.project?.id;
+      if (id) {
+        this.workspaceCache.set(projectId, id);
+        return id;
+      }
+    } catch (err: any) {
+      console.warn(`[InfisicalService] could not resolve workspace for ${projectId}: ${err.message}`);
+    }
+    return null;
   }
 
   async getSecret(projectId: string, key: string, environment = 'dev'): Promise<string | null> {
@@ -151,12 +259,14 @@ export class InfisicalService {
     }
 
     try {
+      const workspaceId = await this.ensureWorkspace(projectId);
+      if (!workspaceId) return null;
       const token = await this.authenticate();
       const baseUrl = await this.resolveBaseUrl();
       const res = await axios.get(
         `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
         {
-          params: { workspaceId: projectId, environment },
+          params: { workspaceId, environment },
           headers: { Authorization: `Bearer ${token}` },
           timeout: 4000,
           proxy: false,
@@ -165,7 +275,9 @@ export class InfisicalService {
       if (res.data?.secret?.secretValue) {
         return res.data.secret.secretValue;
       }
-    } catch { /* ignored */ }
+    } catch (err: any) {
+      console.warn(`[InfisicalService] getSecret(${key}) failed: ${err.message}`);
+    }
 
     return null;
   }
@@ -186,23 +298,36 @@ export class InfisicalService {
     const secretReference = `secret://${projectId}/${key}`;
 
     try {
-      const token = await this.authenticate();
-      const baseUrl = await this.resolveBaseUrl();
-      await axios.post(
-        `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-        {
-          workspaceId: projectId,
+      const workspaceId = await this.ensureWorkspace(projectId);
+      if (workspaceId) {
+        const token = await this.authenticate();
+        const baseUrl = await this.resolveBaseUrl();
+        const body = {
+          workspaceId,
           environment,
           secretValue: value,
           secretComment: comment ?? 'Managed by provisioning platform',
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 4000,
-          proxy: false,
-        },
-      );
-    } catch { /* ignored */ }
+        };
+        const headers = { Authorization: `Bearer ${token}` };
+        // The raw endpoint's POST only creates — an existing key 400s "already exists" (a real, live
+        // finding: injectSecretToPod calls setSecret again right after the caller already did, and a
+        // silently-swallowed 400 there would mean a value never actually updates on a rotation/redeploy).
+        await axios.post(
+          `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
+          body,
+          { headers, timeout: 4000, proxy: false },
+        ).catch(async (err: any) => {
+          if (err.response?.status !== 400) throw err;
+          await axios.patch(
+            `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
+            body,
+            { headers, timeout: 4000, proxy: false },
+          );
+        });
+      }
+    } catch (err: any) {
+      console.warn(`[InfisicalService] setSecret(${key}) failed: ${err.message}`);
+    }
 
     return { success: true, secretReference };
   }
@@ -214,18 +339,23 @@ export class InfisicalService {
     }
 
     try {
-      const token = await this.authenticate();
-      const baseUrl = await this.resolveBaseUrl();
-      await axios.delete(
-        `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-        {
-          params: { workspaceId: projectId, environment },
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 4000,
-          proxy: false,
-        },
-      );
-    } catch { /* ignored */ }
+      const workspaceId = await this.ensureWorkspace(projectId);
+      if (workspaceId) {
+        const token = await this.authenticate();
+        const baseUrl = await this.resolveBaseUrl();
+        await axios.delete(
+          `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
+          {
+            params: { workspaceId, environment },
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 4000,
+            proxy: false,
+          },
+        );
+      }
+    } catch (err: any) {
+      console.warn(`[InfisicalService] deleteSecret(${key}) failed: ${err.message}`);
+    }
 
     return true;
   }
@@ -254,12 +384,14 @@ export class InfisicalService {
     }
 
     try {
+      const workspaceId = await this.ensureWorkspace(projectId);
+      if (!workspaceId) return results;
       const token = await this.authenticate();
       const baseUrl = await this.resolveBaseUrl();
       const res = await axios.get(
         `${baseUrl}/api/v3/secrets/raw`,
         {
-          params: { workspaceId: projectId, environment },
+          params: { workspaceId, environment },
           headers: { Authorization: `Bearer ${token}` },
           timeout: 4000,
           proxy: false,
@@ -304,7 +436,9 @@ export class InfisicalService {
 
     const { secretReference } = await this.setSecret(projectId, key, secretValue);
 
-    const secretName = `${deploymentName}-secrets`;
+    // gitapp.ts's Deployment always mounts envFrom on `${namespaceName}-secrets`, not a name derived
+    // from the Deployment resource (which is always literally "gitapp").
+    const secretName = `${namespace}-secrets`;
 
     try {
       await this.infra.runKubectl(
@@ -416,7 +550,7 @@ metadata:
   name: ${name}
   namespace: ${namespace}
 spec:
-  hostAPI: http://infisical-standalone.infisical.svc.cluster.local:8080
+  hostAPI: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080
   resyncInterval: 60
   authentication:
     universalAuth:

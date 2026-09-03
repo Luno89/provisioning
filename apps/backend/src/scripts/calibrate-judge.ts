@@ -11,7 +11,6 @@ import {
   CODE_DIMENSIONS, type JudgeVerdict,
 } from '../lib/leaf-judge.js';
 import { calibrate, formatCalibration, type CalibrationRow } from '../lib/judge-calibration.js';
-import { defaultSampling, requireBudget } from '../lib/pack-defaults.js';
 
 const DECOY_DIFF = [
   'diff --git a/src/colours.ts b/src/colours.ts',
@@ -27,8 +26,14 @@ const DECOY_DIFF = [
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const sampling = await defaultSampling(db);
-  const budget = await requireBudget(db);
+  const koala = (await db.getPersonaPacks()).find((p) => p.slug === 'koala' && p.ownerId == null);
+  if (!koala) {
+    console.error('No koala pack seeded — run the seeder (scripts/seed-all.ts).');
+    process.exitCode = 1;
+    return;
+  }
+  const sampling = koala.sampling;
+  const budget = koala.budget;
 
   try {
     const wanted = process.argv[2];

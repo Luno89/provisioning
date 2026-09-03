@@ -3,23 +3,24 @@ import type { Persona, PersonaPack } from '@koala/harness-types';
 import { withBuiltIns } from '../lib/ownership.js';
 
 export class PersonaPackService extends BaseService {
-  /** All packs visible to a user: built-ins plus the user's own overrides. */
   async visiblePacks(userId: string): Promise<PersonaPack[]> {
     return withBuiltIns(await this.db.getPersonaPacks(), userId, (p) => p.slug);
   }
 
-  /** Resolve a pack by id or slug, visible to the user. */
   async resolvePack(userId: string, id: string): Promise<PersonaPack | undefined> {
     const packs = await this.visiblePacks(userId);
-    return packs.find((p) => p.id === id || p.slug === id);
+    const found = packs.find((p) => p.id === id || p.slug === id);
+    if (found) return found;
+    const all = await this.db.getPersonaPacks();
+    const original = all.find((p) => p.id === id);
+    if (!original) return undefined;
+    return packs.find((p) => p.slug === original.slug);
   }
 
-  /** All personas visible to a user: built-ins plus the user's own overrides. */
   async visiblePersonas(userId: string): Promise<Persona[]> {
     return withBuiltIns(await this.db.getPersonas(), userId, (p) => p.name);
   }
 
-  /** The full persona catalogue this user may reference: built-ins and their own rows. */
   async referenceablePersonas(userId: string): Promise<Persona[]> {
     const all = await this.db.getPersonas();
     return all.filter((p) => p.ownerId == null || p.ownerId === userId);

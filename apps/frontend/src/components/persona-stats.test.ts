@@ -10,11 +10,11 @@ const leaf = (over: Partial<Leaf>): Leaf => ({
 describe('how a persona has actually done', () => {
   it('rates verification over finished work, not everything assigned', () => {
     const leaves = [
-      leaf({ personaId: 'p', status: 'succeeded', verified: true }),
-      leaf({ personaId: 'p', status: 'failed' }),
-      leaf({ personaId: 'p', status: 'running' }),
-      leaf({ personaId: 'p', status: 'proposed' }),
-      leaf({ personaId: 'p', status: 'pending' }),
+      leaf({ packId: 'p', status: 'succeeded', verified: true }),
+      leaf({ packId: 'p', status: 'failed' }),
+      leaf({ packId: 'p', status: 'running' }),
+      leaf({ packId: 'p', status: 'proposed' }),
+      leaf({ packId: 'p', status: 'pending' }),
     ];
     const s = statsFor('p', leaves);
     expect(s.assigned).toBe(5);
@@ -24,43 +24,43 @@ describe('how a persona has actually done', () => {
 
   it('does not count a claim as a verification', () => {
     const leaves = [
-      leaf({ personaId: 'p', status: 'succeeded', verified: false }),
-      leaf({ personaId: 'p', status: 'succeeded', verified: false }),
+      leaf({ packId: 'p', status: 'succeeded', verified: false }),
+      leaf({ packId: 'p', status: 'succeeded', verified: false }),
     ];
     expect(statsFor('p', leaves).verifiedRate).toBe(0);
   });
 
   it('says nothing rather than zero when nothing has finished', () => {
-    const s = statsFor('p', [leaf({ personaId: 'p', status: 'running' })]);
+    const s = statsFor('p', [leaf({ packId: 'p', status: 'running' })]);
     expect(s.verifiedRate).toBeUndefined();
     expect(s.assigned).toBe(1);
   });
 
   it('ignores other personas entirely', () => {
-    const leaves = [leaf({ personaId: 'other', status: 'succeeded', verified: true })];
+    const leaves = [leaf({ packId: 'other', status: 'succeeded', verified: true })];
     expect(statsFor('p', leaves).assigned).toBe(0);
   });
 
   it('takes a median so one runaway run does not redefine the cost', () => {
     const leaves = [43_000, 97_000, 103_000, 604_000].map((t) =>
-      leaf({ personaId: 'p', usage: { tokens: t } }));
+      leaf({ packId: 'p', usage: { tokens: t } }));
     expect(statsFor('p', leaves).medianTokens).toBe(100_000);
     expect(statsFor('p', leaves).medianTokens).toBeLessThan(150_000);
   });
 
   it('leaves runs that recorded no usage out of the median', () => {
     const leaves = [
-      leaf({ personaId: 'p', usage: { tokens: 100_000 } }),
-      leaf({ personaId: 'p', status: 'proposed' }),
-      leaf({ personaId: 'p', status: 'proposed' }),
+      leaf({ packId: 'p', usage: { tokens: 100_000 } }),
+      leaf({ packId: 'p', status: 'proposed' }),
+      leaf({ packId: 'p', status: 'proposed' }),
     ];
     expect(statsFor('p', leaves).medianTokens).toBe(100_000);
   });
 
   it('counts a retry from the attempt array, which is sometimes a number', () => {
     const leaves = [
-      leaf({ personaId: 'p', attempts: [{ attempt: 0, error: 'x', failedAt: '' }, { attempt: 1, error: 'y', failedAt: '' }] }),
-      leaf({ personaId: 'p', attempts: [{ attempt: 0, error: 'x', failedAt: '' }] }),
+      leaf({ packId: 'p', attempts: [{ attempt: 0, error: 'x', failedAt: '' }, { attempt: 1, error: 'y', failedAt: '' }] }),
+      leaf({ packId: 'p', attempts: [{ attempt: 0, error: 'x', failedAt: '' }] }),
     ];
     expect(statsFor('p', leaves).retried).toBe(1);
   });

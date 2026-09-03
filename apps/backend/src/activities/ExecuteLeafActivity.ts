@@ -12,7 +12,7 @@ import { resolveForPersona, mcpGaps } from '../lib/mcp-registry.js';
 import { toLoopTools, routeCall } from '../lib/mcp-tools.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { resolvePrompt } from '../lib/personas.js';
-import { packForLeaf } from '../lib/packs.js';
+import { packForLeaf } from '../lib/pack-seeds.js';
 import { ToolService } from '../services/ToolService.js';
 import { flattenPersona, usesRepo, personaWorkspace, allowedTools } from '../lib/persona-scope.js';
 import {
@@ -62,6 +62,10 @@ import { readStreamedReply } from '../lib/agent-loop.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import { UniversalValidatorService, type ValidationSummary } from '../services/UniversalValidatorService.js';
 import {
+  SANDBOX_FETCH_SCRIPT, SANDBOX_FETCH_SCRIPT_RELATIVE_PATH, SANDBOX_FETCH_COMMAND,
+  sandboxFetchRequest, parseSandboxFetchOutput,
+} from '../lib/sandbox-fetch.js';
+import {
   assessLoopProgress, recordFromSummary, writeValidationArtifacts,
   VALIDATION_FEEDBACK_FILE, DEFAULT_MAX_VALIDATION_ROUNDS, type ValidationRoundRecord,
 } from '../lib/worker-validator-loop.js';
@@ -98,6 +102,38 @@ export interface ExecuteLeafResult {
   summary: string;
 }
 
+/** UniversalValidatorService env, all three primitives routed into the sandbox via kubectl exec. */
+async function buildValidatorEnv(
+  workspaces: WorkspaceService,
+  leaf: Pick<Leaf, 'id'>,
+  checkout: unknown,
+  branchName: unknown,
+) {
+  await workspaces.writeFile(leaf.id, SANDBOX_FETCH_SCRIPT_RELATIVE_PATH, SANDBOX_FETCH_SCRIPT);
+  return {
+    exec: async (cmd: string) => {
+      const cdCmd = checkout && branchName ? `cd /work/repo && ${cmd}` : cmd;
+      const res = await workspaces.exec(leaf.id, cdCmd, 180_000);
+      return { exitCode: res.exitCode, stdout: res.stdout, stderr: res.stderr };
+    },
+    readFile: async (p: string) => workspaces.readFile(leaf.id, `/work/repo/${p}`)
+      .catch(() => workspaces.readFile(leaf.id, `/work/${p}`))
+      .catch(() => workspaces.readFile(leaf.id, p)),
+    fetch: async (input: string | URL | Request, init?: RequestInit) => {
+      const req = sandboxFetchRequest(String(input instanceof Request ? input.url : input), init);
+      // 'sh' fills $0, matching writeFile()'s convention.
+      const res = await workspaces.exec(
+        leaf.id, SANDBOX_FETCH_COMMAND, 20_000,
+        ['sh', req.url, req.method, req.headersJson, req.body],
+      );
+      if (res.exitCode !== 0 && !res.stdout.trim()) {
+        throw new Error(res.stderr || `sandbox fetch exited ${res.exitCode} with no output`);
+      }
+      return parseSandboxFetchOutput(res.stdout) as unknown as Response;
+    },
+  };
+}
+
 export function buildLeafContext(leaf: Leaf, priorFailures: LeafAttempt[]): string {
   const parts = [`Task: ${leaf.title}`];
   if (leaf.body) parts.push(leaf.body);
@@ -108,7 +144,7 @@ export function buildLeafContext(leaf: Leaf, priorFailures: LeafAttempt[]): stri
   return parts.join('\n\n');
 }
 
-async function resolveMcpForLeaf(db: any, pack: any, leaf: any): Promise<Record<string, unknown>> {
+async function resolveMcpForLeaf(db: any, pack: any, leaf: any, egress: any): Promise<Record<string, unknown>> {
   const wanted = [...new Set([...wantsMcp(pack), ...(leaf?.mcp ?? [])])];
   if (!wanted.length) return {};
 
@@ -119,7 +155,7 @@ async function resolveMcpForLeaf(db: any, pack: any, leaf: any): Promise<Record<
     if (missing.length) {
       console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: pack named MCP servers that are not running — ${missing.join(', ')}`);
     }
-    for (const gap of mcpGaps(servers, pack?.workspace?.egress, (s: any) => s.deploymentName ?? s.name)) {
+    for (const gap of mcpGaps(servers, egress, (s: any) => s.deploymentName ?? s.name)) {
       console.warn(`[ExecuteLeafActivity] leaf ${leaf.id}: ${gap}`);
     }
 
@@ -174,13 +210,6 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       const profile = await db.getHarnessProfile(leaf.ownerId);
       const ownPersonas = withBuiltIns(await db.getPersonas(), leaf.ownerId, (p) => p.name);
 
-      const ownPacks = withBuiltIns(await db.getPersonaPacks(), leaf.ownerId, (p) => p.slug);
-      const pack = packForLeaf(ownPacks, leaf, profile?.packId);
-      const wanted = pack?.personaId;
-      const assigned = wanted ? ownPersonas.find((p) => p.id === wanted) : undefined;
-      const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-      const wantsRepo = usesRepo(pack);
-
       const branchOfLeaf = (await db.getBranches()).find((b) => b.id === leaf.branchId);
       const treeOf = branchOfLeaf?.treeId
         ? (await db.getTrees()).find((t) => t.id === branchOfLeaf.treeId)
@@ -188,17 +217,24 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
       const treeType = await resolveTreeType(db, leaf.ownerId, treeOf?.type);
       const conventions = conventionsOf(treeType);
 
+      const ownPacks = withBuiltIns(await db.getPersonaPacks(), leaf.ownerId, (p) => p.slug);
+      const pack = packForLeaf(ownPacks, leaf, profile?.packId);
+      const wanted = pack?.personaId;
+      const assigned = wanted ? ownPersonas.find((p) => p.id === wanted) : undefined;
+      const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
+      const wantsRepo = usesRepo(treeType);
+
       const producesCode = Boolean(
         (treeType && (treeType.produces === 'service' || treeType.validationRecipe || (treeType.files?.length ?? 0) > 0)) ||
-        (!treeType && !pack?.workspace?.output) ||
+        (!treeType && !pack?.output) ||
         leaf.validationContract ||
         leaf.projectId ||
         (treeOf?.projectIds?.length ?? 0) > 0 ||
-        usesRepo(pack)
+        wantsRepo
       );
 
-      const workLanguage = (pack?.workspace?.language ?? treeType?.language) as WorkspaceLanguage | undefined;
-      const declaredOutput = pack?.workspace?.output;
+      const workLanguage = treeType?.language as WorkspaceLanguage | undefined;
+      const declaredOutput = pack?.output;
       const outputPath = declaredOutput;
 
       const systemPrompt = resolvePrompt(persona);
@@ -309,12 +345,13 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
 
       const sandboxSpec = personaWorkspace(
         await new WorkspaceImageService(db).list(leaf.ownerId),
-        pack,
         { leafId: leaf.id, ownerId: leaf.ownerId },
         {
           language: project?.language ?? treeType?.language,
           bindings,
           files: bindingFilesForSandbox,
+          ...(treeType?.egress ? { egress: treeType.egress } : {}),
+          ...(treeType?.env ? { env: treeType.env } : {}),
           ...(wantsRepo ? { requires: ['git'], checkout: true } : {}),
         },
       );
@@ -568,7 +605,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             apiKey,
             model: provider.model,
             ...(provider.kind ? { kind: provider.kind } : {}),
-            ...(pack?.workspace?.language ? { language: pack.workspace.language as WorkspaceLanguage } : {}),
+            ...(treeType?.language ? { language: treeType.language as WorkspaceLanguage } : {}),
             captureTrace: true,
             onStep: (step) => {
               beat({ phase: 'agent', step: step.step, tokensUsed: step.tokens, round: validationRound });
@@ -596,7 +633,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
               ...(memoryContext ? { memoryContext } : {}),
               ...(project || bindings.length ? { bindingsContext: describeBindings(bindings.map(describable)) } : {}),
               ...(wantsWeb(pack) ? { web: await buildWebTools(db, leaf.ownerId) } : {}),
-              ...(await resolveMcpForLeaf(db, pack, leaf)),
+              ...(await resolveMcpForLeaf(db, pack, leaf, treeType?.egress)),
               ...(leaf.validationContract || treeType?.validationRecipe
                 ? { validationRecipe: leaf.validationContract ?? treeType?.validationRecipe }
                 : {}),
@@ -649,7 +686,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                     }
                   } else if (outputPath) {
                     const text = await workspaces.readFile(leaf.id, outputPath).catch(() => '');
-                    const verdict = assessFindings(text, outputPath, pack?.workspace?.requireSources !== false);
+                    const verdict = assessFindings(text, outputPath, treeType?.requireSources !== false);
                     current.findingsChars = text.length;
                     current.findingsOutcome = verdict.outcome;
                   }
@@ -707,7 +744,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
                 if (!checkout || !branchName) {
                   if (!outputPath) return undefined;
                   const text = await workspaces.readFile(leaf.id, outputPath).catch(() => '');
-                  const verdict = assessFindings(text, outputPath, pack?.workspace?.requireSources !== false);
+                  const verdict = assessFindings(text, outputPath, treeType?.requireSources !== false);
 
                   const artifact = buildCheckpointArtifact({
                     ...common,
@@ -805,17 +842,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
 
         beat({ phase: 'validating', round: validationRound });
         const validator = new UniversalValidatorService();
-        const valEnv = {
-          exec: async (cmd: string) => {
-            const cdCmd = checkout && branchName ? `cd /work/repo && ${cmd}` : cmd;
-            const res = await workspaces.exec(leaf.id, cdCmd, 180_000);
-            return { exitCode: res.exitCode, stdout: res.stdout, stderr: res.stderr };
-          },
-          readFile: async (p: string) => workspaces.readFile(leaf.id, `/work/repo/${p}`)
-            .catch(() => workspaces.readFile(leaf.id, `/work/${p}`))
-            .catch(() => workspaces.readFile(leaf.id, p)),
-          fetch,
-        };
+        const valEnv = await buildValidatorEnv(workspaces, leaf, checkout, branchName);
 
         const isDocumentLeaf = Boolean(outputPath || !wantsRepo);
         let activeRecipe = leaf.validationContract
@@ -939,7 +966,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         const verifyCommand = producesCode ? (leaf.verifyCommand?.trim() || defaultVerifyCommand(workLanguage)) : '';
 
         if (outputPath) {
-          const verdict = assessFindings(findings, outputPath, pack?.workspace?.requireSources !== false);
+          const verdict = assessFindings(findings, outputPath, treeType?.requireSources !== false);
           verify = { outcome: verdict.outcome, output: verdict.reason };
         } else if (finalValidationSummary) {
           verify = {
@@ -949,20 +976,10 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         } else if (activeRecipe && activeRecipe.checks?.length) {
           beat({ phase: 'verify' });
           const validator = new UniversalValidatorService();
-          const summary = await validator.validate(activeRecipe, {
-            exec: async (cmd) => {
-              const cdCmd = checkout && branchName ? `cd /work/repo && ${cmd}` : cmd;
-              const res = await workspaces.exec(leaf.id, cdCmd, 180_000);
-              return { exitCode: res.exitCode, stdout: res.stdout, stderr: res.stderr };
-            },
-            readFile: async (p) => {
-              return workspaces.readFile(leaf.id, `/work/repo/${p}`).catch(() =>
-                workspaces.readFile(leaf.id, `/work/${p}`).catch(() =>
-                  workspaces.readFile(leaf.id, p)
-                )
-              );
-            },
-          }).catch(() => undefined);
+          const summary = await validator.validate(
+            activeRecipe,
+            await buildValidatorEnv(workspaces, leaf, checkout, branchName),
+          ).catch(() => undefined);
 
           if (summary) {
             verify = {

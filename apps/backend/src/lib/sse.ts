@@ -12,10 +12,6 @@ export function sendFrame(res: Response, payload: unknown): void {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-export function forwardChunk(res: Response, chunk: Uint8Array): void {
-  res.write(Buffer.from(chunk));
-}
-
 export function endSse(res: Response): void {
   res.write('data: [DONE]\n\n');
   res.end();

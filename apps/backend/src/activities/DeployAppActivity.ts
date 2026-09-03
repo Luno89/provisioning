@@ -20,6 +20,7 @@ import { GiteaService } from '../services/GiteaService.js';
 import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-memory-plan.js';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { isValidImageTag } from '../lib/registry-tags.js';
+import { sanitiseNamespaceName } from '../lib/projects.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,
@@ -120,7 +121,7 @@ export interface DeployAppResult {
 
 export { deployAppActivityMeta } from '../lib/activity-timeouts.js';
 
-const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+const SANITIZE = sanitiseNamespaceName;
 const LIVE_ROOT = process.cwd();
 
 export async function DeployAppActivity(

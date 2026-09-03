@@ -23,7 +23,6 @@ import type {
   ExperimentRunFinished, ExperimentRunStarted, ExperimentStepEvent,
 } from '@koala/harness-types';
 import type { WebSearchFn } from '../lib/web-tools.js';
-import { requireBudget } from '../lib/pack-defaults.js';
 import { ranAs } from '../lib/run-provenance.js';
 import {
   plannedRuns,
@@ -230,7 +229,7 @@ export class ExperimentService {
     provider: { model: string; kind?: ModelKind },
     baseUrl: string,
     apiKey: string | undefined,
-    pack: PersonaPack | null,
+    pack: PersonaPack,
     signal?: AbortSignal,
   ): Promise<VariantResult> {
     const branchId = `plan-${runId}`;
@@ -247,10 +246,10 @@ export class ExperimentService {
         // catalogue and no grant list is offered nothing at all -- which is what this did.
         toolRows: await new ToolService(this.db).list(experiment.ownerId),
         images: await new WorkspaceImageService(this.db).list(experiment.ownerId),
-        ...(pack?.tools ? { grantedTools: pack.tools } : {}),
-        ...(pack?.prompt ? { promptConfig: pack.prompt } : {}),
-        ...(pack?.budget ? { budget: pack.budget } : {}),
-        ...(pack?.sampling ? { sampling: pack.sampling } : {}),
+        ...(pack.tools.length ? { grantedTools: pack.tools } : {}),
+        promptConfig: pack.prompt,
+        budget: pack.budget,
+        sampling: pack.sampling,
         prompt: task.prompt,
         tools: {
           db: this.db,
@@ -326,12 +325,12 @@ export class ExperimentService {
     packs: PersonaPack[],
     signal?: AbortSignal,
   ): Promise<VariantResult> {
-    const variantPack = variant.packId
-      ? packs.find((p) => p.id === variant.packId || p.slug === variant.packId) ?? null
-      : null;
-    const variantPersona = variantPack
-      ? (() => { const found = personas.find((p) => p.id === variantPack.personaId); return found ? flattenPersona(found, personas) : null; })()
-      : null;
+    const variantPack = packs.find((p) => p.id === variant.packId || p.slug === variant.packId);
+    if (!variantPack) {
+      throw new Error(`Variant "${variant.label}" names pack "${variant.packId}", which does not exist.`);
+    }
+    const variantPersonaRow = personas.find((p) => p.id === variantPack.personaId);
+    const variantPersona = variantPersonaRow ? flattenPersona(variantPersonaRow, personas) : null;
     const variantPrompt = resolvePrompt(variantPersona);
     const language = task.language ?? experiment.language;
     const runId = `exp-${executionId}-${slug(task.id, 10)}-${slug(variant.label, 12)}-${repeat}`;
@@ -354,7 +353,7 @@ export class ExperimentService {
       const { provider, baseUrl, apiKey } = await this.models.resolveBaseUrl(
         experiment.ownerId,
         undefined,
-        variantPack?.model?.endpointId,
+        variantPack.model?.endpointId,
       );
 
       if (task.planning || (task as { kind?: string }).kind === 'planning') {
@@ -368,7 +367,6 @@ export class ExperimentService {
 
       await this.workspaces.create(personaWorkspace(
         await new WorkspaceImageService(this.db).list(experiment.ownerId),
-        variantPack,
         { leafId: runId, ownerId: experiment.ownerId },
         { language },
       ));
@@ -383,16 +381,16 @@ export class ExperimentService {
 
         const run = await withTimeout(
           runAgentLoop({
-            catalogue: await new ToolService(this.db).schemas(experiment.ownerId, variantPack?.tools),
+            catalogue: await new ToolService(this.db).schemas(experiment.ownerId, variantPack.tools),
             runtime: { db: this.db, userId: experiment.ownerId },
             images: await new WorkspaceImageService(this.db).list(experiment.ownerId),
-            ...(variantPack?.sampling ? { sampling: variantPack.sampling } : {}),
+            sampling: variantPack.sampling,
             baseUrl,
             apiKey,
             model: provider.model,
             ...(provider.kind ? { kind: provider.kind } : {}),
             language,
-            ...agentRunOptions(variantPack?.budget ?? await requireBudget(this.db), variantPack, {
+            ...agentRunOptions(variantPack.budget, variantPack, {
               ...(ranAs(variantPack) ? { ranAs: ranAs(variantPack) } : {}),
               taskContext: task.prompt,
               memoryContext,

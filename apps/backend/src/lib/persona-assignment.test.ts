@@ -34,19 +34,24 @@ describe('asking the planner again', () => {
     { name: 'Researcher', description: 'Answers one narrow question from sources.' },
     { name: 'Builder', description: undefined },
   ];
+  const nudge = 'A leaf needs a persona before it can reach the network or run at all.';
 
   it('names the leaves and lists the personas to choose from', () => {
-    const text = buildAssignmentPrompt([{ title: 'Write the client' }], personas);
+    const text = buildAssignmentPrompt([{ title: 'Write the client' }], personas, nudge);
     expect(text).toContain('Write the client');
     expect(text).toContain('Researcher — Answers one narrow question from sources.');
     expect(text).toContain('Builder');
     expect(text).toContain('do not invent a name');
   });
 
-  it('says what a persona actually decides, so the ask is not arbitrary', () => {
-    const text = buildAssignmentPrompt([{ title: 'x' }], personas);
-    expect(text).toMatch(/network/);
-    expect(text).toMatch(/cannot run/);
+  it('carries the pack\'s own framing for why a persona matters', () => {
+    const text = buildAssignmentPrompt([{ title: 'x' }], personas, nudge);
+    expect(text).toContain(nudge);
+  });
+
+  it('omits the framing entirely when the pack names none', () => {
+    const text = buildAssignmentPrompt([{ title: 'x' }], personas, '');
+    expect(text).not.toContain('undefined');
   });
 
   it('gives the planner a bounded number of chances', () => {

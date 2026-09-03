@@ -2,7 +2,7 @@ import { useState, Fragment } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
-  GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck, Box, ExternalLink, ShieldCheck,
+  GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck, Box, ExternalLink, ShieldCheck, Terminal,
 } from 'lucide-react';
 import {
   needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago,
@@ -10,12 +10,13 @@ import {
 } from './home-summary.js';
 import { STATE_DOT, STATE_LABEL, STATE_STYLE, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
+import PipelineLogModal from './PipelineLogModal.js';
 import { cancelLeaf, recheckLeaf } from '../api/grove';
 import { errorMessage } from '../api/client';
-import { listProjects } from '../api/projects';
+import { listProjects, listProjectRuns } from '../api/projects';
 
 export default function Home({
-  leaves, branches, trees, tree, lastSeen, personaNames = {},
+  leaves, branches, trees, tree, lastSeen, packNames = {},
   onStart, onOpenLeaf, onOpenTree, onOpenBranch, starting,
 }: {
   leaves: Leaf[];
@@ -23,7 +24,7 @@ export default function Home({
   trees: { id: string; name: string }[];
   tree?: { id: string; name: string; goal?: string; projectIds?: string[] } | undefined;
   lastSeen?: string | undefined;
-  personaNames?: Record<string, string>;
+  packNames?: Record<string, string>;
   onStart: (treeId: string, prompt: string) => void;
   onOpenLeaf: (leaf: Leaf) => void;
   onOpenTree: (treeId: string) => void;
@@ -61,6 +62,15 @@ export default function Home({
   const linkedProject = tree
     ? allProjects.find((p) => p.name === tree.name || tree.projectIds?.includes(p.id))
     : undefined;
+
+  const [logRunId, setLogRunId] = useState<string | null>(null);
+  const { data: projectRuns = [] } = useQuery<any[]>({
+    queryKey: ['project-runs', linkedProject?.id],
+    queryFn: () => listProjectRuns<any>(linkedProject!.id),
+    enabled: Boolean(linkedProject?.id),
+    staleTime: 10_000,
+  });
+  const latestRun = projectRuns[0];
 
   const scoped = tree ? scopeToTree(tree.id, branches, leaves) : { branches, leaves };
   const treeId = tree?.id ?? pickedTree;
@@ -104,7 +114,7 @@ export default function Home({
         {(Array.isArray(leaf.attempts) ? leaf.attempts.length : 0) > 1 && (
           <span className="text-amber-400/70 shrink-0">{(leaf.attempts as unknown[]).length} attempts</span>
         )}
-        {leaf.personaId && <span className="text-slate-500 shrink-0">{personaNames[leaf.personaId] ?? 'persona'}</span>}
+        {leaf.packId && <span className="text-slate-500 shrink-0">{packNames[leaf.packId] ?? 'pack'}</span>}
         {leaf.merged && <span className="text-[var(--leaf)]/70 shrink-0">merged</span>}
         {leaf.usage?.tokens ? <span className="text-slate-600 shrink-0">{Math.round(leaf.usage.tokens / 1000)}k</span> : null}
         <span className="text-slate-500 shrink-0 w-16 text-right">{ago(leaf.updatedAt)}</span>
@@ -186,12 +196,27 @@ export default function Home({
               )}
             </div>
           </div>
+          {linkedProject.reason && (
+            <p className="text-[11px] text-rose-400/90 flex items-start gap-1.5">
+              <AlertTriangle size={12} className="shrink-0 mt-0.5" /> {linkedProject.reason}
+            </p>
+          )}
           <div className="text-[11px] text-slate-400 flex items-center gap-4 flex-wrap pt-1 border-t border-[var(--bark-800)]/60">
             <span>Cluster: <span className="text-slate-300">{linkedProject.targetClusterId || 'default'}</span></span>
             {linkedProject.lastBuildStatus && <span>Build: <span className="text-slate-300">{linkedProject.lastBuildStatus}</span></span>}
+            {latestRun && (
+              <button
+                onClick={() => setLogRunId(latestRun.id)}
+                className="text-slate-300 hover:text-white bg-[var(--bark-800)] hover:bg-[var(--bark-700)] px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+              >
+                <Terminal size={11} /> Build Logs
+              </button>
+            )}
           </div>
         </section>
       )}
+
+      {logRunId && <PipelineLogModal runId={logRunId} onClose={() => setLogRunId(null)} />}
 
       {tree && mine && mine.total > 0 && (
         <section className="rounded-lg border border-[var(--bark-800)] bg-[var(--bark-900)]/40 p-4 space-y-3">
@@ -265,7 +290,7 @@ export default function Home({
             From runs that have finished. Ask Koala above to pick any of these up again.
           </p>
           <div className="space-y-1.5">
-            {owed.map(({ leaf, from, evidence }) => (
+            {owed.map(({ leaf, from, summary, lastError }) => (
               <button
                 key={leaf.id}
                 onClick={() => onOpenLeaf(leaf)}
@@ -274,7 +299,12 @@ export default function Home({
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500/50 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="text-xs text-slate-300 truncate">{leaf.title}</div>
-                  <div className="text-[11px] text-slate-500 truncate" title={evidence}>{evidence}</div>
+                  <div className="text-[11px] text-amber-400/80 truncate">{summary}</div>
+                  {lastError && (
+                    <div className="text-[11px] text-slate-500 font-mono break-words" title={lastError}>
+                      {lastError}
+                    </div>
+                  )}
                   <div className="text-[10px] text-slate-600 truncate">from “{from}”</div>
                   {recheck[leaf.id] && (
                     <div className="text-[11px] text-[var(--leaf)] mt-1 whitespace-normal">{recheck[leaf.id]}</div>

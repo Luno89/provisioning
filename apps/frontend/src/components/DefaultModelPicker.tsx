@@ -4,11 +4,11 @@ import { Cpu } from 'lucide-react';
 import {
   listModels, providerKeys, useDefaultModel, setDefaultModel, setGlobalModelOverride,
   defaultModelKeys, type ModelProvider,
-} from '../../api/models';
-import { modelOptionLabel } from '../../lib/model-label';
-import { ModelPicker } from '../ModelPicker';
-import { useShellStore } from '../../stores/shell';
-import { errorMessage } from './shared';
+} from '../api/models';
+import { modelOptionLabel } from '../lib/model-label';
+import { ModelPicker } from './ModelPicker';
+import { useShellStore } from '../stores/shell';
+import { errorMessage } from '../lib/pack-editor.js';
 
 /** The engine every pack runs on unless it names one of its own. */
 export function DefaultModelPicker() {

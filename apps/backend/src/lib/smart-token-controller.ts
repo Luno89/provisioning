@@ -38,31 +38,3 @@ export function estimatePromptComplexity(
 
   return { tier: 'standard', maxTokens: 8192, reasoningEffort: 'medium' };
 }
-
-export class FinishReasonScanner {
-  private buffer = '';
-  private finishReason: string | undefined;
-
-  push(chunk: string): void {
-    this.buffer += chunk;
-    const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data:')) continue;
-      const payload = trimmed.slice(5).trim();
-      if (!payload || payload === '[DONE]') continue;
-      try {
-        const reason = JSON.parse(payload)?.choices?.[0]?.finish_reason;
-        if (typeof reason === 'string' && reason) {
-          this.finishReason = reason;
-        }
-      } catch { /* ignored */ }
-    }
-  }
-
-  result(): string | undefined {
-    return this.finishReason;
-  }
-}

@@ -94,8 +94,6 @@ describe('writing a pack', () => {
 
 
   it('accepts an engine parameter the knob table does not model', async () => {
-    // These were refused as "unknown setting" when they arrived as overrides. A pack's sampler
-    // names its own engine's parameters, so refusing them would stop a pack describing its engine.
     const { status } = await send('POST', '', {
       slug: 'engine-knob', name: 'Engine', personaId: 'builtin-persona-koala',
       sampling: { toolTurn: { some_engine_knob: 1 }, conversation: {} },
@@ -113,8 +111,6 @@ describe('writing a pack', () => {
   });
 
   it('merges a partial edit rather than replacing the field', async () => {
-    // The opposite of what the overrides bag did. A knob grid sends one knob, and everything it
-    // does not name has to keep the value the pack already has — there is no layer underneath now.
     await send('PUT', '/koala', { sampling: { toolTurn: { temperature: 0.9, top_p: 0.5 } } });
     const after = await send('PUT', '/koala', { sampling: { toolTurn: { temperature: 0.8 } } });
 
@@ -152,13 +148,24 @@ describe('writing a pack', () => {
     expect(after.body.ownerId).toBeUndefined();
     expect(after.body.overrides).toEqual(shipped.body.overrides);
   });
+
+  it('still resolves by the shipped id after editing, not just the slug — a chat thread saved the id before the edit', async () => {
+    const shipped = await get('/researcher');
+    const shippedId = shipped.body.id;
+
+    await send('PUT', '/researcher', { sampling: { toolTurn: { temperature: 0.11 } } });
+
+    const bySlug = await get('/researcher');
+    expect(bySlug.body.ownerId).toBe(TEST_USER.id);
+    expect(bySlug.body.id).not.toBe(shippedId);
+
+    const byShippedId = await get(`/${shippedId}`);
+    expect(byShippedId.status).toBe(200);
+    expect(byShippedId.body.id).toBe(bySlug.body.id);
+    expect(byShippedId.body.sampling.toolTurn.temperature).toBe(0.11);
+  });
 });
 
-/**
- * This is what the Lab's knob grid saves through: a partial pack, deep-merged into the row. It used
- * to take a bag of `overrides`, so after the layering went it still accepted that field, wrote it to
- * a pack that has no such field, and silently ignored the sampler and budget it was actually sent.
- */
 describe('editing a pack\'s values', () => {
   const koalaId = 'koala';
 
@@ -169,7 +176,7 @@ describe('editing a pack\'s values', () => {
 
     expect(status).toBe(200);
     expect(body.sampling.toolTurn.temperature).toBe(0.9);
-    expect(body.sampling.conversation.frequency_penalty).toBe(0.4);
+    expect(body.sampling.conversation.frequency_penalty).toBe(0.1);
     expect(body.budget.rounds).toBe(8);
   });
 

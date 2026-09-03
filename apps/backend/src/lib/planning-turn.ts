@@ -16,13 +16,6 @@ import type { WebSearchFn } from './web-tools.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { BudgetConfig, PromptConfig, SamplingConfig } from '@koala/harness-types';
 
-/**
- * The planner's toolset: exactly what its pack grants.
- *
- * This used to be "the planning surface, minus the web tools", with the grant list only able to
- * narrow it. A surface is not a thing a person edits; a grant list is. So the grant list decides,
- * and an empty one offers nothing rather than quietly offering everything.
- */
 export const plannerTools = (
   rows: readonly ToolRepositoryItem[],
   granted?: readonly string[],
@@ -34,7 +27,6 @@ export type PlanningExit =
   | 'converged'
   | 'capped';
 
-/** Fallbacks only. A planning turn given a pack uses the pack's `budget`. */
 export const MAX_PLANNING_ROUNDS = 8;
 const DEFAULT_PLAN_TOKENS = 8000;
 
@@ -64,15 +56,11 @@ export interface PlanningTurnOptions {
   tools: LeafToolContext;
   profile?: HarnessProfile | null;
   persona?: Persona | null;
-  /** The caller's tool catalogue. Rows, because the planner's set is a view of it. */
   toolRows?: readonly ToolRepositoryItem[];
   images?: readonly WorkspaceImageSpec[];
   sampling?: SamplingConfig | undefined;
-  /** The pack's prompt sections. Named for the config to keep clear of `prompt`, the question. */
   promptConfig?: PromptConfig | undefined;
-  /** The pack's budget. Rounds and reply size are its call, not a constant in this file. */
   budget?: BudgetConfig | undefined;
-  /** The pack's tool list. Empty or absent means the whole planning surface, minus the web tools. */
   grantedTools?: readonly string[] | undefined;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal | undefined;
@@ -91,8 +79,6 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
   const doFetch = opts.fetchImpl ?? fetch;
   const personaPrompt = resolvePrompt(opts.persona ?? null);
 
-  // The output contract is the pack's, and the environment note is written in the third person:
-  // this turn has no sandbox, and saying otherwise is what made planners try to build.
   const planPrompt = [
     opts.promptConfig?.sections.planning ?? '',
     describeWorkerSandbox(opts.images ?? []),
@@ -109,7 +95,7 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
 
   const maxRounds = opts.budget?.rounds ?? MAX_PLANNING_ROUNDS;
   const built = buildModelRequest({
-    turn: 'conversation',
+    turn: 'tool-turn',
     ...(opts.sampling ? { sampling: opts.sampling } : {}),
     ...(opts.kind ? { kind: opts.kind } : {}),
     messages: [],
@@ -135,11 +121,6 @@ export async function runPlanningTurn(opts: PlanningTurnOptions): Promise<Planni
   let repeated = false;
   let exit: PlanningExit = 'capped';
 
-  /**
-   * `research` is an ordinary tool now; what stays here is the bookkeeping only this turn can do --
-   * which questions have already been asked, and the findings to report back with the plan.
-   * Re-asking one is how a planner spins, so it ends the turn rather than answering twice.
-   */
   const answerResearch = async (questions: string[]): Promise<ResearchFinding[]> => {
     const answers: ResearchFinding[] = [];
     for (const question of questions) {

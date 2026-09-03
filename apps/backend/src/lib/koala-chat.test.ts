@@ -263,10 +263,10 @@ describe('the prompt Koala is given', () => {
 });
 
 describe('Koala is chat-only', () => {
-  it('seeds with no execution settings at all, which is what makes it chat-only', () => {
+  it('seeds with no canRunLeaf, which is what makes it chat-only', () => {
     const pack = PACK_SEEDS.find((p) => p.slug === 'koala')!;
-    expect(pack.workspace).toBeUndefined();
-    expect(canRunLeaf({ tools: [], ...(pack.workspace ? { workspace: pack.workspace } : {}) } as never)).toBe(false);
+    expect(pack.canRunLeaf).toBeUndefined();
+    expect(canRunLeaf(pack)).toBe(false);
   });
 });
 
@@ -308,13 +308,13 @@ describe('a leaf must never be assigned to a persona with no environment', () =>
     const result = await accept({
       name: 'Builder',
       tools: ['run_command', 'read_file', 'write_file', 'finish'],
-      workspace: { repo: true },
+      canRunLeaf: true,
     });
     expect(result.ok).toBe(true);
   });
 
   it('accepts a tool-less reviewer, whose empty toolset is a decision and not an absence', async () => {
-    const result = await accept({ name: 'Reviewer', tools: [], workspace: { language: 'base' } });
+    const result = await accept({ name: 'Reviewer', tools: [], canRunLeaf: true });
     expect(result.ok).toBe(true);
   });
 

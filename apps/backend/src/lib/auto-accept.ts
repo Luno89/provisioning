@@ -1,20 +1,23 @@
 import type { Leaf } from './leaves.js';
 
-const MIN_TITLE = 8;
-const MIN_BODY = 40;
-
 export const MAX_AUTO_ACCEPT = 8;
+export const MIN_TITLE = 8;
+export const MIN_BODY = 40;
 
 export interface AutoAcceptPolicy {
   enabled: boolean;
   requirePersona: boolean;
   max: number;
+  minTitleChars: number;
+  minBodyChars: number;
 }
 
 export const DEFAULT_POLICY: AutoAcceptPolicy = {
   enabled: false,
   requirePersona: true,
   max: MAX_AUTO_ACCEPT,
+  minTitleChars: MIN_TITLE,
+  minBodyChars: MIN_BODY,
 };
 
 export interface Verdict {
@@ -32,10 +35,10 @@ export function review(
   const title = (leaf.title ?? '').trim();
   const body = (leaf.body ?? '').trim();
 
-  if (title.length < MIN_TITLE) {
+  if (title.length < policy.minTitleChars) {
     return { accept: false, reason: 'the title is too short to say what the work is' };
   }
-  if (body.length < MIN_BODY) {
+  if (body.length < policy.minBodyChars) {
     return { accept: false, reason: 'there is no description of what to do' };
   }
   if (policy.requirePersona && !leaf.packId) {

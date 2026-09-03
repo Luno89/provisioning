@@ -56,10 +56,24 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
   router.post('/', asyncRoute(async (req, res) => {
     try {
       const user = userOf(req);
-      const { title, body, branchId, column = 'todo', parentLeafId, blocking = true, personaId, projectId, budget, proposed = false, dependsOn: rawDependsOn, expects: rawExpects } = req.body ?? {};
+      const { title, body, branchId, column = 'todo', parentLeafId, blocking = true, packId, projectId, budget, proposed = false, dependsOn: rawDependsOn, expects: rawExpects } = req.body ?? {};
       if (!title || typeof title !== 'string') return res.status(400).json({ error: 'title is required' });
       if (!isLeafColumn(column)) {
         return res.status(400).json({ error: `column must be one of: ${LEAF_COLUMNS.join(', ')}` });
+      }
+
+      // Who runs this leaf. packId only — Leaf declares no other field for this.
+      let assignment: Partial<Leaf> = {};
+      if (packId !== undefined) {
+        const packs = withBuiltIns(await db.getPersonaPacks(), user.id, (p) => p.slug);
+        const pack = packs.find((p) => p.id === packId || p.slug === packId);
+        if (!pack) return res.status(400).json({ error: 'No pack with that id.' });
+        if (!canRunLeaf(pack)) {
+          return res.status(400).json({
+            error: `"${pack.name}" has no sandbox, so it cannot carry out work. It plans or chats instead.`,
+          });
+        }
+        assignment = { packId: pack.id };
       }
 
       const leaves = await ownedLeaves(user.id);
@@ -104,7 +118,7 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
         createdAt: now,
         updatedAt: now,
         ...(parentLeafId ? { parentLeafId: String(parentLeafId) } : {}),
-        ...(personaId ? { personaId: String(personaId) } : {}),
+        ...assignment,
         ...(projectId ? { projectId: String(projectId) } : {}),
         ...(dependsOn.length ? { dependsOn } : {}),
         ...(parentLeafId ? {} : { budget: budgetForNewRoot(budget) }),
@@ -165,24 +179,17 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
     const leaf = leaves.find((c) => c.id === idOf(req));
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
 
-    const { column, title, body, personaId, packId, maxTokens } = req.body ?? {};
+    const { column, title, body, packId, maxTokens } = req.body ?? {};
     if (column !== undefined && !isLeafColumn(column)) {
       return res.status(400).json({ error: `column must be one of: ${LEAF_COLUMNS.join(', ')}` });
     }
 
-    /**
-     * Who runs this leaf. `packId` is the field `Leaf` declares and the one `packForLeaf` reads
-     * first; `personaId` was accepted here but never declared on the type, so the two disagreed.
-     * A pack id or slug is resolved to the pack, and a persona id is accepted too — the UI used to
-     * send one — by finding the pack that adopts it.
-     */
+    // Who runs this leaf. packId only — Leaf declares no other field for this.
     let assignment: Partial<Leaf> = {};
-    const wantedPack = packId ?? personaId;
-    if (wantedPack !== undefined) {
+    if (packId !== undefined) {
       const packs = withBuiltIns(await db.getPersonaPacks(), user.id, (p) => p.slug);
-      const pack = packs.find((p) => p.id === wantedPack || p.slug === wantedPack)
-        ?? packs.find((p) => p.personaId === wantedPack);
-      if (!pack) return res.status(400).json({ error: 'No pack or persona with that id.' });
+      const pack = packs.find((p) => p.id === packId || p.slug === packId);
+      if (!pack) return res.status(400).json({ error: 'No pack with that id.' });
       if (!canRunLeaf(pack)) {
         return res.status(400).json({
           error: `"${pack.name}" has no sandbox, so it cannot carry out work. It plans or chats instead.`,
@@ -231,7 +238,7 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
       : undefined;
     const images = await new WorkspaceImageService(db).list(user.id);
     const sandbox = ranAs
-      ? describeSandbox(images, personaWorkspace(images, ranAs, { leafId: leaf.id, ownerId: user.id }, {}))
+      ? describeSandbox(images, personaWorkspace(images, { leafId: leaf.id, ownerId: user.id }, {}))
       : 'The pack this leaf ran as is no longer available, so its environment is unknown.';
 
     res.json({

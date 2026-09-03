@@ -45,6 +45,11 @@ const SERVICE_TARGETS: Record<string, ServiceTarget> = {
     namespace: 'gitea',
     remotePort: 3000,
   },
+  infisical: {
+    service: 'infisical-infisical-standalone-infisical',
+    namespace: 'infisical',
+    remotePort: 8080,
+  },
   alertmanager: {
     service: 'kube-prometheus-stack-alertmanager',
     namespace: 'monitoring',
@@ -168,6 +173,21 @@ export class ClusterProxyService {
       });
       if (res.status !== 303) throw new Error(`Gitea login failed: HTTP ${res.status}`);
       return res.headers.getSetCookie();
+    }
+
+    if (serviceKey === 'infisical') {
+      // Infisical's /api/v1/auth/login returns a JWT in JSON, not a cookie — we set it as a
+      // cookie so the browser sends it on the subsequent page load. The cookie name and path
+      // match what the Infisical frontend expects.
+      const res = await fetch(`${targetUrl}api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: credentials.username, password: credentials.password }),
+      });
+      if (!res.ok) throw new Error(`Infisical login failed: HTTP ${res.status}`);
+      const body = await res.json() as { token?: string };
+      if (!body.token) throw new Error('Infisical login returned no token');
+      return [`infisical-token=${body.token}; Path=/; HttpOnly; SameSite=Lax`];
     }
 
     return [];

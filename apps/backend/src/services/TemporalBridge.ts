@@ -25,7 +25,7 @@ import { corpusEndpoints } from '../lib/web-tools-resolver.js'
 import { indexMemories, similarTo } from '../lib/memory-index.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
 import { InfrastructureService } from './InfrastructureService.js'
-import { sanitizeNamespace } from '../lib/model-registry.js'
+import { sanitizeNamespace, isModelKind } from '../lib/model-registry.js'
 import type { Database } from '../lib/db-interface.js'
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js'
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js'
@@ -42,7 +42,7 @@ import { executePipelineRunWorkflow } from '../workflows/PipelineRunWorkflow.js'
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
-import { resolveTabbyCacheHostPath } from '../lib/tabby-cache-path.js'
+import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../lib/tabby-cache-path.js'
 import type { Server as SocketServer } from 'socket.io'
 
 const HOST_QUEUE = 'host-ops-queue'
@@ -137,6 +137,18 @@ async function updateDeploymentStatus(
     ...(existing?.deploymentId !== undefined ? { deploymentId: existing.deploymentId } : {}),
     ...(existing?.ownerId !== undefined ? { ownerId: existing.ownerId } : {}),
   })
+}
+
+async function maybeSetDefaultModel(
+  db: Database,
+  deploymentId: string,
+  ownerId: string | undefined,
+  appType: string | undefined,
+): Promise<void> {
+  if (!ownerId || !isModelKind(appType)) return
+  const user = await db.getUserById(ownerId)
+  if (!user || user.defaultModelId) return
+  await db.saveUser({ ...user, defaultModelId: deploymentId })
 }
 
 export const connectToTemporal = async (address: string): Promise<Client> => {
@@ -342,6 +354,9 @@ export class TemporalBridge {
               await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
               await updateDeploymentStatus(this.db, resourceId, appliedMeta, appliedStatus, meta?.storage)
+              if (appliedStatus === 'running') {
+                await maybeSetDefaultModel(this.db, resourceId, appliedMeta?.ownerId, appliedMeta?.appType)
+              }
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'app-destroy') {
@@ -416,10 +431,6 @@ export class TemporalBridge {
     }
   }
 
-  /**
-   * The first planning turn for a newly accepted project. Fire-and-forget: the accept request
-   * returns as soon as the tree exists, and the plan arrives in the Grove as proposals.
-   */
   async planProject(treeId: string, branchId: string): Promise<string | undefined> {
     if (!this.client) return undefined
     const workflowId = `plan-${treeId}`
@@ -1104,6 +1115,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...(dep.appType === 'tabbyapi' && targetCluster?.isSystem
         ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) }
         : {}),
+      ...(dep.appType === 'vllm' && targetCluster?.isSystem
+        ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) }
+        : {}),
       ...(targetCluster?.gpuEnabled !== undefined ? { clusterGpuEnabled: targetCluster.gpuEnabled } : {}),
       strategy: dep.strategy || 'helm',
       appType: dep.appType || 'odoo',
@@ -1564,7 +1578,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     if (!project.targetClusterId) throw new Error('Project has no target cluster configured');
 
     const lastColon = run.imageTag.lastIndexOf(':');
-    const odooRepo = run.imageTag.slice(0, lastColon); // "odooRepo"/"odooTag" is this platform's generic webRepo/webTag field name — see DeployAppActivity.ts
+    const odooRepo = run.imageTag.slice(0, lastColon);
     const odooTag = run.imageTag.slice(lastColon + 1);
 
     return this.deployApp({

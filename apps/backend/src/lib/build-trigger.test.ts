@@ -65,8 +65,11 @@ describe('a plan that mixes tool calls and prose', () => {
     expect(route).toMatch(/duplicateNotice\(suspectedDuplicates\(/);
   });
 
-  it('assigns the persona the plan named, so a prose leaf can actually be started', () => {
-    expect(route).toMatch(/resolvePersonaNamed\(proposal\.persona, myPersonas\)/);
-    expect(route).toMatch(/\.\.\.\(assigned \? \{ personaId: assigned\.id \} : \{\}\)/);
+  it('assigns the pack the plan named, so a prose leaf can actually be started', () => {
+    // myPacks, not myPersonas — Leaf.packId is a PersonaPack id. Resolving against the wrong
+    // collection and writing its id under a field Leaf doesn't declare (personaId) is exactly the
+    // bug that made every prose-extracted leaf come out unassigned regardless of what name matched.
+    expect(route).toMatch(/resolvePersonaNamed\(proposal\.persona, myPacks\)/);
+    expect(route).toMatch(/\.\.\.\(assigned \? \{ packId: assigned\.id \} : \{\}\)/);
   });
 });

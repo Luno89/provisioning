@@ -11,7 +11,6 @@ import { treeTypeForLeaf } from '../lib/tree-type-packs.js';
 import { buildFailureNotice, withNotice } from '../lib/branch-notice.js';
 import type { Branch } from '../lib/leaves.js';
 import { withBuiltIns } from '../lib/ownership.js';
-import { requireBudget } from '../lib/pack-defaults.js';
 import {
   buildJudgeBundle, buildJudgePrompt, parseJudgeReply, combineJudgement, shouldJudge,
   CODE_DIMENSIONS, RESEARCH_DIMENSIONS, type JudgeVerdict,
@@ -24,6 +23,7 @@ export interface JudgeLeafArgs {
 export interface JudgeLeafResult {
   leafId: string;
   verdict: JudgeVerdict;
+  skipped?: string;
 }
 
 const JUDGE_TIMEOUT_MS = 120_000;
@@ -54,10 +54,15 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
 
     const ownPersonas = withBuiltIns(await db.getPersonas(), leaf.ownerId, (p) => p.name);
     const treeType = await treeTypeForLeaf(db, leaf);
-    const pack = await packForRole(db, leaf.ownerId, treeType, 'judge') ?? null;
-    const assigned = pack ? ownPersonas.find((p: any) => p.id === pack.personaId) : undefined;
+    const pack = await packForRole(db, leaf.ownerId, treeType, 'judge');
+    if (!pack) {
+      const skipped = `${treeType?.id ?? 'this tree type'} names no judge pack`;
+      console.warn(`[JudgeLeaf] ${leaf.id}: ${skipped} — skipping`);
+      await record(db, leaf, { verdict: 'unavailable', at: new Date().toISOString(), reason: skipped });
+      return { leafId: args.leafId, verdict: 'unavailable', skipped };
+    }
+    const assigned = ownPersonas.find((p) => p.id === pack.personaId);
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-    if (!pack) console.warn(`[JudgeLeaf] ${treeType?.id ?? 'this tree type'} names no judge pack — running with harness defaults`);
 
     const profile = await db.getHarnessProfile(leaf.ownerId).catch(() => null);
     const systemPrompt = resolvePrompt(persona);
@@ -65,7 +70,7 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
     const chosen = undefined;
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
-    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
+    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack.model?.endpointId);
 
     const dimensions = evidence.findings && !evidence.diff ? RESEARCH_DIMENSIONS : CODE_DIMENSIONS;
     const { bundle, dropped } = buildJudgeBundle({
@@ -76,10 +81,10 @@ export async function JudgeLeafActivity(args: JudgeLeafArgs): Promise<JudgeLeafR
     });
     if (dropped.length) console.log(`[JudgeLeaf] ${leaf.id}: bundle dropped ${dropped.join(', ')}`);
 
-    const budget = pack?.budget ?? await requireBudget(db);
+    const budget = pack.budget;
     const body = buildModelRequest({
       turn: 'conversation',
-      ...(pack?.sampling ? { sampling: pack.sampling } : {}),
+      sampling: pack.sampling,
       ...(provider.kind ? { kind: provider.kind } : {}),
       messages: [
         ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),

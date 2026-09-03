@@ -4,11 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FlaskConical, Plus } from 'lucide-react';
 import { KoalaSpot } from '../Koala';
 import { card, type Experiment, type HarnessConfig, type HarnessProfile } from './shared';
-import { Harness } from './Harness';
 import { ExperimentCard } from './ExperimentCard';
 import { NewExperiment } from './NewExperiment';
 import { Focus } from './Focus';
-import { ToolRepoPanel } from './ToolRepoPanel';
 import { MemoryBankPanel } from './MemoryBankPanel';
 import type { LiveRun } from './Live';
 import type {
@@ -21,7 +19,7 @@ import {
 
 const MAX_LIVE_STEPS = 12;
 
-type Tab = 'experiments' | 'tool-repo' | 'memories' | 'harness';
+type Tab = 'experiments' | 'memories';
 
 export default function Lab() {
   const qc = useQueryClient();
@@ -131,22 +129,10 @@ export default function Lab() {
           Experiments
           {experiments?.length ? <span className="ml-1.5 text-[11px] text-slate-600">{experiments.length}</span> : null}
         </button>
-        <button onClick={() => setTab('tool-repo')} className={tabClass('tool-repo')}>Tool Repo</button>
         <button onClick={() => setTab('memories')} className={tabClass('memories')}>Memories</button>
-        <button onClick={() => setTab('harness')} className={tabClass('harness')}>Harness</button>
       </div>
 
-      {tab === 'tool-repo' && <ToolRepoPanel />}
       {tab === 'memories' && <MemoryBankPanel />}
-
-      {tab === 'harness' && (
-        <Harness
-          config={config}
-          profile={profile ?? null}
-          onProfileChanged={() => qc.invalidateQueries({ queryKey: ['harness-profile'] })}
-          onImported={invalidate}
-        />
-      )}
 
       {tab === 'experiments' && (
         <>

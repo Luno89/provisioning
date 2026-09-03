@@ -65,7 +65,7 @@ function serve(mount: (db: Database) => express.Router, prefix: string, db: Data
   });
 }
 
-describe('/api/chat wire format', () => {
+describe('/api/chat wire format — UnifiedFrame, same engine as /api/chat-pack', () => {
   let db: Database;
   let up: Awaited<ReturnType<typeof fakeUpstream>>;
   let ctx: Awaited<ReturnType<typeof serve>>;
@@ -78,11 +78,11 @@ describe('/api/chat wire format', () => {
     } as any,
     temporalBridge: {} as any,
     projectRepoService: {} as any,
-    ownedPersonas: async (uid) => ownedBy(await database.getPersonas(), uid),
     ownedBranches: async (uid) => ownedBy(await database.getBranches(), uid),
     ownedLeaves: async (uid) => ownedBy(await database.getLeaves(), uid),
     ownedTrees: async (uid) => ownedBy(await database.getTrees(), uid),
-    runLeafTool: async () => ({ ok: true, result: '{}' }),
+    webSearch: async () => ({ results: [] } as any),
+    fetchWebPage: async () => '',
     toolRefused: () => false,
   });
 
@@ -99,7 +99,7 @@ describe('/api/chat wire format', () => {
     await up?.close();
   });
 
-  it('forwards the upstream frames verbatim and terminates with [DONE]', async () => {
+  it('emits content frames and terminates with [DONE]', async () => {
     const script = [
       frame({ role: 'assistant', content: '' }),
       frame({ content: 'Hello' }),
@@ -113,26 +113,25 @@ describe('/api/chat wire format', () => {
     const res = await fetch(ctx.url('/api/chat'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], stream: true }),
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
     });
 
     expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
     expect(res.headers.get('x-accel-buffering')).toBe('no');
 
     const frames = await collect(res as unknown as Response);
-    const content = frames
-      .filter((f) => f !== '[DONE]')
-      .map((f) => JSON.parse(f).choices?.[0]?.delta?.content ?? '')
-      .join('');
-    expect(content).toBe('Hello world');
     expect(frames.at(-1)).toBe('[DONE]');
 
-    const first = JSON.parse(frames[0]!);
-    expect(first).toHaveProperty('choices.0.delta');
-    expect(first.object).toBe('chat.completion.chunk');
+    const content = frames
+      .filter((f) => f !== '[DONE]')
+      .map((f) => JSON.parse(f))
+      .filter((f) => f.type === 'content')
+      .map((f) => f.delta)
+      .join('');
+    expect(content).toBe('Hello world');
   });
 
-  it('preserves reasoning_content under its own key, distinct from content', async () => {
+  it('emits reasoning under a distinct "thinking" frame type from "content"', async () => {
     up = await fakeUpstream([
       frame({ reasoning_content: 'thinking...' }),
       frame({ content: 'answer' }),
@@ -143,15 +142,14 @@ describe('/api/chat wire format', () => {
     const res = await fetch(ctx.url('/api/chat'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], stream: true }),
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
     });
-    const deltas = (await collect(res as unknown as Response))
+    const frames = (await collect(res as unknown as Response))
       .filter((f) => f !== '[DONE]')
-      .map((f) => JSON.parse(f).choices[0].delta);
+      .map((f) => JSON.parse(f));
 
-    expect(deltas[0]).toEqual({ reasoning_content: 'thinking...' });
-    expect(deltas[1]).toEqual({ content: 'answer' });
-    expect(deltas[0]).not.toHaveProperty('content');
+    expect(frames.some((f) => f.type === 'thinking' && f.delta === 'thinking...')).toBe(true);
+    expect(frames.some((f) => f.type === 'content' && f.delta === 'answer')).toBe(true);
   });
 
   it('survives a frame split mid-JSON by the upstream', async () => {
@@ -162,11 +160,12 @@ describe('/api/chat wire format', () => {
     const res = await fetch(ctx.url('/api/chat'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], stream: true }),
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
     });
-    const frames = await collect(res as unknown as Response);
-    const content = frames.filter((f) => f !== '[DONE]')
-      .map((f) => JSON.parse(f).choices[0].delta.content ?? '').join('');
+    const frames = (await collect(res as unknown as Response))
+      .filter((f) => f !== '[DONE]')
+      .map((f) => JSON.parse(f));
+    const content = frames.filter((f) => f.type === 'content').map((f) => f.delta).join('');
     expect(content).toBe('abcdef');
   });
 
@@ -176,7 +175,7 @@ describe('/api/chat wire format', () => {
     const res = await fetch(ctx.url('/api/chat'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ stream: true }),
+      body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
     expect(res.headers.get('content-type')).toMatch(/application\/json/);

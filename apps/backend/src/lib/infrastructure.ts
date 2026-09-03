@@ -73,7 +73,7 @@ export const CLUSTER_PLATFORM_SERVICES: readonly RunningService[] = [
     is: 'secret and token management vault (AES-256-GCM encrypted, Kubernetes operator synced)',
     provides: ['Secret vault, API tokens, credentials management, pod secret injection'],
     namespace: 'infisical',
-    address: 'http://infisical-standalone.infisical.svc.cluster.local:8080',
+    address: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080',
   },
 ];
 

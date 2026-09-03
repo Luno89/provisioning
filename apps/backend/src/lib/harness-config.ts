@@ -4,7 +4,6 @@ import type { BudgetConfig, PromptConfig, SamplingConfig } from '@koala/harness-
 import { buildAgentPrompt } from './sandbox-tools.js';
 import { toolsNeeding } from './tool-registry.js';
 import type { ToolRepositoryItem } from './tool-seeds.js';
-import { AMBIENT_PROPOSAL_PROMPT } from './plan-mode.js';
 import {
   DEFAULT_WORKSPACE_LANGUAGE,
   MAX_WORKSPACE_SECONDS,
@@ -137,7 +136,7 @@ export function buildHarnessConfig(
       { id: 'discipline', title: 'Tool discipline', text: prompt?.sections.toolDiscipline ?? '' },
       { id: 'plan', title: 'Plan mode (the planner pack\u2019s contract)', text: prompt?.sections.planning ?? '' },
       { id: 'plan-sandbox', title: 'Environment note shown to a planner', text: describeWorkerSandbox(images) },
-      { id: 'ambient', title: 'Ambient proposing', text: AMBIENT_PROPOSAL_PROMPT },
+      { id: 'ambient', title: 'Ambient proposing', text: prompt?.sections.ambientPlanning ?? '' },
       { id: 'authoring', title: 'Task authoring (Koala writes the suite)', text: buildTaskAuthorPrompt(images) },
     ],
     languages: images.map((i) => ({ id: i.id, image: i.image, summary: i.summary })),

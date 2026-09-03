@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { runChatTurn } from '../lib/chat-runtime.js';
+import type { StreamEvent, PostPass } from '../lib/round-loop.js';
+import { ThoughtFeatureExtractor, predictFailure, updateModelProfile } from '../lib/thinking-classifier.js';
 import type { PersonaPack } from '@koala/harness-types';
 import { ToolService } from '../services/ToolService.js';
 import type { Database } from '../lib/db-interface.js';
@@ -264,7 +266,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
   router.post('/conversations/:id/secrets/:requestId/dismiss', asyncRoute(dismissSecret));
   router.post('/conversations/:id/proposals/secrets/:requestId/dismiss', asyncRoute(dismissSecret));
 
-  router.post('/:packId', asyncRoute(async (req, res) => {
+  router.post('/', asyncRoute(async (req, res) => {
     const userId = (req as any).user.id;
 
     const { conversationId, message, sessionId, modelId } = req.body ?? {};
@@ -272,8 +274,11 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       return res.status(400).json({ error: 'message is required' });
     }
 
-    const pack = await packFor(userId, String(req.params.packId));
-    if (!pack) return res.status(404).json({ error: `No pack "${String(req.params.packId)}"` });
+    // Koala is the one named, permanent exception to "the pack is always the tree type's role" —
+    // general conversation has no tree, so there is nothing else it could be. No longer a request
+    // param: general chat never lets a caller pick which pack it runs as.
+    const pack = await packFor(userId, 'koala');
+    if (!pack) return res.status(404).json({ error: 'No koala pack found — run the seeder.' });
 
     const persona = await personaFor(userId, pack.personaId);
     if (!persona) {
@@ -390,6 +395,51 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       ...(conversation.escalatedNamespaces ? { escalatedNamespaces: conversation.escalatedNamespaces } : {}),
     });
 
+    const targetModelId = provider.model ?? chosenModel ?? 'default-model';
+    const globalProfile = await db.getModelThinkingProfile?.(targetModelId).catch(() => null) ?? undefined;
+    const featureExtractor = new ThoughtFeatureExtractor(message);
+
+    // Same monitor `chat.ts` runs, same pack-governed source — koala's own pack row, never the
+    // request body. Was entirely absent here; a long koala reasoning trace had nothing watching it.
+    const onStreamEvent = (ev: StreamEvent): string | void => {
+      if (ev.kind === 'reasoning') featureExtractor.pushReasoning(ev.text);
+      const features = featureExtractor.extract();
+      const sensitivity = pack.overthinking?.sensitivity ?? 'medium';
+      const threshold = pack.overthinking?.failureThreshold ?? 0.65;
+      const repeatCap = pack.overthinking?.ngramRepeatCap ?? 5;
+      const pred = predictFailure(features, globalProfile, sensitivity, threshold, repeatCap);
+      if (pred.shouldInterrupt) {
+        return pred.reason ?? 'Overthinking loop detected';
+      }
+    };
+
+    const postPasses: PostPass[] = [
+      {
+        id: 'length-continuation',
+        when: (ctx) => ctx.finishReason === 'length',
+        buildMessages: (ctx) => [
+          ...ctx.originalMessages,
+          { role: 'assistant', content: ctx.answer },
+          { role: 'user', content: 'Continue your response from exactly where you left off.' },
+        ],
+      },
+      {
+        id: 'monologue-recovery',
+        when: (ctx) => {
+          const text = ctx.thinking || featureExtractor.getText();
+          return !ctx.answer.trim() && Boolean(text) && text.length > 20;
+        },
+        buildMessages: (ctx) => {
+          const text = ctx.thinking || featureExtractor.getText();
+          return [
+            ...ctx.originalMessages,
+            { role: 'assistant', content: text },
+            { role: 'user', content: 'Based on your thoughts above, now state your concise final answer directly to the user.' },
+          ];
+        },
+      },
+    ];
+
     const result = await runChatTurn({
       maxRounds: pack.budget.rounds,
       record: pack.budget.record,
@@ -401,8 +451,17 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       call,
       executeTool,
       trimPerRound: (m: unknown[]) => trimConversation(m as any, conversationBudget(pack.budget, provider?.contextTokens)),
+      onStreamEvent,
+      postPasses,
       onFrame: (frame) => sendFrame(res, frame as any),
     });
+
+    try {
+      const finalFeatures = featureExtractor.extract();
+      const profileOutcome = result.outcome.interrupted ? 'failure' : 'success';
+      const updatedProfile = updateModelProfile(globalProfile, targetModelId, finalFeatures, profileOutcome);
+      await db.saveModelThinkingProfile?.(updatedProfile);
+    } catch { /* ignored */ }
 
     const ranDry = result.exhaustedRounds && !result.answer && !result.spoken;
     const fallback = `Used all tool rounds without reaching an answer. Ask again to continue.`;

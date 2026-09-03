@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import AcceptanceEditor from './AcceptanceEditor.js';
 import { ChevronDown, ChevronRight, Target, CircleDot } from 'lucide-react';
-import Chat, { type Message } from './Chat.js';
+import ChatSurface, { type ChatMessageRecord as Message } from './ChatSurface.js';
 import AcceptancePlan from './AcceptancePlan.js';
 import Delivery, { type DeliveryStage } from './Delivery.js';
 import type { Leaf } from './leaf-types.js';
@@ -49,7 +49,7 @@ export default function BranchChat({
 
   const proposed = leaves
     .filter((l) => l.branchId === branchId && l.status === 'proposed')
-    .map((l) => ({ id: l.id, title: l.title, ...(l.body ? { body: l.body } : {}), ...(l.personaId ? { personaId: l.personaId } : {}) }));
+    .map((l) => ({ id: l.id, title: l.title, ...(l.body ? { body: l.body } : {}), ...(l.packId ? { packId: l.packId } : {}) }));
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -86,18 +86,22 @@ export default function BranchChat({
       )}
 
       <div className="flex-1 min-h-0">
-        <Chat
-          branchId={branchId}
-          mode={mode}
-          {...(onModeChange ? { onModeChange } : {})}
-          onProposals={onProposals}
-          {...(autoSend ? { autoSend, ...(onAutoSent ? { onAutoSent } : {}) } : {})}
-          messages={messages}
-          onMessagesChange={onMessagesChange}
-          proposed={proposed}
-          onAccept={onAccept}
-          onReject={onReject}
-          onAcceptAll={() => onAcceptAll(proposed.map((p) => p.id))}
+        <ChatSurface
+          scope={{
+            kind: 'branch',
+            branchId,
+            ...(record?.treeId ? { treeId: record.treeId } : {}),
+            mode,
+            ...(onModeChange ? { onModeChange } : {}),
+            onProposals,
+            ...(autoSend ? { autoSend, ...(onAutoSent ? { onAutoSent } : {}) } : {}),
+            messages,
+            onMessagesChange,
+            proposed,
+            onAccept,
+            onReject,
+            onAcceptAll: () => onAcceptAll(proposed.map((p) => p.id)),
+          }}
         />
       </div>
     </div>

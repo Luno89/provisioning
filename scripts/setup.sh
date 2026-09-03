@@ -190,9 +190,14 @@ mkdir -p apps/backend/data
 if [ ! -f "apps/backend/.env" ]; then
     if [ -f "apps/backend/.env.example" ]; then
         cp apps/backend/.env.example apps/backend/.env
+        # setup-root.sh runs before this script and may have created the target
+        # directory as root — ensure the file we just wrote stays owned by the
+        # current user (npm install and Vite below both need to write into it).
+        chown "$(id -u):$(id -g)" apps/backend/.env
         echo "📝 Created default .env for backend."
     else
         echo "PORT=3001" > apps/backend/.env
+        chown "$(id -u):$(id -g)" apps/backend/.env
         echo "📝 Created new .env for backend."
     fi
 fi
@@ -203,6 +208,9 @@ fi
 # to do it here — and Mongo has to be up first.
 echo "🗄️  Ensuring MongoDB is running..."
 bash "$(dirname "$0")/ensure-mongo.sh"
+
+echo "🔐 Ensuring Infisical secret vault is running..."
+bash "$(dirname "$0")/ensure-infisical.sh"
 
 echo "🌱 Seeding catalogues..."
 npx tsx apps/backend/src/scripts/seed-all.ts

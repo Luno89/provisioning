@@ -6,7 +6,6 @@ dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.e
 import { createDatabase } from '../lib/db-interface.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { fittedMaxTokens } from '../lib/sampling.js';
-import { requireBudget } from '../lib/pack-defaults.js';
 
 const SYNTHESIST_PROMPT_TOKENS = 29_450;
 
@@ -18,7 +17,13 @@ async function main(): Promise<void> {
     if (!ownerId) return console.log('No deployments.');
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
-    const budget = await requireBudget(db);
+    const koala = (await db.getPersonaPacks()).find((p) => p.slug === 'koala' && p.ownerId == null);
+    if (!koala) {
+      console.error('No koala pack seeded — run the seeder (scripts/seed-all.ts).');
+      process.exitCode = 1;
+      return;
+    }
+    const budget = koala.budget;
     const providers = await models.list(ownerId);
 
     console.log(`\nfallback when nobody recorded a window: ${budget.contextTokens}\n`);

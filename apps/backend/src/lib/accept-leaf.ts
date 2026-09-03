@@ -10,7 +10,7 @@ export interface AcceptDeps {
   startLeaf?: ((leaf: Leaf) => Promise<string | undefined>) | undefined;
   signalLeaf?: ((leafId: string, signal: 'addChild', payload: unknown) => Promise<unknown>) | undefined;
   now?: () => number;
-  packOf?: (id: string | undefined) => Promise<Pick<PersonaPack, 'name' | 'tools' | 'workspace'> | null | undefined>;
+  packOf?: (id: string | undefined) => Promise<Pick<PersonaPack, 'name' | 'tools' | 'canRunLeaf'> | null | undefined>;
 }
 
 export type AcceptResult =

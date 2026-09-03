@@ -15,8 +15,11 @@ import { validateSpec, explainSpecProblems } from './app-spec-validate.js';
 import type { AppSpec } from './app-spec.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
 import { rollupProjectStatus, deploymentForProject } from './project-status.js';
+import { sanitiseNamespaceName } from './projects.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
+import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import { findSecretSource, matchSecretSource } from './secret-sources.js';
 
 export interface KoalaToolContext {
   db: Database;
@@ -30,6 +33,7 @@ export interface KoalaToolContext {
   kubectl?: ((args: string[]) => Promise<string>) | undefined;
   temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'> | undefined;
   infisicalService?: InfisicalService | undefined;
+  projects?: ProjectRepoService | undefined;
   isAdmin?: boolean | undefined;
   isEscalated?: boolean | undefined;
   escalatedNamespaces?: readonly string[] | undefined;
@@ -736,6 +740,52 @@ export async function handleSetProjectEnv(
   });
 }
 
+/** A secret a deployed project's own code needs never has to round-trip to the user if a registered source can provide it. */
+async function tryAutoProvisionSecret(
+  ctx: KoalaToolContext,
+  key: string,
+  projectId: string | undefined,
+): Promise<KoalaToolResult | undefined> {
+  if (!projectId || !ctx.projects || !ctx.infisicalService) return undefined;
+  const projects = ctx.projects;
+  const infisicalService = ctx.infisicalService;
+
+  const project = (await ctx.db.getProjects()).find((p) => p.id === projectId);
+  if (!project || project.ownerId !== ctx.userId) return undefined;
+
+  const declared = project.requiredSecrets?.find((s) => s.key === key);
+  const source = declared ? findSecretSource(declared.source) : matchSecretSource(key);
+  if (!source) return undefined;
+
+  const existing = await infisicalService.getSecret(projectId, key).catch(() => null);
+  let value = existing;
+  let label = `Reused the vaulted value for ${key}.`;
+  if (!value) {
+    const minted = await source.mint({ userId: ctx.userId, projects });
+    value = minted.value;
+    label = minted.label;
+    await infisicalService.setSecret(projectId, key, value, label);
+  }
+
+  if (!declared) {
+    await ctx.db.saveProject({ ...project, requiredSecrets: [...(project.requiredSecrets ?? []), { key, source: source.id }] });
+  }
+
+  const namespace = sanitiseNamespaceName(project.name);
+  const inject = await infisicalService.injectSecretToPod({
+    projectId, namespace, deploymentName: 'gitapp', key, value, mountAs: 'env', restart: true,
+  });
+
+  return json({
+    status: 'auto-provisioned',
+    key,
+    reused: Boolean(existing),
+    injected: inject.success,
+    podRestarted: inject.podRestarted,
+    message: `${label} Injected directly — no user action needed.`,
+  });
+}
+
 export async function handleRequestSecret(
   ctx: KoalaToolContext,
   args: Record<string, unknown>,
@@ -749,6 +799,9 @@ export async function handleRequestSecret(
   if (!key || !description) {
     return json({ error: 'Both "key" and "description" are required to request a secret from the user.' });
   }
+
+  const autoProvisioned = await tryAutoProvisionSecret(ctx, key, projectId).catch(() => undefined);
+  if (autoProvisioned) return autoProvisioned;
 
   const convs = await db.getConversations();
   const conversation = convs.find((c) => c.id === conversationId);
@@ -807,8 +860,9 @@ export async function handleInjectSecretToPod(
     return json({ error: `Project not found with id: ${projectId}` });
   }
 
-  const namespace = project.name;
-  const deploymentName = project.name;
+  // Matches DeployAppActivity's SANITIZE + gitapp.ts, which always names the Deployment "gitapp".
+  const namespace = sanitiseNamespaceName(project.name);
+  const deploymentName = 'gitapp';
 
   if (infisicalService) {
     const res = await infisicalService.injectSecretToPod({
@@ -832,7 +886,7 @@ export async function handleInjectSecretToPod(
     secretReference: secretReference ?? `secret://${project.id}/${key}`,
     injectedAs: mountAs,
     podRestarted: restart,
-    message: `Secret ${key} injected into Kubernetes Secret ${deploymentName}-secrets for ${namespace}`,
+    message: `Secret ${key} injected into Kubernetes Secret ${namespace}-secrets for ${namespace}`,
   });
 }
 

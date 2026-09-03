@@ -2,7 +2,7 @@ import React, { startTransition } from 'react';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Shield, FlaskConical, Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Sprout, Box
+  Plus, Sprout, Box, Sliders, Wrench
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery } from '@tanstack/react-query';
@@ -64,7 +64,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <div>
           <button
             type="button"
-            onClick={() => navigateTo('chat', '#/chat/koala')}
+            onClick={() => navigateTo('chat', '#/chat')}
             className={primary(view === 'chat')}
           >
             <Koala size={20} mood={view === 'chat' ? 'happy' : 'idle'} />
@@ -74,7 +74,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigateTo('chat', '#/chat/koala');
+                  navigateTo('chat', '#/chat');
                 }}
                 className="p-1 text-emerald-300 hover:text-white rounded hover:bg-emerald-800/40 transition-colors"
                 title="New chat"
@@ -99,7 +99,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => navigateTo('chat', `#/chat/koala/${c.id}`)}
+                    onClick={() => navigateTo('chat', `#/chat/${c.id}`)}
                     className={`w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors truncate cursor-pointer ${
                       isSelected
                         ? 'bg-[var(--bark-600)] text-emerald-300 font-semibold'
@@ -147,6 +147,22 @@ export default function Sidebar({ forestTabs, onLogout }: {
           className={nested(view === 'lab')}
         >
           <FlaskConical size={15} className="text-[var(--leaf)]" /> Lab
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('harness')}
+          className={nested(view === 'harness')}
+        >
+          <Sliders size={15} className="text-[var(--leaf)]" /> Harness
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('tool-repo')}
+          className={nested(view === 'tool-repo')}
+        >
+          <Wrench size={15} className="text-[var(--leaf)]" /> Tool Repo
         </button>
 
         <button

@@ -3,7 +3,7 @@ import {
   listClusters, listClusterServices, clusterDashboardUrl, clusterKeys, type ServiceInfo,
 } from '../api/clusters';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp, Server, Cloud, Shield, Zap, ExternalLink, GitBranch, Bell, FileText } from 'lucide-react';
+import { Activity, CheckCircle, XCircle, Loader2, ChevronDown, ChevronUp, Server, Cloud, Shield, Zap, ExternalLink, GitBranch, Bell, FileText, Key } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 const SERVICE_ICONS: Record<string, LucideIcon> = {
@@ -13,6 +13,7 @@ const SERVICE_ICONS: Record<string, LucideIcon> = {
   gitea: GitBranch,
   alertmanager: Bell,
   loki: FileText,
+  infisical: Key,
 };
 
 const SERVICE_COLORS: Record<string, string> = {
@@ -22,6 +23,7 @@ const SERVICE_COLORS: Record<string, string> = {
   gitea: 'text-blue-500 bg-blue-500/10',
   alertmanager: 'text-red-500 bg-red-500/10',
   loki: 'text-purple-500 bg-purple-500/10',
+  infisical: 'text-emerald-500 bg-emerald-500/10',
 };
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -31,6 +33,7 @@ const SERVICE_LABELS: Record<string, string> = {
   gitea: 'Gitea (Git + CI/CD)',
   alertmanager: 'Alertmanager',
   loki: 'Loki Logging',
+  infisical: 'Infisical (Secrets Management)',
 };
 
 const NO_DASHBOARD = new Set(['loki']);

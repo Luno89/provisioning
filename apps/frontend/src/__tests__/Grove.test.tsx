@@ -193,7 +193,7 @@ describe('selecting a leaf', () => {
 
 describe('proposals', () => {
   it('offers accept and reject even with no model configured, so proposals are never stranded', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', packId: 'p1' })] });
     renderGrove();
     await openTree();
     await openBranch('Rate limiting work');
@@ -212,7 +212,7 @@ describe('proposals', () => {
   });
 
   it('accepting posts to the accept endpoint with the real leaf id', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', packId: 'p1' })] });
     renderGrove();
     await openTree();
     await openBranch('Rate limiting work');
@@ -225,7 +225,7 @@ describe('proposals', () => {
   });
 
   it('offers accept-all only when more than one is proposed', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', packId: 'p1' })] });
     renderGrove();
     await openTree();
     await openBranch('Rate limiting work');
@@ -236,7 +236,7 @@ describe('proposals', () => {
   it('shows accept-all for several, and accepts each one', async () => {
     mockApi({
       branches: [branch()],
-      leaves: [leaf({ status: 'proposed', personaId: 'p1' }), leaf({ id: 'leaf-2', title: 'Add metrics', status: 'proposed', personaId: 'p1' })],
+      leaves: [leaf({ status: 'proposed', packId: 'p1' }), leaf({ id: 'leaf-2', title: 'Add metrics', status: 'proposed', packId: 'p1' })],
     });
     renderGrove();
     await openTree();
@@ -250,7 +250,7 @@ describe('proposals', () => {
   });
 
   it('does not show proposed leaves as ordinary work in the tree', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', personaId: 'p1' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', packId: 'p1' })] });
     renderGrove();
     await openTree();
     await waitFor(() => expect(screen.getAllByTitle('To do').length).toBeGreaterThan(0));
@@ -347,7 +347,7 @@ describe('chat mode surviving the navigator', () => {
 
 describe('an accept the server refuses', () => {
   it('shows why, instead of doing nothing', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', packId: 'p1' })] });
     vi.mocked(groveApi.acceptLeaf).mockRejectedValue({
       response: { data: { error: 'Nothing would check the finished result. Ask the planner to call set_acceptance for this request.' } },
     });
@@ -362,7 +362,7 @@ describe('an accept the server refuses', () => {
   });
 
   it('clears the warning once an accept succeeds', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', personaId: 'p1' })] });
+    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', packId: 'p1' })] });
     vi.mocked(groveApi.acceptLeaf).mockRejectedValueOnce({ response: { data: { error: 'Assign a persona first.' } } });
     renderGrove();
     await openTree();

@@ -20,7 +20,6 @@ import { buildVerifyScript, parseVerifyResult, defaultVerifyCommand } from '../l
 import type { ProjectMetadata } from '../lib/types.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { requireBudget } from '../lib/pack-defaults.js';
 import { ranAs } from '../lib/run-provenance.js';
 
 export interface ResolveLandingArgs {
@@ -67,15 +66,23 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
     checkout = await repos.checkoutCredential(ownerId, project);
 
     const treeType = await treeTypeForLeaf(db, outstanding[0]!);
-    const pack = await packForRole(db, ownerId, treeType, 'merger') ?? null;
+    const pack = await packForRole(db, ownerId, treeType, 'merger');
+    if (!pack) {
+      console.warn(`[ResolveLanding] ${treeType?.id ?? 'this tree type'} names no merger pack`);
+      return { outcome: 'unresolved', landed: [] };
+    }
     const ownPersonas = withBuiltIns(await db.getPersonas(), ownerId, (p) => p.name);
-    const assigned = pack ? ownPersonas.find((p) => p.id === pack.personaId) : undefined;
+    const assigned = ownPersonas.find((p) => p.id === pack.personaId);
     const persona = assigned ? flattenPersona(assigned, ownPersonas) : null;
-    if (!pack) console.warn(`[ResolveLanding] ${treeType?.id ?? 'this tree type'} names no merger pack — running with harness defaults`);
     await workspaces.destroy(workspaceId).catch(() => undefined);
     await workspaces.create(personaWorkspace(
       await new WorkspaceImageService(db).list(ownerId),
-      pack, { leafId: workspaceId, ownerId }, { language: project.language },
+      { leafId: workspaceId, ownerId },
+      {
+        language: project.language,
+        ...(treeType?.egress ? { egress: treeType.egress } : {}),
+        ...(treeType?.env ? { env: treeType.env } : {}),
+      },
     ));
     await countWorkspace(db, args.leafId);
 
@@ -104,11 +111,11 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
 
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     const profile = await db.getHarnessProfile(ownerId);
-    const language = (project.language ?? pack?.workspace?.language) as WorkspaceLanguage | undefined;
+    const language = (project.language ?? treeType?.language) as WorkspaceLanguage | undefined;
     const systemPrompt = resolvePrompt(persona);
     // The engine is the pack's; nothing layered can name one any more.
     const chosen = undefined;
-    const { provider, baseUrl, apiKey, source: endpointSource } = await models.resolveBaseUrl(ownerId, chosen, pack?.model?.endpointId);
+    const { provider, baseUrl, apiKey, source: endpointSource } = await models.resolveBaseUrl(ownerId, chosen, pack.model?.endpointId);
 
     let merged = true;
     for (const branch of branches) {
@@ -122,16 +129,16 @@ export async function ResolveLandingActivity(args: ResolveLandingArgs): Promise<
       let settled = false;
       for (let round = 0; round < MAX_ROUNDS && !settled; round++) {
         const run = await runAgentLoop({
-          catalogue: await new ToolService(db).schemas(ownerId, pack?.tools),
+          catalogue: await new ToolService(db).schemas(ownerId, pack.tools),
           runtime: { db, userId: ownerId, ...(repos ? { projects: repos } : {}) },
           images: await new WorkspaceImageService(db).list(ownerId),
-          ...(pack?.sampling ? { sampling: pack.sampling } : {}),
+          sampling: pack.sampling,
           baseUrl,
           ...(apiKey ? { apiKey } : {}),
           model: provider.model,
           ...(provider.kind ? { kind: provider.kind } : {}),
           ...(language ? { language } : {}),
-          ...agentRunOptions(pack?.budget ?? await requireBudget(db), pack, {
+          ...agentRunOptions(pack.budget, pack, {
             ...(() => {
               const provenance = ranAs(pack, { id: provider.id, source: endpointSource });
               return provenance ? { ranAs: provenance } : {};

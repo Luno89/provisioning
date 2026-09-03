@@ -9,6 +9,7 @@ import type { ClusterService } from '../services/ClusterService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { GiteaService } from '../services/GiteaService.js';
+import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 
@@ -17,6 +18,7 @@ export interface ClustersRouterDeps {
   appService: Pick<AppService, 'discoverDeployments'>;
   clusterProxyService: Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>;
   giteaService: GiteaService;
+  infisicalService: InfisicalService;
   infraService: Pick<InfrastructureService, 'runKubectl'>;
   temporalBridge: TemporalBridge;
   db: Pick<Database, 'getClusters' | 'saveClusterList'>;
@@ -32,12 +34,12 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
 export function clustersRouter(deps: ClustersRouterDeps): Router {
   const {
     clusterService, appService, clusterProxyService, infraService,
-    temporalBridge, db, io, giteaService,
+    temporalBridge, db, io, giteaService, infisicalService,
   } = deps;
   const JWT_SECRET = deps.jwtSecret;
   const router = Router();
 
-  const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager'] as const;
+  const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager', 'infisical'] as const;
 
   async function getGrafanaAdminCredentials(kubeconfigPath: string): Promise<{ username: string; password: string }> {
     const raw = await infraService.runKubectl(
@@ -57,11 +59,13 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         const kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
         const targetUrl = await clusterProxyService.ensurePortForward(clusterId, serviceKey, kubeconfigPath);
 
-        if (serviceKey === 'gitea' || serviceKey === 'grafana') {
+        if (serviceKey === 'gitea' || serviceKey === 'grafana' || serviceKey === 'infisical') {
           try {
             const credentials = serviceKey === 'gitea'
               ? await giteaService.getAdminCredentials()
-              : await getGrafanaAdminCredentials(kubeconfigPath);
+              : serviceKey === 'grafana'
+                ? await getGrafanaAdminCredentials(kubeconfigPath)
+                : await infisicalService.getAdminCredentials();
             const cookies = await clusterProxyService.getAutoLoginCookies(serviceKey, targetUrl, credentials);
             for (const cookie of cookies) res.append('Set-Cookie', cookie);
           } catch (err: any) {
@@ -235,6 +239,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         gitea: ['gitea'],
         alertmanager: ['kube-prometheus-stack'],
         loki: ['loki', 'promtail'],
+        infisical: ['infisical-standalone', 'infisical'],
       };
       const POD_NAME_PATTERNS: Record<string, string[]> = {
         prometheus: ['kube-prometheus-stack-prometheus', 'kube-prometheus-stack-operator', 'kube-prometheus-stack-kube-state-metrics', 'kube-prometheus-stack-prometheus-node-exporter'],
@@ -243,6 +248,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         gitea: ['gitea'],
         alertmanager: ['alertmanager-kube-prometheus-stack-alertmanager'],
         loki: ['loki', 'promtail'],
+        infisical: ['infisical-standalone', 'infisical'],
       };
       const SERVICE_NAMESPACES: Record<string, string> = {
         prometheus: 'monitoring',
@@ -251,6 +257,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         gitea: 'gitea',
         alertmanager: 'monitoring',
         loki: 'monitoring',
+        infisical: 'infisical',
       };
 
       const services = Object.entries(RELEASE_NAMES).map(([serviceKey, chartNames]) => {

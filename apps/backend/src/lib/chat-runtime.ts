@@ -1,6 +1,7 @@
 
 import type { UnifiedFrame } from './chat-wire.js';
 import type { BudgetConfig } from '@koala/harness-types';
+import type { PostPass, StreamEvent } from './round-loop.js';
 
 export interface TurnOutcome {
   answer: string;
@@ -10,6 +11,9 @@ export interface TurnOutcome {
   proposedTrees: unknown[];
   proposedSpecs: unknown[];
   exhaustedRounds: boolean;
+  finishReason?: string;
+  usage?: Record<string, unknown>;
+  interrupted?: string;
 }
 
 export interface ChatRuntimeDeps {
@@ -29,6 +33,10 @@ export interface ChatRuntimeDeps {
   record: BudgetConfig['record'];
   onFrame?: (frame: UnifiedFrame) => void;
   onEachToolResult?: (frame: UnifiedFrame) => void;
+  /** Recovery passes run once the loop settles — length-cap continuation, monologue recovery, etc. */
+  postPasses?: PostPass[];
+  /** Called on every underlying stream event; a non-empty return interrupts the turn immediately. */
+  onStreamEvent?: (ev: StreamEvent) => string | void;
 }
 
 export interface ChatTurnResult {
@@ -42,6 +50,7 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
   const {
     call, executeTool, messages, tools: initialTools = [],
     trimPerRound, maxRounds, record, onFrame: onFrameProp, onEachToolResult,
+    postPasses, onStreamEvent,
   } = deps;
 
   const emitFrame = onFrameProp ?? onEachToolResult;
@@ -72,7 +81,12 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
       emitFrame?.({ type: 'enabled', payload: [name] });
     },
     onExhausted: 'wrap-up',
+    ...(postPasses ? { postPasses } : {}),
     emit: ((frame: any) => {
+      if (frame.kind === 'content' || frame.kind === 'reasoning' || frame.kind === 'usage' || frame.kind === 'finish') {
+        const interrupted = onStreamEvent?.(frame as StreamEvent);
+        if (interrupted) return interrupted;
+      }
       if (!emitFrame) return;
       if (frame.kind === 'content') {
         emitFrame({ type: 'content', delta: String(frame.text) });
@@ -82,8 +96,10 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
         emitFrame({ type: 'toolAnnounce', payload: { id: frame.id, name: frame.name, args: frame.args } });
       } else if (frame.kind === 'toolResult') {
         emitFrame({ type: 'toolResult', payload: { id: frame.id, ok: frame.ok, digest: frame.digest } });
+      } else if (frame.kind === 'interrupted') {
+        emitFrame({ type: 'interrupted', payload: frame.reason });
       }
-    }) as unknown as (f: any) => void,
+    }) as unknown as (f: any) => string | void,
     ...(trimPerRound ? { trimPerRound } : {}),
   });
 
@@ -95,6 +111,9 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
     proposedTrees: result.proposedTrees,
     proposedSpecs: result.proposedSpecs,
     exhaustedRounds: result.exhaustedRounds,
+    ...(result.finishReason ? { finishReason: result.finishReason } : {}),
+    ...(result.usage ? { usage: result.usage } : {}),
+    ...(result.interrupted ? { interrupted: result.interrupted } : {}),
   };
 
   return { outcome, exhaustedRounds: result.exhaustedRounds, answer: result.answer, spoken: result.spoken };

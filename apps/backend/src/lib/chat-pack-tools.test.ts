@@ -5,13 +5,14 @@ vi.mock('./tool-registry.js', () => ({ runTool: vi.fn() }));
 import { runTool } from './tool-registry.js';
 
 const github = { name: 'github-mcp', description: 'GitHub MCP' };
+const gitea = { name: 'gitea-mcp-server', description: 'Gitea MCP' };
 
 const context: any = {
   userId: 'u1',
   conversationId: 'c1',
   sessionId: 's1',
   enabledNames: ['github-mcp'],
-  servers: [github],
+  servers: [github, gitea],
   webSearch: async () => ({ results: [] }),
   fetchWebPage: async () => '',
   toolRefused: (r: string) => r.startsWith('REFUSED'),
@@ -57,5 +58,17 @@ describe('the persona-pack tool dispatcher', () => {
     const out = await exec({ id: 'c', name: 'list_leaves', arguments: '{}' });
     expect(vi.mocked(runTool).mock.calls[0]![1]).toEqual({ name: 'list_leaves', arguments: '{}' });
     expect(out.content).toBe('{"leaves":[]}');
+  });
+
+  it('can route to a server enabled earlier in the same turn, not just the ones it started with', async () => {
+    vi.mocked(runTool).mockResolvedValueOnce({ content: 'enabled', enabled: 'gitea-mcp-server' });
+    const exec = makePackToolExecutor(context);
+    await exec({ id: 'a', name: 'enable_mcp_server', arguments: '{"name":"gitea-mcp-server"}' });
+
+    context.registry.call.mockResolvedValueOnce({ text: 'repo list' });
+    const out = await exec({ id: 'b', name: 'gitea-mcp-server__list_repositories', arguments: '{}' });
+
+    expect(context.registry.call).toHaveBeenCalledWith(gitea, 'list_repositories', {});
+    expect(out.content).toBe('repo list');
   });
 });

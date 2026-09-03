@@ -1,11 +1,12 @@
 import type { DeploymentMetadata } from './types.js';
 import { clusterUrl } from './cluster-dns.js';
 import type { McpTool } from './mcp-client.js';
+import { sanitizeNamespace } from './model-registry.js';
 
 export const GITAPP_SERVICE = 'gitapp';
 
 export function namespaceOfDeployment(dep: Pick<DeploymentMetadata, 'name'>): string {
-  return dep.name;
+  return sanitizeNamespace(dep.name);
 }
 
 export function mcpUrlFor(dep: Pick<DeploymentMetadata, 'name'>, namespace = namespaceOfDeployment(dep), port = 8080): string {

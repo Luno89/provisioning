@@ -7,7 +7,7 @@ import {
   expandAxes, normaliseExperiment, validateExperiment, summariseExperiment,
   latestResults, plannedRuns, experimentTasks, MAX_REPEATS, MAX_TASK_CHARS,
 } from '../../lib/experiments.js';
-import { normaliseTasks, taskFiles, unknownPersona } from '../../lib/experiment-authoring.js';
+import { normaliseTasks, taskFiles, unknownPack } from '../../lib/experiment-authoring.js';
 import { isWorkspaceLanguage } from '../../lib/workspace-image-catalogue.js';
 import { WorkspaceImageService } from '../../services/WorkspaceImageService.js';
 import type { Experiment, ExperimentTask } from '@koala/harness-types';
@@ -127,8 +127,8 @@ export function experimentsRouter(deps: experimentsRouterDeps): Router {
     const before = experimentTasks(existing);
     const images = await new WorkspaceImageService(db).list(userOf(req).id);
     const suite = Array.isArray(tasks) && tasks.length ? normaliseTasks(images, tasks) : before;
-    const badPersona = await unknownPersona(db, userOf(req).id, variants);
-    if (badPersona) return res.status(400).json({ error: badPersona });
+    const badPack = await unknownPack(db, userOf(req).id, variants);
+    if (badPack) return res.status(400).json({ error: badPack });
 
     const editNow = new Date().toISOString();
     const fromAxes = await armsFromAxes(

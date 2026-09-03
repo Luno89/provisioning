@@ -14,21 +14,27 @@ export function settledBranches(
   return settled;
 }
 
-export function failureEvidence(leaf: Leaf): string {
+/** A short "failed after N attempts" summary, with no error text — safe to put on its own line. */
+export function failureSummary(leaf: Leaf): string {
   const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
-  const last = attempts[attempts.length - 1]?.error;
-  const count = attempts.length
+  return attempts.length
     ? `failed after ${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`
     : 'failed';
-  if (!last) return count;
+}
+
+/** The most recent attempt's error, flattened to one line and capped — or undefined if there is none. */
+export function lastFailureError(leaf: Leaf): string | undefined {
+  const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
+  const last = attempts[attempts.length - 1]?.error;
+  if (!last) return undefined;
   const flat = last.replace(/\s+/g, ' ').trim();
-  return `${count} — last error: ${flat.length > 160 ? `${flat.slice(0, 159)}…` : flat}`;
+  return flat.length > 160 ? `${flat.slice(0, 159)}…` : flat;
 }
 
 export function outstandingWork(
   branches: { id: string; title: string }[],
   leaves: Leaf[],
-): { leaf: Leaf; from: string; attempts: number; evidence: string }[] {
+): { leaf: Leaf; from: string; attempts: number; summary: string; lastError: string | undefined }[] {
   const settled = settledBranches(branches, leaves);
   return leaves
     .filter((l) => l.status === 'failed' && settled.has(l.branchId))
@@ -36,7 +42,8 @@ export function outstandingWork(
       leaf,
       from: branches.find((b) => b.id === leaf.branchId)?.title ?? '',
       attempts: Array.isArray(leaf.attempts) ? leaf.attempts.length : 0,
-      evidence: failureEvidence(leaf),
+      summary: failureSummary(leaf),
+      lastError: lastFailureError(leaf),
     }))
     .sort((a, b) => b.attempts - a.attempts);
 }

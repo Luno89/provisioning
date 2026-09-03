@@ -203,19 +203,23 @@ export async function runPlanningTool(
         return JSON.stringify({ error: 'Those dependencies would form a cycle — nothing in it could ever start.' });
       }
 
+      const myPacks = (await db.getPersonaPacks()).filter((p) => p.ownerId == null || p.ownerId === userId);
       const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
-      const persona = resolvePersonaNamed(
-        wantedPersona,
-        (await db.getPersonaPacks()).filter((p) => p.ownerId == null || p.ownerId === userId),
-      );
+      const persona = resolvePersonaNamed(wantedPersona, myPacks);
 
       const wantedProjectId = typeof args.projectId === 'string' ? args.projectId.trim() : '';
+      // Lazy on purpose, same as before — a leaf naming no project at all should never need
+      // `projects` to be callable (leaf-execution-only runtimes don't wire it).
+      const myProjects = wantedProjectId ? await projects.listForOwner(userId) : [];
       const wantedProject = wantedProjectId
-        ? (await projects.listForOwner(userId)).find((p) => p.id === wantedProjectId)
+        ? myProjects.find((p) => p.id === wantedProjectId)
         : undefined;
-      if (wantedProjectId && !wantedProject) {
-        console.warn(`[leaf-tools] branch ${branchId}: no project ${wantedProjectId} for "${title.slice(0, 40)}"`);
-      }
+      // Was a server-only console.warn — the model got no signal its projectId didn't match
+      // anything and would repeat the same wrong id on every later leaf, silently.
+      const projectWarning = wantedProjectId && !wantedProject
+        ? `No project has id "${args.projectId}", so this leaf has no repository. Call list_projects `
+          + 'and use one of those ids, or create_project first if none fits.'
+        : undefined;
 
       const now = new Date().toISOString();
       const leaf: Leaf = {
@@ -251,10 +255,18 @@ export async function runPlanningTool(
         ...(personaWarning
           ? {
               personaWarning,
-              availablePersonas: (withBuiltIns(await db.getPersonas(), userId, (p) => p.name))
-                .map((p) => ({ name: p.name, description: p.description ?? '' })),
+              // The same table `persona` was actually matched against — was `db.getPersonas()`,
+              // a different collection than what this checks, so a name copied from this hint
+              // could look right and still fail to match on the next call.
+              availablePersonas: myPacks.map((p) => ({ name: p.name, description: p.description ?? '' })),
             }
           : { persona: persona!.name }),
+        ...(projectWarning
+          ? {
+              projectWarning,
+              availableProjects: myProjects.map((p) => ({ id: p.id, name: p.name })),
+            }
+          : wantedProject ? { project: wantedProject.name } : {}),
         ...(expects.length ? { expects } : {}),
         ...(wanted.length ? { dependsOn: recorded } : {}),
         ...(unresolved.length
@@ -419,7 +431,11 @@ export async function runPlanningTool(
       const title = typeof args.title === 'string' ? args.title.trim() : '';
       const body = typeof args.body === 'string' ? args.body.trim() : '';
       const wantedPersona = typeof args.persona === 'string' ? args.persona.trim() : '';
-      const mine = withBuiltIns(await db.getPersonas(), userId, (p) => p.name);
+      // Must be the same table propose_leaf resolves against — Leaf.packId is a PersonaPack id,
+      // not a Persona id. This used to resolve against db.getPersonas() and store that id into
+      // packId anyway: a name that matched still wrote the wrong kind of id, silently breaking the
+      // assignment the model thought it had just fixed.
+      const mine = (await db.getPersonaPacks()).filter((p) => p.ownerId == null || p.ownerId === userId);
       const persona = resolvePersonaNamed(wantedPersona, mine);
       if (wantedPersona && !persona) {
         return JSON.stringify({

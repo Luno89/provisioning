@@ -8,7 +8,7 @@ import Home from './Home.js';
 import NewTreeDialog from './NewTreeDialog.js';
 import LeafDetail from './LeafDetail.js';
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from './leaf-types.js';
-import { type Message } from './Chat.js';
+import { type ChatMessageRecord as Message } from './ChatSurface.js';
 import { parseHash, formatHash, shouldReplace } from '../lib/route.js';
 import { lastSeen, markSeenAfterDwell } from '../lib/seen.js';
 import {
@@ -18,7 +18,8 @@ import {
   deleteBranch as apiDeleteBranch,
   deleteLeaf as apiDeleteLeaf,
 } from '../api/grove';
-import { listPersonas } from '../api/personas';
+import { listPacks } from '../api/packs';
+import { useLiveTurnsStore, branchTurnKey, overlayBranchMessages } from '../stores/live-turns.js';
 
 interface Tree {
   id: string;
@@ -50,6 +51,7 @@ export default function Grove({ handoff, onHandoffTaken }: {
   const [railClosed, setRailClosed] = useState(false);
   const [newTree, setNewTree] = useState(false);
   const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({});
+  const liveTurns = useLiveTurnsStore((s) => s.turns);
   const [modes, setModes] = useState<Record<string, 'chat' | 'auto' | 'plan'>>({});
   const [opening, setOpening] = useState<{ branchId: string; prompt: string } | undefined>();
 
@@ -74,9 +76,9 @@ export default function Grove({ handoff, onHandoffTaken }: {
     queryFn: listLeaves,
     refetchInterval: 5000,
   });
-  const { data: personas = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ['personas'],
-    queryFn: listPersonas,
+  const { data: packs = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['packs'],
+    queryFn: listPacks,
     staleTime: 60_000,
   });
 
@@ -397,7 +399,10 @@ export default function Grove({ handoff, onHandoffTaken }: {
             branchId={selectedBranch.id}
             record={selectedBranch}
             leaves={all}
-            messages={transcripts[selectedBranch.id] ?? selectedBranch.messages ?? []}
+            messages={
+              transcripts[selectedBranch.id]
+              ?? overlayBranchMessages(selectedBranch.messages ?? [], liveTurns[branchTurnKey(selectedBranch.id)])
+            }
             onMessagesChange={(next) =>
               setTranscripts((t) => ({
                 ...t,
@@ -429,7 +434,7 @@ export default function Grove({ handoff, onHandoffTaken }: {
             {...(projectTree ? { tree: projectTree } : {})}
             lastSeen={seenAt.current}
             onOpenBranch={(id) => setSelected({ kind: 'branch', id })}
-            personaNames={Object.fromEntries(personas.map((p) => [p.id, p.name]))}
+            packNames={Object.fromEntries(packs.map((p) => [p.id, p.name]))}
             starting={startWork.isPending}
             onStart={(treeId, prompt) => startWork.mutate({ treeId, prompt })}
             onOpenLeaf={(leaf) => {

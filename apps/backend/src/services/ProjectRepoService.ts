@@ -145,6 +145,13 @@ export class ProjectRepoService {
     return { cloneUrl: `${base}/${project.giteaOwner}/${project.giteaRepo}.git`, tokenName, username };
   }
 
+  /** A scoped, read-only Gitea token for the owner's own account — for auto-provisioning GITEA_TOKEN. */
+  async mintReadToken(ownerId: string): Promise<{ token: string; tokenName: string; username: string }> {
+    const { username, password } = await this.ensureAccount(ownerId);
+    const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
+    return { token, tokenName, username };
+  }
+
   async revokeCheckout(ownerId: string, tokenName: string): Promise<void> {
     const account = await this.db.getGiteaAccount(ownerId);
     if (!account) return;

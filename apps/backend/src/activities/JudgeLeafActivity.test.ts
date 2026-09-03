@@ -3,6 +3,7 @@ import { MemoryDB } from '../lib/memory-db.js';
 import type { Leaf } from '../lib/leaves.js';
 import { seedPacks } from '../lib/pack-seeds.js';
 import { seedPersonas } from '../lib/persona-seeds.js';
+import { seedTreeTypes } from '../lib/tree-types.js';
 
 const resolveBaseUrl = vi.fn();
 const readStreamedReply = vi.fn();
@@ -32,6 +33,10 @@ const seeded = async (records: Leaf[], evidence?: any) => {
   // The budget is the pack's, so a run needs the shipped packs present.
   await seedPersonas(fresh);
   await seedPacks(fresh);
+  await seedTreeTypes(fresh);
+  // The judge pack is the tree type's, so a leaf needs one bound to be judged at all.
+  await fresh.saveTree({ id: 't1', ownerId: 'u1', name: 'T', type: 'api-service', projectIds: [] } as any);
+  await fresh.saveBranch({ id: 'b1', ownerId: 'u1', treeId: 't1', title: 'T', messages: [] } as any);
   for (const l of records) await fresh.saveLeaf(l);
   if (evidence) {
     await fresh.saveLeafTrace({

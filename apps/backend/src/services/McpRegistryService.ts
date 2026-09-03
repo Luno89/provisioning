@@ -43,7 +43,7 @@ export class McpRegistryService {
         name: nameOf(dep as never),
         deploymentName: dep.name,
         url: mcpUrlFor(dep, namespaceOfDeployment(dep)),
-        probeUrl: await this.probeUrlFor(dep.name),
+        probeUrl: await this.probeUrlFor(namespaceOfDeployment(dep)),
         ...(dep.gitappProjectId ? { projectId: dep.gitappProjectId } : {}),
         tools: known?.tools ?? [],
         ...(known ? { lastSeen: new Date(known.at).toISOString() } : {}),

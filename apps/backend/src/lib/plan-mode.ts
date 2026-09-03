@@ -6,14 +6,6 @@ export interface LeafProposal {
   projectId?: string;
 }
 
-export const AMBIENT_PROPOSAL_PROMPT = [
-  'If you become confident about concrete work that should be done, you may end your reply with:',
-  '```json',
-  '{"leaves":[{"title":"Imperative title","body":"What it involves","persona":"Persona name"}]}',
-  '```',
-  'Only when the work is clear. Otherwise just talk, or ask a question.',
-].join('\n');
-
 export type ChatMode = 'chat' | 'auto' | 'plan';
 
 export function isChatMode(value: unknown): value is ChatMode {

@@ -87,6 +87,59 @@ describe('assigning a persona', () => {
     expect(out.personas).toEqual([{ name: 'Coder', description: 'Writes code.' }]);
     expect(JSON.stringify(out)).not.toMatch(/secret-ish|temperature/);
   });
+
+  /**
+   * revise_leaf used to resolve the name against db.getPersonas() (a different collection with
+   * different ids) and then write that id into packId anyway — a name that matched still wrote the
+   * wrong kind of id, silently breaking the assignment the model thought it had just fixed.
+   */
+  it('revise_leaf assigns the same kind of id propose_leaf does, not a persona id', async () => {
+    await db.savePersonaPack(persona() as never);
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'x' }));
+    const [leaf] = await leavesOnBranch();
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('revise_leaf', { id: leaf!.id, persona: 'Coder' })));
+
+    expect(out.error).toBeUndefined();
+    expect(out.revised.persona).toBe('Coder');
+    expect((await leavesOnBranch())[0]!.packId).toBe('p-coder');
+  });
+});
+
+describe('assigning a project', () => {
+  const oneProject = {
+    listForOwner: async () => [{
+      id: 'proj-1', name: 'Gitea MCP Server', giteaOwner: 'me', giteaRepo: 'gitea-mcp',
+      appType: 'mcp-server', createdAt: '2026-08-07T00:00:00.000Z',
+    }],
+  } as unknown as LeafToolContext['projects'];
+
+  /**
+   * A bad projectId used to be dropped with only a server-side console.warn — the model had no
+   * way to know it had guessed wrong, and would repeat the same mistake on every later leaf.
+   */
+  it('tells the model when a projectId matches nothing, rather than silently dropping it', async () => {
+    const out = JSON.parse(await runLeafTool(
+      ctx({ projects: oneProject }),
+      call('propose_leaf', { title: 'x', projectId: 'no-such-project' }),
+    ));
+
+    expect(out.error).toBeUndefined();
+    expect(out.projectWarning).toMatch(/no-such-project/);
+    expect(out.availableProjects).toEqual([{ id: 'proj-1', name: 'Gitea MCP Server' }]);
+    expect((await leavesOnBranch())[0]!.projectId).toBeUndefined();
+  });
+
+  it('assigns a project that does match, and says so plainly', async () => {
+    const out = JSON.parse(await runLeafTool(
+      ctx({ projects: oneProject }),
+      call('propose_leaf', { title: 'x', projectId: 'proj-1' }),
+    ));
+
+    expect(out.projectWarning).toBeUndefined();
+    expect(out.project).toBe('Gitea MCP Server');
+    expect((await leavesOnBranch())[0]!.projectId).toBe('proj-1');
+  });
 });
 
 describe('dependency ordering', () => {

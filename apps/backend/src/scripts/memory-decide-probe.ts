@@ -11,12 +11,11 @@ import { corpusEndpoints } from '../lib/web-tools-resolver.js';
 import { searchMemories, bodyOf } from '../lib/memory-index.js';
 import { admitMemory } from '../lib/memory-decide.js';
 import type { MemoryItem } from '../lib/memory-store.js';
-import { defaultSampling } from '../lib/pack-defaults.js';
 
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const sampling = await defaultSampling(db);
+  const sampling = (await db.getPersonaPacks()).find((p) => p.slug === 'koala' && p.ownerId == null)?.sampling;
 
   try {
     const all = await db.getMemories();

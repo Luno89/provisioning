@@ -117,9 +117,24 @@ check_docker_runtime() {
     return 1
   fi
   if [ "$vendor" = "nvidia" ]; then
-    echo "$info" | grep -qi "nvidia"
+    # daemon.json can carry a stale "nvidia" runtime entry (e.g. from a prior run's manual
+    # JSON fallback below) pointing at a binary that was never actually installed — `docker
+    # info` still lists the runtime name in that case, so grepping it alone is a false
+    # positive. Require the actual nvidia-container-runtime/nvidia-ctk binary too.
+    echo "$info" | grep -qi "nvidia" && { command -v nvidia-ctk &>/dev/null || command -v nvidia-container-runtime &>/dev/null; }
   elif [ "$vendor" = "amd" ]; then
     echo "$info" | grep -qiE "rocm|hip"
+  fi
+}
+
+# Regenerates the CDI spec Docker's `--gpus all` flag resolves against on newer toolkit/Docker
+# versions — without it `docker run --gpus all` fails with "failed to discover GPU vendor from
+# CDI: no known GPU vendor found" even when the legacy nvidia-container-runtime path is fully
+# configured, since CDI is tried first.
+generate_nvidia_cdi_spec() {
+  if command -v nvidia-ctk &>/dev/null; then
+    mkdir -p /etc/cdi
+    nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml 2>/dev/null || true
   fi
 }
 
@@ -138,6 +153,7 @@ install_nvidia_toolkit() {
       log_warn "GPU passthrough test failed. The NVIDIA runtime may need reconfiguration."
       log_info "Running: nvidia-ctk runtime configure --runtime=docker"
       nvidia-ctk runtime configure --runtime=docker 2>/dev/null || true
+      generate_nvidia_cdi_spec
       log_info "Restarting Docker to apply changes..."
       systemctl restart docker || { log_err "Failed to restart Docker."; return 1; }
       sleep 3
@@ -285,6 +301,8 @@ with open('$daemon_json', 'w') as f:
 }' > "$daemon_json"
     fi
   fi
+
+  generate_nvidia_cdi_spec
 
   # Restart Docker
   log_info "Restarting Docker to apply NVIDIA runtime..."

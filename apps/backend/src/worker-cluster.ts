@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
 import dotenv from 'dotenv';
 import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
@@ -12,6 +11,7 @@ import { DestroyAppActivity } from './activities/DestroyAppActivity.js';
 import { ResizeDiskActivity } from './activities/ResizeDiskActivity.js';
 import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
+import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
@@ -74,6 +74,7 @@ async function main() {
           ResizeDiskActivity,
           SyncConfigActivity,
           DownloadModelActivity,
+          VerifyGpuRuntimeActivity,
           RunPipelineActivity,
         },
       });

@@ -129,22 +129,43 @@ export function estimateKvCacheBytes(
   return 2 * numKvHeads * headDim * bytesPerElement * fullAttentionLayers * maxSeqLen;
 }
 
+export interface DownloadProgress {
+  downloadedBytes: number;
+  totalBytes: number;
+  currentFile: string;
+}
+
 export async function downloadHfFiles(
   files: HfFile[],
   destDir: string,
   token?: string,
+  onProgress?: (progress: DownloadProgress) => void,
 ): Promise<void> {
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  let downloadedBytes = 0;
+  let lastReportAt = 0;
   for (const file of files) {
     const dest = path.join(destDir, file.path);
     await fsp.mkdir(path.dirname(dest), { recursive: true });
     const response = await axios.get(file.url, { headers, responseType: 'stream' });
     await new Promise<void>((resolve, reject) => {
       const writer = fs.createWriteStream(dest);
+      if (onProgress) {
+        response.data.on('data', (chunk: Buffer) => {
+          downloadedBytes += chunk.length;
+          const now = Date.now();
+          if (now - lastReportAt >= 2000) {
+            lastReportAt = now;
+            onProgress({ downloadedBytes, totalBytes, currentFile: file.path });
+          }
+        });
+      }
       response.data.pipe(writer);
       writer.on('finish', resolve);
       writer.on('error', reject);
       response.data.on('error', reject);
     });
   }
+  if (onProgress) onProgress({ downloadedBytes, totalBytes, currentFile: '' });
 }

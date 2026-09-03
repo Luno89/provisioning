@@ -13,7 +13,6 @@ import { buildWebTools } from '../lib/web-tools-wiring.js';
 import { withBuiltIns } from '../lib/ownership.js';
 import { ToolService } from '../services/ToolService.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { requirePrompt } from '../lib/pack-defaults.js';
 
 export interface ReplanArgs {
   leafId: string;
@@ -53,14 +52,19 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     // Replanning is planning: it uses the planner this tree type names. It used to take whatever
     // pack the account happened to default to, which was usually a chat or worker pack.
     const treeType = await treeTypeForLeaf(db, leaf);
-    const pack = await packForRole(db, leaf.ownerId, treeType, 'planner') ?? null;
-    const adopted = pack ? personas.find((p) => p.id === pack.personaId) : undefined;
+    const pack = await packForRole(db, leaf.ownerId, treeType, 'planner');
+    if (!pack) {
+      const skip = `${treeType?.id ?? 'this tree type'} names no planner pack`;
+      console.warn(`[Replan] ${args.leafId.slice(0, 8)}: ${skip} — skipping`);
+      return { proposed: 0, skipped: skip };
+    }
+    const adopted = personas.find((p) => p.id === pack.personaId);
     const persona = adopted ? flattenPersona(adopted, personas) : null;
     const systemPrompt = resolvePrompt(persona);
     const models = createModelService(db, process.env.JWT_SECRET ?? '');
     // The engine is the pack's; nothing layered can name one any more.
     const chosen = undefined;
-    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack?.model?.endpointId);
+    const { provider, baseUrl, apiKey } = await models.resolveBaseUrl(leaf.ownerId, chosen, pack.model?.endpointId);
 
     const before = all.filter((l: Leaf) => l.branchId === leaf.branchId).length;
     const gitea = new GiteaService(
@@ -72,10 +76,10 @@ export async function ReplanActivity(args: ReplanArgs): Promise<ReplanResult> {
     await runPlanningTurn({
       toolRows: await new ToolService(db).list(leaf.ownerId),
       images: await new WorkspaceImageService(db).list(leaf.ownerId),
-      promptConfig: pack?.prompt ?? await requirePrompt(db),
-      ...(pack?.budget ? { budget: pack.budget } : {}),
-      ...(pack?.sampling ? { sampling: pack.sampling } : {}),
-      ...(pack?.tools?.length ? { grantedTools: pack.tools } : {}),
+      promptConfig: pack.prompt,
+      budget: pack.budget,
+      sampling: pack.sampling,
+      ...(pack.tools.length ? { grantedTools: pack.tools } : {}),
       baseUrl,
       ...(apiKey ? { apiKey } : {}),
       model: provider.model,

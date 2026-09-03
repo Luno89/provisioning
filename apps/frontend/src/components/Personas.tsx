@@ -1,11 +1,13 @@
 import { useState, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Loader2, Trash2, Pencil, ShieldAlert, ShieldOff, CornerDownRight } from 'lucide-react';
+import { Plus, Loader2, Trash2, Pencil, Sliders, CornerDownRight } from 'lucide-react';
 import PersonaEditor, { type Persona } from './PersonaEditor.js';
+import PersonaConfigDrawer from './PersonaConfigDrawer.js';
 import { statsFor, byLineage, type PersonaStats } from './persona-stats.js';
 import type { Leaf } from './leaf-types.js';
 import { listPersonas, deletePersona, personaKeys } from '../api/personas';
 import { listLeaves, groveKeys } from '../api/grove';
+import { listPacks, packKeys } from '../api/packs';
 
 function Rate({ stats }: { stats: PersonaStats }) {
   if (stats.verifiedRate === undefined) {
@@ -27,6 +29,7 @@ export default function Personas() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Persona | null>(null);
   const [creating, setCreating] = useState(false);
+  const [configuringPackId, setConfiguringPackId] = useState<string | null>(null);
 
   const { data: personas = [], isLoading } = useQuery<Persona[]>({
     queryKey: personaKeys.list(),
@@ -37,6 +40,14 @@ export default function Personas() {
     queryFn: listLeaves,
     staleTime: 30_000,
   });
+  // Leaves are assigned to packs, not personas directly — stats need the pack a persona is bound
+  // to, which was the bug: this used to filter leaves by leaf.personaId, a field nothing writes.
+  const { data: packs = [] } = useQuery<{ id: string; name: string; personaId: string }[]>({
+    queryKey: packKeys.list(),
+    queryFn: listPacks,
+    staleTime: 30_000,
+  });
+  const packForPersona = (personaId: string) => packs.find((p) => p.personaId === personaId);
 
   const remove = useMutation({
     mutationFn: (id: string) => deletePersona(id),
@@ -44,8 +55,8 @@ export default function Personas() {
   });
 
   const row = (p: Persona, isVariant: boolean) => {
-    const egress = p.scope?.egress ?? [];
-    const stats = statsFor(p.id, leaves);
+    const pack = packForPersona(p.id);
+    const stats = statsFor(pack?.id, leaves);
     return (
       <tr key={p.id} className="border-t border-[var(--bark-700)] hover:bg-[var(--bark-800)]/60 group">
         <td className="py-2.5 pr-3">
@@ -59,21 +70,17 @@ export default function Personas() {
         </td>
 
         <td className="py-2.5 pr-3 whitespace-nowrap">
-          {egress.length === 0 ? (
-            <span className="flex items-center gap-1.5 text-amber-400/80" title="DNS only — installs and downloads will fail">
-              <ShieldAlert size={12} /> sealed
-            </span>
+          {pack ? (
+            <button
+              onClick={() => setConfiguringPackId(pack.id)}
+              className="text-slate-300 hover:text-emerald-400 underline decoration-dotted underline-offset-2"
+            >
+              {pack.name}
+            </button>
           ) : (
-            <span className="flex items-center gap-1.5 text-slate-400" title={egress.map((e) => e.namespace ?? e.cidr).join(', ')}>
-              <ShieldOff size={12} /> {egress.map((e) => e.namespace ?? e.cidr).join(', ')}
-            </span>
+            <span className="text-slate-600">no pack</span>
           )}
         </td>
-        <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap">{p.scope?.run?.maxSteps ?? '—'}</td>
-        <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap">
-          {p.scope?.tools?.length ? p.scope.tools.length : <span title="Every tool the harness offers">all</span>}
-        </td>
-        <td className="py-2.5 pr-3 text-slate-500 whitespace-nowrap">{p.scope?.repo ? 'yes' : '—'}</td>
 
         <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap" title={`${stats.assigned} assigned, ${stats.finished} finished`}>
           {stats.assigned === 0 ? <span className="text-slate-600">never used</span> : stats.finished}
@@ -90,6 +97,15 @@ export default function Personas() {
 
         <td className="py-2.5 text-right whitespace-nowrap">
           <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+            {pack && (
+              <button
+                onClick={() => setConfiguringPackId(pack.id)}
+                title="Configure pack — tools, sampling, prompt"
+                className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-400 hover:bg-[var(--bark-700)]"
+              >
+                <Sliders size={13} />
+              </button>
+            )}
             <button onClick={() => setEditing(p)} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-[var(--bark-700)]">
               <Pencil size={13} />
             </button>
@@ -128,10 +144,7 @@ export default function Personas() {
             <thead>
               <tr className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 <th className="py-2.5 px-3 font-black">Persona</th>
-                <th className="py-2.5 pr-3 font-black">Reaches</th>
-                <th className="py-2.5 pr-3 font-black">Steps</th>
-                <th className="py-2.5 pr-3 font-black">Tools</th>
-                <th className="py-2.5 pr-3 font-black">Repo</th>
+                <th className="py-2.5 pr-3 font-black">Pack</th>
                 <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Leaves that reached a terminal state">Ran</th>
                 <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Share of finished leaves a check actually passed — never the agent's own report">Verified</th>
                 <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Median tokens per run">Typical</th>
@@ -159,6 +172,15 @@ export default function Personas() {
           {...(editing ? { persona: editing } : {})}
           personas={personas}
           onClose={() => { setEditing(null); setCreating(false); }}
+        />
+      )}
+
+      {configuringPackId && (
+        <PersonaConfigDrawer
+          isOpen={true}
+          onClose={() => setConfiguringPackId(null)}
+          activePackId={configuringPackId}
+          onSelectPack={setConfiguringPackId}
         />
       )}
     </section>

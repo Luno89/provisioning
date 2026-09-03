@@ -172,6 +172,7 @@ export interface ProjectMetadata {
   needs?: { service: string; as?: string }[];
   webhookSecretEnc?: string; // AES-256-GCM encrypted (crypto.ts) — HMAC key for verifying Gitea's push webhook signature
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
+  requiredSecrets?: { key: string; source: string }[]; // recorded on first auto-provision — see lib/secret-sources.ts
   createdAt: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;

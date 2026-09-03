@@ -6,7 +6,6 @@ export interface ChatTurnRequest {
   modelId?: string | undefined
   branchId?: string | undefined
   mode?: string | undefined
-  personaId?: string | undefined
   [key: string]: unknown
 }
 

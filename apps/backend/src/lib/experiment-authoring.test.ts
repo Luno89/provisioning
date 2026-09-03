@@ -8,9 +8,13 @@ import {
   selfProvisionedInputs,
   buildTaskChatPrompt,
   extractTaskRevision,
+  unknownPack,
 } from './experiment-authoring.js';
 import { MAX_TASKS, MAX_TASK_CHARS } from './experiments.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
+import { MemoryDB } from './memory-db.js';
+import { PACK_SEEDS } from './pack-seeds.js';
+import type { PersonaPack } from '@koala/harness-types';
 
 const block = (tasks: unknown[]) => '```json\n' + JSON.stringify({ tasks }) + '\n```';
 
@@ -19,6 +23,30 @@ const good = (over: Record<string, unknown> = {}) => ({
   prompt: 'Create /work/fib.js exporting fib(n).',
   verifyCommand: 'cd /work && node test.js',
   ...over,
+});
+
+describe('unknownPack', () => {
+  const pack = (over: Partial<PersonaPack> = {}): PersonaPack => ({
+    id: 'pk1', ownerId: 'u1', slug: 'builder', name: 'Builder', personaId: 'p1', tools: [],
+    sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
+    createdAt: '', updatedAt: '', ...over,
+  });
+
+  it('refuses a variant naming a pack that does not exist', async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await db.savePersonaPack(pack());
+    const result = await unknownPack(db, 'u1', [{ label: 'a', packId: 'gone' }]);
+    expect(result).toMatch(/no pack gone/i);
+  });
+
+  it('says nothing is wrong when every variant names a real pack', async () => {
+    const db = new MemoryDB();
+    await db.init();
+    await db.savePersonaPack(pack());
+    const result = await unknownPack(db, 'u1', [{ label: 'a', packId: 'pk1' }]);
+    expect(result).toBeUndefined();
+  });
 });
 
 describe('buildTaskAuthorPrompt', () => {

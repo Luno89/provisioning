@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PACK_SEEDS, seedPacks, type PackSeedStore } from './pack-seeds.js';
+import { PACK_SEEDS, seedPacks, packForLeaf, type PackSeedStore } from './pack-seeds.js';
 import { PERSONA_SEEDS } from './persona-seeds.js';
 import type { PersonaPack } from '@koala/harness-types';
 import { ALL_TOOL_SEEDS } from './tool-seeds.js';
@@ -137,5 +137,34 @@ describe('seeding', () => {
     const b = store(builtInPersonas);
     await seedPacks(b);
     expect(a.saved.map((p) => p.id)).toEqual(b.saved.map((p) => p.id));
+  });
+});
+
+describe('packForLeaf', () => {
+  const pack = (over: Partial<PersonaPack> = {}): PersonaPack => ({
+    id: 'pk1', ownerId: 'u1', slug: 'koala', name: 'Koala', personaId: 'p1', tools: [],
+    sampling: PACK_SEEDS[0]!.sampling, budget: PACK_SEEDS[0]!.budget, prompt: PACK_SEEDS[0]!.prompt,
+    createdAt: '', updatedAt: '', ...over,
+  });
+  const koala = pack({ id: 'pk-koala', slug: 'koala' });
+  const builder = pack({ id: 'pk-builder', slug: 'builder' });
+  const packs = [koala, builder];
+
+  it('uses the pack a leaf names, by id or by slug', () => {
+    expect(packForLeaf(packs, { packId: 'pk-builder' })).toBe(builder);
+    expect(packForLeaf(packs, { packId: 'builder' })).toBe(builder);
+  });
+
+  it('falls back to the profile\'s packId when the leaf names none', () => {
+    expect(packForLeaf(packs, {}, 'pk-koala')).toBe(koala);
+  });
+
+  it('prefers the leaf\'s own packId over the profile\'s', () => {
+    expect(packForLeaf(packs, { packId: 'builder' }, 'pk-koala')).toBe(builder);
+  });
+
+  it('returns nothing rather than guessing', () => {
+    expect(packForLeaf(packs, {})).toBeUndefined();
+    expect(packForLeaf(packs, { packId: 'gone' }, 'also-gone')).toBeUndefined();
   });
 });

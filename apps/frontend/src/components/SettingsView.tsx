@@ -127,13 +127,14 @@ export default function SettingsView() {
         <h4 className="text-lg font-bold text-white mb-1">Cluster Service Access</h4>
         <p className="text-xs text-slate-400 mb-4">
           How each auto-provisioned service on your clusters is secured. No credentials are ever shown here —
-          Grafana and Gitea log you in automatically (a real session, password never sent to your browser) when
+          Grafana, Gitea, and Infisical log you in automatically (a real session, password never sent to your browser) when
           you click "Open Dashboard" on the Cluster Services page.
         </p>
         <div className="space-y-2">
           {[
             { name: 'Grafana', detail: 'Signed in automatically as admin.', status: 'Auto-login', ok: true },
             { name: 'Gitea', detail: 'Signed in automatically as provisioning-bot.', status: 'Auto-login', ok: true },
+            { name: 'Infisical', detail: 'Signed in automatically as admin.', status: 'Auto-login', ok: true },
             { name: 'Prometheus', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },
             { name: 'Traefik Dashboard', detail: 'Runs in insecure/unauthenticated mode — local dev only.', status: 'No auth', ok: false },
             { name: 'Alertmanager', detail: 'No login screen — open by design (local dev).', status: 'No auth', ok: false },

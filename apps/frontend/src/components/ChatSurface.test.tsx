@@ -67,16 +67,46 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     ]), { status: 200 });
     vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
 
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
 
     const input = screen.getByPlaceholderText(/message/i);
     fireEvent.change(input, { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
     expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
-      expect.objectContaining({ packId: 'koala', conversationId: 'c1', message: 'hi' }),
+      expect.objectContaining({ conversationId: 'c1', message: 'hi' }),
       expect.any(AbortSignal),
     );
+    await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
+  });
+
+  it('keeps a streaming reply alive across an unmount and remount (navigating away and back)', async () => {
+    const encoder = new TextEncoder();
+    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controllerRef = controller; },
+    });
+    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
+
+    const { unmount } = renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Hello"}\n\n'));
+    await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
+
+    // Navigate away: this is a real unmount, same as a view swap in App.tsx. Nothing aborts the
+    // fetch, so the SSE loop reading `stream` keeps running as an orphaned promise — exactly what
+    // happens in the app when the user leaves the chat view mid-stream.
+    unmount();
+
+    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":" world"}\n\n'));
+    controllerRef.enqueue(encoder.encode('data: [DONE]\n\n'));
+    controllerRef.close();
+
+    // Navigate back: a fresh ChatSurface instance for the same conversation id should pick up
+    // right where the background stream left off, not start blank.
+    renderWithProviders(<ChatSurface conversationId="c1" />);
     await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
   });
 
@@ -87,7 +117,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     ]), { status: 200 });
     vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
 
-    renderWithProviders(<ChatSurface packId="researcher" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
     const inp = screen.getByPlaceholderText(/message/i);
     fireEvent.change(inp, { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
@@ -103,7 +133,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     ]), { status: 200 });
     vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
 
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
     const inp = screen.getByPlaceholderText(/message/i);
     fireEvent.change(inp, { target: { value: 'logs' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
@@ -120,7 +150,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     ]), { status: 200 });
     vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
 
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
     const inp = screen.getByPlaceholderText(/message/i);
     fireEvent.change(inp, { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
@@ -131,7 +161,6 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
   it('renders initial messages and handles markdown formatting', () => {
     renderWithProviders(
       <ChatSurface
-        packId="koala"
         initialMessages={[
           { role: 'user', content: 'hello from user' },
           { role: 'assistant', content: '**Bold reply** and `code`' },
@@ -145,12 +174,12 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
   });
 
   it('shows the koala while a conversation is being fetched, not an empty thread', () => {
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
     expect(screen.getByRole('status')).toHaveTextContent(/Fetching this conversation/i);
   });
 
   it('keeps the composer usable while the conversation loads', () => {
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
     expect(screen.getByPlaceholderText(/message/i)).toBeInTheDocument();
   });
 
@@ -160,7 +189,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     ]), { status: 200 });
     vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
 
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
 
     // The conversation is fetched first — the hero would otherwise flash and be replaced.
     expect(await screen.findByText('Propose Project Tree')).toBeInTheDocument();
@@ -169,11 +198,8 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
 
     fireEvent.click(screen.getByText('Propose Project Tree'));
 
-    // `pack-koala`, not the `koala` slug it mounted with: once the packs load, ChatSurface
-    // resolves the slug to the row's id, and that is what the route receives.
     await waitFor(() => expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        packId: 'pack-koala',
         message: expect.stringContaining('Propose a new project architecture'),
       }),
       expect.any(AbortSignal),
@@ -183,7 +209,6 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
   it('renders avatars for user and assistant messages in conversation stream', async () => {
     renderWithProviders(
       <ChatSurface
-        packId="koala"
         initialMessages={[
           { role: 'user', content: 'What is the cluster status?' },
           { role: 'assistant', content: 'All 3 nodes are ready.' },
@@ -212,7 +237,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       }],
     });
 
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c1" />);
+    renderWithProviders(<ChatSurface conversationId="c1" />);
 
     await waitFor(() => expect(screen.getByText('Privilege Escalation Requested')).toBeInTheDocument());
     expect(screen.getByText('Need access to Prometheus')).toBeInTheDocument();
@@ -234,7 +259,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       messages: [{ role: 'user', content: 'Cluster check' }],
     });
 
-    renderWithProviders(<ChatSurface packId="koala" conversationId="c-elevated" />);
+    renderWithProviders(<ChatSurface conversationId="c-elevated" />);
 
     await waitFor(() => expect(screen.getByText(/ELEVATED \(cluster-admin\)/i)).toBeInTheDocument());
   });

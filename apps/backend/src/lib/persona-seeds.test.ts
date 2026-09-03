@@ -4,7 +4,6 @@ import { KOALA_NAME } from './koala-persona.js';
 import { canRunLeaf } from './persona-scope.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 import { toolsNeeding } from './tool-registry.js';
-import { validateScope } from './personas.js';
 
 describe('the seeds themselves', () => {
   it('includes the ones work is actually assigned to', () => {
@@ -41,23 +40,11 @@ describe('the seeds themselves', () => {
     }
   });
 
-  /**
-   * Not the converse: `reviewer` and `judge` ship `tools: []` and a workspace. They are offered
-   * nothing now -- an empty grant list means an empty grant list -- and neither reaches the agent
-   * loop anyway, so a workspace they never use is harmless.
-   */
-
   it('keeps the chat and planning packs out of a sandbox', () => {
     for (const slug of ['koala', 'planner']) {
       const pack = PACK_SEEDS.find((p) => p.slug === slug)!;
       expect(runsSandboxWork(pack), slug).toBe(false);
       expect(canRunLeaf(pack as never), slug).toBe(false);
-    }
-  });
-
-  it('has workspaces that validate', () => {
-    for (const pack of PACK_SEEDS) {
-      expect(validateScope(pack.workspace), pack.slug).toBeUndefined();
     }
   });
 

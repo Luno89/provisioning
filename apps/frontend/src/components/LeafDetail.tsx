@@ -1,16 +1,57 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, ShieldCheck,
-  ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Stethoscope, Loader2,
+  ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Stethoscope, Loader2, Sliders,
 } from 'lucide-react';
 import Markdown from './Markdown.js';
 import LeafSteps from './LeafSteps.js';
+import PersonaConfigDrawer from './PersonaConfigDrawer.js';
 import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } from './leaf-types.js';
 import {
   acceptLeaf, cancelLeaf, retryLeaf, reviewLeaf, deleteLeaf, patchLeaf,
 } from '../api/grove';
 import { errorMessage } from '../api/client';
 import { listPacks, packKeys } from '../api/packs';
+
+const ERROR_PREVIEW_CHARS = 240;
+
+/**
+ * A leaf failure's `error` can be a one-word code ("context_length_exceeded") or, when the
+ * overthinking monitor fires, several KB of embedded loop transcript and shell commands — collapsed
+ * to the first line by default so one attempt's error can't push the whole leaf view off screen.
+ */
+function AttemptError({ error }: { error: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const firstLine = (error.split('\n')[0] ?? error).trim();
+  const isLong = error.length > ERROR_PREVIEW_CHARS || error.includes('\n');
+  const preview = firstLine.length > ERROR_PREVIEW_CHARS
+    ? `${firstLine.slice(0, ERROR_PREVIEW_CHARS)}…`
+    : firstLine;
+
+  if (!isLong) {
+    return <p className="text-slate-300 font-mono leading-relaxed break-words">{error}</p>;
+  }
+
+  return (
+    <div>
+      {expanded ? (
+        <pre className="text-slate-300 font-mono leading-relaxed whitespace-pre-wrap break-words max-h-64 overflow-y-auto bg-red-950/20 rounded p-2 -mx-1">
+          {error}
+        </pre>
+      ) : (
+        <p className="text-slate-300 font-mono leading-relaxed break-words">{preview}</p>
+      )}
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="text-[11px] text-red-400/70 hover:text-red-300 mt-1"
+      >
+        {expanded ? 'Show less' : `Show full error (${error.length.toLocaleString()} chars)`}
+      </button>
+    </div>
+  );
+}
 
 export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
   leaf: Leaf;
@@ -34,19 +75,15 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
     { maxTokens: (leaf.budget?.maxTokens ?? 0) * 2 },
   )));
 
-  /**
-   * Which pack carries this leaf out. Only packs with a sandbox are offered: the chat and planner
-   * packs have none, and the API refuses them for the same reason.
-   */
   const { data: packs = [] } = useQuery({ queryKey: packKeys.list(), queryFn: listPacks });
-  const runnable = packs.filter((p) => p.workspace && Object.keys(p.workspace).length > 0);
-  const assignedPack = runnable.find((p) => p.id === leaf.packId)
-    ?? runnable.find((p) => p.personaId === leaf.personaId);
+  const runnable = packs.filter((p) => p.canRunLeaf);
+  const assignedPack = runnable.find((p) => p.id === leaf.packId);
   const reassign = useMutation({
     mutationFn: (packId: string) => patchLeaf(leaf.id, { packId }),
     onSuccess: invalidate,
   });
   const canReassign = leaf.status === 'proposed' || leaf.status === 'pending' || leaf.status === 'failed';
+  const [showPackConfig, setShowPackConfig] = useState(false);
 
   const retry = useMutation(call(() => retryLeaf(leaf.id)));
   const review = useMutation({
@@ -104,6 +141,16 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
                 runs as {assignedPack.name}
               </span>
             ))}
+            {assignedPack && (
+              <button
+                type="button"
+                onClick={() => setShowPackConfig(true)}
+                className="text-[11px] text-slate-500 hover:text-slate-200 flex items-center gap-1"
+                title={`Configure ${assignedPack.name} — tools, model, sampling`}
+              >
+                <Sliders size={11} /> configure
+              </button>
+            )}
             {reassign.isError && (
               <span className="text-[11px] text-red-400">{errorMessage(reassign.error)}</span>
             )}
@@ -244,8 +291,13 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
           <ol className="space-y-2">
             {attempts.map((a) => (
               <li key={a.attempt} className="text-[12px] bg-red-950/20 border border-red-900/40 rounded-lg px-3 py-2">
-                <span className="text-red-400/70 mr-2">#{a.attempt + 1}</span>
-                <span className="text-slate-300">{a.error}</span>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-red-400/70 font-semibold">Attempt #{a.attempt + 1}</span>
+                  {a.failedAt && (
+                    <span className="text-slate-500 text-[11px]">{new Date(a.failedAt).toLocaleString()}</span>
+                  )}
+                </div>
+                <AttemptError error={a.error} />
               </li>
             ))}
           </ol>
@@ -283,6 +335,17 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">What it actually did</h3>
         <LeafSteps leafId={leaf.id} live={leaf.status === 'running'} />
       </div>
+
+      {assignedPack && (
+        <PersonaConfigDrawer
+          isOpen={showPackConfig}
+          onClose={() => setShowPackConfig(false)}
+          activePackId={assignedPack.id}
+          onSelectPack={(packId) => {
+            if (canReassign && packId !== assignedPack.id) reassign.mutate(packId);
+          }}
+        />
+      )}
     </div>
   );
 }

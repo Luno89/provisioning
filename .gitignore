@@ -30,6 +30,11 @@ cdktf.out/
 /apps/backend/data/.gitea-admin-password
 /apps/backend/data/.gitea-admin-token
 /apps/backend/data/.headscale-api-key
+/apps/backend/data/.infisical-encryption-key
+/apps/backend/data/.infisical-auth-secret
+/apps/backend/data/.infisical-admin-password
+/apps/backend/data/.infisical-postgres-password
+/apps/backend/data/.infisical-redis-password
 
 # Anything running bootstrap() from the repo root (a probe script, a mis-cd'd command) writes the
 # same runtime data here instead of apps/backend/data — including a live Headscale API key. Every

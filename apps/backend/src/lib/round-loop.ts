@@ -3,7 +3,8 @@ export type StreamEvent =
   | { kind: 'content'; text: string }
   | { kind: 'reasoning'; text: string }
   | { kind: 'toolCalls'; calls: { id: string; name: string; arguments: string }[] }
-  | { kind: 'usage'; usage: Record<string, unknown> };
+  | { kind: 'usage'; usage: Record<string, unknown> }
+  | { kind: 'finish'; reason: string };
 
 export interface StreamParser {
   push(chunk: string): StreamEvent[];
@@ -24,7 +25,8 @@ export function createStreamParser(): StreamParser {
 
     try {
       const parsed = JSON.parse(payload);
-      const delta = parsed?.choices?.[0]?.delta;
+      const choice = parsed?.choices?.[0];
+      const delta = choice?.delta;
 
       if (delta?.reasoning_content) events.push({ kind: 'reasoning', text: delta.reasoning_content });
       if (delta?.content) events.push({ kind: 'content', text: delta.content });
@@ -43,6 +45,10 @@ export function createStreamParser(): StreamParser {
 
       if (parsed?.usage) {
         events.push({ kind: 'usage', usage: parsed.usage });
+      }
+
+      if (choice?.finish_reason) {
+        events.push({ kind: 'finish', reason: String(choice.finish_reason) });
       }
     } catch { /* ignored */ }
     return events;
@@ -100,6 +106,14 @@ export interface RoundToolCall {
   arguments: string;
 }
 
+interface PumpAcc {
+  answer: string;
+  thinking: string;
+  calls: RoundToolCall[];
+  usage?: Record<string, unknown>;
+  finishReason?: string;
+}
+
 export interface ToolExecResult {
   content: string;
   ok?: boolean;
@@ -122,6 +136,9 @@ export interface ToolRoundResult {
   proposedSpecs: unknown[];
   proposedEscalations: unknown[];
   proposedSecretRequests: unknown[];
+  finishReason?: string;
+  usage?: Record<string, unknown>;
+  interrupted?: string;
 }
 
 export interface RoundLoopCall {
@@ -130,16 +147,35 @@ export interface RoundLoopCall {
   tools: string[];
 }
 
+/** What the turn looked like just before a post-pass runs — never the model's mutable working copy. */
+export interface PostPassCtx {
+  originalMessages: unknown[];
+  turn: unknown[];
+  answer: string;
+  spoken: string;
+  thinking: string;
+  finishReason?: string;
+}
+
+export interface PostPass {
+  id: string;
+  when: (ctx: PostPassCtx) => boolean;
+  buildMessages: (ctx: PostPassCtx) => unknown[];
+}
+
 export interface RoundLoopConfig {
   maxRounds: number;
   messages: unknown[];
   tools: string[];
   call: (req: RoundLoopCall) => Promise<{ ok: boolean; status?: number; body?: unknown }>;
-  emit: (frame: StreamEvent | Record<string, unknown>) => void;
+  /** A non-empty string returned here interrupts the turn immediately — no more rounds, no wrap-up. */
+  emit: (frame: StreamEvent | Record<string, unknown>) => string | void;
   executeTool: (call: RoundToolCall) => Promise<ToolExecResult>;
   trimPerRound?: (messages: unknown[]) => unknown[];
   onExhausted?: 'wrap-up';
   onEnabled?: (name: string) => void;
+  /** Recovery passes run after the loop settles (incl. after wrap-up), skipped entirely if interrupted. */
+  postPasses?: PostPass[];
   /** What is recorded per round — the frame and the turn outcome, never the model's input. */
   maxToolCallsPerMessage: number;
   maxToolCallArgs: number;
@@ -148,46 +184,72 @@ export interface RoundLoopConfig {
 
 async function pump(
   body: unknown,
-  acc: { answer: string; thinking: string; calls: RoundToolCall[] },
-  onEvent?: (ev: StreamEvent) => void,
-): Promise<void> {
+  acc: PumpAcc,
+  onEvent?: (ev: StreamEvent) => string | void,
+): Promise<string | undefined> {
   const reader = (body as any)?.getReader?.();
-  if (!reader) return;
+  if (!reader) return undefined;
   const parser = createStreamParser();
   const decoder = new TextDecoder();
+  let interrupted: string | undefined;
   const handle = (ev: StreamEvent) => {
     if (ev.kind === 'content') acc.answer += ev.text;
     else if (ev.kind === 'reasoning') acc.thinking += ev.text;
     else if (ev.kind === 'toolCalls') acc.calls.push(...ev.calls);
-    onEvent?.(ev);
+    else if (ev.kind === 'usage') acc.usage = ev.usage;
+    else if (ev.kind === 'finish') acc.finishReason = ev.reason;
+    const result = onEvent?.(ev);
+    if (result) interrupted = result;
   };
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    for (const ev of parser.push(decoder.decode(value, { stream: true }))) handle(ev);
+    for (const ev of parser.push(decoder.decode(value, { stream: true }))) {
+      handle(ev);
+      if (interrupted) break;
+    }
+    if (interrupted) {
+      await reader.cancel?.().catch(() => undefined);
+      break;
+    }
   }
-  for (const ev of parser.flush()) handle(ev);
+  if (!interrupted) {
+    for (const ev of parser.flush()) handle(ev);
+  }
+  return interrupted;
 }
 
 export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResult> {
   const {
     maxRounds, messages, call, emit, executeTool,
-    trimPerRound, onExhausted,
+    trimPerRound, onExhausted, postPasses,
     maxToolCallsPerMessage, maxToolCallArgs, maxToolCallDigest,
   } = cfg;
 
+  const originalMessages = [...messages];
   let turn = messages;
   let toolNames = [...(cfg.tools ?? [])];
   let answer = '';
   let thinking = '';
   let spoken = '';
   let exhaustedRounds = false;
+  let finishReason: string | undefined;
+  let usage: Record<string, unknown> | undefined;
+  let interrupted: string | undefined;
   const toolCalls: ToolRoundResult['toolCalls'] = [];
   const enabledNow: string[] = [];
   const proposedTrees: unknown[] = [];
   const proposedSpecs: unknown[] = [];
   const proposedEscalations: unknown[] = [];
   const proposedSecretRequests: unknown[] = [];
+
+  const settle = (): ToolRoundResult => ({
+    answer, spoken, thinking, toolCalls, exhaustedRounds, enabledNow,
+    proposedTrees, proposedSpecs, proposedEscalations, proposedSecretRequests,
+    ...(finishReason ? { finishReason } : {}),
+    ...(usage ? { usage } : {}),
+    ...(interrupted ? { interrupted } : {}),
+  });
 
   for (let round = 0; round < maxRounds; round++) {
     if (answer) break;
@@ -197,10 +259,16 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     const step = await call({ messages: sent, tools: toolNames });
     if (!step.ok || !step.body) break;
 
-    const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
-    await pump(step.body, acc, cfg.emit);
+    const acc: PumpAcc = { answer: '', thinking: '', calls: [] };
+    interrupted = await pump(step.body, acc, cfg.emit);
     if (acc.thinking) {
       thinking += acc.thinking;
+    }
+    if (acc.finishReason) finishReason = acc.finishReason;
+    if (acc.usage) usage = acc.usage;
+    if (interrupted) {
+      emit({ kind: 'interrupted', reason: interrupted });
+      return settle();
     }
 
     if (acc.calls.length > 0) {
@@ -244,8 +312,14 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
   if (exhaustedRounds && !answer && onExhausted === 'wrap-up') {
     const last = await call({ messages: turn, tools: toolNames, toolChoice: 'none' });
     if (last.ok && last.body) {
-      const acc = { answer: '', thinking: '', calls: [] as RoundToolCall[] };
-      await pump(last.body, acc, cfg.emit);
+      const acc: PumpAcc = { answer: '', thinking: '', calls: [] };
+      interrupted = await pump(last.body, acc, cfg.emit);
+      if (acc.finishReason) finishReason = acc.finishReason;
+      if (acc.usage) usage = acc.usage;
+      if (interrupted) {
+        emit({ kind: 'interrupted', reason: interrupted });
+        return settle();
+      }
       if (acc.answer) answer = acc.answer;
       /**
        * The wrap-up reasons too, and `pump` has already emitted it — so it was watched live and
@@ -256,5 +330,31 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     }
   }
 
-  return { answer, spoken, thinking, toolCalls, exhaustedRounds, enabledNow, proposedTrees, proposedSpecs, proposedEscalations, proposedSecretRequests };
+  for (const pass of postPasses ?? []) {
+    const ctx: PostPassCtx = {
+      originalMessages, turn, answer, spoken, thinking,
+      ...(finishReason ? { finishReason } : {}),
+    };
+    if (!pass.when(ctx)) continue;
+
+    const passMessages = pass.buildMessages(ctx);
+    const stepResult = await call({ messages: passMessages, tools: [], toolChoice: 'none' });
+    if (!stepResult.ok || !stepResult.body) continue;
+
+    const acc: PumpAcc = { answer: '', thinking: '', calls: [] };
+    interrupted = await pump(stepResult.body, acc, cfg.emit);
+    if (acc.finishReason) finishReason = acc.finishReason;
+    if (acc.usage) usage = acc.usage;
+    if (interrupted) {
+      emit({ kind: 'interrupted', reason: interrupted });
+      return settle();
+    }
+    if (acc.answer) {
+      answer = acc.answer;
+      spoken += (spoken ? '\n' : '') + acc.answer;
+    }
+    if (acc.thinking) thinking += acc.thinking;
+  }
+
+  return settle();
 }

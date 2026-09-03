@@ -1,10 +1,9 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
-import { ownedBy } from '../lib/ownership.js';
+import { ownedBy, withBuiltIns } from '../lib/ownership.js';
 import { ToolService } from '../services/ToolService.js';
 import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from '../lib/workspace-spec.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { defaultBudget } from '../lib/pack-defaults.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { preferUsable } from '../lib/mcp-registry.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
@@ -52,7 +51,8 @@ export function personaOptionsRouter(deps: PersonaOptionsRouterDeps): Router {
       defaults: {
         cpu: DEFAULT_WORKSPACE_CPU,
         memory: DEFAULT_WORKSPACE_MEMORY,
-        maxSteps: (await defaultBudget(db))?.run.steps,
+        maxSteps: withBuiltIns(await db.getPersonaPacks(), userOf(req).id, (p) => p.slug)
+          .find((p) => p.slug === 'koala')?.budget.run.steps,
       },
     });
   });

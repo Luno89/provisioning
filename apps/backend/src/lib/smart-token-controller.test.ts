@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { estimatePromptComplexity, FinishReasonScanner } from './smart-token-controller.js';
+import { estimatePromptComplexity } from './smart-token-controller.js';
 
 describe('smart-token-controller', () => {
   it('assigns casual tier for simple greetings', () => {
@@ -30,14 +30,5 @@ describe('smart-token-controller', () => {
     expect(strategy.tier).toBe('standard');
     expect(strategy.maxTokens).toBe(8192);
     expect(strategy.reasoningEffort).toBe('medium');
-  });
-
-  it('FinishReasonScanner extracts finish_reason from SSE frames', () => {
-    const scanner = new FinishReasonScanner();
-    scanner.push('data: {"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}\n\n');
-    expect(scanner.result()).toBeUndefined();
-
-    scanner.push('data: {"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}\n\n');
-    expect(scanner.result()).toBe('length');
   });
 });

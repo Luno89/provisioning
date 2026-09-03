@@ -22,6 +22,9 @@ fi
 
 echo "▶ Generating new configuration from .env.example..."
 cp "$EXAMPLE_FILE" "$ENV_FILE"
+# setup-root.sh runs before this script and may have created the target
+# directory as root — keep the file owned by the current user.
+chown "$(id -u):$(id -g)" "$ENV_FILE"
 
 # Auto-generate a secure random 256-bit JWT secret
 echo "▶ Generating secure random JWT_SECRET..."

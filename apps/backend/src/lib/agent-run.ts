@@ -43,10 +43,10 @@ export function wantsWeb(pack: Pick<PersonaPack, 'tools'> | null | undefined): b
 
 export function agentRunOptions(
   budget: BudgetConfig,
-  pack: Pick<PersonaPack, 'tools' | 'workspace'> | null | undefined,
+  pack: Pick<PersonaPack, 'tools'> | null | undefined,
   inputs: RunInputs,
 ): Omit<AgentRunOptions, 'baseUrl' | 'model'> {
-  const run = pack?.workspace?.run ?? {};
+  const run = budget.run;
   const tools = pack?.tools ?? [];
 
   return {
@@ -69,8 +69,9 @@ export function agentRunOptions(
     ...(inputs.checkpoint ? { checkpoint: inputs.checkpoint } : {}),
     ...(inputs.extendBudget ? { extendBudget: inputs.extendBudget } : {}),
     ...(inputs.saveMemory ? { saveMemory: inputs.saveMemory } : {}),
-    ...(run.maxSteps ? { maxSteps: run.maxSteps } : {}),
-    ...(run.maxTokens ? { maxTokens: run.maxTokens } : {}),
+    // maxSteps/maxTokens are deliberately not set here — agent-loop.ts already falls back to
+    // budget.run.steps/.tokens when unset, so budget.run is the single source now, not an
+    // override layer on top of it.
     ...(run.pacing?.length ? { pacing: run.pacing } : {}),
     ...(run.withdraw
       ? { withdrawTools: { afterStep: run.withdraw.afterStep, names: run.withdraw.tools } }

@@ -23,14 +23,14 @@ const BRANCHES = [
   { id: 'bx', title: 'Somebody else', treeId: 'other' },
 ];
 
-const show = (leaves: Leaf[], personaNames: Record<string, string> = {}) => render(
+const show = (leaves: Leaf[], packNames: Record<string, string> = {}) => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <Home
       leaves={leaves}
       branches={BRANCHES}
       trees={[TREE, { id: 'other', name: 'Other' }]}
       tree={TREE}
-      personaNames={personaNames}
+      packNames={packNames}
       onStart={() => {}}
       onOpenLeaf={() => {}}
       onOpenTree={() => {}}
@@ -79,10 +79,10 @@ describe("a project's screen", () => {
     expect(screen.getAllByText('Broken thing')).toHaveLength(1);
   });
 
-  it('labels work with who did it, not a persona id', async () => {
-    show([leaf({ id: '1', status: 'succeeded', verified: true, personaId: 'p-builder' })], { 'p-builder': 'Builder' });
+  it('labels work with who did it, not a pack id', async () => {
+    show([leaf({ id: '1', status: 'succeeded', verified: true, packId: 'pk-builder' })], { 'pk-builder': 'Builder' });
     await waitFor(() => expect(screen.getAllByText('Builder').length).toBeGreaterThan(0));
-    expect(screen.queryByText('p-builder')).not.toBeInTheDocument();
+    expect(screen.queryByText('pk-builder')).not.toBeInTheDocument();
   });
 
   it('does not count another project\'s work', async () => {

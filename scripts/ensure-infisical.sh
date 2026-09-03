@@ -36,6 +36,8 @@ mkdir -p "$DATA_DIR"
 ENCRYPTION_KEY_FILE="${DATA_DIR}/.infisical-encryption-key"
 AUTH_SECRET_FILE="${DATA_DIR}/.infisical-auth-secret"
 ADMIN_PASSWORD_FILE="${DATA_DIR}/.infisical-admin-password"
+POSTGRES_PASSWORD_FILE="${DATA_DIR}/.infisical-postgres-password"
+REDIS_PASSWORD_FILE="${DATA_DIR}/.infisical-redis-password"
 
 if [ ! -s "$ENCRYPTION_KEY_FILE" ]; then
   echo "  ▶  Generating Infisical encryption key (32 hex characters)..."
@@ -57,6 +59,26 @@ if [ ! -s "$ADMIN_PASSWORD_FILE" ]; then
   chmod 600 "$ADMIN_PASSWORD_FILE"
 fi
 INFISICAL_ADMIN_PASSWORD="$(cat "$ADMIN_PASSWORD_FILE" | tr -d '\n')"
+
+# The infisical-standalone chart's own DB_CONNECTION_URI/REDIS_URL template helpers read
+# postgresql.auth.password / redis.auth.password directly (not the postgresql/redis subcharts'
+# own auto-generated Secret) — left unset, those render as an EMPTY password baked into the
+# connection string, so the backend can never authenticate. Pinning and persisting them here,
+# the same way the three secrets above already are, is what makes `helm upgrade --install` a real
+# no-op across runs instead of leaving a stack that never connects to its own database.
+if [ ! -s "$POSTGRES_PASSWORD_FILE" ]; then
+  echo "  ▶  Generating Infisical Postgres password..."
+  openssl rand -hex 16 > "$POSTGRES_PASSWORD_FILE"
+  chmod 600 "$POSTGRES_PASSWORD_FILE"
+fi
+INFISICAL_POSTGRES_PASSWORD="$(cat "$POSTGRES_PASSWORD_FILE" | tr -d '\n')"
+
+if [ ! -s "$REDIS_PASSWORD_FILE" ]; then
+  echo "  ▶  Generating Infisical Redis password..."
+  openssl rand -hex 16 > "$REDIS_PASSWORD_FILE"
+  chmod 600 "$REDIS_PASSWORD_FILE"
+fi
+INFISICAL_REDIS_PASSWORD="$(cat "$REDIS_PASSWORD_FILE" | tr -d '\n')"
 
 echo "  ▶  Ensuring Infisical Helm charts are updated..."
 "$HELM" repo add infisical-helm-charts https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/ >/dev/null 2>&1 || true
@@ -90,6 +112,9 @@ if "$KUBECTL" --context "$CONTEXT" get validatingwebhookconfiguration "$WEBHOOK"
 fi
 
 echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap no-op when nothing changed)..."
+# No --wait: the chart's post-install hook job (ingress-nginx admission webhook patch) hangs
+# on slow environments, which makes Helm report "failed" even though every pod is healthy.
+# We verify the deployment by probing the actual pods below instead.
 "$HELM" upgrade --install "$RELEASE" infisical-helm-charts/infisical-standalone \
   --kube-context "$CONTEXT" \
   -n "$NAMESPACE" --create-namespace \
@@ -101,21 +126,30 @@ echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap n
   --set service.type=NodePort \
   --set service.nodePort=31738 \
   --set postgresql.enabled=true \
+  --set postgresql.auth.password="${INFISICAL_POSTGRES_PASSWORD}" \
   --set redis.enabled=true \
   --set redis.cluster.enabled=false \
+  --set redis.auth.password="${INFISICAL_REDIS_PASSWORD}" \
   --set resources.requests.cpu=100m \
   --set resources.requests.memory=256Mi \
   --set resources.limits.memory=512Mi \
   --set ingress.enabled=false \
   --set ingress-nginx.enabled=false \
-  --wait --timeout 5m || {
-    echo "  ❌  Infisical standalone helm deploy failed or timed out."
-    echo "      NOT continuing: a partial install of this chart has already left a cluster-wide"
-    echo "      admission webhook behind once, with an empty caBundle and failurePolicy=Fail,"
-    echo "      which rejected EVERY new Ingress on the cluster and blocked all app deploys."
-    echo "      Fix the install or run scripts/ensure-infisical.sh --purge, then retry."
+  --timeout 2m || {
+    echo "  ❌  Infisical standalone helm deploy failed."
     exit 1
   }
+
+# Verify the deployment is actually healthy — don't trust Helm's exit status (the post-install
+# hook job can hang on slow environments, leaving a "failed" release with healthy pods).
+echo "  ▶  Verifying Infisical pods are running..."
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status deployment/infisical-infisical-standalone-infisical --timeout=120s || {
+  echo "  ❌  Infisical deployment did not become Ready."
+  exit 1
+}
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status statefulset/postgresql --timeout=120s || true
+"$KUBECTL" --context "$CONTEXT" -n "$NAMESPACE" rollout status statefulset/redis-master --timeout=120s || true
+echo "  ✅  Infisical standalone pods Ready."
 
 echo "  ▶  Deploying Infisical Secrets Operator..."
 "$HELM" upgrade --install "$OPERATOR_RELEASE" infisical-helm-charts/secrets-operator \

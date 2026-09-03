@@ -83,6 +83,58 @@ describe('creating a leaf', () => {
     }).catch((e) => e);
     expect(err.response.status).toBe(404);
   });
+
+  /**
+   * Used to write `personaId` straight onto the leaf, a field Leaf never declares — the real
+   * `packId` stayed unset regardless of what was sent, so the leaf came out unassigned every time.
+   * `packId` is the only field accepted now — no legacy `personaId` acceptance, since nothing
+   * writes it anymore (frontend included). Same rule as PATCH /:id.
+   */
+  describe('assigning a pack', () => {
+    const pack = (over: Record<string, unknown> = {}) => ({
+      id: 'pack-1', slug: 'builder', name: 'Builder', personaId: 'persona-1',
+      personaName: 'Builder', tools: [], canRunLeaf: true,
+      sampling: { toolTurn: {}, conversation: {} }, budget: {} as never,
+      prompt: { sections: {} }, createdAt: '', updatedAt: '',
+      ...over,
+    });
+
+    it('resolves packId directly', async () => {
+      const harness = await mount();
+      await harness.db.savePersonaPack(pack() as never);
+      const res = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'pack-1' });
+      expect(res.data.packId).toBe('pack-1');
+    });
+
+    it('resolves a slug the same way', async () => {
+      const harness = await mount();
+      await harness.db.savePersonaPack(pack() as never);
+      const res = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'builder' });
+      expect(res.data.packId).toBe('pack-1');
+    });
+
+    it('ignores personaId — packId is the only field this accepts', async () => {
+      const harness = await mount();
+      await harness.db.savePersonaPack(pack() as never);
+      const res = await axios.post(harness.url('/api/leaves'), { title: 'x', personaId: 'persona-1' });
+      expect(res.data.packId).toBeUndefined();
+    });
+
+    it('400s a packId that matches nothing, rather than creating it unassigned', async () => {
+      const harness = await mount();
+      const err = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'nope' }).catch((e) => e);
+      expect(err.response.status).toBe(400);
+      expect(err.response.data.error).toMatch(/no pack with that id/i);
+    });
+
+    it('400s a pack with no sandbox, since it cannot carry out work', async () => {
+      const harness = await mount();
+      await harness.db.savePersonaPack(pack({ canRunLeaf: false }) as never);
+      const err = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'pack-1' }).catch((e) => e);
+      expect(err.response.status).toBe(400);
+      expect(err.response.data.error).toMatch(/no sandbox/i);
+    });
+  });
 });
 
 describe('acting on one leaf', () => {

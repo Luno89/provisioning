@@ -14,6 +14,8 @@ import Projects from './components/Projects.js';
 import ClusterWizard from './components/ClusterWizard.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
+import Harness from './components/Harness.js';
+import { ToolRepoPanel } from './components/ToolRepoPanel.js';
 import Grove from './components/Grove.js';
 import AppDeployWizard from './components/AppDeployWizard';
 import AppDashboard from './components/AppDashboard';
@@ -258,6 +260,8 @@ function App() {
         )}
         {view === 'mesh' && <MeshDevices />}
         {view === 'lab' && <Lab />}
+        {view === 'harness' && <Harness />}
+        {view === 'tool-repo' && <ToolRepoPanel />}
         {view === 'grove' && (
           <Grove handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}

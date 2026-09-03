@@ -419,6 +419,62 @@ export class InfrastructureService {
     }
   }
 
+  async verifyGpuRuntimeSchedulable(vendor: 'nvidia' | 'amd', kubeconfigPath: string): Promise<void> {
+    try {
+      await this.runKubectl(['get', 'runtimeclass', vendor], kubeconfigPath);
+    } catch {
+      throw new Error(
+        `GPU RuntimeClass "${vendor}" is not installed on this cluster. It should be applied automatically ` +
+        `alongside the device plugin (InfrastructureService.installGpuDevicePlugin) — check ` +
+        `k8s/gpu-device-plugin/${vendor}-runtimeclass.yaml was applied.`
+      );
+    }
+
+    const probeName = `gpu-runtime-probe-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    try {
+      await this.runKubectl([
+        'run', probeName,
+        '--image=registry.k8s.io/pause:3.9',
+        '--restart=Never',
+        `--overrides={"spec":{"runtimeClassName":"${vendor}"}}`,
+      ], kubeconfigPath);
+
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const eventsRaw = await this.runKubectl(
+          ['get', 'events', '--field-selector', `involvedObject.name=${probeName}`, '-o', 'json'],
+          kubeconfigPath,
+        ) as string;
+        const events = JSON.parse(eventsRaw).items || [];
+        const runtimeFailure = events.find((e: any) =>
+          e.reason === 'FailedCreatePodSandBox' && /no runtime for/i.test(e.message || ''));
+        if (runtimeFailure) {
+          throw new Error(
+            `GPU RuntimeClass "${vendor}" exists in Kubernetes, but the underlying container runtime isn't ` +
+            `wired up — any pod requesting a GPU will sit in ContainerCreating forever. This means ` +
+            `nvidia-container-toolkit is missing or k3s hasn't been restarted since it was installed ` +
+            `(k3s only detects it at its own startup). Fix: sudo bash scripts/setup-gpu.sh, then ` +
+            `sudo systemctl restart <your k3s service>. Raw kubelet error: ${runtimeFailure.message}`
+          );
+        }
+
+        const podRaw = await this.runKubectl(['get', 'pod', probeName, '-o', 'json'], kubeconfigPath).catch(() => null) as string | null;
+        if (podRaw) {
+          const phase = JSON.parse(podRaw).status?.phase;
+          if (phase === 'Running' || phase === 'Succeeded') return;
+        }
+      }
+      throw new Error(
+        `Timed out waiting to confirm the "${vendor}" GPU runtime is schedulable (probe pod never reached ` +
+        `Running within 15s, but also reported no specific runtime error — check "kubectl describe pod ` +
+        `${probeName}" manually).`
+      );
+    } finally {
+      await this.runKubectl(['delete', 'pod', probeName, '--ignore-not-found', '--wait=false'], kubeconfigPath).catch(() => {});
+    }
+  }
+
   async installGpuDevicePlugin(vendor: 'nvidia' | 'amd', kubeconfigPath: string): Promise<void> {
     const manifestPath = path.join(PROJECT_ROOT, 'k8s', 'gpu-device-plugin', `${vendor}.yaml`);
     const dsName = vendor === 'nvidia' ? 'nvidia-device-plugin-daemonset' : 'amdgpu-device-plugin-daemonset';

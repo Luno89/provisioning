@@ -92,47 +92,16 @@ export class ThoughtFeatureExtractor {
   }
 }
 
-export class ReasoningScanner {
-  private buffer = '';
-  private text = '';
-
-  push(chunk: string): string {
-    let added = '';
-    this.buffer += chunk;
-    const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data:')) continue;
-      const payload = trimmed.slice(5).trim();
-      if (!payload || payload === '[DONE]') continue;
-      try {
-        const delta = JSON.parse(payload)?.choices?.[0]?.delta;
-        if (!delta) continue;
-        const reasoning =
-          (typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '') ||
-          (typeof delta.reasoning === 'string' ? delta.reasoning : '') ||
-          (typeof delta.thinking === 'string' ? delta.thinking : '');
-        if (reasoning) {
-          added += reasoning;
-          this.text += reasoning;
-        }
-      } catch { /* ignored */ }
-    }
-    return added;
-  }
-
-  result(): string {
-    return this.text;
-  }
-}
-
 export function predictFailure(
   features: ThoughtFeatureVector,
   profile?: ModelThinkingProfile,
   sensitivity: 'low' | 'medium' | 'high' = 'medium',
-  threshold = 0.85,
+  /**
+   * 0.85 made every formulaic path below unreachable at 'medium' sensitivity (its 0.85 multiplier
+   * caps them at 0.7225/0.765/0.697) — verified live against a real repetition loop that this
+   * function never flagged. 0.65 is the default callers actually rely on now.
+   */
+  threshold = 0.65,
   ngramRepeatCap = 5
 ): { pFailure: number; shouldInterrupt: boolean; reason?: string } {
   if (features.reasoningTokens < 250) {

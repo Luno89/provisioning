@@ -47,7 +47,6 @@ import { registryRouter } from './routes/registry.js';
 import { modulesRouter } from './routes/modules.js';
 import { appSchemasRouter } from './routes/app-schemas.js';
 import { ownsProject, ownedBy } from './lib/ownership.js';
-import { openSse, sendFrame, forwardChunk, endSse } from './lib/sse.js';
 import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase, type Database } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
@@ -84,13 +83,10 @@ import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
 import { decryptValue, encryptValue } from './lib/crypto.js';
 import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
 import { budgetForNewRoot } from './lib/budget-policy.js';
-import { ContentScanner, UsageScanner } from './lib/token-usage.js';
-import { AMBIENT_PROPOSAL_PROMPT, isChatMode, type ChatMode, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
+import { isChatMode, type ChatMode, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
 import { extractServiceName } from './lib/extraction.js';
 import { buildOutboundMessages } from './lib/leaf-context.js';
 import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
-import { estimatePromptComplexity, FinishReasonScanner } from './lib/smart-token-controller.js';
-import { ThoughtFeatureExtractor, predictFailure, updateModelProfile, ReasoningScanner } from './lib/thinking-classifier.js';
 import { buildHarnessConfig } from './lib/harness-config.js';
 import { buildModelRequest } from './lib/model-request.js';
 import { planHostMemory, parseQuantity } from './lib/host-memory-plan.js';
@@ -106,14 +102,12 @@ import { WorkbenchService } from './services/WorkbenchService.js';
 import { buildPromotion, supersede, revertTo, withPack } from './lib/harness-profile.js';
 import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
 import { loopKeys } from './lib/tunables.js';
-import { runLeafTool as runLeafToolShared } from './lib/tool-registry.js';
 import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
 import { inheritedAcceptance } from './lib/acceptance-inherit.js';
 import { specsToSeed, type AppSpec } from './lib/app-spec.js';
 import { validateSpec, explainSpecProblems } from './lib/app-spec-validate.js';
 import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
 import type { AcceptanceCheck } from './lib/acceptance.js';
-import { chatMcpFor, NO_CHAT_MCP } from './lib/chat-mcp.js';
 import {
   titleFrom, enabledForSession, MAX_TOOL_CALL_ARGS, MAX_TOOL_CALL_DIGEST, MAX_TOOL_CALLS_PER_MESSAGE,
   type Conversation, type ProposedTree, type ConversationToolCall,
@@ -137,7 +131,6 @@ import { buildReviewPrompt } from './lib/failure-review.js';
 import { describeSandbox } from './lib/workspace-spec.js';
 import { personaWorkspace } from './lib/persona-scope.js';
 import { reviewBatch, DEFAULT_POLICY, type AutoAcceptPolicy } from './lib/auto-accept.js';
-import { SearchCorpusActivity } from './activities/CrawlActivity.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { usablePaths } from './lib/leaf-artifacts.js';
 import { normaliseLeafInput } from './lib/leaf-input.js';
@@ -150,7 +143,6 @@ import { seedAll } from './scripts/seed-all.js';
 import { reviewPlan, planNotice } from './lib/plan-review.js';
 import { usableAcceptancePlan } from './lib/acceptance.js';
 import { withNotice } from './lib/branch-notice.js';
-import { validatePersona, validateScope, type Persona } from './lib/personas.js';
 import { ExperimentService } from './services/ExperimentService.js';
 import {
   expandAxes, validateExperiment, plannedRuns, experimentTasks, taskIdOf, summariseExperiment, normaliseExperiment, latestResults,
@@ -163,11 +155,9 @@ import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEA
 import { generateSshKeypair } from './lib/ssh-keypair.js';
 import type { SearchOutcome } from './lib/web-tools.js';
 import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
-import { withBuiltIns } from './lib/ownership.js';
 import { ToolService } from './services/ToolService.js';
 import { WorkspaceImageService } from './services/WorkspaceImageService.js';
 import { PersonaPackService } from './services/PersonaPackService.js';
-import { defaultSampling, defaultBudget } from './lib/pack-defaults.js';
 
 dotenv.config();
 
@@ -241,6 +231,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     infraService,
     JWT_SECRET,
     '/tmp/kubeconfig-provisioning-lunorica',
+    undefined,
+    clusterProxyService,
   );
   const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
@@ -482,7 +474,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.use('/api/clusters', clustersRouter({
     clusterService, appService, clusterProxyService, infraService,
-    temporalBridge, db, io, giteaService, jwtSecret: JWT_SECRET,
+    temporalBridge, db, io, giteaService, infisicalService, jwtSecret: JWT_SECRET,
   }));
   app.use('/api/deployments', deploymentsRouter({
     appService, clusterService, appExposureService, infraService, temporalBridge, db, io,
@@ -521,33 +513,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   }
 
-  const ownedPersonas = async (userId: string): Promise<Persona[]> =>
-    withBuiltIns(await db.getPersonas(), userId, (p) => p.name);
-
-  async function runLeafTool(userId: string, branchId: string, call: { name: string; arguments: string }): Promise<string> {
-    return runLeafToolShared(
-      {
-        db,
-        userId,
-        branchId,
-        webSearch: executeWebSearch,
-        fetchWebPage: executeFetchWebPage,
-        projects: projectRepoService,
-        ...(temporalBridge
-          ? {
-              ingest: {
-                start: (a: Parameters<typeof temporalBridge.startIngest>[0]) => temporalBridge.startIngest(a),
-                status: (id: string) => temporalBridge.ingestStatus(id),
-                search: (a: { ownerId: string; query: string; ingestId?: string }) => SearchCorpusActivity(a),
-              },
-            }
-          : {}),
-        mcpRegistry: new McpRegistryService(db, userId, (name: string) => resolveMcpProbeUrl(name)),
-      },
-      call,
-    );
-  }
-
   app.get('/api/harness/config', async (req, res) => {
     const userId = (req as any).user.id;
     const profile = await db.getHarnessProfile(userId);
@@ -565,12 +530,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       console.warn('[harness] could not list models:', err?.message ?? err);
     }
 
+    const koala = await personaPackService.resolvePack(userId, 'koala');
+
     res.json(buildHarnessConfig(
       {}, models,
       await new ToolService(db).list(userId),
       await new WorkspaceImageService(db).list(userId),
-      await defaultSampling(db),
-      await defaultBudget(db),
+      koala?.sampling,
+      koala?.budget,
     ));
   });
 
@@ -655,7 +622,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   app.use('/api/chat', chatRouter({
     db, modelService, temporalBridge, projectRepoService,
-    ownedPersonas, ownedBranches, ownedLeaves, ownedTrees, runLeafTool, toolRefused,
+    ownedBranches, ownedLeaves, ownedTrees,
+    webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage, toolRefused,
   }));
 
   app.use('/api/harness', harnessRouter({

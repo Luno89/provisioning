@@ -57,6 +57,17 @@ const mockServices = {
       namespace: 'kube-system',
       pods: [],
     },
+    {
+      name: 'infisical',
+      installed: true,
+      status: 'deployed',
+      chart: 'infisical-standalone',
+      appVersion: '1.0.0',
+      namespace: 'infisical',
+      pods: [
+        { name: 'infisical-pod-1', status: 'Running', ip: '10.0.0.4', ready: true },
+      ],
+    },
   ],
 };
 
@@ -189,7 +200,7 @@ describe('ServicesPanel', () => {
     });
 
     const links = screen.getAllByText('Open Dashboard');
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(3);
   });
 
   it('dashboard links open in new tab', async () => {

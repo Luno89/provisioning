@@ -12,15 +12,15 @@ vi.mock('../api/client', async (orig) => ({
   },
 }));
 
-describe('openChatPackStream — unified persona-pack turn', () => {
-  it('posts to the pack-specific route with the message', async () => {
+describe('openChatPackStream — always koala, no pack in the request', () => {
+  it('posts to the fixed chat-pack route with the message', async () => {
     const mockRes = new Response(new ReadableStream(), { status: 200 });
     vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
 
-    await openChatPackStream({ packId: 'researcher', conversationId: 'c1', message: 'hi' });
+    await openChatPackStream({ conversationId: 'c1', message: 'hi' });
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack/researcher',
+      '/chat-pack',
       { conversationId: 'c1', message: 'hi' },
       undefined,
     );
@@ -30,10 +30,10 @@ describe('openChatPackStream — unified persona-pack turn', () => {
     const mockRes = new Response(new ReadableStream(), { status: 200 });
     vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
 
-    await openChatPackStream({ packId: 'koala', conversationId: 'c1', message: 'hi', sessionId: 's1' });
+    await openChatPackStream({ conversationId: 'c1', message: 'hi', sessionId: 's1' });
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack/koala',
+      '/chat-pack',
       { conversationId: 'c1', message: 'hi', sessionId: 's1' },
       undefined,
     );
@@ -43,10 +43,10 @@ describe('openChatPackStream — unified persona-pack turn', () => {
     const mockRes = new Response(new ReadableStream(), { status: 200 });
     vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
 
-    await openChatPackStream({ packId: 'koala', conversationId: 'c1', message: 'hi', modelId: 'm1' });
+    await openChatPackStream({ conversationId: 'c1', message: 'hi', modelId: 'm1' });
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack/koala',
+      '/chat-pack',
       { conversationId: 'c1', message: 'hi', modelId: 'm1' },
       undefined,
     );
@@ -57,10 +57,10 @@ describe('openChatPackStream — unified persona-pack turn', () => {
     vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
     const signal = new AbortController().signal;
 
-    await openChatPackStream({ packId: 'koala', conversationId: 'c1', message: 'hi' }, signal);
+    await openChatPackStream({ conversationId: 'c1', message: 'hi' }, signal);
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack/koala',
+      '/chat-pack',
       { conversationId: 'c1', message: 'hi' },
       signal,
     );

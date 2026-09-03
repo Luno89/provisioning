@@ -1,4 +1,4 @@
-import { User, Sparkles, Sprout, ChevronDown, ChevronRight } from 'lucide-react';
+import { User, Sparkles, Sprout, ChevronDown, ChevronRight, Info, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import Markdown from '../Markdown.js';
 import { KoalaSpot, type KoalaMood } from '../Koala.js';
@@ -12,6 +12,9 @@ export interface ChatMessageData {
   at?: string | undefined;
   enabled?: string[] | undefined;
   toolCalls?: ToolCallData[] | undefined;
+  /** A system event (auto-accept, a duplicate warning, …) — rendered as one, not as the assistant speaking. */
+  notice?: boolean | undefined;
+  interruptedReason?: string | undefined;
 }
 
 export interface ProposedTreeData {
@@ -141,6 +144,19 @@ export function ChatMessageRow({
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
 
+  if (message.notice) {
+    return (
+      <div className="flex gap-3 py-2">
+        <div className="shrink-0 w-8 h-8 flex items-center justify-center text-slate-600">
+          <Info size={15} />
+        </div>
+        <div className="flex-1 pt-1 min-w-0 text-[12px] text-slate-400 leading-relaxed border-l-2 border-[var(--bark-600)] pl-3 py-1">
+          <Markdown>{message.content}</Markdown>
+        </div>
+      </div>
+    );
+  }
+
   const parsed = ChatParser.parse(message.content ?? '');
   const allThoughts = [
     ...(message.reasoning ? [message.reasoning.trim()] : []),
@@ -212,6 +228,13 @@ export function ChatMessageRow({
             <span className="italic text-slate-500 text-xs">[No textual response]</span>
           )}
         </div>
+
+        {message.interruptedReason && (
+          <div className="mt-2 text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2 flex items-center gap-2 select-none">
+            <AlertTriangle size={14} className="shrink-0 text-amber-400" />
+            <span><strong>Interrupted:</strong> {message.interruptedReason}</span>
+          </div>
+        )}
       </div>
     </div>
   );

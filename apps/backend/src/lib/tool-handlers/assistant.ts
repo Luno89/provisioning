@@ -20,6 +20,7 @@ const asRuntime = (rt: ToolRuntime): KoalaToolContext => ({
   ...(rt.kubectl ? { kubectl: rt.kubectl } : {}),
   ...(rt.temporalBridge ? { temporalBridge: rt.temporalBridge } : {}),
   ...(rt.infisicalService ? { infisicalService: rt.infisicalService } : {}),
+  ...(rt.projects ? { projects: rt.projects } : {}),
   ...(rt.isAdmin !== undefined ? { isAdmin: rt.isAdmin } : {}),
   ...(rt.isEscalated !== undefined ? { isEscalated: rt.isEscalated } : {}),
   ...(rt.escalatedNamespaces ? { escalatedNamespaces: rt.escalatedNamespaces } : {}),
