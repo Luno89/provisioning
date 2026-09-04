@@ -43,6 +43,7 @@ export interface ProposedTree {
   conversationId?: string;
   proposedAt: string;
   treeId?: string;
+  dismissedAt?: string;
 }
 
 export interface ProposedSpec {
@@ -51,6 +52,7 @@ export interface ProposedSpec {
   proposedAt: string;
   replaces?: boolean;
   acceptedAt?: string;
+  dismissedAt?: string;
 }
 
 export interface ProposedEscalation {

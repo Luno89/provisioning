@@ -12,13 +12,15 @@ import {
 } from './kube-diagnostics.js';
 import { workspaceNamespace } from './workspace-spec.js';
 import { validateSpec, explainSpecProblems } from './app-spec-validate.js';
-import type { AppSpec } from './app-spec.js';
+import { visibleAppSpecs, type AppSpec } from './app-spec.js';
 import { renderSearchOutcome, type WebSearchFn } from './web-tools.js';
 import { rollupProjectStatus, deploymentForProject } from './project-status.js';
 import { sanitiseNamespaceName } from './projects.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import type { ClusterService } from '../services/ClusterService.js';
+import { CapacityError } from './cluster-capacity.js';
 import { findSecretSource, matchSecretSource } from './secret-sources.js';
 
 export interface KoalaToolContext {
@@ -31,9 +33,11 @@ export interface KoalaToolContext {
   webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
   kubectl?: ((args: string[]) => Promise<string>) | undefined;
-  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'> | undefined;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp'> | undefined;
   infisicalService?: InfisicalService | undefined;
   projects?: ProjectRepoService | undefined;
+  /** Resolves and lists clusters — needed rather than a raw db.getClusters() scan because the system cluster is synthesized on the fly (ClusterService.getById/getAll), not a stored row. */
+  clusterService?: Pick<ClusterService, 'getById' | 'getAll'> | undefined;
   isAdmin?: boolean | undefined;
   isEscalated?: boolean | undefined;
   escalatedNamespaces?: readonly string[] | undefined;
@@ -128,7 +132,8 @@ export async function handleListInfrastructure(
   args: Record<string, unknown>,
 ): Promise<KoalaToolResult> {
   const { db, userId, conversationId, sessionId, servers, kubectl, isAdmin, isEscalated } = ctx;
-  const infra = describeInfrastructure(await db.getDeployments(), userId, [], { isAdmin, isEscalated });
+  const catalogue = visibleAppSpecs(await db.getAppSpecs(), userId);
+  const infra = describeInfrastructure(await db.getDeployments(), userId, catalogue, { isAdmin, isEscalated });
   return json({
     running: infra.running,
     ...(infra.broken.length ? { broken: infra.broken } : {}),
@@ -533,6 +538,88 @@ export async function handleDeployProject(
     imageTag: run.imageTag,
     note: 'Deploy requested.',
   });
+}
+
+export async function handleListClusters(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { userId, clusterService } = ctx;
+  if (!clusterService) return json({ error: 'Cluster access is not available here.' });
+
+  const clusters = await clusterService.getAll(userId);
+  return json({
+    clusters: clusters.map((c) => ({
+      id: c.id, name: c.name, provider: c.provider, status: c.status, ...(c.isSystem ? { isSystem: true } : {}),
+    })),
+  });
+}
+
+/** A user with one cluster should never have to name it. `getAll` already scopes to what this user can see. */
+async function resolveClusterId(
+  clusterService: Pick<ClusterService, 'getById' | 'getAll'> | undefined,
+  userId: string,
+  explicitId: string,
+): Promise<{ clusterId: string } | { error: KoalaToolResult }> {
+  if (explicitId) {
+    if (clusterService) {
+      const cluster = await clusterService.getById(explicitId, userId);
+      if (!cluster) return { error: json({ error: `No cluster with id "${explicitId}".` }) };
+    }
+    return { clusterId: explicitId };
+  }
+
+  if (!clusterService) return { error: json({ error: 'clusterId is required.' }) };
+
+  const clusters = await clusterService.getAll(userId);
+  if (clusters.length === 0) return { error: json({ error: 'No clusters available to deploy to.' }) };
+  if (clusters.length === 1) return { clusterId: clusters[0]!.id };
+
+  return {
+    error: json({
+      error: 'More than one cluster is available. Ask the user which one to use, then call deploy_app '
+        + 'again with clusterId set.',
+      clusters: clusters.map((c) => ({ id: c.id, name: c.name, provider: c.provider, status: c.status })),
+    }),
+  };
+}
+
+export async function handleDeployApp(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId, temporalBridge, clusterService } = ctx;
+  const appType = typeof args.appType === 'string' ? args.appType.trim() : '';
+  const explicitClusterId = typeof args.clusterId === 'string' ? args.clusterId.trim() : '';
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+
+  if (!appType || !name) {
+    return json({ error: 'appType and name are required.' });
+  }
+
+  const catalogue = visibleAppSpecs(await db.getAppSpecs(), userId);
+  if (!catalogue.some((s) => s.id === appType)) {
+    return json({
+      error: `"${appType}" is not in the catalogue.`,
+      available: catalogue.map((s) => s.id),
+    });
+  }
+
+  const resolved = await resolveClusterId(clusterService, userId, explicitClusterId);
+  if ('error' in resolved) return resolved.error;
+  const clusterId = resolved.clusterId;
+
+  if (!temporalBridge) {
+    return json({ status: 'queued', appType, name, note: 'Deploy requested.' });
+  }
+
+  try {
+    const deal = await temporalBridge.deployApp({ appType, clusterId, name, strategy: 'helm' }, userId);
+    return json({ status: 'deploying', appType, name, workflowId: deal.id, deploymentId: deal.resourceId });
+  } catch (err: any) {
+    if (err instanceof CapacityError) return json({ error: err.message });
+    return json({ error: `Deploy failed: ${err?.message}` });
+  }
 }
 
 export async function handleGetProjectUrl(

@@ -26,6 +26,7 @@ vi.mock('../api/chat-pack', async (orig) => ({
   })),
   acceptEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
   denyEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
+  acceptSpecProposal: vi.fn().mockResolvedValue({ id: 'mongo' }),
 }));
 
 vi.mock('../api/client', async (orig) => ({
@@ -239,6 +240,9 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
 
     renderWithProviders(<ChatSurface conversationId="c1" />);
 
+    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
+
     await waitFor(() => expect(screen.getByText('Privilege Escalation Requested')).toBeInTheDocument());
     expect(screen.getByText('Need access to Prometheus')).toBeInTheDocument();
     expect(screen.getByText('cluster-admin')).toBeInTheDocument();
@@ -248,6 +252,45 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     fireEvent.click(approveBtn);
 
     await waitFor(() => expect(chatPackApi.acceptEscalationProposal).toHaveBeenCalledWith('c1', 'esc-1'));
+  });
+
+  /**
+   * Regression: a proposed spec's "Add to the catalogue" button called the accept endpoint (which
+   * succeeded server-side) but nothing rendered the persisted, post-accept state, so it looked like
+   * clicking did nothing. This asserts a proposedSpecs entry renders in the proposals sidebar, that
+   * accepting calls the real endpoint, and that acceptedAt drops it out of the pending list.
+   */
+  it('renders a proposed spec in the sidebar, accepts it, and it drops out of the pending list', async () => {
+    const spec = {
+      id: 'mongo', image: 'mongo:7', ports: [{ name: 'mongodb', port: 27017 }],
+    };
+    let accepted = false;
+    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async () => ({
+      id: 'c1',
+      title: 'Test Conversation',
+      messages: [{ role: 'user', content: 'add mongo' }],
+      proposedSpecs: [{
+        id: 'mongo', spec, proposedAt: '2026-09-03T12:00:00Z',
+        ...(accepted ? { acceptedAt: '2026-09-03T12:00:05Z' } : {}),
+      }],
+    }));
+    vi.mocked(chatPackApi.acceptSpecProposal).mockImplementation(async () => {
+      accepted = true;
+      return { id: 'mongo' };
+    });
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
+
+    await waitFor(() => expect(screen.getByText('Add to the catalogue')).toBeInTheDocument());
+    expect(screen.getByText('mongo')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Add to the catalogue'));
+    await waitFor(() => expect(chatPackApi.acceptSpecProposal).toHaveBeenCalledWith('c1', 'mongo'));
+    await waitFor(() => expect(screen.getByText('Nothing pending')).toBeInTheDocument());
+    expect(screen.queryByText('Add to the catalogue')).not.toBeInTheDocument();
   });
 
   it('displays ELEVATED badge in header bar when conversation is escalated', async () => {

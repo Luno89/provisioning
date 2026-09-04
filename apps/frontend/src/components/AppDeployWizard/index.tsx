@@ -5,6 +5,7 @@ import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from
 import { TagPicker } from './TagPicker';
 import { useDebounce } from '../../lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
+import { useAppCatalogue } from '../../api/deployments';
 import { EMPTY_WIZARD_DATA, type WizardData } from '../wizard-defaults';
 import { defaultsFor, GPU_ONLY_APP_TYPES, TABBY_TOOL_FORMATS } from '../app-catalog';
 import { nextStep, prevStep, isModelApp } from './steps';
@@ -63,6 +64,17 @@ export default function AppDeployWizard({
     queryFn: listProviders,
   });
   const hasHfAccount = credentials.some((p) => p.provider === 'huggingface' && p.configured);
+
+  const { data: catalogue = [] } = useAppCatalogue();
+  const HARDCODED_APP_TYPES = new Set([
+    'odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik', 'vllm', 'tabbyapi',
+    'openwebui', 'hermes', 'palworld', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich', 'papra',
+    'searxng', 'crawl4ai', 'homeassistant',
+  ]);
+  const catalogueOnlyEntries = catalogue.filter((c) => !HARDCODED_APP_TYPES.has(c.id));
+  // A catalogue app (built-in or custom) deploys entirely from its stored spec — steps 2-5 would
+  // show fields that are silently ignored if submitted, so those apps skip straight to confirm.
+  const isCatalogueApp = catalogue.some((c) => c.id === wizardData.appType);
 
   const { options: tabbyImageTagOptions, loading: loadingTabbyImageTags } = useTabbyImageTags(
     wizardStep === 4 && wizardData.appType === 'tabbyapi',
@@ -159,7 +171,7 @@ export default function AppDeployWizard({
           <h3 className="text-2xl font-bold">Deployment Wizard</h3>
           <div className="flex items-center gap-4">
             <div className="flex gap-2">
-              {[1, 2, 3, 4, 5, 6].map(s => {
+              {(isCatalogueApp ? [1, 6] : [1, 2, 3, 4, 5, 6]).map(s => {
                 const config = defaultsFor(wizardData.appType);
                 if (s === 3 && !isModelApp(wizardData.appType)) return null;
                 if (s === 5 && !config.hasDatabase) return null;
@@ -222,6 +234,13 @@ export default function AppDeployWizard({
                   <option value="searxng">SearXNG (agent web search)</option>
                   <option value="crawl4ai">Crawl4AI (agent page fetch)</option>
                   <option value="homeassistant">Home Assistant</option>
+                  {catalogueOnlyEntries.length > 0 && (
+                    <optgroup label="From the catalogue">
+                      {catalogueOnlyEntries.map((c) => (
+                        <option key={c.id} value={c.id}>{c.label ?? c.id}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
             </div>
@@ -641,16 +660,22 @@ export default function AppDeployWizard({
               <div className="p-8 bg-green-500/5 rounded-3xl border border-green-500/20 text-center"><div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4"><Check className="text-green-500" size={32} /></div><h4 className="text-xl font-bold">Ready to Launch</h4><p className="text-slate-400 text-sm">Confirm the configuration for <strong>{wizardData.name}</strong>.</p></div>
               <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-700 space-y-4 text-sm">
                 <div className="flex justify-between border-b border-slate-800 pb-3"><span>Cluster</span><span className="font-bold text-slate-300">{clusters.find((c) => c.id === wizardData.clusterId)?.name}</span></div>
-                <div className="flex justify-between border-b border-slate-800 pb-3"><span>Strategy</span><span className="font-bold text-blue-400 uppercase tracking-widest text-[10px]">{wizardData.strategy}</span></div>
-                <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.appType === 'tabbyapi' ? `${wizardData.tabbyModel}${wizardData.tabbyRevision ? '@' + wizardData.tabbyRevision : ''} (${wizardData.tabbyGpuCount} GPU)` : `${wizardData.odooRepo}:${wizardData.odooTag}`}</span></div>
-                {defaultsFor(wizardData.appType).hasDatabase && (
-                  <div className="flex justify-between"><span>Database</span><span className="font-mono text-xs text-slate-300">{wizardData.pgRepo}:{wizardData.pgTag}</span></div>
+                {isCatalogueApp ? (
+                  <div className="flex justify-between"><span>App</span><span className="font-mono text-xs text-slate-300">{catalogue.find((c) => c.id === wizardData.appType)?.label ?? wizardData.appType}</span></div>
+                ) : (
+                  <>
+                    <div className="flex justify-between border-b border-slate-800 pb-3"><span>Strategy</span><span className="font-bold text-blue-400 uppercase tracking-widest text-[10px]">{wizardData.strategy}</span></div>
+                    <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.appType === 'tabbyapi' ? `${wizardData.tabbyModel}${wizardData.tabbyRevision ? '@' + wizardData.tabbyRevision : ''} (${wizardData.tabbyGpuCount} GPU)` : `${wizardData.odooRepo}:${wizardData.odooTag}`}</span></div>
+                    {defaultsFor(wizardData.appType).hasDatabase && (
+                      <div className="flex justify-between"><span>Database</span><span className="font-mono text-xs text-slate-300">{wizardData.pgRepo}:{wizardData.pgTag}</span></div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           )}
         </div>
-        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'hermes' ? { ...wizardData, hermesTargetId: wizardData.hermesTargetId || undefined, appType: 'hermes', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; onDeploy(payload as WizardData); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'hermes' ? { ...wizardData, hermesTargetId: wizardData.hermesTargetId || undefined, appType: 'hermes', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; onDeploy(payload as WizardData); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
       </div>
     </div>
   );

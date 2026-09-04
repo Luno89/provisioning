@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } fr
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, History, ChevronDown, ArrowDown, AlertTriangle, X, ShieldAlert,
-  Key, Eye, EyeOff, Lock, Check, Sprout, Sparkles,
+  Check, Sprout, Sparkles, Inbox,
 } from 'lucide-react';
 import {
   openChatPackStream,
@@ -12,48 +12,34 @@ import {
   createChatConversation,
   deleteChatConversation,
   acceptTreeProposal,
+  dismissTreeProposal,
   acceptSpecProposal,
+  dismissSpecProposal,
   acceptEscalationProposal,
   denyEscalationProposal,
   submitSecretRequest,
   dismissSecretRequest,
   chatPackKeys,
   type ChatConversation,
-  type ProposedEscalationRecord,
-  type ProposedSecretRequestRecord,
 } from '../api/chat-pack.js';
 import { openChatStream } from '../api/chat.js';
 import { emptyChatRenderState, type ChatRenderState } from '../lib/chat-unified-reducer.js';
 import { useLiveTurnsStore, conversationTurnKey, branchTurnKey } from '../stores/live-turns.js';
 import { KoalaSpot } from './Koala.js';
-import SpecProposal, { type Spec } from './SpecProposal.js';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
+import ProposalsSidebar, { pendingProposalsCount } from './ProposalsSidebar.js';
 import PersonaConfigDrawer from './PersonaConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
 import KoalaLoading from './KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
-import ChatMessageRow, { type ChatMessageData, ProposedTreeCard } from './Chat/ChatMessageRow.js';
+import ChatMessageRow, { type ChatMessageData } from './Chat/ChatMessageRow.js';
 import { errorMessage } from '../api/client.js';
 import { listPacks, packKeys, type PersonaPack } from '../api/packs';
 import { listTrees, listTreeTypes, groveKeys } from '../api/grove';
 import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../api/models';
 import { modelOptionLabel } from '../lib/model-label';
 import { useShellStore } from '../stores/shell.js';
-
-export interface ProposedTreeRecord {
-  id: string;
-  name: string;
-  type: string;
-  goal: string;
-  treeId?: string | undefined;
-}
-
-export interface ProposedSpecRecord {
-  id: string;
-  spec: Spec;
-  acceptedAt?: string | undefined;
-}
 
 export interface ChatMessageRecord extends ChatMessageData {
   handoff?: boolean | undefined;
@@ -153,6 +139,7 @@ export default function ChatSurface({
   const [localMessages, setLocalMessages] = useState<ChatMessageRecord[]>([]);
 
   const [showHistory, setShowHistory] = useState<boolean>(false);
+  const [showProposals, setShowProposals] = useState<boolean>(false);
   const [showDropdown, setShowDropdown] = useState<boolean>(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState<boolean>(false);
   const [showModelDrawer, setShowModelDrawer] = useState<boolean>(false);
@@ -280,6 +267,27 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     },
+    onError: (err) => setError(`Could not add to the catalogue: ${errorMessage(err)}`),
+  });
+
+  const dismissTreeMutation = useMutation({
+    mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
+      dismissTreeProposal(convId, proposalId),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+    },
+    onError: (err) => setError(`Could not dismiss the proposal: ${errorMessage(err)}`),
+  });
+
+  const dismissSpecMutation = useMutation({
+    mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
+      dismissSpecProposal(convId, proposalId),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+    },
+    onError: (err) => setError(`Could not dismiss the proposal: ${errorMessage(err)}`),
   });
 
   const acceptEscalationMutation = useMutation({
@@ -635,6 +643,13 @@ export default function ChatSurface({
     [liveState.proposals],
   );
 
+  const pendingCount = useMemo(() => pendingProposalsCount({
+    liveTrees, persistedTrees: activeConversation?.proposedTrees,
+    liveSpecs, persistedSpecs: activeConversation?.proposedSpecs,
+    liveEscalations, persistedEscalations: activeConversation?.proposedEscalations,
+    liveSecretRequests, persistedSecretRequests: activeConversation?.proposedSecretRequests,
+  }), [liveTrees, liveSpecs, liveEscalations, liveSecretRequests, activeConversation]);
+
   /** Nothing to show YET is not the same as nothing to show — the hero would flash otherwise. */
   const isLoadingThread = !isBranch && loadingConversation && renderedMessages.length === 0 && !streaming;
   const isConversationEmpty = !isBranch && renderedMessages.length === 0 && !streaming && !isLoadingThread;
@@ -758,6 +773,27 @@ export default function ChatSurface({
                 <ShieldAlert size={12} className="text-amber-400" />
                 <span>ELEVATED ({activeConversation.escalatedScope ?? 'cluster-read'})</span>
               </div>
+            )}
+            {!hideSidebar && !isBranch && (
+              <button
+                type="button"
+                aria-label="Toggle proposals"
+                onClick={() => setShowProposals(!showProposals)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors border cursor-pointer ${
+                  showProposals
+                    ? 'bg-[var(--bark-800,#1b2620)] text-emerald-300 border-emerald-500/50'
+                    : 'bg-[var(--bark-950,#090d0b)] text-slate-300 border-[var(--bark-700,#24332b)] hover:text-white'
+                }`}
+                title="Toggle proposals"
+              >
+                <Inbox size={13} className={showProposals ? 'text-emerald-400' : 'text-slate-400'} />
+                <span className="hidden sm:inline">Proposals</span>
+                {pendingCount > 0 && (
+                  <span className="text-[10px] text-slate-400 bg-[var(--bark-950,#090d0b)] px-1.5 py-0.5 rounded border border-[var(--bark-800,#1b2620)] font-mono">
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
             )}
             <button
               type="button"
@@ -898,158 +934,6 @@ export default function ChatSurface({
                     </div>
                   )}
 
-                  {liveTrees.map((tree: any) => (
-                    <ProposedTreeCard
-                      key={tree.id}
-                      proposal={tree}
-                      onAccept={(id) =>
-                        selectedConvId &&
-                        acceptTreeMutation.mutate({ convId: selectedConvId, proposalId: id })
-                      }
-                      isPending={acceptTreeMutation.isPending}
-                    />
-                  ))}
-
-                  {liveSpecs.map((spec: any) => (
-                    <div key={spec.id} className="my-2">
-                      <SpecProposal
-                        spec={spec.spec}
-                        onAccept={() => {
-                          if (selectedConvId) {
-                            acceptSpecMutation.mutate({ convId: selectedConvId, proposalId: spec.id });
-                          }
-                        }}
-                      />
-                    </div>
-                  ))}
-
-                  {liveEscalations.map((esc: any) => (
-                    <EscalationProposalCard
-                      key={esc.id}
-                      proposal={esc}
-                      onAccept={(id) => {
-                        const cid = selectedConvId || activeConversation?.id;
-                        if (cid) {
-                          acceptEscalationMutation.mutate({ convId: cid, proposalId: id });
-                        }
-                      }}
-                      onDeny={(id) => {
-                        const cid = selectedConvId || activeConversation?.id;
-                        if (cid) {
-                          denyEscalationMutation.mutate({ convId: cid, proposalId: id });
-                        }
-                      }}
-                      isPending={acceptEscalationMutation.isPending || denyEscalationMutation.isPending}
-                    />
-                  ))}
-
-                  {liveSecretRequests.map((req: any) => (
-                    <SecretRequestCard
-                      key={req.id}
-                      request={req}
-                      onSubmit={(id, value) => {
-                        const cid = selectedConvId || activeConversation?.id;
-                        if (cid) {
-                          submitSecretMutation.mutate({ convId: cid, requestId: id, value });
-                        }
-                      }}
-                      onDismiss={(id) => {
-                        const cid = selectedConvId || activeConversation?.id;
-                        if (cid) {
-                          dismissSecretMutation.mutate({ convId: cid, requestId: id });
-                        }
-                      }}
-                      isPending={submitSecretMutation.isPending || dismissSecretMutation.isPending}
-                    />
-                  ))}
-
-                  {activeConversation?.proposedTrees &&
-                    activeConversation.proposedTrees.length > 0 &&
-                    !streaming && (
-                      <div className="w-full space-y-2 pt-3 border-t border-[var(--bark-800,#1b2620)]">
-                        <div className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <span>PROPOSED PROJECT TREES</span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {activeConversation.proposedTrees.map((p: any) => (
-                            <ProposedTreeCard
-                              key={p.id}
-                              proposal={p}
-                              onAccept={(id) =>
-                                selectedConvId &&
-                                acceptTreeMutation.mutate({ convId: selectedConvId, proposalId: id })
-                              }
-                              isPending={acceptTreeMutation.isPending}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  {activeConversation?.proposedEscalations &&
-                    activeConversation.proposedEscalations.length > 0 &&
-                    !streaming && (
-                      <div className="w-full space-y-2 pt-3 border-t border-[var(--bark-800,#1b2620)]">
-                        <div className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <ShieldAlert size={12} />
-                          <span>PRIVILEGE ESCALATION REQUESTS</span>
-                        </div>
-                        <div className="space-y-2">
-                          {activeConversation.proposedEscalations.map((esc) => (
-                            <EscalationProposalCard
-                              key={esc.id}
-                              proposal={esc}
-                              onAccept={(id) => {
-                                const cid = activeConversation.id || selectedConvId;
-                                if (cid) {
-                                  acceptEscalationMutation.mutate({ convId: cid, proposalId: id });
-                                }
-                              }}
-                              onDeny={(id) => {
-                                const cid = activeConversation.id || selectedConvId;
-                                if (cid) {
-                                  denyEscalationMutation.mutate({ convId: cid, proposalId: id });
-                                }
-                              }}
-                              isPending={acceptEscalationMutation.isPending || denyEscalationMutation.isPending}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                  {activeConversation?.proposedSecretRequests &&
-                    activeConversation.proposedSecretRequests.length > 0 &&
-                    !streaming && (
-                      <div className="w-full space-y-2 pt-3 border-t border-[var(--bark-800,#1b2620)]">
-                        <div className="text-[10px] font-mono font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Key size={12} />
-                          <span>VAULTED & REQUESTED SECRETS</span>
-                        </div>
-                        <div className="space-y-2">
-                          {activeConversation.proposedSecretRequests.map((req) => (
-                            <SecretRequestCard
-                              key={req.id}
-                              request={req}
-                              onSubmit={(id, value) => {
-                                const cid = activeConversation.id || selectedConvId;
-                                if (cid) {
-                                  submitSecretMutation.mutate({ convId: cid, requestId: id, value });
-                                }
-                              }}
-                              onDismiss={(id) => {
-                                const cid = activeConversation.id || selectedConvId;
-                                if (cid) {
-                                  dismissSecretMutation.mutate({ convId: cid, requestId: id });
-                                }
-                              }}
-                              isPending={submitSecretMutation.isPending || dismissSecretMutation.isPending}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                   {error && (
                     <div className="w-full p-3 my-2 rounded-md bg-red-950/60 border border-red-500/50 text-red-300 font-sans text-xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1104,6 +988,45 @@ export default function ChatSurface({
             </>
           )}
         </div>
+
+        {!hideSidebar && !isBranch && (
+          <ProposalsSidebar
+            isOpen={showProposals}
+            onToggle={() => setShowProposals(false)}
+            liveTrees={liveTrees}
+            persistedTrees={activeConversation?.proposedTrees}
+            onAcceptTree={(id) => selectedConvId && acceptTreeMutation.mutate({ convId: selectedConvId, proposalId: id })}
+            onDismissTree={(id) => selectedConvId && dismissTreeMutation.mutate({ convId: selectedConvId, proposalId: id })}
+            treeActionPending={acceptTreeMutation.isPending || dismissTreeMutation.isPending}
+            liveSpecs={liveSpecs}
+            persistedSpecs={activeConversation?.proposedSpecs}
+            onAcceptSpec={(id) => selectedConvId && acceptSpecMutation.mutate({ convId: selectedConvId, proposalId: id })}
+            onDismissSpec={(id) => selectedConvId && dismissSpecMutation.mutate({ convId: selectedConvId, proposalId: id })}
+            specActionPending={acceptSpecMutation.isPending || dismissSpecMutation.isPending}
+            liveEscalations={liveEscalations}
+            persistedEscalations={activeConversation?.proposedEscalations}
+            onAcceptEscalation={(id) => {
+              const cid = selectedConvId || activeConversation?.id;
+              if (cid) acceptEscalationMutation.mutate({ convId: cid, proposalId: id });
+            }}
+            onDenyEscalation={(id) => {
+              const cid = selectedConvId || activeConversation?.id;
+              if (cid) denyEscalationMutation.mutate({ convId: cid, proposalId: id });
+            }}
+            escalationActionPending={acceptEscalationMutation.isPending || denyEscalationMutation.isPending}
+            liveSecretRequests={liveSecretRequests}
+            persistedSecretRequests={activeConversation?.proposedSecretRequests}
+            onSubmitSecret={(id, value) => {
+              const cid = selectedConvId || activeConversation?.id;
+              if (cid) submitSecretMutation.mutate({ convId: cid, requestId: id, value });
+            }}
+            onDismissSecret={(id) => {
+              const cid = selectedConvId || activeConversation?.id;
+              if (cid) dismissSecretMutation.mutate({ convId: cid, requestId: id });
+            }}
+            secretActionPending={submitSecretMutation.isPending || dismissSecretMutation.isPending}
+          />
+        )}
       </div>
 
       <ModelConfigDrawer
@@ -1125,175 +1048,6 @@ export default function ChatSurface({
           activePackId="koala"
           onSelectPack={() => {}}
         />
-      )}
-    </div>
-  );
-}
-
-export function EscalationProposalCard({
-  proposal,
-  onAccept,
-  onDeny,
-  isPending,
-}: {
-  proposal: ProposedEscalationRecord;
-  onAccept: (id: string) => void;
-  onDeny: (id: string) => void;
-  isPending?: boolean;
-}) {
-  return (
-    <div className="p-3.5 rounded-lg border border-amber-500/30 bg-amber-950/20 text-slate-200 text-[13px] flex flex-col gap-2 my-2 font-sans">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ShieldAlert size={15} className="text-amber-400 shrink-0" />
-          <span className="font-semibold text-amber-200">Privilege Escalation Requested</span>
-        </div>
-        <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-          {proposal.scope}
-        </span>
-      </div>
-      <p className="text-slate-300 text-[12px] leading-relaxed">{proposal.reason}</p>
-      {proposal.namespaces && proposal.namespaces.length > 0 && (
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span>Target Namespaces:</span>
-          <div className="flex gap-1 flex-wrap font-mono">
-            {proposal.namespaces.map((ns) => (
-              <span key={ns} className="px-1.5 py-0.5 bg-black/40 rounded border border-slate-700 text-slate-300 text-[10px]">
-                {ns}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {proposal.status === 'accepted' ? (
-        <div className="text-[12px] text-emerald-400 font-medium mt-1 flex items-center gap-1">
-          ✓ Granted at {new Date(proposal.acceptedAt || proposal.proposedAt).toLocaleTimeString()}
-        </div>
-      ) : proposal.status === 'denied' ? (
-        <div className="text-[12px] text-red-400 font-medium mt-1">
-          ✕ Request Denied
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 mt-1.5">
-          <button
-            type="button"
-            onClick={() => onAccept(proposal.id)}
-            disabled={isPending}
-            className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-[12px] font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            Approve Escalation
-          </button>
-          <button
-            type="button"
-            onClick={() => onDeny(proposal.id)}
-            disabled={isPending}
-            className="px-3 py-1.5 rounded-md bg-[var(--bark-800,#1b2620)] hover:bg-[var(--bark-700,#24332b)] text-slate-300 text-[12px] transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            Deny
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function SecretRequestCard({
-  request,
-  onSubmit,
-  onDismiss,
-  isPending,
-}: {
-  request: ProposedSecretRequestRecord;
-  onSubmit: (id: string, value: string) => void;
-  onDismiss: (id: string) => void;
-  isPending?: boolean;
-}) {
-  const [value, setValue] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-
-  return (
-    <div className="p-3.5 rounded-lg border border-emerald-500/30 bg-emerald-950/20 text-slate-200 text-[13px] flex flex-col gap-2.5 my-2 font-sans">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Key size={15} className="text-emerald-400 shrink-0" />
-          <span className="font-semibold text-emerald-200">
-            {request.label || 'Secret Input Requested'}
-          </span>
-        </div>
-        <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-          {request.key}
-        </span>
-      </div>
-
-      <p className="text-slate-300 text-[12px] leading-relaxed">{request.description}</p>
-
-      {request.projectId && (
-        <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
-          <span className="text-slate-500">Project:</span> {request.projectId}
-        </div>
-      )}
-
-      {request.status === 'fulfilled' ? (
-        <div className="text-[12px] text-emerald-400 font-medium mt-1 flex items-center gap-1.5 bg-emerald-950/40 p-2 rounded border border-emerald-500/20 font-mono text-[11px]">
-          <Check size={14} className="text-emerald-400 shrink-0" />
-          <span>Encrypted & Vaulted in Infisical</span>
-          {request.secretReference && (
-            <span className="text-slate-400 ml-auto text-[10px]">({request.secretReference})</span>
-          )}
-        </div>
-      ) : request.status === 'dismissed' ? (
-        <div className="text-[12px] text-slate-400 font-medium mt-1 flex items-center gap-1 bg-slate-900/40 p-2 rounded border border-slate-800">
-          ✕ Secret Request Dismissed
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2 mt-1">
-          <div className="relative flex items-center">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder={`Enter ${request.key}...`}
-              className="w-full px-3 py-1.5 pr-9 rounded-md bg-black/50 border border-emerald-500/30 text-white font-mono text-xs focus:outline-none focus:border-emerald-400 placeholder:text-slate-500"
-              disabled={isPending}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2 text-slate-400 hover:text-slate-200 cursor-pointer p-1"
-              tabIndex={-1}
-            >
-              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-            </button>
-          </div>
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-[10px] text-slate-400 italic">
-              Encrypted directly into Infisical vault; never stored in chat logs.
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onDismiss(request.id)}
-                disabled={isPending}
-                className="px-2.5 py-1 rounded bg-[var(--bark-800,#1b2620)] hover:bg-[var(--bark-700,#24332b)] text-slate-300 text-xs transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                Dismiss
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (value.trim()) {
-                    onSubmit(request.id, value.trim());
-                  }
-                }}
-                disabled={isPending || !value.trim()}
-                className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-              >
-                <Lock size={12} />
-                <span>Save to Vault</span>
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

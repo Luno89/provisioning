@@ -191,8 +191,8 @@ export const PACK_SEEDS: PackSeed[] = [
     personaName: KOALA_NAME,
     tools: [
       'propose_tree', 'list_tree_types', 'propose_spec', 'add_project_dependency', 'list_trees',
-      'get_project_pipeline', 'get_project_env', 'set_project_env', 'deploy_project', 'get_project_url',
-      'get_logs', 'get_events', 'inspect_resources', 'cluster_capacity', 'list_infrastructure',
+      'get_project_pipeline', 'get_project_env', 'set_project_env', 'deploy_project', 'deploy_app', 'get_project_url',
+      'get_logs', 'get_events', 'inspect_resources', 'cluster_capacity', 'list_infrastructure', 'list_clusters',
       'list_mcp_servers', 'enable_mcp_server',
       'request_escalated_privileges', 'request_secret', 'inject_secret_to_pod',
       'get_project_secret', 'set_project_secret', 'list_project_secrets',

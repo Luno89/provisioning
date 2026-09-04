@@ -39,6 +39,23 @@ describe('going back', () => {
   })
 })
 
+describe('a catalogue app (deploys straight from a stored spec)', () => {
+  it('skips straight from step 1 to the confirm step, both directions', () => {
+    expect(nextStep(1, 'jellyfin', true)).toBe(LAST_STEP)
+    expect(prevStep(LAST_STEP, 'jellyfin', true)).toBe(1)
+  })
+
+  it('is unaffected by appType-based skip rules — the flag alone decides', () => {
+    expect(nextStep(1, 'vllm', true)).toBe(LAST_STEP)
+    expect(nextStep(1, 'odoo', true)).toBe(LAST_STEP)
+  })
+
+  it('leaves the default (no flag) behavior exactly as before', () => {
+    expect(nextStep(2, 'wordpress')).toBe(4)
+    expect(prevStep(4, 'wordpress')).toBe(2)
+  })
+})
+
 describe('isModelApp', () => {
   it('names exactly the two that serve a model', () => {
     expect(isModelApp('vllm')).toBe(true)

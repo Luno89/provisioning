@@ -47,6 +47,26 @@ export interface ProposedEscalationRecord {
   deniedAt?: string | undefined;
 }
 
+export interface ProposedTreeRecord {
+  id: string;
+  name: string;
+  type: string;
+  goal: string;
+  brief?: string | undefined;
+  proposedAt: string;
+  treeId?: string | undefined;
+  dismissedAt?: string | undefined;
+}
+
+export interface ProposedSpecRecord {
+  id: string;
+  spec: unknown;
+  proposedAt: string;
+  replaces?: boolean | undefined;
+  acceptedAt?: string | undefined;
+  dismissedAt?: string | undefined;
+}
+
 export interface ChatConversation {
   id: string;
   title: string;
@@ -57,8 +77,8 @@ export interface ChatConversation {
   /** The engine this conversation was last sent on; absent means it follows pack and default. */
   modelId?: string | null | undefined;
   messages?: ChatConversationMessage[] | undefined;
-  proposedTrees?: any[] | undefined;
-  proposedSpecs?: any[] | undefined;
+  proposedTrees?: ProposedTreeRecord[] | undefined;
+  proposedSpecs?: ProposedSpecRecord[] | undefined;
   isEscalated?: boolean | undefined;
   escalatedScope?: 'cluster-read' | 'cluster-admin' | undefined;
   escalatedNamespaces?: string[] | undefined;
@@ -99,6 +119,14 @@ export const acceptSpecProposal = <T,>(conversationId: string, proposalId: strin
 
 export const acceptTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
   api.post<T>(`/chat-pack/conversations/${conversationId}/trees/${proposalId}/accept`, {})
+    .then((r) => r.data);
+
+export const dismissTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
+  api.post<T>(`/chat-pack/conversations/${conversationId}/trees/${proposalId}/dismiss`, {})
+    .then((r) => r.data);
+
+export const dismissSpecProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
+  api.post<T>(`/chat-pack/conversations/${conversationId}/specs/${proposalId}/dismiss`, {})
     .then((r) => r.data);
 
 export const acceptEscalationProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>

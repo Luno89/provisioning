@@ -141,6 +141,100 @@ describe('what this means for adding MongoDB', () => {
   });
 });
 
+describe('config files (render a ConfigMap, mount it read-only, copy-then-substitute at startup)', () => {
+  const spec: AppSpec = {
+    id: 'searxng',
+    image: 'searxng/searxng:latest',
+    command: ['/bin/sh', '-c'],
+    args: ['cp /config-src/settings.yml /etc/searxng/settings.yml && exec entrypoint.sh'],
+    configFiles: [{ name: 'settings.yml', content: 'use_default_settings: true\n', mountPath: '/config-src' }],
+    ports: [{ name: 'http', port: 8080 }],
+    resources: { limits: { memory: '1Gi', cpu: '1' } },
+  };
+  const out = renderApp(spec, { ...ctx, namespace: 'searxng' });
+  const container = (out.deployment as any).spec.template.spec.container[0];
+
+  it('creates a ConfigMap keyed by the file name', () => {
+    expect(out.configMap).toEqual({
+      metadata: { name: 'searxng-config', namespace: 'searxng' },
+      data: { 'settings.yml': 'use_default_settings: true\n' },
+    });
+  });
+
+  it('overrides the entrypoint with command, keeping args', () => {
+    expect(container.command).toEqual(['/bin/sh', '-c']);
+    expect(container.args).toEqual(['cp /config-src/settings.yml /etc/searxng/settings.yml && exec entrypoint.sh']);
+  });
+
+  it('mounts the ConfigMap read-only at the declared path', () => {
+    expect(container.volumeMount).toEqual([{ name: 'config-src', mountPath: '/config-src', readOnly: true }]);
+    expect((out.deployment as any).spec.template.spec.volume).toEqual([
+      { name: 'config-src', configMap: { name: 'searxng-config' } },
+    ]);
+  });
+
+  it('does not create a ConfigMap when there are no config files', () => {
+    expect(renderApp(MINIO_SPEC, ctx).configMap).toBeUndefined();
+  });
+});
+
+describe('ephemeral volumes (no PVC, no data survives a restart)', () => {
+  it('renders a plain emptyDir and skips the PVC entirely', () => {
+    const spec: AppSpec = {
+      id: 'verdaccio', image: 'verdaccio/verdaccio:6', ports: [{ name: 'http', port: 4873 }],
+      volumes: [{ path: '/verdaccio/storage', size: '20Gi' }, { path: '/verdaccio/conf', type: 'ephemeral' }],
+      resources: { limits: { memory: '1Gi', cpu: '1' } },
+    };
+    const out = renderApp(spec, { ...ctx, namespace: 'verdaccio' });
+    const podSpec = (out.deployment as any).spec.template.spec;
+    expect(out.pvcs).toHaveLength(1);
+    expect(out.pvcs[0]!.metadata.name).toBe('verdaccio-data-pvc');
+    expect(podSpec.volume).toEqual([
+      { name: 'data', persistentVolumeClaim: { claimName: 'verdaccio-data-pvc' } },
+      { name: 'data-1', emptyDir: {} },
+    ]);
+  });
+
+  it('renders a Memory-backed emptyDir with sizeLimit for a real /dev/shm', () => {
+    const spec: AppSpec = {
+      id: 'crawl4ai', image: 'unclecode/crawl4ai:latest', ports: [{ name: 'http', port: 11235 }],
+      volumes: [{ path: '/dev/shm', type: 'ephemeral', medium: 'Memory', size: '1Gi' }],
+      resources: { limits: { memory: '4Gi', cpu: '2' } },
+    };
+    const out = renderApp(spec, { ...ctx, namespace: 'crawl4ai' });
+    const podSpec = (out.deployment as any).spec.template.spec;
+    expect(out.pvcs).toEqual([]);
+    expect(podSpec.volume).toEqual([{ name: 'data', emptyDir: { medium: 'Memory', sizeLimit: '1Gi' } }]);
+  });
+
+  it('does not force Recreate strategy when every volume is ephemeral', () => {
+    const spec: AppSpec = {
+      id: 'crawl4ai', image: 'unclecode/crawl4ai:latest', ports: [{ name: 'http', port: 11235 }],
+      volumes: [{ path: '/dev/shm', type: 'ephemeral', medium: 'Memory', size: '1Gi' }],
+      resources: { limits: { memory: '4Gi', cpu: '2' } },
+    };
+    expect((renderApp(spec, { ...ctx, namespace: 'crawl4ai' }).deployment as any).spec.strategy).toBeUndefined();
+  });
+});
+
+describe('securityContext (pod-level UID/GID only)', () => {
+  it('renders it on the pod spec when set', () => {
+    const spec: AppSpec = {
+      id: 'verdaccio', image: 'verdaccio/verdaccio:6', ports: [{ name: 'http', port: 4873 }],
+      securityContext: { runAsUser: '10001', runAsGroup: '65533', fsGroup: '65533' },
+      resources: { limits: { memory: '1Gi', cpu: '1' } },
+    };
+    const out = renderApp(spec, { ...ctx, namespace: 'verdaccio' });
+    expect((out.deployment as any).spec.template.spec.securityContext).toEqual({
+      runAsUser: '10001', runAsGroup: '65533', fsGroup: '65533',
+    });
+  });
+
+  it('is absent when not set', () => {
+    expect((renderApp(MINIO_SPEC, ctx).deployment as any).spec.template.spec.securityContext).toBeUndefined();
+  });
+});
+
 describe('the contract with the construct', () => {
   const out = renderApp(MINIO_SPEC, ctx);
 

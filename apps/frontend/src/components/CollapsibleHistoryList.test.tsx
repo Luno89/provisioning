@@ -17,7 +17,7 @@ describe('CollapsibleHistoryList — Collapsible Chat History Drawer', () => {
       title: 'Hetzner Node Provisioning',
       messageCount: 2,
       updatedAt: '2026-08-26T01:00:00Z',
-      proposedTrees: [{ id: 't-1', name: 'Hetzner', type: 'k8s', goal: 'Deploy k8s' }],
+      proposedTrees: [{ id: 't-1', name: 'Hetzner', type: 'k8s', goal: 'Deploy k8s', proposedAt: '2026-08-26T00:00:00Z' }],
     },
   ];
 

@@ -203,6 +203,58 @@ describe('POST /api/chat-pack — unified wire, always koala', () => {
     expect(specBody.id).toBe('my-custom-app');
   });
 
+  it('appends a "here\'s what happened" notice to the transcript on every proposal action', async () => {
+    const convId = 'notice-test-conv';
+    const now = new Date().toISOString();
+    await harness.db.saveConversation({
+      id: convId, ownerId: 'test-user', title: 'Notice Conv', messages: [],
+      proposedTrees: [{ id: 't1', name: 'Tree A', type: 'web', goal: 'x', proposedAt: now }],
+      proposedEscalations: [{ id: 'e1', reason: 'r', scope: 'cluster-read', proposedAt: now, status: 'pending' }],
+      proposedSecretRequests: [{ id: 's1', key: 'FOO', description: 'd', status: 'pending', requestedAt: now }],
+      createdAt: now, updatedAt: now,
+    });
+
+    await fetch(harness.url(`/api/chat-pack/conversations/${convId}/trees/t1/accept`), { method: 'POST' });
+    await fetch(harness.url(`/api/chat-pack/conversations/${convId}/escalations/e1/deny`), { method: 'POST' });
+    await fetch(harness.url(`/api/chat-pack/conversations/${convId}/secrets/s1/dismiss`), { method: 'POST' });
+
+    const conv = (await harness.db.getConversations()).find((c: any) => c.id === convId);
+    const notices = (conv?.messages ?? []).filter((m: any) => m.notice);
+    expect(notices).toHaveLength(3);
+    expect(notices[0]?.content).toMatch(/Accepted the "Tree A" tree/);
+    expect(notices[1]?.content).toMatch(/Denied the privilege escalation/);
+    expect(notices[2]?.content).toMatch(/Dismissed the request for FOO/);
+  });
+
+  it('dismisses a pending tree or spec proposal, refusing a second dismiss or one already accepted', async () => {
+    const convId = 'dismiss-test-conv';
+    const now = new Date().toISOString();
+    await harness.db.saveConversation({
+      id: convId, ownerId: 'test-user', title: 'Dismiss Conv', messages: [],
+      proposedTrees: [
+        { id: 'dt1', name: 'Dismiss Me', type: 'web', goal: 'x', proposedAt: now },
+        { id: 'dt2', name: 'Already Gone', type: 'web', goal: 'x', proposedAt: now },
+      ],
+      proposedSpecs: [{ id: 'dismiss-spec', proposedAt: now, spec: { id: 'dismiss-spec', image: 'x', ports: [] } }],
+      createdAt: now, updatedAt: now,
+    });
+
+    const treeRes = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/trees/dt1/dismiss`), { method: 'POST' });
+    expect(treeRes.status).toBe(200);
+    const specRes = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/specs/dismiss-spec/dismiss`), { method: 'POST' });
+    expect(specRes.status).toBe(200);
+
+    const again = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/trees/dt1/dismiss`), { method: 'POST' });
+    expect(again.status).toBe(409);
+
+    const unknown = await fetch(harness.url(`/api/chat-pack/conversations/${convId}/trees/no-such-id/dismiss`), { method: 'POST' });
+    expect(unknown.status).toBe(404);
+
+    const conv = (await harness.db.getConversations()).find((c: any) => c.id === convId);
+    expect(conv?.proposedTrees?.find((t: any) => t.id === 'dt1')?.dismissedAt).toBeDefined();
+    expect(conv?.proposedSpecs?.find((s: any) => s.id === 'dismiss-spec')?.dismissedAt).toBeDefined();
+  });
+
   it('supplies the granted tools as function schemas to the provider', async () => {
     const res = await fetch(harness.url('/api/chat-pack'), {
       method: 'POST',

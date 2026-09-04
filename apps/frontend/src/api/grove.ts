@@ -7,7 +7,24 @@ export const groveKeys = {
   leaves: () => ['leaves'] as const,
   treeTypes: () => ['tree-types'] as const,
   trace: (id: string) => ['leaf-trace', id] as const,
+  board: (id: string) => ['tree-board', id] as const,
 }
+
+export interface TreeRollup {
+  counts: { proposed: number; blocked: number; running: number; claimed: number; verified: number; failed: number }
+  outstanding: number
+  tokens: number
+  retried: number
+  branches: number
+}
+
+export interface TreeBoard {
+  tree: Tree
+  rollup: TreeRollup
+}
+
+export const getTreeBoard = (id: string): Promise<TreeBoard> =>
+  api.get<TreeBoard>(`/trees/${id}/board`).then((r) => r.data)
 
 export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((r) => r.data)
 export const createTree = <T,>(body: unknown): Promise<T> =>

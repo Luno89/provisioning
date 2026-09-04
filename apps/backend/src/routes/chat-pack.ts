@@ -13,6 +13,7 @@ import type { Conversation, ProposedTree, ProposedSpec } from '../lib/conversati
 import type { SearchOutcome } from '../lib/web-tools.js';
 import { historyForPrompt } from '../lib/koala-context.js';
 import { enabledForSession, titleFrom } from '../lib/conversations.js';
+import { withConversationNotice } from '../lib/conversation-notice.js';
 import { resolvePrompt } from '../lib/personas.js';
 import { trimConversation, conversationBudget } from '../lib/sandbox-tools.js';
 import { openSse, sendFrame, endSse } from '../lib/sse.js';
@@ -34,6 +35,7 @@ import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
+import type { ClusterService } from '../services/ClusterService.js';
 
 export interface PersonaChatRouterDeps {
   db: Database;
@@ -43,6 +45,7 @@ export interface PersonaChatRouterDeps {
   temporalBridge?: TemporalBridge;
   infraService?: InfrastructureService;
   infisicalService?: InfisicalService;
+  clusterService?: Pick<ClusterService, 'getById' | 'getAll'>;
   jwtSecret?: string;
   serversFor: (userId: string) => Promise<McpServer[]>;
   ownedConversations: (userId: string) => Promise<Conversation[]>;
@@ -123,12 +126,12 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     });
 
     const now = new Date().toISOString();
-    await db.saveConversation({
+    await db.saveConversation(withConversationNotice({
       ...conversation,
       proposedTrees: (conversation.proposedTrees ?? [])
         .map((p) => (p.id === proposal.id ? { ...p, treeId: bootstrapped.tree.id } : p)),
       updatedAt: now,
-    });
+    }, `Accepted the "${proposal.name}" tree.`, now));
     res.json({
       tree: bootstrapped.tree,
       branch: bootstrapped.branch,
@@ -137,8 +140,29 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     });
   };
 
+  const dismissTree = async (req: any, res: any) => {
+    const userId = req.user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedTrees ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+    if (proposal.treeId) return res.status(409).json({ error: 'That project has already been created' });
+    if (proposal.dismissedAt) return res.status(409).json({ error: 'That proposal was already dismissed' });
+
+    const now = new Date().toISOString();
+    await db.saveConversation(withConversationNotice({
+      ...conversation,
+      proposedTrees: (conversation.proposedTrees ?? [])
+        .map((p) => (p.id === proposal.id ? { ...p, dismissedAt: now } : p)),
+      updatedAt: now,
+    }, `Dismissed the "${proposal.name}" tree proposal.`, now));
+    res.json({ ok: true });
+  };
+
   router.post('/conversations/:id/trees/:proposalId/accept', asyncRoute(acceptTree));
   router.post('/conversations/:id/proposals/:proposalId/accept', asyncRoute(acceptTree));
+  router.post('/conversations/:id/trees/:proposalId/dismiss', asyncRoute(dismissTree));
+  router.post('/conversations/:id/proposals/:proposalId/dismiss', asyncRoute(dismissTree));
 
   router.post('/conversations/:id/specs/:proposalId/accept', asyncRoute(async (req, res) => {
     const userId = (req as any).user.id;
@@ -165,14 +189,36 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     });
-    await db.saveConversation({
+    await db.saveConversation(withConversationNotice({
       ...conversation,
       proposedSpecs: (conversation.proposedSpecs ?? [])
         .map((p) => (p.id === proposal.id ? { ...p, acceptedAt: now } : p)),
       updatedAt: now,
-    });
+    }, `Added "${proposal.id}" to the catalogue.`, now));
     res.json({ id: proposal.id });
   }));
+
+  const dismissSpec = async (req: any, res: any) => {
+    const userId = req.user.id;
+    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
+    const proposal = (conversation.proposedSpecs ?? []).find((p) => p.id === req.params.proposalId);
+    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
+    if (proposal.acceptedAt) return res.status(409).json({ error: 'That app type already exists' });
+    if (proposal.dismissedAt) return res.status(409).json({ error: 'That proposal was already dismissed' });
+
+    const now = new Date().toISOString();
+    await db.saveConversation(withConversationNotice({
+      ...conversation,
+      proposedSpecs: (conversation.proposedSpecs ?? [])
+        .map((p) => (p.id === proposal.id ? { ...p, dismissedAt: now } : p)),
+      updatedAt: now,
+    }, `Dismissed the "${proposal.id}" spec proposal.`, now));
+    res.json({ ok: true });
+  };
+
+  router.post('/conversations/:id/specs/:proposalId/dismiss', asyncRoute(dismissSpec));
+  router.post('/conversations/:id/proposals/specs/:proposalId/dismiss', asyncRoute(dismissSpec));
 
   const acceptEscalation = async (req: any, res: any) => {
     const userId = req.user.id;
@@ -191,7 +237,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     }
     conversation.updatedAt = now;
 
-    await db.saveConversation(conversation);
+    await db.saveConversation(withConversationNotice(conversation, `Granted ${proposal.scope} access.`, now));
     res.json({ ok: true, conversation });
   };
 
@@ -207,7 +253,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     proposal.deniedAt = now;
     conversation.updatedAt = now;
 
-    await db.saveConversation(conversation);
+    await db.saveConversation(withConversationNotice(conversation, 'Denied the privilege escalation request.', now));
     res.json({ ok: true, conversation });
   };
 
@@ -241,7 +287,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     request.fulfilledAt = now;
     conversation.updatedAt = now;
 
-    await db.saveConversation(conversation);
+    await db.saveConversation(withConversationNotice(conversation, `Provided the ${request.key} secret.`, now));
     res.json({ ok: true, request, secretReference, conversation });
   };
 
@@ -257,7 +303,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     request.dismissedAt = now;
     conversation.updatedAt = now;
 
-    await db.saveConversation(conversation);
+    await db.saveConversation(withConversationNotice(conversation, `Dismissed the request for ${request.key}.`, now));
     res.json({ ok: true, request, conversation });
   };
 
@@ -378,6 +424,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       ...(conversation.escalatedNamespaces ? { escalatedNamespaces: conversation.escalatedNamespaces } : {}),
       ...(deps.temporalBridge ? { temporalBridge: deps.temporalBridge } : {}),
       ...(deps.infisicalService ? { infisicalService: deps.infisicalService } : {}),
+      ...(deps.clusterService ? { clusterService: deps.clusterService } : {}),
     });
 
     const historyMsgs: Array<{ role: string; content: string }> = historyForPrompt(thread.messages as any)

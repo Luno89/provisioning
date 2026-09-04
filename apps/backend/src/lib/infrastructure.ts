@@ -1,4 +1,4 @@
-import { APP_TYPES, APP_FACTS, type AppType } from './app-catalog.js';
+import { APP_FACTS, type AppType } from './app-catalog.js';
 import { clusterAuthority } from './cluster-dns.js';
 import { bindingTypeFor } from './service-binding.js';
 
@@ -15,7 +15,7 @@ export interface RunningService {
 export interface Infrastructure {
   running: RunningService[];
   broken: { name: string; type: string; reason: string }[];
-  deployable: { id: AppType; is: string; provides: string[] }[];
+  deployable: { id: string; is: string; provides: string[] }[];
 }
 
 interface DeploymentLike {
@@ -77,10 +77,18 @@ export const CLUSTER_PLATFORM_SERVICES: readonly RunningService[] = [
   },
 ];
 
+interface CatalogueSpecLike {
+  id: string;
+  spec: { ports?: { port: number }[] };
+  label?: string | undefined;
+  is?: string | undefined;
+  provides?: string[] | undefined;
+}
+
 export function describeInfrastructure(
   deployments: readonly DeploymentLike[],
   ownerId: string,
-  specs: readonly { id: string; spec: { ports?: { port: number }[] } }[] = [],
+  specs: readonly CatalogueSpecLike[] = [],
   options?: { isAdmin?: boolean | undefined; isEscalated?: boolean | undefined } | undefined,
 ): Infrastructure {
   const byType = new Map(specs.map((s) => [s.id, s.spec]));
@@ -110,7 +118,13 @@ export function describeInfrastructure(
         type: d.appType ?? 'unknown',
         reason: d.healthReason?.trim() || `status is ${d.status}`,
       })),
-    deployable: (APP_TYPES as readonly AppType[]).map((id) => ({ id, ...APP_FACTS[id] })),
+    // Sourced from the same catalogue the deploy wizard reads (visibleAppSpecs) — not the static
+    // APP_TYPES/APP_FACTS table, which only ever described apps, never proved they were deployable.
+    deployable: specs.map((s) => ({
+      id: s.id,
+      is: s.is ?? 'a custom application',
+      provides: s.provides ?? [],
+    })),
   };
 }
 

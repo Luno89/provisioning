@@ -12,10 +12,26 @@ export const deploymentKeys = {
   modules: (appType?: string) => ['modules', appType] as const,
   resourcePlan: (id?: string) => ['resource-plan', id] as const,
   logs: (type?: string, id?: string) => ['logs', type, id] as const,
+  catalogue: () => [...deploymentKeys.all, 'catalogue'] as const,
 }
 
 export const listDeployments = (): Promise<Deployment[]> =>
   api.get<Deployment[]>('/deployments').then((r) => r.data)
+
+/** A catalogue entry — a stored AppSpec (built-in or a user's own), the one source koala and the deploy wizard both read from. */
+export interface CatalogueEntry {
+  id: string
+  label?: string
+  is?: string
+  provides?: string[]
+}
+
+export const listAppCatalogue = (): Promise<CatalogueEntry[]> =>
+  api.get<CatalogueEntry[]>('/deployments/catalogue').then((r) => r.data)
+
+export function useAppCatalogue() {
+  return useQuery({ queryKey: deploymentKeys.catalogue(), queryFn: listAppCatalogue })
+}
 
 export interface PodsResponse {
   pods?: ClusterPod[]

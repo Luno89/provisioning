@@ -3,6 +3,7 @@ import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
+import { ConfigMap } from "../.gen/providers/kubernetes/config-map/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
@@ -40,6 +41,7 @@ import { createAppProbe } from "../lib/app-probe.js";
 export interface RenderedAppConfig {
   namespace: { metadata: { name: string } };
   secret?: { metadata: { name: string; namespace: string }; data: Record<string, string>; type: string };
+  configMap?: { metadata: { name: string; namespace: string }; data: Record<string, string> };
   pvcs: { metadata: { name: string; namespace: string }; spec: unknown; waitUntilBound: boolean }[];
   deployment: Record<string, any>;
   service: Record<string, any>;
@@ -68,6 +70,13 @@ export class SpecApp extends Construct {
         // backend and are never present in the spec that produced them.
         data: rendered.secret.data,
         type: rendered.secret.type,
+      });
+    }
+
+    if (rendered.configMap) {
+      new ConfigMap(this, "config", {
+        metadata: { ...rendered.configMap.metadata, namespace: ns.metadata.name },
+        data: rendered.configMap.data,
       });
     }
 

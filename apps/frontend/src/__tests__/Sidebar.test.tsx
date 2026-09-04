@@ -105,7 +105,7 @@ describe('what the current view looks like', () => {
   it('renders recent chat conversations under Koala when on chat view', async () => {
     vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([
       { id: 'c-1', title: 'Production Cluster Migration', messageCount: 4, updatedAt: '2026-08-26T00:00:00Z', messages: [] },
-      { id: 'c-2', title: 'Spec Configuration', messageCount: 2, updatedAt: '2026-08-26T01:00:00Z', proposedSpecs: [{ id: 's-1', title: 'MinIO' }], messages: [] },
+      { id: 'c-2', title: 'Spec Configuration', messageCount: 2, updatedAt: '2026-08-26T01:00:00Z', proposedSpecs: [{ id: 's-1', spec: {}, proposedAt: '2026-08-26T01:00:00Z' }], messages: [] },
     ]);
 
     setup({ view: 'chat' });

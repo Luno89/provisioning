@@ -12,6 +12,7 @@ import type { McpRegistryService } from '../services/McpRegistryService.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
+import type { ClusterService } from '../services/ClusterService.js';
 
 /**
  * Everything any tool can be given, in one bag.
@@ -42,8 +43,9 @@ export interface ToolRuntime {
   servers?: readonly McpServer[] | undefined;
   mcpRegistry?: Pick<McpRegistryService, 'listWithTools'> | undefined;
   kubectl?: ((args: string[]) => Promise<string>) | undefined;
-  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'> | undefined;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp'> | undefined;
   infisicalService?: InfisicalService | undefined;
+  clusterService?: Pick<ClusterService, 'getById' | 'getAll'> | undefined;
 
   ingest?: {
     start: (args: { ownerId: string; url: string; maxDepth?: number; maxPages?: number; domains?: string[]; keywords?: string[] }) => Promise<{ workflowId: string }>;
@@ -78,7 +80,7 @@ export interface ToolOutcome {
 /** The resources a tool can ask for. Each maps to one optional field of `ToolRuntime`. */
 export type ToolNeed =
   | 'web' | 'projects' | 'sandbox' | 'servers' | 'mcpRegistry' | 'kubectl'
-  | 'temporalBridge' | 'infisicalService' | 'ingest' | 'research' | 'conversationId';
+  | 'temporalBridge' | 'infisicalService' | 'clusterService' | 'ingest' | 'research' | 'conversationId';
 
 export interface ToolEntry {
   /** Resources without which this tool cannot run. Empty means it runs anywhere. */
@@ -96,6 +98,7 @@ export const NEED_EXPLANATION: Record<ToolNeed, string> = {
   kubectl: 'cluster access',
   temporalBridge: 'the workflow engine',
   infisicalService: 'the secret store',
+  clusterService: 'the cluster list',
   ingest: 'the ingestion service',
   research: 'a research agent',
   conversationId: 'a conversation to attach the proposal to',

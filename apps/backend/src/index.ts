@@ -613,6 +613,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     temporalBridge,
     infraService,
     infisicalService,
+    clusterService,
     jwtSecret: JWT_SECRET,
     serversFor: koalaServers,
     ownedConversations,
@@ -621,7 +622,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     toolRefused,
   }));
   app.use('/api/chat', chatRouter({
-    db, modelService, temporalBridge, projectRepoService,
+    db, modelService, temporalBridge, projectRepoService, clusterService,
     ownedBranches, ownedLeaves, ownedTrees,
     webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage, toolRefused,
   }));

@@ -45,6 +45,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Database } from '../lib/db-interface.js';
 import type { ModelService } from '../services/ModelService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { ClusterService } from '../services/ClusterService.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { withBuiltIns } from '../lib/ownership.js';
 
@@ -56,6 +57,7 @@ export interface ChatRouterDeps {
   modelService: ModelService;
   temporalBridge: TemporalBridge;
   projectRepoService: ProjectRepoService;
+  clusterService?: Pick<ClusterService, 'getById' | 'getAll'> | undefined;
   ownedBranches: (userId: string) => Promise<Branch[]>;
   ownedLeaves: (userId: string) => Promise<Leaf[]>;
   ownedTrees: (userId: string) => Promise<Tree[]>;
@@ -67,7 +69,7 @@ export interface ChatRouterDeps {
 export function chatRouter(deps: ChatRouterDeps): Router {
   const router = Router();
   const {
-    db, modelService, temporalBridge, projectRepoService,
+    db, modelService, temporalBridge, projectRepoService, clusterService,
     ownedBranches, ownedLeaves, ownedTrees, webSearch, fetchWebPage, toolRefused,
   } = deps;
 
@@ -328,6 +330,7 @@ export function chatRouter(deps: ChatRouterDeps): Router {
       toolRefused,
       projects: projectRepoService,
       temporalBridge,
+      clusterService,
       isAdmin: Boolean(userOf(req).isAdmin),
     });
 

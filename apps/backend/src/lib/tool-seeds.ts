@@ -196,6 +196,50 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     isBuiltIn: true,
   },
   {
+    id: 'tool_deploy_app',
+    name: 'deploy_app',
+    category: 'assistant',
+    effect: 'write',
+    description: 'Deploy an app from the catalogue (built-in like jellyfin or a custom one a user accepted via propose_spec) to a cluster. Check list_infrastructure\'s `deployable` field for valid appType values before calling this. clusterId is optional — omit it and the user\'s only cluster is used automatically; if they have more than one this returns the list instead of deploying, so ask which one and call again with clusterId set.',
+    usageGuidance: 'Use this to actually deploy a catalogue app on the user\'s behalf. Not for a project\'s own built image — use deploy_project for that. Only pass clusterId up front if the user already named a cluster or you already called list_clusters this turn.',
+    compactGuidance: 'Deploy a catalogue app to a cluster.',
+    requiresBinaries: [],
+    parameters: {
+      type: 'object',
+      properties: {
+        appType: {
+          type: 'string',
+          description: 'The catalogue id to deploy, e.g. "jellyfin" or a custom spec id like "mongo".',
+        },
+        clusterId: {
+          type: 'string',
+          description: 'Which cluster to deploy to. Omit it to use the user\'s only cluster automatically; if they have several, the call fails with the list so you can ask and retry.',
+        },
+        name: {
+          type: 'string',
+          description: 'Name for this deployment.',
+        },
+      },
+      required: ['appType', 'name'],
+    },
+    isBuiltIn: true,
+  },
+  {
+    id: 'tool_list_clusters',
+    name: 'list_clusters',
+    category: 'assistant',
+    effect: 'read',
+    description: 'List the clusters this user can deploy to — id, name, provider and status. Call this when deploy_app reports more than one cluster and you need to ask the user which to use, or whenever you need a clusterId for something other than deploy_app.',
+    usageGuidance: 'Usually unnecessary before deploy_app — it already defaults to the user\'s only cluster and reports the list itself when there is more than one. Call this directly only when you need cluster names/status ahead of asking, or outside a deploy_app flow.',
+    compactGuidance: 'List the clusters this user can deploy to.',
+    requiresBinaries: [],
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+    isBuiltIn: true,
+  },
+  {
     id: 'tool_get_project_url',
     name: 'get_project_url',
     category: 'assistant',

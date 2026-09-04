@@ -13,6 +13,7 @@ import type { ToolEffect } from './action-gate.js';
 
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
+import type { ClusterService } from '../services/ClusterService.js';
 
 export interface PackToolContext {
   db: Database;
@@ -29,8 +30,9 @@ export interface PackToolContext {
   registry?: Pick<McpRegistryService, 'call' | 'listWithTools'>;
   projects?: ProjectRepoService;
   kubectl?: (args: string[]) => Promise<string>;
-  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild'>;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp'>;
   infisicalService?: InfisicalService | undefined;
+  clusterService?: Pick<ClusterService, 'getById' | 'getAll'> | undefined;
   isAdmin?: boolean | undefined;
   isEscalated?: boolean | undefined;
   escalatedNamespaces?: readonly string[] | undefined;
@@ -100,6 +102,7 @@ export function makePackToolExecutor(ctx: PackToolContext) {
         mcpRegistry: registry,
         temporalBridge: ctx.temporalBridge,
         infisicalService: ctx.infisicalService,
+        clusterService: ctx.clusterService,
         isAdmin: ctx.isAdmin,
         isEscalated: ctx.isEscalated,
         escalatedNamespaces: ctx.escalatedNamespaces,

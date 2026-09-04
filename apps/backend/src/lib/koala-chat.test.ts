@@ -8,6 +8,7 @@ import { PACK_SEEDS } from './pack-seeds.js';
 import { canRunLeaf } from './persona-scope.js';
 import { acceptLeaf } from './accept-leaf.js';
 import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
+import { seedAppSpecs } from './app-spec.js';
 import { TOOL_HANDLERS } from './tool-registry.js';
 import { schemasFor } from './tool-catalogue.js';
 
@@ -31,6 +32,7 @@ const seeded = async (over: Partial<Conversation> = {}) => {
     createdAt: 'now', updatedAt: 'now', ...over,
   });
   await seedTreeTypes(db);
+  await seedAppSpecs(db);
   return db;
 };
 
@@ -367,8 +369,8 @@ describe('knowing what the cluster actually has', () => {
     );
     expect(byId.get('qdrant').is).toMatch(/vector database/);
     expect(byId.get('minio').is).toMatch(/object storage/);
-    expect(byId.get('tei').is).toMatch(/embedding/);
-    expect(byId.get('quickwit').provides).toContain('full-text-search');
+    expect(byId.get('jellyfin').is).toMatch(/media server/);
+    expect(byId.get('mariadb').provides).toContain('database');
   });
 
   it('describes what is RUNNING too', async () => {
@@ -386,11 +388,14 @@ describe('knowing what the cluster actually has', () => {
     expect(out.body.note).toMatch(/do not invent one/);
   });
 
-  it('invents no connection strings', async () => {
+  it('resolves a real address for a type whose spec is known, invents none for one that is not', async () => {
     const db = await seeded();
     for (const d of deployments) await db.saveDeployment(d as any);
+    await db.saveDeployment({ id: 'd5', name: 'unknown-thing', appType: 'not-a-real-type', status: 'running', ownerId: 'u1' } as any);
     const out = await run(db, 'list_infrastructure');
-    expect(JSON.stringify(out.body.running)).not.toMatch(/http|:\d{4}|svc\.cluster\.local/);
+    const byName = new Map<string, any>(out.body.running.map((s: any) => [s.name, s]));
+    expect(byName.get('koala-vectors').address).toBe('qdrant.koala-vectors.svc.cluster.local:6333');
+    expect(byName.get('unknown-thing').address).toBeUndefined();
   });
 
   it('is offered as a tool, and the prompt references it through the tool guidance path', async () => {

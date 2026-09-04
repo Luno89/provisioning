@@ -6,6 +6,7 @@ import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js
 import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { parseQuantity, planHostMemory } from '../lib/host-memory-plan.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
+import { visibleAppSpecs } from '../lib/app-spec.js';
 import type { Database } from '../lib/db-interface.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
@@ -33,6 +34,12 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   const router = Router();
 
   router.get('/', asyncRoute(async (req, res) => res.json(await appService.getAll(userOf(req).id, io))));
+
+  // The one place both koala (list_infrastructure's deployable field) and the deploy wizard read
+  // "what's deployable" from — see lib/app-spec.ts's visibleAppSpecs (built-ins + this user's own).
+  router.get('/catalogue', asyncRoute(async (req, res) => {
+    res.json(visibleAppSpecs(await db.getAppSpecs(), userOf(req).id));
+  }));
 
   router.post('/', async (req, res) => {
     try {

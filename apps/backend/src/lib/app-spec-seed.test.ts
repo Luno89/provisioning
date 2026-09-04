@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { specsToSeed, BUILT_IN_SPECS, MINIO_SPEC, type StoredAppSpec, type AppSpec } from './app-spec.js';
+import { specsToSeed, BUILT_IN_SPECS, MINIO_SPEC, APP_CATALOGUE_META, type StoredAppSpec, type AppSpec } from './app-spec.js';
 import { validateSpec } from './app-spec-validate.js';
 
 const stored = (id: string, spec: AppSpec, over: Partial<StoredAppSpec> = {}): StoredAppSpec => ({
-  id, spec, builtIn: true, createdAt: 'then', updatedAt: 'then', ...over,
+  id, spec, builtIn: true, createdAt: 'then', updatedAt: 'then', ...(APP_CATALOGUE_META[id] ?? {}), ...over,
 });
 
 describe('what gets written', () => {
@@ -47,6 +47,16 @@ describe('the seeds themselves', () => {
   });
 
   it('only contains specs verified against their construct', () => {
-    expect(BUILT_IN_SPECS.map((s) => s.id)).toEqual(['minio']);
+    expect(BUILT_IN_SPECS.map((s) => s.id)).toEqual([
+      'minio', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich',
+      'homeassistant', 'papra', 'audiobookshelf', 'qdrant', 'mariadb', 'postgres',
+      'searxng', 'verdaccio', 'crawl4ai',
+    ]);
+  });
+
+  it('every seed has catalogue display metadata', () => {
+    for (const spec of BUILT_IN_SPECS) {
+      expect(APP_CATALOGUE_META[spec.id], spec.id).toBeDefined();
+    }
   });
 });

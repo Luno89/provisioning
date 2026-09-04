@@ -1,5 +1,121 @@
 import { describe, it, expect, vi } from 'vitest';
-import { handleInjectSecretToPod, handleRequestSecret } from './koala-tool-handlers.js';
+import { handleInjectSecretToPod, handleRequestSecret, handleDeployApp, handleListClusters } from './koala-tool-handlers.js';
+
+describe('handleDeployApp', () => {
+  const catalogue = [{ id: 'jellyfin', spec: { id: 'jellyfin', image: 'jellyfin/jellyfin', ports: [] } }];
+  const cluster = { id: 'cl1', name: 'my-cluster', ownerId: 'u1', provider: 'aws', status: 'healthy' };
+  const cluster2 = { id: 'cl2', name: 'other-cluster', ownerId: 'u1', provider: 'gcp', status: 'healthy' };
+
+  const baseCtx = () => ({
+    db: {
+      getAppSpecs: vi.fn().mockResolvedValue(catalogue),
+      getClusters: vi.fn().mockResolvedValue([cluster]),
+    },
+    temporalBridge: {
+      deployApp: vi.fn().mockResolvedValue({ id: 'wf1', resourceId: 'dep1', event: 'app-deploy' }),
+    },
+    clusterService: {
+      getById: vi.fn().mockImplementation(async (id: string, userId: string) =>
+        ([cluster, cluster2].find((c) => c.id === id) && userId === cluster.ownerId) ? [cluster, cluster2].find((c) => c.id === id) : undefined),
+      getAll: vi.fn().mockResolvedValue([cluster]),
+    },
+    userId: 'u1',
+  } as any);
+
+  it('deploys a known catalogue app to a cluster the user owns', async () => {
+    const ctx = baseCtx();
+    const out = await handleDeployApp(ctx, { appType: 'jellyfin', clusterId: 'cl1', name: 'my-jellyfin' });
+
+    expect(ctx.temporalBridge.deployApp).toHaveBeenCalledWith(
+      { appType: 'jellyfin', clusterId: 'cl1', name: 'my-jellyfin', strategy: 'helm' }, 'u1',
+    );
+    const body = JSON.parse(out.content);
+    expect(body.status).toBe('deploying');
+    expect(body.workflowId).toBe('wf1');
+  });
+
+  it('refuses an appType not in the catalogue', async () => {
+    const ctx = baseCtx();
+    const out = await handleDeployApp(ctx, { appType: 'wordpress', clusterId: 'cl1', name: 'x' });
+
+    expect(ctx.temporalBridge.deployApp).not.toHaveBeenCalled();
+    const body = JSON.parse(out.content);
+    expect(body.error).toMatch(/not in the catalogue/);
+    expect(body.available).toEqual(['jellyfin']);
+  });
+
+  it('refuses a cluster the user does not own', async () => {
+    const ctx = baseCtx();
+    ctx.userId = 'someone-else';
+    const out = await handleDeployApp(ctx, { appType: 'jellyfin', clusterId: 'cl1', name: 'x' });
+
+    expect(ctx.temporalBridge.deployApp).not.toHaveBeenCalled();
+    expect(JSON.parse(out.content).error).toMatch(/No cluster/);
+  });
+
+  it('requires appType and name', async () => {
+    const ctx = baseCtx();
+    const out = await handleDeployApp(ctx, { appType: 'jellyfin' });
+    expect(JSON.parse(out.content).error).toMatch(/required/);
+  });
+
+  it('defaults clusterId to the user\'s only cluster when omitted', async () => {
+    const ctx = baseCtx();
+    const out = await handleDeployApp(ctx, { appType: 'jellyfin', name: 'my-jellyfin' });
+
+    expect(ctx.temporalBridge.deployApp).toHaveBeenCalledWith(
+      { appType: 'jellyfin', clusterId: 'cl1', name: 'my-jellyfin', strategy: 'helm' }, 'u1',
+    );
+    expect(JSON.parse(out.content).status).toBe('deploying');
+  });
+
+  it('reports the list and asks rather than deploying when clusterId is omitted and there are several', async () => {
+    const ctx = baseCtx();
+    ctx.clusterService.getAll.mockResolvedValue([cluster, cluster2]);
+    const out = await handleDeployApp(ctx, { appType: 'jellyfin', name: 'my-jellyfin' });
+
+    expect(ctx.temporalBridge.deployApp).not.toHaveBeenCalled();
+    const body = JSON.parse(out.content);
+    expect(body.error).toMatch(/more than one cluster/i);
+    expect(body.clusters).toEqual([
+      { id: 'cl1', name: 'my-cluster', provider: 'aws', status: 'healthy' },
+      { id: 'cl2', name: 'other-cluster', provider: 'gcp', status: 'healthy' },
+    ]);
+  });
+
+  it('errors when clusterId is omitted and there are no clusters', async () => {
+    const ctx = baseCtx();
+    ctx.clusterService.getAll.mockResolvedValue([]);
+    const out = await handleDeployApp(ctx, { appType: 'jellyfin', name: 'my-jellyfin' });
+
+    expect(ctx.temporalBridge.deployApp).not.toHaveBeenCalled();
+    expect(JSON.parse(out.content).error).toMatch(/no clusters/i);
+  });
+});
+
+describe('handleListClusters', () => {
+  const cluster = { id: 'cl1', name: 'my-cluster', ownerId: 'u1', provider: 'aws', status: 'healthy' };
+  const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true };
+
+  it('lists the clusters this user can see', async () => {
+    const ctx = {
+      userId: 'u1',
+      clusterService: { getAll: vi.fn().mockResolvedValue([system, cluster]) },
+    } as any;
+
+    const out = await handleListClusters(ctx, {});
+    expect(ctx.clusterService.getAll).toHaveBeenCalledWith('u1');
+    expect(JSON.parse(out.content).clusters).toEqual([
+      { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true },
+      { id: 'cl1', name: 'my-cluster', provider: 'aws', status: 'healthy' },
+    ]);
+  });
+
+  it('errors when cluster access is not available', async () => {
+    const out = await handleListClusters({ userId: 'u1' } as any, {});
+    expect(JSON.parse(out.content).error).toMatch(/not available/i);
+  });
+});
 
 /**
  * Regression for a real bug: this handler used to pass the raw, unsanitised project name as both

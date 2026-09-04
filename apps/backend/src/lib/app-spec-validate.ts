@@ -5,9 +5,13 @@ export interface SpecProblem {
   problem: string;
 }
 
+// securityContext itself is NOT banned — AppSpec.securityContext only ever exposes
+// runAsUser/runAsGroup/fsGroup (pod-level UID/GID, harmless), and every field that would actually
+// escape the namespace or reach the node (hostNetwork, hostPID, hostIPC, privileged, capabilities)
+// is still caught below regardless of what object it's nested inside.
 const FORBIDDEN_FIELDS = [
-  'hostPath', 'hostNetwork', 'hostPID', 'hostIPC', 'privileged',
-  'securityContext', 'serviceAccount', 'serviceAccountName',
+  'hostPath', 'hostNetwork', 'hostPID', 'hostIPC', 'privileged', 'capabilities',
+  'serviceAccount', 'serviceAccountName',
   'nodeSelector', 'tolerations', 'hostAliases',
 ];
 
@@ -36,6 +40,18 @@ export function validateSpec(raw: unknown): SpecProblem[] {
     say('image', 'is required.');
   }
 
+  if (spec.command !== undefined && (!Array.isArray(spec.command) || spec.command.some((c) => typeof c !== 'string'))) {
+    say('command', 'must be an array of strings.');
+  }
+
+  for (const [i, f] of (spec.configFiles ?? []).entries()) {
+    if (!f || typeof f.name !== 'string' || !f.name.trim()) say(`configFiles[${i}].name`, 'is required.');
+    if (!f || typeof f.content !== 'string') say(`configFiles[${i}].content`, 'must be a string.');
+    if (!f || typeof f.mountPath !== 'string' || !f.mountPath.startsWith('/')) {
+      say(`configFiles[${i}].mountPath`, 'must be an absolute path inside the container.');
+    }
+  }
+
   if (!Array.isArray(spec.ports) || spec.ports.length === 0) {
     say('ports', 'at least one port is required — a Service with none routes nowhere.');
   } else {
@@ -45,6 +61,23 @@ export function validateSpec(raw: unknown): SpecProblem[] {
       }
       if (!p || typeof p.name !== 'string' || !K8S_NAME.test(p.name)) {
         say(`ports[${i}].name`, 'must be a valid lowercase name.');
+      }
+    }
+  }
+
+  // Whitelist, not just the FORBIDDEN_FIELDS blacklist below — this validates raw, unknown JSON
+  // (a custom spec someone proposed via chat), so a field the TS type never mentions (
+  // allowPrivilegeEscalation, seLinuxOptions, seccompProfile, ...) would otherwise pass through
+  // unchecked. Only pod-level UID/GID, which cannot escape the namespace, is allowed.
+  const SAFE_SECURITY_CONTEXT_KEYS = new Set(['runAsUser', 'runAsGroup', 'fsGroup']);
+  if (spec.securityContext !== undefined) {
+    if (typeof spec.securityContext !== 'object' || spec.securityContext === null || Array.isArray(spec.securityContext)) {
+      say('securityContext', 'must be an object.');
+    } else {
+      for (const key of Object.keys(spec.securityContext)) {
+        if (!SAFE_SECURITY_CONTEXT_KEYS.has(key)) {
+          say(`securityContext.${key}`, 'is not allowed — only runAsUser, runAsGroup and fsGroup may be set.');
+        }
       }
     }
   }
@@ -62,7 +95,17 @@ export function validateSpec(raw: unknown): SpecProblem[] {
     if (!v || typeof v.path !== 'string' || !v.path.startsWith('/')) {
       say(`volumes[${i}].path`, 'must be an absolute path inside the container.');
     }
-    if (!v || !QUANTITY.test(String(v.size))) {
+    if (v?.type !== undefined && v.type !== 'persistent' && v.type !== 'ephemeral') {
+      say(`volumes[${i}].type`, 'must be "persistent" or "ephemeral".');
+    }
+    if (v?.medium !== undefined && v.medium !== 'Memory') {
+      say(`volumes[${i}].medium`, 'must be "Memory".');
+    }
+    // Required for a persistent volume (real PVC size) and for a Memory-backed ephemeral one
+    // (sizeLimit — an unbounded RAM-backed emptyDir can take a node down same as no memory
+    // limit can). A plain ephemeral volume (no medium) has no size concept at all.
+    const needsSize = v?.type !== 'ephemeral' || v?.medium === 'Memory';
+    if (needsSize && (!v || !QUANTITY.test(String(v.size)))) {
       say(`volumes[${i}].size`, 'must be a size like 10Gi.');
     }
   }
