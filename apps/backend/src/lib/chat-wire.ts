@@ -19,11 +19,13 @@ export type UnifiedFrame =
   | { type: 'enabled'; payload: string[] }
   | { type: 'plan'; payload: unknown }
   | { type: 'usage'; payload: unknown }
-  | { type: 'interrupted'; payload: unknown };
+  | { type: 'interrupted'; payload: unknown }
+  | { type: 'overthinkWarning'; payload: unknown };
 
 export const UNIFIED_FRAME_TYPES = [
   'content', 'thinking', 'toolAnnounce', 'toolResult',
   'proposedTree', 'proposedSpec', 'proposedEscalation', 'proposedSecretRequest', 'enabled', 'plan', 'usage', 'interrupted',
+  'overthinkWarning',
 ] as const;
 
 export function isUnifiedFrame(v: unknown): v is UnifiedFrame {

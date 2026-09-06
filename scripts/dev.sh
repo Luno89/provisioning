@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dev.sh — Orchestrates the development environment with automatic port collision resolution.
 #
-# 1. Idempotently ensures infrastructure is running (Cluster, Gitea, Temporal, Mongo, Headscale, Infisical).
+# 1. Idempotently ensures infrastructure is running (Cluster, Gitea, npm registry mirror, Temporal, Mongo, Headscale, Infisical).
 # 2. Checks target development ports (3001, 8000, 5173) and terminates any stale orphaned dev processes.
 # 3. Terminates any stale Temporal worker processes so workers always run fresh, current code.
 # 4. Concurrently launches backend, frontend, and workers with clean logging.
@@ -24,6 +24,7 @@ echo "════════════════════════�
 echo "▶ [1/3] Ensuring platform infrastructure services..."
 bash "${ROOT}/scripts/ensure-cluster.sh"
 bash "${ROOT}/scripts/ensure-gitea.sh"
+bash "${ROOT}/scripts/ensure-verdaccio.sh"
 bash "${ROOT}/scripts/ensure-temporal.sh"
 bash "${ROOT}/scripts/ensure-mongo.sh"
 bash "${ROOT}/scripts/ensure-headscale.sh"

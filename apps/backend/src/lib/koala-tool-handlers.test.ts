@@ -130,8 +130,10 @@ describe('handleInjectSecretToPod', () => {
         getProjects: vi.fn().mockResolvedValue([
           { id: 'proj-1', name: 'Gitea MCP Server' },
         ]),
+        getConversations: vi.fn().mockResolvedValue([]),
+        saveProject: vi.fn(),
       },
-      infisicalService: { injectSecretToPod },
+      infisicalService: { injectSecretToPod, getSecret: vi.fn().mockResolvedValue('tok_123') },
       userId: 'u1',
       conversationId: 'c1',
       servers: [],

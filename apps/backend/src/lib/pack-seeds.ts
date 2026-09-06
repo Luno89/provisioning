@@ -208,7 +208,7 @@ export const PACK_SEEDS: PackSeed[] = [
     description: 'Turns a proposed project goal into a concrete plan of executable leaves.',
     personaName: 'Planner',
     tools: [
-      'list_leaves', 'get_leaf', 'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'replace_leaf',
+      'list_leaves', 'get_leaf', 'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'replace_leaf', 'delete_leaf',
       'set_acceptance', 'list_personas', 'list_mcp_servers', 'list_tree_types',
       'list_projects', 'create_project', 'set_leaf_project', 'add_project_dependency',
       'write_plan_document', 'research',

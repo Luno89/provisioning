@@ -382,6 +382,9 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
     openSse(res);
 
+    const upstreamAbort = new AbortController();
+    res.on('close', () => upstreamAbort.abort());
+
     const toolRegistry = await new ToolService(db).list(userId);
     const ownTools = schemasFor(toolRegistry, pack.tools);
 
@@ -408,6 +411,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
         body: JSON.stringify(body as any),
+        signal: upstreamAbort.signal,
       });
     };
 
@@ -446,8 +450,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
     const globalProfile = await db.getModelThinkingProfile?.(targetModelId).catch(() => null) ?? undefined;
     const featureExtractor = new ThoughtFeatureExtractor(message);
 
-    // Same monitor `chat.ts` runs, same pack-governed source — koala's own pack row, never the
-    // request body. Was entirely absent here; a long koala reasoning trace had nothing watching it.
+    let overthinkWarned = false;
     const onStreamEvent = (ev: StreamEvent): string | void => {
       if (ev.kind === 'reasoning') featureExtractor.pushReasoning(ev.text);
       const features = featureExtractor.extract();
@@ -455,10 +458,19 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       const threshold = pack.overthinking?.failureThreshold ?? 0.65;
       const repeatCap = pack.overthinking?.ngramRepeatCap ?? 5;
       const pred = predictFailure(features, globalProfile, sensitivity, threshold, repeatCap);
-      if (pred.shouldInterrupt) {
-        return pred.reason ?? 'Overthinking loop detected';
+      if (pred.shouldInterrupt && !overthinkWarned) {
+        overthinkWarned = true;
+        sendFrame(res, { type: 'overthinkWarning', payload: pred.reason ?? 'Overthinking loop detected' });
       }
     };
+
+    res.on('close', () => {
+      if (res.writableEnded || !overthinkWarned) return;
+      try {
+        const updatedProfile = updateModelProfile(globalProfile, targetModelId, featureExtractor.extract(), 'failure');
+        db.saveModelThinkingProfile?.(updatedProfile).catch(() => undefined);
+      } catch { /* ignored */ }
+    });
 
     const postPasses: PostPass[] = [
       {
@@ -487,71 +499,78 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       },
     ];
 
-    const result = await runChatTurn({
-      maxRounds: pack.budget.rounds,
-      record: pack.budget.record,
-      messages: [
-        { role: 'system', content: systemPromptContent },
-        ...historyMsgs,
-      ],
-      tools: enabled,
-      call,
-      executeTool,
-      trimPerRound: (m: unknown[]) => trimConversation(m as any, conversationBudget(pack.budget, provider?.contextTokens)),
-      onStreamEvent,
-      postPasses,
-      onFrame: (frame) => sendFrame(res, frame as any),
-    });
-
     try {
-      const finalFeatures = featureExtractor.extract();
-      const profileOutcome = result.outcome.interrupted ? 'failure' : 'success';
-      const updatedProfile = updateModelProfile(globalProfile, targetModelId, finalFeatures, profileOutcome);
-      await db.saveModelThinkingProfile?.(updatedProfile);
-    } catch { /* ignored */ }
+      const result = await runChatTurn({
+        maxRounds: pack.budget.rounds,
+        record: pack.budget.record,
+        messages: [
+          { role: 'system', content: systemPromptContent },
+          ...historyMsgs,
+        ],
+        tools: enabled,
+        call,
+        executeTool,
+        trimPerRound: (m: unknown[]) => trimConversation(m as any, conversationBudget(pack.budget, provider?.contextTokens)),
+        onStreamEvent,
+        postPasses,
+        onFrame: (frame) => sendFrame(res, frame as any),
+      });
 
-    const ranDry = result.exhaustedRounds && !result.answer && !result.spoken;
-    const fallback = `Used all tool rounds without reaching an answer. Ask again to continue.`;
-    const assistantContent = result.answer || result.spoken || (ranDry ? fallback : '');
+      try {
+        const finalFeatures = featureExtractor.extract();
+        const profileOutcome = result.outcome.interrupted ? 'failure' : 'success';
+        const updatedProfile = updateModelProfile(globalProfile, targetModelId, finalFeatures, profileOutcome);
+        await db.saveModelThinkingProfile?.(updatedProfile);
+      } catch { /* ignored */ }
 
-    const latestConv = (await db.getConversations()).find((c) => c.id === conversation.id) ?? thread;
-    const assistantMsg: any = {
-      role: 'assistant',
-      content: assistantContent,
-      at: new Date().toISOString(),
-      ...(result.outcome.thinking?.trim() ? { reasoning: result.outcome.thinking.slice(-20000) } : {}),
-      ...(result.outcome.enabledNow?.length ? { enabled: result.outcome.enabledNow } : {}),
-      ...(result.outcome.toolCalls?.length ? { toolCalls: result.outcome.toolCalls } : {}),
-      ...(ranDry ? { notice: true } : {}),
-    };
+      const ranDry = result.exhaustedRounds && !result.answer && !result.spoken;
+      const fallback = `Used all tool rounds without reaching an answer. Ask again to continue.`;
+      const assistantContent = result.answer || result.spoken || (ranDry ? fallback : '');
 
-    const nextProposedTrees = [...(latestConv.proposedTrees ?? [])];
-    for (const p of result.outcome.proposedTrees ?? []) {
-      if (p && typeof p === 'object' && 'id' in (p as any)) {
-        if (!nextProposedTrees.some((x: any) => x.id === (p as any).id)) {
-          nextProposedTrees.push(p as ProposedTree);
+      const latestConv = (await db.getConversations()).find((c) => c.id === conversation.id) ?? thread;
+      const assistantMsg: any = {
+        role: 'assistant',
+        content: assistantContent,
+        at: new Date().toISOString(),
+        ...(result.outcome.thinking?.trim() ? { reasoning: result.outcome.thinking.slice(-20000) } : {}),
+        ...(result.outcome.enabledNow?.length ? { enabled: result.outcome.enabledNow } : {}),
+        ...(result.outcome.toolCalls?.length ? { toolCalls: result.outcome.toolCalls } : {}),
+        ...(ranDry ? { notice: true } : {}),
+      };
+
+      const nextProposedTrees = [...(latestConv.proposedTrees ?? [])];
+      for (const p of result.outcome.proposedTrees ?? []) {
+        if (p && typeof p === 'object' && 'id' in (p as any)) {
+          if (!nextProposedTrees.some((x: any) => x.id === (p as any).id)) {
+            nextProposedTrees.push(p as ProposedTree);
+          }
         }
       }
-    }
 
-    const nextProposedSpecs = [...(latestConv.proposedSpecs ?? [])];
-    for (const s of result.outcome.proposedSpecs ?? []) {
-      if (s && typeof s === 'object' && 'id' in (s as any)) {
-        if (!nextProposedSpecs.some((x: any) => x.id === (s as any).id)) {
-          nextProposedSpecs.push(s as ProposedSpec);
+      const nextProposedSpecs = [...(latestConv.proposedSpecs ?? [])];
+      for (const s of result.outcome.proposedSpecs ?? []) {
+        if (s && typeof s === 'object' && 'id' in (s as any)) {
+          if (!nextProposedSpecs.some((x: any) => x.id === (s as any).id)) {
+            nextProposedSpecs.push(s as ProposedSpec);
+          }
         }
       }
+
+      await db.saveConversation({
+        ...latestConv,
+        messages: [...latestConv.messages, assistantMsg],
+        ...(nextProposedTrees.length ? { proposedTrees: nextProposedTrees } : {}),
+        ...(nextProposedSpecs.length ? { proposedSpecs: nextProposedSpecs } : {}),
+        updatedAt: new Date().toISOString(),
+      });
+
+      endSse(res);
+    } catch (err: any) {
+      if (upstreamAbort.signal.aborted) return;
+      console.warn(`[chat-pack] turn failed: ${err.message}`);
+      if (!res.headersSent) return res.status(502).json({ error: err.message });
+      try { endSse(res); } catch { /* ignored */ }
     }
-
-    await db.saveConversation({
-      ...latestConv,
-      messages: [...latestConv.messages, assistantMsg],
-      ...(nextProposedTrees.length ? { proposedTrees: nextProposedTrees } : {}),
-      ...(nextProposedSpecs.length ? { proposedSpecs: nextProposedSpecs } : {}),
-      updatedAt: new Date().toISOString(),
-    });
-
-    endSse(res);
   }));
 
   return router;

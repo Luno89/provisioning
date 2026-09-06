@@ -339,28 +339,27 @@ export function chatRouter(deps: ChatRouterDeps): Router {
     const lastUserMsg = messages[messages.length - 1]?.content ?? '';
     const featureExtractor = new ThoughtFeatureExtractor(lastUserMsg);
 
-    // Fed every stream event this turn (not just reasoning) — matches the old per-chunk cadence,
-    // which ran the same failure prediction on every chunk regardless of kind.
+    let overthinkWarned = false;
     const onStreamEvent = (ev: StreamEvent): string | void => {
       if (ev.kind === 'reasoning') featureExtractor.pushReasoning(ev.text);
       const features = featureExtractor.extract();
-      /**
-       * Pack-governed, not client-suppliable — a request-body override here was the same
-       * "independently configured" pattern the persona-pack architecture exists to remove. At the
-       * 'medium' sensitivity every pack actually uses, predictFailure's own multiplier (0.85) caps
-       * every formulaic path's pFailure below 0.85: n-gram repetition tops out at 0.7225, low
-       * entropy at 0.765, overthinking at 0.697 — a 0.85 threshold made the monitor mathematically
-       * unable to interrupt a real, literal repetition loop (verified live: an /auto turn stuck
-       * repeating "enough enough enough..." never interrupted). 0.65 clears all three at 'medium'.
-       */
       const sensitivity = plannerPack.overthinking?.sensitivity ?? 'medium';
       const threshold = plannerPack.overthinking?.failureThreshold ?? 0.65;
       const repeatCap = plannerPack.overthinking?.ngramRepeatCap ?? 5;
       const pred = predictFailure(features, globalProfile, sensitivity, threshold, repeatCap);
-      if (pred.shouldInterrupt) {
-        return pred.reason ?? 'Overthinking loop detected';
+      if (pred.shouldInterrupt && !overthinkWarned) {
+        overthinkWarned = true;
+        sendFrame(res, { type: 'overthinkWarning', payload: pred.reason ?? 'Overthinking loop detected' });
       }
     };
+
+    res.on('close', () => {
+      if (res.writableEnded || !overthinkWarned) return;
+      try {
+        const updatedProfile = updateModelProfile(globalProfile, targetModelId, featureExtractor.extract(), 'failure');
+        db.saveModelThinkingProfile?.(updatedProfile).catch(() => undefined);
+      } catch { /* ignored */ }
+    });
 
     const postPasses: PostPass[] = [
       {

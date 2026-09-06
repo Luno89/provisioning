@@ -1,4 +1,5 @@
 import type { Leaf } from './leaves.js';
+import { NOISE_DIR_NAMES } from './leaf-evidence.js';
 
 export const REPO_MOUNT = '/work/repo';
 
@@ -184,4 +185,41 @@ export function parseProgress(stdout: string): { commits: string; changed: strin
   const commits = /COMMITS:\n([\s\S]*?)(?:\nCHANGED:|$)/.exec(stdout)?.[1]?.trim() ?? '';
   const changed = /CHANGED:\n([\s\S]*)$/.exec(stdout)?.[1]?.trim() ?? '';
   return { commits, changed };
+}
+
+export function buildRepoDetailScript(): string {
+  return [
+    'cd /work/repo 2>/dev/null || exit 0',
+    'echo "STATUS:"',
+    'git status --porcelain 2>/dev/null || true',
+    'echo "COMMITS:"',
+    'git rev-list --count HEAD 2>/dev/null || true',
+  ].join('\n');
+}
+
+export function parseRepoDetail(stdout: string): { commits?: number; changedFiles?: string[] } {
+  const [statusPart = '', commitsPart = ''] = stdout.split('COMMITS:');
+  const changedFiles = statusPart.replace(/^STATUS:/, '')
+    .split('\n').filter(Boolean).map((l) => l.trim().slice(2).trim());
+  const commitsText = commitsPart.trim();
+  const commits = commitsText ? Number(commitsText) || 0 : undefined;
+
+  return {
+    ...(commits !== undefined ? { commits } : {}),
+    ...(changedFiles.length ? { changedFiles } : {}),
+  };
+}
+
+const TRACKED_FILES_IGNORE = NOISE_DIR_NAMES;
+
+export function buildTrackedFilesScript(opts: { filterNoise?: boolean; limit?: number } = {}): string {
+  const filter = opts.filterNoise
+    ? ` | grep -vE '^(${TRACKED_FILES_IGNORE.join('|').replace(/\./g, '\\.')})/'`
+    : '';
+  const head = opts.limit ? ` | head -${opts.limit}` : '';
+  return `cd /work/repo 2>/dev/null && git ls-files${filter}${head}`;
+}
+
+export function parseTrackedFiles(stdout: string): string[] {
+  return stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }

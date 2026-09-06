@@ -42,4 +42,18 @@ describe('reduceUnifiedFrames — unified wire → render state', () => {
     s = reduceUnifiedFrames(s, { type: 'enabled', payload: ['linear'] });
     expect(s.enabled).toEqual(['github-mcp', 'linear']);
   });
+
+  it('records an overthink warning without touching the live content', () => {
+    let s = reduceUnifiedFrames(empty, { type: 'content', delta: 'Hel' });
+    s = reduceUnifiedFrames(s, { type: 'overthinkWarning', payload: 'Overthinking loop detected' });
+    expect(s.overthinkWarning).toBe('Overthinking loop detected');
+    expect(s.live).toBe('Hel');
+  });
+
+  it('leaves prior content and tool state alone once warned', () => {
+    let s = reduceUnifiedFrames(empty, { type: 'overthinkWarning', payload: 'Overthinking loop detected' });
+    s = reduceUnifiedFrames(s, { type: 'content', delta: 'still going' });
+    expect(s.overthinkWarning).toBe('Overthinking loop detected');
+    expect(s.live).toBe('still going');
+  });
 });

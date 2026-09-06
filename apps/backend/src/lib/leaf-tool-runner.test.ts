@@ -212,6 +212,149 @@ describe('dependency ordering', () => {
   });
 });
 
+describe('revise_leaf on pending and dependsOn', () => {
+  it('revises a pending leaf, not just a proposed one', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'x' }));
+    const [leaf] = await leavesOnBranch();
+    await db.saveLeaf({ ...leaf!, status: 'pending' });
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('revise_leaf', { id: leaf!.id, title: 'renamed' })));
+    expect(out.error).toBeUndefined();
+    expect((await leavesOnBranch())[0]!.title).toBe('renamed');
+  });
+
+  it('refuses to revise a leaf that is already running', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'x' }));
+    const [leaf] = await leavesOnBranch();
+    await db.saveLeaf({ ...leaf!, status: 'running' });
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('revise_leaf', { id: leaf!.id, title: 'renamed' })));
+    expect(out.error).toMatch(/already running/);
+  });
+
+  it('replaces dependsOn wholesale, by title', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'A' }));
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'B' }));
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'C', dependsOn: ['A'] }));
+    const a = (await leavesOnBranch()).find((l) => l.title === 'A')!;
+    const b = (await leavesOnBranch()).find((l) => l.title === 'B')!;
+    const c = (await leavesOnBranch()).find((l) => l.title === 'C')!;
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('revise_leaf', { id: c.id, dependsOn: ['B'] })));
+    expect(out.error).toBeUndefined();
+    expect(out.dependsOn).toEqual(['B']);
+    expect((await leavesOnBranch()).find((l) => l.id === c.id)!.dependsOn).toEqual([b.id]);
+    expect((await leavesOnBranch()).find((l) => l.id === c.id)!.dependsOn).not.toContain(a.id);
+  });
+
+  it('clears dependsOn entirely when given an empty array', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'A' }));
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'B', dependsOn: ['A'] }));
+    const b = (await leavesOnBranch()).find((l) => l.title === 'B')!;
+
+    await runLeafTool(ctx(), call('revise_leaf', { id: b.id, dependsOn: [] }));
+    const revised = (await leavesOnBranch()).find((l) => l.id === b.id)!;
+    expect('dependsOn' in revised).toBe(false);
+  });
+
+  it('refuses a dependsOn change that would close a cycle', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'A' }));
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'B', dependsOn: ['A'] }));
+    const a = (await leavesOnBranch()).find((l) => l.title === 'A')!;
+    const b = (await leavesOnBranch()).find((l) => l.title === 'B')!;
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('revise_leaf', { id: a.id, dependsOn: ['B'] })));
+    expect(out.error).toMatch(/cycle/);
+    expect((await leavesOnBranch()).find((l) => l.id === a.id)!.dependsOn).toBeUndefined();
+    void b;
+  });
+
+  it('leaves dependsOn untouched when the field is omitted', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'A' }));
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'B', dependsOn: ['A'] }));
+    const b = (await leavesOnBranch()).find((l) => l.title === 'B')!;
+
+    await runLeafTool(ctx(), call('revise_leaf', { id: b.id, title: 'B renamed' }));
+    const revised = (await leavesOnBranch()).find((l) => l.id === b.id)!;
+    expect(revised.title).toBe('B renamed');
+    expect(revised.dependsOn).toBeDefined();
+  });
+});
+
+describe('delete_leaf', () => {
+  const signals: { id: string; signal: string }[] = [];
+  const bridge = () => ({
+    signalLeaf: async (id: string, signal: string) => { signals.push({ id, signal }); return true; },
+  });
+
+  beforeEach(() => { signals.length = 0; });
+
+  it('deletes a proposed leaf without needing the workflow engine', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'x' }));
+    const [leaf] = await leavesOnBranch();
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('delete_leaf', { id: leaf!.id })));
+    expect(out.error).toBeUndefined();
+    expect(out.deleted.title).toBe('x');
+    expect(await leavesOnBranch()).toHaveLength(0);
+  });
+
+  it('cancels a running leaf in the workflow engine before deleting it', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'x' }));
+    const [leaf] = await leavesOnBranch();
+    await db.saveLeaf({ ...leaf!, status: 'running' });
+
+    const out = JSON.parse(await runLeafTool(
+      ctx({ temporalBridge: bridge() as never }),
+      call('delete_leaf', { id: leaf!.id }),
+    ));
+    expect(out.error).toBeUndefined();
+    expect(signals).toEqual([{ id: leaf!.id, signal: 'cancelLeaf' }]);
+    expect(await leavesOnBranch()).toHaveLength(0);
+  });
+
+  it('refuses to delete a leaf that already succeeded', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'x' }));
+    const [leaf] = await leavesOnBranch();
+    await db.saveLeaf({ ...leaf!, status: 'succeeded' });
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('delete_leaf', { id: leaf!.id })));
+    expect(out.error).toMatch(/succeeded/);
+    expect(await leavesOnBranch()).toHaveLength(1);
+  });
+
+  it('cascades to sub-leaves, and refuses the whole thing if any sub-leaf succeeded', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'parent' }));
+    const [parent] = await leavesOnBranch();
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'child', parentLeafId: parent!.id }));
+    const child = (await leavesOnBranch()).find((l) => l.title === 'child')!;
+    await db.saveLeaf({ ...child, status: 'succeeded' });
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('delete_leaf', { id: parent!.id })));
+    expect(out.error).toMatch(/succeeded/);
+    expect(await leavesOnBranch()).toHaveLength(2);
+  });
+
+  it('deletes sub-leaves along with the parent when none of them succeeded', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'parent' }));
+    const [parent] = await leavesOnBranch();
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'child', parentLeafId: parent!.id }));
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('delete_leaf', { id: parent!.id })));
+    expect(out.deleted.alsoRemoved).toBe(1);
+    expect(await leavesOnBranch()).toHaveLength(0);
+  });
+
+  it('warns about leaves that depended on the deleted one', async () => {
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'A' }));
+    await runLeafTool(ctx(), call('propose_leaf', { title: 'B', dependsOn: ['A'] }));
+    const a = (await leavesOnBranch()).find((l) => l.title === 'A')!;
+
+    const out = JSON.parse(await runLeafTool(ctx(), call('delete_leaf', { id: a.id })));
+    expect(out.warning).toMatch(/"B"/);
+  });
+});
+
 describe('branch and owner scoping', () => {
   it('only sees leaves on this branch', async () => {
     await runLeafTool(ctx(), call('propose_leaf', { title: 'mine' }));

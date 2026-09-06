@@ -52,22 +52,23 @@ describe('what the leaf ends up recording', () => {
 describe('where the rule is applied', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const activity = readFileSync(join(here, '../activities/ExecuteLeafActivity.ts'), 'utf8');
+  const verdict = readFileSync(join(here, './leaf-run-verdict.ts'), 'utf8');
 
   it('feeds the earned outcome into the combination, not the raw one', () => {
-    expect(activity).toMatch(/combineVerification\(earned, artifacts\.outcome\)/);
+    expect(verdict).toMatch(/combineVerification\(earned, params\.artifactsOutcome\)/);
   });
 
   it('decides changed-ness from the push, which is the only durable record', () => {
-    expect(activity).toMatch(/changed: Boolean\(pushedBranch\)/);
+    expect(verdict).toMatch(/changed: Boolean\(params\.pushedBranch\)/);
   });
 
   it('exempts a research leaf, whose findings never depended on a commit', () => {
-    expect(activity).toMatch(/outputPath\s*\n?\s*\? verify\.outcome/);
+    expect(verdict).toMatch(/params\.outputPath\s*\n?\s*\? params\.verifyOutcome/);
   });
 
   it('is applied after the push, so changed-ness is known', () => {
-    const push = activity.indexOf('const pushedBranch = await pushBack()');
-    const rule = activity.indexOf('const earned = outputPath');
+    const push = activity.indexOf('const pushedBranch = await pushLeafBranch(');
+    const rule = activity.indexOf('const { combined, settled } = decideLeafStatus(');
     expect(push).toBeGreaterThan(-1);
     expect(push).toBeLessThan(rule);
   });

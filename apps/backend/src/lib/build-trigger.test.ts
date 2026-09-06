@@ -30,20 +30,22 @@ describe('only the default branch builds', () => {
 
 describe('an unbuildable Dockerfile does not reach the default branch', () => {
   const activity = read('../activities/ExecuteLeafActivity.ts');
+  const settle = read('./leaf-run-settle.ts');
+  const verdict = read('./leaf-run-verdict.ts');
 
   it('gates the merge on the Dockerfile check as well as verification', () => {
-    expect(activity).toMatch(/if \(outputBranch && combined === 'passed' && !dockerProblems\)/);
+    expect(settle).toMatch(/if \(outputBranch && params\.combined === 'passed' && !params\.dockerProblems\)/);
   });
 
   it('still computes the problems before the merge decision', () => {
-    const computed = activity.indexOf('dockerProblems = describeDockerfileProblems(');
-    const gate = activity.indexOf("combined === 'passed' && !dockerProblems");
+    const computed = activity.indexOf('const dockerProblems = producesCode ? await checkLeafDockerfile');
+    const merge = activity.indexOf('return await settleSucceededLeaf(');
     expect(computed).toBeGreaterThan(-1);
-    expect(computed).toBeLessThan(gate);
+    expect(computed).toBeLessThan(merge);
   });
 
   it('fails the leaf as well as blocking the merge', () => {
-    expect(activity).toMatch(/dockerProblems \? 'failed' : decideStatus/);
+    expect(verdict).toMatch(/params\.dockerProblems \? 'failed' : decideStatus/);
   });
 });
 

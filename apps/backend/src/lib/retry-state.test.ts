@@ -40,15 +40,14 @@ describe('what a person sees for each', () => {
 
 describe('where it is applied', () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const activity = readFileSync(join(here, '../activities/ExecuteLeafActivity.ts'), 'utf8');
+  const activity = readFileSync(join(here, './leaf-run-failure.ts'), 'utf8');
 
   it('writes the derived status, not a literal failed', () => {
-    expect(activity).toMatch(/const nextStatus = statusAfterFailure\(attemptNumber, MAX_LEAF_ATTEMPTS\)/);
-    expect(activity).toMatch(/status: nextStatus,/);
+    expect(activity).toMatch(/status: statusAfterFailure\(params\.attemptNumber, MAX_LEAF_ATTEMPTS\),/);
   });
 
   it('still records the attempt either way, so nothing is hidden', () => {
-    const at = activity.indexOf('status: nextStatus,');
+    const at = activity.indexOf('status: statusAfterFailure(params.attemptNumber, MAX_LEAF_ATTEMPTS),');
     expect(activity.slice(at - 200, at)).toMatch(/attempts,/);
   });
 });

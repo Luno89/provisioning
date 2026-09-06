@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   branchNameFor, baseBranchesFor, buildCheckoutScript, buildPushScript, parsePushedBranch, buildMergeScript, parseMergeResult, checkpointPath, buildCheckpointScript, parseCheckpointResult, buildProgressScript, parseProgress,
+  buildRepoDetailScript, parseRepoDetail, buildTrackedFilesScript, parseTrackedFiles,
 } from './leaf-checkout.js';
 import type { Leaf } from './leaves.js';
 
@@ -244,5 +245,51 @@ describe('what the repository shows at a checkpoint', () => {
 
   it('returns empty strings rather than throwing on an empty repo', () => {
     expect(parseProgress('')).toEqual({ commits: '', changed: '' });
+  });
+});
+
+describe('repo detail for round feedback', () => {
+  it('asks for status and commit count in one script', () => {
+    const script = buildRepoDetailScript();
+    expect(script).toContain('git status --porcelain');
+    expect(script).toContain('git rev-list --count HEAD');
+  });
+
+  it('parses commit count and changed files from the combined output', () => {
+    const out = parseRepoDetail('STATUS:\n M src/a.ts\n?? src/b.ts\nCOMMITS:\n3\n');
+    expect(out).toEqual({ commits: 3, changedFiles: ['src/a.ts', 'src/b.ts'] });
+  });
+
+  it('omits fields it found nothing for, rather than defaulting them', () => {
+    expect(parseRepoDetail('STATUS:\nCOMMITS:\n')).toEqual({});
+  });
+
+  it('defaults an unparseable but present commit count to 0, matching the run-command precedent', () => {
+    expect(parseRepoDetail('STATUS:\nCOMMITS:\nnot-a-number\n').commits).toBe(0);
+  });
+
+  it('treats a genuinely empty commits section as absent, not zero', () => {
+    expect(parseRepoDetail('STATUS:\nCOMMITS:\n').commits).toBeUndefined();
+  });
+});
+
+describe('tracked files listing', () => {
+  it('lists every tracked file with no filter by default', () => {
+    const script = buildTrackedFilesScript();
+    expect(script).toBe('cd /work/repo 2>/dev/null && git ls-files');
+  });
+
+  it('filters noise directories when asked', () => {
+    const script = buildTrackedFilesScript({ filterNoise: true });
+    expect(script).toContain("grep -vE '^(node_modules|vendor|\\.venv|venv|dist|build|__pycache__|\\.koala)/'");
+  });
+
+  it('caps the listing when a limit is given', () => {
+    const script = buildTrackedFilesScript({ limit: 60 });
+    expect(script).toContain('| head -60');
+  });
+
+  it('splits and trims the listing, dropping blank lines', () => {
+    expect(parseTrackedFiles('src/a.ts\n  src/b.ts  \n\nsrc/c.ts\n')).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
   });
 });

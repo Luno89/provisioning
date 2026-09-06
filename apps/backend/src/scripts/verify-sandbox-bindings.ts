@@ -8,6 +8,7 @@ import { createDatabase } from '../lib/db-interface.js';
 import { resolveBindings } from '../lib/binding-resolve.js';
 import { egressForBindings } from '../lib/workspace-spec.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
+import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 
 const line = () => console.log('─'.repeat(76));
 
@@ -42,10 +43,12 @@ async function main(): Promise<void> {
     const files = await workspaces.materializeBindings(bindings);
     for (const f of files) console.log(`  files:    ${f.name}/ -> ${Object.keys(f.files).join(', ')}`);
 
+    const images = await new WorkspaceImageService(db).list((project as any).ownerId);
+
     line();
     console.log('WITH the declared dependency:');
     const withId = randomUUID();
-    await workspaces.create({ leafId: withId, ownerId: (project as any).ownerId, egress, bindings: files });
+    await workspaces.create({ leafId: withId, ownerId: (project as any).ownerId, egress, bindings: files }, 120_000, images);
     created.push(withId);
 
     const b0 = bindings[0]!;
@@ -60,7 +63,7 @@ async function main(): Promise<void> {
     line();
     console.log('WITHOUT it (same image, no egress, no bindings):');
     const withoutId = randomUUID();
-    await workspaces.create({ leafId: withoutId, ownerId: (project as any).ownerId });
+    await workspaces.create({ leafId: withoutId, ownerId: (project as any).ownerId }, 120_000, images);
     created.push(withoutId);
 
     const control = `echo "SERVICE_BINDING_ROOT=${'$'}{SERVICE_BINDING_ROOT:-<unset>}"; `

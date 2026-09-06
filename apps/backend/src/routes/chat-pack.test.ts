@@ -343,3 +343,58 @@ describe('koala\'s own configured pack decides the turn', () => {
   });
 });
 
+describe('overthink warning → confirmed kill', () => {
+  it('warns once over SSE, and records a failure sample once the client aborts in response', async () => {
+    const degenerate = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      for (let i = 0; i < 35; i++) {
+        res.write(`data: ${JSON.stringify({
+          choices: [{ delta: { reasoning_content: 'Wait I should check if user needs leaves. ' } }],
+        })}\n\n`);
+      }
+      req.on('close', () => { try { res.end(); } catch { /* ignored */ } });
+    });
+    await new Promise<void>((resolve) => degenerate.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = degenerate.address() as { port: number };
+
+    const priorResolveBaseUrl = modelServiceStub.resolveBaseUrl;
+    modelServiceStub.resolveBaseUrl = async () => ({
+      provider: { kind: 'openai', model: 'degenerate-model' },
+      baseUrl: `http://127.0.0.1:${port}`,
+      apiKey: undefined,
+    });
+
+    try {
+      const controller = new AbortController();
+      const res = await fetch(harness.url('/api/chat-pack'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversationId: 'c-overthink', message: 'go' }),
+        signal: controller.signal,
+      });
+      expect(res.status).toBe(200);
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let sawWarning = false;
+      const deadline = Date.now() + 5000;
+      while (!sawWarning && Date.now() < deadline) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (decoder.decode(value).includes('"overthinkWarning"')) sawWarning = true;
+      }
+      expect(sawWarning).toBe(true);
+
+      controller.abort();
+      await reader.cancel().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const profile = await harness.db.getModelThinkingProfile?.('degenerate-model');
+      expect(profile?.failureSamples).toBeGreaterThan(0);
+    } finally {
+      modelServiceStub.resolveBaseUrl = priorResolveBaseUrl;
+      degenerate.close();
+    }
+  }, 10_000);
+});
+

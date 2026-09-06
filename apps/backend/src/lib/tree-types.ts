@@ -174,6 +174,15 @@ export function validateTreeType(
   return null;
 }
 
+const RUNTIME_PROBE_CHECK_TYPES = new Set<ValidationCheckDefinition['type']>(['mcp-probe', 'http-probe']);
+
+export function leafValidationRecipe(recipe: ValidationRecipe | undefined): ValidationRecipe | undefined {
+  if (!recipe) return recipe;
+  const checks = recipe.checks.filter((c) => !RUNTIME_PROBE_CHECK_TYPES.has(c.type));
+  if (checks.length === recipe.checks.length) return recipe;
+  return checks.length ? { ...recipe, checks } : undefined;
+}
+
 export interface StarterVars {
   projectName: string;
   registryHost: string;

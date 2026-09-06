@@ -6,7 +6,7 @@ export type TurnStatus = 'streaming' | 'done' | 'error';
 
 export type LiveTurn =
   | { kind: 'conversation'; renderState: ChatRenderState; status: TurnStatus }
-  | { kind: 'branch'; trailing: ChatMessageData; status: TurnStatus };
+  | { kind: 'branch'; trailing: ChatMessageData; status: TurnStatus; overthinkWarning?: string | undefined };
 
 export const conversationTurnKey = (conversationId: string): string => `conversation:${conversationId}`;
 export const branchTurnKey = (branchId: string): string => `branch:${branchId}`;
@@ -18,7 +18,10 @@ interface LiveTurnsState {
   startBranch: (key: string) => void;
   appendBranchDelta: (
     key: string,
-    delta: { content?: string | undefined; reasoning?: string | undefined; interruptedReason?: string | undefined },
+    delta: {
+      content?: string | undefined; reasoning?: string | undefined; interruptedReason?: string | undefined;
+      overthinkWarning?: string | undefined;
+    },
   ) => ChatMessageData;
   finish: (key: string, status: 'done' | 'error') => void;
 }
@@ -61,13 +64,20 @@ export const useLiveTurnsStore = create<LiveTurnsState>((set, get) => ({
     const prevTrailing: ChatMessageData = current?.kind === 'branch'
       ? current.trailing
       : { role: 'assistant', content: '' };
+    const prevWarning = current?.kind === 'branch' ? current.overthinkWarning : undefined;
     const nextTrailing: ChatMessageData = {
       ...prevTrailing,
       content: prevTrailing.content + (delta.content ?? ''),
       reasoning: (prevTrailing.reasoning ?? '') + (delta.reasoning ?? ''),
       ...(delta.interruptedReason ? { interruptedReason: delta.interruptedReason } : {}),
     };
-    set((s) => ({ turns: { ...s.turns, [key]: { kind: 'branch', trailing: nextTrailing, status: 'streaming' } } }));
+    const overthinkWarning = delta.overthinkWarning ?? prevWarning;
+    set((s) => ({
+      turns: {
+        ...s.turns,
+        [key]: { kind: 'branch', trailing: nextTrailing, status: 'streaming', ...(overthinkWarning ? { overthinkWarning } : {}) },
+      },
+    }));
     return nextTrailing;
   },
 

@@ -59,10 +59,13 @@ export function summariseLeaf(leaf: Leaf): Record<string, unknown> {
   };
 }
 
-export function detailLeaf(leaf: Leaf, children: Leaf[]): Record<string, unknown> {
+export function detailLeaf(leaf: Leaf, children: Leaf[], siblings: readonly Leaf[] = []): Record<string, unknown> {
+  const dependsOnTitles = (leaf.dependsOn ?? [])
+    .map((id) => siblings.find((l) => l.id === id)?.title ?? id);
   return {
     ...summariseLeaf(leaf),
     ...(leaf.body ? { body: leaf.body } : {}),
+    ...(dependsOnTitles.length ? { dependsOn: dependsOnTitles } : {}),
     ...(children.length ? { subLeaves: children.map(summariseLeaf) } : {}),
     ...(leaf.attempts?.length
       ? { attempts: leaf.attempts.map((a) => ({ attempt: a.attempt + 1, error: a.error })) }

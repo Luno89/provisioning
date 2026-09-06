@@ -180,4 +180,66 @@ describe('/api/chat wire format — UnifiedFrame, same engine as /api/chat-pack'
     expect(res.status).toBe(400);
     expect(res.headers.get('content-type')).toMatch(/application\/json/);
   });
+
+  it('warns once over SSE on an overthinking loop, and records a failure sample once the client aborts in response', async () => {
+    const degenerate = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      for (let i = 0; i < 35; i++) {
+        res.write(frame({ reasoning_content: 'Wait I should check if user needs leaves. ' }));
+      }
+      req.on('close', () => { try { res.end(); } catch { /* ignored */ } });
+    });
+    await new Promise<void>((r) => degenerate.listen(0, r));
+    const port = (degenerate.address() as { port: number }).port;
+
+    ctx = await serve((database: Database) => chatRouter({
+      db: database,
+      modelService: {
+        resolveBaseUrl: async () => ({
+          provider: { id: 'p1', name: 'test', model: 'degenerate-model' } as any,
+          baseUrl: `http://127.0.0.1:${port}`,
+        }),
+        resolveExtractor: async () => undefined,
+      } as any,
+      temporalBridge: {} as any,
+      projectRepoService: {} as any,
+      ownedBranches: async (uid) => ownedBy(await database.getBranches(), uid),
+      ownedLeaves: async (uid) => ownedBy(await database.getLeaves(), uid),
+      ownedTrees: async (uid) => ownedBy(await database.getTrees(), uid),
+      webSearch: async () => ({ results: [] } as any),
+      fetchWebPage: async () => '',
+      toolRefused: () => false,
+    }), '/api/chat', db);
+
+    try {
+      const controller = new AbortController();
+      const res = await fetch(ctx.url('/api/chat'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+        signal: controller.signal,
+      });
+      expect(res.status).toBe(200);
+
+      const reader = (res.body as any).getReader();
+      const decoder = new TextDecoder();
+      let sawWarning = false;
+      const deadline = Date.now() + 5000;
+      while (!sawWarning && Date.now() < deadline) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (decoder.decode(value).includes('"overthinkWarning"')) sawWarning = true;
+      }
+      expect(sawWarning).toBe(true);
+
+      controller.abort();
+      await reader.cancel().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const profile = await db.getModelThinkingProfile?.('degenerate-model');
+      expect(profile?.failureSamples).toBeGreaterThan(0);
+    } finally {
+      await degenerate.close();
+    }
+  }, 10_000);
 });

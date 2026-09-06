@@ -70,7 +70,7 @@ export async function runChatTurn(deps: ChatRuntimeDeps): Promise<ChatTurnResult
 
   const result = await round({
     maxRounds,
-    maxToolCallsPerMessage: record.callsPerRound,
+    maxToolCallsPerRound: record.callsPerRound,
     maxToolCallArgs: record.argChars,
     maxToolCallDigest: record.digestChars,
     messages,

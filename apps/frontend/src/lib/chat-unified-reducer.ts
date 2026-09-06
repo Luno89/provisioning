@@ -14,6 +14,7 @@ export interface ChatRenderState {
   tools: ToolPill[];
   enabled: string[];
   proposals: Array<{ kind: string; payload: any }>;
+  overthinkWarning?: string | undefined;
 }
 
 export const emptyChatRenderState: ChatRenderState = {
@@ -57,6 +58,9 @@ export function reduceUnifiedFrames(
     const proposals = [...state.proposals, { kind, payload: frame.payload }];
     return { ...state, proposals };
   }
+  if (frame.type === 'overthinkWarning' && 'payload' in frame) {
+    return { ...state, overthinkWarning: String(frame.payload ?? '') };
+  }
   return state;
 }
 
@@ -73,4 +77,5 @@ export type UnifiedFrame =
   | { type: 'plan'; payload: any }
   | { type: 'usage'; payload: any }
   | { type: 'interrupted'; payload: any }
+  | { type: 'overthinkWarning'; payload: any }
   | { type: string; payload?: any };

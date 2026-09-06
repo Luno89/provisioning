@@ -4,7 +4,9 @@ export const MAX_DIFF_CHARS = 12_000;
 export const MAX_EXPECT_FILES = 5;
 export const MAX_EXPECT_CHARS = 4_000;
 
-const NOISE = /^(node_modules|vendor|\.venv|venv|dist|build|__pycache__|\.koala)\/|(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|go\.sum)$/;
+export const NOISE_DIR_NAMES = ['node_modules', 'vendor', '.venv', 'venv', 'dist', 'build', '__pycache__', '.koala'] as const;
+
+const NOISE = new RegExp(`^(${NOISE_DIR_NAMES.join('|').replace(/\./g, '\\.')})/|(package-lock\\.json|yarn\\.lock|pnpm-lock\\.yaml|poetry\\.lock|Cargo\\.lock|go\\.sum)$`);
 
 export interface CaptureInputs {
   workspaces: {

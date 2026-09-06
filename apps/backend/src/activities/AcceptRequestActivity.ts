@@ -6,9 +6,21 @@ import { GiteaService } from '../services/GiteaService.js';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
-import { buildAcceptanceScript, parseAcceptance, usableAcceptancePlan } from '../lib/acceptance.js';
+import { buildAcceptanceScript, parseAcceptance, usableAcceptancePlan, type AcceptanceCheck } from '../lib/acceptance.js';
 import { buildAcceptanceNotice, withNotice } from '../lib/branch-notice.js';
 import type { ProjectMetadata } from '../lib/types.js';
+import { resolveTreeType, type ValidationCheckDefinition } from '../lib/tree-types.js';
+import { buildValidatorEnv } from '../lib/validator-env.js';
+import { UniversalValidatorService } from '../services/UniversalValidatorService.js';
+
+function commandLabelFor(check: ValidationCheckDefinition): string {
+  switch (check.type) {
+    case 'run-command': return check.command ?? '';
+    case 'file-exists': return `test -e ${check.target ?? ''}`;
+    case 'content-matches': return `grep '${check.pattern ?? ''}' ${check.target ?? ''}`;
+    default: return check.target ?? check.type;
+  }
+}
 
 export interface AcceptRequestArgs {
   leafId: string;
@@ -35,7 +47,15 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
 
     const branch = (await db.getBranches()).find((b: Branch) => b.id === self.branchId);
     const plan = usableAcceptancePlan(branch?.acceptance);
-    if (!branch || plan.length === 0) { console.log(`[AcceptRequest] skip: branch=${Boolean(branch)} checks=${plan.length}`); return { outcome: 'skipped' }; }
+
+    const tree = branch?.treeId ? (await db.getTrees()).find((t) => t.id === branch.treeId) : undefined;
+    const treeType = await resolveTreeType(db, ownerId, tree?.type);
+    const recipe = treeType?.validationRecipe?.checks?.length ? treeType.validationRecipe : undefined;
+
+    if (!branch || (plan.length === 0 && !recipe)) {
+      console.log(`[AcceptRequest] skip: branch=${Boolean(branch)} checks=${plan.length} recipe=${Boolean(recipe)}`);
+      return { outcome: 'skipped' };
+    }
 
     const leaves = all.filter((l: Leaf) => l.branchId === self.branchId);
     if (!requestFinished(leaves)) { console.log('[AcceptRequest] skip: request still working'); return { outcome: 'skipped' }; }
@@ -84,18 +104,41 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
       }
       if (result.outcome === 'failed') { failed = { name: check.name, output: result.output }; break; }
     }
+
+    const recipeAsChecks: AcceptanceCheck[] = recipe?.checks.map((c) => ({ name: c.name, command: commandLabelFor(c) })) ?? [];
+    const combinedPlan = [...plan, ...recipeAsChecks];
+
+    if (!failed && recipe) {
+      const validator = new UniversalValidatorService();
+      const valEnv = await buildValidatorEnv(workspaces, workspaceId, { cwd: '/work/repo' });
+      const summary = await validator.validate(recipe, valEnv).catch((err) => {
+        console.warn(`[AcceptRequest] could not run the validation recipe: ${(err as Error).message}`);
+        return undefined;
+      });
+      if (!summary) return { outcome: 'unknown' };
+      if (!summary.passed) {
+        const firstFailed = summary.checks.find((c) => !c.passed);
+        failed = {
+          name: firstFailed?.name ?? 'validation recipe',
+          output: firstFailed
+            ? `${firstFailed.message}${firstFailed.outputSnippet ? `\n${firstFailed.outputSnippet}` : ''}`
+            : summary.diagnosticReport,
+        };
+      }
+    }
+
     const result = { outcome: failed ? 'failed' as const : 'passed' as const };
 
     const latest = (await db.getBranches()).find((b: Branch) => b.id === self.branchId);
     if (latest) {
       await db.saveBranch({
-        ...withNotice(latest, buildAcceptanceNotice(plan, failed)),
+        ...withNotice(latest, buildAcceptanceNotice(combinedPlan, failed)),
         acceptanceRunAt: new Date().toISOString(),
         acceptanceOutcome: result.outcome,
         ...(failed ? { acceptanceFailedCheck: failed.name } : {}),
       });
     }
-    console.log(`[AcceptRequest] ${plan.length} check(s) ${result.outcome}${failed ? ` at "${failed.name}"` : ''} for request ${self.branchId.slice(0, 8)}`);
+    console.log(`[AcceptRequest] ${combinedPlan.length} check(s) ${result.outcome}${failed ? ` at "${failed.name}"` : ''} for request ${self.branchId.slice(0, 8)}`);
     return { outcome: result.outcome };
   } catch (err) {
     console.warn(`[AcceptRequest] could not run the acceptance check: ${(err as Error).message}`);

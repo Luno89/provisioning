@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { resolvePersonaNamed } from './proposal-merge.js';
-import { canAddChild, childrenOf, wouldCycle, resolveDependencyTitles, dependentsOf, type Leaf } from './leaves.js';
+import {
+  canAddChild, childrenOf, wouldCycle, resolveDependencyTitles, dependentsOf, subtreeOf, type Leaf,
+} from './leaves.js';
 import { usablePaths } from './leaf-artifacts.js';
 import { normaliseLeafInput } from './leaf-input.js';
 import { usableAcceptancePlan } from './acceptance.js';
@@ -20,7 +22,7 @@ import type { ToolRuntime } from './tool-runtime.js';
  * one, and works perfectly well when there is not.
  */
 const NEEDS_BRANCH = new Set([
-  'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'replace_leaf',
+  'propose_leaf', 'revise_leaf', 'withdraw_leaf', 'replace_leaf', 'delete_leaf',
   'set_acceptance', 'set_leaf_project', 'write_plan_document',
 ]);
 
@@ -95,7 +97,7 @@ export async function runPlanningTool(
       const leaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
       if (!leaf) return JSON.stringify({ error: 'You have no leaf with that id.' });
       const siblings = ownedLeaves.filter((l) => l.branchId === leaf.branchId);
-      return JSON.stringify(detailLeaf(leaf, childrenOf(siblings, leaf.id)));
+      return JSON.stringify(detailLeaf(leaf, childrenOf(siblings, leaf.id), siblings));
     }
 
     if (name === 'start_ingest' || name === 'ingest_status' || name === 'search_corpus') {
@@ -403,28 +405,70 @@ export async function runPlanningTool(
       });
     }
 
-    if (name === 'revise_leaf' || name === 'withdraw_leaf') {
+    if (name === 'withdraw_leaf') {
       const leaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
       if (!leaf) return JSON.stringify({ error: 'You have no leaf with that id.' });
       if (leaf.status !== 'proposed') {
         return JSON.stringify({
-          error: `That leaf is already ${leaf.status}, so it is no longer yours to change. Say what you would do differently and let the user decide.`,
+          error: `That leaf is already ${leaf.status}, so it is no longer yours to change. Call delete_leaf instead, or let the user decide.`,
         });
       }
 
-      if (name === 'withdraw_leaf') {
-        const doomed = [leaf, ...childrenOf(leaves, leaf.id)];
-        const orphaned = doomed.flatMap((d) => dependentsOf(d.id, leaves))
-          .filter((l) => !doomed.some((d) => d.id === l.id));
-        for (const l of doomed) await db.deleteLeaf(l.id);
+      const doomed = [leaf, ...childrenOf(leaves, leaf.id)];
+      const orphaned = doomed.flatMap((d) => dependentsOf(d.id, leaves))
+        .filter((l) => !doomed.some((d) => d.id === l.id));
+      for (const l of doomed) await db.deleteLeaf(l.id);
+      return JSON.stringify({
+        withdrawn: { id: leaf.id, title: leaf.title, alsoRemoved: doomed.length - 1 },
+        ...(orphaned.length
+          ? {
+              warning: `${orphaned.map((l) => `"${l.title}"`).join(', ')} depended on this and will now `
+                + 'start without waiting for anything. Use replace_leaf if you meant to substitute it.',
+            }
+          : {}),
+      });
+    }
+
+    if (name === 'delete_leaf') {
+      const leaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
+      if (!leaf) return JSON.stringify({ error: 'You have no leaf with that id.' });
+
+      const doomed = [leaf, ...subtreeOf(leaves, leaf.id)];
+      const blocking = doomed.find((d) => d.status === 'succeeded');
+      if (blocking) {
         return JSON.stringify({
-          withdrawn: { id: leaf.id, title: leaf.title, alsoRemoved: doomed.length - 1 },
-          ...(orphaned.length
-            ? {
-                warning: `${orphaned.map((l) => `"${l.title}"`).join(', ')} depended on this and will now `
-                  + 'start without waiting for anything. Use replace_leaf if you meant to substitute it.',
-              }
-            : {}),
+          error: `"${blocking.title}" already succeeded${blocking.id !== leaf.id ? ' (a sub-leaf of this one)' : ''} — `
+            + 'that is real completed work, and removing it is the human\'s call, not this tool\'s. '
+            + 'Ask them, or leave it and delete only what did not succeed.',
+        });
+      }
+
+      for (const d of doomed) {
+        await rt.temporalBridge?.signalLeaf(d.id, 'cancelLeaf');
+        await db.deleteLeaf(d.id);
+        await db.deleteLeafTrace(d.id);
+      }
+      const orphaned = doomed.flatMap((d) => dependentsOf(d.id, leaves))
+        .filter((l) => !doomed.some((d) => d.id === l.id));
+
+      return JSON.stringify({
+        deleted: { id: leaf.id, title: leaf.title, alsoRemoved: doomed.length - 1 },
+        ...(orphaned.length
+          ? {
+              warning: `${orphaned.map((l) => `"${l.title}"`).join(', ')} depended on this and will now `
+                + 'start without waiting for anything. Use revise_leaf to give them a different dependency.',
+            }
+          : {}),
+      });
+    }
+
+    if (name === 'revise_leaf') {
+      const leaf = ownedLeaves.find((l) => l.id === String(args.id ?? ''));
+      if (!leaf) return JSON.stringify({ error: 'You have no leaf with that id.' });
+      if (leaf.status !== 'proposed' && leaf.status !== 'pending') {
+        return JSON.stringify({
+          error: `That leaf is already ${leaf.status}; its sandbox exists and cannot be changed. `
+            + 'Call delete_leaf and repropose it if it needs different dependencies now.',
         });
       }
 
@@ -443,20 +487,49 @@ export async function runPlanningTool(
           availablePersonas: mine.map((p) => ({ name: p.name, description: p.description ?? '' })),
         });
       }
-      if (!title && !body && !persona) {
-        return JSON.stringify({ error: 'Nothing to change — pass title, body, persona, or a combination.' });
+
+      let dependsOn: string[] | undefined;
+      let recordedDependsOn: string[] | undefined;
+      let dependsOnWarning: string | undefined;
+      if (Array.isArray(args.dependsOn)) {
+        const wantedDeps = args.dependsOn.map(String);
+        const resolved = resolveDependencyTitles(wantedDeps, leaves);
+        if (wouldCycle(leaf.id, resolved.ids, leaves)) {
+          return JSON.stringify({ error: 'Those dependencies would form a cycle — nothing in it could ever start.' });
+        }
+        dependsOn = resolved.ids;
+        recordedDependsOn = resolved.ids
+          .map((depId) => leaves.find((l) => l.id === depId)?.title)
+          .filter((t): t is string => Boolean(t));
+        if (resolved.unresolved.length) {
+          dependsOnWarning = `These matched no leaf and were NOT recorded: ${resolved.unresolved.map((t) => `"${t}"`).join(', ')}.`;
+        }
       }
 
-      const updated: Leaf = {
+      if (!title && !body && !persona && dependsOn === undefined) {
+        return JSON.stringify({ error: 'Nothing to change — pass title, body, persona, dependsOn, or a combination.' });
+      }
+
+      let updated: Leaf = {
         ...leaf,
         ...(title ? { title: title.slice(0, 200) } : {}),
         ...(body ? { body: body.slice(0, 4000) } : {}),
         ...(persona ? { packId: persona.id } : {}),
         updatedAt: new Date().toISOString(),
       };
+      if (dependsOn !== undefined) {
+        if (dependsOn.length) {
+          updated = { ...updated, dependsOn };
+        } else {
+          const { dependsOn: _drop, ...rest } = updated;
+          updated = rest as Leaf;
+        }
+      }
       await db.saveLeaf(updated);
       return JSON.stringify({
         revised: { id: updated.id, title: updated.title, ...(persona ? { persona: persona.name } : {}) },
+        ...(dependsOn !== undefined ? { dependsOn: recordedDependsOn } : {}),
+        ...(dependsOnWarning ? { warning: dependsOnWarning } : {}),
       });
     }
 

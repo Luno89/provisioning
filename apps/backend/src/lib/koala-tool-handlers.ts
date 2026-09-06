@@ -33,7 +33,7 @@ export interface KoalaToolContext {
   webSearch: WebSearchFn;
   fetchWebPage: (url: string) => Promise<string>;
   kubectl?: ((args: string[]) => Promise<string>) | undefined;
-  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp'> | undefined;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp' | 'signalLeaf'> | undefined;
   infisicalService?: InfisicalService | undefined;
   projects?: ProjectRepoService | undefined;
   /** Resolves and lists clusters — needed rather than a raw db.getClusters() scan because the system cluster is synthesized on the fly (ClusterService.getById/getAll), not a stored row. */
@@ -926,6 +926,44 @@ export async function handleRequestSecret(
   };
 }
 
+async function wireStandaloneSecret(
+  ctx: KoalaToolContext,
+  project: Awaited<ReturnType<Database['getProjects']>>[number],
+  key: string,
+): Promise<void> {
+  const { db, infisicalService } = ctx;
+  if (!infisicalService) return;
+
+  const declared = project.requiredSecrets?.some((s) => s.key === key);
+  if (!declared) {
+    await db.saveProject({
+      ...project,
+      requiredSecrets: [...(project.requiredSecrets ?? []), { key, source: 'leaf-declared' }],
+    });
+  }
+
+  if (await infisicalService.getSecret(project.id, key).catch(() => null)) return;
+
+  const conversations = await db.getConversations();
+  for (const conv of conversations) {
+    const req = (conv.proposedSecretRequests ?? []).find(
+      (r) => r.key === key && r.status === 'fulfilled' && r.projectId !== project.id,
+    );
+    if (!req) continue;
+    const bucket = req.projectId || conv.id;
+    const value = await infisicalService.getSecret(bucket, key).catch(() => null);
+    if (!value) continue;
+    await infisicalService.setSecret(project.id, key, value);
+    await db.saveConversation({
+      ...conv,
+      proposedSecretRequests: (conv.proposedSecretRequests ?? []).map((r) =>
+        (r.id === req.id ? { ...r, projectId: project.id, secretReference: `secret://${project.id}/${key}` } : r)),
+      updatedAt: new Date().toISOString(),
+    });
+    return;
+  }
+}
+
 export async function handleInjectSecretToPod(
   ctx: KoalaToolContext,
   args: Record<string, unknown>,
@@ -952,6 +990,7 @@ export async function handleInjectSecretToPod(
   const deploymentName = 'gitapp';
 
   if (infisicalService) {
+    await wireStandaloneSecret(ctx, project, key);
     const res = await infisicalService.injectSecretToPod({
       projectId: project.id,
       namespace,

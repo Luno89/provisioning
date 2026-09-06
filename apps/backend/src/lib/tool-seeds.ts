@@ -1005,9 +1005,9 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     name: 'revise_leaf',
     category: 'planning',
     effect: 'write',
-    description: 'Change the title, description, or assigned persona of a leaf that is still a PROPOSAL. Use this when asked to reword something already proposed, or to say who should do it, instead of proposing a near-duplicate. Accepted or running work cannot be edited.',
-    usageGuidance: 'Refine or clarify a proposed task.',
-    compactGuidance: 'Update proposed leaf title/body.',
+    description: 'Change the title, description, assigned persona, or dependencies of a leaf that is still PROPOSED or PENDING (not yet started). Use this when asked to reword something, reassign it, or reorder it against other leaves, instead of proposing a near-duplicate. Once a leaf is running or finished its sandbox already exists and cannot be repointed — delete_leaf and repropose it instead.',
+    usageGuidance: 'Refine, reassign, or reorder a proposed or pending task.',
+    compactGuidance: 'Update proposed/pending leaf title/body/persona/dependsOn.',
     requiresBinaries: [],
     parameters: {
       type: 'object',
@@ -1028,6 +1028,13 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
           type: 'string',
           description: 'The name of the persona that should do this work, exactly as listed. A persona decides the toolchain, what the work may reach on the network, which tools it can call and how long it gets — work with none assigned cannot run.',
         },
+        dependsOn: {
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description: 'Replacement list of titles of leaves on this branch that must FINISH before this one starts. Replaces the current list entirely — give every dependency you want kept, not just new ones. Pass an empty array to clear it. Omit this field entirely to leave dependencies unchanged.',
+        },
       },
       required: ['id'],
     },
@@ -1041,6 +1048,31 @@ export const TOOL_SEEDS: ToolRepositoryItem[] = [
     description: 'Withdraw a PROPOSAL you no longer stand behind — a duplicate, or something the user ruled out. Only works while it is still a proposal; accepted work is the human\'s to cancel.',
     usageGuidance: 'Remove duplicate or obsolete proposals.',
     compactGuidance: 'Withdraw unneeded leaf proposal.',
+    requiresBinaries: [],
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The leaf id, as returned by list_leaves.',
+        },
+        reason: {
+          type: 'string',
+          description: 'Why, in a few words. Shown to the user.',
+        },
+      },
+      required: ['id'],
+    },
+    isBuiltIn: true,
+  },
+  {
+    id: 'delete_leaf_tool',
+    name: 'delete_leaf',
+    category: 'planning',
+    effect: 'write',
+    description: 'Permanently remove a leaf — proposed, pending, running, failed, or cancelled — and everything nested under it. Cancels it in the workflow engine first if it is running. Refused for a leaf that already SUCCEEDED: that is completed work, and removing it is the human\'s call. Use this to clean up a mistaken or stuck leaf the way withdraw_leaf can only do for pure proposals.',
+    usageGuidance: 'Remove a leaf that is no longer wanted, including one already accepted or running. Never removes succeeded work.',
+    compactGuidance: 'Delete a leaf and its sub-leaves, cancelling it first if running.',
     requiresBinaries: [],
     parameters: {
       type: 'object',

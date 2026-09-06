@@ -37,9 +37,9 @@ export interface InjectSecretToPodResult {
   namespace: string;
   deploymentName: string;
   key: string;
-  secretReference: string;
-  injectedAs: 'env' | 'file';
-  podRestarted: boolean;
+  secretReference?: string | undefined;
+  injectedAs?: 'env' | 'file' | undefined;
+  podRestarted?: boolean | undefined;
   message: string;
 }
 
@@ -427,11 +427,18 @@ export class InfisicalService {
     const deploymentName = options.deploymentName || projectId;
 
     let secretValue = options.value;
-    if (!secretValue && options.secretReference) {
+    if (!secretValue) {
       secretValue = (await this.getSecret(projectId, key)) ?? undefined;
     }
     if (!secretValue) {
-      secretValue = (await this.getSecret(projectId, key)) ?? 'mock-secret-value';
+      return {
+        success: false,
+        projectId,
+        namespace,
+        deploymentName,
+        key,
+        message: `No vaulted value found for ${key} in project ${projectId} — nothing was injected into the pod.`,
+      };
     }
 
     const { secretReference } = await this.setSecret(projectId, key, secretValue);

@@ -101,7 +101,7 @@ describe('what a planner is offered', () => {
    */
   it('is exactly what its pack grants', () => {
     expect(LEAF_TOOLS.map((t) => t.function.name).sort()).toEqual([
-      'add_project_dependency', 'create_project', 'get_leaf', 'list_leaves', 'list_mcp_servers',
+      'add_project_dependency', 'create_project', 'delete_leaf', 'get_leaf', 'list_leaves', 'list_mcp_servers',
       'list_personas', 'list_projects',
       // `propose_tree` needs a type id that exists, and this is how a planning turn learns them.
       'list_tree_types',
@@ -160,11 +160,19 @@ describe('what a planner is offered', () => {
     expect((propose.function.parameters as { required?: string[] }).required).not.toContain('language');
   });
 
-  it('tells the model editing stops at proposals, so it does not try to rewrite live work', () => {
-    for (const name of ['revise_leaf', 'withdraw_leaf']) {
-      const tool = LEAF_TOOLS.find((t) => t.function.name === name)!;
-      expect(tool.function.description).toMatch(/proposal/i);
-    }
+  it('tells the model withdrawal stops at proposals, so it does not try to rewrite live work', () => {
+    const tool = LEAF_TOOLS.find((t) => t.function.name === 'withdraw_leaf')!;
+    expect(tool.function.description).toMatch(/proposal/i);
+  });
+
+  it('tells the model revision reaches proposed and pending, but not further', () => {
+    const tool = LEAF_TOOLS.find((t) => t.function.name === 'revise_leaf')!;
+    expect(tool.function.description).toMatch(/PROPOSED or PENDING/);
+  });
+
+  it('tells the model delete_leaf refuses succeeded work', () => {
+    const tool = LEAF_TOOLS.find((t) => t.function.name === 'delete_leaf')!;
+    expect(tool.function.description).toMatch(/SUCCEEDED/);
   });
 
   it('says plainly that proposing does not start work', () => {

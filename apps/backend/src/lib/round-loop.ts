@@ -176,8 +176,7 @@ export interface RoundLoopConfig {
   onEnabled?: (name: string) => void;
   /** Recovery passes run after the loop settles (incl. after wrap-up), skipped entirely if interrupted. */
   postPasses?: PostPass[];
-  /** What is recorded per round — the frame and the turn outcome, never the model's input. */
-  maxToolCallsPerMessage: number;
+  maxToolCallsPerRound: number;
   maxToolCallArgs: number;
   maxToolCallDigest: number;
 }
@@ -223,7 +222,7 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
   const {
     maxRounds, messages, call, emit, executeTool,
     trimPerRound, onExhausted, postPasses,
-    maxToolCallsPerMessage, maxToolCallArgs, maxToolCallDigest,
+    maxToolCallsPerRound, maxToolCallArgs, maxToolCallDigest,
   } = cfg;
 
   const originalMessages = [...messages];
@@ -287,13 +286,15 @@ export async function runToolRounds(cfg: RoundLoopConfig): Promise<ToolRoundResu
     } else if (!acc.thinking) {
       break;
     }
+    let recordedThisRound = 0;
     for (const c of acc.calls) {
       cfg.emit({ kind: 'toolCall', id: c.id, name: c.name, args: c.arguments.slice(0, maxToolCallArgs) });
       const out = await executeTool(c);
       const ok = out.ok ?? true;
       const digest = (out.digest ?? out.content).slice(0, maxToolCallDigest);
-      if (toolCalls.length < maxToolCallsPerMessage) {
+      if (recordedThisRound < maxToolCallsPerRound) {
         toolCalls.push({ id: c.id, name: c.name, args: c.arguments.slice(0, maxToolCallArgs), ok, digest });
+        recordedThisRound++;
       }
       cfg.emit({ kind: 'toolResult', id: c.id, ok, digest });
       if (out.enabled && !enabledNow.includes(out.enabled)) enabledNow.push(out.enabled);

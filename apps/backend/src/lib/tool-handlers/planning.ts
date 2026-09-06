@@ -22,6 +22,9 @@ const OWNS: Record<string, readonly ToolNeed[]> = {
   revise_leaf: [],
   withdraw_leaf: [],
   replace_leaf: [],
+  // Not `['temporalBridge']`: most deletes are of proposed/pending leaves with nothing to cancel,
+  // and the handler already calls `rt.temporalBridge?.signalLeaf` optionally for the ones running.
+  delete_leaf: [],
   list_projects: ['projects'],
   create_project: ['projects'],
   set_leaf_project: ['projects'],

@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } fr
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, History, ChevronDown, ArrowDown, AlertTriangle, X, ShieldAlert,
-  Check, Sprout, Sparkles, Inbox,
+  Check, Sprout, Sparkles, Inbox, Square,
 } from 'lucide-react';
 import {
   openChatPackStream,
@@ -163,10 +163,14 @@ export default function ChatSurface({
   const currentTurn = useLiveTurnsStore((s) => (liveTurnKey ? s.turns[liveTurnKey] : undefined));
   const streaming = currentTurn?.status === 'streaming' || creatingConversation;
   const liveState: ChatRenderState = currentTurn?.kind === 'conversation' ? currentTurn.renderState : emptyChatRenderState;
+  const overthinkWarning = streaming
+    ? (currentTurn?.kind === 'conversation' ? currentTurn.renderState.overthinkWarning : currentTurn?.kind === 'branch' ? currentTurn.overthinkWarning : undefined)
+    : undefined;
 
   useEffect(() => {
     if (externalConvId !== undefined) {
       setSelectedConvId(externalConvId);
+      setLocalMessages([]);
     }
   }, [externalConvId]);
 
@@ -206,10 +210,16 @@ export default function ChatSurface({
     staleTime: 30_000,
   });
 
+  const confirmedLenRef = useRef(0);
   useEffect(() => {
-    if (activeConversation && (activeConversation.messages?.length ?? 0) > 0) {
-      setLocalMessages([]);
-    }
+    const persistedLen = activeConversation?.messages?.length ?? 0;
+    setLocalMessages((prev) => {
+      if (prev.length === 0) {
+        confirmedLenRef.current = persistedLen;
+        return prev;
+      }
+      return persistedLen >= confirmedLenRef.current + prev.length ? [] : prev;
+    });
   }, [activeConversation]);
 
   useEffect(() => {
@@ -258,6 +268,7 @@ export default function ChatSurface({
         onOpenTree?.(res.treeId);
       }
     },
+    onError: (err) => setError(`Could not accept the proposal: ${errorMessage(err)}`),
   });
 
   const acceptSpecMutation = useMutation({
@@ -297,6 +308,7 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     },
+    onError: (err) => setError(`Could not grant access: ${errorMessage(err)}`),
   });
 
   const denyEscalationMutation = useMutation({
@@ -306,6 +318,7 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     },
+    onError: (err) => setError(`Could not deny access: ${errorMessage(err)}`),
   });
 
   const submitSecretMutation = useMutation({
@@ -315,6 +328,7 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     },
+    onError: (err) => setError(`Could not save the secret: ${errorMessage(err)}`),
   });
 
   const dismissSecretMutation = useMutation({
@@ -324,6 +338,7 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     },
+    onError: (err) => setError(`Could not dismiss the secret request: ${errorMessage(err)}`),
   });
 
   const scrollToBottomInstant = useCallback(() => {
@@ -522,9 +537,12 @@ export default function ChatSurface({
         const deltaContent = frame.type === 'content' ? String(frame.delta ?? '') : '';
         const deltaReasoning = frame.type === 'thinking' ? String(frame.delta ?? '') : '';
         const interruptedReason = frame.type === 'interrupted' ? String(frame.payload ?? '') : undefined;
-        if (!deltaContent && !deltaReasoning && !interruptedReason) return;
+        const overthinkWarning = frame.type === 'overthinkWarning' ? String(frame.payload ?? '') : undefined;
+        if (!deltaContent && !deltaReasoning && !interruptedReason && !overthinkWarning) return;
 
-        useLiveTurnsStore.getState().appendBranchDelta(key, { content: deltaContent, reasoning: deltaReasoning, interruptedReason });
+        useLiveTurnsStore.getState().appendBranchDelta(key, {
+          content: deltaContent, reasoning: deltaReasoning, interruptedReason, overthinkWarning,
+        });
 
         branch.onMessagesChange((prev) => {
           const copy = [...prev];
@@ -748,6 +766,7 @@ export default function ChatSurface({
                           setSelectedConvId(c.id);
                           onConversationChange?.(c.id);
                           setShowDropdown(false);
+                          setLocalMessages([]);
                         }}
                         className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between transition-colors cursor-pointer ${
                           c.id === selectedConvId
@@ -819,6 +838,7 @@ export default function ChatSurface({
             onSelect={(id) => {
               setSelectedConvId(id);
               onConversationChange?.(id);
+              setLocalMessages([]);
             }}
             onNewChat={() => createMutation.mutate()}
             onDelete={(id) => deleteMutation.mutate(id)}
@@ -931,6 +951,23 @@ export default function ChatSurface({
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {overthinkWarning && (
+                    <div className="w-full p-3 my-2 rounded-md bg-amber-950/60 border border-amber-500/50 text-amber-200 font-sans text-xs flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                        <span className="truncate">This looks like it might be an overthinking loop ({overthinkWarning}). Stop it?</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleStop}
+                        className="shrink-0 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-medium"
+                      >
+                        <Square size={11} />
+                        <span>Stop</span>
+                      </button>
                     </div>
                   )}
 

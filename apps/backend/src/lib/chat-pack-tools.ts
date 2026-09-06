@@ -30,7 +30,7 @@ export interface PackToolContext {
   registry?: Pick<McpRegistryService, 'call' | 'listWithTools'>;
   projects?: ProjectRepoService;
   kubectl?: (args: string[]) => Promise<string>;
-  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp'>;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp' | 'signalLeaf'>;
   infisicalService?: InfisicalService | undefined;
   clusterService?: Pick<ClusterService, 'getById' | 'getAll'> | undefined;
   isAdmin?: boolean | undefined;

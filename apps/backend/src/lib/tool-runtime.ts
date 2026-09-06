@@ -43,7 +43,7 @@ export interface ToolRuntime {
   servers?: readonly McpServer[] | undefined;
   mcpRegistry?: Pick<McpRegistryService, 'listWithTools'> | undefined;
   kubectl?: ((args: string[]) => Promise<string>) | undefined;
-  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp'> | undefined;
+  temporalBridge?: Pick<TemporalBridge, 'promoteProjectBuild' | 'deployApp' | 'signalLeaf'> | undefined;
   infisicalService?: InfisicalService | undefined;
   clusterService?: Pick<ClusterService, 'getById' | 'getAll'> | undefined;
 

@@ -49,10 +49,10 @@ describe('a leaf can name the servers it needs', () => {
 
 describe('the leaf\'s servers reach the executor', () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const activity = readFileSync(join(here, '../activities/ExecuteLeafActivity.ts'), 'utf8');
+  const activity = readFileSync(join(here, './leaf-mcp.ts'), 'utf8');
 
   it('merges the leaf\'s names with the persona\'s instead of replacing them', () => {
-    expect(activity).toMatch(/new Set\(\[\.\.\.wantsMcp\(pack\), \.\.\.\(leaf\?\.mcp \?\? \[\]\)\]\)/);
+    expect(activity).toMatch(/new Set\(\[\.\.\.wantsMcp\(pack\), \.\.\.\(leaf\.mcp \?\? \[\]\)\]\)/);
   });
 
   it('still short-circuits when neither named anything', () => {

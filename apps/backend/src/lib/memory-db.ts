@@ -15,6 +15,7 @@ import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
+import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -40,6 +41,7 @@ export class MemoryDB implements Database {
   private giteaAccounts: GiteaAccount[] = [];
   private experiments: Experiment[] = [];
   private harnessProfiles: HarnessProfile[] = [];
+  private modelThinkingProfiles: ModelThinkingProfile[] = [];
   private treeTypes: TreeTypeSpec[] = [];
   private workspaceImages: WorkspaceImageSpec[] = [];
   private personas: Persona[] = [];
@@ -354,6 +356,16 @@ export class MemoryDB implements Database {
 
   async deleteHarnessProfile(ownerId: string): Promise<void> {
     this.harnessProfiles = this.harnessProfiles.filter((p) => p.ownerId !== ownerId);
+  }
+
+  async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {
+    return this.modelThinkingProfiles.find((p) => p.modelId === modelId) ?? null;
+  }
+
+  async saveModelThinkingProfile(profile: ModelThinkingProfile): Promise<void> {
+    const i = this.modelThinkingProfiles.findIndex((p) => p.modelId === profile.modelId);
+    if (i >= 0) this.modelThinkingProfiles[i] = profile;
+    else this.modelThinkingProfiles.push(profile);
   }
 
   async getGiteaAccount(ownerId: string): Promise<GiteaAccount | null> {
