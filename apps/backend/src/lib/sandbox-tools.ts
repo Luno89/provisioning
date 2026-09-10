@@ -1,6 +1,10 @@
-import { describeSandbox, type WorkspaceLanguage, type WorkspaceSpec } from './workspace-spec.js';
+import {
+  describeSandbox, describeLocalMachineSandbox, describeLocalContainerSandbox,
+  type WorkspaceLanguage, type WorkspaceSpec,
+} from './workspace-spec.js';
 import { imageForLanguage } from './workspace-image-catalogue.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
+import type { LocalEgressRule } from './types.js';
 import type { BudgetConfig } from '@koala/harness-types';
 
 export interface PacingNote {
@@ -144,12 +148,26 @@ export function buildAgentPrompt(
   taskContext: string,
   maxSteps: number,
   sandbox: Pick<WorkspaceSpec, 'egress' | 'env' | 'cpu' | 'memory'> = {},
+  executionKind: 'k8s' | 'local-device' | 'local-container' = 'k8s',
+  localEgress: readonly LocalEgressRule[] = [],
 ): string {
+  const isLocal = executionKind === 'local-device' || executionKind === 'local-container';
   return [
-    'You are completing one piece of work inside a sandboxed container. You have shell access and',
-    'can read and write files. Work autonomously — nobody is available to answer questions.',
+    isLocal
+      ? 'You are completing one piece of work directly on a real machine. You have shell access and'
+        + ' can read and write files. Work autonomously — nobody is available to answer questions.'
+      : 'You are completing one piece of work inside a sandboxed container. You have shell access and'
+        + ' can read and write files. Work autonomously — nobody is available to answer questions.',
     '',
-    describeSandbox(images, { ...sandbox, image: imageForLanguage(images, language) }),
+    executionKind === 'local-device'
+      ? describeLocalMachineSandbox(localEgress)
+      : executionKind === 'local-container'
+        ? describeLocalContainerSandbox({
+          ...(sandbox.cpu ? { cpu: sandbox.cpu } : {}),
+          ...(sandbox.memory ? { memory: sandbox.memory } : {}),
+          egress: localEgress,
+        })
+        : describeSandbox(images, { ...sandbox, image: imageForLanguage(images, language) }),
     '',
     'HOW TO WORK',
     '- Look before you edit: list the directory and read a file rather than assuming its contents.',

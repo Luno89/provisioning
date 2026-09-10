@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Send, Square, Sliders, Cpu, Sparkles } from 'lucide-react';
 
 export interface PersonaPackOption {
@@ -9,9 +9,7 @@ export interface PersonaPackOption {
 }
 
 export interface ChatComposerProps {
-  input: string;
-  onChangeInput: (text: string) => void;
-  onSend: (text?: string) => void;
+  onSend: (text: string) => void;
   onStop: () => void;
   isStreaming: boolean;
   activePack?: PersonaPackOption | undefined;
@@ -31,8 +29,6 @@ export interface ChatComposerProps {
 }
 
 export function ChatComposer({
-  input,
-  onChangeInput,
   onSend,
   onStop,
   isStreaming,
@@ -44,10 +40,11 @@ export function ChatComposer({
   placeholder,
   className = '',
 }: ChatComposerProps) {
+  const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onChangeInput(e.target.value);
+    setInput(e.target.value);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
@@ -60,10 +57,18 @@ export function ChatComposer({
     }
   }, [input]);
 
+  const send = () => {
+    if (isStreaming) return;
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+    onSend(text);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSend(input);
+      send();
     }
   };
 
@@ -131,7 +136,7 @@ export function ChatComposer({
             <button
               type="button"
               aria-label="Send message"
-              onClick={() => onSend(input)}
+              onClick={send}
               disabled={!input.trim()}
               className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white transition-colors cursor-pointer disabled:cursor-not-allowed flex items-center gap-1 text-xs font-medium"
               title="Send message (Enter)"

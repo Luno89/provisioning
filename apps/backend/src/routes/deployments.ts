@@ -38,7 +38,8 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   // The one place both koala (list_infrastructure's deployable field) and the deploy wizard read
   // "what's deployable" from — see lib/app-spec.ts's visibleAppSpecs (built-ins + this user's own).
   router.get('/catalogue', asyncRoute(async (req, res) => {
-    res.json(visibleAppSpecs(await db.getAppSpecs(), userOf(req).id));
+    const specs = visibleAppSpecs(await db.getAppSpecs(), userOf(req).id);
+    res.json(specs.map((s) => ({ ...s, deploysFromSpec: Boolean(s.spec) })));
   }));
 
   router.post('/', async (req, res) => {

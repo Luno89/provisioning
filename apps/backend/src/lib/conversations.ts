@@ -11,6 +11,11 @@ export interface ConversationMessage {
   notice?: true;
 
   handoff?: true;
+
+  /** Set when this message is a salvaged partial reply — the turn was stopped or failed mid-stream
+   * rather than completing normally. Names why, so it reads as "cut short" rather than a finished
+   * answer, both live and after a reload. */
+  interruptedReason?: string;
 }
 
 export interface ConversationToolCall {

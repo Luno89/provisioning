@@ -1,0 +1,23 @@
+{
+  "name": "local-agent",
+  "version": "1.0.0",
+  "description": "Runs on a user's own machine, dials out to the Koala backend, and executes leaf commands directly on this host.",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "socket.io-client": "^4.8.3",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.9"
+  }
+}

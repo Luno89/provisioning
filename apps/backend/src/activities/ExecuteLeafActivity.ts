@@ -3,6 +3,8 @@ import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase } from '../lib/db-interface.js';
 import type { Leaf } from '../lib/leaves.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
+import { LocalMachineWorkspaceService } from '../services/LocalMachineWorkspaceService.js';
+import { approvalModeFor, buildLocalSandboxSpec } from '../lib/local-execution-target.js';
 import { createModelService } from '../lib/model-wiring.js';
 import { runAgentLoop, readStreamedReply } from '../lib/agent-loop.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
@@ -34,6 +36,7 @@ import { requireBudget } from '../lib/pack-defaults.js';
 import { ranAs } from '../lib/run-provenance.js';
 import type { ProgressSample } from '../lib/budget-extension.js';
 import { captureEvidence } from '../lib/leaf-evidence.js';
+import { rateLimitedFetch } from '../lib/model-rate-limiter.js';
 
 import { buildAttemptContext } from '../lib/leaf-attempt-context.js';
 import { classifyLeafRun } from '../lib/leaf-run-classify.js';
@@ -126,7 +129,17 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         runSecrets = [...runSecrets, checkout.cloneUrl, checkout.tokenName];
       }
 
-      const workspaces = new WorkspaceService(process.env.WORKSPACE_KUBECONFIG);
+      const images = await new WorkspaceImageService(db).list(leaf.ownerId);
+      const localMachine = project?.executionTarget?.kind === 'local-device'
+        ? new LocalMachineWorkspaceService(project.executionTarget.deviceId, leaf.ownerId, {
+          db,
+          approvalMode: approvalModeFor(project),
+          projectId: project.id,
+          onHeartbeat: beat,
+          ...(project.executionTarget.egress ? { egress: project.executionTarget.egress } : {}),
+        })
+        : undefined;
+      const workspaces = localMachine ?? new WorkspaceService(process.env.WORKSPACE_KUBECONFIG);
       await workspaces.destroy(leaf.id).catch(() => undefined);
 
       const { bindings } = await resolveLeafBindings({ db }, leaf.id, project?.needs ?? [], leaf.ownerId);
@@ -138,19 +151,22 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         })
         : [];
 
-      const sandboxSpec = personaWorkspace(
-        await new WorkspaceImageService(db).list(leaf.ownerId),
-        { leafId: leaf.id, ownerId: leaf.ownerId },
-        {
-          language: project?.language ?? treeType?.language,
-          bindings,
-          files: bindingFilesForSandbox,
-          ...(treeType?.egress ? { egress: treeType.egress } : {}),
-          ...(treeType?.env ? { env: treeType.env } : {}),
-          ...(wantsRepo ? { requires: ['git'], checkout: true } : {}),
-        },
-      );
+      const sandboxSpec = localMachine
+        ? buildLocalSandboxSpec({ leafId: leaf.id, ownerId: leaf.ownerId }, images, project?.language ?? treeType?.language)
+        : personaWorkspace(
+          images,
+          { leafId: leaf.id, ownerId: leaf.ownerId },
+          {
+            language: project?.language ?? treeType?.language,
+            bindings,
+            files: bindingFilesForSandbox,
+            ...(treeType?.egress ? { egress: treeType.egress } : {}),
+            ...(treeType?.env ? { env: treeType.env } : {}),
+            ...(wantsRepo ? { requires: ['git'], checkout: true } : {}),
+          },
+        );
       await workspaces.create(sandboxSpec);
+      const executionKind = localMachine?.executionKind();
       if (bindings.length) {
         console.log(`[ExecuteLeafActivity] ${leaf.id}: bound ${bindings.map((b) => b.name).join(', ')}`);
       }
@@ -168,6 +184,13 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
         let endsOnce: Promise<MemoryEndpoints> | undefined;
         const memoryEndpoints = () => (endsOnce ??= corpusEndpoints(db, leaf.ownerId));
 
+        const askFetch = rateLimitedFetch(
+          provider.source === 'endpoint' ? provider.id : undefined,
+          leaf.ownerId,
+          provider.name,
+          fetch,
+        );
+
         const ask = async (prompt: string) => {
           const body = buildModelRequest({
             turn: 'tool-turn',
@@ -180,7 +203,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             think: false,
           }).body;
 
-          const res = await fetch(`${baseUrl}/chat/completions`, {
+          const res = await askFetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
             body: JSON.stringify(body),
@@ -228,8 +251,15 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
             baseUrl,
             apiKey,
             model: provider.model,
+            ...(provider.source === 'endpoint'
+              ? { rateLimit: { key: provider.id, ownerId: leaf.ownerId, label: provider.name } }
+              : {}),
             ...(provider.kind ? { kind: provider.kind } : {}),
             ...(treeType?.language ? { language: treeType.language as WorkspaceLanguage } : {}),
+            ...(executionKind ? { executionKind } : {}),
+            ...(project?.executionTarget?.kind === 'local-device' && project.executionTarget.egress
+              ? { localEgress: project.executionTarget.egress }
+              : {}),
             captureTrace: true,
             onStep: buildOnStepDriver(
               { db }, leaf, secretsInPlay,

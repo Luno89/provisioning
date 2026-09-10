@@ -27,6 +27,7 @@ vi.mock('../api/chat-pack', async (orig) => ({
   acceptEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
   denyEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
   acceptSpecProposal: vi.fn().mockResolvedValue({ id: 'mongo' }),
+  acceptTreeProposal: vi.fn(),
 }));
 
 vi.mock('../api/client', async (orig) => ({
@@ -109,6 +110,84 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     // right where the background stream left off, not start blank.
     renderWithProviders(<ChatSurface conversationId="c1" />);
     await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
+  });
+
+  it('does not lose or duplicate a turn when the sidebar switches conversations while it is still streaming', async () => {
+    const encoder = new TextEncoder();
+    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controllerRef = controller; },
+    });
+    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
+
+    const { rerender } = renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    // Same component instance, same as clicking a different thread in the sidebar mid-turn — the
+    // in-flight send (still tied to c1's conversationTurnKey) keeps running in the background.
+    rerender(<QueryClientProvider client={queryClient}><ChatSurface conversationId="c2" /></QueryClientProvider>);
+    rerender(<QueryClientProvider client={queryClient}><ChatSurface conversationId="c1" /></QueryClientProvider>);
+
+    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Hello"}\n\n'));
+    controllerRef.enqueue(encoder.encode('data: [DONE]\n\n'));
+    controllerRef.close();
+
+    await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
+    expect(screen.getAllByText('hi')).toHaveLength(1);
+    expect(screen.getAllByText('Hello')).toHaveLength(1);
+  });
+
+  it('keeps the partial reply, thinking, and tool call visible after Stop is clicked mid-stream', async () => {
+    const encoder = new TextEncoder();
+    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controllerRef = controller; },
+    });
+    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    controllerRef.enqueue(encoder.encode('data: {"type":"thinking","delta":"pondering"}\n\n'));
+    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Partial answer"}\n\n'));
+    controllerRef.enqueue(encoder.encode('data: {"type":"toolAnnounce","payload":{"id":"t1","name":"get_logs","args":"{}"}}\n\n'));
+    await waitFor(() => expect(screen.getByText('Partial answer')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTitle(/stop generation/i));
+
+    // The live bubble unmounts the instant Stop is clicked (status flips away from streaming) —
+    // the content must already be in the persisted message list by then, not lost with it.
+    expect(screen.getByText('Partial answer')).toBeInTheDocument();
+    expect(screen.getByText('get_logs')).toBeInTheDocument();
+    expect(screen.getByText(/interrupted/i)).toBeInTheDocument();
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
+
+    controllerRef.close();
+  });
+
+  it('keeps the partial reply when the stream fails for a reason other than Stop', async () => {
+    const encoder = new TextEncoder();
+    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) { controllerRef = controller; },
+    });
+    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Partial before drop"}\n\n'));
+    await waitFor(() => expect(screen.getByText('Partial before drop')).toBeInTheDocument());
+
+    // Simulate a dropped connection: the reader rejects with a non-abort error, never emitting [DONE].
+    controllerRef.error(new Error('network reset'));
+
+    await waitFor(() => expect(screen.getByText(/turn failed/i)).toBeInTheDocument());
+    expect(screen.getByText('Partial before drop')).toBeInTheDocument();
+    expect(screen.getByText(/stopped early/i)).toBeInTheDocument();
   });
 
   it('renders a thinking pane when thinking frames arrive', async () => {
@@ -291,6 +370,57 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(chatPackApi.acceptSpecProposal).toHaveBeenCalledWith('c1', 'mongo'));
     await waitFor(() => expect(screen.getByText('Nothing pending')).toBeInTheDocument());
     expect(screen.queryByText('Add to the catalogue')).not.toBeInTheDocument();
+  });
+
+  /**
+   * Regression: acceptTreeMutation used to read `res.treeId`, but the backend response shape is
+   * `{ tree: { id, ... }, branch, project, planning }` — there is no top-level `treeId`, so
+   * onOpenTree never fired and accepting a project proposal silently failed to redirect anywhere.
+   */
+  it('redirects to the accepted tree via onOpenTree, reading the id from res.tree.id', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockResolvedValueOnce({
+      id: 'c1',
+      title: 'Test Conversation',
+      messages: [{ role: 'user', content: 'plan a new project' }],
+      proposedTrees: [{
+        id: 'prop-1', name: 'Odoo Rollout', type: 'default', goal: 'Roll out Odoo', proposedAt: '2026-09-06T12:00:00Z',
+      }],
+    });
+    vi.mocked(chatPackApi.acceptTreeProposal).mockResolvedValue({
+      tree: { id: 'tree-1', name: 'Odoo Rollout' },
+      branch: { id: 'branch-1' },
+      project: { id: 'project-1' },
+      planning: false,
+    });
+    const onOpenTree = vi.fn();
+
+    renderWithProviders(<ChatSurface conversationId="c1" onOpenTree={onOpenTree} />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
+
+    await waitFor(() => expect(screen.getByText('Accept to Grove')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Accept to Grove'));
+
+    await waitFor(() => expect(chatPackApi.acceptTreeProposal).toHaveBeenCalledWith('c1', 'prop-1'));
+    await waitFor(() => expect(onOpenTree).toHaveBeenCalledWith('tree-1'));
+  });
+
+  it('opens the Proposals panel on its own when Koala proposes a project live, without the user clicking Toggle proposals', async () => {
+    const mockRes = new Response(makeSseStream([
+      '{"type":"content","delta":"Here is a plan."}',
+      '{"type":"proposedTree","payload":{"id":"prop-2","name":"Odoo Rollout","type":"default"}}',
+    ]), { status: 200 });
+    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: 'plan something' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitFor(() => expect(screen.getByText('Odoo Rollout')).toBeInTheDocument());
+    expect(screen.getByText('Accept to Grove')).toBeInTheDocument();
   });
 
   it('displays ELEVATED badge in header bar when conversation is escalated', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { pacingNoteFor, researchPacing, codePacing, trimConversation, toolsForStep } from './sandbox-tools.js';
+import { pacingNoteFor, researchPacing, codePacing, trimConversation, toolsForStep, buildAgentPrompt } from './sandbox-tools.js';
 import { PACK_SEEDS } from './pack-seeds.js';
+import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
 const BUDGET = PACK_SEEDS[0]!.budget;
 
@@ -88,6 +89,40 @@ describe('keeping the conversation inside the model window', () => {
     const before = convo().reduce((n, m) => n + String(m.content).length, 0);
     const after = trimConversation(convo(), 6000).reduce((n, m) => n + String(m.content).length, 0);
     expect(after).toBeLessThan(before / 2);
+  });
+});
+
+describe('buildAgentPrompt — which environment it describes', () => {
+  it('defaults to the K8s container framing', () => {
+    const text = buildAgentPrompt(IMAGES, 'node', 'do the thing', 20);
+    expect(text).toMatch(/sandboxed container/);
+    expect(text).toMatch(/Linux container/);
+  });
+
+  it('switches to the local-machine framing when told the run is local', () => {
+    const text = buildAgentPrompt(IMAGES, 'node', 'do the thing', 20, {}, 'local-device');
+    expect(text).toMatch(/directly on a real machine/);
+    expect(text).not.toMatch(/sandboxed container/);
+    expect(text).not.toMatch(/Linux container/);
+  });
+
+  it('still carries the task and step budget through in local-machine mode', () => {
+    const text = buildAgentPrompt(IMAGES, 'node', 'ship the feature', 7, {}, 'local-device');
+    expect(text).toContain('ship the feature');
+    expect(text).toContain('up to 7 steps');
+  });
+
+  it('passes local egress hints through to the local-machine description', () => {
+    const text = buildAgentPrompt(IMAGES, 'node', 'do the thing', 20, {}, 'local-device', [{ host: 'registry.npmjs.org' }]);
+    expect(text).toContain('registry.npmjs.org');
+  });
+
+  it('switches to the local-container framing, with enforced (not advisory) network language', () => {
+    const text = buildAgentPrompt(IMAGES, 'node', 'do the thing', 20, {}, 'local-container', [{ host: 'registry.npmjs.org' }]);
+    expect(text).toMatch(/directly on a real machine/);
+    expect(text).toMatch(/ENFORCED, not advisory/);
+    expect(text).toContain('registry.npmjs.org');
+    expect(text).not.toMatch(/There is NO isolation/);
   });
 });
 

@@ -20,6 +20,7 @@ import { backupRouter } from './routes/backup.js';
 import { clustersRouter } from './routes/clusters.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { treeTypesRouter } from './routes/tree-types.js';
+import { customStepsRouter } from './routes/custom-steps.js';
 import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
 import { branchesRouter } from './routes/branches.js';
@@ -34,6 +35,9 @@ import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { meshRouter } from './routes/mesh.js';
+import { localAgentsRouter } from './routes/local-agents.js';
+import { pendingApprovalsRouter } from './routes/pending-approvals.js';
+import { findDeviceByToken, registerDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
 import { providersToSeed } from './lib/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
@@ -339,6 +343,26 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
+  const agentNamespace = io.of('/agent');
+  agentNamespace.use(async (socket, next) => {
+    const token = socket.handshake.auth?.token as string | undefined;
+    if (!token) return next(new Error('Missing device token'));
+    const device = findDeviceByToken(await db.getLocalAgentDevices(), token, JWT_SECRET);
+    if (!device) return next(new Error('Unauthorized'));
+    socket.data.device = device;
+    next();
+  });
+  agentNamespace.on('connection', (socket) => {
+    const device = socket.data.device as { id: string; ownerId: string; rootDir: string };
+    const containerMode = socket.handshake.auth?.containerMode === true;
+    registerDevice(device.id, device.ownerId, device.rootDir, socket, containerMode);
+    db.getLocalAgentDevices().then((devices) => {
+      const current = devices.find((d) => d.id === device.id);
+      if (current) db.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
+    }).catch(() => undefined);
+    socket.on('disconnect', () => unregisterDevice(device.id, socket));
+  });
+
   async function authorizeRoom(user: UserMetadata | undefined, id: string): Promise<any | undefined> {
     if (!user) return undefined;
     const cluster = await clusterService.getById(id, user.id);
@@ -592,6 +616,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     giteaService, clusterService, infraService, jwtSecret: JWT_SECRET,
   }));
   app.use('/api/mesh', meshRouter({ headscaleService, db, jwtSecret: JWT_SECRET }));
+  app.use('/api/mesh/local-agents', localAgentsRouter({ db, jwtSecret: JWT_SECRET }));
+  app.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   app.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   app.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
   app.use('/api/admin', adminRouter({ db, requireAdmin }));
@@ -636,6 +662,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/packs', packsRouter({ db, packs: personaPackService, modelIdsFor }));
 
   app.use('/api/tree-types', treeTypesRouter({ db }));
+  app.use('/api/custom-steps', customStepsRouter({ db }));
   app.use('/api/binding-types', bindingTypesRouter({ db }));
   app.use('/api/trees', treesRouter({ db, temporalBridge }));
   app.use('/api/branches', branchesRouter({ db, temporalBridge }));

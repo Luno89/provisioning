@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client';
 import {
   useDeploymentPods, useHelmStatus, useDiagnostics,
-  useAvailableModules, useResourcePlan, useInitialLogs, deploymentKeys,
+  useAvailableModules, useResourcePlan, useInitialLogs, deploymentKeys, useAppCatalogue,
 } from '../../api/deployments';
 import { useTabbyImageTags } from '../../api/models';
 import { useLogSocket } from '../../stores/socket';
@@ -13,7 +13,6 @@ import type { Deployment } from '../../types/deployment';
 import type { Cluster } from '../../types/cluster';
 import { AnsiText } from '../AnsiText';
 import GameServerSettings from '../GameServerSettings';
-import { APP_DEFAULTS, TABBY_TOOL_FORMATS } from '../app-catalog';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 
@@ -59,6 +58,10 @@ export default function AppDashboard({
     currentDeployment?.appType, logTab === 'modules' && !!currentDeployment,
   );
   const { data: resourcePlan } = useResourcePlan(currentDeployment);
+  const { data: catalogue = [] } = useAppCatalogue();
+  const hasDatabaseFor = (appType: string | undefined) =>
+    Boolean(catalogue.find((c) => c.id === (appType || 'odoo'))?.uiDefaults?.hasDatabase);
+  const tabbyToolFormats = catalogue.find((c) => c.id === 'tabbyapi')?.uiDefaults?.toolFormats ?? [];
   const { options: tabbyImageTagOptions, loading: loadingTabbyImageTags } = useTabbyImageTags(
     currentDeployment?.appType === 'tabbyapi',
   );
@@ -315,7 +318,7 @@ export default function AppDashboard({
                          } else {
                            patch.webRepo = configInputs.webRepo;
                            patch.webTag = configInputs.webTag;
-                           if (APP_DEFAULTS[appType]?.hasDatabase) {
+                           if (hasDatabaseFor(appType)) {
                              patch.dbRepo = configInputs.dbRepo;
                              patch.dbTag = configInputs.dbTag;
                            }
@@ -496,7 +499,7 @@ export default function AppDashboard({
                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Format</label>
                        <select value={configInputs.tabbyToolFormat} onChange={e => setConfigInputs(prev => ({ ...prev, tabbyToolFormat: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all">
                          <option value="">None — tool calls won't be parsed</option>
-                         {TABBY_TOOL_FORMATS.map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
+                         {tabbyToolFormats.map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
                        </select>
                      </div>
 
@@ -576,7 +579,7 @@ export default function AppDashboard({
                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tag</label>
                          <input value={configInputs.webTag} onChange={e => setConfigInputs(prev => ({ ...prev, webTag: e.target.value }))} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none transition-all" />
                        </div>
-                       {APP_DEFAULTS[currentDeployment.appType || 'odoo']?.hasDatabase && (
+                       {hasDatabaseFor(currentDeployment.appType) && (
                          <>
                            <div>
                              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Database Repository</label>

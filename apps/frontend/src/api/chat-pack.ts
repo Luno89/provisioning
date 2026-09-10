@@ -34,6 +34,7 @@ export interface ChatConversationMessage {
   }> | undefined;
   notice?: boolean | undefined;
   handoff?: boolean | undefined;
+  interruptedReason?: string | undefined;
 }
 
 export interface ProposedEscalationRecord {

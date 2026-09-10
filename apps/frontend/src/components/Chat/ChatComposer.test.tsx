@@ -5,8 +5,6 @@ import ChatComposer from './ChatComposer.js';
 const mockPack = { id: 'koala', name: 'Koala', label: 'KOALA', desc: 'General Builder' };
 
 const base = {
-  input: '',
-  onChangeInput: vi.fn(),
   onSend: vi.fn(),
   onStop: vi.fn(),
   isStreaming: false,
@@ -17,11 +15,12 @@ const base = {
 describe('ChatComposer — Modern floating capsule input', () => {
   it('renders placeholder, textarea input, and sends on Enter key', () => {
     const handleSend = vi.fn();
-    render(<ChatComposer {...base} input="List all pods" onSend={handleSend} />);
+    render(<ChatComposer {...base} onSend={handleSend} />);
 
     const textarea = screen.getByPlaceholderText(/message koala/i);
     expect(textarea).toBeInTheDocument();
 
+    fireEvent.change(textarea, { target: { value: 'List all pods' } });
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
     expect(handleSend).toHaveBeenCalledWith('List all pods');
   });
@@ -34,6 +33,18 @@ describe('ChatComposer — Modern floating capsule input', () => {
     expect(stopButton).toBeInTheDocument();
     fireEvent.click(stopButton);
     expect(handleStop).toHaveBeenCalled();
+  });
+
+  it('keeps a typed draft instead of clearing it if Enter is pressed while a reply is still streaming', () => {
+    const handleSend = vi.fn();
+    render(<ChatComposer {...base} isStreaming onSend={handleSend} />);
+
+    const textarea = screen.getByPlaceholderText(/message koala/i);
+    fireEvent.change(textarea, { target: { value: 'a follow-up question' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+
+    expect(handleSend).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue('a follow-up question');
   });
 });
 

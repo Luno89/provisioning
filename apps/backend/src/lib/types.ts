@@ -1,4 +1,3 @@
-import type { AppType } from './app-catalog.js';
 export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'remote' | 'hetzner';
 
 export interface ClusterProgress {
@@ -49,7 +48,7 @@ export interface DeploymentMetadata {
   clusterId: string;
   ownerId?: string;
   strategy: 'helm' | 'native';
-  appType?: AppType;
+  appType?: string;
   gitappProjectId?: string;
   gitappImageTag?: string;
   status: 'deploying' | 'running' | 'failed' | 'unhealthy' | 'destroying' | 'discovered';
@@ -174,6 +173,55 @@ export interface ProjectMetadata {
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
   requiredSecrets?: { key: string; source: string }[]; // recorded on first auto-provision — see lib/secret-sources.ts
   createdAt: string;
+  /**
+   * Where this project's leaves execute. Absent means the K8s sandbox (today's only behaviour).
+   * A local device's `egress` is enforced when the device is running its leaves in a Docker
+   * container (a local allowlist proxy — see `apps/local-agent/src/egress-proxy.ts`) and advisory
+   * only when it's falling back to raw host execution (no proxy exists to enforce it there). Which
+   * applies for a given run is decided by what the agent reports at connect time, not by this field.
+   */
+  executionTarget?: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string; egress?: LocalEgressRule[] };
+  /**
+   * Whether a local-device command needs a human's sign-off before it runs. Only meaningful
+   * alongside `executionTarget.kind === 'local-device'` — the K8s sandbox has no plan mode.
+   * Absent means 'plan' for a local device (the safer default) and 'auto' otherwise.
+   */
+  executionApproval?: 'plan' | 'auto';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+export interface LocalAgentDeviceMetadata {
+  id: string;
+  ownerId: string;
+  name: string;
+  tokenEnc: string;
+  rootDir: string;
+  createdAt: string;
+  lastSeenAt?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
+
+/**
+ * A hostname allowlist entry for a local execution target's egress proxy. Exact match, no
+ * wildcards — a CIDR wouldn't usefully name most real destinations (they sit behind rotating IPs
+ * on a CDN), so this names the thing the CONNECT proxy actually sees: a hostname.
+ */
+export interface LocalEgressRule {
+  host: string;
+  ports?: number[];
+}
+
+export interface PendingApprovalMetadata {
+  id: string;
+  ownerId: string;
+  leafId: string;
+  projectId?: string;
+  command: string;
+  status: 'pending' | 'approved' | 'denied';
+  createdAt: string;
+  decidedAt?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
@@ -190,6 +238,9 @@ export interface PipelineRunMetadata {
   startedAt: string;
   finishedAt?: string;
   errorMessage?: string;
+  commitMessage?: string;
+  promotedAt?: string;
+  deploymentId?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

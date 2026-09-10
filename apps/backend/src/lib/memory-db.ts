@@ -4,7 +4,7 @@ import type { StoredAppSpec } from './app-spec.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { Database, PartialInfo, BindingTypeRecord } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
@@ -18,6 +18,7 @@ import type { HarnessProfile } from './harness-profile.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
+import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 
@@ -29,6 +30,8 @@ export class MemoryDB implements Database {
   private pipelineRuns: PipelineRunMetadata[] = [];
   private invites: InviteMetadata[] = [];
   private modelEndpoints: ModelEndpointMetadata[] = [];
+  private localAgentDevices: LocalAgentDeviceMetadata[] = [];
+  private pendingApprovals: PendingApprovalMetadata[] = [];
   private leaves: Leaf[] = [];
   private corpus: CorpusPage[] = [];
   private frontier: FrontierUrl[] = [];
@@ -43,6 +46,7 @@ export class MemoryDB implements Database {
   private harnessProfiles: HarnessProfile[] = [];
   private modelThinkingProfiles: ModelThinkingProfile[] = [];
   private treeTypes: TreeTypeSpec[] = [];
+  private customStepDefinitions: CustomStepDefinition[] = [];
   private workspaceImages: WorkspaceImageSpec[] = [];
   private personas: Persona[] = [];
   private personaPacks: PersonaPack[] = [];
@@ -57,6 +61,8 @@ export class MemoryDB implements Database {
     this.pipelineRuns = [];
     this.invites = [];
     this.modelEndpoints = [];
+    this.localAgentDevices = [];
+    this.pendingApprovals = [];
     this.leaves = [];
     this.branches = [];
     this.conversations = [];
@@ -72,6 +78,8 @@ export class MemoryDB implements Database {
     this.pipelineRuns = [];
     this.invites = [];
     this.modelEndpoints = [];
+    this.localAgentDevices = [];
+    this.pendingApprovals = [];
     this.leaves = [];
     this.branches = [];
     this.conversations = [];
@@ -256,6 +264,34 @@ export class MemoryDB implements Database {
     this.modelEndpoints = this.modelEndpoints.filter((e) => e.id !== id);
   }
 
+  async getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]> {
+    return this.localAgentDevices;
+  }
+
+  async saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> {
+    const i = this.localAgentDevices.findIndex((d) => d.id === device.id);
+    if (i >= 0) this.localAgentDevices[i] = device;
+    else this.localAgentDevices.push(device);
+  }
+
+  async deleteLocalAgentDevice(id: string): Promise<void> {
+    this.localAgentDevices = this.localAgentDevices.filter((d) => d.id !== id);
+  }
+
+  async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {
+    return this.pendingApprovals;
+  }
+
+  async savePendingApproval(approval: PendingApprovalMetadata): Promise<void> {
+    const i = this.pendingApprovals.findIndex((a) => a.id === approval.id);
+    if (i >= 0) this.pendingApprovals[i] = approval;
+    else this.pendingApprovals.push(approval);
+  }
+
+  async deletePendingApproval(id: string): Promise<void> {
+    this.pendingApprovals = this.pendingApprovals.filter((a) => a.id !== id);
+  }
+
   async getLeaves(): Promise<Leaf[]> {
     return this.leaves;
   }
@@ -314,6 +350,20 @@ export class MemoryDB implements Database {
 
   async deleteTreeType(id: string, ownerId: string): Promise<void> {
     this.treeTypes = this.treeTypes.filter((t) => !(t.id === id && t.ownerId === ownerId));
+  }
+
+  async getCustomStepDefinitions(ownerId: string): Promise<CustomStepDefinition[]> {
+    return this.customStepDefinitions.filter((d) => d.ownerId === ownerId);
+  }
+
+  async saveCustomStepDefinition(definition: CustomStepDefinition): Promise<void> {
+    const i = this.customStepDefinitions.findIndex((d) => d.id === definition.id && d.ownerId === definition.ownerId);
+    if (i >= 0) this.customStepDefinitions[i] = definition;
+    else this.customStepDefinitions.push(definition);
+  }
+
+  async deleteCustomStepDefinition(id: string, ownerId: string): Promise<void> {
+    this.customStepDefinitions = this.customStepDefinitions.filter((d) => !(d.id === id && d.ownerId === ownerId));
   }
 
   async getPersonas(): Promise<Persona[]> {

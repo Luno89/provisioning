@@ -170,4 +170,14 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     files: [],
     packs: DEFAULT_PACKS,
   },
+  {
+    id: 'freeform',
+    label: 'Freeform project',
+    summary: 'Doesn\'t fit the other types — no starter files, no language or framework assumed.',
+    language: 'base',
+    produces: 'service',
+    doneMeans: 'Whatever the plan itself defines as done — say so explicitly when proposing leaves for this type.',
+    packs: DEFAULT_PACKS,
+    files: [],
+  },
 ];

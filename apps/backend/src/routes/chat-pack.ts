@@ -17,10 +17,12 @@ import { withConversationNotice } from '../lib/conversation-notice.js';
 import { resolvePrompt } from '../lib/personas.js';
 import { trimConversation, conversationBudget } from '../lib/sandbox-tools.js';
 import { openSse, sendFrame, endSse } from '../lib/sse.js';
+import type { UnifiedFrame } from '../lib/chat-wire.js';
 import { v4 as uuidv4 } from 'uuid';
 import { appendUserTurn } from '../lib/chat-pack-context.js';
 import { composePersonaPrompt } from '../lib/persona-prompt.js';
 import { buildChatCompletionRequest } from '../lib/chat-pack-model-call.js';
+import { rateLimitedFetch } from '../lib/model-rate-limiter.js';
 import { makePackToolExecutor } from '../lib/chat-pack-tools.js';
 import { schemasFor } from '../lib/tool-catalogue.js';
 import { toLoopTools } from '../lib/mcp-tools.js';
@@ -395,6 +397,13 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       return [...ownTools, ...remote];
     };
 
+    const chatFetch = rateLimitedFetch(
+      provider.source === 'endpoint' ? provider.id : undefined,
+      userId,
+      provider.name,
+      fetch,
+    );
+
     const call = async (reqBody: { messages: unknown[]; tools: string[]; toolChoice?: 'none' }) => {
       const toolSchemas = toolsFor(reqBody.tools);
       const body = buildChatCompletionRequest({
@@ -407,7 +416,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
         budget: pack.budget,
         ...(reqBody.toolChoice === 'none' ? { toolChoice: 'none' as const } : {}),
       });
-      return fetch(`${baseUrl}/chat/completions`, {
+      return chatFetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
         body: JSON.stringify(body as any),
@@ -499,6 +508,31 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
       },
     ];
 
+    // Mirrors what the frontend's own chat-unified-reducer accumulates from these same frames —
+    // kept here too so a turn that never reaches the success path below (Stop, a dropped
+    // connection, any error mid-stream) still has something to save. Without this, an interrupted
+    // turn's tool calls and partial reply were silently thrown away: nothing between here and the
+    // catch block ever persisted them, so they vanished from the conversation on reload and were
+    // invisible to the model on the next turn.
+    const acc = {
+      content: '',
+      thinking: '',
+      enabled: [] as string[],
+      tools: new Map<string, { id: string; name: string; args: string; ok: boolean; digest: string }>(),
+    };
+    const onFrame = (frame: UnifiedFrame) => {
+      sendFrame(res, frame as any);
+      if (frame.type === 'content') acc.content += frame.delta;
+      else if (frame.type === 'thinking') acc.thinking += frame.delta;
+      else if (frame.type === 'enabled') acc.enabled.push(...frame.payload);
+      else if (frame.type === 'toolAnnounce') {
+        acc.tools.set(frame.payload.id, { id: frame.payload.id, name: frame.payload.name, args: frame.payload.args, ok: true, digest: '' });
+      } else if (frame.type === 'toolResult') {
+        const existing = acc.tools.get(frame.payload.id);
+        if (existing) acc.tools.set(frame.payload.id, { ...existing, ok: frame.payload.ok, digest: frame.payload.digest ?? '' });
+      }
+    };
+
     try {
       const result = await runChatTurn({
         maxRounds: pack.budget.rounds,
@@ -513,7 +547,7 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
         trimPerRound: (m: unknown[]) => trimConversation(m as any, conversationBudget(pack.budget, provider?.contextTokens)),
         onStreamEvent,
         postPasses,
-        onFrame: (frame) => sendFrame(res, frame as any),
+        onFrame,
       });
 
       try {
@@ -566,8 +600,32 @@ export function personaChatRouter(deps: PersonaChatRouterDeps): Router {
 
       endSse(res);
     } catch (err: any) {
-      if (upstreamAbort.signal.aborted) return;
-      console.warn(`[chat-pack] turn failed: ${err.message}`);
+      const aborted = upstreamAbort.signal.aborted;
+      if (!aborted) console.warn(`[chat-pack] turn failed: ${err.message}`);
+
+      if (acc.content || acc.thinking || acc.tools.size > 0) {
+        try {
+          const latestConv = (await db.getConversations()).find((c) => c.id === conversation.id) ?? thread;
+          const salvagedMsg: any = {
+            role: 'assistant',
+            content: acc.content,
+            at: new Date().toISOString(),
+            ...(acc.thinking ? { reasoning: acc.thinking } : {}),
+            ...(acc.enabled.length ? { enabled: acc.enabled } : {}),
+            ...(acc.tools.size ? { toolCalls: [...acc.tools.values()] } : {}),
+            interruptedReason: aborted ? 'Stopped' : `Stopped early: ${err.message}`,
+          };
+          await db.saveConversation({
+            ...latestConv,
+            messages: [...latestConv.messages, salvagedMsg],
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (saveErr) {
+          console.warn(`[chat-pack] could not save salvaged partial reply: ${(saveErr as Error).message}`);
+        }
+      }
+
+      if (aborted) return;
       if (!res.headersSent) return res.status(502).json({ error: err.message });
       try { endSse(res); } catch { /* ignored */ }
     }

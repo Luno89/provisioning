@@ -321,7 +321,7 @@ export async function DeployAppActivity(
     const stored = (await specDb.getAppSpecs()).find((s) => s.id === args.appType)
       ?? undefined;
     await specDb.close().catch(() => undefined);
-    if (stored) {
+    if (stored?.spec) {
       const secrets: Record<string, string> = {};
       for (const e of stored.spec.env ?? []) {
         if (e.generate && e.fromSecret) {

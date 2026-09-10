@@ -1,12 +1,18 @@
-import type { WorkspaceService } from '../services/WorkspaceService.js';
 import type { ValidationExecutionEnvironment } from '../services/UniversalValidatorService.js';
 import {
   SANDBOX_FETCH_SCRIPT, SANDBOX_FETCH_SCRIPT_RELATIVE_PATH, SANDBOX_FETCH_COMMAND,
   sandboxFetchRequest, parseSandboxFetchOutput,
 } from './sandbox-fetch.js';
 
+/** Whatever runs a leaf's commands — the K8s sandbox today, a local machine as of this type's introduction. */
+export interface LeafWorkspace {
+  exec(leafId: string, command: string, timeoutMs?: number, positional?: string[]): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }>;
+  readFile(leafId: string, path: string): Promise<string>;
+  writeFile(leafId: string, path: string, content: string): Promise<void>;
+}
+
 export async function buildValidatorEnv(
-  workspaces: WorkspaceService,
+  workspaces: LeafWorkspace,
   workspaceId: string,
   opts: { cwd?: string | undefined } = {},
 ): Promise<ValidationExecutionEnvironment> {

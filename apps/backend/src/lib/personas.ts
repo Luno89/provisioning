@@ -61,3 +61,30 @@ export function validateEgressRules(egress: unknown): string | undefined {
   }
   return undefined;
 }
+
+const HOSTNAME = /^(?=.{1,253}$)(?!-)[a-zA-Z0-9-]{1,63}(?<!-)(\.(?!-)[a-zA-Z0-9-]{1,63}(?<!-))*$/;
+
+/**
+ * A local execution target's egress allowlist — hostnames, not CIDRs. Unlike `validateEgressRules`
+ * (K8s NetworkPolicy, IP/namespace-based), the local CONNECT proxy sees a hostname per request, and
+ * most real destinations (SaaS APIs, package registries) sit behind rotating IPs a CIDR can't name.
+ */
+export function validateLocalEgressRules(egress: unknown): string | undefined {
+  if (egress === undefined) return undefined;
+  if (!Array.isArray(egress)) return 'Egress must be a list of rules.';
+  for (const rule of egress) {
+    if (typeof rule !== 'object' || rule === null) return 'Each egress rule must be an object.';
+    const r = rule as Record<string, unknown>;
+    if (typeof r.host !== 'string' || r.host === '') return 'Each egress rule needs a host.';
+    if (!HOSTNAME.test(r.host)) return `"${r.host}" is not a valid hostname.`;
+    if (r.ports !== undefined) {
+      if (!Array.isArray(r.ports)) return 'Ports must be a list of numbers.';
+      for (const port of r.ports) {
+        if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+          return `"${String(port)}" is not a valid port.`;
+        }
+      }
+    }
+  }
+  return undefined;
+}

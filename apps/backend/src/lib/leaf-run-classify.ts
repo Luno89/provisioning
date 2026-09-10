@@ -5,7 +5,7 @@ import type { Tree } from './trees.js';
 import type { TreeTypeSpec, ValidationRecipe } from './tree-types.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ModelProvider, EndpointSource } from './model-registry.js';
-import { resolveTreeType, leafValidationRecipe } from './tree-types.js';
+import { resolveTreeType, leafValidationRecipe, resolveCustomSteps } from './tree-types.js';
 import { conventionsOf, type FileConventions } from './tree-type-conventions.js';
 import { packForLeaf } from './pack-seeds.js';
 import { flattenPersona, usesRepo } from './persona-scope.js';
@@ -32,7 +32,7 @@ export interface LeafRunClassification {
 }
 
 export interface ClassifyLeafRunDeps {
-  db: Pick<Database, 'getHarnessProfile' | 'getPersonas' | 'getBranches' | 'getTrees' | 'getPersonaPacks' | 'getTreeTypes'>;
+  db: Pick<Database, 'getHarnessProfile' | 'getPersonas' | 'getBranches' | 'getTrees' | 'getPersonaPacks' | 'getTreeTypes' | 'getCustomStepDefinitions'>;
   resolveBaseUrl: (
     ownerId: string, modelId: undefined, packEndpointId?: string | null,
   ) => Promise<{ provider: ModelProvider; baseUrl: string; apiKey?: string; source: EndpointSource }>;
@@ -73,11 +73,15 @@ export async function classifyLeafRun(
   const workLanguage = treeType?.language as WorkspaceLanguage | undefined;
   const outputPath = pack?.output;
   const isDocumentLeaf = Boolean(outputPath || !wantsRepo);
+  const customStepDefs = await db.getCustomStepDefinitions(leaf.ownerId);
   const leafRecipe = leafValidationRecipe(
-    leaf.validationContract
-      ?? (isDocumentLeaf
-        ? (treeType?.validationRecipe?.type === 'document' ? treeType.validationRecipe : undefined)
-        : treeType?.validationRecipe),
+    resolveCustomSteps(
+      leaf.validationContract
+        ?? (isDocumentLeaf
+          ? (treeType?.validationRecipe?.type === 'document' ? treeType.validationRecipe : undefined)
+          : treeType?.validationRecipe),
+      customStepDefs,
+    ),
   );
 
   const systemPrompt = resolvePrompt(persona);

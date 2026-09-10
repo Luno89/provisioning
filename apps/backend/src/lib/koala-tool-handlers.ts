@@ -22,6 +22,16 @@ import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import { CapacityError } from './cluster-capacity.js';
 import { findSecretSource, matchSecretSource } from './secret-sources.js';
+import { withBuiltIns } from './ownership.js';
+import {
+  validateTreeType, isContainerNode, VALIDATION_CHECK_TYPES, LOOP_TYPES, TREE_TYPE_PACK_ROLES, MAX_STARTER_FILES,
+  type TreeTypeSpec, type TreeTypeFile, type ValidationRecipe, type ValidationCheckDefinition, type ValidationCheckType,
+  type RecipeNode, type RecipeGroup, type RecipeLoop, type LoopType,
+} from './tree-types.js';
+import {
+  findRecipeNode, childrenOfRecipeNode, insertRecipeNode, removeRecipeNode, updateRecipeNode,
+  reorderRecipeChildren, clearRecipeRunIfReferences,
+} from './recipe-tree-ops.js';
 
 export interface KoalaToolContext {
   db: Database;
@@ -1125,4 +1135,502 @@ export async function handleListProjectSecrets(
     projectName: project.name,
     secrets: [],
   });
+}
+
+async function resolveTreeTypeRow(db: Database, userId: string, id: string) {
+  const all = await db.getTreeTypes(userId);
+  const mine = all.find((t) => t.id === id && t.ownerId === userId);
+  const shipped = all.find((t) => t.id === id && t.ownerId === undefined);
+  return { all, mine, shipped, current: mine ?? shipped };
+}
+
+const treeTypeNotFound = (id: string, all: TreeTypeSpec[]): KoalaToolResult =>
+  json({ error: `No tree type "${id}".`, available: all.map((t) => ({ id: t.id, label: t.label })) });
+
+function leafFieldsFromArgs(args: Record<string, unknown>): Partial<ValidationCheckDefinition> {
+  const out: Partial<ValidationCheckDefinition> = {};
+  if (typeof args.description === 'string') out.description = args.description;
+  if (typeof args.target === 'string') out.target = args.target;
+  if (typeof args.pattern === 'string') out.pattern = args.pattern;
+  if (typeof args.expectedStatus === 'number') out.expectedStatus = args.expectedStatus;
+  if (typeof args.timeoutMs === 'number') out.timeoutMs = args.timeoutMs;
+  if (typeof args.optional === 'boolean') out.optional = args.optional;
+  if (typeof args.runIf === 'string') out.runIf = args.runIf.trim() || undefined;
+  if (typeof args.retries === 'number') out.retries = args.retries;
+  if (typeof args.retryDelayMs === 'number') out.retryDelayMs = args.retryDelayMs;
+  if (typeof args.kind === 'string') out.kind = args.kind as ValidationCheckDefinition['kind'];
+  if (typeof args.namespace === 'string') out.namespace = args.namespace;
+  if (typeof args.waitForType === 'string') out.waitForType = args.waitForType as ValidationCheckDefinition['waitForType'];
+  if (typeof args.pollIntervalMs === 'number') out.pollIntervalMs = args.pollIntervalMs;
+  if (typeof args.customStepId === 'string') out.customStepId = args.customStepId;
+  if (args.params && typeof args.params === 'object' && !Array.isArray(args.params)) {
+    out.params = args.params as Record<string, string | number | boolean>;
+  }
+  return out;
+}
+
+async function insertIntoRecipe(
+  ctx: KoalaToolContext,
+  id: string,
+  parentId: string | null,
+  node: RecipeNode,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const checks = current.validationRecipe?.checks ?? [];
+  if (parentId !== null) {
+    const parent = findRecipeNode(checks, parentId);
+    if (!parent) return json({ error: `No step, group, or loop with id "${parentId}" in this recipe.` });
+    if (!isContainerNode(parent)) {
+      return json({ error: `"${parentId}" is a step, not a group or loop — it can't contain other steps.` });
+    }
+  }
+
+  const siblings = childrenOfRecipeNode(checks, parentId) ?? [];
+  const nextChecks = insertRecipeNode(checks, parentId, siblings.length, node);
+  const recipe: ValidationRecipe = { ...(current.validationRecipe ?? { type: 'command' }), checks: nextChecks };
+  const updated: TreeTypeSpec = { ...current, validationRecipe: recipe, id, ownerId: userId };
+
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ added: { id: node.id, name: node.name } });
+}
+
+export async function handleGetTreeType(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+  return json({ treeType: current });
+}
+
+export async function handleCreateTreeType(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const label = typeof args.label === 'string' ? args.label.trim() : '';
+  const summary = typeof args.summary === 'string' ? args.summary.trim() : '';
+  const doneMeans = typeof args.doneMeans === 'string' ? args.doneMeans.trim() : '';
+  const language = typeof args.language === 'string' ? args.language.trim() : '';
+  const produces = args.produces === 'artefact' || args.produces === 'service' ? args.produces : '';
+
+  if (!id || !label || !summary || !doneMeans || !language || !produces) {
+    return json({ error: 'id, label, summary, doneMeans, language and produces are all required.' });
+  }
+
+  const candidate: TreeTypeSpec = {
+    id, ownerId: userId, label, summary, doneMeans,
+    language: language as TreeTypeSpec['language'], produces, files: [],
+  };
+
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), candidate);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(candidate);
+  return json({ created: { id: candidate.id, label: candidate.label } });
+}
+
+export async function handleSetTreeTypeOverview(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const patch: Partial<TreeTypeSpec> = {};
+  if (typeof args.label === 'string' && args.label.trim()) patch.label = args.label.trim();
+  if (typeof args.summary === 'string' && args.summary.trim()) patch.summary = args.summary.trim();
+  if (typeof args.doneMeans === 'string' && args.doneMeans.trim()) patch.doneMeans = args.doneMeans.trim();
+  if (typeof args.language === 'string' && args.language.trim()) {
+    patch.language = args.language.trim() as TreeTypeSpec['language'];
+  }
+  if (args.produces === 'service' || args.produces === 'artefact') patch.produces = args.produces;
+  if (typeof args.requireSources === 'boolean') patch.requireSources = args.requireSources;
+
+  if (Object.keys(patch).length === 0) {
+    return json({ error: 'Nothing to change — pass label, summary, doneMeans, language, produces, or requireSources.' });
+  }
+
+  const updated: TreeTypeSpec = { ...current, ...patch, id, ownerId: userId };
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ updated: { id: updated.id, label: updated.label } });
+}
+
+export async function handleSetTreeTypeScaffoldFile(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const path = typeof args.path === 'string' ? args.path.trim() : '';
+  const content = typeof args.content === 'string' ? args.content : undefined;
+  if (!id || !path || content === undefined) return json({ error: 'id, path and content are all required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const executable = args.executable === true;
+  const files = [...current.files];
+  const idx = files.findIndex((f) => f.path === path);
+  const file: TreeTypeFile = { path, content, ...(executable ? { executable: true } : {}) };
+  if (idx === -1) {
+    if (files.length >= MAX_STARTER_FILES) {
+      return json({ error: `A type may start from at most ${MAX_STARTER_FILES} files.` });
+    }
+    files.push(file);
+  } else {
+    files[idx] = file;
+  }
+
+  const updated: TreeTypeSpec = { ...current, files, id, ownerId: userId };
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ updated: { id: updated.id, files: files.map((f) => f.path) } });
+}
+
+export async function handleDeleteTreeTypeScaffoldFile(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const path = typeof args.path === 'string' ? args.path.trim() : '';
+  if (!id || !path) return json({ error: 'id and path are required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const files = current.files.filter((f) => f.path !== path);
+  if (files.length === current.files.length) {
+    return json({ error: `No scaffold file at path "${path}".`, files: current.files.map((f) => f.path) });
+  }
+
+  const updated: TreeTypeSpec = { ...current, files, id, ownerId: userId };
+  await db.saveTreeType(updated);
+  return json({ updated: { id: updated.id, files: files.map((f) => f.path) } });
+}
+
+export async function handleAddValidationStep(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  const type = typeof args.type === 'string' ? args.type.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+  if (!name) return json({ error: 'name is required.' });
+  if (type === 'run-command') {
+    return json({ error: 'run-command is not available here — a chat assistant cannot author raw shell commands into a recipe. Reference an existing custom step type instead (type "custom"), or ask a human to add this step in the Tree Types editor.' });
+  }
+  if (!(VALIDATION_CHECK_TYPES as readonly string[]).includes(type)) {
+    return json({ error: `type must be one of ${VALIDATION_CHECK_TYPES.join(', ')}.` });
+  }
+  if (typeof args.waitForType === 'string' && args.waitForType.trim() === 'run-command') {
+    return json({ error: 'wait-for cannot wrap run-command here, for the same reason run-command itself is unavailable.' });
+  }
+
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const step: ValidationCheckDefinition = {
+    id: uuidv4(), name, type: type as ValidationCheckType,
+    ...leafFieldsFromArgs(args),
+  };
+  return insertIntoRecipe(ctx, id, parentId, step);
+}
+
+export async function handleAddValidationGroup(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+  if (!name) return json({ error: 'name is required.' });
+
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const group: RecipeGroup = {
+    id: uuidv4(), name, containerType: 'group', children: [],
+    ...(typeof args.optional === 'boolean' ? { optional: args.optional } : {}),
+    ...(typeof args.runIf === 'string' && args.runIf.trim() ? { runIf: args.runIf.trim() } : {}),
+  };
+  return insertIntoRecipe(ctx, id, parentId, group);
+}
+
+export async function handleAddValidationLoop(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  const loopType = typeof args.loopType === 'string' ? args.loopType.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+  if (!name) return json({ error: 'name is required.' });
+  if (!(LOOP_TYPES as readonly string[]).includes(loopType)) {
+    return json({ error: `loopType must be one of ${LOOP_TYPES.join(', ')}.` });
+  }
+
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const loop: RecipeLoop = {
+    id: uuidv4(), name, containerType: 'loop', loopType: loopType as LoopType, children: [],
+    ...(typeof args.maxIterations === 'number' ? { maxIterations: args.maxIterations } : {}),
+    ...(typeof args.timeoutMs === 'number' ? { timeoutMs: args.timeoutMs } : {}),
+    ...(typeof args.itemsCommand === 'string' && args.itemsCommand.trim() ? { itemsCommand: args.itemsCommand.trim() } : {}),
+    ...(typeof args.optional === 'boolean' ? { optional: args.optional } : {}),
+    ...(typeof args.runIf === 'string' && args.runIf.trim() ? { runIf: args.runIf.trim() } : {}),
+  };
+  return insertIntoRecipe(ctx, id, parentId, loop);
+}
+
+export async function handleReviseValidationStep(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const stepId = typeof args.stepId === 'string' ? args.stepId.trim() : '';
+  if (!id || !stepId) return json({ error: 'id and stepId are required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const checks = current.validationRecipe?.checks ?? [];
+  const target = findRecipeNode(checks, stepId);
+  if (!target) return json({ error: `No step, group, or loop with id "${stepId}" in this recipe.` });
+
+  const patch: Record<string, unknown> = {};
+  if (typeof args.name === 'string' && args.name.trim()) patch.name = args.name.trim();
+
+  if (isContainerNode(target)) {
+    if (typeof args.optional === 'boolean') patch.optional = args.optional;
+    if (typeof args.runIf === 'string') patch.runIf = args.runIf.trim() || undefined;
+    if (target.containerType === 'loop') {
+      if (typeof args.loopType === 'string' && (LOOP_TYPES as readonly string[]).includes(args.loopType)) {
+        patch.loopType = args.loopType;
+      }
+      if (typeof args.maxIterations === 'number') patch.maxIterations = args.maxIterations;
+      if (typeof args.timeoutMs === 'number') patch.timeoutMs = args.timeoutMs;
+      if (typeof args.itemsCommand === 'string') patch.itemsCommand = args.itemsCommand.trim();
+    }
+  } else {
+    if (args.type === 'run-command') {
+      return json({ error: 'run-command is not available here — a chat assistant cannot author raw shell commands into a recipe. Reference an existing custom step type instead (type "custom"), or ask a human to make this change in the Tree Types editor.' });
+    }
+    if (typeof args.waitForType === 'string' && args.waitForType.trim() === 'run-command') {
+      return json({ error: 'wait-for cannot wrap run-command here, for the same reason run-command itself is unavailable.' });
+    }
+    if (typeof args.type === 'string' && (VALIDATION_CHECK_TYPES as readonly string[]).includes(args.type)) {
+      patch.type = args.type;
+    }
+    Object.assign(patch, leafFieldsFromArgs(args));
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return json({ error: 'Nothing to change — pass a field to update.' });
+  }
+
+  const nextChecks = updateRecipeNode(checks, stepId, (n) => ({ ...n, ...patch }) as RecipeNode);
+  const recipe: ValidationRecipe = { ...(current.validationRecipe ?? { type: 'command' }), checks: nextChecks };
+  const updated: TreeTypeSpec = { ...current, validationRecipe: recipe, id, ownerId: userId };
+
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ revised: { id: stepId } });
+}
+
+export async function handleRemoveValidationStep(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const stepId = typeof args.stepId === 'string' ? args.stepId.trim() : '';
+  if (!id || !stepId) return json({ error: 'id and stepId are required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const checks = current.validationRecipe?.checks ?? [];
+  const { nodes: without, removed } = removeRecipeNode(checks, stepId);
+  if (!removed) return json({ error: `No step, group, or loop with id "${stepId}" in this recipe.` });
+
+  const nextChecks = clearRecipeRunIfReferences(without, stepId);
+  const recipe: ValidationRecipe = { ...(current.validationRecipe ?? { type: 'command' }), checks: nextChecks };
+  const updated: TreeTypeSpec = { ...current, validationRecipe: recipe, id, ownerId: userId };
+
+  await db.saveTreeType(updated);
+  return json({ removed: { id: stepId } });
+}
+
+export async function handleReorderValidationSteps(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+  if (!Array.isArray(args.orderedStepIds) || !args.orderedStepIds.every((v) => typeof v === 'string')) {
+    return json({ error: 'orderedStepIds must be an array of step ids.' });
+  }
+  const orderedStepIds = args.orderedStepIds as string[];
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const checks = current.validationRecipe?.checks ?? [];
+  const reordered = reorderRecipeChildren(checks, parentId, orderedStepIds);
+  if (!reordered) {
+    const siblings = childrenOfRecipeNode(checks, parentId);
+    return json({
+      error: siblings === undefined
+        ? `No group or loop with id "${parentId}" in this recipe.`
+        : 'orderedStepIds must name exactly the ids currently at that level, in the new order.',
+      current: siblings?.map((n) => n.id),
+    });
+  }
+
+  const recipe: ValidationRecipe = { ...(current.validationRecipe ?? { type: 'command' }), checks: reordered };
+  const updated: TreeTypeSpec = { ...current, validationRecipe: recipe, id, ownerId: userId };
+
+  await db.saveTreeType(updated);
+  return json({ reordered: orderedStepIds });
+}
+
+export async function handleSetTreeTypeBindings(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const patch: Partial<TreeTypeSpec> = {};
+  if (Array.isArray(args.defaultBindings) && args.defaultBindings.every((v) => typeof v === 'string')) {
+    patch.defaultBindings = args.defaultBindings as string[];
+  }
+  if (Array.isArray(args.egress)) patch.egress = args.egress as TreeTypeSpec['egress'];
+  if (Array.isArray(args.env)) patch.env = args.env as TreeTypeSpec['env'];
+
+  if (Object.keys(patch).length === 0) {
+    return json({ error: 'Nothing to change — pass defaultBindings, egress, or env.' });
+  }
+
+  const updated: TreeTypeSpec = { ...current, ...patch, id, ownerId: userId };
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ updated: { id: updated.id } });
+}
+
+export async function handleSetTreeTypeRoles(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const role = typeof args.role === 'string' ? args.role.trim() : '';
+  const packSlug = typeof args.packSlug === 'string' ? args.packSlug.trim() : '';
+  if (!id || !role || !packSlug) return json({ error: 'id, role and packSlug are all required.' });
+  if (!(TREE_TYPE_PACK_ROLES as readonly string[]).includes(role)) {
+    return json({ error: `role must be one of ${TREE_TYPE_PACK_ROLES.join(', ')}.` });
+  }
+
+  const packs = withBuiltIns(await db.getPersonaPacks(), userId, (p) => p.slug);
+  const pack = packs.find((p) => p.slug === packSlug);
+  if (!pack) return json({ error: `No pack "${packSlug}".`, available: packs.map((p) => p.slug) });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const updated: TreeTypeSpec = {
+    ...current,
+    packs: { ...current.packs, [role]: packSlug },
+    id, ownerId: userId,
+  };
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ updated: { id: updated.id, role, packSlug } });
+}
+
+export async function handleSetTreeTypeAutoAccept(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const autoAccept = { ...current.autoAccept };
+  if (typeof args.enabled === 'boolean') autoAccept.enabled = args.enabled;
+  if (typeof args.requirePersona === 'boolean') autoAccept.requirePersona = args.requirePersona;
+  if (typeof args.max === 'number') autoAccept.max = args.max;
+  if (typeof args.minTitleChars === 'number') autoAccept.minTitleChars = args.minTitleChars;
+  if (typeof args.minBodyChars === 'number') autoAccept.minBodyChars = args.minBodyChars;
+
+  const duplicateThreshold = typeof args.duplicateThreshold === 'number' ? args.duplicateThreshold : current.duplicateThreshold;
+
+  const updated: TreeTypeSpec = {
+    ...current, autoAccept, ...(duplicateThreshold !== undefined ? { duplicateThreshold } : {}),
+    id, ownerId: userId,
+  };
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ updated: { id: updated.id, autoAccept: updated.autoAccept, duplicateThreshold: updated.duplicateThreshold } });
+}
+
+export async function handleDeleteTreeType(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+
+  const { all, mine, shipped } = await resolveTreeTypeRow(db, userId, id);
+  if (!mine) {
+    return json({
+      error: shipped ? `"${id}" is a built-in type — there is no owned override to delete.` : `No tree type "${id}".`,
+      available: all.map((t) => ({ id: t.id, label: t.label })),
+    });
+  }
+
+  const trees = (await db.getTrees()).filter((t) => t.ownerId === userId && t.type === id);
+  if (trees.length) {
+    return json({ error: `${trees.length} tree(s) still use this type: ${trees.map((t) => t.name).join(', ')}.` });
+  }
+
+  await db.deleteTreeType(id, userId);
+  return json({ deleted: id });
 }

@@ -4,8 +4,8 @@ import { Sliders, ChevronRight, ChevronDown, Download, Upload } from 'lucide-rea
 import { card, describeValue, describeTunable, errorMessage } from '../lib/pack-editor.js';
 import type { HarnessConfig, HarnessProfile } from '@koala/harness-types';
 import { ProfileBanner } from './ProfileBanner.js';
-import { TreeTypeRoles } from './TreeTypeRoles.js';
 import { DefaultModelPicker } from './DefaultModelPicker.js';
+import { ModelRateLimits } from './ModelRateLimits.js';
 import {
   getConfig, getProfile, profileKeys, importHarnessConfig,
   harnessExportUrl,
@@ -61,8 +61,8 @@ export function Harness() {
         <h2 className="text-3xl font-bold">Harness</h2>
       </div>
       <p className="text-slate-500 text-sm -mt-4">
-        Platform-wide defaults: which pack the account runs as, the default model, and which pack
-        fills each role for a project type.
+        Platform-wide defaults: which pack the account runs as and the default model. Per-project-type
+        settings, including which pack fills each role, now live under Tree Types.
       </p>
 
       <ProfileBanner profile={profile ?? null} onChanged={invalidate} />
@@ -71,7 +71,7 @@ export function Harness() {
         <DefaultModelPicker />
       </section>
 
-      <TreeTypeRoles />
+      <ModelRateLimits />
 
       <section>
         <h3 className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Settings</h3>

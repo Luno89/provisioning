@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { nextStep, prevStep, isModelApp, hasDatabase, FIRST_STEP, LAST_STEP } from './steps'
+import type { CatalogueEntry } from '../../api/deployments'
+
+const catalogue: CatalogueEntry[] = [
+  { id: 'odoo', deploysFromSpec: false, uiDefaults: { hasDatabase: true } },
+  { id: 'wordpress', deploysFromSpec: false, uiDefaults: { hasDatabase: true } },
+  { id: 'palworld', deploysFromSpec: false, uiDefaults: { hasDatabase: false } },
+  { id: 'vllm', deploysFromSpec: false, uiDefaults: { hasDatabase: false, gpuOnly: true } },
+  { id: 'tabbyapi', deploysFromSpec: false, uiDefaults: { hasDatabase: false, gpuOnly: true } },
+]
 
 describe('moving forward', () => {
   it('shows the model step only for apps that serve a model', () => {
@@ -9,9 +18,14 @@ describe('moving forward', () => {
   })
 
   it('skips the database step for apps that have no database', () => {
-    expect(hasDatabase('odoo')).toBe(true)
-    expect(nextStep(4, 'odoo')).toBe(5)
-    expect(nextStep(4, 'palworld')).toBe(6)
+    expect(hasDatabase('odoo', catalogue)).toBe(true)
+    expect(nextStep(4, 'odoo', false, catalogue)).toBe(5)
+    expect(nextStep(4, 'palworld', false, catalogue)).toBe(6)
+  })
+
+  it('has no database and no defaults for an app not yet in the catalogue', () => {
+    expect(hasDatabase('odoo')).toBe(false)
+    expect(nextStep(4, 'odoo')).toBe(6)
   })
 
   it('stops at the last step', () => {
@@ -25,8 +39,8 @@ describe('going back', () => {
       let step = FIRST_STEP
       const visited = [step]
       while (step < LAST_STEP) {
-        const forward = nextStep(step, appType)
-        expect(prevStep(forward, appType), `${appType}: ${step} -> ${forward} -> back`).toBe(step)
+        const forward = nextStep(step, appType, false, catalogue)
+        expect(prevStep(forward, appType, false, catalogue), `${appType}: ${step} -> ${forward} -> back`).toBe(step)
         step = forward
         visited.push(step)
       }

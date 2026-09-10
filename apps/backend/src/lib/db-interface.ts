@@ -14,11 +14,12 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
+import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
@@ -79,6 +80,10 @@ export interface Database {
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;
   deleteTreeType(id: string, ownerId: string): Promise<void>;
 
+  getCustomStepDefinitions(ownerId: string): Promise<CustomStepDefinition[]>;
+  saveCustomStepDefinition(definition: CustomStepDefinition): Promise<void>;
+  deleteCustomStepDefinition(id: string, ownerId: string): Promise<void>;
+
   getPersonas(): Promise<Persona[]>;
   savePersona(persona: Persona): Promise<void>;
   deletePersona(id: string): Promise<void>;
@@ -133,6 +138,14 @@ export interface Database {
   getModelEndpoints(): Promise<ModelEndpointMetadata[]>;
   saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void>;
   deleteModelEndpoint(id: string): Promise<void>;
+
+  getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>;
+  saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void>;
+  deleteLocalAgentDevice(id: string): Promise<void>;
+
+  getPendingApprovals(): Promise<PendingApprovalMetadata[]>;
+  savePendingApproval(approval: PendingApprovalMetadata): Promise<void>;
+  deletePendingApproval(id: string): Promise<void>;
 
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
   saveMemory(memory: MemoryItem): Promise<void>;

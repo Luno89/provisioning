@@ -2,14 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, X } from 'lucide-react';
 import { listTreeTypes, createTree, groveKeys } from '../api/grove';
-
-interface TreeType {
-  id: string;
-  label: string;
-  summary: string;
-  usesRepo: boolean;
-  doneMeans: string;
-}
+import type { TreeType } from '../types/grove.js';
 
 export default function NewTreeDialog({ onClose, onCreated }: {
   onClose: () => void;
@@ -89,7 +82,7 @@ export default function NewTreeDialog({ onClose, onCreated }: {
             {chosen && (
               <p className="mt-3 text-[11px] text-slate-400 leading-relaxed border-l-2 border-[var(--leaf)] pl-3">
                 <strong className="text-slate-300">Done means:</strong> {chosen.doneMeans}
-                {!chosen.usesRepo && ' This type produces an answer rather than files, so it gets no repository.'}
+                {chosen.produces === 'artefact' && ' This type produces an answer rather than files, so it gets no repository.'}
               </p>
             )}
           </div>

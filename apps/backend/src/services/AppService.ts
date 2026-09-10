@@ -9,7 +9,7 @@ import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { sanitizeNamespace } from '../lib/model-registry.js';
 import { llmAppSpec, specFromTag, inClusterBaseUrl } from '../lib/llm-apps.js';
 import { v4 as uuidv4 } from 'uuid';
-import { appTypeFromName } from '../lib/app-catalog.js';
+import { appTypeFromName } from '../lib/app-spec.js';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
 import path from 'path';
@@ -132,6 +132,7 @@ export class AppService extends BaseService {
     } catch { /* ignored */ }
 
     const discovered: DeploymentMetadata[] = [];
+    const catalogueIds = (await this.db.getAppSpecs()).map((s) => s.id);
 
     for (const ns of userNamespaces) {
       const alreadyTracked = clusterDeployments.some(d => this.sanitize(d.name) === ns);
@@ -148,13 +149,13 @@ export class AppService extends BaseService {
       if (nsReleases.length > 0) {
         strategy = 'helm';
         const releaseName = nsReleases[0].Chart?.split(':')[0]?.toLowerCase() ?? '';
-        appType = appTypeFromName(releaseName);
+        appType = appTypeFromName(releaseName, catalogueIds);
       } else {
         try {
           const podsOutput = await this.infra.runKubectl(['get', 'pods', '-n', ns, '-o', 'json'], kubeconfigPath);
           const podsData = JSON.parse(podsOutput);
           const podNames = podsData.items.map((p: any) => p.metadata.name ?? '').map((n: string) => n.split('-')[0]);
-          appType = podNames.map((p: string) => appTypeFromName(p)).find(Boolean);
+          appType = podNames.map((p: string) => appTypeFromName(p, catalogueIds)).find(Boolean);
         } catch { /* ignored */ }
       }
 

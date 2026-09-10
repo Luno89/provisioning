@@ -5,6 +5,7 @@ import { treesRouter } from './trees.js';
 import { branchesRouter } from './branches.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
+import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -39,6 +40,27 @@ describe('the tree-type catalogue', () => {
     await expect(axios.get(h.url('/api/tree-types'))).rejects.toMatchObject({
       response: { status: 401 },
     });
+  });
+
+  it('does not list a built-in type twice after the user edits it', async () => {
+    h = await mountRouter({
+      prefix: '/api/tree-types',
+      router: (db) => treeTypesRouter({ db }),
+    });
+    await seedTreeTypes(h.db);
+    await seedWorkspaceImages(h.db);
+    const before = (await axios.get(h.url('/api/tree-types'))).data as { id: string; ownerId?: string }[];
+    const target = before.find((t) => t.id === 'mcp-server')!;
+    const occurrencesBefore = before.filter((t) => t.id === 'mcp-server').length;
+    expect(occurrencesBefore).toBe(1);
+
+    await axios.put(h.url(`/api/tree-types/${target.id}`), { ...target, summary: 'Edited summary' });
+
+    const after = (await axios.get(h.url('/api/tree-types'))).data as { id: string; ownerId?: string; summary: string }[];
+    const matches = after.filter((t) => t.id === 'mcp-server');
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.summary).toBe('Edited summary');
+    expect(matches[0]?.ownerId).toBe(TEST_USER.id);
   });
 });
 

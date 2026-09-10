@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ownsProject } from '../lib/ownership.js';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
 import { webhookUrlFor } from '../lib/project-shipping.js';
+import { validateLocalEgressRules } from '../lib/personas.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -32,17 +33,54 @@ export function projectsRouter(deps: Record<string, any>): Router {
   });
 
   router.get('/:id/runs', async (req, res) => {
-    if (!(await getOwnedProject(req.params.id, userOf(req)))) {
+    const project = await getOwnedProject(req.params.id, userOf(req));
+    if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    const runs = await db.getPipelineRuns();
-    res.json(runs.filter((r: any) => r.projectId === req.params.id).sort((a: any, b: any) => b.startedAt.localeCompare(a.startedAt)));
+    const runs = (await db.getPipelineRuns())
+      .filter((r: any) => r.projectId === req.params.id)
+      .sort((a: any, b: any) => b.startedAt.localeCompare(a.startedAt));
+
+    const enriched = await Promise.all(runs.map(async (run: any) => {
+      if (run.commitMessage || !run.commitSha) return run;
+      try {
+        const commit = await giteaService.getCommit(project.giteaOwner, project.giteaRepo, run.commitSha);
+        if (!commit?.message) return run;
+        const updated = await db.savePipelineRunInfo({ id: run.id, commitMessage: commit.message });
+        return updated;
+      } catch {
+        return run;
+      }
+    }));
+
+    res.json(enriched);
   });
 
   router.post('/', async (req, res) => {
     try {
-      const { name, giteaOwner, giteaRepo, createRepo, targetClusterId, targetNamespace, autoDeployOnBuild, language } = req.body;
+      const {
+        name, giteaOwner, giteaRepo, createRepo, targetClusterId, targetNamespace, autoDeployOnBuild, language,
+        executionTargetDeviceId, executionApproval, executionTargetEgress,
+      } = req.body;
       if (!name || !giteaRepo) return res.status(400).json({ error: 'name and giteaRepo are required' });
+
+      let executionTarget: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string; egress?: any[] } | undefined;
+      if (executionTargetDeviceId) {
+        const owned = (await db.getLocalAgentDevices())
+          .find((d: any) => d.id === executionTargetDeviceId && d.ownerId === userOf(req).id);
+        if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
+
+        const egressError = validateLocalEgressRules(executionTargetEgress);
+        if (egressError) return res.status(400).json({ error: egressError });
+
+        executionTarget = {
+          kind: 'local-device',
+          deviceId: owned.id,
+          ...(Array.isArray(executionTargetEgress) && executionTargetEgress.length
+            ? { egress: executionTargetEgress }
+            : {}),
+        };
+      }
 
       let owner = giteaOwner || giteaService.adminUsername;
 
@@ -75,6 +113,10 @@ export function projectsRouter(deps: Record<string, any>): Router {
         appType: 'gitapp',
         ...(targetClusterId ? { targetClusterId } : {}),
         ...(targetNamespace ? { targetNamespace } : {}),
+        ...(executionTarget ? { executionTarget } : {}),
+        ...(executionTarget && (executionApproval === 'auto' || executionApproval === 'plan')
+          ? { executionApproval }
+          : {}),
         autoDeployOnBuild: autoDeployOnBuild === true,
         webhookSecretEnc: encryptValue(webhookSecret, jwtSecret),
         createdAt: new Date().toISOString(),

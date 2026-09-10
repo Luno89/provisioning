@@ -43,7 +43,7 @@ interface DeploymentLike {
 
 interface StoredSpecLike {
   id: string;
-  spec: AppSpec;
+  spec?: AppSpec;
 }
 
 const namespaceOf = (name: string) => String(name).toLowerCase().replace(/[^a-z0-9-]/g, '-');

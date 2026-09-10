@@ -478,6 +478,108 @@ export const APP_CATALOGUE_META: Record<string, AppCatalogueMeta> = {
   searxng: { label: 'SearXNG (agent web search)', is: 'a metasearch engine', provides: ['web-search'] },
   verdaccio: { label: 'Verdaccio (private npm registry)', is: 'a private npm registry', provides: ['package-registry'] },
   crawl4ai: { label: 'Crawl4AI (agent page fetch)', is: 'a web crawler that returns clean page text', provides: ['web-crawl', 'scraping'] },
+  odoo: { label: 'Odoo ERP', is: 'an ERP and business suite', provides: ['crm', 'accounting', 'inventory'] },
+  wordpress: { label: 'WordPress', is: 'a website and blog platform', provides: ['website', 'cms'] },
+  nextcloud: { label: 'Nextcloud', is: 'a file sync and share server', provides: ['file-storage', 'sharing'] },
+  vllm: { label: 'vLLM (GPU inference)', is: 'a GPU inference server for large language models', provides: ['llm-inference'] },
+  tabbyapi: { label: 'TabbyAPI (GPU inference)', is: 'a GPU inference server with an OpenAI-compatible API', provides: ['llm-inference'] },
+  openwebui: { label: 'Open WebUI', is: 'a chat interface for language models', provides: ['chat-ui'] },
+  hermes: { label: 'Hermes Agent Runtime', is: 'an agent runtime', provides: ['agent'] },
+  palworld: { label: 'Palworld Game Server', is: 'a game server', provides: ['game-server'] },
+  prometheus: { label: 'Prometheus', is: 'a metrics database and alerting system', provides: ['metrics', 'monitoring'] },
+  traefik: { label: 'Traefik Ingress', is: 'an ingress controller and reverse proxy', provides: ['ingress', 'routing'] },
+};
+
+/** Apps deployed via a hand-written CDKTF construct (packages/cdktf-infra/main.ts), not the generic renderApp()/AppSpec path — `gitapp` is excluded since it's created via the project→build flow, not a generic "pick an app" option. */
+export const CONSTRUCT_BACKED_TYPES = [
+  'odoo', 'wordpress', 'nextcloud', 'vllm', 'tabbyapi', 'openwebui', 'hermes', 'palworld',
+  'prometheus', 'traefik',
+] as const;
+
+export interface AppImageDefaults {
+  webRepo: string;
+  webTag: string;
+  dbRepo: string;
+  dbTag: string;
+}
+
+export interface AppUiDefaults {
+  helm?: AppImageDefaults;
+  native?: AppImageDefaults;
+  hasDatabase?: boolean;
+  strategies?: ('helm' | 'native')[];
+  gpuOnly?: boolean;
+  /** tabbyapi only — quantization/tool-call format choices for its advanced config panel. */
+  toolFormats?: string[];
+}
+
+const BLANK_IMAGE: AppImageDefaults = { webRepo: '', webTag: '', dbRepo: '', dbTag: '' };
+
+/** The web deploy wizard's per-app image defaults/strategy gating for construct-backed apps — the one place this data lives now, read by both the wizard and (indirectly) anything inspecting the catalogue. */
+export const NATIVE_APP_UI_DEFAULTS: Record<string, AppUiDefaults> = {
+  odoo: {
+    helm: { webRepo: 'bitnamilegacy/odoo', webTag: 'latest', dbRepo: 'bitnamilegacy/postgresql', dbTag: 'latest' },
+    native: { webRepo: 'library/odoo', webTag: 'latest', dbRepo: 'library/postgres', dbTag: 'latest' },
+    hasDatabase: true,
+    strategies: ['native'],
+  },
+  wordpress: {
+    helm: { webRepo: 'bitnamilegacy/wordpress', webTag: 'latest', dbRepo: 'bitnamilegacy/mariadb', dbTag: 'latest' },
+    native: { webRepo: 'library/wordpress', webTag: 'apache', dbRepo: 'library/mariadb', dbTag: 'latest' },
+    hasDatabase: true,
+    strategies: ['helm', 'native'],
+  },
+  nextcloud: {
+    helm: { webRepo: 'bitnamilegacy/nextcloud', webTag: 'latest', dbRepo: 'bitnamilegacy/mariadb', dbTag: 'latest' },
+    native: { webRepo: 'library/nextcloud', webTag: 'stable-apache', dbRepo: 'library/mariadb', dbTag: 'latest' },
+    hasDatabase: true,
+    strategies: ['helm', 'native'],
+  },
+  palworld: {
+    helm: { webRepo: 'thijsvanloef/palworld-server-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: { webRepo: 'thijsvanloef/palworld-server-docker', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native'],
+  },
+  prometheus: {
+    helm: { webRepo: 'prom/prometheus', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: BLANK_IMAGE,
+    hasDatabase: false,
+    strategies: ['helm'],
+  },
+  traefik: {
+    helm: { webRepo: 'traefik', webTag: 'latest', dbRepo: '', dbTag: '' },
+    native: BLANK_IMAGE,
+    hasDatabase: false,
+    strategies: ['helm'],
+  },
+  vllm: {
+    helm: BLANK_IMAGE,
+    native: { webRepo: 'vllm/vllm-openai', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native'],
+    gpuOnly: true,
+  },
+  tabbyapi: {
+    helm: BLANK_IMAGE,
+    native: { webRepo: 'ghcr.io/theroyallab/tabbyapi', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native'],
+    gpuOnly: true,
+    toolFormats: ['mistral', 'mistral_old', 'qwen3_coder', 'gemma4', 'glm4_5', 'minimax_m2', 'harmony'],
+  },
+  openwebui: {
+    helm: BLANK_IMAGE,
+    native: { webRepo: 'ghcr.io/open-webui/open-webui', webTag: 'main', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native'],
+  },
+  hermes: {
+    helm: BLANK_IMAGE,
+    native: { webRepo: 'nousresearch/hermes-agent', webTag: 'latest', dbRepo: '', dbTag: '' },
+    hasDatabase: false,
+    strategies: ['native'],
+  },
 };
 
 export interface StoredAppSpec {
@@ -486,7 +588,9 @@ export interface StoredAppSpec {
   label?: string;
   is?: string;
   provides?: string[];
-  spec: AppSpec;
+  /** Absent for a construct-backed catalogue entry (see CONSTRUCT_BACKED_TYPES) — it deploys via its own CDKTF construct, never renderApp(). */
+  spec?: AppSpec;
+  uiDefaults?: AppUiDefaults;
   builtIn: boolean;
   ownerId?: string;
   editedAt?: string;
@@ -553,4 +657,52 @@ export async function seedAppSpecs(store: AppSpecSeedStore): Promise<number> {
     });
   }
   return pending.length;
+}
+
+export function constructBackedToSeed(
+  stored: readonly StoredAppSpec[],
+  ids: readonly string[] = CONSTRUCT_BACKED_TYPES,
+): string[] {
+  const byId = new Map(stored.map((s) => [s.id, s]));
+  return ids.filter((id) => {
+    const existing = byId.get(id);
+    if (!existing) return true;
+    if (existing.editedAt) return false;
+    const meta = APP_CATALOGUE_META[id];
+    const defaults = NATIVE_APP_UI_DEFAULTS[id];
+    return existing.label !== meta?.label
+      || existing.is !== meta?.is
+      || JSON.stringify(existing.provides) !== JSON.stringify(meta?.provides)
+      || JSON.stringify(existing.uiDefaults) !== JSON.stringify(defaults);
+  });
+}
+
+export async function seedConstructBackedTypes(store: AppSpecSeedStore): Promise<number> {
+  const stored = await store.getAppSpecs();
+  const pending = constructBackedToSeed(stored);
+  if (!pending.length) return 0;
+  const now = new Date().toISOString();
+  for (const id of pending) {
+    const existing = stored.find((s) => s.id === id);
+    const meta = APP_CATALOGUE_META[id] ?? { label: id, is: '', provides: [] };
+    const defaults = NATIVE_APP_UI_DEFAULTS[id];
+    await store.saveAppSpec({
+      id,
+      label: meta.label,
+      is: meta.is,
+      provides: meta.provides,
+      ...(defaults ? { uiDefaults: defaults } : {}),
+      builtIn: true,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+  return pending.length;
+}
+
+/** Reverse-engineers an app type from a Helm release chart name or pod name prefix, matching against known catalogue ids (longest first, so e.g. "tabbyapi" wins over a hypothetical "tabby"). */
+export function appTypeFromName(name: string, knownIds: readonly string[]): string | undefined {
+  const segments = new Set(name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const byLength = [...knownIds].sort((a, b) => b.length - a.length);
+  return byLength.find((id) => segments.has(id));
 }

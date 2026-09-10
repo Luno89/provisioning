@@ -1,4 +1,3 @@
-import { APP_FACTS, type AppType } from './app-catalog.js';
 import { clusterAuthority } from './cluster-dns.js';
 import { bindingTypeFor } from './service-binding.js';
 
@@ -79,7 +78,7 @@ export const CLUSTER_PLATFORM_SERVICES: readonly RunningService[] = [
 
 interface CatalogueSpecLike {
   id: string;
-  spec: { ports?: { port: number }[] };
+  spec?: { ports?: { port: number }[] } | undefined;
   label?: string | undefined;
   is?: string | undefined;
   provides?: string[] | undefined;
@@ -91,21 +90,20 @@ export function describeInfrastructure(
   specs: readonly CatalogueSpecLike[] = [],
   options?: { isAdmin?: boolean | undefined; isEscalated?: boolean | undefined } | undefined,
 ): Infrastructure {
-  const byType = new Map(specs.map((s) => [s.id, s.spec]));
+  const byId = new Map(specs.map((s) => [s.id, s]));
   const userServices = deployments
     .filter((d) => d.ownerId === ownerId && d.status === 'running')
-    .map((d) => ({
-      name: d.name,
-      type: d.appType ?? 'unknown',
-      ...(d.appType && d.appType in APP_FACTS
-        ? {
-            is: APP_FACTS[d.appType as AppType].is,
-            provides: APP_FACTS[d.appType as AppType].provides,
-          }
-        : {}),
-      namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-      ...addressOf(d, byType),
-    }));
+    .map((d) => {
+      const meta = d.appType ? byId.get(d.appType) : undefined;
+      return {
+        name: d.name,
+        type: d.appType ?? 'unknown',
+        ...(meta?.is ? { is: meta.is } : {}),
+        ...(meta?.provides ? { provides: meta.provides } : {}),
+        namespace: String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+        ...addressOf(d, byId),
+      };
+    });
 
   const platformServices = options?.isAdmin || options?.isEscalated ? CLUSTER_PLATFORM_SERVICES : [];
 
@@ -145,9 +143,9 @@ export function findCapability(
 
 function addressOf(
   d: DeploymentLike,
-  byType: Map<string, { ports?: { port: number }[] }>,
+  byId: Map<string, { spec?: { ports?: { port: number }[] } | undefined }>,
 ): { address?: string; bindingType?: string } {
-  const spec = d.appType ? byType.get(d.appType) : undefined;
+  const spec = d.appType ? byId.get(d.appType)?.spec : undefined;
   const port = spec?.ports?.[0]?.port;
   if (!spec || port === undefined) return {};
   const namespace = String(d.name).toLowerCase().replace(/[^a-z0-9-]/g, '-');

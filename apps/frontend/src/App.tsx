@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import ChatPage from './components/ChatPage';
 import Sidebar from './components/Sidebar';
+import PendingApprovals from './components/PendingApprovals';
 import NginxView from './components/NginxView';
 import ClustersView from './components/ClustersView';
 import AppsView from './components/AppsView';
@@ -16,6 +17,7 @@ import VpsCatalog from './components/VpsCatalog.js';
 import Lab from './components/Lab';
 import Harness from './components/Harness.js';
 import { ToolRepoPanel } from './components/ToolRepoPanel.js';
+import TreeTypes from './components/TreeTypes/index.js';
 import Grove from './components/Grove.js';
 import AppDeployWizard from './components/AppDeployWizard';
 import AppDashboard from './components/AppDashboard';
@@ -217,6 +219,7 @@ function App() {
   return (
     <div className="h-screen max-h-screen bg-[var(--bark-900)] canopy text-slate-100 flex font-sans overflow-hidden">
       <Sidebar forestTabs={FOREST_TABS} onLogout={handleLogout} />
+      <PendingApprovals />
 
       <main className={`flex-1 h-full min-h-0 ${view === 'chat' ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>
         <div className="fixed top-6 right-6 z-[60] space-y-3">
@@ -262,6 +265,7 @@ function App() {
         {view === 'lab' && <Lab />}
         {view === 'harness' && <Harness />}
         {view === 'tool-repo' && <ToolRepoPanel />}
+        {view === 'tree-types' && <TreeTypes />}
         {view === 'grove' && (
           <Grove handoff={handoff} onHandoffTaken={() => setHandoff(undefined)} />
         )}

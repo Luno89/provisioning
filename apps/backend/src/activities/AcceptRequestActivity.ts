@@ -9,7 +9,7 @@ import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { buildAcceptanceScript, parseAcceptance, usableAcceptancePlan, type AcceptanceCheck } from '../lib/acceptance.js';
 import { buildAcceptanceNotice, withNotice } from '../lib/branch-notice.js';
 import type { ProjectMetadata } from '../lib/types.js';
-import { resolveTreeType, type ValidationCheckDefinition } from '../lib/tree-types.js';
+import { resolveTreeType, flattenRecipeLeaves, type ValidationCheckDefinition } from '../lib/tree-types.js';
 import { buildValidatorEnv } from '../lib/validator-env.js';
 import { UniversalValidatorService } from '../services/UniversalValidatorService.js';
 
@@ -105,7 +105,9 @@ export async function AcceptRequestActivity(args: AcceptRequestArgs): Promise<Ac
       if (result.outcome === 'failed') { failed = { name: check.name, output: result.output }; break; }
     }
 
-    const recipeAsChecks: AcceptanceCheck[] = recipe?.checks.map((c) => ({ name: c.name, command: commandLabelFor(c) })) ?? [];
+    const recipeAsChecks: AcceptanceCheck[] = recipe
+      ? flattenRecipeLeaves(recipe.checks).map((c) => ({ name: c.name, command: commandLabelFor(c) }))
+      : [];
     const combinedPlan = [...plan, ...recipeAsChecks];
 
     if (!failed && recipe) {

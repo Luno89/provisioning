@@ -3,13 +3,57 @@ import {
   getMeshConfig, listMeshDevices, createPreauthKey, deleteMeshDevice, meshKeys,
   type MeshConfig, type MeshDevice,
 } from '../api/mesh';
-import { errorMessage } from '../api/client';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Network, Loader2, AlertTriangle, Copy, Check, Trash2, Circle, RefreshCw } from 'lucide-react';
+import {
+  listLocalAgentDevices, createLocalAgentDevice, deleteLocalAgentDevice, localAgentKeys,
+  type LocalAgentDevice,
+} from '../api/local-agents';
+import { errorMessage, API_BASE } from '../api/client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  Network, Loader2, AlertTriangle, Copy, Check, Trash2, Circle, RefreshCw, Terminal, ShieldCheck, ShieldAlert,
+} from 'lucide-react';
 
 export default function MeshDevices() {
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const qc = useQueryClient();
+  const [agentName, setAgentName] = useState('');
+  const [agentRootDir, setAgentRootDir] = useState('');
+  const [issuedAgentCommand, setIssuedAgentCommand] = useState<string | null>(null);
+  const [agentCopied, setAgentCopied] = useState(false);
+
+  const { data: localAgents } = useQuery<LocalAgentDevice[]>({
+    queryKey: localAgentKeys.list(),
+    queryFn: listLocalAgentDevices,
+    refetchInterval: 5000,
+  });
+
+  const createAgent = useMutation({
+    mutationFn: () => createLocalAgentDevice({ name: agentName.trim(), rootDir: agentRootDir.trim() }),
+    onSuccess: (data) => {
+      const backendUrl = API_BASE.replace(/\/api\/?$/, '');
+      setIssuedAgentCommand(
+        `KOALA_BACKEND_URL=${backendUrl} KOALA_DEVICE_TOKEN=${data.token} KOALA_ROOT_DIR=${data.rootDir} npm run start -w apps/local-agent`,
+      );
+      setAgentCopied(false);
+      setAgentName('');
+      setAgentRootDir('');
+      qc.invalidateQueries({ queryKey: localAgentKeys.list() });
+    },
+  });
+
+  const revokeAgent = useMutation({
+    mutationFn: (id: string) => deleteLocalAgentDevice(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: localAgentKeys.list() }),
+  });
+
+  const copyAgentCommand = () => {
+    if (!issuedAgentCommand) return;
+    navigator.clipboard.writeText(issuedAgentCommand);
+    setAgentCopied(true);
+    setTimeout(() => setAgentCopied(false), 2000);
+  };
 
   const { data: config } = useQuery<MeshConfig>({
     queryKey: meshKeys.config(),
@@ -138,6 +182,108 @@ export default function MeshDevices() {
                 disabled={revoke.isPending}
                 className="text-slate-600 hover:text-red-400 transition-colors"
                 title="Remove this machine from the mesh"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <header className="mt-10 mb-8">
+        <h2 className="text-3xl font-bold flex items-center gap-3">
+          <Terminal className="text-blue-500" size={28} /> Local execution agents
+        </h2>
+        <p className="text-slate-400 mt-2 text-sm">
+          A small process you run on one of your own machines so a project's leaves can execute
+          commands directly on it, instead of in a sandboxed cluster. Runs autonomously, with no
+          container isolation — only register a machine you're comfortable with Koala running
+          commands on.
+        </p>
+      </header>
+
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-3xl p-6 mb-6">
+        <h3 className="font-bold text-sm mb-3">Register a machine</h3>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            value={agentName}
+            onChange={(e) => setAgentName(e.target.value)}
+            placeholder="Name, e.g. My Laptop"
+            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
+          />
+          <input
+            value={agentRootDir}
+            onChange={(e) => setAgentRootDir(e.target.value)}
+            placeholder="Root directory, e.g. /home/me/koala-work"
+            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
+          />
+          <button
+            onClick={() => createAgent.mutate()}
+            disabled={createAgent.isPending || !agentName.trim() || !agentRootDir.trim()}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-bold transition-colors whitespace-nowrap"
+          >
+            {createAgent.isPending ? <Loader2 className="animate-spin" size={16} /> : 'Generate command'}
+          </button>
+        </div>
+
+        {issuedAgentCommand && (
+          <div className="mt-5">
+            <div className="flex items-start gap-2 bg-slate-950 border border-slate-800 rounded-xl p-4">
+              <code className="text-[11px] text-slate-300 font-mono break-all flex-1 leading-relaxed">{issuedAgentCommand}</code>
+              <button onClick={copyAgentCommand} className="text-slate-500 hover:text-white transition-colors flex-shrink-0" title="Copy">
+                {agentCopied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              </button>
+            </div>
+            <p className="text-[11px] text-amber-400/80 mt-2 px-1">
+              Contains a live credential — it's shown once. Run it on the machine you want leaves
+              executing on, from inside this repo.
+            </p>
+          </div>
+        )}
+
+        {createAgent.isError && (
+          <p className="text-[11px] text-red-400 mt-3">
+            {errorMessage(createAgent.error) || 'Could not register that machine.'}
+          </p>
+        )}
+      </div>
+
+      {localAgents && localAgents.length > 0 && (
+        <div className="space-y-2">
+          {localAgents.map((d) => (
+            <div key={d.id} className="bg-slate-800/50 border border-slate-700/50 rounded-2xl px-5 py-4 flex items-center gap-4">
+              <Circle size={9} className={d.online ? 'text-green-400 fill-green-400' : 'text-slate-600 fill-slate-600'} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm text-slate-200 truncate">{d.name}</span>
+                  {d.online && (
+                    d.containerMode ? (
+                      <span
+                        className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0"
+                        title="Leaves run in an isolated Docker container, with enforced network egress"
+                      >
+                        <ShieldCheck size={10} /> isolated
+                      </span>
+                    ) : (
+                      <span
+                        className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0"
+                        title="No Docker on this machine — leaves run directly on the host with no isolation"
+                      >
+                        <ShieldAlert size={10} /> raw access
+                      </span>
+                    )
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+                  {d.rootDir}
+                  {!d.online && d.lastSeenAt && ` · last seen ${new Date(d.lastSeenAt).toLocaleString()}`}
+                </div>
+              </div>
+              <button
+                onClick={() => revokeAgent.mutate(d.id)}
+                disabled={revokeAgent.isPending}
+                className="text-slate-600 hover:text-red-400 transition-colors"
+                title="Revoke this machine's access"
               >
                 <Trash2 size={15} />
               </button>

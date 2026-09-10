@@ -2,10 +2,7 @@ import { api } from './client'
 import type { Persona } from '../components/PersonaEditor'
 
 export interface PersonaOptions {
-  languages: { id: string; image: string; summary: string; available: string[]; absent: string[] }[];
-  tools: { name: string; description?: string }[];
   mcpServers?: { name: string; tools: number; unreachable?: string }[];
-  defaults: { cpu: string; memory: string; maxSteps: number };
 }
 
 export const personaKeys = {

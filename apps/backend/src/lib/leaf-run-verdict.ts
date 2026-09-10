@@ -1,4 +1,3 @@
-import type { WorkspaceService } from '../services/WorkspaceService.js';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { ValidationRecipe } from './tree-types.js';
 import type { ValidationSummary, ValidationExecutionEnvironment } from '../services/UniversalValidatorService.js';
@@ -13,7 +12,7 @@ import {
 import { assessFindings } from './research-verify.js';
 import { buildPushScript, parsePushedBranch } from './leaf-checkout.js';
 import { resolveActiveRecipe } from './leaf-validation-round.js';
-import { buildValidatorEnv } from './validator-env.js';
+import { buildValidatorEnv, type LeafWorkspace } from './validator-env.js';
 
 export async function readLeafFindings(
   workspaces: { readFile(leafId: string, path: string): Promise<string> },
@@ -44,7 +43,7 @@ export interface VerifyLeafRunDeps {
     inferRecipe(env: ValidationExecutionEnvironment): Promise<ValidationRecipe | undefined>;
     validate(recipe: ValidationRecipe, env: ValidationExecutionEnvironment): Promise<ValidationSummary>;
   };
-  workspaces: WorkspaceService;
+  workspaces: LeafWorkspace;
 }
 
 export interface VerifyLeafRunParams {

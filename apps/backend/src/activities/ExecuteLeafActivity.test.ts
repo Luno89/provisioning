@@ -185,6 +185,28 @@ describe('which model a leaf runs against', () => {
     expect(opts.budget.rounds).toBe(PACK_SEEDS[0]!.budget.rounds);
     expect(opts.budget.run.steps).toBe(PACK_SEEDS[0]!.budget.run.steps);
   });
+
+  it('does not gate a self-hosted deployment provider behind the model rate limiter', async () => {
+    db = await seeded([leaf()]);
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    expect(runAgentLoop.mock.calls[0]![0].rateLimit).toBeUndefined();
+  });
+
+  it('gates a credentialed external endpoint behind the model rate limiter', async () => {
+    resolveBaseUrl.mockResolvedValue({
+      provider: { id: 'ep-9', name: 'OpenRouter · openrouter/free', model: 'openrouter/free', source: 'endpoint' },
+      baseUrl: 'http://model',
+    });
+    db = await seeded([leaf()]);
+
+    await ExecuteLeafActivity({ leafId: 'leaf-1' });
+
+    expect(runAgentLoop.mock.calls[0]![0].rateLimit).toEqual({
+      key: 'ep-9', ownerId: 'u1', label: 'OpenRouter · openrouter/free',
+    });
+  });
 });
 
 describe('what a leaf leaves behind', () => {

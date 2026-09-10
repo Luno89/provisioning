@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
   GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck, Box, ExternalLink, ShieldCheck, Terminal,
+  History,
 } from 'lucide-react';
 import {
   needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago,
@@ -11,6 +12,7 @@ import {
 import { STATE_DOT, STATE_LABEL, STATE_STYLE, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
 import PipelineLogModal from './PipelineLogModal.js';
+import { PipelineRunRow, type PipelineRun } from './PipelineRunRow.js';
 import { cancelLeaf, recheckLeaf } from '../api/grove';
 import { errorMessage } from '../api/client';
 import { listProjects, listProjectRuns } from '../api/projects';
@@ -64,13 +66,18 @@ export default function Home({
     : undefined;
 
   const [logRunId, setLogRunId] = useState<string | null>(null);
-  const { data: projectRuns = [] } = useQuery<any[]>({
+  const { data: projectRuns = [] } = useQuery<PipelineRun[]>({
     queryKey: ['project-runs', linkedProject?.id],
-    queryFn: () => listProjectRuns<any>(linkedProject!.id),
+    queryFn: () => listProjectRuns<PipelineRun>(linkedProject!.id),
     enabled: Boolean(linkedProject?.id),
-    staleTime: 10_000,
+    refetchInterval: (query) => (query.state.data || []).some((r) => r.status === 'queued' || r.status === 'running') ? 3000 : false,
   });
   const latestRun = projectRuns[0];
+  const liveRunId = linkedProject?.status === 'running'
+    ? projectRuns
+      .filter((r) => r.deploymentId)
+      .sort((a, b) => (b.promotedAt ?? '').localeCompare(a.promotedAt ?? ''))[0]?.id
+    : undefined;
 
   const scoped = tree ? scopeToTree(tree.id, branches, leaves) : { branches, leaves };
   const treeId = tree?.id ?? pickedTree;
@@ -217,6 +224,24 @@ export default function Home({
       )}
 
       {logRunId && <PipelineLogModal runId={logRunId} onClose={() => setLogRunId(null)} />}
+
+      {tree && linkedProject && projectRuns.length > 0 && (
+        <section>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
+            <History size={11} /> Deployment & Change Log
+          </h3>
+          <div className="space-y-1.5">
+            {projectRuns.map((r) => (
+              <PipelineRunRow
+                key={r.id}
+                run={r}
+                isLive={r.id === liveRunId}
+                onViewLogs={setLogRunId}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {tree && mine && mine.total > 0 && (
         <section className="rounded-lg border border-[var(--bark-800)] bg-[var(--bark-900)]/40 p-4 space-y-3">

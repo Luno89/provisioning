@@ -1,15 +1,8 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../middleware/async-route.js';
-import { ownedBy, withBuiltIns } from '../lib/ownership.js';
-import { ToolService } from '../services/ToolService.js';
-import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from '../lib/workspace-spec.js';
-import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
 import { preferUsable } from '../lib/mcp-registry.js';
 import { McpRegistryService } from '../services/McpRegistryService.js';
 import type { Database } from '../lib/db-interface.js';
-
-const idOf = (req: Request): string => String(req.params.id ?? '');
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
@@ -20,7 +13,7 @@ export interface PersonaOptionsRouterDeps {
 }
 
 export function personaOptionsRouter(deps: PersonaOptionsRouterDeps): Router {
-  const { db, modelIdsFor } = deps;
+  const { db } = deps;
   const router = Router();
 
   router.get('/', async (req, res) => {
@@ -35,26 +28,7 @@ export function personaOptionsRouter(deps: PersonaOptionsRouterDeps): Router {
     } catch (err: any) {
       console.warn(`[persona-options] could not list MCP servers: ${err.message}`);
     }
-    res.json({
-      mcpServers,
-      languages: (await new WorkspaceImageService(db).list(userOf(req).id)).map((i) => ({
-        id: i.id,
-        image: i.image,
-        summary: i.summary,
-        available: i.available,
-        absent: i.absent,
-      })),
-      tools: (await new ToolService(db).list(userOf(req).id))
-        .map((t) => ({ name: t.name, description: t.description }))
-        .filter((t, i, all) => t.name && all.findIndex((x) => x.name === t.name) === i)
-        .sort((a, b) => a.name.localeCompare(b.name)),
-      defaults: {
-        cpu: DEFAULT_WORKSPACE_CPU,
-        memory: DEFAULT_WORKSPACE_MEMORY,
-        maxSteps: withBuiltIns(await db.getPersonaPacks(), userOf(req).id, (p) => p.slug)
-          .find((p) => p.slug === 'koala')?.budget.run.steps,
-      },
-    });
+    res.json({ mcpServers });
   });
   return router;
 }

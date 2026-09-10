@@ -156,6 +156,21 @@ export class GiteaService {
     return res.json();
   }
 
+  async getCommit(owner: string, name: string, sha: string): Promise<{ message: string; author?: string; date?: string } | null> {
+    const res = await this.apiFetch(`/api/v1/repos/${owner}/${name}/git/commits/${sha}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(`Failed to fetch commit "${sha}" from "${owner}/${name}": HTTP ${res.status}`);
+    }
+    const body = await res.json() as { commit?: { message?: string; author?: { name?: string; date?: string } } };
+    if (!body.commit?.message) return null;
+    return {
+      message: body.commit.message,
+      ...(body.commit.author?.name ? { author: body.commit.author.name } : {}),
+      ...(body.commit.author?.date ? { date: body.commit.author.date } : {}),
+    };
+  }
+
   async createWebhook(owner: string, name: string, targetUrl: string, secret: string): Promise<void> {
     const res = await this.apiFetch(`/api/v1/repos/${owner}/${name}/hooks`, {
       method: 'POST',

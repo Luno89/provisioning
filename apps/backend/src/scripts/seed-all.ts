@@ -5,7 +5,7 @@ import { seedTools } from '../lib/tool-seeds.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
 import { seedPersonas } from '../lib/persona-seeds.js';
 import { seedPacks } from '../lib/pack-seeds.js';
-import { seedAppSpecs } from '../lib/app-spec.js';
+import { seedAppSpecs, seedConstructBackedTypes } from '../lib/app-spec.js';
 import { seedClusterProviders } from '../lib/cluster-providers.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
 import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
@@ -18,6 +18,7 @@ export async function seedAll(db: Parameters<typeof seedTools>[0] & Record<strin
   counts.workspaceImages = await seedWorkspaceImages(db as never);
   counts.treeTypes = await seedTreeTypes(db as never);
   counts.appSpecs = await seedAppSpecs(db as never);
+  counts.constructBackedTypes = await seedConstructBackedTypes(db as never);
   counts.clusterProviders = await seedClusterProviders(db as never);
   // Personas before packs: a pack resolves its persona by name at seed time and is SKIPPED when
   // that persona is absent, which would leave an account with no packs at all.

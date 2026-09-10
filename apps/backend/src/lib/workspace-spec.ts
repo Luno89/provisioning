@@ -1,5 +1,6 @@
 import { bindingProjection, bindingSecretName } from './service-binding.js';
 import { detailsForImage, imageForLanguage } from './workspace-image-catalogue.js';
+import type { LocalEgressRule } from './types.js';
 import {
   DEFAULT_WORKSPACE_LANGUAGE, EGRESS_PROXY_EGRESS, EGRESS_PROXY_HOST, WORKSPACE_MOUNT,
   type EgressRule, type WorkspaceImageSpec,
@@ -252,5 +253,70 @@ export function describeSandbox(
           `- NOT installed: ${tools.absent.join(', ')}. Do not plan around them.`,
         ]
       : ['- The tools in this image are not catalogued; check with `command -v <tool>` before relying on one.']),
+  ].join('\n');
+}
+
+function hostedEgressList(egress: readonly LocalEgressRule[] = []): string[] {
+  return egress.map((rule) => {
+    const ports = rule.ports?.length ? ` on port ${rule.ports.join(', ')}` : '';
+    return `${rule.host}${ports}`;
+  });
+}
+
+/**
+ * The local-device counterpart to `describeSandbox`, for a device with no Docker (raw host exec) —
+ * deliberately NOT the same text as `describeSandbox` or `describeLocalContainerSandbox`. There is
+ * no K8s NetworkPolicy or proxy here to enforce anything, and pretending there is would tell the
+ * model a boundary exists that does not: everything below is advisory, not enforced.
+ */
+export function describeLocalMachineSandbox(egress: readonly LocalEgressRule[] = []): string {
+  const hinted = hostedEgressList(egress);
+
+  const network = hinted.length
+    ? `The project's owner named these as where this is expected to reach: ${hinted.join(', ')}. `
+      + 'That is a hint for you, not an enforced boundary — nothing here actually blocks reaching anything else.'
+    : 'Nothing restricts what this can reach on the network. There is no sandbox boundary here at all.';
+
+  return [
+    'YOUR EXECUTION ENVIRONMENT',
+    '',
+    'You are running directly on a real computer someone set aside for this — not a disposable',
+    'container. There is NO isolation:',
+    '',
+    '- Commands run with whatever permissions this machine\'s user account has. Files you touch are',
+    '  real files on their disk, not thrown away afterward.',
+    '- Stay inside the working directory you were given unless the task specifically requires more —',
+    '  there is no filesystem boundary stopping you from going further, so this is on you.',
+    `- ${network}`,
+    '- Nothing here times out or gets destroyed automatically. Clean up after yourself.',
+  ].join('\n');
+}
+
+/**
+ * For a device actually running its leaves in a Docker container — real facts this time, unlike
+ * `describeLocalMachineSandbox`. Network reachability here is genuinely enforced by a local proxy
+ * (`apps/local-agent/src/egress-proxy.ts`), not advisory, so this says so plainly.
+ */
+export function describeLocalContainerSandbox(
+  spec: { cpu?: string; memory?: string; egress?: readonly LocalEgressRule[] } = {},
+): string {
+  const allowed = hostedEgressList(spec.egress ?? []);
+  const network = allowed.length
+    ? `Outbound network is ENFORCED, not advisory: only ${allowed.join(', ')} is reachable. Anything `
+      + 'else is refused at the network level, not just discouraged.'
+    : 'There is NO outbound network at all — no proxy destinations were configured for this project.';
+
+  return [
+    'YOUR EXECUTION ENVIRONMENT',
+    '',
+    `You run shell commands in a real Docker container, bind-mounted to the actual project`,
+    'directory on the machine it runs on — not a throwaway copy. Facts that will cost you an attempt',
+    'if ignored:',
+    '',
+    `- ${WORKSPACE_MOUNT} is the real project directory. Files you write there appear on the owner's`,
+    '  disk immediately, and persist after you finish — this is not destroyed like a K8s sandbox is.',
+    '- The rest of the filesystem is read-only. You are a non-root user. There is no sudo.',
+    `- You have ${spec.cpu ?? DEFAULT_WORKSPACE_CPU} CPUs and ${spec.memory ?? DEFAULT_WORKSPACE_MEMORY} of memory. Builds that exceed this get killed.`,
+    `- ${network}`,
   ].join('\n');
 }

@@ -1,9 +1,7 @@
-import type { AppType } from './app-types';
-
 export const EMPTY_WIZARD_DATA = {
   name: 'Odoo-Production',
   clusterId: '',
-  appType: 'odoo' as AppType,
+  appType: 'odoo',
   strategy: 'native' as 'helm' | 'native',
   odooRepo: 'library/odoo',
   odooTag: '18.0',

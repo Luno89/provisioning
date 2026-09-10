@@ -35,6 +35,8 @@ import type { AgentStep, AgentRequest, ConversationMessage } from '@koala/harnes
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { BudgetConfig, SamplingConfig } from '@koala/harness-types';
 import type { RanAs } from './run-provenance.js';
+import type { LocalEgressRule } from './types.js';
+import { rateLimitedFetch } from './model-rate-limiter.js';
 
 export type { AgentStep, AgentRequest, ConversationMessage };
 
@@ -142,6 +144,15 @@ export interface AgentRunOptions {
   sandboxSpec?: Pick<WorkspaceSpec, 'egress' | 'env' | 'cpu' | 'memory'>;
   contextTokens?: number;
   validationRecipe?: ValidationRecipe | undefined;
+  /** Present only for a credentialed external endpoint — gates the shared model-rate-limiter. */
+  rateLimit?: { key: string; ownerId: string; label: string } | undefined;
+  /**
+   * Which prompt to describe the sandbox with — a K8s container (default), a bare local machine
+   * (no Docker on that device), or a real Docker container on a local machine.
+   */
+  executionKind?: 'k8s' | 'local-device' | 'local-container' | undefined;
+  /** Hostname allowlist for a local execution target — advisory for 'local-device', enforced for 'local-container'. */
+  localEgress?: LocalEgressRule[] | undefined;
 }
 
 /**
@@ -154,7 +165,12 @@ export interface AgentRunOptions {
 const isBuiltInTool = (name: string) => name in TOOL_HANDLERS;
 
 export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResult> {
-  const doFetch = opts.fetchImpl ?? fetch;
+  const doFetch = rateLimitedFetch(
+    opts.rateLimit?.key,
+    opts.rateLimit?.ownerId ?? '',
+    opts.rateLimit?.label ?? '',
+    opts.fetchImpl ?? fetch,
+  );
 
   const think = Boolean(opts.think);
   let maxSteps = opts.maxSteps ?? opts.budget.run.steps;
@@ -177,7 +193,10 @@ export async function runAgentLoop(opts: AgentRunOptions): Promise<AgentRunResul
   const custom = opts.systemPrompt?.trim() ? opts.systemPrompt : '';
   const extra = opts.extraInstructions?.trim() ? opts.extraInstructions : '';
   const systemPrompt = [
-    custom || buildAgentPrompt(opts.images ?? [], opts.language, opts.taskContext, maxSteps, opts.sandboxSpec ?? {}),
+    custom || buildAgentPrompt(
+      opts.images ?? [], opts.language, opts.taskContext, maxSteps, opts.sandboxSpec ?? {}, opts.executionKind,
+      opts.localEgress ?? [],
+    ),
     ...(custom ? ['', 'YOUR TASK', opts.taskContext] : []),
     ...(extra ? ['', extra] : []),
     ...(opts.bindingsContext ? ['', opts.bindingsContext.trim()] : []),

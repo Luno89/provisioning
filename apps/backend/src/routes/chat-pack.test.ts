@@ -8,6 +8,7 @@ import { TEST_USER } from './test-harness.js';
 import { seedTools } from '../lib/tool-seeds.js';
 import { PersonaPackService } from '../services/PersonaPackService.js';
 import { PACK_SEEDS } from '../lib/pack-seeds.js';
+import { getModelRateLimiterSnapshot } from '../lib/model-rate-limiter.js';
 
 const persona = (id: string, name: string, systemPrompt: string): Persona => ({
   id, ownerId: TEST_USER.id, name, systemPrompt,
@@ -136,6 +137,59 @@ describe('POST /api/chat-pack — unified wire, always koala', () => {
     expect(conv?.messages[1]?.role).toBe('assistant');
     expect(conv?.messages[1]?.content).toBe('hello-red-green');
   });
+
+  it('salvages the partial reply into the conversation when the client aborts mid-stream', async () => {
+    const convId = 'abort-salvage-1';
+    const slowUpstream = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Partial answer before stop' } }] })}\n\n`);
+      req.on('close', () => { try { res.end(); } catch { /* ignored */ } });
+    });
+    await new Promise<void>((resolve) => slowUpstream.listen(0, '127.0.0.1', () => resolve()));
+    const { port } = slowUpstream.address() as { port: number };
+
+    const priorResolveBaseUrl = modelServiceStub.resolveBaseUrl;
+    modelServiceStub.resolveBaseUrl = async () => ({
+      provider: { kind: 'openai', model: 'slow-model' },
+      baseUrl: `http://127.0.0.1:${port}`,
+      apiKey: undefined,
+    });
+
+    try {
+      const controller = new AbortController();
+      const res = await fetch(harness.url('/api/chat-pack'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversationId: convId, message: 'go slow' }),
+        signal: controller.signal,
+      });
+      expect(res.status).toBe(200);
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let sawContent = false;
+      const deadline = Date.now() + 5000;
+      while (!sawContent && Date.now() < deadline) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (decoder.decode(value).includes('Partial answer before stop')) sawContent = true;
+      }
+      expect(sawContent).toBe(true);
+
+      controller.abort();
+      await reader.cancel().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const conv = (await harness.db.getConversations()).find((c: any) => c.id === convId);
+      expect(conv?.messages.length).toBe(2);
+      expect(conv?.messages[1]?.role).toBe('assistant');
+      expect(conv?.messages[1]?.content).toBe('Partial answer before stop');
+      expect(conv?.messages[1]?.interruptedReason).toBe('Stopped');
+    } finally {
+      modelServiceStub.resolveBaseUrl = priorResolveBaseUrl;
+      slowUpstream.close();
+    }
+  }, 10_000);
 
   it('provides conversation CRUD endpoints', async () => {
     const createRes = await fetch(harness.url('/api/chat-pack/conversations'), {
@@ -396,5 +450,47 @@ describe('overthink warning → confirmed kill', () => {
       degenerate.close();
     }
   }, 10_000);
+});
+
+describe('model rate limiter wiring', () => {
+  it('routes a credentialed endpoint\'s calls through the shared rate limiter', async () => {
+    const priorResolveBaseUrl = modelServiceStub.resolveBaseUrl;
+    const endpointId = `ep-chat-${Math.random()}`;
+    modelServiceStub.resolveBaseUrl = async () => {
+      const { baseUrl } = await priorResolveBaseUrl();
+      return {
+        provider: { id: endpointId, name: 'Test Endpoint', kind: 'openai', model: 'x', source: 'endpoint' },
+        baseUrl,
+        apiKey: undefined,
+      };
+    };
+
+    try {
+      await fetch(harness.url('/api/chat-pack'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversationId: 'c-ratelimit', message: 'go' }),
+      }).then((r) => r.text());
+
+      const snapshot = getModelRateLimiterSnapshot(TEST_USER.id);
+      const bucket = snapshot.find((b) => b.key === endpointId);
+      expect(bucket).toBeDefined();
+      expect(bucket!.totalRequests).toBeGreaterThan(0);
+    } finally {
+      modelServiceStub.resolveBaseUrl = priorResolveBaseUrl;
+    }
+  });
+
+  it('does not create a new rate-limit bucket for a provider with no endpoint id', async () => {
+    const before = getModelRateLimiterSnapshot(TEST_USER.id).length;
+
+    await fetch(harness.url('/api/chat-pack'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ conversationId: 'c-no-ratelimit', message: 'go' }),
+    }).then((r) => r.text());
+
+    expect(getModelRateLimiterSnapshot(TEST_USER.id).length).toBe(before);
+  });
 });
 

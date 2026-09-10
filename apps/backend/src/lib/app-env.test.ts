@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveMinioDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from './app-env.js';
-import { appTypeFromName, isAppType, APP_TYPES } from './app-catalog.js';
+import { appTypeFromName } from './app-spec.js';
 import { describeSandbox } from './workspace-spec.js';
 import type { DeploymentMetadata } from './types.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
@@ -85,23 +85,16 @@ describe('Quickwit, whose credentials are not its own', () => {
 });
 
 describe('the app catalog', () => {
+  const knownIds = ['minio', 'qdrant', 'quickwit', 'tei', 'crawl4ai', 'odoo'];
+
   it('recognises a release or pod name', () => {
-    expect(appTypeFromName('crawl4ai-59c75f5947')).toBe('crawl4ai');
-    expect(appTypeFromName('odoo-1')).toBe('odoo');
-    expect(appTypeFromName('nothing-here')).toBeUndefined();
+    expect(appTypeFromName('crawl4ai-59c75f5947', knownIds)).toBe('crawl4ai');
+    expect(appTypeFromName('odoo-1', knownIds)).toBe('odoo');
+    expect(appTypeFromName('nothing-here', knownIds)).toBeUndefined();
   });
 
   it('prefers the longest match, so a short name cannot claim a longer one', () => {
-    expect(appTypeFromName('protein-service')).not.toBe('tei');
-  });
-
-  it('covers the search services', () => {
-    for (const t of ['minio', 'qdrant', 'quickwit', 'tei']) expect(isAppType(t)).toBe(true);
-    expect(isAppType('not-an-app')).toBe(false);
-  });
-
-  it('has no duplicates, which a hand-maintained list acquires', () => {
-    expect(new Set(APP_TYPES).size).toBe(APP_TYPES.length);
+    expect(appTypeFromName('protein-service', knownIds)).not.toBe('tei');
   });
 });
 

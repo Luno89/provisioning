@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { renderApp, MINIO_SPEC, type AppSpec } from './app-spec.js';
+import {
+  renderApp, MINIO_SPEC, type AppSpec,
+  CONSTRUCT_BACKED_TYPES, APP_CATALOGUE_META, NATIVE_APP_UI_DEFAULTS,
+  constructBackedToSeed, seedConstructBackedTypes, appTypeFromName,
+  type StoredAppSpec,
+} from './app-spec.js';
 
 const ctx = {
   id: 'abc123',
@@ -266,5 +271,71 @@ describe('the contract with the construct', () => {
     const rendered = renderApp(db, { ...ctx, namespace: 'mongo' });
     expect(rendered.ingressPort).toBeUndefined();
     expect(rendered.health).toBeUndefined();
+  });
+});
+
+describe('construct-backed catalogue entries (Odoo, WordPress, vLLM, ...)', () => {
+  it('leaves none undescribed, so adding one to CONSTRUCT_BACKED_TYPES cannot skip this', () => {
+    for (const id of CONSTRUCT_BACKED_TYPES) {
+      expect(APP_CATALOGUE_META[id]?.is, id).toBeTruthy();
+      expect(APP_CATALOGUE_META[id]?.provides.length, id).toBeGreaterThan(0);
+      expect(NATIVE_APP_UI_DEFAULTS[id], id).toBeTruthy();
+    }
+  });
+
+  it('gates vLLM and TabbyAPI to GPU clusters only', () => {
+    expect(NATIVE_APP_UI_DEFAULTS.vllm?.gpuOnly).toBe(true);
+    expect(NATIVE_APP_UI_DEFAULTS.tabbyapi?.gpuOnly).toBe(true);
+    expect(NATIVE_APP_UI_DEFAULTS.odoo?.gpuOnly).toBeFalsy();
+  });
+
+  const store = (existing: StoredAppSpec[] = []) => {
+    const rows = [...existing];
+    return {
+      getAppSpecs: async () => rows,
+      saveAppSpec: async (spec: StoredAppSpec) => {
+        const i = rows.findIndex((r) => r.id === spec.id);
+        if (i >= 0) rows[i] = spec; else rows.push(spec);
+      },
+      rows,
+    };
+  };
+
+  it('seeds a catalogue-only row per construct-backed type, with no renderable spec', async () => {
+    const db = store();
+    const n = await seedConstructBackedTypes(db);
+    expect(n).toBe(CONSTRUCT_BACKED_TYPES.length);
+    const odoo = db.rows.find((r) => r.id === 'odoo');
+    expect(odoo?.spec).toBeUndefined();
+    expect(odoo?.uiDefaults?.strategies).toEqual(['native']);
+    expect(odoo?.is).toBe(APP_CATALOGUE_META.odoo?.is);
+  });
+
+  it('does nothing on a second seed pass', async () => {
+    const db = store();
+    await seedConstructBackedTypes(db);
+    expect(await seedConstructBackedTypes(db)).toBe(0);
+  });
+
+  it('never touches a row a user has edited', () => {
+    const now = new Date().toISOString();
+    const edited: StoredAppSpec = {
+      id: 'odoo', label: 'My Odoo', is: 'custom', provides: [], builtIn: true,
+      editedAt: now, createdAt: now, updatedAt: now,
+    };
+    expect(constructBackedToSeed([edited], ['odoo'])).toEqual([]);
+  });
+});
+
+describe('appTypeFromName', () => {
+  const knownIds = ['minio', 'qdrant', 'odoo', 'wordpress'];
+
+  it('matches a release or pod name against known catalogue ids', () => {
+    expect(appTypeFromName('odoo-1', knownIds)).toBe('odoo');
+    expect(appTypeFromName('nothing-here', knownIds)).toBeUndefined();
+  });
+
+  it('prefers the longest match', () => {
+    expect(appTypeFromName('wordpress-db', knownIds)).toBe('wordpress');
   });
 });

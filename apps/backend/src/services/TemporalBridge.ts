@@ -1581,7 +1581,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const odooRepo = run.imageTag.slice(0, lastColon);
     const odooTag = run.imageTag.slice(lastColon + 1);
 
-    return this.deployApp({
+    const deal = await this.deployApp({
       name: project.name,
       clusterId: project.targetClusterId,
       strategy: 'native',
@@ -1593,5 +1593,15 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       gitappImageTag: run.imageTag,
       ...(project.deployEnv ? { gitappEnv: project.deployEnv } : {}),
     }, userId);
+
+    if (deal.resourceId) {
+      await this.db.savePipelineRunInfo({
+        id: run.id,
+        promotedAt: new Date().toISOString(),
+        deploymentId: deal.resourceId,
+      });
+    }
+
+    return deal;
   }
 }

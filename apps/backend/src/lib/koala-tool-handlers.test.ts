@@ -1,5 +1,28 @@
 import { describe, it, expect, vi } from 'vitest';
-import { handleInjectSecretToPod, handleRequestSecret, handleDeployApp, handleListClusters } from './koala-tool-handlers.js';
+import {
+  handleInjectSecretToPod, handleRequestSecret, handleDeployApp, handleListClusters,
+  handleListInfrastructure,
+} from './koala-tool-handlers.js';
+import { CONSTRUCT_BACKED_TYPES, seedConstructBackedTypes, type StoredAppSpec } from './app-spec.js';
+
+describe('handleListInfrastructure', () => {
+  it('includes construct-backed apps like odoo and wordpress, not just the generic-spec catalogue', async () => {
+    const rows: StoredAppSpec[] = [];
+    await seedConstructBackedTypes({
+      getAppSpecs: async () => rows,
+      saveAppSpec: async (spec) => { rows.push(spec); },
+    });
+
+    const ctx: any = {
+      db: { getAppSpecs: vi.fn().mockResolvedValue(rows), getDeployments: vi.fn().mockResolvedValue([]) },
+      userId: 'u1',
+    };
+
+    const out = await handleListInfrastructure(ctx, {});
+    const deployableIds = JSON.parse(out.content).deployable.map((d: any) => d.id);
+    for (const id of CONSTRUCT_BACKED_TYPES) expect(deployableIds, id).toContain(id);
+  });
+});
 
 describe('handleDeployApp', () => {
   const catalogue = [{ id: 'jellyfin', spec: { id: 'jellyfin', image: 'jellyfin/jellyfin', ports: [] } }];

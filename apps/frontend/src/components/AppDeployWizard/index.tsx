@@ -5,13 +5,14 @@ import { useHfModelSize, useModelSearch, useTabbyImageTags, useHfBranches } from
 import { TagPicker } from './TagPicker';
 import { useDebounce } from '../../lib/use-debounce';
 import { credentialKeys, listProviders } from '../../api/credentials';
-import { useAppCatalogue } from '../../api/deployments';
+import { useAppCatalogue, type AppUiDefaults, type AppImageDefaults } from '../../api/deployments';
 import { EMPTY_WIZARD_DATA, type WizardData } from '../wizard-defaults';
-import { defaultsFor, GPU_ONLY_APP_TYPES, TABBY_TOOL_FORMATS } from '../app-catalog';
 import { nextStep, prevStep, isModelApp } from './steps';
 import type { Cluster } from '../../types/cluster';
 import type { Deployment } from '../../types/deployment';
-import type { AppType } from '../app-types';
+
+const BLANK_IMAGE: AppImageDefaults = { webRepo: '', webTag: '', dbRepo: '', dbTag: '' };
+const EMPTY_UI_DEFAULTS: AppUiDefaults = { helm: BLANK_IMAGE, native: BLANK_IMAGE, hasDatabase: false, strategies: [] };
 
 export interface AppDeployWizardProps {
   clusters: Cluster[];
@@ -66,15 +67,14 @@ export default function AppDeployWizard({
   const hasHfAccount = credentials.some((p) => p.provider === 'huggingface' && p.configured);
 
   const { data: catalogue = [] } = useAppCatalogue();
-  const HARDCODED_APP_TYPES = new Set([
-    'odoo', 'wordpress', 'nextcloud', 'audiobookshelf', 'prometheus', 'traefik', 'vllm', 'tabbyapi',
-    'openwebui', 'hermes', 'palworld', 'jellyfin', 'plex', 'navidrome', 'kavita', 'immich', 'papra',
-    'searxng', 'crawl4ai', 'homeassistant',
-  ]);
-  const catalogueOnlyEntries = catalogue.filter((c) => !HARDCODED_APP_TYPES.has(c.id));
-  // A catalogue app (built-in or custom) deploys entirely from its stored spec — steps 2-5 would
-  // show fields that are silently ignored if submitted, so those apps skip straight to confirm.
-  const isCatalogueApp = catalogue.some((c) => c.id === wizardData.appType);
+  const uiDefaultsFor = (appType: string): AppUiDefaults => catalogue.find((c) => c.id === appType)?.uiDefaults ?? EMPTY_UI_DEFAULTS;
+  const catalogueOnlyEntries = catalogue.filter((c) => c.deploysFromSpec);
+  // An app that deploys entirely from a stored spec — steps 2-5 would show fields that are
+  // silently ignored if submitted, so those apps skip straight to confirm. A construct-backed app
+  // (Odoo, WordPress, vLLM, ...) is also in the catalogue now, but still needs those steps.
+  const isCatalogueApp = catalogue.some((c) => c.id === wizardData.appType && c.deploysFromSpec);
+  const currentUiDefaults = uiDefaultsFor(wizardData.appType);
+  const currentStrategies = currentUiDefaults.strategies ?? [];
 
   const { options: tabbyImageTagOptions, loading: loadingTabbyImageTags } = useTabbyImageTags(
     wizardStep === 4 && wizardData.appType === 'tabbyapi',
@@ -93,19 +93,21 @@ export default function AppDeployWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabbyModelBranches]);
 
-  const handleAppTypeChange = (newAppType: AppType) => {
-    const config = defaultsFor(newAppType);
-    const newStrategy = config.strategies.includes(wizardData.strategy) ? wizardData.strategy : (config.strategies[0] ?? 'native');
-    const defaults = config[newStrategy];
+  const handleAppTypeChange = (newAppType: string) => {
+    const config = uiDefaultsFor(newAppType);
+    const strategies = config.strategies ?? [];
+    const newStrategy = strategies.includes(wizardData.strategy) ? wizardData.strategy : (strategies[0] ?? 'native');
+    const defaults = config[newStrategy] ?? BLANK_IMAGE;
     const capitalized = newAppType.charAt(0).toUpperCase() + newAppType.slice(1);
+    const gpuOnly = config.gpuOnly === true;
 
     setWizardData(prev => {
       const prevCapitalized = prev.appType.charAt(0).toUpperCase() + prev.appType.slice(1);
       const isDefaultName = prev.name === `${prevCapitalized}-Production`;
       const selectedCluster = clusters.find((c) => c.id === prev.clusterId);
-      const stillValidCluster = !selectedCluster || !GPU_ONLY_APP_TYPES.has(newAppType) || selectedCluster.gpuEnabled;
+      const stillValidCluster = !selectedCluster || !gpuOnly || selectedCluster.gpuEnabled;
       let nextClusterId = stillValidCluster ? prev.clusterId : '';
-      if (GPU_ONLY_APP_TYPES.has(newAppType) && !nextClusterId) {
+      if (gpuOnly && !nextClusterId) {
         const gpuClusters = clusters.filter((c) => c.status === 'healthy' && c.gpuEnabled);
         if (gpuClusters.length === 1) nextClusterId = gpuClusters[0]!.id;
       }
@@ -125,10 +127,10 @@ export default function AppDeployWizard({
 
   const selectStrategy = (strat: 'helm' | 'native') => {
     const appType = wizardData.appType || 'odoo';
-    const config = defaultsFor(appType);
-    if (!config.strategies.includes(strat)) return;
-    
-    const defaults = config[strat];
+    const config = uiDefaultsFor(appType);
+    if (!(config.strategies ?? []).includes(strat)) return;
+
+    const defaults = config[strat] ?? BLANK_IMAGE;
     setWizardData(prev => ({
       ...prev,
       strategy: strat,
@@ -172,9 +174,8 @@ export default function AppDeployWizard({
           <div className="flex items-center gap-4">
             <div className="flex gap-2">
               {(isCatalogueApp ? [1, 6] : [1, 2, 3, 4, 5, 6]).map(s => {
-                const config = defaultsFor(wizardData.appType);
                 if (s === 3 && !isModelApp(wizardData.appType)) return null;
-                if (s === 5 && !config.hasDatabase) return null;
+                if (s === 5 && !currentUiDefaults.hasDatabase) return null;
                 return (
                   <div key={s} className={`w-8 h-1.5 rounded-full transition-all ${wizardStep >= s ? 'bg-blue-500' : 'bg-slate-700'}`}></div>
                 );
@@ -194,11 +195,11 @@ export default function AppDeployWizard({
                 <label htmlFor="wizard-target-cluster" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Target Cluster</label>
                 <select id="wizard-target-cluster" value={wizardData.clusterId} onChange={e => setWizardData({...wizardData, clusterId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all">
                   <option value="">Select a healthy cluster...</option>
-                  {clusters.filter((c) => c.status === 'healthy' && (!GPU_ONLY_APP_TYPES.has(wizardData.appType) || c.gpuEnabled)).map((c) => (
+                  {clusters.filter((c) => c.status === 'healthy' && (currentUiDefaults.gpuOnly !== true || c.gpuEnabled)).map((c) => (
                     <option key={c.id} value={c.id}>{c.name} ({c.provider}{c.gpuEnabled ? ' • GPU' : ''})</option>
                   ))}
                 </select>
-                {GPU_ONLY_APP_TYPES.has(wizardData.appType) && (
+                {currentUiDefaults.gpuOnly === true && (
                   clusters.some((c) => c.status === 'healthy' && c.gpuEnabled) ? (
                     <p className="text-[11px] text-amber-400/80 mt-2">Only GPU-enabled clusters are shown — {wizardData.appType} needs GPU passthrough.</p>
                   ) : (
@@ -211,7 +212,7 @@ export default function AppDeployWizard({
                 <select
                   id="wizard-app-type"
                   value={wizardData.appType}
-                  onChange={e => handleAppTypeChange(e.target.value as AppType)}
+                  onChange={e => handleAppTypeChange(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all text-slate-100"
                 >
                   <option value="odoo">Odoo ERP</option>
@@ -250,26 +251,26 @@ export default function AppDeployWizard({
               <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><h4 className="font-bold flex items-center gap-2 mb-2"><Blocks className="text-blue-400" size={18}/> Deployment Strategy</h4><p className="text-slate-400 text-sm">Choose how the application is orchestrated.</p></div>
               <div className="grid grid-cols-2 gap-4">
                 <button
-                  disabled={!defaultsFor(wizardData.appType).strategies.includes('helm')}
+                  disabled={!currentStrategies.includes('helm')}
                   onClick={() => selectStrategy('helm')}
-                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!defaultsFor(wizardData.appType).strategies.includes('helm') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'helm' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
+                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!currentStrategies.includes('helm') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'helm' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
                 >
                   <div className="p-3 bg-blue-500/20 rounded-xl w-fit mb-4"><Layers size={24} className="text-blue-500" /></div>
                   <div className="font-bold text-lg">Helm Chart</div>
                   <div className="text-xs text-slate-400 mt-1">Bitnami-managed stack. Includes advanced features and hardened images.</div>
-                  {!defaultsFor(wizardData.appType).strategies.includes('helm') && (
+                  {!currentStrategies.includes('helm') && (
                     <span className="absolute top-4 right-4 text-[9px] font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-400 uppercase">Not Supported</span>
                   )}
                 </button>
                 <button
-                  disabled={!defaultsFor(wizardData.appType).strategies.includes('native')}
+                  disabled={!currentStrategies.includes('native')}
                   onClick={() => selectStrategy('native')}
-                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!defaultsFor(wizardData.appType).strategies.includes('native') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'native' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
+                  className={`p-6 rounded-2xl border-2 text-left transition-all relative ${!currentStrategies.includes('native') ? 'opacity-40 cursor-not-allowed border-slate-800 bg-slate-900' : wizardData.strategy === 'native' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-900 hover:border-slate-500'}`}
                 >
                   <div className="p-3 bg-green-500/20 rounded-xl w-fit mb-4"><Box size={24} className="text-green-500" /></div>
                   <div className="font-bold text-lg">Native K8s</div>
                   <div className="text-xs text-slate-400 mt-1">Raw Kubernetes resources. Uses official library images directly.</div>
-                  {!defaultsFor(wizardData.appType).strategies.includes('native') && (
+                  {!currentStrategies.includes('native') && (
                     <span className="absolute top-4 right-4 text-[9px] font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-400 uppercase">Not Supported</span>
                   )}
                 </button>
@@ -517,7 +518,7 @@ export default function AppDeployWizard({
                       <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Tool Call Format</label>
                       <select value={wizardData.tabbyToolFormat} onChange={e => setWizardData({...wizardData, tabbyToolFormat: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 text-sm">
                         <option value="">None — tool calls won't be parsed</option>
-                        {TABBY_TOOL_FORMATS.map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
+                        {(currentUiDefaults.toolFormats ?? []).map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
                       </select>
                     </div>
                     <div className="flex items-center gap-3">
@@ -666,7 +667,7 @@ export default function AppDeployWizard({
                   <>
                     <div className="flex justify-between border-b border-slate-800 pb-3"><span>Strategy</span><span className="font-bold text-blue-400 uppercase tracking-widest text-[10px]">{wizardData.strategy}</span></div>
                     <div className="flex justify-between border-b border-slate-800 pb-3"><span>{wizardData.appType.charAt(0).toUpperCase() + wizardData.appType.slice(1)}</span><span className="font-mono text-xs text-slate-300">{wizardData.appType === 'tabbyapi' ? `${wizardData.tabbyModel}${wizardData.tabbyRevision ? '@' + wizardData.tabbyRevision : ''} (${wizardData.tabbyGpuCount} GPU)` : `${wizardData.odooRepo}:${wizardData.odooTag}`}</span></div>
-                    {defaultsFor(wizardData.appType).hasDatabase && (
+                    {currentUiDefaults.hasDatabase && (
                       <div className="flex justify-between"><span>Database</span><span className="font-mono text-xs text-slate-300">{wizardData.pgRepo}:{wizardData.pgTag}</span></div>
                     )}
                   </>
@@ -675,7 +676,7 @@ export default function AppDeployWizard({
             </div>
           )}
         </div>
-        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'hermes' ? { ...wizardData, hermesTargetId: wizardData.hermesTargetId || undefined, appType: 'hermes', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; onDeploy(payload as WizardData); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
+        <div className="mt-10 flex gap-4 pt-8 border-t border-slate-700">{wizardStep > 1 && (<button onClick={() => setWizardStep((n) => prevStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 flex items-center gap-2"><ArrowLeft size={18} /> Back</button>)}<div className="flex-1"></div>{wizardStep < 6 ? (<button disabled={(wizardStep === 1 && !wizardData.clusterId)} onClick={() => setWizardStep((n) => nextStep(n, wizardData.appType, isCatalogueApp, catalogue))} className="px-8 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg flex items-center gap-2 disabled:opacity-50">Next <ArrowRight size={18} /></button>) : (<button onClick={() => { const payload = wizardData.appType === 'vllm' ? { ...wizardData, vllmModel: wizardData.odooRepo, vllmGpuCount: parseInt(wizardData.odooTag) || 1, vllmGpuVendor: wizardData.pgRepo || 'nvidia', vllmHfToken: wizardData.pgTag || '', vllmMaxModelLen: wizardData.vllmMaxModelLen ? parseInt(wizardData.vllmMaxModelLen) : undefined, vllmGpuMemUtil: wizardData.vllmGpuMemUtil ? parseFloat(wizardData.vllmGpuMemUtil) : undefined, vllmExtraArgs: wizardData.vllmExtraArgs || undefined, vllmToolCallingEnabled: wizardData.vllmToolCallingEnabled && !!wizardData.vllmToolCallParser, vllmToolCallParser: wizardData.vllmToolCallParser || undefined, vllmServedModelName: wizardData.vllmServedModelName || undefined, vllmMaxNumSeqs: wizardData.vllmMaxNumSeqs ? parseInt(wizardData.vllmMaxNumSeqs) : undefined, vllmDtype: wizardData.vllmDtype || undefined, appType: 'vllm', strategy: 'native' } : wizardData.appType === 'tabbyapi' ? { ...wizardData, tabbyGpuCount: parseInt(wizardData.tabbyGpuCount) || 1, tabbyRevision: wizardData.tabbyRevision || undefined, tabbyHfToken: wizardData.tabbyHfToken || undefined, tabbyCacheMode: wizardData.tabbyCacheMode || undefined, tabbyMaxSeqLen: wizardData.tabbyMaxSeqLen ? parseInt(wizardData.tabbyMaxSeqLen) : undefined, tabbyMaxBatchSize: wizardData.tabbyMaxBatchSize ? parseInt(wizardData.tabbyMaxBatchSize) : undefined, tabbyToolFormat: wizardData.tabbyToolFormat || undefined, appType: 'tabbyapi', strategy: 'native' } : wizardData.appType === 'openwebui' ? { ...wizardData, openWebuiTargetId: wizardData.openWebuiTargetId || undefined, webuiWebSearchApiKey: wizardData.webuiWebSearchApiKey || undefined, appType: 'openwebui', strategy: 'native' } : wizardData.appType === 'hermes' ? { ...wizardData, hermesTargetId: wizardData.hermesTargetId || undefined, appType: 'hermes', strategy: 'native' } : wizardData.appType === 'palworld' ? { ...wizardData, appSettings: { SERVER_NAME: wizardData.name || 'A Palworld Server', PLAYERS: String(parseInt(wizardData.palworldPlayers) || 16) }, appType: 'palworld', strategy: 'native' } : wizardData; onDeploy(payload as WizardData); }} className="px-10 py-3 rounded-xl bg-green-600 hover:bg-green-500 shadow-lg font-bold">🚀 Initiate Deployment</button>)}</div>
       </div>
     </div>
   );

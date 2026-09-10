@@ -5,6 +5,7 @@ import { profileRouter, type profileRouterDeps } from './profile.js';
 import { experimentsRouter, type experimentsRouterDeps } from './experiments.js';
 import { toolsRouter, type toolsRouterDeps } from './tools.js';
 import { memoriesRouter, type memoriesRouterDeps } from './memories.js';
+import { rateLimitsRouter } from './rate-limits.js';
 
 export type HarnessRouterDeps =
   workbenchRouterDeps & authorRouterDeps & profileRouterDeps
@@ -18,5 +19,6 @@ export function harnessRouter(deps: HarnessRouterDeps): Router {
   router.use('/experiments', experimentsRouter(deps));
   router.use('/tools', toolsRouter(deps));
   router.use('/memories', memoriesRouter(deps));
+  router.use('/rate-limits', rateLimitsRouter());
   return router;
 }

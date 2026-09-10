@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MemoryDB } from './memory-db.js';
 import { classifyLeafRun } from './leaf-run-classify.js';
-import type { TreeTypeSpec } from './tree-types.js';
+import { flattenRecipeLeaves, type TreeTypeSpec } from './tree-types.js';
 import type { Tree } from './trees.js';
 import type { Branch } from './leaves.js';
 
@@ -80,7 +80,7 @@ describe('classifyLeafRun', () => {
       ownerId: 'u1', branchId: 'b-mcp2',
     });
 
-    const types = out.leafRecipe?.checks.map((c) => c.type) ?? [];
+    const types = flattenRecipeLeaves(out.leafRecipe?.checks ?? []).map((c) => c.type);
     expect(types).not.toContain('mcp-probe');
     expect(types).toContain('file-exists');
   });

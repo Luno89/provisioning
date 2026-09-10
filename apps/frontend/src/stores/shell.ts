@@ -6,7 +6,7 @@ export const FOREST_VIEWS = [
   'accounts', 'services', 'nginx', 'temporal', 'settings',
 ] as const
 
-export const KOALA_VIEWS = ['grove', 'chat', 'personas', 'lab', 'harness', 'tool-repo'] as const
+export const KOALA_VIEWS = ['grove', 'chat', 'personas', 'lab', 'harness', 'tool-repo', 'tree-types'] as const
 
 export const KNOWN_VIEWS = [...FOREST_VIEWS, ...KOALA_VIEWS] as const
 
@@ -50,6 +50,12 @@ interface ShellState {
   forestOpen: boolean
   setForestOpen: (open: boolean | ((open: boolean) => boolean)) => void
 
+  koalaOpen: boolean
+  setKoalaOpen: (open: boolean | ((open: boolean) => boolean)) => void
+
+  projectsOpen: boolean
+  setProjectsOpen: (open: boolean | ((open: boolean) => boolean)) => void
+
   handoff: { branchId: string; prompt: string } | undefined
   setHandoff: (handoff: { branchId: string; prompt: string } | undefined) => void
 
@@ -90,6 +96,16 @@ export const useShellStore = create<ShellState>((set) => ({
   forestOpen: true,
   setForestOpen: (open) => set((s) => ({
     forestOpen: typeof open === 'function' ? open(s.forestOpen) : open,
+  })),
+
+  koalaOpen: true,
+  setKoalaOpen: (open) => set((s) => ({
+    koalaOpen: typeof open === 'function' ? open(s.koalaOpen) : open,
+  })),
+
+  projectsOpen: true,
+  setProjectsOpen: (open) => set((s) => ({
+    projectsOpen: typeof open === 'function' ? open(s.projectsOpen) : open,
   })),
 
   handoff: undefined,

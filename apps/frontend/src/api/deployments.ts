@@ -18,12 +18,31 @@ export const deploymentKeys = {
 export const listDeployments = (): Promise<Deployment[]> =>
   api.get<Deployment[]>('/deployments').then((r) => r.data)
 
+export interface AppImageDefaults {
+  webRepo: string
+  webTag: string
+  dbRepo: string
+  dbTag: string
+}
+
+export interface AppUiDefaults {
+  helm?: AppImageDefaults
+  native?: AppImageDefaults
+  hasDatabase?: boolean
+  strategies?: ('helm' | 'native')[]
+  gpuOnly?: boolean
+  toolFormats?: string[]
+}
+
 /** A catalogue entry — a stored AppSpec (built-in or a user's own), the one source koala and the deploy wizard both read from. */
 export interface CatalogueEntry {
   id: string
   label?: string
   is?: string
   provides?: string[]
+  /** True when this entry deploys via the generic renderApp() path and can skip the wizard's bespoke config steps; false for a construct-backed app (Odoo, WordPress, vLLM, ...) that still needs them. */
+  deploysFromSpec?: boolean
+  uiDefaults?: AppUiDefaults
 }
 
 export const listAppCatalogue = (): Promise<CatalogueEntry[]> =>

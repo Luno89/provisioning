@@ -2,14 +2,16 @@ import { useSocketEvent } from '../stores/socket';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  GitBranch, Plus, X, Loader2, CheckCircle2, XCircle, Clock, Rocket,
-  RefreshCw, AlertTriangle, ExternalLink, Box, Terminal, ShieldCheck,
+  GitBranch, Plus, X, Loader2, CheckCircle2, XCircle, Clock,
+  RefreshCw, AlertTriangle, ExternalLink, Box, ShieldCheck, ShieldAlert, Terminal,
 } from 'lucide-react';
 import PipelineLogModal from './PipelineLogModal.js';
+import { PipelineRunRow, type PipelineRun } from './PipelineRunRow.js';
 import {
   listProjects, listProjectRuns, projectKeys,
   createProject as createProjectApi, promoteRun as promoteRunApi,
 } from '../api/projects';
+import { listLocalAgentDevices, localAgentKeys, type LocalAgentDevice } from '../api/local-agents';
 
 interface Project {
   id: string;
@@ -18,6 +20,8 @@ interface Project {
   giteaRepo: string;
   targetClusterId?: string;
   targetNamespace?: string;
+  executionTarget?: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string };
+  executionApproval?: 'plan' | 'auto';
   appType: string;
   autoDeployOnBuild?: boolean;
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
@@ -26,39 +30,9 @@ interface Project {
   createdAt: string;
 }
 
-interface PipelineRun {
-  id: string;
-  projectId: string;
-  commitSha: string;
-  ref: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
-  imageTag?: string;
-  logFile?: string;
-  startedAt: string;
-  finishedAt?: string;
-  errorMessage?: string;
-}
-
 interface Cluster {
   id: string;
   name: string;
-}
-
-const STATUS_STYLE: Record<string, { icon: any; className: string; label: string }> = {
-  queued: { icon: Clock, className: 'text-slate-400 bg-slate-500/10 border-slate-500/20', label: 'Queued' },
-  running: { icon: Loader2, className: 'text-blue-400 bg-blue-500/10 border-blue-500/30', label: 'Building' },
-  succeeded: { icon: CheckCircle2, className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', label: 'Succeeded' },
-  failed: { icon: XCircle, className: 'text-rose-400 bg-rose-500/10 border-rose-500/20', label: 'Failed' },
-};
-
-function StatusBadge({ status }: { status?: string | undefined }) {
-  const s = STATUS_STYLE[status || 'queued'] ?? STATUS_STYLE.queued!;
-  const Icon = s.icon;
-  return (
-    <span className={`text-[11px] font-medium font-mono px-2 py-0.5 rounded-md border flex items-center gap-1.5 w-fit ${s.className}`}>
-      <Icon size={12} className={status === 'running' ? 'animate-spin' : ''} /> {s.label}
-    </span>
-  );
 }
 
 const PROJECT_STATUS: Record<string, { icon: any; className: string; label: string }> = {
@@ -105,6 +79,11 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
     refetchInterval: (query) => (query.state.data || []).some(r => r.status === 'queued' || r.status === 'running') ? 3000 : false,
   });
 
+  const { data: localAgents = [] } = useQuery<LocalAgentDevice[]>({
+    queryKey: localAgentKeys.list(),
+    queryFn: listLocalAgentDevices,
+  });
+
   const createProject = useMutation({
     mutationFn: (payload: unknown) => createProjectApi(payload),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['projects'] }); setShowCreateModal(false); },
@@ -113,7 +92,11 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
   const promoteRun = useMutation({
     mutationFn: ({ projectId, runId }: { projectId: string; runId: string }) =>
       promoteRunApi(projectId, runId),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['deployments'] }); queryClient.invalidateQueries({ queryKey: ['projects'] }); },
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: projectKeys.runs(projectId) });
+    },
   });
 
   useSocketEvent('deployment-updated', () => {
@@ -163,6 +146,7 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
           {projects.map((p) => {
             const isExpanded = expandedProject === p.id;
             const liveUrl = `http://${p.name.toLowerCase()}.apps.local`;
+            const localDeviceId = p.executionTarget?.kind === 'local-device' ? p.executionTarget.deviceId : undefined;
             return (
               <div
                 key={p.id}
@@ -183,6 +167,23 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
                           {p.autoDeployOnBuild && (
                             <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
                               <ShieldCheck size={10} /> auto-deploy
+                            </span>
+                          )}
+                          {localDeviceId && (
+                            <span
+                              className="text-[10px] font-mono text-blue-400 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded flex items-center gap-1"
+                              title="This project's leaves execute on a local machine, not a sandboxed cluster"
+                            >
+                              <Terminal size={10} />
+                              {localAgents.find((d) => d.id === localDeviceId)?.name ?? 'local machine'}
+                            </span>
+                          )}
+                          {localDeviceId && p.executionApproval !== 'auto' && (
+                            <span
+                              className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded flex items-center gap-1"
+                              title="Each command needs your approval before it runs"
+                            >
+                              <ShieldAlert size={10} /> approval required
                             </span>
                           )}
                         </div>
@@ -230,48 +231,14 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
                       ) : (
                         <div className="space-y-2">
                           {runs.map((r) => (
-                            <div
+                            <PipelineRunRow
                               key={r.id}
-                              className="rounded-md border border-[var(--bark-800)] bg-[var(--bark-950)]/70 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono text-xs"
-                            >
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex items-center gap-2.5 flex-wrap">
-                                  <StatusBadge status={r.status} />
-                                  <span className="text-slate-300 font-bold">{r.commitSha.slice(0, 8)}</span>
-                                  <span className="text-slate-400 text-[11px] bg-[var(--bark-800)] px-1.5 py-0.5 rounded">{r.ref}</span>
-                                  {r.imageTag && (
-                                    <span className="text-slate-400 text-[11px] truncate max-w-xs" title={r.imageTag}>
-                                      tag: <span className="text-blue-300">{r.imageTag.split(':').pop()}</span>
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-[11px] text-slate-400">
-                                  Started {new Date(r.startedAt).toLocaleString()}
-                                  {r.finishedAt && ` • Finished in ${Math.round((new Date(r.finishedAt).getTime() - new Date(r.startedAt).getTime()) / 1000)}s`}
-                                </div>
-                                {r.errorMessage && (
-                                  <div className="text-[11px] text-rose-400 truncate">{r.errorMessage}</div>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                                <button
-                                  onClick={() => setLogRunId(r.id)}
-                                  className="text-slate-300 hover:text-white bg-[var(--bark-800)] hover:bg-[var(--bark-700)] text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
-                                >
-                                  <Terminal size={12} /> Build Logs
-                                </button>
-                                {r.status === 'succeeded' && r.imageTag && (
-                                  <button
-                                    onClick={() => promoteRun.mutate({ projectId: p.id, runId: r.id })}
-                                    disabled={promoteRun.isPending}
-                                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-[11px] font-medium px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"
-                                  >
-                                    <Rocket size={12} /> Deploy
-                                  </button>
-                                )}
-                              </div>
-                            </div>
+                              run={r}
+                              isLive={Boolean(r.deploymentId) && p.status === 'running'}
+                              onViewLogs={setLogRunId}
+                              onPromote={(run) => promoteRun.mutate({ projectId: p.id, runId: run.id })}
+                              promoting={promoteRun.isPending}
+                            />
                           ))}
                         </div>
                       )}
@@ -311,6 +278,8 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
                   targetClusterId: d.get('targetClusterId') || undefined,
                   targetNamespace: d.get('name'),
                   autoDeployOnBuild: d.get('autoDeployOnBuild') === 'on',
+                  executionTargetDeviceId: d.get('executionTargetDeviceId') || undefined,
+                  executionApproval: d.get('requireApproval') === 'on' ? 'plan' : 'auto',
                 });
               }}
               className="space-y-4 text-xs"
@@ -362,6 +331,31 @@ export default function Projects({ clusters }: { clusters: Cluster[] }) {
               <label className="flex items-center gap-2.5 text-slate-300 cursor-pointer">
                 <input type="checkbox" name="autoDeployOnBuild" defaultChecked className="rounded accent-blue-600" />
                 <span>Auto-deploy image on every successful push</span>
+              </label>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                  Where Koala's leaves run
+                </label>
+                <select
+                  name="executionTargetDeviceId"
+                  className="w-full bg-[var(--bark-950)] border border-[var(--bark-700)] rounded-md px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500 transition-colors"
+                >
+                  <option value="">Sandboxed cluster (default)</option>
+                  {localAgents.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}{d.online ? '' : ' (offline)'}</option>
+                  ))}
+                </select>
+                {localAgents.length === 0 && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    No machines registered yet — add one under My Machines to run leaves locally instead.
+                  </p>
+                )}
+              </div>
+
+              <label className="flex items-center gap-2.5 text-slate-300 cursor-pointer">
+                <input type="checkbox" name="requireApproval" defaultChecked className="rounded accent-blue-600" />
+                <span>Require my approval before each command on a local machine</span>
               </label>
 
               {createProject.isError && (

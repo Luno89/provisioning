@@ -4,7 +4,7 @@ import type { StoredAppSpec } from './app-spec.js';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
-import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata } from './types.js';
+import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
 import type { Database, PartialInfo, BindingTypeRecord } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
@@ -17,6 +17,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { TreeTypeSpec } from './tree-types.js';
+import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
 import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
@@ -95,6 +96,10 @@ export class MongoDB implements Database {
     return this.db!.collection('treeTypes');
   }
 
+  private get customStepDefinitions(): Collection {
+    return this.db!.collection('customStepDefinitions');
+  }
+
   private get harnessProfiles(): Collection {
     return this.db!.collection('harnessProfiles');
   }
@@ -141,6 +146,14 @@ export class MongoDB implements Database {
 
   private get modelEndpoints(): Collection {
     return this.db!.collection('modelEndpoints');
+  }
+
+  private get localAgentDevices(): Collection {
+    return this.db!.collection('localAgentDevices');
+  }
+
+  private get pendingApprovals(): Collection {
+    return this.db!.collection('pendingApprovals');
   }
 
   private get invites(): Collection {
@@ -562,6 +575,24 @@ export class MongoDB implements Database {
     await this.treeTypes.deleteOne({ _id: `${ownerId}:${id}` } as never);
   }
 
+  async getCustomStepDefinitions(ownerId: string): Promise<CustomStepDefinition[]> {
+    const docs = await this.customStepDefinitions.find({ ownerId }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as CustomStepDefinition);
+  }
+
+  async saveCustomStepDefinition(definition: CustomStepDefinition): Promise<void> {
+    const { _id: _ignored, ...doc } = definition as CustomStepDefinition & { _id?: unknown };
+    await this.customStepDefinitions.replaceOne(
+      { _id: `${definition.ownerId}:${definition.id}` } as never,
+      doc,
+      { upsert: true },
+    );
+  }
+
+  async deleteCustomStepDefinition(id: string, ownerId: string): Promise<void> {
+    await this.customStepDefinitions.deleteOne({ _id: `${ownerId}:${id}` } as never);
+  }
+
   async getPersonas(): Promise<Persona[]> {
     return (await this.personas.find({}).toArray()).map(doc => fromDoc<Persona>(doc));
   }
@@ -648,6 +679,36 @@ export class MongoDB implements Database {
 
   async deleteModelEndpoint(id: string): Promise<void> {
     await this.modelEndpoints.deleteOne({ _id: id as any });
+  }
+
+  async getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]> {
+    return (await this.localAgentDevices.find({}).toArray()).map(doc => fromDoc<LocalAgentDeviceMetadata>(doc));
+  }
+
+  async saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> {
+    const doc = toDoc(device);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.localAgentDevices.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deleteLocalAgentDevice(id: string): Promise<void> {
+    await this.localAgentDevices.deleteOne({ _id: id as any });
+  }
+
+  async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {
+    return (await this.pendingApprovals.find({}).toArray()).map(doc => fromDoc<PendingApprovalMetadata>(doc));
+  }
+
+  async savePendingApproval(approval: PendingApprovalMetadata): Promise<void> {
+    const doc = toDoc(approval);
+    const id = doc._id;
+    const { _id, ...filter } = doc;
+    await this.pendingApprovals.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async deletePendingApproval(id: string): Promise<void> {
+    await this.pendingApprovals.deleteOne({ _id: id as any });
   }
 
   async getUsers(): Promise<UserMetadata[]> {

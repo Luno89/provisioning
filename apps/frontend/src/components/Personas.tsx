@@ -54,50 +54,37 @@ export default function Personas() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['personas'] }),
   });
 
-  const row = (p: Persona, isVariant: boolean) => {
+  const card = (p: Persona, isVariant: boolean) => {
     const pack = packForPersona(p.id);
     const stats = statsFor(pack?.id, leaves);
     return (
-      <tr key={p.id} className="border-t border-[var(--bark-700)] hover:bg-[var(--bark-800)]/60 group">
-        <td className="py-2.5 pr-3">
-          <div className={`flex items-start gap-1.5 ${isVariant ? 'pl-5' : ''}`}>
-            {isVariant && <CornerDownRight size={12} className="text-slate-600 mt-1 shrink-0" />}
+      <div
+        key={p.id}
+        className={`group rounded-2xl border border-[var(--bark-600)] bg-[var(--bark-800)]/40 hover:bg-[var(--bark-800)]/70 hover:border-[var(--bark-500,#334)] transition-colors p-4 ${isVariant ? 'ml-8' : ''}`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-1.5 min-w-0">
+            {isVariant && <CornerDownRight size={13} className="text-slate-600 mt-1 shrink-0" />}
             <div className="min-w-0">
-              <div className="font-semibold text-slate-200 truncate">{p.name}</div>
-              {p.description && <div className="text-[11px] text-slate-500 leading-snug">{p.description}</div>}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-slate-200">{p.name}</span>
+                {pack ? (
+                  <button
+                    onClick={() => setConfiguringPackId(pack.id)}
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--bark-700)] text-emerald-400 hover:bg-[var(--bark-600)] transition-colors"
+                  >
+                    {pack.name}
+                  </button>
+                ) : (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--bark-700)] text-slate-500">no pack</span>
+                )}
+              </div>
+              {p.description && <div className="text-[12px] text-slate-500 leading-snug mt-1">{p.description}</div>}
             </div>
           </div>
-        </td>
 
-        <td className="py-2.5 pr-3 whitespace-nowrap">
-          {pack ? (
-            <button
-              onClick={() => setConfiguringPackId(pack.id)}
-              className="text-slate-300 hover:text-emerald-400 underline decoration-dotted underline-offset-2"
-            >
-              {pack.name}
-            </button>
-          ) : (
-            <span className="text-slate-600">no pack</span>
-          )}
-        </td>
-
-        <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap" title={`${stats.assigned} assigned, ${stats.finished} finished`}>
-          {stats.assigned === 0 ? <span className="text-slate-600">never used</span> : stats.finished}
-        </td>
-        <td className="py-2.5 pr-3 whitespace-nowrap"><Rate stats={stats} /></td>
-        <td className="py-2.5 pr-3 text-slate-400 whitespace-nowrap" title="Median tokens per run — a median so one runaway does not redefine the cost">
-          {tokens(stats.medianTokens)}
-        </td>
-        <td className="py-2.5 pr-3 whitespace-nowrap">
-          {stats.retried > 0
-            ? <span className="text-amber-400/80" title="Leaves that needed more than one attempt">{stats.retried}</span>
-            : <span className="text-slate-600">—</span>}
-        </td>
-
-        <td className="py-2.5 text-right whitespace-nowrap">
-          <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-            {pack && (
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            {pack ? (
               <button
                 onClick={() => setConfiguringPackId(pack.id)}
                 title="Configure pack — tools, sampling, prompt"
@@ -105,16 +92,38 @@ export default function Personas() {
               >
                 <Sliders size={13} />
               </button>
+            ) : (
+              <button onClick={() => setEditing(p)} title="Edit" className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-[var(--bark-700)]">
+                <Pencil size={13} />
+              </button>
             )}
-            <button onClick={() => setEditing(p)} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-[var(--bark-700)]">
-              <Pencil size={13} />
-            </button>
-            <button onClick={() => remove.mutate(p.id)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]">
+            <button onClick={() => remove.mutate(p.id)} title="Delete" className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]">
               <Trash2 size={13} />
             </button>
           </div>
-        </td>
-      </tr>
+        </div>
+
+        <div className="flex items-center gap-4 mt-3 text-[12px]">
+          <span className="text-slate-400" title={`${stats.assigned} assigned, ${stats.finished} finished`}>
+            <span className="text-slate-600 uppercase text-[10px] font-black tracking-widest mr-1.5">Ran</span>
+            {stats.assigned === 0 ? <span className="text-slate-600">never used</span> : stats.finished}
+          </span>
+          <span title="Share of finished leaves a check actually passed">
+            <span className="text-slate-600 uppercase text-[10px] font-black tracking-widest mr-1.5">Verified</span>
+            <Rate stats={stats} />
+          </span>
+          <span className="text-slate-400" title="Median tokens per run — a median so one runaway does not redefine the cost">
+            <span className="text-slate-600 uppercase text-[10px] font-black tracking-widest mr-1.5">Typical</span>
+            {tokens(stats.medianTokens)}
+          </span>
+          <span title="Leaves that needed more than one attempt">
+            <span className="text-slate-600 uppercase text-[10px] font-black tracking-widest mr-1.5">Retried</span>
+            {stats.retried > 0
+              ? <span className="text-amber-400/80">{stats.retried}</span>
+              : <span className="text-slate-600">—</span>}
+          </span>
+        </div>
+      </div>
     );
   };
 
@@ -138,32 +147,18 @@ export default function Personas() {
 
       {isLoading ? (
         <div className="text-slate-500 flex items-center gap-2"><Loader2 className="animate-spin" size={18} /> Loading…</div>
+      ) : personas.length === 0 ? (
+        <p className="text-slate-500 text-sm p-6 rounded-2xl border border-[var(--bark-600)] bg-[var(--bark-800)]/40">
+          No personas yet. A leaf cannot run without one.
+        </p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-[var(--bark-600)] bg-[var(--bark-800)]/40">
-          <table className="w-full text-[12px] text-left">
-            <thead>
-              <tr className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                <th className="py-2.5 px-3 font-black">Persona</th>
-                <th className="py-2.5 pr-3 font-black">Pack</th>
-                <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Leaves that reached a terminal state">Ran</th>
-                <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Share of finished leaves a check actually passed — never the agent's own report">Verified</th>
-                <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Median tokens per run">Typical</th>
-                <th className="py-2.5 pr-3 font-black text-[var(--leaf)]" title="Leaves that needed more than one attempt">Retried</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {byLineage(personas).map(({ root, variants }) => (
-                <Fragment key={root.id}>
-                  {row(root, false)}
-                  {variants.map((v) => row(v, true))}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-          {personas.length === 0 && (
-            <p className="text-slate-500 text-sm p-6">No personas yet. A leaf cannot run without one.</p>
-          )}
+        <div className="space-y-3">
+          {byLineage(personas).map(({ root, variants }) => (
+            <Fragment key={root.id}>
+              {card(root, false)}
+              {variants.map((v) => card(v, true))}
+            </Fragment>
+          ))}
         </div>
       )}
 

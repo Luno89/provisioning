@@ -1,4 +1,3 @@
-import type { WorkspaceService } from '../services/WorkspaceService.js';
 import type { ValidationExecutionEnvironment, ValidationSummary } from '../services/UniversalValidatorService.js';
 import type { ValidationRecipe } from './tree-types.js';
 import {
@@ -6,7 +5,7 @@ import {
   type ValidationRoundRecord, type LoopProgressAssessment,
 } from './worker-validator-loop.js';
 import { buildRepoDetailScript, parseRepoDetail } from './leaf-checkout.js';
-import { buildValidatorEnv } from './validator-env.js';
+import { buildValidatorEnv, type LeafWorkspace } from './validator-env.js';
 
 export interface RecipeResolverDeps {
   validator: { inferRecipe(env: ValidationExecutionEnvironment): Promise<ValidationRecipe | undefined> };
@@ -48,7 +47,7 @@ export interface RunValidationRoundDeps {
     inferRecipe(env: ValidationExecutionEnvironment): Promise<ValidationRecipe | undefined>;
     validate(recipe: ValidationRecipe, env: ValidationExecutionEnvironment): Promise<ValidationSummary>;
   };
-  workspaces: WorkspaceService;
+  workspaces: LeafWorkspace;
 }
 
 export interface RunValidationRoundParams {

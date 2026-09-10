@@ -21,7 +21,16 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
 
   router.get('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    res.json(await db.getTreeTypes(userId));
+    const all = await db.getTreeTypes(userId);
+    // A user's own row wins over the shipped one at the same id — getTreeTypes(ownerId) returns
+    // both (it's an owner-scoped filter, not a merge), same as resolveTreeType() already handles
+    // for a single lookup. Without this, editing any built-in type makes it appear twice here.
+    const byId = new Map<string, typeof all[number]>();
+    for (const t of all) {
+      const existing = byId.get(t.id);
+      if (!existing || (existing.ownerId === undefined && t.ownerId === userId)) byId.set(t.id, t);
+    }
+    res.json([...byId.values()]);
   }));
 
   router.put('/:id', asyncRoute(async (req, res) => {

@@ -47,6 +47,8 @@ export interface ChatMessageRecord extends ChatMessageData {
 
 export type ChatMode = 'chat' | 'auto' | 'plan';
 
+const EMPTY_MESSAGES: ChatMessageRecord[] = [];
+
 const MODE_HINT: Record<ChatMode, string> = {
   chat: 'just talking — nothing is created',
   auto: 'work is extracted from every reply',
@@ -117,6 +119,34 @@ async function readSseFrames(body: ReadableStream<Uint8Array>, onFrame: (frame: 
   }
 }
 
+/**
+ * What's been streamed so far, turned into a real message — used both when a turn finishes
+ * normally and when it's cut short (Stop, or any other mid-stream failure), so a stopped/failed
+ * turn's partial text, thinking, and tool calls survive instead of vanishing with the live bubble
+ * that only rendered them while `streaming` was true.
+ */
+function assistantMsgFromRenderState(state: ChatRenderState): ChatMessageRecord | null {
+  if (!(state.live || state.liveThinking || state.tools.length > 0)) return null;
+  return {
+    role: 'assistant',
+    content: state.live,
+    at: new Date().toISOString(),
+    ...(state.liveThinking ? { reasoning: state.liveThinking } : {}),
+    ...(state.enabled.length > 0 ? { enabled: state.enabled } : {}),
+    ...(state.tools.length > 0
+      ? {
+          toolCalls: state.tools.map((t) => ({
+            id: t.id,
+            name: t.name,
+            args: t.args ?? '',
+            ok: t.ok ?? true,
+            digest: t.digest ?? '',
+          })),
+        }
+      : {}),
+  };
+}
+
 export default function ChatSurface({
   conversationId: externalConvId,
   sessionId: externalSessionId,
@@ -133,10 +163,28 @@ export default function ChatSurface({
   const branch = isBranch ? scope : undefined;
 
   const [selectedConvId, setSelectedConvId] = useState<string | null>(externalConvId ?? null);
-  const [input, setInput] = useState('');
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [localMessages, setLocalMessages] = useState<ChatMessageRecord[]>([]);
+  /**
+   * Optimistic messages not yet reflected in `activeConversation`, keyed by conversation id — not
+   * a flat array. A flat array meant switching conversations mid-turn (the async send keeps
+   * running in the background, tied to the conversation it was sent to) desynced the in-flight
+   * turn's own `setLocalMessages` calls from whatever conversation happened to be selected when
+   * they fired, producing a duplicated user+assistant pair that only resolved on reload.
+   */
+  const [localMessagesByConv, setLocalMessagesByConv] = useState<Record<string, ChatMessageRecord[]>>({});
+  const localMessages = (selectedConvId && localMessagesByConv[selectedConvId]) || EMPTY_MESSAGES;
+  const appendLocalMessage = useCallback((convId: string, msg: ChatMessageRecord) => {
+    setLocalMessagesByConv((prev) => ({ ...prev, [convId]: [...(prev[convId] ?? []), msg] }));
+  }, []);
+  const clearLocalMessages = useCallback((convId: string) => {
+    setLocalMessagesByConv((prev) => {
+      if (!(convId in prev)) return prev;
+      const next = { ...prev };
+      delete next[convId];
+      return next;
+    });
+  }, []);
 
   const [showHistory, setShowHistory] = useState<boolean>(false);
   const [showProposals, setShowProposals] = useState<boolean>(false);
@@ -170,7 +218,6 @@ export default function ChatSurface({
   useEffect(() => {
     if (externalConvId !== undefined) {
       setSelectedConvId(externalConvId);
-      setLocalMessages([]);
     }
   }, [externalConvId]);
 
@@ -210,15 +257,23 @@ export default function ChatSurface({
     staleTime: 30_000,
   });
 
-  const confirmedLenRef = useRef(0);
+  /** Baseline persisted length recorded per conversation, the moment its local buffer was last empty. */
+  const confirmedLenRef = useRef<Record<string, number>>({});
   useEffect(() => {
+    const convId = activeConversation?.id;
+    if (!convId) return;
     const persistedLen = activeConversation?.messages?.length ?? 0;
-    setLocalMessages((prev) => {
-      if (prev.length === 0) {
-        confirmedLenRef.current = persistedLen;
+    setLocalMessagesByConv((prev) => {
+      const local = prev[convId];
+      if (!local || local.length === 0) {
+        confirmedLenRef.current[convId] = persistedLen;
         return prev;
       }
-      return persistedLen >= confirmedLenRef.current + prev.length ? [] : prev;
+      const baseline = confirmedLenRef.current[convId] ?? persistedLen;
+      if (persistedLen < baseline + local.length) return prev;
+      const next = { ...prev };
+      delete next[convId];
+      return next;
     });
   }, [activeConversation]);
 
@@ -238,7 +293,6 @@ export default function ChatSurface({
     onSuccess: (newConv) => {
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       setSelectedConvId(newConv.id);
-      setLocalMessages([]);
       setError(null);
       onConversationChange?.(newConv.id);
     },
@@ -248,6 +302,7 @@ export default function ChatSurface({
     mutationFn: (id: string) => deleteChatConversation(id),
     onSuccess: (_, deletedId) => {
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      clearLocalMessages(deletedId);
       if (selectedConvId === deletedId) {
         const remaining = conversations.filter((c) => c.id !== deletedId);
         const nextId = remaining[0]?.id ?? null;
@@ -264,8 +319,8 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       qc.invalidateQueries({ queryKey: ['trees'] });
-      if (res?.treeId) {
-        onOpenTree?.(res.treeId);
+      if (res?.tree?.id) {
+        onOpenTree?.(res.tree.id);
       }
     },
     onError: (err) => setError(`Could not accept the proposal: ${errorMessage(err)}`),
@@ -443,7 +498,7 @@ export default function ChatSurface({
       content: text,
       at: new Date().toISOString(),
     };
-    setLocalMessages((prev) => [...prev, userMsg]);
+    appendLocalMessage(targetConvId, userMsg);
     useLiveTurnsStore.getState().startConversation(key);
 
     const abort = new AbortController();
@@ -468,32 +523,14 @@ export default function ChatSurface({
       if (response.body) {
         await readSseFrames(response.body, (frame) => {
           useLiveTurnsStore.getState().applyFrame(key, frame);
+          if (frame.type === 'proposedTree') setShowProposals(true);
         });
       }
 
       const finalTurn = useLiveTurnsStore.getState().turns[key];
       const finalState = finalTurn?.kind === 'conversation' ? finalTurn.renderState : emptyChatRenderState;
-      if (finalState.live || finalState.liveThinking || finalState.tools.length > 0) {
-        const assistantMsg: ChatMessageRecord = {
-          role: 'assistant',
-          content: finalState.live,
-          at: new Date().toISOString(),
-          ...(finalState.liveThinking ? { reasoning: finalState.liveThinking } : {}),
-          ...(finalState.enabled.length > 0 ? { enabled: finalState.enabled } : {}),
-          ...(finalState.tools.length > 0
-            ? {
-                toolCalls: finalState.tools.map((t) => ({
-                  id: t.id,
-                  name: t.name,
-                  args: t.args ?? '',
-                  ok: t.ok ?? true,
-                  digest: t.digest ?? '',
-                })),
-              }
-            : {}),
-        };
-        setLocalMessages((prev) => [...prev, assistantMsg]);
-      }
+      const assistantMsg = assistantMsgFromRenderState(finalState);
+      if (assistantMsg) appendLocalMessage(targetConvId, assistantMsg);
 
       useLiveTurnsStore.getState().finish(key, 'done');
 
@@ -501,11 +538,22 @@ export default function ChatSurface({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     } catch (err: any) {
       if (err?.name === 'AbortError') {
+        // handleStop already salvaged whatever had streamed so far before it called abort() —
+        // this is just the status flip landing after the fetch actually rejects.
         useLiveTurnsStore.getState().finish(key, 'done');
       } else {
+        const turn = useLiveTurnsStore.getState().turns[key];
+        const state = turn?.kind === 'conversation' ? turn.renderState : emptyChatRenderState;
+        const msg = assistantMsgFromRenderState(state);
+        if (msg) appendLocalMessage(targetConvId, { ...msg, interruptedReason: `Stopped early: ${errorMessage(err)}` });
         setError(`Turn failed: ${errorMessage(err)}`);
         useLiveTurnsStore.getState().finish(key, 'error');
       }
+      // The backend salvages and persists whatever it streamed too (chat-pack.ts's catch block) —
+      // pick that up so the client-side optimistic salvage above reconciles with the real saved
+      // copy instead of only living in this tab's local state until something else refetches.
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
     } finally {
       abortRef.current = null;
     }
@@ -571,11 +619,10 @@ export default function ChatSurface({
     }
   };
 
-  const handleSend = (explicitText?: string) => {
-    const text = (typeof explicitText === 'string' ? explicitText : input).trim();
+  const handleSend = (rawText: string) => {
+    const text = rawText.trim();
     if (!text || streaming) return;
 
-    setInput('');
     setError(null);
     setIsAtBottom(true);
     requestAnimationFrame(scrollToBottomInstant);
@@ -600,9 +647,19 @@ export default function ChatSurface({
   const handleStop = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
+      // Salvage whatever streamed so far BEFORE finishing the turn — finish() flips `streaming` to
+      // false immediately, which unmounts the live bubble that's the only thing showing this
+      // content. Branch scope needs none of this: its deltas already land in branch.messages as
+      // they arrive, independent of turn status.
+      if (liveTurnKey && !isBranch && selectedConvId) {
+        const turn = useLiveTurnsStore.getState().turns[liveTurnKey];
+        const state = turn?.kind === 'conversation' ? turn.renderState : emptyChatRenderState;
+        const msg = assistantMsgFromRenderState(state);
+        if (msg) appendLocalMessage(selectedConvId, { ...msg, interruptedReason: 'Stopped' });
+      }
       if (liveTurnKey) useLiveTurnsStore.getState().finish(liveTurnKey, 'done');
     }
-  }, [liveTurnKey]);
+  }, [liveTurnKey, isBranch, selectedConvId, appendLocalMessage]);
 
   const branchAutoSentRef = useRef<string | null>(null);
   useEffect(() => {
@@ -766,7 +823,6 @@ export default function ChatSurface({
                           setSelectedConvId(c.id);
                           onConversationChange?.(c.id);
                           setShowDropdown(false);
-                          setLocalMessages([]);
                         }}
                         className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between transition-colors cursor-pointer ${
                           c.id === selectedConvId
@@ -838,7 +894,6 @@ export default function ChatSurface({
             onSelect={(id) => {
               setSelectedConvId(id);
               onConversationChange?.(id);
-              setLocalMessages([]);
             }}
             onNewChat={() => createMutation.mutate()}
             onDelete={(id) => deleteMutation.mutate(id)}
@@ -857,8 +912,6 @@ export default function ChatSurface({
                 />
 
                 <ChatComposer
-                  input={input}
-                  onChangeInput={setInput}
                   onSend={handleSend}
                   onStop={handleStop}
                   isStreaming={streaming}
@@ -1009,8 +1062,6 @@ export default function ChatSurface({
 
                 <div className="max-w-4xl mx-auto pointer-events-auto">
                   <ChatComposer
-                    input={input}
-                    onChangeInput={setInput}
                     onSend={handleSend}
                     onStop={handleStop}
                     isStreaming={streaming}
