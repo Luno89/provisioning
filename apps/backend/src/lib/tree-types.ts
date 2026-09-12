@@ -4,6 +4,8 @@ import type { PersonaEgressRule } from '@koala/harness-types';
 import { TREE_TYPE_SEEDS as TREE_TYPE_SEEDS_VALUE } from './tree-type-seeds.js';
 import { validateEgressRules } from './personas.js';
 import { renderCustomStepCommand, substituteTemplate, type CustomStepDefinition } from './custom-steps.js';
+import { validateLeafWorkflowSpec, type LeafWorkflowSpec } from './leaf-workflow-types.js';
+import type { VerdictPolicy } from './leaf-run-verdict.js';
 
 export interface TreeTypeFile {
   path: string;
@@ -150,6 +152,7 @@ export interface TreeTypeSpec {
   requireSources?: boolean | undefined;
   files: TreeTypeFile[];
   validationRecipe?: ValidationRecipe | undefined;
+  leafWorkflow?: LeafWorkflowSpec | undefined;
   defaultBindings?: string[] | undefined;
   /** Reachability every leaf of this project type gets, beyond what defaultBindings already implies. */
   egress?: PersonaEgressRule[] | undefined;
@@ -165,6 +168,7 @@ export interface TreeTypeSpec {
   } | undefined;
   /** 0-1 similarity above which two leaves get flagged as possible duplicates. Replaces SIMILAR_ENOUGH_TO_ASK. */
   duplicateThreshold?: number | undefined;
+  verdictPolicy?: VerdictPolicy | undefined;
 }
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -302,6 +306,11 @@ export function validateTreeType(
     if (err) return err;
   }
 
+  if (candidate.leafWorkflow) {
+    const err = validateLeafWorkflowSpec(candidate.leafWorkflow);
+    if (err) return err;
+  }
+
   if (candidate.packs) {
     if (typeof candidate.packs !== 'object' || Array.isArray(candidate.packs)) {
       return 'packs must be an object mapping a role to a pack slug.';
@@ -349,6 +358,20 @@ export function validateTreeType(
   if (candidate.duplicateThreshold !== undefined) {
     const t = candidate.duplicateThreshold;
     if (typeof t !== 'number' || t < 0 || t > 1) return 'duplicateThreshold must be a number between 0 and 1.';
+  }
+
+  if (candidate.verdictPolicy !== undefined) {
+    const v = candidate.verdictPolicy;
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) return 'verdictPolicy must be an object.';
+    if (v.requireVerify !== undefined && typeof v.requireVerify !== 'boolean') {
+      return 'verdictPolicy.requireVerify must be true or false.';
+    }
+    if (v.requireArtifacts !== undefined && typeof v.requireArtifacts !== 'boolean') {
+      return 'verdictPolicy.requireArtifacts must be true or false.';
+    }
+    if (v.combineMode !== undefined && v.combineMode !== 'all' && v.combineMode !== 'any') {
+      return 'verdictPolicy.combineMode must be "all" or "any".';
+    }
   }
 
   return null;

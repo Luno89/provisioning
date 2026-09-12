@@ -10,6 +10,21 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const PASSWORD_FILE = path.join(DATA_DIR, '.gitea-admin-password');
 const TOKEN_FILE = path.join(DATA_DIR, '.gitea-admin-token');
 
+export class GiteaConflictError extends Error {}
+
+export interface RepoFileEntry {
+  path: string;
+  name: string;
+  type: 'file' | 'dir';
+  size?: number;
+}
+
+export interface RepoFileContent {
+  path: string;
+  content: string;
+  sha: string;
+}
+
 export class GiteaService {
   private baseUrlCache: string | null = null;
   private tokenCache: string | null = null;
@@ -126,6 +141,18 @@ export class GiteaService {
   private async apiFetch(pathSuffix: string, init: RequestInit = {}): Promise<Response> {
     const baseUrl = await this.resolveBaseUrl();
     const token = await this.getToken();
+    return fetch(`${baseUrl}${pathSuffix}`, {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        Authorization: `token ${token}`,
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+    });
+  }
+
+  private async tokenFetch(token: string, pathSuffix: string, init: RequestInit = {}): Promise<Response> {
+    const baseUrl = await this.resolveBaseUrl();
     return fetch(`${baseUrl}${pathSuffix}`, {
       ...init,
       headers: {
@@ -438,6 +465,96 @@ export class GiteaService {
       throw new Error(`Failed to fetch "${filePath}" from "${owner}/${name}": HTTP ${res.status}`);
     }
     return res.text();
+  }
+
+  async listDirectory(
+    token: string,
+    owner: string,
+    name: string,
+    dirPath: string,
+    ref?: string,
+  ): Promise<RepoFileEntry[]> {
+    const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const suffix = dirPath ? `/contents/${dirPath}` : '/contents';
+    const res = await this.tokenFetch(token, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${suffix}${query}`);
+    if (res.status === 404) return [];
+    if (!res.ok) {
+      throw new Error(`Failed to list "${dirPath || '.'}" in "${owner}/${name}": HTTP ${res.status}`);
+    }
+    const body = await res.json() as unknown;
+    const entries = Array.isArray(body) ? body : [body];
+    return (entries as { path: string; name: string; type: string; size?: number }[]).map((e) => ({
+      path: e.path,
+      name: e.name,
+      type: e.type === 'dir' ? 'dir' as const : 'file' as const,
+      ...(typeof e.size === 'number' ? { size: e.size } : {}),
+    }));
+  }
+
+  async getFileContent(
+    token: string,
+    owner: string,
+    name: string,
+    filePath: string,
+    ref?: string,
+  ): Promise<RepoFileContent | null> {
+    const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const res = await this.tokenFetch(token, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${filePath}${query}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(`Failed to fetch "${filePath}" from "${owner}/${name}": HTTP ${res.status}`);
+    }
+    const body = await res.json() as { path: string; content: string; sha: string; encoding: string; type: string };
+    if (body.type !== 'file') throw new Error(`"${filePath}" is a directory, not a file.`);
+    const content = body.encoding === 'base64' ? Buffer.from(body.content, 'base64').toString('utf-8') : body.content;
+    return { path: body.path, content, sha: body.sha };
+  }
+
+  async updateFile(
+    token: string,
+    owner: string,
+    name: string,
+    filePath: string,
+    content: string,
+    message: string,
+    sha: string,
+    branch?: string,
+  ): Promise<{ sha: string }> {
+    const res = await this.tokenFetch(token, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${filePath}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        content: Buffer.from(content).toString('base64'), message, sha, ...(branch ? { branch } : {}),
+      }),
+    });
+    if (res.status === 409) {
+      throw new GiteaConflictError(`"${filePath}" changed since it was loaded — reload and try again.`);
+    }
+    if (!res.ok) {
+      throw new Error(`Failed to update "${filePath}" in "${owner}/${name}": HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    }
+    const body = await res.json() as { content: { sha: string } };
+    return { sha: body.content.sha };
+  }
+
+  async deleteFile(
+    token: string,
+    owner: string,
+    name: string,
+    filePath: string,
+    message: string,
+    sha: string,
+    branch?: string,
+  ): Promise<void> {
+    const res = await this.tokenFetch(token, `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${filePath}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ message, sha, ...(branch ? { branch } : {}) }),
+    });
+    if (res.status === 409) {
+      throw new GiteaConflictError(`"${filePath}" changed since it was loaded — reload and try again.`);
+    }
+    if (!res.ok) {
+      throw new Error(`Failed to delete "${filePath}" from "${owner}/${name}": HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    }
   }
 
   verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {

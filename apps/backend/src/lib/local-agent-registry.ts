@@ -76,12 +76,13 @@ export async function execOnDevice(
   leafId: string,
   command: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  cwd?: string,
 ): Promise<LocalExecResult> {
   const conn = connectionFor(deviceId, ownerId);
   return new Promise((resolve) => {
     conn.socket.timeout(timeoutMs).emit(
       'sandbox:exec',
-      { leafId, command },
+      { leafId, command, ...(cwd ? { cwd } : {}) },
       (err: unknown, response: LocalExecResult) => {
         if (err) {
           resolve({ stdout: '', stderr: 'Local device did not respond in time', exitCode: -1, timedOut: true });
@@ -129,6 +130,52 @@ export async function writeFileOnDevice(
       { leafId, path, content },
       (err: unknown, response?: { error: string }) => {
         if (err) return reject(new Error(`Local device did not respond in time writing ${path}`));
+        if (response && 'error' in response) return reject(new Error(response.error));
+        resolve();
+      },
+    );
+  });
+}
+
+export interface LocalDirEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+}
+
+export async function listDirOnDevice(
+  deviceId: string,
+  ownerId: string,
+  dirPath: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<LocalDirEntry[]> {
+  const conn = connectionFor(deviceId, ownerId);
+  return new Promise((resolve, reject) => {
+    conn.socket.timeout(timeoutMs).emit(
+      'sandbox:listDir',
+      { path: dirPath },
+      (err: unknown, response: { entries: LocalDirEntry[] } | { error: string }) => {
+        if (err) return reject(new Error(`Local device did not respond in time listing ${dirPath || '.'}`));
+        if (response && 'error' in response) return reject(new Error(response.error));
+        resolve(response.entries);
+      },
+    );
+  });
+}
+
+export async function deleteFileOnDevice(
+  deviceId: string,
+  ownerId: string,
+  filePath: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<void> {
+  const conn = connectionFor(deviceId, ownerId);
+  return new Promise((resolve, reject) => {
+    conn.socket.timeout(timeoutMs).emit(
+      'sandbox:deleteFile',
+      { path: filePath },
+      (err: unknown, response?: { error: string }) => {
+        if (err) return reject(new Error(`Local device did not respond in time deleting ${filePath}`));
         if (response && 'error' in response) return reject(new Error(response.error));
         resolve();
       },

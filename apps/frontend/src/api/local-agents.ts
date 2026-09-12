@@ -20,6 +20,7 @@ export interface CreatedLocalAgentDevice {
   name: string
   rootDir: string
   token: string
+  projectId?: string
 }
 
 export const listLocalAgentDevices = (): Promise<LocalAgentDevice[]> =>

@@ -42,4 +42,42 @@ describe('ChatMessageRow — User and Assistant turn rendering', () => {
     expect(screen.getByText('Inspecting namespace system pods.')).toBeInTheDocument();
     expect(screen.getByText('All pods are healthy.')).toBeInTheDocument();
   });
+
+  it('renders tool calls with tool name, status, and expandable details', () => {
+    render(
+      <ChatMessageRow
+        packLabel="Assistant"
+        message={{
+          role: 'assistant',
+          content: 'I executed the diagnostics command.',
+          toolCalls: [
+            { id: 'tool-1', name: 'kubectl_get_pods', args: '{"namespace":"default"}', ok: true, digest: 'Found 3 pods' },
+            { id: 'tool-2', name: 'read_logs', args: '{"pod":"backend-1"}', ok: false, digest: 'Pod not ready' },
+          ],
+        }}
+      />
+    );
+
+    expect(screen.getByText('kubectl_get_pods')).toBeInTheDocument();
+    expect(screen.getByText('read_logs')).toBeInTheDocument();
+    expect(screen.getByText('completed')).toBeInTheDocument();
+    expect(screen.getByText('failed')).toBeInTheDocument();
+  });
+
+  it('renders active thinking state while streaming', () => {
+    render(
+      <ChatMessageRow
+        packLabel="Assistant"
+        isStreaming={true}
+        message={{
+          role: 'assistant',
+          content: '',
+          reasoning: 'Deciding next step...',
+        }}
+      />
+    );
+
+    expect(screen.getByText(/Thinking & Analyzing\.\.\./i)).toBeInTheDocument();
+    expect(screen.getByText('Deciding next step...')).toBeInTheDocument();
+  });
 });

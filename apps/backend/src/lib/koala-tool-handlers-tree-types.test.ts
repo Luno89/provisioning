@@ -6,7 +6,7 @@ import {
   handleSetTreeTypeScaffoldFile, handleDeleteTreeTypeScaffoldFile,
   handleAddValidationStep, handleAddValidationGroup, handleAddValidationLoop,
   handleReviseValidationStep, handleRemoveValidationStep, handleReorderValidationSteps,
-  handleSetTreeTypeBindings, handleSetTreeTypeRoles, handleSetTreeTypeAutoAccept, handleDeleteTreeType,
+  handleSetTreeTypeBindings, handleSetTreeTypeRoles, handleSetTreeTypeAutoAccept, handleSetTreeTypeVerdictPolicy, handleDeleteTreeType,
   type KoalaToolContext,
 } from './koala-tool-handlers.js';
 
@@ -278,6 +278,31 @@ describe('set_tree_type_auto_accept', () => {
     await handleSetTreeTypeAutoAccept(ctx(), { id, enabled: true, max: 5 });
     const got = body(await handleGetTreeType(ctx(), { id }));
     expect(got.treeType.autoAccept).toMatchObject({ enabled: true, max: 5 });
+  });
+});
+
+describe('set_tree_type_verdict_policy', () => {
+  it('patches given fields, leaving others alone', async () => {
+    const id = await createType();
+    await handleSetTreeTypeVerdictPolicy(ctx(), { id, requireVerify: true, combineMode: 'all' });
+    const got = body(await handleGetTreeType(ctx(), { id }));
+    expect(got.treeType.verdictPolicy).toMatchObject({ requireVerify: true, combineMode: 'all' });
+  });
+
+  it('a later call only changes the fields it names', async () => {
+    const id = await createType();
+    await handleSetTreeTypeVerdictPolicy(ctx(), { id, requireVerify: true, requireArtifacts: true });
+    await handleSetTreeTypeVerdictPolicy(ctx(), { id, combineMode: 'all' });
+    const got = body(await handleGetTreeType(ctx(), { id }));
+    expect(got.treeType.verdictPolicy).toMatchObject({ requireVerify: true, requireArtifacts: true, combineMode: 'all' });
+  });
+
+  it('ignores a combineMode value outside all/any rather than saving it', async () => {
+    const id = await createType();
+    const out = await handleSetTreeTypeVerdictPolicy(ctx(), { id, combineMode: 'sometimes' });
+    const got = body(await handleGetTreeType(ctx(), { id }));
+    expect(body(out).updated).toBeDefined();
+    expect(got.treeType.verdictPolicy?.combineMode).toBeUndefined();
   });
 });
 

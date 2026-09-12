@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, ShieldCheck,
   ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Stethoscope, Loader2, Sliders,
+  ChevronDown, ChevronRight, Eye,
 } from 'lucide-react';
 import Markdown from './Markdown.js';
 import LeafSteps from './LeafSteps.js';
 import PersonaConfigDrawer from './PersonaConfigDrawer.js';
+import LeafTransparency from './LeafTransparency/index.js';
 import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } from './leaf-types.js';
 import {
   acceptLeaf, cancelLeaf, retryLeaf, reviewLeaf, deleteLeaf, patchLeaf,
@@ -84,6 +86,8 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
   });
   const canReassign = leaf.status === 'proposed' || leaf.status === 'pending' || leaf.status === 'failed';
   const [showPackConfig, setShowPackConfig] = useState(false);
+
+  const [showTransparency, setShowTransparency] = useState(false);
 
   const retry = useMutation(call(() => retryLeaf(leaf.id)));
   const review = useMutation({
@@ -334,6 +338,22 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
       <div className="mt-8 border-t border-[var(--bark-700)] pt-5">
         <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">What it actually did</h3>
         <LeafSteps leafId={leaf.id} live={leaf.status === 'running'} />
+      </div>
+
+      <div className="mt-6 border-t border-[var(--bark-700)] pt-5">
+        <button
+          type="button"
+          onClick={() => setShowTransparency((s) => !s)}
+          className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer hover:text-slate-300"
+        >
+          {showTransparency ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <Eye size={12} /> What would happen
+        </button>
+        {showTransparency && (
+          <div className="mt-3">
+            <LeafTransparency leafId={leaf.id} />
+          </div>
+        )}
       </div>
 
       {assignedPack && (

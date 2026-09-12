@@ -87,6 +87,14 @@ export function buildLeafContext(leaves: Leaf[]): string {
   ].join('\n');
 }
 
+export function describeMachineExecution(deviceName: string, devicePath: string | undefined): string {
+  const location = devicePath ? `${deviceName}, in ${devicePath}` : deviceName;
+  return [
+    `This project runs directly on your local machine "${location}", not a sandboxed cluster.`,
+    'Check what is already there first — run "git remote -v" and look at the existing files before assuming a fresh setup.',
+  ].join(' ');
+}
+
 export interface OutboundMessage {
   role: string;
   content: string;
@@ -105,12 +113,13 @@ export function buildOutboundMessages(opts: {
   toolPrompt?: string | undefined;
   doneMeans?: string | undefined;
   fileConventions?: string | undefined;
+  machineContext?: string | undefined;
 }): OutboundMessage[] {
   const {
     messages, lastIndex, prompt, personaPrompt, leaves, siblingLeaves, siblingBranches, planText, toolPrompt,
-    doneMeans, fileConventions,
+    doneMeans, fileConventions, machineContext,
   } = opts;
-  if (!prompt && !toolPrompt && !personaPrompt && !doneMeans && !fileConventions) return messages;
+  if (!prompt && !toolPrompt && !personaPrompt && !doneMeans && !fileConventions && !machineContext) return messages;
 
   const context = buildLeafContext(leaves);
   const siblings = buildSiblingContext(siblingBranches ?? [], siblingLeaves ?? []);
@@ -121,6 +130,7 @@ export function buildOutboundMessages(opts: {
       prompt,
       doneMeans ? `This project is a ${doneMeans}` : undefined,
       fileConventions,
+      machineContext,
       context,
       siblings,
       toolPrompt,

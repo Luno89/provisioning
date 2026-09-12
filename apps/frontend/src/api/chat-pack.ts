@@ -17,7 +17,7 @@ export const openChatPackStream = (
   body: ChatPackTurnRequest,
   signal?: AbortSignal,
 ): Promise<StreamResponse> =>
-  postStream('/chat-pack', body, signal);
+  postStream('/chat', body, signal);
 
 export interface ChatConversationMessage {
   role: 'user' | 'assistant';
@@ -103,45 +103,45 @@ export interface ProposedSecretRequestRecord {
 export type Conversation = ChatConversation;
 
 export const listChatConversations = (): Promise<ChatConversation[]> =>
-  api.get<ChatConversation[]>('/chat-pack/conversations').then((r) => r.data);
+  api.get<ChatConversation[]>('/conversations').then((r) => r.data);
 
 export const getChatConversation = (id: string): Promise<ChatConversation | null> =>
-  api.get<ChatConversation>(`/chat-pack/conversations/${id}`).then((r) => r.data);
+  api.get<ChatConversation>(`/conversations/${id}`).then((r) => r.data);
 
 export const createChatConversation = (title?: string): Promise<ChatConversation> =>
-  api.post<ChatConversation>('/chat-pack/conversations', { title }).then((r) => r.data);
+  api.post<ChatConversation>('/conversations', { title }).then((r) => r.data);
 
 export const deleteChatConversation = (id: string): Promise<void> =>
-  api.delete(`/chat-pack/conversations/${id}`).then(() => undefined);
+  api.delete(`/conversations/${id}`).then(() => undefined);
 
 export const acceptSpecProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/specs/${proposalId}/accept`, {})
+  api.post<T>(`/conversations/${conversationId}/specs/${proposalId}/accept`, {})
     .then((r) => r.data);
 
 export const acceptTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/trees/${proposalId}/accept`, {})
+  api.post<T>(`/conversations/${conversationId}/trees/${proposalId}/accept`, {})
     .then((r) => r.data);
 
 export const dismissTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/trees/${proposalId}/dismiss`, {})
+  api.post<T>(`/conversations/${conversationId}/trees/${proposalId}/dismiss`, {})
     .then((r) => r.data);
 
 export const dismissSpecProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/specs/${proposalId}/dismiss`, {})
+  api.post<T>(`/conversations/${conversationId}/specs/${proposalId}/dismiss`, {})
     .then((r) => r.data);
 
 export const acceptEscalationProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/escalations/${proposalId}/accept`, {})
+  api.post<T>(`/conversations/${conversationId}/escalations/${proposalId}/accept`, {})
     .then((r) => r.data);
 
 export const denyEscalationProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/escalations/${proposalId}/deny`, {})
+  api.post<T>(`/conversations/${conversationId}/escalations/${proposalId}/deny`, {})
     .then((r) => r.data);
 
 export const submitSecretRequest = <T,>(conversationId: string, requestId: string, value: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/secrets/${requestId}/submit`, { value })
+  api.post<T>(`/conversations/${conversationId}/secrets/${requestId}/submit`, { value })
     .then((r) => r.data);
 
 export const dismissSecretRequest = <T,>(conversationId: string, requestId: string): Promise<T> =>
-  api.post<T>(`/chat-pack/conversations/${conversationId}/secrets/${requestId}/dismiss`, {})
+  api.post<T>(`/conversations/${conversationId}/secrets/${requestId}/dismiss`, {})
     .then((r) => r.data);

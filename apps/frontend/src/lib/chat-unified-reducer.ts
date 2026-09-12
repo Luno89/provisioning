@@ -15,6 +15,7 @@ export interface ChatRenderState {
   enabled: string[];
   proposals: Array<{ kind: string; payload: any }>;
   overthinkWarning?: string | undefined;
+  interruptedReason?: string | undefined;
 }
 
 export const emptyChatRenderState: ChatRenderState = {
@@ -60,6 +61,9 @@ export function reduceUnifiedFrames(
   }
   if (frame.type === 'overthinkWarning' && 'payload' in frame) {
     return { ...state, overthinkWarning: String(frame.payload ?? '') };
+  }
+  if (frame.type === 'interrupted' && 'payload' in frame) {
+    return { ...state, interruptedReason: String(frame.payload ?? '') };
   }
   return state;
 }

@@ -112,6 +112,27 @@ describe('local execution agents', () => {
     expect(screen.getByText(/KOALA_ROOT_DIR=\/home\/me\/koala-work/)).toBeDefined();
   });
 
+  it('tells the user their project was already created, and links straight to it', async () => {
+    vi.mocked(localAgentsApi.createLocalAgentDevice).mockResolvedValue({
+      id: 'dev-1', name: 'My Laptop', rootDir: '/home/me/koala-work', token: 'secret-token-123', projectId: 'proj-1',
+    });
+    window.location.hash = '';
+    renderPanel(CONFIGURED, []);
+
+    await waitFor(() => expect(screen.getByPlaceholderText(/Name, e\.g\. My Laptop/)).toBeDefined());
+    fireEvent.change(screen.getByPlaceholderText(/Name, e\.g\. My Laptop/), { target: { value: 'My Laptop' } });
+    fireEvent.change(screen.getByPlaceholderText(/Root directory/), { target: { value: '/home/me/koala-work' } });
+    const registerButton = screen.getByRole('button', { name: /generate command/i });
+    await waitFor(() => expect(registerButton).toHaveProperty('disabled', false));
+    fireEvent.click(registerButton);
+
+    expect(await screen.findByText(/already been created/i)).toBeDefined();
+    const openButton = screen.getByRole('button', { name: /open its project/i });
+    fireEvent.click(openButton);
+
+    expect(window.location.hash).toBe('#/projects/project/proj-1');
+  });
+
   it('renders registered local agents with their online status', async () => {
     renderPanel(CONFIGURED, [], [
       { id: 'dev-1', name: 'My Laptop', rootDir: '/home/me/work', createdAt: '2026-01-01T00:00:00Z', online: true },

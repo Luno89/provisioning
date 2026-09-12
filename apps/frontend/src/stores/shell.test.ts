@@ -33,10 +33,10 @@ describe('changing the view', () => {
   })
 
   it('leaves the path alone when the hash already names that view', () => {
-    setHash('#/grove/tree-1/branch-2')
+    setHash('#/projects/tree-1/branch-2')
     useShellStore.setState({ view: 'chat' })
-    useShellStore.getState().setView('grove')
-    expect(window.location.hash).toBe('#/grove/tree-1/branch-2')
+    useShellStore.getState().setView('projects')
+    expect(window.location.hash).toBe('#/projects/tree-1/branch-2')
   })
 
   it('accepts every view the shell knows about', () => {

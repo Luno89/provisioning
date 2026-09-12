@@ -148,6 +148,7 @@ describe('acting on one leaf', () => {
       ['recheck', () => axios.post(harness.url('/api/leaves/theirs/recheck'), {})],
       ['cancel', () => axios.post(harness.url('/api/leaves/theirs/cancel'), {})],
       ['trace', () => axios.get(harness.url('/api/leaves/theirs/trace'))],
+      ['explain', () => axios.get(harness.url('/api/leaves/theirs/explain'))],
       ['patch', () => axios.patch(harness.url('/api/leaves/theirs'), { title: 'hijacked' })],
       ['delete', () => axios.delete(harness.url('/api/leaves/theirs'))],
     ];
@@ -157,6 +158,64 @@ describe('acting on one leaf', () => {
     }
     const stored = (await harness.db.getLeaves()).find((l) => l.id === 'theirs');
     expect(stored?.title).toBe('do a thing');
+  });
+
+  describe('explaining what will happen', () => {
+    const treeType = (over: Record<string, unknown> = {}) => ({
+      id: 'widget', ownerId: TEST_USER.id, label: 'Widget', summary: 'A widget.',
+      language: 'node', produces: 'service', doneMeans: 'It works.', files: [],
+      ...over,
+    });
+
+    it('falls back to defaults when the leaf resolves to no tree type', async () => {
+      const harness = await mount();
+      await harness.db.saveLeaf(leaf({ status: 'todo' }) as never);
+      const res = await axios.get(harness.url('/api/leaves/l1/explain'));
+      expect(res.data.treeType).toBeUndefined();
+      expect(res.data.roles).toEqual({});
+      expect(res.data.leafWorkflow.onSuccess.map((n: { stage: string }) => n.stage))
+        .toEqual(['release', 'judge', 'land', 'resolve', 'accept', 'replan']);
+      expect(res.data.autoAccept.policy.enabled).toBe(false);
+      expect(res.data.autoAccept.verdict).toEqual({ accept: false, reason: 'not a proposal' });
+    });
+
+    it('resolves tree type, roles, recipe, workflow, and an accept verdict for a proposed leaf', async () => {
+      const harness = await mount();
+      await harness.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Tree', type: 'widget' } as never);
+      await harness.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'Branch', messages: [], autoAccept: true, createdAt: '', updatedAt: '' } as never);
+      await harness.db.savePersonaPack({
+        id: 'pack-1', ownerId: TEST_USER.id, slug: 'builder', name: 'Builder', personaId: 'p1', personaName: 'Builder',
+        tools: [], canRunLeaf: true, sampling: { toolTurn: {}, conversation: {} }, budget: {} as never,
+        prompt: { sections: {} }, createdAt: '', updatedAt: '',
+      } as never);
+      await harness.db.saveTreeType(treeType({
+        packs: { planner: 'builder' },
+        validationRecipe: { type: 'command', checks: [{ id: 'c1', name: 'Check', type: 'run-command', command: 'true' }] },
+        autoAccept: { enabled: true, minTitleChars: 1, minBodyChars: 1, requirePersona: true },
+      }) as never);
+      await harness.db.saveLeaf(leaf({
+        status: 'proposed', title: 'A proposed leaf', body: 'Enough detail here.', packId: 'pack-1',
+      }) as never);
+
+      const res = await axios.get(harness.url('/api/leaves/l1/explain'));
+      expect(res.data.treeType).toMatchObject({ id: 'widget', label: 'Widget' });
+      expect(res.data.roles.planner).toMatchObject({ id: 'pack-1', slug: 'builder' });
+      expect(res.data.roles.judge).toBeUndefined();
+      expect(res.data.validationRecipe.checks).toHaveLength(1);
+      expect(res.data.autoAccept.policy.enabled).toBe(true);
+      expect(res.data.autoAccept.verdict).toEqual({ accept: true, reason: 'well-formed, assigned and not already being done' });
+    });
+
+    it('an explicit branch override wins over the tree type\'s auto-accept default', async () => {
+      const harness = await mount();
+      await harness.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Tree', type: 'widget' } as never);
+      await harness.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'Branch', messages: [], autoAccept: false, createdAt: '', updatedAt: '' } as never);
+      await harness.db.saveTreeType(treeType({ autoAccept: { enabled: true } }) as never);
+      await harness.db.saveLeaf(leaf({ status: 'proposed', title: 'A proposed leaf', body: 'Enough detail here.' }) as never);
+
+      const res = await axios.get(harness.url('/api/leaves/l1/explain'));
+      expect(res.data.autoAccept.policy.enabled).toBe(false);
+    });
   });
 
   it('answers rather than hanging when a dependency throws', async () => {

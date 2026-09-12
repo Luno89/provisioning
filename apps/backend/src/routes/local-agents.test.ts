@@ -5,12 +5,17 @@ import { mountRouter, type Harness, TEST_USER } from './test-harness.js';
 import type { Database } from '../lib/db-interface.js';
 import { decryptValue } from '../lib/crypto.js';
 import { registerDevice } from '../lib/local-agent-registry.js';
+import { ProjectRepoService } from '../services/ProjectRepoService.js';
+import type { GiteaService } from '../services/GiteaService.js';
 
 const JWT_SECRET = 'test-secret';
 
 const harness: Harness = await mountRouter({
   prefix: '/api/mesh/local-agents',
-  router: (db: Database) => localAgentsRouter({ db, jwtSecret: JWT_SECRET }),
+  router: (db: Database) => localAgentsRouter({
+    db, jwtSecret: JWT_SECRET,
+    projects: new ProjectRepoService(db, {} as GiteaService, JWT_SECRET),
+  }),
 });
 
 afterAll(async () => { await harness.close(); });
@@ -23,7 +28,7 @@ describe('POST /api/mesh/local-agents', () => {
       body: JSON.stringify({ name: 'My Laptop', rootDir: '/home/me/koala-work' }),
     });
     expect(res.status).toBe(201);
-    const body = await res.json() as { id: string; name: string; rootDir: string; token: string };
+    const body = await res.json() as { id: string; name: string; rootDir: string; token: string; projectId?: string };
     expect(body.name).toBe('My Laptop');
     expect(body.token).toBeTruthy();
 
@@ -32,6 +37,12 @@ describe('POST /api/mesh/local-agents', () => {
     expect(saved!.tokenEnc).not.toBe(body.token);
     expect(decryptValue(saved!.tokenEnc, JWT_SECRET)).toBe(body.token);
     expect(saved!.ownerId).toBe(TEST_USER.id);
+
+    expect(body.projectId).toBeTruthy();
+    const project = (await harness.db.getProjects()).find((p) => p.id === body.projectId);
+    expect(project?.name).toBe('My Laptop - koala-work');
+    expect(project?.giteaOwner).toBeFalsy();
+    expect(project?.executionTarget).toEqual({ kind: 'local-device', deviceId: body.id });
   });
 
   it('requires a name and a rootDir', async () => {

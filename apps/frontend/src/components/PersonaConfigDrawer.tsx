@@ -59,6 +59,12 @@ export function PersonaConfigDrawer({
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string>(activePackId);
 
+  useEffect(() => {
+    if (activePackId) {
+      setSelectedId(activePackId);
+    }
+  }, [activePackId, isOpen]);
+
   const { data: packs = [] } = useQuery<PersonaPack[]>({
     queryKey: packKeys.list(),
     queryFn: listPacks,
@@ -138,14 +144,14 @@ export function PersonaConfigDrawer({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!currentPack) return;
+      if (!currentPack) return null;
       const known = new Set(allTools.map((t) => t.name));
       const knobEdit = packEditFromKnobs(draftKnobs, packTunables);
       const sectionsEdit = packEditFromKnobs(draftSections, PROMPT_SECTIONS);
-      await updatePack(currentPack.id, {
+      const saved = await updatePack(currentPack.id, {
         name: draftName,
         description: draftDesc,
-        tools: draftTools.filter((t) => known.has(t)),
+        tools: allTools.length > 0 ? draftTools.filter((t) => known.has(t)) : draftTools,
         mcp: draftMcp,
         canRunLeaf: draftCanRunLeaf,
         ...(draftOutput ? { output: draftOutput } : {}),
@@ -157,12 +163,16 @@ export function PersonaConfigDrawer({
       if (currentPersona && draftPrompt !== (currentPersona.systemPrompt ?? '')) {
         await updatePersona(currentPersona.id, { systemPrompt: draftPrompt });
       }
+      return saved;
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: packKeys.list() });
       qc.invalidateQueries({ queryKey: personaKeys.list() });
-      setStatusMsg({ type: 'ok', text: 'Saved.' });
-      setTimeout(() => setStatusMsg(null), 3000);
+      const nextId = saved?.id ?? currentPack?.id;
+      if (nextId) {
+        onSelectPack(nextId);
+      }
+      onClose();
     },
     onError: (err) => {
       setStatusMsg({ type: 'err', text: errorMessage(err) });
@@ -519,6 +529,19 @@ export function PersonaConfigDrawer({
             >
               Close
             </button>
+
+            {currentPack && currentPack.id !== activePackId && currentPack.slug !== activePackId && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectPack(currentPack.id);
+                  onClose();
+                }}
+                className="px-3 py-1.5 rounded-md border border-emerald-500/60 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 text-xs font-medium transition-colors cursor-pointer"
+              >
+                Set as Active
+              </button>
+            )}
 
             <button
               type="button"

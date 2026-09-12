@@ -19,6 +19,10 @@ import { acceptLeaf } from '../lib/accept-leaf.js';
 import type { Database } from '../lib/db-interface.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
+import { treeTypeForLeaf, packForRole } from '../lib/tree-type-packs.js';
+import { TREE_TYPE_PACK_ROLES } from '../lib/tree-types.js';
+import { DEFAULT_POLICY, review, type AutoAcceptPolicy } from '../lib/auto-accept.js';
+import { DEFAULT_LEAF_WORKFLOW } from '../lib/leaf-workflow-types.js';
 
 export interface LeavesRouterDeps {
   db: Database;
@@ -314,6 +318,38 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
     const signalled = await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
     await db.saveLeaf({ ...leaf, status: 'cancelled', updatedAt: new Date().toISOString() });
     res.json({ success: true, workflowSignalled: signalled === true });
+  }));
+
+  router.get('/:id/explain', asyncRoute(async (req, res) => {
+    const user = userOf(req);
+    const leaf = (await ownedLeaves(user.id)).find((l) => l.id === idOf(req));
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+
+    const treeType = await treeTypeForLeaf(db, leaf);
+
+    const roles: Partial<Record<typeof TREE_TYPE_PACK_ROLES[number], { id: string; name: string; slug: string }>> = {};
+    for (const role of TREE_TYPE_PACK_ROLES) {
+      const pack = await packForRole(db, user.id, treeType, role);
+      if (pack) roles[role] = { id: pack.id, name: pack.name, slug: pack.slug };
+    }
+
+    const branch = (await db.getBranches()).find((b) => b.id === leaf.branchId);
+    const policy: AutoAcceptPolicy = {
+      ...DEFAULT_POLICY,
+      ...(treeType?.autoAccept ?? {}),
+      enabled: (branch?.autoAccept ?? treeType?.autoAccept?.enabled) === true,
+    };
+    const siblings = (await ownedLeaves(user.id)).filter((l) => l.branchId === leaf.branchId && l.id !== leaf.id);
+    const verdict = review(leaf, siblings, policy);
+
+    res.json({
+      leaf: { id: leaf.id, title: leaf.title, status: leaf.status },
+      treeType: treeType ? { id: treeType.id, label: treeType.label, summary: treeType.summary } : undefined,
+      roles,
+      validationRecipe: treeType?.validationRecipe,
+      leafWorkflow: treeType?.leafWorkflow ?? DEFAULT_LEAF_WORKFLOW,
+      autoAccept: { policy, verdict },
+    });
   }));
 
   router.get('/:id/trace', asyncRoute(async (req, res) => {

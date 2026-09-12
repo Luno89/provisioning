@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import AcceptanceEditor from './AcceptanceEditor.js';
 import { ChevronDown, ChevronRight, Target, CircleDot } from 'lucide-react';
-import ChatSurface, { type ChatMessageRecord as Message } from './ChatSurface.js';
+import ChatSurface, { type ChatMessageRecord as Message, type ChatAttachment } from './ChatSurface.js';
 import AcceptancePlan from './AcceptancePlan.js';
 import Delivery, { type DeliveryStage } from './Delivery.js';
 import type { Leaf } from './leaf-types.js';
@@ -12,6 +12,7 @@ export interface BranchRecord {
   messages: Message[];
   updatedAt: string;
   treeId?: string;
+  projectId?: string;
   acceptance?: { name: string; command: string }[] | string;
   delivery?: DeliveryStage[];
   projectName?: string;
@@ -20,12 +21,13 @@ export interface BranchRecord {
 export default function BranchChat({
   branchId, record, leaves, messages, onMessagesChange, onProposals,
   onAccept, onReject, onAcceptAll, autoSend, onAutoSent, mode = 'auto', onModeChange, onSetAcceptance,
+  projectId, attachments, onRemoveAttachment,
 }: {
   branchId: string;
   record?: BranchRecord | undefined;
   leaves: Leaf[];
   messages: Message[];
-  onMessagesChange: (next: Message[] | ((prev: Message[]) => Message[])) => void;
+  onMessagesChange: (messages: Message[] | ((prev: Message[]) => Message[])) => void;
   onProposals: () => void;
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
@@ -35,13 +37,20 @@ export default function BranchChat({
   onAutoSent?: (() => void) | undefined;
   mode?: 'chat' | 'auto' | 'plan';
   onModeChange?: ((mode: 'chat' | 'auto' | 'plan') => void) | undefined;
+  projectId?: string | undefined;
+  attachments?: ChatAttachment[] | undefined;
+  onRemoveAttachment?: ((path: string) => void) | undefined;
 }) {
 
   const stages = record?.delivery ?? [];
   const landed = stages.length > 0
     && stages.every((s) => s.state === 'done' || s.state === 'skipped')
     && stages.some((s) => s.state === 'done');
-  const [open, setOpen] = useState(!landed);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [branchId]);
 
   const planned = Array.isArray(record?.acceptance) ? record.acceptance : [];
   const hasHeader = Boolean(record?.acceptance) || stages.length > 0 || Boolean(onSetAcceptance);
@@ -101,6 +110,9 @@ export default function BranchChat({
             onAccept,
             onReject,
             onAcceptAll: () => onAcceptAll(proposed.map((p) => p.id)),
+            ...(projectId ? { projectId } : {}),
+            ...(attachments ? { attachments } : {}),
+            ...(onRemoveAttachment ? { onRemoveAttachment } : {}),
           }}
         />
       </div>

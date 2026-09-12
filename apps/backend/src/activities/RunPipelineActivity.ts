@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { InfrastructureService } from '../services/InfrastructureService.js';
 import { GiteaService } from '../services/GiteaService.js';
 import { ApplicationFailure } from '@temporalio/common';
+import { parsePipelineConfig, buildArgEntries } from '../lib/pipeline-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,6 +49,14 @@ async function log(logFile: string, line: string): Promise<void> {
   await fs.appendFile(logFile, `${line}\n`).catch(() => {});
 }
 
+export function yamlDoubleQuoted(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+export function workspacePath(sub: string | undefined): string {
+  return sub ? path.posix.join('/workspace', sub) : '/workspace';
+}
+
 export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPipelineResult> {
   const infra = new InfrastructureService();
   const kubeconfig = await resolveKubeconfig(infra);
@@ -64,17 +73,26 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
   await log(args.logFile, `Building ${args.giteaOwner}/${args.giteaRepo}@${args.commitSha} -> ${imageTag}`);
 
   const pipelineFile = await gitea.getRawFile(args.giteaOwner, args.giteaRepo, '.provisioning/pipeline.yml', args.ref).catch(() => null);
-  await log(args.logFile, pipelineFile
-    ? 'Found .provisioning/pipeline.yml (informational only — build is a fixed Dockerfile+Kaniko build for now)'
-    : 'No .provisioning/pipeline.yml — building the repo root Dockerfile');
+  const pipeline = pipelineFile ? parsePipelineConfig(pipelineFile) : { config: null, error: null };
+  if (pipelineFile && pipeline.error) {
+    await log(args.logFile, `.provisioning/pipeline.yml ${pipeline.error} — building the repo root Dockerfile instead`);
+  } else if (pipelineFile) {
+    await log(args.logFile, `Found .provisioning/pipeline.yml: dockerfile=${pipeline.config?.dockerfile ?? 'Dockerfile'}, context=${pipeline.config?.context ?? '.'}, ${Object.keys(pipeline.config?.buildArgs ?? {}).length} build arg(s)`);
+  } else {
+    await log(args.logFile, 'No .provisioning/pipeline.yml — building the repo root Dockerfile');
+  }
 
-  const dockerfile = await gitea.getRawFile(args.giteaOwner, args.giteaRepo, 'Dockerfile', args.ref).catch(() => null);
+  const dockerfilePath = pipeline.config?.dockerfile ?? 'Dockerfile';
+  const dockerfile = await gitea.getRawFile(args.giteaOwner, args.giteaRepo, dockerfilePath, args.ref).catch(() => null);
   if (!dockerfile) {
-    const message = `${args.giteaRepo} has no Dockerfile at its root on ${args.ref}, so there is `
+    const message = `${args.giteaRepo} has no Dockerfile at "${dockerfilePath}" on ${args.ref}, so there is `
       + 'nothing to build into an image. Add one and push again.';
     await log(args.logFile, message);
     throw ApplicationFailure.nonRetryable(message, 'NoDockerfile');
   }
+
+  const buildArgFlags = buildArgEntries(pipeline.config)
+    .map(([key, value]) => `--build-arg=${key}=${yamlDoubleQuoted(value)}`);
 
   const deployToken = await gitea.createDeployToken();
   const authBasic = Buffer.from(`${gitea.adminUsername}:${deployToken.token}`).toString('base64');
@@ -129,11 +147,12 @@ spec:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
           args:
-            - "--context=/workspace"
+            - "--context=${yamlDoubleQuoted(workspacePath(pipeline.config?.context))}"
+            - "--dockerfile=${yamlDoubleQuoted(workspacePath(dockerfilePath))}"
             - "--destination=${imageTag}"
             - "--insecure"
             - "--insecure-pull"
-            - "--skip-tls-verify"
+            - "--skip-tls-verify"${buildArgFlags.length ? '\n' + buildArgFlags.map((f) => `            - "${f}"`).join('\n') : ''}
           volumeMounts:
             - { name: workspace, mountPath: /workspace }
             - { name: docker-config, mountPath: /kaniko/.docker }

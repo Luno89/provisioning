@@ -11,6 +11,8 @@ export const listProjects = <T,>(): Promise<T[]> =>
 
 export const createProject = (body: unknown) => api.post('/projects', body).then((r) => r.data)
 
+export const patchProject = (id: string, body: unknown) => api.patch(`/projects/${id}`, body).then((r) => r.data)
+
 export const listProjectRuns = <T,>(id: string): Promise<T[]> =>
   api.get<T[]>(`/projects/${id}/runs`).then((r) => r.data)
 

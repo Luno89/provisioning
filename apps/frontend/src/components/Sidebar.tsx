@@ -1,4 +1,5 @@
-import React, { startTransition } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
+import { useRouter } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Shield, FlaskConical, Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
@@ -10,12 +11,29 @@ import {
   listChatConversations, deleteChatConversation, chatPackKeys, type ChatConversation,
 } from '../api/chat-pack.js';
 import { listTrees, groveKeys } from '../api/grove.js';
-import { parseHash } from '../lib/route.js';
+import { parseHash, formatHash } from '../lib/route.js';
 
 export interface ForestTab {
   id: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
+}
+
+function useSafeRouter() {
+  const router = useRouter({ warn: false });
+  const [pathname, setPathname] = useState(() => (router?.state?.location?.pathname as string) ?? null);
+
+  useEffect(() => {
+    if (!router?.subscribe) return;
+    return router.subscribe('onResolved', (evt: any) => {
+      setPathname(evt?.toLocation?.pathname ?? null);
+    });
+  }, [router]);
+
+  return {
+    pathname,
+    navigate: router ? (opts: any) => router.navigate(opts) : null,
+  };
 }
 
 export default function Sidebar({ forestTabs, onLogout }: {
@@ -31,9 +49,38 @@ export default function Sidebar({ forestTabs, onLogout }: {
   const projectsOpen = useShellStore((s) => s.projectsOpen);
   const setProjectsOpen = useShellStore((s) => s.setProjectsOpen);
 
-  const route = parseHash(typeof window !== 'undefined' ? window.location.hash : '');
-  const activeConvId = view === 'chat' ? route?.path[0] : undefined;
-  const activeTreeId = view === 'grove' ? route?.path[0] : undefined;
+  const { pathname: routerPath, navigate } = useSafeRouter();
+
+  const [currentHash, setCurrentHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
+
+  useEffect(() => {
+    const handleHash = () => setCurrentHash(window.location.hash);
+    window.addEventListener('hashchange', handleHash);
+    window.addEventListener('popstate', handleHash);
+    return () => {
+      window.removeEventListener('hashchange', handleHash);
+      window.removeEventListener('popstate', handleHash);
+    };
+  }, []);
+
+  const route = parseHash(currentHash);
+
+  const activeConvId = routerPath
+    ? (routerPath.startsWith('/chat/') ? routerPath.split('/')[2] : undefined)
+    : (view === 'chat' ? route?.path[0] : undefined);
+
+  const activeTreeId = routerPath
+    ? (routerPath.startsWith('/projects/tree/') ? routerPath.split('/')[3] : undefined)
+    : (view === 'projects' && route?.path[0] === 'tree' ? route?.path[1] : undefined);
+
+  const isCurrentView = (id: string) => {
+    if (routerPath) {
+      if (id === 'chat') return routerPath === '/chat' || routerPath.startsWith('/chat/');
+      if (id === 'projects') return routerPath === '/projects' || routerPath.startsWith('/projects/');
+      return routerPath === `/${id}` || routerPath.startsWith(`/${id}/`);
+    }
+    return view === id;
+  };
 
   const qc = useQueryClient();
 
@@ -49,12 +96,17 @@ export default function Sidebar({ forestTabs, onLogout }: {
     staleTime: 30_000,
   });
 
-  const navigateTo = (targetView: ViewName, hash?: string) => {
+  const navigateTo = (targetView: ViewName, hashOrPath?: string) => {
     startTransition(() => {
-      if (hash) {
-        window.location.hash = hash;
-      }
       setView(targetView);
+      const target = hashOrPath ?? formatHash(targetView);
+      const cleanPath = target.replace(/^#/, '');
+      const hash = target.startsWith('#') ? target : `#${target}`;
+      window.location.hash = hash;
+      setCurrentHash(hash);
+      if (navigate) {
+        navigate({ to: cleanPath as any }).catch(() => {});
+      }
     });
   };
 
@@ -88,18 +140,18 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <button
           type="button"
           onClick={() => {
-            if (view === 'chat') {
+            if (isCurrentView('chat')) {
               setKoalaOpen((o) => !o);
             } else {
               navigateTo('chat', '#/chat');
               setKoalaOpen(true);
             }
           }}
-          className={groupHeader(view === 'chat')}
+          className={groupHeader(isCurrentView('chat'))}
         >
-          <Koala size={18} mood={view === 'chat' ? 'happy' : 'idle'} />
+          <Koala size={18} mood={isCurrentView('chat') ? 'happy' : 'idle'} />
           <span className="flex-1 text-left">Koala</span>
-          {view === 'chat' && (
+          {isCurrentView('chat') && (
             <span
               role="button"
               tabIndex={0}
@@ -131,7 +183,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
               Recent Chats
             </div>
             {conversations.slice(0, 6).map((c) => {
-              const isSelected = view === 'chat' && activeConvId === c.id;
+              const isSelected = isCurrentView('chat') && activeConvId === c.id;
               const hasTrees = Boolean(c.proposedTrees && c.proposedTrees.length > 0);
               const hasSpecs = Boolean(c.proposedSpecs && c.proposedSpecs.length > 0);
 
@@ -186,14 +238,14 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <button
           type="button"
           onClick={() => {
-            if (view === 'grove') {
+            if (isCurrentView('projects')) {
               setProjectsOpen((o) => !o);
             } else {
-              navigateTo('grove');
+              navigateTo('projects');
               setProjectsOpen(true);
             }
           }}
-          className={groupHeader(view === 'grove')}
+          className={groupHeader(isCurrentView('projects'))}
         >
           <TreesIcon size={16} />
           <span className="flex-1 text-left">Projects</span>
@@ -205,12 +257,12 @@ export default function Sidebar({ forestTabs, onLogout }: {
         {projectsOpen && trees.length > 0 && (
           <div className="ml-3 pl-3 border-l border-[var(--bark-600)] space-y-0.5">
             {trees.slice(0, 6).map((t) => {
-              const isSelected = view === 'grove' && activeTreeId === t.id;
+              const isSelected = isCurrentView('projects') && activeTreeId === t.id;
               return (
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => navigateTo('grove', `#/grove/${t.id}`)}
+                  onClick={() => navigateTo('projects', `#/projects/tree/${t.id}`)}
                   className={`w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors truncate cursor-pointer ${
                     isSelected
                       ? 'bg-[var(--bark-600)] text-emerald-300 font-semibold'
@@ -229,7 +281,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <button
           type="button"
           onClick={() => navigateTo('personas')}
-          className={nested(view === 'personas')}
+          className={nested(isCurrentView('personas'))}
         >
           <Shield size={15} className="text-[var(--leaf)]" /> Personas
         </button>
@@ -237,7 +289,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <button
           type="button"
           onClick={() => navigateTo('lab')}
-          className={nested(view === 'lab')}
+          className={nested(isCurrentView('lab'))}
         >
           <FlaskConical size={15} className="text-[var(--leaf)]" /> Lab
         </button>
@@ -245,7 +297,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <button
           type="button"
           onClick={() => navigateTo('harness')}
-          className={nested(view === 'harness')}
+          className={nested(isCurrentView('harness'))}
         >
           <Sliders size={15} className="text-[var(--leaf)]" /> Harness
         </button>
@@ -253,7 +305,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <button
           type="button"
           onClick={() => navigateTo('tree-types')}
-          className={nested(view === 'tree-types')}
+          className={nested(isCurrentView('tree-types'))}
         >
           <GitBranch size={15} className="text-[var(--leaf)]" /> Tree Types
         </button>
@@ -261,7 +313,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
         <button
           type="button"
           onClick={() => navigateTo('tool-repo')}
-          className={nested(view === 'tool-repo')}
+          className={nested(isCurrentView('tool-repo'))}
         >
           <Wrench size={15} className="text-[var(--leaf)]" /> Tool Repo
         </button>
@@ -286,7 +338,7 @@ export default function Sidebar({ forestTabs, onLogout }: {
                 type="button"
                 onClick={() => navigateTo(tab.id as ViewName)}
                 className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
-                  view === tab.id
+                  isCurrentView(tab.id)
                     ? 'bg-[var(--bark-600)] text-slate-100 font-medium'
                     : 'text-slate-400 hover:bg-[var(--bark-700)] hover:text-slate-200'
                 }`}

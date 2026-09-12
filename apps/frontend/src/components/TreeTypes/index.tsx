@@ -8,9 +8,11 @@ import { card, blankTreeType, slugify, SLUG_PATTERN, type TreeType, type CustomS
 import { Overview } from './Overview.js';
 import { Scaffold } from './Scaffold.js';
 import { RecipePanel } from './Recipe/index.js';
+import { LeafWorkflowPanel } from './LeafWorkflow/index.js';
 import { Bindings } from './Bindings.js';
 import { Roles } from './Roles.js';
 import { AutoAccept } from './AutoAccept.js';
+import { VerdictPolicyPanel } from './VerdictPolicy.js';
 import { CustomSteps } from './CustomSteps.js';
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
@@ -188,6 +190,13 @@ export function TreeTypes() {
                   />
                 </Section>
 
+                <Section title="Leaf workflow" hint="What happens after a leaf's own work finishes — release, judge, land, accept, replan.">
+                  <LeafWorkflowPanel
+                    leafWorkflow={draft.leafWorkflow}
+                    onChange={(leafWorkflow) => patch({ leafWorkflow })}
+                  />
+                </Section>
+
                 <Section title="Bindings" hint="Default service bindings, extra network egress, and fixed environment variables.">
                   <Bindings value={draft} onChange={patch} />
                 </Section>
@@ -198,6 +207,10 @@ export function TreeTypes() {
 
                 <Section title="Auto-accept" hint="How readily a proposed leaf on this type auto-accepts without a human clicking accept.">
                   <AutoAccept value={draft} onChange={patch} />
+                </Section>
+
+                <Section title="Verdict policy" hint="How a single leaf run's tests and artifacts combine into succeeded or failed.">
+                  <VerdictPolicyPanel value={draft} onChange={patch} />
                 </Section>
               </div>
             </div>

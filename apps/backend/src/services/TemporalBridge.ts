@@ -1501,6 +1501,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<WorkflowDeal> {
+    if (!project.giteaOwner || !project.giteaRepo) {
+      throw new Error(`Project ${project.id} has no repository to run a pipeline for.`)
+    }
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const wfId = `pipeline-run-${project.giteaRepo}-${runId}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`

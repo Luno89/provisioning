@@ -32,6 +32,15 @@ import {
   findRecipeNode, childrenOfRecipeNode, insertRecipeNode, removeRecipeNode, updateRecipeNode,
   reorderRecipeChildren, clearRecipeRunIfReferences,
 } from './recipe-tree-ops.js';
+import {
+  WORKFLOW_STAGE_TYPES, isWorkflowContainerNode, DEFAULT_LEAF_WORKFLOW,
+  type WorkflowStageType, type WorkflowStageNode, type WorkflowStageDefinition, type WorkflowStageGroup,
+  type WorkflowStageLoop, type WorkflowCondition, type LeafWorkflowSpec,
+} from './leaf-workflow-types.js';
+import {
+  findWorkflowNode, childrenOfWorkflowNode, insertWorkflowNode, updateWorkflowNode, removeWorkflowNode,
+  reorderWorkflowChildren, clearWorkflowStageReferences,
+} from './leaf-workflow-ops.js';
 
 export interface KoalaToolContext {
   db: Database;
@@ -673,6 +682,36 @@ export async function handleGetProjectUrl(
   });
 }
 
+export async function handleReadProjectPath(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId, projects } = ctx;
+  if (!projects) return json({ error: 'Project file access is not available.' });
+
+  const allProjects = (await db.getProjects()).filter((p) => p.ownerId === userId);
+  const target = typeof args.projectId === 'string' ? args.projectId.trim()
+    : typeof args.treeId === 'string' ? args.treeId.trim() : '';
+  const project = target
+    ? allProjects.find((p) => p.id === target || p.name.toLowerCase() === target.toLowerCase())
+    : allProjects[0];
+
+  if (!project) {
+    return json({
+      error: target ? `No project matching "${target}".` : 'No projects exist under this account.',
+      available: allProjects.map((p) => ({ id: p.id, name: p.name })),
+    });
+  }
+
+  const path = typeof args.path === 'string' ? args.path.trim() : '';
+  try {
+    const result = await projects.readPath(project, path);
+    return json({ project: project.name, ...result });
+  } catch (err: any) {
+    return json({ error: err?.message ?? 'Could not read that path.' });
+  }
+}
+
 export async function handleRequestEscalatedPrivileges(
   ctx: KoalaToolContext,
   args: Record<string, unknown>,
@@ -1210,7 +1249,7 @@ export async function handleGetTreeType(
 
   const { all, current } = await resolveTreeTypeRow(db, userId, id);
   if (!current) return treeTypeNotFound(id, all);
-  return json({ treeType: current });
+  return json({ treeType: { ...current, leafWorkflow: current.leafWorkflow ?? DEFAULT_LEAF_WORKFLOW } });
 }
 
 export async function handleCreateTreeType(
@@ -1610,6 +1649,30 @@ export async function handleSetTreeTypeAutoAccept(
   return json({ updated: { id: updated.id, autoAccept: updated.autoAccept, duplicateThreshold: updated.duplicateThreshold } });
 }
 
+export async function handleSetTreeTypeVerdictPolicy(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const verdictPolicy = { ...current.verdictPolicy };
+  if (typeof args.requireVerify === 'boolean') verdictPolicy.requireVerify = args.requireVerify;
+  if (typeof args.requireArtifacts === 'boolean') verdictPolicy.requireArtifacts = args.requireArtifacts;
+  if (args.combineMode === 'all' || args.combineMode === 'any') verdictPolicy.combineMode = args.combineMode;
+
+  const updated: TreeTypeSpec = { ...current, verdictPolicy, id, ownerId: userId };
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ updated: { id: updated.id, verdictPolicy: updated.verdictPolicy } });
+}
+
 export async function handleDeleteTreeType(
   ctx: KoalaToolContext,
   args: Record<string, unknown>,
@@ -1633,4 +1696,241 @@ export async function handleDeleteTreeType(
 
   await db.deleteTreeType(id, userId);
   return json({ deleted: id });
+}
+
+function workflowWhichFromArgs(args: Record<string, unknown>): 'onSuccess' | 'onFailure' | undefined {
+  return args.which === 'onSuccess' || args.which === 'onFailure' ? args.which : undefined;
+}
+
+function runIfFromArgs(args: Record<string, unknown>): WorkflowCondition | string | undefined {
+  if (typeof args.runIf === 'string') return args.runIf.trim() || undefined;
+  if (args.runIf && typeof args.runIf === 'object' && !Array.isArray(args.runIf)) return args.runIf as WorkflowCondition;
+  return undefined;
+}
+
+async function insertIntoWorkflow(
+  ctx: KoalaToolContext,
+  id: string,
+  which: 'onSuccess' | 'onFailure',
+  parentId: string | null,
+  node: WorkflowStageNode,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const spec = current.leafWorkflow ?? DEFAULT_LEAF_WORKFLOW;
+  const nodes = spec[which];
+  if (parentId !== null) {
+    const parent = findWorkflowNode(nodes, parentId);
+    if (!parent) return json({ error: `No stage, group, or loop with id "${parentId}" in ${which}.` });
+    if (!isWorkflowContainerNode(parent)) {
+      return json({ error: `"${parentId}" is a stage, not a group or loop — it can't contain other stages.` });
+    }
+  }
+
+  const siblings = childrenOfWorkflowNode(nodes, parentId) ?? [];
+  const nextNodes = insertWorkflowNode(nodes, parentId, siblings.length, node);
+  const leafWorkflow: LeafWorkflowSpec = { ...spec, [which]: nextNodes };
+  const updated: TreeTypeSpec = { ...current, leafWorkflow, id, ownerId: userId };
+
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ added: { id: node.id, name: node.name } });
+}
+
+export async function handleAddWorkflowStage(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const which = workflowWhichFromArgs(args);
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  const stage = typeof args.stage === 'string' ? args.stage.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+  if (!which) return json({ error: 'which must be "onSuccess" or "onFailure".' });
+  if (!name) return json({ error: 'name is required.' });
+  if (!(WORKFLOW_STAGE_TYPES as readonly string[]).includes(stage)) {
+    return json({ error: `stage must be one of ${WORKFLOW_STAGE_TYPES.join(', ')}.` });
+  }
+
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const node: WorkflowStageDefinition = {
+    id: uuidv4(), name, stage: stage as WorkflowStageType,
+    ...(typeof args.optional === 'boolean' ? { optional: args.optional } : {}),
+    ...(runIfFromArgs(args) !== undefined ? { runIf: runIfFromArgs(args) } : {}),
+    ...(typeof args.retries === 'number' ? { retries: args.retries } : {}),
+    ...(typeof args.retryDelayMs === 'number' ? { retryDelayMs: args.retryDelayMs } : {}),
+  };
+  return insertIntoWorkflow(ctx, id, which, parentId, node);
+}
+
+export async function handleAddWorkflowGroup(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const which = workflowWhichFromArgs(args);
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+  if (!which) return json({ error: 'which must be "onSuccess" or "onFailure".' });
+  if (!name) return json({ error: 'name is required.' });
+
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const node: WorkflowStageGroup = {
+    id: uuidv4(), name, containerType: 'group', children: [],
+    ...(typeof args.optional === 'boolean' ? { optional: args.optional } : {}),
+    ...(runIfFromArgs(args) !== undefined ? { runIf: runIfFromArgs(args) } : {}),
+  };
+  return insertIntoWorkflow(ctx, id, which, parentId, node);
+}
+
+export async function handleAddWorkflowLoop(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const which = workflowWhichFromArgs(args);
+  const name = typeof args.name === 'string' ? args.name.trim() : '';
+  const loopType = typeof args.loopType === 'string' ? args.loopType.trim() : '';
+  if (!id) return json({ error: 'id is required.' });
+  if (!which) return json({ error: 'which must be "onSuccess" or "onFailure".' });
+  if (!name) return json({ error: 'name is required.' });
+  if (!(LOOP_TYPES as readonly string[]).includes(loopType)) {
+    return json({ error: `loopType must be one of ${LOOP_TYPES.join(', ')}.` });
+  }
+
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const node: WorkflowStageLoop = {
+    id: uuidv4(), name, containerType: 'loop', loopType: loopType as LoopType, children: [],
+    ...(typeof args.maxIterations === 'number' ? { maxIterations: args.maxIterations } : {}),
+    ...(typeof args.timeoutMs === 'number' ? { timeoutMs: args.timeoutMs } : {}),
+    ...(typeof args.itemsFrom === 'string' && args.itemsFrom.trim() ? { itemsFrom: args.itemsFrom.trim() } : {}),
+    ...(typeof args.optional === 'boolean' ? { optional: args.optional } : {}),
+    ...(runIfFromArgs(args) !== undefined ? { runIf: runIfFromArgs(args) } : {}),
+  };
+  return insertIntoWorkflow(ctx, id, which, parentId, node);
+}
+
+export async function handleReviseWorkflowStage(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const which = workflowWhichFromArgs(args);
+  const stageId = typeof args.stageId === 'string' ? args.stageId.trim() : '';
+  if (!id || !stageId) return json({ error: 'id and stageId are required.' });
+  if (!which) return json({ error: 'which must be "onSuccess" or "onFailure".' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const spec = current.leafWorkflow ?? DEFAULT_LEAF_WORKFLOW;
+  const nodes = spec[which];
+  const target = findWorkflowNode(nodes, stageId);
+  if (!target) return json({ error: `No stage, group, or loop with id "${stageId}" in ${which}.` });
+
+  const patch: Record<string, unknown> = {};
+  if (typeof args.name === 'string' && args.name.trim()) patch.name = args.name.trim();
+  if (typeof args.optional === 'boolean') patch.optional = args.optional;
+  if (args.runIf !== undefined) patch.runIf = runIfFromArgs(args);
+
+  if (isWorkflowContainerNode(target)) {
+    if (target.containerType === 'loop') {
+      if (typeof args.loopType === 'string' && (LOOP_TYPES as readonly string[]).includes(args.loopType)) {
+        patch.loopType = args.loopType;
+      }
+      if (typeof args.maxIterations === 'number') patch.maxIterations = args.maxIterations;
+      if (typeof args.timeoutMs === 'number') patch.timeoutMs = args.timeoutMs;
+      if (typeof args.itemsFrom === 'string') patch.itemsFrom = args.itemsFrom.trim();
+    }
+  } else {
+    if (typeof args.stage === 'string' && (WORKFLOW_STAGE_TYPES as readonly string[]).includes(args.stage)) {
+      patch.stage = args.stage;
+    }
+    if (typeof args.retries === 'number') patch.retries = args.retries;
+    if (typeof args.retryDelayMs === 'number') patch.retryDelayMs = args.retryDelayMs;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return json({ error: 'Nothing to change — pass a field to update.' });
+  }
+
+  const nextNodes = updateWorkflowNode(nodes, stageId, (n) => ({ ...n, ...patch }) as WorkflowStageNode);
+  const leafWorkflow: LeafWorkflowSpec = { ...spec, [which]: nextNodes };
+  const updated: TreeTypeSpec = { ...current, leafWorkflow, id, ownerId: userId };
+
+  const invalid = validateTreeType(await db.getWorkspaceImages(userId), updated);
+  if (invalid) return json({ error: invalid });
+
+  await db.saveTreeType(updated);
+  return json({ revised: { id: stageId } });
+}
+
+export async function handleRemoveWorkflowStage(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const which = workflowWhichFromArgs(args);
+  const stageId = typeof args.stageId === 'string' ? args.stageId.trim() : '';
+  if (!id || !stageId) return json({ error: 'id and stageId are required.' });
+  if (!which) return json({ error: 'which must be "onSuccess" or "onFailure".' });
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const spec = current.leafWorkflow ?? DEFAULT_LEAF_WORKFLOW;
+  const nodes = spec[which];
+  const { nodes: without, removed } = removeWorkflowNode(nodes, stageId);
+  if (!removed) return json({ error: `No stage, group, or loop with id "${stageId}" in ${which}.` });
+
+  const nextNodes = clearWorkflowStageReferences(without, stageId);
+  const leafWorkflow: LeafWorkflowSpec = { ...spec, [which]: nextNodes };
+  const updated: TreeTypeSpec = { ...current, leafWorkflow, id, ownerId: userId };
+
+  await db.saveTreeType(updated);
+  return json({ removed: { id: stageId } });
+}
+
+export async function handleReorderWorkflowStages(
+  ctx: KoalaToolContext,
+  args: Record<string, unknown>,
+): Promise<KoalaToolResult> {
+  const { db, userId } = ctx;
+  const id = typeof args.id === 'string' ? args.id.trim() : '';
+  const which = workflowWhichFromArgs(args);
+  if (!id) return json({ error: 'id is required.' });
+  if (!which) return json({ error: 'which must be "onSuccess" or "onFailure".' });
+  if (!Array.isArray(args.orderedStageIds) || !args.orderedStageIds.every((v) => typeof v === 'string')) {
+    return json({ error: 'orderedStageIds must be an array of stage ids.' });
+  }
+  const orderedStageIds = args.orderedStageIds as string[];
+
+  const { all, current } = await resolveTreeTypeRow(db, userId, id);
+  if (!current) return treeTypeNotFound(id, all);
+
+  const spec = current.leafWorkflow ?? DEFAULT_LEAF_WORKFLOW;
+  const nodes = spec[which];
+  const parentId = typeof args.parentId === 'string' && args.parentId.trim() ? args.parentId.trim() : null;
+  const reordered = reorderWorkflowChildren(nodes, parentId, orderedStageIds);
+  if (!reordered) {
+    const siblings = childrenOfWorkflowNode(nodes, parentId);
+    return json({
+      error: siblings === undefined
+        ? `No group or loop with id "${parentId}" in ${which}.`
+        : 'orderedStageIds must name exactly the ids currently at that level, in the new order.',
+      current: siblings?.map((n) => n.id),
+    });
+  }
+
+  const leafWorkflow: LeafWorkflowSpec = { ...spec, [which]: reordered };
+  const updated: TreeTypeSpec = { ...current, leafWorkflow, id, ownerId: userId };
+
+  await db.saveTreeType(updated);
+  return json({ reordered: orderedStageIds });
 }

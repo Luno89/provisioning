@@ -159,8 +159,8 @@ export interface ModelEndpointMetadata {
 export interface ProjectMetadata {
   id: string;
   name: string;
-  giteaOwner: string;
-  giteaRepo: string;
+  giteaOwner?: string;
+  giteaRepo?: string;
   ownerId?: string;
   targetClusterId?: string;
   targetNamespace?: string;
@@ -180,7 +180,7 @@ export interface ProjectMetadata {
    * only when it's falling back to raw host execution (no proxy exists to enforce it there). Which
    * applies for a given run is decided by what the agent reports at connect time, not by this field.
    */
-  executionTarget?: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string; egress?: LocalEgressRule[] };
+  executionTarget?: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string; path?: string; egress?: LocalEgressRule[] };
   /**
    * Whether a local-device command needs a human's sign-off before it runs. Only meaningful
    * alongside `executionTarget.kind === 'local-device'` — the K8s sandbox has no plan mode.

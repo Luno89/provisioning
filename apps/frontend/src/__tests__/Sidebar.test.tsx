@@ -97,7 +97,7 @@ describe('what the nav offers', () => {
     vi.mocked(groveApi.listTrees).mockResolvedValue([
       { id: 't-1', name: 'Odoo Rollout', type: 'default', branchCount: 3, updatedAt: '2026-08-26T00:00:00Z' },
     ]);
-    setup({ view: 'grove', projectsOpen: false });
+    setup({ view: 'projects', projectsOpen: false });
     expect(screen.queryByText('Odoo Rollout')).not.toBeInTheDocument();
   });
 });
@@ -105,7 +105,7 @@ describe('what the nav offers', () => {
 describe('what clicking does', () => {
   it('navigates to Projects, Personas and Lab from chat', () => {
     const { view } = setup();
-    for (const [label, id] of [['Projects', 'grove'], ['Personas', 'personas'], ['Lab', 'lab']]) {
+    for (const [label, id] of [['Projects', 'projects'], ['Personas', 'personas'], ['Lab', 'lab']]) {
       fireEvent.click(screen.getByText(label!));
       expect(view(), label).toBe(id);
     }
@@ -147,17 +147,17 @@ describe('what clicking does', () => {
     expect(koalaOpen()).toBe(true);
   });
 
-  it('navigating into Projects from elsewhere lands on grove with the group open', () => {
+  it('navigating into Projects from elsewhere lands on projects with the group open', () => {
     const { view, projectsOpen } = setup({ view: 'lab', projectsOpen: false });
     fireEvent.click(screen.getByText('Projects'));
-    expect(view()).toBe('grove');
+    expect(view()).toBe('projects');
     expect(projectsOpen()).toBe(true);
   });
 
-  it('clicking Projects again while already on grove collapses the group instead of re-navigating', () => {
-    const { view, projectsOpen } = setup({ view: 'grove', projectsOpen: true });
+  it('clicking Projects again while already on projects collapses the group instead of re-navigating', () => {
+    const { view, projectsOpen } = setup({ view: 'projects', projectsOpen: true });
     fireEvent.click(screen.getByText('Projects'));
-    expect(view()).toBe('grove');
+    expect(view()).toBe('projects');
     expect(projectsOpen()).toBe(false);
   });
 });
@@ -240,12 +240,12 @@ describe('the tree list under Projects', () => {
       { id: 't-1', name: 'Odoo Rollout', type: 'default', branchCount: 3, updatedAt: '2026-08-26T00:00:00Z' },
     ]);
 
-    setup({ view: 'grove' });
+    setup({ view: 'projects' });
 
     await screen.findByText('Odoo Rollout');
     fireEvent.click(screen.getByText('Odoo Rollout'));
 
-    expect(window.location.hash).toBe('#/grove/t-1');
+    expect(window.location.hash).toBe('#/projects/tree/t-1');
   });
 
   it('marks the tree matching the URL hash as active', async () => {
@@ -253,17 +253,36 @@ describe('the tree list under Projects', () => {
       { id: 't-1', name: 'Tree One', type: 'default', branchCount: 1, updatedAt: '2026-08-26T00:00:00Z' },
       { id: 't-2', name: 'Tree Two', type: 'default', branchCount: 1, updatedAt: '2026-08-26T00:00:00Z' },
     ]);
-    window.location.hash = '#/grove/t-2';
+    window.location.hash = '#/projects/tree/t-2';
 
-    setup({ view: 'grove' });
+    setup({ view: 'projects' });
 
     await screen.findByText('Tree Two');
     expect(screen.getByText('Tree Two').closest('button')!.className).toMatch(/bg-\[var\(--bark-600\)\]/);
     expect(screen.getByText('Tree One').closest('button')!.className).not.toMatch(/bg-\[var\(--bark-600\)\]/);
   });
 
+  it('updates the active tree when another tree is clicked while already on projects', async () => {
+    vi.mocked(groveApi.listTrees).mockResolvedValue([
+      { id: 't-1', name: 'Tree One', type: 'default', branchCount: 1, updatedAt: '2026-08-26T00:00:00Z' },
+      { id: 't-2', name: 'Tree Two', type: 'default', branchCount: 1, updatedAt: '2026-08-26T00:00:00Z' },
+    ]);
+    window.location.hash = '#/projects/tree/t-2';
+
+    setup({ view: 'projects' });
+
+    await screen.findByText('Tree Two');
+    expect(screen.getByText('Tree Two').closest('button')!.className).toMatch(/bg-\[var\(--bark-600\)\]/);
+
+    fireEvent.click(screen.getByText('Tree One'));
+
+    expect(window.location.hash).toBe('#/projects/tree/t-1');
+    expect(screen.getByText('Tree One').closest('button')!.className).toMatch(/bg-\[var\(--bark-600\)\]/);
+    expect(screen.getByText('Tree Two').closest('button')!.className).not.toMatch(/bg-\[var\(--bark-600\)\]/);
+  });
+
   it('stays out of the way when there are no trees', () => {
-    setup({ view: 'grove' });
+    setup({ view: 'projects' });
     expect(screen.queryByText(/branch/i)).not.toBeInTheDocument();
   });
 });

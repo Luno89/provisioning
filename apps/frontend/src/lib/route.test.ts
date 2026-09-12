@@ -55,11 +55,12 @@ describe('what belongs in browser history', () => {
 });
 
 describe('links that outlived their view', () => {
-  const known = ['grove', 'personas', 'lab', 'clusters'];
+  const known = ['projects', 'personas', 'lab', 'clusters'];
 
   it('sends a retired view to whatever replaced it', () => {
-    for (const gone of ['chat', 'board', 'trees']) {
-      expect(resolveView(gone, known, 'clusters')).toBe('grove');
+    expect(resolveView('chat', known, 'clusters')).toBe('grove');
+    for (const gone of ['board', 'trees', 'grove']) {
+      expect(resolveView(gone, known, 'clusters')).toBe('projects');
     }
   });
 

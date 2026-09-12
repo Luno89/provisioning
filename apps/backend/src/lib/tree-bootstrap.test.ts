@@ -93,6 +93,30 @@ describe('tree-bootstrap', () => {
     expect(opening).toContain('out of scope');
   });
 
+  it('registers a project repo for a service-producing type', async () => {
+    const db = new MemoryDB();
+    await seedAll(db as never);
+    const repoDeps = repos();
+
+    await bootstrapAcceptedTree({
+      db, projectRepoService: repoDeps as any, temporalBridge: { planProject: vi.fn() } as any,
+    }, { userId: 'user-1', proposal: proposal({ type: 'api-service' }) });
+
+    expect(repoDeps.register).toHaveBeenCalledWith('user-1', 'Weather API', expect.objectContaining({ withRepo: true }));
+  });
+
+  it('skips registering a repo for an artefact-producing type', async () => {
+    const db = new MemoryDB();
+    await seedAll(db as never);
+    const repoDeps = repos();
+
+    await bootstrapAcceptedTree({
+      db, projectRepoService: repoDeps as any, temporalBridge: { planProject: vi.fn() } as any,
+    }, { userId: 'user-1', proposal: proposal({ type: 'research-paper', name: 'A Study' }) });
+
+    expect(repoDeps.register).toHaveBeenCalledWith('user-1', 'A Study', expect.objectContaining({ withRepo: false }));
+  });
+
   it('takes its planner from the tree type, so renaming a persona changes nothing', async () => {
     const db = new MemoryDB();
     await seedAll(db as never);

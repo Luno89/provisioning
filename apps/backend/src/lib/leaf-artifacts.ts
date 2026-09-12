@@ -84,8 +84,13 @@ export function parseArtifactResult(stdout: string): ArtifactResult {
 export function combineVerification(
   tests: 'passed' | 'failed' | 'unverified',
   artifacts: ArtifactOutcome,
+  combineMode: 'all' | 'any' = 'any',
 ): 'passed' | 'failed' | 'unverified' {
   if (tests === 'failed' || artifacts === 'missing') return 'failed';
+  if (combineMode === 'all') {
+    if (tests === 'passed' && (artifacts === 'present' || artifacts === 'none')) return 'passed';
+    return 'unverified';
+  }
   if (tests === 'passed' || artifacts === 'present') return 'passed';
   return 'unverified';
 }

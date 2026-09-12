@@ -50,16 +50,24 @@ describe('App Dashboard', () => {
 
   it('renders the sidebar and main header', async () => {
     render(<App />, { wrapper });
-    expect(screen.getByText('NO WRINKLES')).toBeInTheDocument();
-    expect(screen.getByText('Clusters')).toBeInTheDocument();
-    expect(screen.getByText('Applications')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('NO WRINKLES')).toBeInTheDocument();
+      expect(screen.getByText('Clusters')).toBeInTheDocument();
+      expect(screen.getByText('Applications')).toBeInTheDocument();
+    });
   });
 
   it('switches between Clusters and Applications views', async () => {
     render(<App />, { wrapper });
 
+    await waitFor(() => {
+      expect(screen.getByText('Clusters')).toBeInTheDocument();
+    });
+
     fireEvent.click(screen.getByText('Clusters'));
-    expect(screen.getByText('Infrastructures')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('Infrastructures')).toBeInTheDocument();
+    });
     
     const appsButton = screen.getByRole('button', { name: /applications/i });
     appsButton.click();

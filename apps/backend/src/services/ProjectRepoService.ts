@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Database } from '../lib/db-interface.js';
-import type { GiteaService } from './GiteaService.js';
+import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import type { ProjectMetadata } from '../lib/types.js';
 import { webhookUrlFor, DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 import { encryptValue, decryptValue } from '../lib/crypto.js';
@@ -11,7 +11,11 @@ import {
   type GiteaAccount,
 } from '../lib/projects.js';
 
+const EDITOR_TOKEN_TTL_MS = 30 * 60 * 1000;
+
 export class ProjectRepoService {
+  private editorTokens = new Map<string, { token: string; username: string; mintedAt: number }>();
+
   constructor(
     private db: Database,
     private gitea: GiteaService,
@@ -44,31 +48,42 @@ export class ProjectRepoService {
   async register(
     ownerId: string,
     name: string,
-    opts: { description?: string; language?: string } = {},
+    opts: {
+      description?: string;
+      language?: string;
+      withRepo?: boolean;
+      executionTarget?: ProjectMetadata['executionTarget'];
+    } = {},
   ): Promise<ProjectMetadata> {
+    const withRepo = opts.withRepo !== false;
     const repoName = sanitiseRepoName(name);
 
     const mine = (await this.db.getProjects()).filter((p) => p.ownerId === ownerId);
     if (mine.length >= MAX_PROJECTS_PER_USER) {
       throw new Error(`You already have ${mine.length} projects (limit ${MAX_PROJECTS_PER_USER}).`);
     }
-    const clash = mine.find((p) => p.giteaRepo === repoName);
-    if (clash) throw new Error(`A project called "${repoName}" already exists.`);
 
-    const { username } = await this.ensureAccount(ownerId);
-    await this.gitea.createRepoForUser(username, repoName, {
-      private: true,
-      ...(opts.description ? { description: opts.description } : {}),
-    });
+    let repoFields: { giteaOwner: string; giteaRepo: string } | Record<string, never> = {};
+    if (withRepo) {
+      const clash = mine.find((p) => p.giteaRepo === repoName);
+      if (clash) throw new Error(`A project called "${repoName}" already exists.`);
+
+      const { username } = await this.ensureAccount(ownerId);
+      await this.gitea.createRepoForUser(username, repoName, {
+        private: true,
+        ...(opts.description ? { description: opts.description } : {}),
+      });
+      repoFields = { giteaOwner: username, giteaRepo: repoName };
+    }
 
     const project: ProjectMetadata = {
       id: crypto.randomUUID(),
       name: name.trim() || repoName,
       ownerId,
-      giteaOwner: username,
-      giteaRepo: repoName,
+      ...repoFields,
       ...(opts.language ? { language: opts.language } : {}),
-      appType: 'generic',
+      appType: withRepo ? 'generic' : 'local',
+      ...(opts.executionTarget ? { executionTarget: opts.executionTarget } : {}),
       createdAt: new Date().toISOString(),
     };
     await this.db.saveProject(project);
@@ -83,6 +98,10 @@ export class ProjectRepoService {
   ): Promise<{ project: ProjectMetadata; problems: string[] }> {
     const problems: string[] = [];
     let next = project;
+
+    if (!next.giteaOwner || !next.giteaRepo) {
+      return { project: next, problems };
+    }
 
     if (!next.webhookSecretEnc) {
       const secret = crypto.randomBytes(24).toString('hex');
@@ -123,7 +142,32 @@ export class ProjectRepoService {
     content: string,
     message: string,
   ): Promise<boolean> {
+    if (!project.giteaOwner || !project.giteaRepo) {
+      throw new Error('This project has no repository to write a document to.');
+    }
     return this.gitea.ensureFile(project.giteaOwner, project.giteaRepo, path, content, message);
+  }
+
+  async readPath(
+    project: Pick<ProjectMetadata, 'ownerId' | 'giteaOwner' | 'giteaRepo'>,
+    path: string,
+  ): Promise<{ path: string; type: 'file'; content: string } | { path: string; type: 'dir'; entries: RepoFileEntry[] }> {
+    if (!project.giteaOwner || !project.giteaRepo) {
+      throw new Error('This project has no repository to read from.');
+    }
+    const MAX_CONTENT_LENGTH = 100_000;
+    const { token } = await this.editorCredential(project.ownerId ?? '');
+    try {
+      const file = await this.gitea.getFileContent(token, project.giteaOwner, project.giteaRepo, path);
+      if (file) {
+        const content = file.content.length > MAX_CONTENT_LENGTH
+          ? `${file.content.slice(0, MAX_CONTENT_LENGTH)}\n…(truncated — file is larger than ${MAX_CONTENT_LENGTH} characters)`
+          : file.content;
+        return { path, type: 'file', content };
+      }
+    } catch {}
+    const entries = await this.gitea.listDirectory(token, project.giteaOwner, project.giteaRepo, path);
+    return { path, type: 'dir', entries };
   }
 
   async listForOwner(ownerId: string): Promise<ProjectMetadata[]> {
@@ -150,6 +194,18 @@ export class ProjectRepoService {
     const { username, password } = await this.ensureAccount(ownerId);
     const { name: tokenName, token } = await this.gitea.createReadToken(username, password);
     return { token, tokenName, username };
+  }
+
+  async editorCredential(ownerId: string): Promise<{ token: string; username: string }> {
+    const cached = this.editorTokens.get(ownerId);
+    if (cached && Date.now() - cached.mintedAt < EDITOR_TOKEN_TTL_MS) {
+      return { token: cached.token, username: cached.username };
+    }
+
+    const { username, password } = await this.ensureAccount(ownerId);
+    const { token } = await this.gitea.createPushToken(username, password);
+    this.editorTokens.set(ownerId, { token, username, mintedAt: Date.now() });
+    return { token, username };
   }
 
   async revokeCheckout(ownerId: string, tokenName: string): Promise<void> {

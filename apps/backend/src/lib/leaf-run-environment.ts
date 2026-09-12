@@ -66,6 +66,10 @@ export async function resolveLeafRepo(
       newId: deps.newId,
     }, leaf);
 
+    if (!project.giteaOwner || !project.giteaRepo) {
+      throw new Error(`Project ${project.id} has no repository — a sandboxed leaf run needs one to check out.`);
+    }
+
     const giteaBaseUrl = deps.gitea.internalBaseUrl;
     const checkout = await deps.projectRepos.checkoutCredential(leaf.ownerId, project);
 

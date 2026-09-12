@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Socket } from 'socket.io';
 import { MemoryDB } from './memory-db.js';
 import { runLeafTool, type LeafToolContext } from './tool-registry.js';
 import type { Persona } from '@koala/harness-types';
 import { seedTools } from './tool-seeds.js';
+import { registerDevice } from './local-agent-registry.js';
 
 let db: MemoryDB;
 const ctx = (over: Partial<LeafToolContext> = {}): LeafToolContext => ({
@@ -471,5 +473,143 @@ describe('failure handling', () => {
     const boom = ctx({ webSearch: async () => { throw new Error('network is off'); } });
     const out = JSON.parse(await runLeafTool(boom, call('web_search', { query: 'x' })));
     expect(out.error).toMatch(/network is off/);
+  });
+});
+
+function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: any[]) => void) => void): Socket {
+  return {
+    timeout: () => ({
+      emit: (event: string, payload: unknown, ack: (...args: any[]) => void) => handler(event, payload, ack),
+    }),
+  } as unknown as Socket;
+}
+
+function registerMock(withRepo: boolean | undefined) {
+  return vi.fn(async (ownerId: string, name: string, opts: any = {}) => ({
+    id: 'proj-1',
+    ownerId,
+    name,
+    appType: withRepo === false ? 'local' : 'generic',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...(withRepo !== false ? { giteaOwner: 'acme', giteaRepo: 'demo' } : {}),
+    ...(opts.executionTarget ? { executionTarget: opts.executionTarget } : {}),
+  }));
+}
+
+describe('create_project — local machine', () => {
+  it('detects an existing git remote and does not create a Gitea repo', async () => {
+    await db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: 'u1', name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    registerDevice('dev-1', 'u1', '/x', fakeSocket((_event, _payload, ack) => {
+      ack(null, { stdout: 'origin\thttps://github.com/acme/demo.git (fetch)', stderr: '', exitCode: 0, timedOut: false });
+    }));
+
+    const register = registerMock(false);
+    const out = JSON.parse(await runLeafTool(
+      ctx({ projects: { register } as never }),
+      call('create_project', { name: 'demo', deviceId: 'dev-1' }),
+    ));
+
+    expect(register).toHaveBeenCalledWith('u1', 'demo', expect.objectContaining({
+      withRepo: false,
+      executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    }));
+    expect(out.inspection).toMatch(/github\.com\/acme\/demo/);
+    expect(out.created.repo).toBeUndefined();
+  });
+
+  it('creates a Gitea repo alongside the machine only when explicitly asked', async () => {
+    await db.saveLocalAgentDevice({
+      id: 'dev-2', ownerId: 'u1', name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    registerDevice('dev-2', 'u1', '/x', fakeSocket((_event, _payload, ack) => {
+      ack(null, { stdout: '', stderr: '', exitCode: 0, timedOut: false });
+    }));
+
+    const register = registerMock(true);
+    const out = JSON.parse(await runLeafTool(
+      ctx({ projects: { register } as never }),
+      call('create_project', { name: 'demo', deviceId: 'dev-2', createRepo: true }),
+    ));
+
+    expect(register).toHaveBeenCalledWith('u1', 'demo', expect.objectContaining({ withRepo: true }));
+    expect(out.inspection).toMatch(/No git remote/);
+    expect(out.created.repo).toBe('acme/demo');
+  });
+
+  it('resolves a device by its display name, not just its id', async () => {
+    await db.saveLocalAgentDevice({
+      id: 'dev-5', ownerId: 'u1', name: 'zzz-test-machine', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    registerDevice('dev-5', 'u1', '/x', fakeSocket((_event, _payload, ack) => {
+      ack(null, { stdout: '', stderr: '', exitCode: 0, timedOut: false });
+    }));
+
+    const register = registerMock(false);
+    const out = JSON.parse(await runLeafTool(
+      ctx({ projects: { register } as never }),
+      call('create_project', { name: 'demo', deviceId: 'zzz-test-machine' }),
+    ));
+
+    expect(out.error).toBeUndefined();
+    expect(register).toHaveBeenCalledWith('u1', 'demo', expect.objectContaining({
+      executionTarget: { kind: 'local-device', deviceId: 'dev-5' },
+    }));
+  });
+
+  it('refuses an unknown device', async () => {
+    const out = JSON.parse(await runLeafTool(
+      ctx({ projects: { register: vi.fn() } as never }),
+      call('create_project', { name: 'demo', deviceId: 'no-such-device' }),
+    ));
+    expect(out.error).toMatch(/Unknown local execution device/);
+  });
+
+  it('refuses a device already claimed at the same path', async () => {
+    await db.saveLocalAgentDevice({
+      id: 'dev-3', ownerId: 'u1', name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await db.saveProjectInfo({
+      id: 'existing', name: 'other', ownerId: 'u1', appType: 'local', createdAt: '2026-01-01T00:00:00Z',
+      executionTarget: { kind: 'local-device', deviceId: 'dev-3', path: 'apps/one' },
+    } as never);
+
+    const register = vi.fn();
+    const out = JSON.parse(await runLeafTool(
+      ctx({ projects: { register } as never }),
+      call('create_project', { name: 'demo', deviceId: 'dev-3', path: 'apps/one' }),
+    ));
+
+    expect(out.error).toMatch(/already the execution target/);
+    expect(register).not.toHaveBeenCalled();
+  });
+
+  it('allows the same device at a different path', async () => {
+    await db.saveLocalAgentDevice({
+      id: 'dev-4', ownerId: 'u1', name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await db.saveProjectInfo({
+      id: 'existing', name: 'other', ownerId: 'u1', appType: 'local', createdAt: '2026-01-01T00:00:00Z',
+      executionTarget: { kind: 'local-device', deviceId: 'dev-4', path: 'apps/one' },
+    } as never);
+    registerDevice('dev-4', 'u1', '/x', fakeSocket((_event, _payload, ack) => {
+      ack(null, { stdout: '', stderr: '', exitCode: 0, timedOut: false });
+    }));
+
+    const register = registerMock(false);
+    await runLeafTool(
+      ctx({ projects: { register } as never }),
+      call('create_project', { name: 'demo', deviceId: 'dev-4', path: 'apps/two' }),
+    );
+
+    expect(register).toHaveBeenCalledWith('u1', 'demo', expect.objectContaining({
+      executionTarget: { kind: 'local-device', deviceId: 'dev-4', path: 'apps/two' },
+    }));
   });
 });

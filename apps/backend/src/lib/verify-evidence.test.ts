@@ -55,7 +55,7 @@ describe('where the rule is applied', () => {
   const verdict = readFileSync(join(here, './leaf-run-verdict.ts'), 'utf8');
 
   it('feeds the earned outcome into the combination, not the raw one', () => {
-    expect(verdict).toMatch(/combineVerification\(earned, params\.artifactsOutcome\)/);
+    expect(verdict).toMatch(/combineVerification\(earned, artifactsOutcome/);
   });
 
   it('decides changed-ness from the push, which is the only durable record', () => {

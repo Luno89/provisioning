@@ -45,7 +45,7 @@ describe('an unbuildable Dockerfile does not reach the default branch', () => {
   });
 
   it('fails the leaf as well as blocking the merge', () => {
-    expect(verdict).toMatch(/params\.dockerProblems \? 'failed' : decideStatus/);
+    expect(verdict).toMatch(/if \(params\.dockerProblems\) return \{ earned, combined, settled: 'failed' \}/);
   });
 });
 

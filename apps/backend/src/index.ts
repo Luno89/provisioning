@@ -30,10 +30,11 @@ import { personasRouter } from './routes/personas.js';
 import { personaOptionsRouter } from './routes/persona-options.js';
 import { packsRouter } from './routes/packs.js';
 import { authRouter } from './routes/auth.js';
-import { personaChatRouter } from './routes/chat-pack.js';
+import { conversationsRouter } from './routes/conversations.js';
 import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
+import { projectFilesRouter } from './routes/project-files.js';
 import { meshRouter } from './routes/mesh.js';
 import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
@@ -318,7 +319,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
-  app.use(express.json());
+  app.use(express.json({ limit: '20mb' }));
   const credentialService = new CredentialService(db, JWT_SECRET);
   const vpsCatalogService = new VpsCatalogService(db, JWT_SECRET);
 
@@ -615,8 +616,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     db, projectRepoService, appService, temporalBridge, getOwnedProject,
     giteaService, clusterService, infraService, jwtSecret: JWT_SECRET,
   }));
+  app.use('/api/projects', projectFilesRouter({ projectRepoService, giteaService, getOwnedProject }));
   app.use('/api/mesh', meshRouter({ headscaleService, db, jwtSecret: JWT_SECRET }));
-  app.use('/api/mesh/local-agents', localAgentsRouter({ db, jwtSecret: JWT_SECRET }));
+  app.use('/api/mesh/local-agents', localAgentsRouter({ db, jwtSecret: JWT_SECRET, projects: projectRepoService }));
   app.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   app.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   app.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService }));
@@ -633,24 +635,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const ownedConversations = async (userId: string) =>
     (await db.getConversations()).filter((c) => c.ownerId === userId);
 
-  app.use('/api/chat-pack', personaChatRouter({
-    db, packs: personaPackService, modelService,
+  app.use('/api/conversations', conversationsRouter({
+    db,
     projectRepoService,
     temporalBridge,
     infraService,
     infisicalService,
-    clusterService,
     jwtSecret: JWT_SECRET,
-    serversFor: koalaServers,
     ownedConversations,
-    webSearch: executeWebSearch,
-    fetchWebPage: executeFetchWebPage,
-    toolRefused,
   }));
   app.use('/api/chat', chatRouter({
     db, modelService, temporalBridge, projectRepoService, clusterService,
     ownedBranches, ownedLeaves, ownedTrees,
     webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage, toolRefused,
+    packs: personaPackService,
+    serversFor: koalaServers,
+    ownedConversations,
+    infisicalService,
   }));
 
   app.use('/api/harness', harnessRouter({

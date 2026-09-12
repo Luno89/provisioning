@@ -118,6 +118,12 @@ export async function checkLeafArtifacts(
   return result;
 }
 
+export interface VerdictPolicy {
+  requireVerify?: boolean;
+  requireArtifacts?: boolean;
+  combineMode?: 'all' | 'any';
+}
+
 export function decideLeafStatus(params: {
   leafId: string;
   outputPath: string | undefined;
@@ -127,7 +133,9 @@ export function decideLeafStatus(params: {
   artifactsOutcome: ArtifactOutcome;
   dockerProblems: string;
   claimed: boolean;
+  verdictPolicy?: VerdictPolicy | undefined;
 }): { earned: VerifyOutcome; combined: 'passed' | 'failed' | 'unverified'; settled: 'succeeded' | 'failed' } {
+  const policy = params.verdictPolicy;
   const earned = params.outputPath
     ? params.verifyOutcome
     : evidenceOf(params.verifyOutcome, { declaredCommand: params.declaredVerify, changed: Boolean(params.pushedBranch) });
@@ -136,7 +144,15 @@ export function decideLeafStatus(params: {
     console.warn(`[leaf-run-verdict] leaf ${params.leafId}: default suite passed but nothing was committed — recording unverified, not verified`);
   }
 
-  const combined = combineVerification(earned, params.artifactsOutcome);
-  const settled = params.dockerProblems ? 'failed' : decideStatus(params.claimed, combined);
+  const artifactsOutcome = policy?.requireArtifacts && (params.artifactsOutcome === 'none' || params.artifactsOutcome === 'unknown')
+    ? 'missing'
+    : params.artifactsOutcome;
+
+  const combined = combineVerification(earned, artifactsOutcome, policy?.combineMode ?? 'any');
+  if (params.dockerProblems) return { earned, combined, settled: 'failed' };
+
+  const settled = combined === 'unverified' && policy?.requireVerify
+    ? 'failed'
+    : decideStatus(params.claimed, combined);
   return { earned, combined, settled };
 }

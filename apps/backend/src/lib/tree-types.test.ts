@@ -47,6 +47,28 @@ describe('what a tree type must declare', () => {
   });
 });
 
+describe('verdictPolicy', () => {
+  it('accepts an absent policy, and a fully specified one', () => {
+    expect(validateTreeType(IMAGES, spec())).toBeNull();
+    expect(validateTreeType(IMAGES, spec({
+      verdictPolicy: { requireVerify: true, requireArtifacts: true, combineMode: 'all' },
+    }))).toBeNull();
+  });
+
+  it('refuses a non-object policy', () => {
+    expect(validateTreeType(IMAGES, spec({ verdictPolicy: 'strict' as never }))).toMatch(/verdictPolicy/i);
+  });
+
+  it('refuses a non-boolean requireVerify or requireArtifacts', () => {
+    expect(validateTreeType(IMAGES, spec({ verdictPolicy: { requireVerify: 'yes' as never } }))).toMatch(/requireVerify/i);
+    expect(validateTreeType(IMAGES, spec({ verdictPolicy: { requireArtifacts: 1 as never } }))).toMatch(/requireArtifacts/i);
+  });
+
+  it('refuses a combineMode outside all/any', () => {
+    expect(validateTreeType(IMAGES, spec({ verdictPolicy: { combineMode: 'some' as never } }))).toMatch(/combineMode/i);
+  });
+});
+
 describe('validation recipe steps', () => {
   it('accepts retries and optional on a plain check', () => {
     const result = validateTreeType(IMAGES, spec({

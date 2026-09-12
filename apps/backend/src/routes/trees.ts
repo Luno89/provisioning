@@ -1,9 +1,9 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
-import { ownedBy } from '../lib/ownership.js';
+import { ownedBy, ownsProject } from '../lib/ownership.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveTreeType } from '../lib/tree-types.js';
-import { normaliseTreeInput } from '../lib/trees.js';
+import { normaliseTreeInput, withProject } from '../lib/trees.js';
 import { columnFor, changedSince, rollup } from '../lib/tree-board.js';
 import { blockedBy } from '../lib/leaves.js';
 import { specsToSeed } from '../lib/app-spec.js';
@@ -115,15 +115,24 @@ export function treesRouter(deps: TreesRouterDeps): Router {
   }));
 
   router.patch('/:id', asyncRoute(async (req, res) => {
-    const tree = (await ownedTrees(userOf(req).id)).find((t) => t.id === idOf(req));
+    const user = userOf(req);
+    const tree = (await ownedTrees(user.id)).find((t) => t.id === idOf(req));
     if (!tree) return res.status(404).json({ error: 'Tree not found' });
-    const { name, goal } = req.body ?? {};
-    const updated: Tree = {
+    const { name, goal, projectId } = req.body ?? {};
+
+    let updated: Tree = {
       ...tree,
       ...(typeof name === 'string' && name.trim() ? { name: name.trim().slice(0, 120) } : {}),
       ...(typeof goal === 'string' ? { goal: goal.trim().slice(0, 2000) } : {}),
       updatedAt: new Date().toISOString(),
     };
+
+    if (typeof projectId === 'string' && projectId) {
+      const project = (await db.getProjects()).find((p) => p.id === projectId);
+      if (!project || !ownsProject(project, user)) return res.status(400).json({ error: 'No project with that id.' });
+      updated = withProject(updated, projectId);
+    }
+
     await db.saveTree(updated);
     res.json(updated);
   }));

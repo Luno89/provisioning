@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from '@tanstack/react-router';
 import {
   getMeshConfig, listMeshDevices, createPreauthKey, deleteMeshDevice, meshKeys,
   type MeshConfig, type MeshDevice,
@@ -8,12 +9,14 @@ import {
   type LocalAgentDevice,
 } from '../api/local-agents';
 import { errorMessage, API_BASE } from '../api/client';
+import { formatHash } from '../lib/route.js';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Network, Loader2, AlertTriangle, Copy, Check, Trash2, Circle, RefreshCw, Terminal, ShieldCheck, ShieldAlert,
 } from 'lucide-react';
 
 export default function MeshDevices() {
+  const router = useRouter({ warn: false });
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -21,7 +24,13 @@ export default function MeshDevices() {
   const [agentName, setAgentName] = useState('');
   const [agentRootDir, setAgentRootDir] = useState('');
   const [issuedAgentCommand, setIssuedAgentCommand] = useState<string | null>(null);
+  const [issuedAgentProjectId, setIssuedAgentProjectId] = useState<string | null>(null);
   const [agentCopied, setAgentCopied] = useState(false);
+
+  const openProject = (projectId: string) => {
+    if (router?.navigate) router.navigate({ to: '/projects/project/$projectId', params: { projectId } });
+    else window.location.hash = formatHash('projects', ['project', projectId]);
+  };
 
   const { data: localAgents } = useQuery<LocalAgentDevice[]>({
     queryKey: localAgentKeys.list(),
@@ -36,6 +45,7 @@ export default function MeshDevices() {
       setIssuedAgentCommand(
         `KOALA_BACKEND_URL=${backendUrl} KOALA_DEVICE_TOKEN=${data.token} KOALA_ROOT_DIR=${data.rootDir} npm run start -w apps/local-agent`,
       );
+      setIssuedAgentProjectId(data.projectId ?? null);
       setAgentCopied(false);
       setAgentName('');
       setAgentRootDir('');
@@ -238,6 +248,19 @@ export default function MeshDevices() {
               Contains a live credential — it's shown once. Run it on the machine you want leaves
               executing on, from inside this repo.
             </p>
+            {issuedAgentProjectId && (
+              <>
+                <p className="text-[11px] text-slate-500 mt-3 px-1">
+                  A project for this machine has already been created — no repo required.
+                </p>
+                <button
+                  onClick={() => openProject(issuedAgentProjectId)}
+                  className="mt-2 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors"
+                >
+                  Open its project
+                </button>
+              </>
+            )}
           </div>
         )}
 

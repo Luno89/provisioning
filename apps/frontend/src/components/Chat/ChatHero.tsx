@@ -34,55 +34,63 @@ export function ChatHero({
   packName = 'Koala',
   onSelectPrompt,
   onOpenPersona,
+  headline,
+  subtitle,
+  hideStarterPrompts,
 }: {
   packName?: string;
   onSelectPrompt: (prompt: string) => void;
   onOpenPersona?: () => void;
+  headline?: string;
+  subtitle?: string;
+  hideStarterPrompts?: boolean;
 }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-8 px-4 max-w-2xl mx-auto space-y-5 font-sans">
       <div
-        className="cursor-pointer transition-opacity hover:opacity-80"
+        className={onOpenPersona ? 'cursor-pointer transition-opacity hover:opacity-80' : undefined}
         onClick={onOpenPersona}
-        title="Configure persona directives and tools"
+        title={onOpenPersona ? 'Configure persona directives and tools' : undefined}
       >
         <KoalaSpot size={64} mood="idle" />
       </div>
 
       <div className="space-y-1">
         <h2 className="text-base font-semibold text-slate-100">
-          How can {packName} help today?
+          {headline ?? `How can ${packName} help today?`}
         </h2>
         <p className="text-xs text-slate-400 font-sans leading-normal max-w-sm mx-auto">
-          Architecture design, cluster capacity, logs inspection, and full-stack provisioning.
+          {subtitle ?? 'Architecture design, cluster capacity, logs inspection, and full-stack provisioning.'}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full pt-1">
-        {STARTER_PROMPTS.map((item, idx) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => onSelectPrompt(item.prompt)}
-              className="group flex items-start gap-2.5 p-3 rounded-lg bg-[var(--bark-900,#111814)] border border-[var(--bark-800,#1b2620)] hover:border-slate-600 text-left transition-colors cursor-pointer"
-            >
-              <div className="p-1.5 rounded bg-[var(--bark-800,#1b2620)] text-slate-300 group-hover:text-emerald-300 transition-colors shrink-0 mt-0.5">
-                <Icon size={14} />
-              </div>
-              <div className="space-y-0.5 min-w-0">
-                <div className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">
-                  {item.label}
+      {!hideStarterPrompts && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full pt-1">
+          {STARTER_PROMPTS.map((item, idx) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => onSelectPrompt(item.prompt)}
+                className="group flex items-start gap-2.5 p-3 rounded-lg bg-[var(--bark-900,#111814)] border border-[var(--bark-800,#1b2620)] hover:border-slate-600 text-left transition-colors cursor-pointer"
+              >
+                <div className="p-1.5 rounded bg-[var(--bark-800,#1b2620)] text-slate-300 group-hover:text-emerald-300 transition-colors shrink-0 mt-0.5">
+                  <Icon size={14} />
                 </div>
-                <div className="text-[11px] text-slate-400 font-sans line-clamp-2 leading-snug">
-                  {item.prompt}
+                <div className="space-y-0.5 min-w-0">
+                  <div className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">
+                    {item.label}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-sans line-clamp-2 leading-snug">
+                    {item.prompt}
+                  </div>
                 </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -105,7 +105,11 @@ describe('what a planner is offered', () => {
       'list_personas', 'list_projects',
       // `propose_tree` needs a type id that exists, and this is how a planning turn learns them.
       'list_tree_types',
-      'propose_leaf', 'replace_leaf',
+      'propose_leaf',
+      // Lets a planner read into a folder the user attached as chat context, or a file it was told
+      // about but has not seen the content of.
+      'read_project_path',
+      'replace_leaf',
       // `research` was a synthetic schema built inside planning-turn.ts; it is a catalogue row with
       // an ordinary handler now, so a pack can grant or withhold it like anything else.
       'research',

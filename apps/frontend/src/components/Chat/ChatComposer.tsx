@@ -1,11 +1,16 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, Square, Sliders, Cpu, Sparkles } from 'lucide-react';
+import { Send, Square, Sliders, Cpu, Sparkles, Paperclip, X } from 'lucide-react';
 
 export interface PersonaPackOption {
   id: string;
   name: string;
   label: string;
   desc: string;
+}
+
+export interface ComposerAttachment {
+  path: string;
+  type: 'file' | 'dir';
 }
 
 export interface ChatComposerProps {
@@ -21,11 +26,14 @@ export interface ChatComposerProps {
    */
   onOpenPersonaDrawer?: (() => void) | undefined;
   toolCount?: number;
+  mcpCount?: number | undefined;
   /** What this conversation runs on; the label reads as inherited when nothing is pinned. */
   modelLabel?: string;
   onOpenModelDrawer?: (() => void) | undefined;
   placeholder?: string;
   className?: string;
+  attachments?: ComposerAttachment[] | undefined;
+  onRemoveAttachment?: ((path: string) => void) | undefined;
 }
 
 export function ChatComposer({
@@ -35,10 +43,13 @@ export function ChatComposer({
   activePack,
   onOpenPersonaDrawer,
   toolCount,
+  mcpCount,
   modelLabel,
   onOpenModelDrawer,
   placeholder,
   className = '',
+  attachments,
+  onRemoveAttachment,
 }: ChatComposerProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -76,6 +87,31 @@ export function ChatComposer({
     <div
       className={`w-full bg-[var(--bark-900,#111814)] border border-[var(--bark-700,#24332b)] focus-within:border-emerald-500/70 rounded-lg p-2.5 shadow-sm transition-colors flex flex-col gap-2 font-sans ${className}`}
     >
+      {attachments && attachments.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-0.5">
+          {attachments.map((a) => (
+            <span
+              key={a.path}
+              className="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-[11px] text-slate-300 max-w-[220px]"
+              title={a.path}
+            >
+              <Paperclip size={10} className="text-emerald-400 shrink-0" />
+              <span className="truncate">{a.path.split('/').pop()}</span>
+              {onRemoveAttachment && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveAttachment(a.path)}
+                  className="shrink-0 text-slate-500 hover:text-white"
+                  aria-label={`Remove ${a.path}`}
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+
       <textarea
         ref={textareaRef}
         rows={1}
@@ -99,6 +135,11 @@ export function ChatComposer({
               <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>
               {toolCount !== undefined && (
                 <span className="text-[11px] text-slate-500">· {toolCount} tools</span>
+              )}
+              {mcpCount !== undefined && mcpCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-[10px] text-emerald-300 font-mono font-medium">
+                  {mcpCount} MCP
+                </span>
               )}
               <Sliders size={11} className="text-slate-500" />
             </button>

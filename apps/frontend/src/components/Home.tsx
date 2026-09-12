@@ -1,9 +1,8 @@
 import { useState, Fragment } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
-  GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck, Box, ExternalLink, ShieldCheck, Terminal,
-  History,
+  GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck,
 } from 'lucide-react';
 import {
   needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago,
@@ -11,11 +10,8 @@ import {
 } from './home-summary.js';
 import { STATE_DOT, STATE_LABEL, STATE_STYLE, stateFor, type Leaf } from './leaf-types.js';
 import { KoalaSpot } from './Koala.js';
-import PipelineLogModal from './PipelineLogModal.js';
-import { PipelineRunRow, type PipelineRun } from './PipelineRunRow.js';
 import { cancelLeaf, recheckLeaf } from '../api/grove';
 import { errorMessage } from '../api/client';
-import { listProjects, listProjectRuns } from '../api/projects';
 
 export default function Home({
   leaves, branches, trees, tree, lastSeen, packNames = {},
@@ -24,7 +20,7 @@ export default function Home({
   leaves: Leaf[];
   branches: { id: string; title: string; treeId?: string }[];
   trees: { id: string; name: string }[];
-  tree?: { id: string; name: string; goal?: string; projectIds?: string[] } | undefined;
+  tree?: { id: string; name: string; goal?: string } | undefined;
   lastSeen?: string | undefined;
   packNames?: Record<string, string>;
   onStart: (treeId: string, prompt: string) => void;
@@ -54,30 +50,6 @@ export default function Home({
 
   const [prompt, setPrompt] = useState('');
   const [pickedTree, setPickedTree] = useState(() => localStorage.getItem('grove-tree') ?? trees[0]?.id ?? '');
-
-  const { data: allProjects = [] } = useQuery<any[]>({
-    queryKey: ['projects'],
-    queryFn: () => listProjects<any>(),
-    staleTime: 10_000,
-  });
-
-  const linkedProject = tree
-    ? allProjects.find((p) => p.name === tree.name || tree.projectIds?.includes(p.id))
-    : undefined;
-
-  const [logRunId, setLogRunId] = useState<string | null>(null);
-  const { data: projectRuns = [] } = useQuery<PipelineRun[]>({
-    queryKey: ['project-runs', linkedProject?.id],
-    queryFn: () => listProjectRuns<PipelineRun>(linkedProject!.id),
-    enabled: Boolean(linkedProject?.id),
-    refetchInterval: (query) => (query.state.data || []).some((r) => r.status === 'queued' || r.status === 'running') ? 3000 : false,
-  });
-  const latestRun = projectRuns[0];
-  const liveRunId = linkedProject?.status === 'running'
-    ? projectRuns
-      .filter((r) => r.deploymentId)
-      .sort((a, b) => (b.promotedAt ?? '').localeCompare(a.promotedAt ?? ''))[0]?.id
-    : undefined;
 
   const scoped = tree ? scopeToTree(tree.id, branches, leaves) : { branches, leaves };
   const treeId = tree?.id ?? pickedTree;
@@ -176,72 +148,6 @@ export default function Home({
           <p className="text-xs text-amber-400/80 mt-2">Make a tree first — work is filed under one.</p>
         )}
       </section>
-
-      {tree && linkedProject && (
-        <section className="rounded-lg border border-[var(--bark-800)] bg-[var(--bark-900)]/40 p-4 space-y-3 font-mono">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Box size={16} className="text-blue-400 shrink-0" />
-              <span className="text-xs font-bold text-slate-200">{linkedProject.giteaOwner}/{linkedProject.giteaRepo}</span>
-              {linkedProject.autoDeployOnBuild && (
-                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <ShieldCheck size={10} /> auto-deploy
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-slate-400">Status: <span className="text-slate-200 font-bold">{linkedProject.status || 'no-build'}</span></span>
-              {linkedProject.status === 'running' && (
-                <a
-                  href={`http://${linkedProject.name.toLowerCase()}.apps.local`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
-                >
-                  <ExternalLink size={11} /> Open App
-                </a>
-              )}
-            </div>
-          </div>
-          {linkedProject.reason && (
-            <p className="text-[11px] text-rose-400/90 flex items-start gap-1.5">
-              <AlertTriangle size={12} className="shrink-0 mt-0.5" /> {linkedProject.reason}
-            </p>
-          )}
-          <div className="text-[11px] text-slate-400 flex items-center gap-4 flex-wrap pt-1 border-t border-[var(--bark-800)]/60">
-            <span>Cluster: <span className="text-slate-300">{linkedProject.targetClusterId || 'default'}</span></span>
-            {linkedProject.lastBuildStatus && <span>Build: <span className="text-slate-300">{linkedProject.lastBuildStatus}</span></span>}
-            {latestRun && (
-              <button
-                onClick={() => setLogRunId(latestRun.id)}
-                className="text-slate-300 hover:text-white bg-[var(--bark-800)] hover:bg-[var(--bark-700)] px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
-              >
-                <Terminal size={11} /> Build Logs
-              </button>
-            )}
-          </div>
-        </section>
-      )}
-
-      {logRunId && <PipelineLogModal runId={logRunId} onClose={() => setLogRunId(null)} />}
-
-      {tree && linkedProject && projectRuns.length > 0 && (
-        <section>
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 flex items-center gap-1.5">
-            <History size={11} /> Deployment & Change Log
-          </h3>
-          <div className="space-y-1.5">
-            {projectRuns.map((r) => (
-              <PipelineRunRow
-                key={r.id}
-                run={r}
-                isLive={r.id === liveRunId}
-                onViewLogs={setLogRunId}
-              />
-            ))}
-          </div>
-        </section>
-      )}
 
       {tree && mine && mine.total > 0 && (
         <section className="rounded-lg border border-[var(--bark-800)] bg-[var(--bark-900)]/40 p-4 space-y-3">

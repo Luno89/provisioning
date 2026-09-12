@@ -206,4 +206,173 @@ describe('POST / — execution target', () => {
 
     await harness.close();
   });
+
+  it('refuses a device already claimed by another project', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'demo2', giteaRepo: 'demo2', executionTargetDeviceId: 'dev-1',
+    })).rejects.toMatchObject({ response: { status: 409 } });
+
+    await harness.close();
+  });
+
+  it('allows a second project on the same device at a different subfolder', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
+    });
+
+    const res = await axios.post(harness.url('/api/projects'), {
+      name: 'demo2', giteaRepo: 'demo2', executionTargetDeviceId: 'dev-1', executionTargetPath: 'apps/two',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1', path: 'apps/two' });
+
+    await harness.close();
+  });
+
+  it('still refuses the same device and the same subfolder', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
+    });
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'demo2', giteaRepo: 'demo2', executionTargetDeviceId: 'dev-1', executionTargetPath: 'apps/one',
+    })).rejects.toMatchObject({ response: { status: 409 } });
+
+    await harness.close();
+  });
+
+  it('creates a project with no repo at all when running on a local device', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.post(harness.url('/api/projects'), {
+      name: 'local-only', executionTargetDeviceId: 'dev-1',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.data.giteaRepo).toBe('');
+    expect(res.data.appType).toBe('local');
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1' });
+
+    await harness.close();
+  });
+
+  it('refuses a project with neither a repo nor a device', async () => {
+    const harness = await mountForCreate();
+
+    await expect(axios.post(harness.url('/api/projects'), {
+      name: 'nothing',
+    })).rejects.toMatchObject({ response: { status: 400 } });
+
+    await harness.close();
+  });
+});
+
+describe('PATCH /:id — execution target', () => {
+  it('lets an existing project pick up a registered device', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo(project);
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1' });
+
+    await harness.close();
+  });
+
+  it('reverts to the sandboxed cluster when the device is cleared', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo({
+      ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+
+    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: '',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.data.executionTarget).toEqual({ kind: 'k8s' });
+
+    await harness.close();
+  });
+
+  it('refuses a device already claimed by a different project', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo(project);
+    await harness.db.saveProjectInfo({
+      ...project, id: 'proj-other', executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    await expect(axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1',
+    })).rejects.toMatchObject({ response: { status: 409 } });
+
+    await harness.close();
+  });
+
+  it('lets a project keep the device it already has', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo({
+      ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
+    });
+    await harness.db.saveLocalAgentDevice({
+      id: 'dev-1', ownerId: TEST_USER.id, name: 'My Laptop', rootDir: '/x',
+      tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1', executionApproval: 'auto',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.data.executionTarget).toEqual({ kind: 'local-device', deviceId: 'dev-1' });
+    expect(res.data.executionApproval).toBe('auto');
+
+    await harness.close();
+  });
+
+  it('404s for a project that is not the requesting user\'s', async () => {
+    const harness = await mountForCreate();
+    await harness.db.saveProjectInfo({ ...project, ownerId: 'someone-else' });
+
+    await expect(axios.patch(harness.url(`/api/projects/${project.id}`), {
+      executionTargetDeviceId: 'dev-1',
+    })).rejects.toMatchObject({ response: { status: 404 } });
+
+    await harness.close();
+  });
 });

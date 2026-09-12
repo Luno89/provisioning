@@ -5,6 +5,7 @@ import type { LocalAgentDeviceMetadata } from './types.js';
 import {
   findDeviceByToken, registerDevice, unregisterDevice, localAgentStatus,
   execOnDevice, readFileOnDevice, writeFileOnDevice, createContainerOnDevice, destroyContainerOnDevice,
+  listDirOnDevice, deleteFileOnDevice,
 } from './local-agent-registry.js';
 
 const MASTER_KEY = 'test-master-key';
@@ -137,6 +138,49 @@ describe('readFileOnDevice / writeFileOnDevice', () => {
     registerDevice('dev-write-err', 'owner-1', '/root', socket);
 
     await expect(writeFileOnDevice('dev-write-err', 'owner-1', 'leaf-1', 'a.txt', 'x')).rejects.toThrow('disk full');
+  });
+});
+
+describe('listDirOnDevice / deleteFileOnDevice', () => {
+  it('resolves with the acked entries', async () => {
+    const socket = fakeSocket((event, payload, ack) => {
+      expect(event).toBe('sandbox:listDir');
+      expect(payload).toEqual({ path: 'src' });
+      ack(null, { entries: [{ name: 'index.ts', path: 'src/index.ts', type: 'file' }] });
+    });
+    registerDevice('dev-list', 'owner-1', '/root', socket);
+
+    const entries = await listDirOnDevice('dev-list', 'owner-1', 'src');
+    expect(entries).toEqual([{ name: 'index.ts', path: 'src/index.ts', type: 'file' }]);
+  });
+
+  it('rejects when the device reports an error listing', async () => {
+    const socket = fakeSocket((_event, _payload, ack) => {
+      ack(null, { error: 'ENOENT' });
+    });
+    registerDevice('dev-list-err', 'owner-1', '/root', socket);
+
+    await expect(listDirOnDevice('dev-list-err', 'owner-1', 'ghost')).rejects.toThrow('ENOENT');
+  });
+
+  it('deletes a file and resolves on success', async () => {
+    const socket = fakeSocket((event, payload, ack) => {
+      expect(event).toBe('sandbox:deleteFile');
+      expect(payload).toEqual({ path: 'a.txt' });
+      ack(null);
+    });
+    registerDevice('dev-delete', 'owner-1', '/root', socket);
+
+    await expect(deleteFileOnDevice('dev-delete', 'owner-1', 'a.txt')).resolves.toBeUndefined();
+  });
+
+  it('rejects when the device reports an error deleting', async () => {
+    const socket = fakeSocket((_event, _payload, ack) => {
+      ack(null, { error: 'permission denied' });
+    });
+    registerDevice('dev-delete-err', 'owner-1', '/root', socket);
+
+    await expect(deleteFileOnDevice('dev-delete-err', 'owner-1', 'a.txt')).rejects.toThrow('permission denied');
   });
 });
 

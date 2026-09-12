@@ -142,4 +142,64 @@ describe('decideLeafStatus', () => {
     const out = decideLeafStatus({ ...base, outputPath: '/work/findings.md', pushedBranch: undefined, declaredVerify: false });
     expect(out.earned).toBe('passed');
   });
+
+  describe('verdictPolicy', () => {
+    it('with no policy, an unverified combined outcome still falls back to the agent\'s own claim', () => {
+      const out = decideLeafStatus({ ...base, verifyOutcome: 'unverified', artifactsOutcome: 'none', claimed: true });
+      expect(out.combined).toBe('unverified');
+      expect(out.settled).toBe('succeeded');
+    });
+
+    it('requireVerify fails an unverified outcome instead of trusting the self-claim', () => {
+      const out = decideLeafStatus({
+        ...base, verifyOutcome: 'unverified', artifactsOutcome: 'none', claimed: true,
+        verdictPolicy: { requireVerify: true },
+      });
+      expect(out.settled).toBe('failed');
+    });
+
+    it('requireVerify does not touch a run that already settled on its own evidence', () => {
+      const out = decideLeafStatus({ ...base, verdictPolicy: { requireVerify: true } });
+      expect(out.settled).toBe('succeeded');
+    });
+
+    it('requireArtifacts treats no artifacts declared as failing, not a neutral pass-through', () => {
+      const out = decideLeafStatus({
+        ...base, artifactsOutcome: 'none', verdictPolicy: { requireArtifacts: true },
+      });
+      expect(out.combined).toBe('failed');
+      expect(out.settled).toBe('failed');
+    });
+
+    it('requireArtifacts leaves a genuinely present artifact alone', () => {
+      const out = decideLeafStatus({ ...base, artifactsOutcome: 'present', verdictPolicy: { requireArtifacts: true } });
+      expect(out.settled).toBe('succeeded');
+    });
+
+    it('combineMode "any" (the default) passes on tests alone, artifacts missing entirely', () => {
+      const out = decideLeafStatus({ ...base, artifactsOutcome: 'none', verdictPolicy: { combineMode: 'any' } });
+      expect(out.combined).toBe('passed');
+    });
+
+    it('combineMode "all" requires both tests and artifacts to independently pass', () => {
+      const out = decideLeafStatus({
+        ...base, verifyOutcome: 'passed', artifactsOutcome: 'stale', verdictPolicy: { combineMode: 'all' },
+      });
+      expect(out.combined).toBe('unverified');
+    });
+
+    it('combineMode "all" passes when tests pass and nothing was expected as an artifact', () => {
+      const out = decideLeafStatus({
+        ...base, verifyOutcome: 'passed', artifactsOutcome: 'none', verdictPolicy: { combineMode: 'all' },
+      });
+      expect(out.combined).toBe('passed');
+    });
+
+    it('the Dockerfile veto still overrides every policy', () => {
+      const out = decideLeafStatus({
+        ...base, dockerProblems: 'no lockfile copied', verdictPolicy: { requireVerify: true, combineMode: 'all' },
+      });
+      expect(out.settled).toBe('failed');
+    });
+  });
 });

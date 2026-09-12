@@ -57,3 +57,4 @@ export const crawlActivityMeta = {
 } as const;
 
 export const judgeLeafActivityMeta = { name: 'JudgeLeafActivity', startToCloseTimeout: '5 minutes' } as const;
+export const resolveLeafWorkflowActivityMeta = { name: 'ResolveLeafWorkflowActivity', startToCloseTimeout: '1 minute' } as const;

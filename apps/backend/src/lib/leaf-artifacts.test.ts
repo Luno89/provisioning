@@ -102,6 +102,29 @@ describe('combining the two checks', () => {
     expect(combineVerification('unverified', 'none')).toBe('unverified');
     expect(combineVerification('unverified', 'unknown')).toBe('unverified');
   });
+
+  describe('combineMode "all"', () => {
+    it('still fails on either check failing, same as "any"', () => {
+      expect(combineVerification('passed', 'missing', 'all')).toBe('failed');
+      expect(combineVerification('failed', 'present', 'all')).toBe('failed');
+    });
+
+    it('does not pass on artifacts alone — tests must also have passed', () => {
+      expect(combineVerification('unverified', 'present', 'all')).toBe('unverified');
+    });
+
+    it('does not pass on tests alone when artifacts were expected but only stale', () => {
+      expect(combineVerification('passed', 'stale', 'all')).toBe('unverified');
+    });
+
+    it('passes on tests alone when no artifacts were ever expected', () => {
+      expect(combineVerification('passed', 'none', 'all')).toBe('passed');
+    });
+
+    it('passes when both checks independently pass', () => {
+      expect(combineVerification('passed', 'present', 'all')).toBe('passed');
+    });
+  });
 });
 
 describe('the two ways this check failed correct work', () => {

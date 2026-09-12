@@ -26,8 +26,9 @@ export function shouldReplace(from: Route | undefined, to: Route): boolean {
 
 export const RETIRED_VIEWS: Record<string, string> = {
   chat: 'grove',
-  board: 'grove',
-  trees: 'grove',
+  board: 'projects',
+  trees: 'projects',
+  grove: 'projects',
 };
 
 export function resolveView(view: string | undefined, known: readonly string[], fallback: string): string {

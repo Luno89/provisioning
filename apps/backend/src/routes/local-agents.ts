@@ -1,15 +1,17 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { encryptValue } from '../lib/crypto.js';
 import { localAgentStatus } from '../lib/local-agent-registry.js';
 import type { Database } from '../lib/db-interface.js';
+import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 
 const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
-export function localAgentsRouter(deps: { db: Database; jwtSecret: string }): Router {
-  const { db, jwtSecret } = deps;
+export function localAgentsRouter(deps: { db: Database; jwtSecret: string; projects: ProjectRepoService }): Router {
+  const { db, jwtSecret, projects } = deps;
   const router = Router();
 
   router.get('/', async (req, res) => {
@@ -39,7 +41,18 @@ export function localAgentsRouter(deps: { db: Database; jwtSecret: string }): Ro
       tokenEnc: encryptValue(token, jwtSecret),
       createdAt: new Date().toISOString(),
     });
-    res.status(201).json({ id, name, rootDir, token });
+
+    let projectId: string | undefined;
+    try {
+      const folderName = path.basename(rootDir) || rootDir;
+      const project = await projects.register(userOf(req).id, `${name} - ${folderName}`, {
+        withRepo: false,
+        executionTarget: { kind: 'local-device', deviceId: id },
+      });
+      projectId = project.id;
+    } catch {}
+
+    res.status(201).json({ id, name, rootDir, token, ...(projectId ? { projectId } : {}) });
   });
 
   router.delete('/:id', async (req, res) => {

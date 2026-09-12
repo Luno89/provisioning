@@ -81,6 +81,42 @@ describe('LocalMachineWorkspaceService — auto mode', () => {
     await expect(service.writeFile('leaf-1', '/etc/passwd', 'x')).rejects.toThrow(/must be relative/);
   });
 
+  it('scopes exec to the project subfolder when opts.path is set', async () => {
+    let sent: any;
+    registerDevice('dev-path', 'owner-a', '/root', fakeSocket((event, payload, ack) => {
+      sent = { event, payload };
+      ack(null, { stdout: '', stderr: '', exitCode: 0, timedOut: false });
+    }));
+
+    const service = new LocalMachineWorkspaceService('dev-path', 'owner-a', { db: await db(), approvalMode: 'auto', path: 'apps/thing' });
+    await service.exec('leaf-1', 'echo hi');
+    expect(sent).toEqual({ event: 'sandbox:exec', payload: { leafId: 'leaf-1', command: 'echo hi', cwd: 'apps/thing' } });
+  });
+
+  it('does not send a cwd when the project has no subfolder', async () => {
+    let sent: any;
+    registerDevice('dev-nopath', 'owner-a', '/root', fakeSocket((event, payload, ack) => {
+      sent = { event, payload };
+      ack(null, { stdout: '', stderr: '', exitCode: 0, timedOut: false });
+    }));
+
+    const service = new LocalMachineWorkspaceService('dev-nopath', 'owner-a', { db: await db(), approvalMode: 'auto' });
+    await service.exec('leaf-1', 'echo hi');
+    expect(sent.payload).toEqual({ leafId: 'leaf-1', command: 'echo hi' });
+  });
+
+  it('prefixes file reads and writes with the project subfolder', async () => {
+    let sent: any;
+    registerDevice('dev-file-path', 'owner-a', '/root', fakeSocket((event, payload, ack) => {
+      sent = { event, payload };
+      ack(null, { content: 'hi' });
+    }));
+
+    const service = new LocalMachineWorkspaceService('dev-file-path', 'owner-a', { db: await db(), approvalMode: 'auto', path: 'apps/thing' });
+    await service.readFile('leaf-1', 'src/index.ts');
+    expect(sent.payload).toEqual({ leafId: 'leaf-1', path: 'apps/thing/src/index.ts' });
+  });
+
   it('destroy and isRunning are safe no-ops', async () => {
     const service = new LocalMachineWorkspaceService('dev-d', 'owner-a', { db: await db(), approvalMode: 'auto' });
     await expect(service.destroy('leaf-1')).resolves.toBeUndefined();

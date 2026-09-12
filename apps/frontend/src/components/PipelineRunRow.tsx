@@ -43,37 +43,38 @@ export function PipelineRunRow({
   promoting?: boolean;
 }) {
   const commitMessage = run.commitMessage?.split('\n')[0];
+  const duration = run.finishedAt
+    ? Math.round((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)
+    : undefined;
   return (
-    <div className="rounded-md border border-[var(--bark-800)] bg-[var(--bark-950)]/70 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono text-xs">
-      <div className="min-w-0 space-y-1">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <StatusBadge status={run.status} />
-          {isLive && (
-            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1">
-              ● Live
-            </span>
-          )}
-          <span className="text-slate-300 font-bold">{run.commitSha.slice(0, 8)}</span>
-          <span className="text-slate-400 text-[11px] bg-[var(--bark-800)] px-1.5 py-0.5 rounded">{run.ref}</span>
-          {run.imageTag && (
-            <span className="text-slate-400 text-[11px] truncate max-w-xs" title={run.imageTag}>
-              tag: <span className="text-blue-300">{run.imageTag.split(':').pop()}</span>
-            </span>
-          )}
-        </div>
-        {commitMessage && (
-          <div className="text-[11px] text-slate-300 truncate" title={run.commitMessage}>{commitMessage}</div>
+    <div className="rounded-lg border border-[var(--bark-800)] bg-[var(--bark-950)]/70 p-2.5 space-y-1.5 font-mono text-xs">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <StatusBadge status={run.status} />
+        {isLive && (
+          <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0">
+            ● Live
+          </span>
         )}
-        <div className="text-[11px] text-slate-400">
-          Started {new Date(run.startedAt).toLocaleString()}
-          {run.finishedAt && ` • Finished in ${Math.round((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`}
-        </div>
-        {run.errorMessage && (
-          <div className="text-[11px] text-rose-400 truncate">{run.errorMessage}</div>
-        )}
+        <span className="text-slate-300 font-bold shrink-0">{run.commitSha.slice(0, 8)}</span>
+        <span className="text-slate-400 text-[11px] bg-[var(--bark-800)] px-1.5 py-0.5 rounded truncate max-w-[7rem]" title={run.ref}>
+          {run.ref}
+        </span>
       </div>
 
-      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+      {commitMessage && (
+        <div className="text-[11px] text-slate-300 truncate" title={run.commitMessage}>{commitMessage}</div>
+      )}
+
+      <div className="text-[10px] text-slate-500">
+        {new Date(run.startedAt).toLocaleString()}
+        {duration !== undefined && ` · ${duration}s`}
+      </div>
+
+      {run.errorMessage && (
+        <div className="text-[11px] text-rose-400 break-words">{run.errorMessage}</div>
+      )}
+
+      <div className="flex items-center gap-2 pt-1.5 border-t border-[var(--bark-800)]/60">
         <button
           onClick={() => onViewLogs(run.id)}
           className="text-slate-300 hover:text-white bg-[var(--bark-800)] hover:bg-[var(--bark-700)] text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1 transition-colors"

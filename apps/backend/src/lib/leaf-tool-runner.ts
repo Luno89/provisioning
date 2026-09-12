@@ -13,6 +13,8 @@ import { summariseLeaf, detailLeaf } from './leaf-tools.js';
 import { DEFAULT_WORKSPACE_LANGUAGE } from './workspace-spec.js';
 import { isWorkspaceLanguage } from './workspace-image-catalogue.js';
 import { withBuiltIns } from './ownership.js';
+import { execOnDevice } from './local-agent-registry.js';
+import type { ProjectMetadata } from './types.js';
 import type { ToolRuntime } from './tool-runtime.js';
 
 /**
@@ -311,6 +313,34 @@ export async function runPlanningTool(
     if (name === 'create_project') {
       const name = typeof args.name === 'string' ? args.name.trim() : '';
       if (!name) return JSON.stringify({ error: 'name is required' });
+
+      const deviceId = typeof args.deviceId === 'string' ? args.deviceId.trim() : '';
+      const devicePath = typeof args.path === 'string' && args.path.trim() ? args.path.trim() : undefined;
+
+      let executionTarget: ProjectMetadata['executionTarget'] | undefined;
+      let inspection: string | undefined;
+      let withRepo = true;
+
+      if (deviceId) {
+        const ownedDevices = (await db.getLocalAgentDevices()).filter((d) => d.ownerId === userId);
+        const device = ownedDevices.find((d) => d.id === deviceId)
+          ?? ownedDevices.find((d) => d.name.toLowerCase() === deviceId.toLowerCase());
+        if (!device) return JSON.stringify({ error: 'Unknown local execution device' });
+
+        const claimed = (await db.getProjects()).some((p) => p.executionTarget?.kind === 'local-device'
+          && p.executionTarget.deviceId === device.id
+          && (p.executionTarget.path ?? '') === (devicePath ?? ''));
+        if (claimed) return JSON.stringify({ error: 'That machine (at that path) is already the execution target for another project.' });
+
+        const check = await execOnDevice(device.id, userId, `inspect-${uuidv4()}`, 'git remote -v', 15_000, devicePath);
+        const hasRemote = check.exitCode === 0 && check.stdout.trim().length > 0;
+        inspection = hasRemote
+          ? `Found an existing git remote in that folder:\n${check.stdout.trim()}`
+          : 'No git remote found in that folder.';
+        withRepo = args.createRepo === true;
+        executionTarget = { kind: 'local-device', deviceId: device.id, ...(devicePath ? { path: devicePath } : {}) };
+      }
+
       const project = await projects.register(userId, name, {
         ...(typeof args.description === 'string' && args.description.trim()
           ? { description: args.description.trim().slice(0, 300) }
@@ -318,6 +348,7 @@ export async function runPlanningTool(
         ...(isWorkspaceLanguage(await db.getWorkspaceImages(userId), args.language)
           ? { language: args.language }
           : {}),
+        ...(deviceId ? { withRepo, executionTarget } : {}),
       });
       let attachedTo: string | undefined;
       const branch = (await db.getBranches()).find((b) => b.id === branchId && b.ownerId === userId);
@@ -331,9 +362,11 @@ export async function runPlanningTool(
 
       return JSON.stringify({
         created: {
-          id: project.id, name: project.name, repo: `${project.giteaOwner}/${project.giteaRepo}`,
+          id: project.id, name: project.name,
+          ...(project.giteaOwner && project.giteaRepo ? { repo: `${project.giteaOwner}/${project.giteaRepo}` } : {}),
           language: project.language ?? DEFAULT_WORKSPACE_LANGUAGE,
         },
+        ...(inspection ? { inspection } : {}),
         ...(attachedTo
           ? { note: `Leaves on this branch will use this repository by default — no need to set it per leaf.` }
           : {}),

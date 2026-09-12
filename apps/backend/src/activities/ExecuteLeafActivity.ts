@@ -416,6 +416,7 @@ export async function ExecuteLeafActivity(args: ExecuteLeafArgs): Promise<Execut
           artifactsOutcome: artifacts.outcome,
           dockerProblems,
           claimed: run.succeeded,
+          verdictPolicy: treeType?.verdictPolicy,
         });
 
         const checks: LeafChecks = {

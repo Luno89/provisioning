@@ -163,9 +163,22 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     ...parsed.thoughts,
   ].filter(Boolean);
 
+  const allToolCalls: ToolCallData[] = [
+    ...(message.toolCalls ?? []),
+    ...parsed.toolCalls.map((pt, i) => ({
+      id: `parsed-tool-${i}`,
+      name: pt.name,
+      args: pt.args,
+      ok: true,
+    })),
+  ];
+
   const isThinkingNow = Boolean(
-    (isStreaming && parsed.isThinking) ||
-    (isStreaming && message.reasoning && !parsed.cleanContent)
+    isStreaming && (
+      parsed.isThinking ||
+      (Boolean(message.reasoning) && !parsed.cleanContent) ||
+      (!parsed.cleanContent && allToolCalls.length === 0)
+    )
   );
 
   return (
@@ -213,9 +226,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           </div>
         )}
 
-        {message.toolCalls && message.toolCalls.length > 0 && (
+        {allToolCalls.length > 0 && (
           <div className="space-y-1 my-2">
-            {message.toolCalls.map((t) => (
+            {allToolCalls.map((t) => (
               <ChatToolCallCard key={t.id} tool={t} />
             ))}
           </div>

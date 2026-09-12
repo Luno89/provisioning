@@ -232,12 +232,16 @@ export interface BranchMessage {
   content: string;
   reasoning?: string;
   notice?: boolean;
+  toolCalls?: any[];
+  enabled?: string[];
+  interruptedReason?: string;
 }
 
 export interface Branch {
   id: string;
   ownerId: string;
   treeId?: string;
+  projectId?: string;
   autoAccept?: boolean;
   title: string;
   messages: BranchMessage[];

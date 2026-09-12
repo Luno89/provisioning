@@ -1,6 +1,8 @@
 import path from 'path';
 import { io } from 'socket.io-client';
-import { runCommand, readLocalFile, writeLocalFile, DEFAULT_TIMEOUT_MS, type ExecResult } from './sandbox-handlers.js';
+import {
+  runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, DEFAULT_TIMEOUT_MS, type ExecResult,
+} from './sandbox-handlers.js';
 import {
   dockerAvailable, createContainer, destroyContainer, execInContainer, readFileInContainer,
   writeFileInContainer, type EgressRule,
@@ -66,13 +68,13 @@ async function main() {
   });
 
   socket.on('sandbox:exec', (
-    { leafId, command }: { leafId: string; command: string },
+    { leafId, command, cwd }: { leafId: string; command: string; cwd?: string },
     ack: (result: ExecResult) => void,
   ) => {
     if (activeContainers.has(leafId)) {
-      execInContainer(leafId, command, DEFAULT_TIMEOUT_MS).then(ack);
+      execInContainer(leafId, command, DEFAULT_TIMEOUT_MS, cwd).then(ack);
     } else {
-      runCommand(rootDir, command, DEFAULT_TIMEOUT_MS).then(ack);
+      runCommand(rootDir, command, DEFAULT_TIMEOUT_MS, cwd).then(ack);
     }
   });
 
@@ -102,6 +104,20 @@ async function main() {
     } else {
       writeLocalFile(rootDir, relativePath, content).then(ack);
     }
+  });
+
+  socket.on('sandbox:listDir', (
+    { path: relativePath }: { path: string },
+    ack: (result: { entries: { name: string; path: string; type: 'file' | 'dir' }[] } | { error: string }) => void,
+  ) => {
+    listLocalDir(rootDir, relativePath).then(ack);
+  });
+
+  socket.on('sandbox:deleteFile', (
+    { path: relativePath }: { path: string },
+    ack: (result?: { error: string }) => void,
+  ) => {
+    deleteLocalFile(rootDir, relativePath).then(ack);
   });
 }
 

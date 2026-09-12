@@ -16,10 +16,12 @@ import type { ResolveLandingArgs, ResolveLandingResult } from '../activities/Res
 import type { AcceptRequestArgs, AcceptRequestResult } from '../activities/AcceptRequestActivity.js';
 import type { ReplanArgs, ReplanResult } from '../activities/ReplanActivity.js';
 import type { JudgeLeafArgs, JudgeLeafResult } from '../activities/JudgeLeafActivity.js';
+import type { ResolveLeafWorkflowArgs, ResolveLeafWorkflowResult } from '../activities/ResolveLeafWorkflowActivity.js';
 import { MAX_LEAF_ATTEMPTS } from '../lib/leaves.js';
-import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta, replanActivityMeta, judgeLeafActivityMeta,
+import { executeLeafActivityMeta, updateLeafActivityMeta, checkLeafGateActivityMeta, releaseDependentsActivityMeta, landRequestActivityMeta, resolveLandingActivityMeta, acceptRequestActivityMeta, replanActivityMeta, judgeLeafActivityMeta, resolveLeafWorkflowActivityMeta,
 } from '../lib/activity-timeouts.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import { runStageNodes, type StageCtx, type StageDispatch } from './leaf-workflow-interpreter.js';
 
 const { UpdateLeafActivity } = proxyActivities<{ UpdateLeafActivity: (args: UpdateLeafArgs) => Promise<void> }>({
   retry: ACTIVITY_RETRY,
@@ -69,6 +71,27 @@ const { AcceptRequestActivity } = proxyActivities<{ AcceptRequestActivity: (args
   startToCloseTimeout: acceptRequestActivityMeta.startToCloseTimeout,
   retry: { maximumAttempts: 1 },
 });
+
+const { ResolveLeafWorkflowActivity } = proxyActivities<{ ResolveLeafWorkflowActivity: (args: ResolveLeafWorkflowArgs) => Promise<ResolveLeafWorkflowResult> }>({
+  retry: ACTIVITY_RETRY,
+  startToCloseTimeout: resolveLeafWorkflowActivityMeta.startToCloseTimeout,
+});
+
+const STAGE_ACTIVITIES: StageDispatch = {
+  release: (leafId) => ReleaseDependentsActivity({ leafId }),
+  judge: (leafId) => JudgeLeafActivity({ leafId }),
+  land: (leafId) => LandRequestActivity({ leafId }),
+  resolve: (leafId) => ResolveLandingActivity({ leafId }),
+  accept: (leafId) => AcceptRequestActivity({ leafId }),
+  replan: (leafId) => ReplanActivity({ leafId }),
+};
+
+async function runSettleTail(leafId: string, status: WorkflowLeafStatus, onSuccess: boolean): Promise<void> {
+  const resolved = await ResolveLeafWorkflowActivity({ leafId });
+  const ctx: StageCtx = { leaf: { status }, treeType: resolved.treeType, stages: {} };
+  const nodes = onSuccess ? resolved.leafWorkflow.onSuccess : resolved.leafWorkflow.onFailure;
+  await runStageNodes(nodes, leafId, ctx, STAGE_ACTIVITIES);
+}
 
 export type WorkflowLeafColumn = 'todo' | 'in-progress' | 'review';
 export type WorkflowLeafStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -208,8 +231,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
   if (cancelled) {
     status = 'cancelled';
     await UpdateLeafActivity({ leafId: args.leafId, status });
-    await ReleaseDependentsActivity({ leafId: args.leafId });
-    await LandRequestActivity({ leafId: args.leafId });
+    await runSettleTail(args.leafId, status, false);
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
@@ -217,8 +239,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
   if (ownWorkFailed) {
     status = 'failed';
     await UpdateLeafActivity({ leafId: args.leafId, status });
-    await ReleaseDependentsActivity({ leafId: args.leafId });
-    await LandRequestActivity({ leafId: args.leafId });
+    await runSettleTail(args.leafId, status, false);
     return { column, status, blockingChildren: blockingChildren.length };
   }
 
@@ -227,8 +248,7 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
     if (results.some((r) => r.status === 'rejected')) {
       status = 'failed';
       await UpdateLeafActivity({ leafId: args.leafId, status });
-      await ReleaseDependentsActivity({ leafId: args.leafId });
-      await LandRequestActivity({ leafId: args.leafId });
+      await runSettleTail(args.leafId, status, false);
       return { column, status, blockingChildren: blockingChildren.length };
     }
   }
@@ -236,12 +256,6 @@ export async function LeafWorkflow(args: LeafWorkflowArgs): Promise<LeafWorkflow
   status = 'succeeded';
   column = 'review';
   await UpdateLeafActivity({ leafId: args.leafId, status, column });
-  await ReleaseDependentsActivity({ leafId: args.leafId });
-  await JudgeLeafActivity({ leafId: args.leafId }).catch(() => undefined);
-
-  const landing = await LandRequestActivity({ leafId: args.leafId });
-  if (landing.stuck.length > 0) await ResolveLandingActivity({ leafId: args.leafId });
-  await AcceptRequestActivity({ leafId: args.leafId });
-  await ReplanActivity({ leafId: args.leafId });
+  await runSettleTail(args.leafId, status, true);
   return { column, status, blockingChildren: blockingChildren.length };
 }

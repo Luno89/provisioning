@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
-const PACKAGES = ['@dnd-kit/utilities', '@dnd-kit/accessibility'];
+const PACKAGES = ['@dnd-kit/utilities', '@dnd-kit/accessibility', 'monaco-editor', '@monaco-editor/loader', 'use-sync-external-store'];
 
 for (const pkg of PACKAGES) {
   const from = path.join(ROOT, 'node_modules', pkg);

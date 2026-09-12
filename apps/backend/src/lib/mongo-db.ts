@@ -194,7 +194,18 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ clusterId: 1 });
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
-    await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, { unique: true });
+    try {
+      await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
+        unique: true,
+        partialFilterExpression: { giteaOwner: { $type: 'string' }, giteaRepo: { $type: 'string' } },
+      });
+    } catch {
+      await this.projects.dropIndex('giteaOwner_1_giteaRepo_1');
+      await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
+        unique: true,
+        partialFilterExpression: { giteaOwner: { $type: 'string' }, giteaRepo: { $type: 'string' } },
+      });
+    }
     await this.pipelineRuns.createIndex({ projectId: 1 });
     await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
     await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });

@@ -159,8 +159,13 @@ export async function createContainer(opts: CreateContainerOptions): Promise<voi
   await setProxyAllowlist(containerIp, opts.egress ?? []);
 }
 
-export async function execInContainer(leafId: string, command: string, timeoutMs: number): Promise<DockerResult> {
-  return runDocker(['exec', containerName(leafId), 'sh', '-c', command], { timeoutMs });
+export async function execInContainer(
+  leafId: string, command: string, timeoutMs: number, subPath?: string,
+): Promise<DockerResult> {
+  return runDocker(
+    ['exec', ...(subPath ? ['-w', `/work/${subPath}`] : []), containerName(leafId), 'sh', '-c', command],
+    { timeoutMs },
+  );
 }
 
 export async function writeFileInContainer(leafId: string, relativePath: string, content: string): Promise<void> {

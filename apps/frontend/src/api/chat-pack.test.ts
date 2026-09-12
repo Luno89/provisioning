@@ -13,14 +13,14 @@ vi.mock('../api/client', async (orig) => ({
 }));
 
 describe('openChatPackStream — always koala, no pack in the request', () => {
-  it('posts to the fixed chat-pack route with the message', async () => {
+  it('posts to the unified chat route with the message', async () => {
     const mockRes = new Response(new ReadableStream(), { status: 200 });
     vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
 
     await openChatPackStream({ conversationId: 'c1', message: 'hi' });
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack',
+      '/chat',
       { conversationId: 'c1', message: 'hi' },
       undefined,
     );
@@ -33,7 +33,7 @@ describe('openChatPackStream — always koala, no pack in the request', () => {
     await openChatPackStream({ conversationId: 'c1', message: 'hi', sessionId: 's1' });
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack',
+      '/chat',
       { conversationId: 'c1', message: 'hi', sessionId: 's1' },
       undefined,
     );
@@ -46,7 +46,7 @@ describe('openChatPackStream — always koala, no pack in the request', () => {
     await openChatPackStream({ conversationId: 'c1', message: 'hi', modelId: 'm1' });
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack',
+      '/chat',
       { conversationId: 'c1', message: 'hi', modelId: 'm1' },
       undefined,
     );
@@ -60,7 +60,7 @@ describe('openChatPackStream — always koala, no pack in the request', () => {
     await openChatPackStream({ conversationId: 'c1', message: 'hi' }, signal);
 
     expect(client.postStream).toHaveBeenCalledWith(
-      '/chat-pack',
+      '/chat',
       { conversationId: 'c1', message: 'hi' },
       signal,
     );
@@ -73,22 +73,22 @@ describe('chat-pack conversation & proposal helpers', () => {
     
     vi.mocked(client.api.get).mockResolvedValueOnce({ data: [{ id: 'conv-1' }] });
     const list = await listChatConversations();
-    expect(client.api.get).toHaveBeenCalledWith('/chat-pack/conversations');
+    expect(client.api.get).toHaveBeenCalledWith('/conversations');
     expect(list).toEqual([{ id: 'conv-1' }]);
 
     vi.mocked(client.api.get).mockResolvedValueOnce({ data: { id: 'conv-1', title: 'Hello' } });
     const conv = await getChatConversation('conv-1');
-    expect(client.api.get).toHaveBeenCalledWith('/chat-pack/conversations/conv-1');
+    expect(client.api.get).toHaveBeenCalledWith('/conversations/conv-1');
     expect(conv).toEqual({ id: 'conv-1', title: 'Hello' });
 
     vi.mocked(client.api.post).mockResolvedValueOnce({ data: { id: 'conv-2' } });
     const created = await createChatConversation('New Title');
-    expect(client.api.post).toHaveBeenCalledWith('/chat-pack/conversations', { title: 'New Title' });
+    expect(client.api.post).toHaveBeenCalledWith('/conversations', { title: 'New Title' });
     expect(created).toEqual({ id: 'conv-2' });
 
     vi.mocked(client.api.delete).mockResolvedValueOnce({ data: { success: true } });
     await deleteChatConversation('conv-2');
-    expect(client.api.delete).toHaveBeenCalledWith('/chat-pack/conversations/conv-2');
+    expect(client.api.delete).toHaveBeenCalledWith('/conversations/conv-2');
   });
 
   it('calls proposal acceptance endpoints', async () => {
@@ -96,12 +96,12 @@ describe('chat-pack conversation & proposal helpers', () => {
 
     vi.mocked(client.api.post).mockResolvedValueOnce({ data: { tree: { id: 'tree-1' } } });
     const treeRes = await acceptTreeProposal('conv-1', 'prop-1');
-    expect(client.api.post).toHaveBeenCalledWith('/chat-pack/conversations/conv-1/trees/prop-1/accept', {});
+    expect(client.api.post).toHaveBeenCalledWith('/conversations/conv-1/trees/prop-1/accept', {});
     expect(treeRes).toEqual({ tree: { id: 'tree-1' } });
 
     vi.mocked(client.api.post).mockResolvedValueOnce({ data: { id: 'spec-1' } });
     const specRes = await acceptSpecProposal('conv-1', 'spec-1');
-    expect(client.api.post).toHaveBeenCalledWith('/chat-pack/conversations/conv-1/specs/spec-1/accept', {});
+    expect(client.api.post).toHaveBeenCalledWith('/conversations/conv-1/specs/spec-1/accept', {});
     expect(specRes).toEqual({ id: 'spec-1' });
   });
 });

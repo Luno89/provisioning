@@ -19,6 +19,7 @@ export interface LocalMachineWorkspaceOptions {
   db: Database;
   approvalMode: 'plan' | 'auto';
   projectId?: string;
+  path?: string;
   onHeartbeat?: (note: Record<string, unknown>) => void;
   approvalPollIntervalMs?: number;
   approvalMaxWaitMs?: number;
@@ -89,7 +90,7 @@ export class LocalMachineWorkspaceService {
     if (outcome === 'timed-out') {
       return DENIED_RESULT('No one approved this command in time — treated as denied. Ask again, or check whether someone is watching this project.');
     }
-    return execOnDevice(this.deviceId, this.ownerId, leafId, command, timeoutMs);
+    return execOnDevice(this.deviceId, this.ownerId, leafId, command, timeoutMs, this.opts.path);
   }
 
   async writeFile(leafId: string, relativePath: string, content: string): Promise<void> {
@@ -110,7 +111,7 @@ export class LocalMachineWorkspaceService {
     if (path.isAbsolute(relativePath)) {
       throw new Error(`Path ${JSON.stringify(relativePath)} must be relative to the device's root directory`);
     }
-    return relativePath;
+    return this.opts.path ? path.posix.join(this.opts.path, relativePath) : relativePath;
   }
 
   async destroy(leafId?: string): Promise<void> {

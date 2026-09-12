@@ -60,6 +60,12 @@ export function branchesRouter(deps: BranchesRouterDeps): Router {
       : undefined;
     if (requestedTree && !tree) return res.status(404).json({ error: 'Tree not found' });
 
+    const requestedProject = typeof req.body?.projectId === 'string' ? req.body.projectId : '';
+    const project = requestedProject
+      ? (await db.getProjects()).find((p: any) => p.id === requestedProject && p.ownerId === user.id)
+      : undefined;
+    if (requestedProject && !project) return res.status(404).json({ error: 'Project not found' });
+
     const inherited = tree ? inheritedAcceptance(tree.id, await ownedBranches(user.id)) : [];
     if (inherited.length) {
       console.log(`[branches] new branch inherits ${inherited.length} acceptance check(s) from tree ${tree!.id.slice(0, 8)}`);
@@ -71,6 +77,7 @@ export function branchesRouter(deps: BranchesRouterDeps): Router {
       title: typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim() : 'New branch',
       messages: [],
       ...(tree ? { treeId: tree.id } : {}),
+      ...(project ? { projectId: project.id } : {}),
       createdAt: now,
       updatedAt: now,
           ...(inherited.length ? { acceptance: inherited } : {}),

@@ -57,12 +57,15 @@ export async function bootstrapAcceptedTree(
     updatedAt: now,
   } as Tree;
 
+  const treeType = await resolveTreeType(db, userId, tree.type).catch(() => undefined);
+
   let project: ProjectMetadata | undefined;
 
   if (projectRepoService) {
     try {
       project = await projectRepoService.register(userId, proposal.name, {
         description: proposal.goal || `Autonomous project: ${proposal.name}`,
+        withRepo: treeType?.produces !== 'artefact',
       });
       if (project) {
         tree = withProject(tree, project.id);
@@ -86,8 +89,6 @@ export async function bootstrapAcceptedTree(
   }
 
   await db.saveTree(tree);
-
-  const treeType = await resolveTreeType(db, userId, tree.type).catch(() => undefined);
 
   const branchId = uuidv4();
   const branch: Branch = {

@@ -35,6 +35,22 @@ vi.mock('../api/client', async (orig) => ({
   postStream: vi.fn(),
 }));
 
+vi.mock('../api/grove', async (orig) => ({
+  ...(await orig<any>()),
+  updateTreeType: vi.fn().mockResolvedValue({ id: 'type-1' }),
+  listTrees: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Tree 1', type: 'type-1' }]),
+  listTreeTypes: vi.fn().mockResolvedValue([{
+    id: 'type-1',
+    label: 'Type 1',
+    summary: 'Type summary',
+    doneMeans: 'done',
+    language: 'node',
+    produces: 'service',
+    files: [],
+    packs: { planner: 'planner' },
+  }]),
+}));
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 });
@@ -435,5 +451,156 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     renderWithProviders(<ChatSurface conversationId="c-elevated" />);
 
     await waitFor(() => expect(screen.getByText(/ELEVATED \(cluster-admin\)/i)).toBeInTheDocument());
+  });
+
+  it('opens PersonaConfigDrawer when persona button is clicked on branch chat', async () => {
+    renderWithProviders(
+      <ChatSurface
+        scope={{
+          kind: 'branch',
+          branchId: 'b-1',
+          treeId: 't-1',
+          mode: 'chat',
+          messages: [],
+          onMessagesChange: vi.fn(),
+        }}
+      />
+    );
+
+    const personaBtn = screen.getByTitle('Pick the pack, and edit its directives and tools');
+    expect(personaBtn).toBeInTheDocument();
+    fireEvent.click(personaBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Persona & Capabilities')).toBeInTheDocument();
+    });
+  });
+
+  it('sets the persona-pack on the branch tree type when a pack is selected in PersonaConfigDrawer', async () => {
+    const groveApi = await import('../api/grove.js');
+    renderWithProviders(
+      <ChatSurface
+        scope={{
+          kind: 'branch',
+          branchId: 'b-1',
+          treeId: 't-1',
+          mode: 'chat',
+          messages: [],
+          onMessagesChange: vi.fn(),
+        }}
+      />
+    );
+
+    const personaBtn = screen.getByTitle('Pick the pack, and edit its directives and tools');
+    fireEvent.click(personaBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Persona & Capabilities')).toBeInTheDocument();
+    });
+
+    // Click the pack in the packs list
+    const packBtn = await screen.findByRole('button', { name: /Koala/i });
+    fireEvent.click(packBtn);
+
+    await waitFor(() => {
+      expect(groveApi.updateTreeType).toHaveBeenCalledWith(
+        'type-1',
+        expect.objectContaining({
+          id: 'type-1',
+          packs: expect.objectContaining({ planner: 'koala' }),
+        })
+      );
+    });
+  });
+
+  it('renders thinking disclosure and tool calls in branch chat during SSE stream', async () => {
+    const mockRes = {
+      body: makeSseStream([
+        '{"type":"thinking","delta":"Analyzing repo structure..."}',
+        '{"type":"toolAnnounce","payload":{"id":"tool-1","name":"read_file","args":"{\\"path\\":\\"package.json\\"}"}}',
+        '{"type":"toolResult","payload":{"id":"tool-1","ok":true,"digest":"read 45 lines"}}',
+        '{"type":"content","delta":"The package is configured correctly."}',
+      ]),
+      status: 200,
+      ok: true,
+    };
+    vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
+
+    let currentMessages: any[] = [];
+    const onMessagesChange = vi.fn().mockImplementation((next) => {
+      currentMessages = typeof next === 'function' ? next(currentMessages) : next;
+    });
+
+    const { rerender } = renderWithProviders(
+      <ChatSurface
+        scope={{
+          kind: 'branch',
+          branchId: 'b-1',
+          treeId: 't-1',
+          mode: 'chat',
+          messages: currentMessages,
+          onMessagesChange,
+        }}
+      />
+    );
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: 'Inspect the code' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    // Re-render when onMessagesChange triggers
+    await waitFor(() => expect(onMessagesChange).toHaveBeenCalled());
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ChatSurface
+          scope={{
+            kind: 'branch',
+            branchId: 'b-1',
+            treeId: 't-1',
+            mode: 'chat',
+            messages: currentMessages,
+            onMessagesChange,
+          }}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('read_file')).toBeInTheDocument();
+      expect(screen.getByText('completed')).toBeInTheDocument();
+      expect(screen.getByText('Analyzing repo structure...')).toBeInTheDocument();
+    });
+  });
+
+  it('renders thinking disclosure and tool calls for persisted branch messages', () => {
+    renderWithProviders(
+      <ChatSurface
+        scope={{
+          kind: 'branch',
+          branchId: 'b-1',
+          treeId: 't-1',
+          mode: 'chat',
+          messages: [
+            { role: 'user', content: 'check tree' },
+            {
+              role: 'assistant',
+              content: 'Everything looks healthy.',
+              reasoning: 'Verified all dependencies and cluster health.',
+              toolCalls: [
+                { id: 't1', name: 'check_health', args: '{}', ok: true, digest: 'All ok' },
+              ],
+            },
+          ],
+          onMessagesChange: vi.fn(),
+        }}
+      />
+    );
+
+    expect(screen.getByText('check_health')).toBeInTheDocument();
+    expect(screen.getByText('completed')).toBeInTheDocument();
+    expect(screen.getByText(/Thought Process & Analysis/i)).toBeInTheDocument();
+    expect(screen.getByText('Verified all dependencies and cluster health.')).toBeInTheDocument();
+    expect(screen.getByText('Everything looks healthy.')).toBeInTheDocument();
   });
 });

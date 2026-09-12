@@ -150,11 +150,12 @@ describe('PersonaConfigDrawer — pack tuning and tool matrix', () => {
     vi.mocked(personasApi.listPersonas).mockResolvedValue(mockPersonas as any);
     vi.mocked(toolsApi.listTools).mockResolvedValue(mockTools as any);
 
+    const onClose = vi.fn();
     render(
       <QueryClientProvider client={queryClient}>
         <PersonaConfigDrawer
           isOpen={true}
-          onClose={vi.fn()}
+          onClose={onClose}
           activePackId="pack-koala"
           onSelectPack={vi.fn()}
         />
@@ -175,6 +176,7 @@ describe('PersonaConfigDrawer — pack tuning and tool matrix', () => {
         canRunLeaf: false,
         model: { endpointId: null },
       });
+      expect(onClose).toHaveBeenCalled();
     });
   });
 });

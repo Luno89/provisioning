@@ -27,7 +27,7 @@ export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
   let current: typeof TEST_USER | null = opts.user === undefined ? TEST_USER : opts.user;
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '20mb' }));
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!current) return res.status(401).json({ error: 'Session missing' });

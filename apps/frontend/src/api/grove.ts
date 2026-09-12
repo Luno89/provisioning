@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Tree, Branch, Leaf, TreeType } from '../types/grove'
+import type { Tree, Branch, Leaf, TreeType, LeafExplain } from '../types/grove'
 
 export const groveKeys = {
   trees: () => ['trees'] as const,
@@ -7,6 +7,7 @@ export const groveKeys = {
   leaves: () => ['leaves'] as const,
   treeTypes: () => ['tree-types'] as const,
   trace: (id: string) => ['leaf-trace', id] as const,
+  explain: (id: string) => ['leaf-explain', id] as const,
   board: (id: string) => ['tree-board', id] as const,
 }
 
@@ -30,6 +31,8 @@ export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((
 export const createTree = <T,>(body: unknown): Promise<T> =>
   api.post<T>('/trees', body).then((r) => r.data)
 export const deleteTree = (id: string) => api.delete(`/trees/${id}`).then((r) => r.data)
+export const patchTree = <T,>(id: string, patch: Record<string, unknown>): Promise<T> =>
+  api.patch<T>(`/trees/${id}`, patch).then((r) => r.data)
 
 export const listBranches = (): Promise<Branch[]> =>
   api.get<Branch[]>('/branches').then((r) => r.data)
@@ -47,6 +50,8 @@ export const patchLeaf = (id: string, patch: Record<string, unknown>) =>
   api.patch(`/leaves/${id}`, patch).then((r) => r.data)
 
 export const getLeafTrace = (id: string) => api.get(`/leaves/${id}/trace`).then((r) => r.data)
+export const explainLeaf = (id: string): Promise<LeafExplain> =>
+  api.get<LeafExplain>(`/leaves/${id}/explain`).then((r) => r.data)
 
 export const acceptLeaf = (id: string, body?: unknown) =>
   api.post(`/leaves/${id}/accept`, body ?? {}).then((r) => r.data)
