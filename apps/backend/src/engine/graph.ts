@@ -27,6 +27,7 @@ export interface ToolNode extends NodeBase {
   kind: 'tool';
   tool: string;
   args?: Record<string, unknown> | undefined;
+  as?: string | undefined;
 }
 
 export interface AgentNode extends NodeBase {
@@ -36,14 +37,26 @@ export interface AgentNode extends NodeBase {
   as?: string | undefined;
 }
 
-export interface BranchNode extends NodeBase {
-  kind: 'branch';
+export interface DispatchNode extends NodeBase {
+  kind: 'dispatch';
+  as?: string | undefined;
 }
 
-export interface TransformNode extends NodeBase {
-  kind: 'transform';
-  transform: string;
+export interface WaitNode extends NodeBase {
+  kind: 'wait';
+  prompt: string;
   as?: string | undefined;
+  timeoutMs?: number | undefined;
+}
+
+export interface ParallelNode extends NodeBase {
+  kind: 'parallel';
+  branches: NodeId[];
+  join: NodeId;
+}
+
+export interface BranchNode extends NodeBase {
+  kind: 'branch';
 }
 
 export interface FanOutNode extends NodeBase {
@@ -58,6 +71,7 @@ export interface FanOutNode extends NodeBase {
 export interface MergeNode extends NodeBase {
   kind: 'merge';
   strategy?: string | undefined;
+  as?: string | undefined;
 }
 
 export interface TerminalNode extends NodeBase {
@@ -69,9 +83,11 @@ export interface TerminalNode extends NodeBase {
 export type LoopNode =
   | ModelNode
   | ToolNode
+  | DispatchNode
+  | WaitNode
+  | ParallelNode
   | AgentNode
   | BranchNode
-  | TransformNode
   | FanOutNode
   | MergeNode
   | TerminalNode;
@@ -112,6 +128,7 @@ export function nodeMap(graph: LoopGraph): Map<NodeId, LoopNode> {
 function successors(node: LoopNode): NodeId[] {
   const ids = edgesOf(node).map((edge) => edge.to);
   if (node.kind === 'fanout') ids.push(node.join);
+  if (node.kind === 'parallel') ids.push(node.join, ...node.branches);
   return ids;
 }
 
@@ -175,9 +192,13 @@ function reachableFromEntry(graph: LoopGraph): Set<NodeId> {
   return seen;
 }
 
+export const BUILT_IN_REDUCERS = ['all', 'ok', 'first-ok', 'failed'] as const;
+
+export type BuiltInReducer = (typeof BUILT_IN_REDUCERS)[number];
+
 export function validateGraph(
   graph: LoopGraph,
-  known: { tools?: Set<string>; agents?: Set<string>; transforms?: Set<string> } = {},
+  known: { tools?: Set<string>; agents?: Set<string> } = {},
 ): GraphProblem[] {
   const problems: GraphProblem[] = [];
   const map = nodeMap(graph);
@@ -214,6 +235,20 @@ export function validateGraph(
       }
     }
 
+    if (node.kind === 'parallel') {
+      if (!map.has(node.join)) {
+        problems.push({ severity: 'error', nodeId: node.id, message: `joins at "${node.join}", which does not exist` });
+      }
+      if (node.branches.length === 0) {
+        problems.push({ severity: 'error', nodeId: node.id, message: 'runs nothing in parallel' });
+      }
+      for (const branch of node.branches) {
+        if (!map.has(branch)) {
+          problems.push({ severity: 'error', nodeId: node.id, message: `runs "${branch}" in parallel, which does not exist` });
+        }
+      }
+    }
+
     if (node.kind === 'fanout') {
       if (!map.has(node.join)) {
         problems.push({ severity: 'error', nodeId: node.id, message: `joins at "${node.join}", which does not exist` });
@@ -231,11 +266,22 @@ export function validateGraph(
       problems.push({ severity: 'error', nodeId: node.id, message: `calls tool "${node.tool}", which is not available here` });
     }
 
-    if (node.kind === 'transform' && known.transforms && !known.transforms.has(node.transform)) {
-      problems.push({ severity: 'error', nodeId: node.id, message: `uses transform "${node.transform}", which does not exist` });
+    if (node.kind === 'merge' && node.strategy) {
+      const { strategy } = node;
+      const builtIn = (BUILT_IN_REDUCERS as readonly string[]).includes(strategy);
+      const isTool = known.tools?.has(strategy) === true;
+      const isAgent = known.agents?.has(strategy) === true;
+
+      if (!builtIn && !isTool && !isAgent && (known.tools || known.agents)) {
+        problems.push({
+          severity: 'error',
+          nodeId: node.id,
+          message: `merges with "${strategy}", which is not a built-in reducer (${BUILT_IN_REDUCERS.join(', ')}), a tool, or an agent`,
+        });
+      }
     }
 
-    if (node.kind !== 'terminal' && edgesOf(node).length === 0 && node.kind !== 'fanout') {
+    if (node.kind !== 'terminal' && edgesOf(node).length === 0 && node.kind !== 'fanout' && node.kind !== 'parallel') {
       problems.push({ severity: 'error', nodeId: node.id, message: 'has nowhere to go and is not a terminal' });
     }
   }

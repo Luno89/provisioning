@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { agentAsTool, describeTools, effectiveTools, toolSchemas, type ToolContract } from './tools.js';
-import { capabilitiesOf } from './environment.js';
+import { agentAsTool, describeTools, effectiveTools, toolSchemas, type ToolContract } from './index.js';
+import { capabilitiesOf } from './index.js';
 
 const catalogue: ToolContract[] = [
   { name: 'propose_work', description: 'Propose a unit of work', binding: 'platform' },
@@ -42,17 +42,34 @@ describe('effectiveTools', () => {
     ]);
   });
 
-  it('withholds network tools when the environment has no egress', () => {
+  it('keeps network tools even when the environment cannot reach the network', () => {
     const result = effectiveTools({
       granted: ['search_web', 'run_command'],
       catalogue,
       capabilities: offlineCaps,
     });
 
-    expect(names(result.tools)).toEqual(['run_command']);
-    expect(result.withheld).toEqual([
-      { name: 'search_web', why: 'this environment cannot reach the network' },
-    ]);
+    expect(names(result.tools)).toEqual(['search_web', 'run_command']);
+    expect(result.withheld).toEqual([]);
+  });
+
+  it('withholds a network tool that does declare it needs the environment itself', () => {
+    const result = effectiveTools({
+      granted: ['scrape_from_pod'],
+      catalogue: [
+        ...catalogue,
+        {
+          name: 'scrape_from_pod',
+          description: 'Fetch from inside the workspace',
+          binding: 'network',
+          requires: { egress: true },
+        },
+      ],
+      capabilities: offlineCaps,
+    });
+
+    expect(names(result.tools)).toEqual([]);
+    expect(result.withheld[0]?.why).toContain('network');
   });
 
   it('withholds a tool whose declared language is missing', () => {
@@ -119,14 +136,14 @@ describe('toolSchemas', () => {
 describe('describeTools', () => {
   it('describes only what it is given, so withheld tools never reach the prompt', () => {
     const { tools } = effectiveTools({
-      granted: ['propose_work', 'search_web'],
+      granted: ['propose_work', 'run_command'],
       catalogue,
-      capabilities: offlineCaps,
+      capabilities: noneCaps,
     });
 
     const described = describeTools(tools);
     expect(described).toContain('propose_work');
-    expect(described).not.toContain('search_web');
+    expect(described).not.toContain('run_command');
   });
 
   it('is empty when nothing is available', () => {

@@ -3,12 +3,11 @@ import {
   approvalFor,
   capabilitiesOf,
   lifecycleFor,
-  poolable,
   satisfies,
   specFingerprint,
   unmetRequirements,
   type EnvironmentSpec,
-} from './environment.js';
+} from './index.js';
 
 const sandbox = (over: Partial<EnvironmentSpec> = {}): EnvironmentSpec => ({
   kind: 'sandbox',
@@ -112,16 +111,5 @@ describe('specFingerprint', () => {
     expect(specFingerprint(sandbox({ packages: ['jq'] }))).not.toBe(base);
     expect(specFingerprint(sandbox({ egress: false }))).not.toBe(base);
     expect(specFingerprint(sandbox({ env: { CI: 'true' } }))).not.toBe(base);
-  });
-});
-
-describe('poolable', () => {
-  it('pools ordinary sandboxes', () => {
-    expect(poolable(sandbox())).toBe(true);
-  });
-
-  it('never pools a clean-room sandbox or a real machine', () => {
-    expect(poolable(sandbox({ cleanRoom: true }))).toBe(false);
-    expect(poolable({ kind: 'machine', lifecycle: 'persistent' })).toBe(false);
   });
 });

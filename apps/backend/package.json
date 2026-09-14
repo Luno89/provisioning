@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "dev:worker": "tsx src/worker-host.ts",
     "dev:worker:cluster": "tsx src/worker-cluster.ts",
+    "dev:worker:engine": "tsx src/worker-engine.ts",
     "start:worker": "tsx src/worker-host.ts",
     "start:worker:cluster": "tsx src/worker-cluster.ts"
   },
@@ -35,6 +36,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@temporalio/testing": "^1.23.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/node": "^20.0.0",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { graphErrors, validateGraph, type LoopGraph } from './graph.js';
+import { BUILT_IN_REDUCERS, graphErrors, validateGraph, type LoopGraph } from './graph.js';
 
 const graph = (over: Partial<LoopGraph> = {}): LoopGraph => ({
   id: 'test-loop',
@@ -109,21 +109,50 @@ describe('validateGraph', () => {
     expect(messages(bad).some((m) => m.startsWith('condition "counters.rounds $$ 2" does not parse'))).toBe(true);
   });
 
-  it('rejects references to agents, tools and transforms that are not available', () => {
+  it('rejects references to agents and tools that are not available', () => {
     const refs = graph({
       entry: 'call',
       nodes: [
         { kind: 'agent', id: 'call', agent: 'ghost-agent', next: [{ to: 'tool' }] },
-        { kind: 'tool', id: 'tool', tool: 'ghost-tool', next: [{ to: 'shape' }] },
-        { kind: 'transform', id: 'shape', transform: 'ghost-transform', next: [{ to: 'done' }] },
+        { kind: 'tool', id: 'tool', tool: 'ghost-tool', next: [{ to: 'done' }] },
         { kind: 'terminal', id: 'done', outcome: 'ok' },
       ],
     });
 
-    const found = messages(refs, { agents: new Set(['research']), tools: new Set(['read_file']), transforms: new Set(['extract']) });
+    const found = messages(refs, { agents: new Set(['research']), tools: new Set(['read_file']) });
     expect(found).toContain('calls agent "ghost-agent", which is not available here');
     expect(found).toContain('calls tool "ghost-tool", which is not available here');
-    expect(found).toContain('uses transform "ghost-transform", which does not exist');
+  });
+
+  it('accepts a merge with no strategy, and every built-in reducer', () => {
+    for (const strategy of [undefined, ...BUILT_IN_REDUCERS]) {
+      const merged = graph({
+        entry: 'join',
+        nodes: [
+          { kind: 'merge', id: 'join', ...(strategy ? { strategy } : {}), next: [{ to: 'done' }] },
+          { kind: 'terminal', id: 'done', outcome: 'ok' },
+        ],
+      });
+
+      expect(messages(merged, { agents: new Set(), tools: new Set() })).toEqual([]);
+    }
+  });
+
+  it('lets a merge strategy name a tool or an agent, and rejects one that is neither', () => {
+    const withStrategy = (strategy: string) => graph({
+      entry: 'join',
+      nodes: [
+        { kind: 'merge', id: 'join', strategy, next: [{ to: 'done' }] },
+        { kind: 'terminal', id: 'done', outcome: 'ok' },
+      ],
+    });
+
+    const known = { agents: new Set(['conflict-resolver']), tools: new Set(['pick-newest']) };
+
+    expect(messages(withStrategy('conflict-resolver'), known)).toEqual([]);
+    expect(messages(withStrategy('pick-newest'), known)).toEqual([]);
+    expect(messages(withStrategy('made-up'), known).join(' '))
+      .toContain('which is not a built-in reducer');
   });
 
   it('checks a fan-out joins somewhere real', () => {

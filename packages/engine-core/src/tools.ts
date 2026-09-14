@@ -32,9 +32,11 @@ export interface EffectiveTools {
 const impliedRequirement = (tool: ToolContract): EnvironmentRequirement => {
   if (tool.requires) return tool.requires;
   if (tool.binding === 'environment') return { terminal: true, filesystem: true };
-  if (tool.binding === 'network') return { egress: true };
   return {};
 };
+
+const runsInEnvironment = (tool: ToolContract): boolean =>
+  tool.binding === 'environment' || tool.requires !== undefined;
 
 export function effectiveTools(request: EffectiveToolsRequest): EffectiveTools {
   const { granted, catalogue, capabilities } = request;
@@ -62,7 +64,10 @@ export function effectiveTools(request: EffectiveToolsRequest): EffectiveTools {
       continue;
     }
 
-    const unmet = unmetRequirements(impliedRequirement(tool), capabilities);
+    const unmet = runsInEnvironment(tool)
+      ? unmetRequirements(impliedRequirement(tool), capabilities)
+      : [];
+
     if (unmet.length > 0) {
       withheld.push({ name, why: unmet.map((entry) => entry.detail).join('; ') });
       continue;

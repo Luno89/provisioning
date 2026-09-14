@@ -30,8 +30,8 @@ function ports(over: Partial<ExecutorPorts> = {}): ExecutorPorts {
   return {
     callModel: vi.fn(async () => reply()),
     runTool: vi.fn(async () => ({ ok: true, digest: 'tool output' })),
+    dispatchTool: vi.fn(async () => ({ ok: true, digest: 'dispatched output' })),
     runAgent: vi.fn(async ({ agent }) => ({ runId: `child-${agent}`, agentId: agent, outcome: 'ok' as const, outputs: { from: agent } })),
-    runTransform: vi.fn(async () => ({ shaped: true })),
     mergeChildren: vi.fn(async ({ children }) => ({ merged: children.length })),
     now: () => 1_000,
     ...over,
@@ -164,16 +164,16 @@ describe('runGraph', () => {
     expect(result.counters.childRuns).toBe(1);
   });
 
-  it('applies a transform into outputs', async () => {
+  it('reshapes into outputs with a tool, since there is no separate transform kind', async () => {
     const { result } = await execute({
       id: 'l', version: '1', entry: 'shape',
       nodes: [
-        { kind: 'transform', id: 'shape', transform: 'extract', next: [{ to: 'done' }] },
+        { kind: 'tool', id: 'shape', tool: 'extract', as: 'shaped', next: [{ to: 'done' }] },
         { kind: 'terminal', id: 'done', outcome: 'ok' },
       ],
     });
 
-    expect(result.outputs).toEqual({ shaped: true });
+    expect(result.outputs).toHaveProperty('shaped');
   });
 
   it('fans out per item, joins, and merges the children', async () => {
@@ -200,8 +200,69 @@ describe('runGraph', () => {
 
     expect(used.runAgent).toHaveBeenCalledTimes(3);
     expect(result.counters.childRuns).toBe(3);
-    expect(result.outputs.merged).toBe(3);
     expect((result.outputs.each as unknown[]).length).toBe(3);
+
+    expect(result.outputs.merged).toHaveLength(3);
+    expect(used.mergeChildren).not.toHaveBeenCalled();
+  });
+
+  it('keeps only what a built-in reducer asks for, without a model call or a port', async () => {
+    const used = ports({
+      runAgent: vi.fn(async ({ inputs }) => ({
+        runId: `r-${(inputs as { index: number }).index}`,
+        agentId: 'worker',
+        outcome: (inputs as { index: number }).index === 1 ? 'failed' as const : 'ok' as const,
+        outputs: {},
+      })),
+    });
+
+    const state = createRunState(0);
+    state.outputs.items = ['a', 'b', 'c'];
+
+    const result = await runGraph({
+      graph: {
+        id: 'l', version: '1', entry: 'spread',
+        nodes: [
+          { kind: 'fanout', id: 'spread', over: 'outputs.items', agent: 'worker', join: 'join' },
+          { kind: 'merge', id: 'join', strategy: 'ok', as: 'survivors', next: [{ to: 'done' }] },
+          { kind: 'terminal', id: 'done', outcome: 'ok' },
+        ],
+      },
+      identity: identity(),
+      state,
+      budget: { maxRounds: 10 },
+      bus: createEventBus(),
+      ports: used,
+    });
+
+    expect(result.outputs.survivors).toHaveLength(2);
+    expect(used.mergeChildren).not.toHaveBeenCalled();
+  });
+
+  it('falls through to the port only when the strategy is not a built-in', async () => {
+    const used = ports();
+    const state = createRunState(0);
+    state.outputs.items = ['a'];
+
+    await runGraph({
+      graph: {
+        id: 'l', version: '1', entry: 'spread',
+        nodes: [
+          { kind: 'fanout', id: 'spread', over: 'outputs.items', agent: 'worker', join: 'join' },
+          { kind: 'merge', id: 'join', strategy: 'conflict-resolver', next: [{ to: 'done' }] },
+          { kind: 'terminal', id: 'done', outcome: 'ok' },
+        ],
+      },
+      identity: identity(),
+      state,
+      budget: { maxRounds: 10 },
+      bus: createEventBus(),
+      ports: used,
+    });
+
+    expect(used.mergeChildren).toHaveBeenCalledWith(
+      expect.objectContaining({ strategy: 'conflict-resolver' }),
+    );
   });
 
   it('honours maxParallel when fanning out', async () => {

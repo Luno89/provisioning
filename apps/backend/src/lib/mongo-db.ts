@@ -16,6 +16,7 @@ import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
+import type { Task } from './tasks.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -158,6 +159,10 @@ export class MongoDB implements Database {
 
   private get invites(): Collection {
     return this.db!.collection('invites');
+  }
+
+  private get tasks(): Collection {
+    return this.db!.collection('tasks');
   }
 
   private get memories(): Collection {
@@ -765,6 +770,23 @@ export class MongoDB implements Database {
 
   async deleteMemory(id: string): Promise<void> {
     await this.memories.deleteOne({ _id: id as any });
+  }
+
+  async getTasks(ownerId?: string): Promise<Task[]> {
+    const filter = ownerId ? { ownerId } : {};
+    const docs = await this.tasks.find(filter).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<Task>(d));
+  }
+
+  async saveTask(task: Task): Promise<void> {
+    const doc = toDoc(task);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.tasks.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    await this.tasks.deleteOne({ _id: id as any });
   }
 
   async getBindingTypes(): Promise<BindingTypeRecord[]> {

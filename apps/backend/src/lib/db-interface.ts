@@ -13,6 +13,7 @@ import type { GiteaAccount } from './projects.js';
 import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
+import type { Task } from './tasks.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -149,6 +150,10 @@ export interface Database {
 
   getMemories(ownerId?: string): Promise<MemoryItem[]>;
   saveMemory(memory: MemoryItem): Promise<void>;
+
+  getTasks(ownerId?: string): Promise<Task[]>;
+  saveTask(task: Task): Promise<void>;
+  deleteTask(id: string): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getBindingTypes(): Promise<BindingTypeRecord[]>;

@@ -1,0 +1,15 @@
+{
+  "name": "@koala/engine-core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The parts of the agent engine that run wherever the work runs — environment capabilities, path confinement, tool contracts and tool execution. Shared by the backend and by the worker on a user's own machine.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

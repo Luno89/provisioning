@@ -57,6 +57,7 @@ export interface ChildOutcome {
 }
 
 export interface RunState {
+  inputs: Record<string, unknown>;
   reply: ReplySnapshot;
   tools: ToolOutcome[];
   children: ChildOutcome[];
@@ -80,8 +81,12 @@ export const emptyReply = (): ReplySnapshot => ({
   toolCalls: [],
 });
 
-export function createRunState(now: number = Date.now()): RunState {
+export function createRunState(
+  now: number = Date.now(),
+  inputs: Record<string, unknown> = {},
+): RunState {
   return {
+    inputs,
     reply: emptyReply(),
     tools: [],
     children: [],

@@ -15,6 +15,8 @@ import ServicesPanel from './components/ServicesPanel';
 import CloudAccounts from './components/CloudAccounts.js';
 import MeshDevices from './components/MeshDevices.js';
 import Lab from './components/Lab';
+import EngineRunView from './components/EngineRun/EngineRunView';
+import EvalsView from './components/Evals/EvalsView';
 import Harness from './components/Harness.js';
 import { ToolRepoPanel } from './components/ToolRepoPanel.js';
 import TreeTypes from './components/TreeTypes/index.js';
@@ -189,6 +191,18 @@ export const meshRoute = createRoute({
   component: MeshDevices,
 });
 
+export const engineRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/engine',
+  component: EngineRunView,
+});
+
+export const evalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/evals',
+  component: EvalsView,
+});
+
 export const labRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/lab',
@@ -266,6 +280,8 @@ export const routeTree = rootRoute.addChildren([
   accountsRoute,
   meshRoute,
   labRoute,
+  engineRoute,
+  evalsRoute,
   harnessRoute,
   toolRepoRoute,
   treeTypesRoute,

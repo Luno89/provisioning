@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   callableAgents,
   capabilitiesFor,
-  composeAgentPrompt,
-  describeEnvironment,
   environmentFor,
   isFork,
   needsWorkspace,
@@ -11,8 +9,8 @@ import {
   visibleAgents,
   type AgentDefinition,
 } from './agent.js';
-import { capabilitiesOf } from './environment.js';
-import type { ToolContract } from './tools.js';
+import { capabilitiesOf } from '@koala/engine-core';
+import type { ToolContract } from '@koala/engine-core';
 
 const agent = (over: Partial<AgentDefinition> = {}): AgentDefinition => ({
   slug: 'planner',
@@ -107,103 +105,5 @@ describe('environmentFor', () => {
   it('knows which agents are pinned to a workspace someone else holds', () => {
     expect(needsWorkspace(agent({ interface: { workspace: true } }))).toBe(true);
     expect(needsWorkspace(agent())).toBe(false);
-  });
-});
-
-describe('describeEnvironment', () => {
-  it('tells an agent plainly when it has no machine', () => {
-    const text = describeEnvironment(capabilitiesOf({ kind: 'none', lifecycle: 'invocation' }));
-    expect(text).toContain('no machine of your own');
-    expect(text).toContain('cannot run commands');
-  });
-
-  it('warns that work on a real machine is not disposable', () => {
-    const caps = capabilitiesOf({ kind: 'machine', lifecycle: 'persistent' });
-    const text = describeEnvironment(caps, { kind: 'machine', lifecycle: 'persistent' });
-    expect(text).toContain('real machine');
-    expect(text).toContain('persist');
-  });
-
-  it('says a sandbox is thrown away, and names the languages', () => {
-    const spec = { kind: 'sandbox' as const, lifecycle: 'invocation' as const, languages: ['node20'] };
-    const text = describeEnvironment(capabilitiesOf(spec), spec);
-    expect(text).toContain('disposable sandbox');
-    expect(text).toContain('node20');
-  });
-});
-
-describe('composeAgentPrompt', () => {
-  it('describes only the tools that actually work here', () => {
-    const offline = capabilitiesOf({ kind: 'sandbox', lifecycle: 'invocation', egress: false });
-    const composed = composeAgentPrompt({
-      agent: agent({ tools: ['propose_work', 'search_web', 'run_command'] }),
-      capabilities: offline,
-      catalogue,
-    });
-
-    expect(composed.text).toContain('propose_work');
-    expect(composed.text).toContain('run_command');
-    expect(composed.text).not.toContain('search_web');
-    expect(composed.withheld).toEqual([
-      { name: 'search_web', why: 'this environment cannot reach the network' },
-    ]);
-  });
-
-  it('offers callable agents as ordinary tools', () => {
-    const planner = agent({ slug: 'planner', agents: ['research'] });
-    const research = agent({ slug: 'research', description: 'Answers questions with sources' });
-
-    const composed = composeAgentPrompt({
-      agent: planner,
-      capabilities: capabilitiesOf({ kind: 'none', lifecycle: 'invocation' }),
-      catalogue,
-      callable: [research],
-    });
-
-    expect(composed.tools.map((t) => t.name)).toContain('research');
-    expect(composed.text).toContain('Answers questions with sources');
-  });
-
-  it('states the declared output contract', () => {
-    const composed = composeAgentPrompt({
-      agent: agent({ interface: { outputs: ['findings', 'sources'] } }),
-      capabilities: capabilitiesOf({ kind: 'none', lifecycle: 'invocation' }),
-      catalogue,
-    });
-
-    expect(composed.text).toContain('findings, sources');
-  });
-
-  it('includes recalled memory when there is any', () => {
-    const composed = composeAgentPrompt({
-      agent: agent(),
-      capabilities: capabilitiesOf({ kind: 'none', lifecycle: 'invocation' }),
-      catalogue,
-      memory: 'Previously: the database host is postgres.odoo-db.svc.cluster.local',
-    });
-
-    expect(composed.text).toContain('postgres.odoo-db');
-  });
-
-  it('leads with the agent persona prompt', () => {
-    const composed = composeAgentPrompt({
-      agent: agent({ prompt: 'You are a careful planner.' }),
-      capabilities: capabilitiesOf({ kind: 'none', lifecycle: 'invocation' }),
-      catalogue,
-    });
-
-    expect(composed.text.startsWith('You are a careful planner.')).toBe(true);
-  });
-
-  it('offers no tools at all when the step says none', () => {
-    const composed = composeAgentPrompt({
-      agent: agent({ tools: ['propose_work'] }),
-      capabilities: capabilitiesOf({ kind: 'sandbox', lifecycle: 'invocation' }),
-      catalogue,
-      allowed: 'none',
-    });
-
-    expect(composed.tools).toEqual([]);
-    expect(composed.text).not.toContain('Tools you can use');
   });
 });

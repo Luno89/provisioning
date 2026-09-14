@@ -29,8 +29,8 @@ const reply = (over: Partial<ModelCallResult> = {}): ModelCallResult => ({
 const basePorts = (over: Partial<ExecutorPorts> = {}): ExecutorPorts => ({
   callModel: vi.fn(async () => reply()),
   runTool: vi.fn(async () => ({ ok: false, digest: 'boom' })),
+  dispatchTool: vi.fn(async () => ({ ok: false, digest: 'boom' })),
   runAgent: vi.fn(async () => ({ runId: 'c', agentId: 'a', outcome: 'ok' as const, outputs: {} })),
-  runTransform: vi.fn(async () => ({})),
   mergeChildren: vi.fn(async () => ({})),
   now: () => 0,
   ...over,

@@ -20,7 +20,6 @@ export interface EnvironmentSpec {
   egress?: boolean | undefined;
   egressAllowlist?: string[] | undefined;
   env?: Record<string, string> | undefined;
-  cleanRoom?: boolean | undefined;
 }
 
 export interface EnvironmentScope {
@@ -174,8 +173,4 @@ export function specFingerprint(spec: EnvironmentSpec): string {
   });
 
   return createHash('sha256').update(JSON.stringify(normalised)).digest('hex').slice(0, 32);
-}
-
-export function poolable(spec: EnvironmentSpec): boolean {
-  return spec.kind === 'sandbox' && spec.cleanRoom !== true;
 }

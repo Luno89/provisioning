@@ -31,6 +31,21 @@ import { personaOptionsRouter } from './routes/persona-options.js';
 import { packsRouter } from './routes/packs.js';
 import { authRouter } from './routes/auth.js';
 import { conversationsRouter } from './routes/conversations.js';
+import { engineRouter } from './routes/engine.js';
+import { evalsRouter } from './routes/evals.js';
+import { EvalService } from './services/EvalService.js';
+import { BUILDER_CASES } from './engine/eval/cases.js';
+import { BUILDER_TOOLS } from './engine/builder-tools-catalogue.js';
+import { contractsFor } from './engine/catalogue.js';
+import { createStreamActivities } from './engine/temporal/activities.js';
+import { createEventBus } from './engine/events.js';
+import { createAgentRegistry } from './engine/adapters/registry.js';
+import { createEndpointResolver } from './engine/adapters/endpoints.js';
+import { createToolRuntime } from './engine/adapters/tool-runtime.js';
+import { createRunStarter } from './engine/adapters/run-starter.js';
+import { createPlatformTools } from './engine/adapters/platform-tools.js';
+import { createTaskTools } from './engine/adapters/task-tools.js';
+import { startStreamWorker } from './engine/temporal/stream-worker.js';
 import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
@@ -279,6 +294,46 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   } catch (e: any) {
     console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
   }
+
+  const engineRegistry = createAgentRegistry();
+  const engineRuns = createRunStarter({
+    registry: engineRegistry,
+    workflows: () => (temporalBridge.isReady()
+      ? {
+        start: async (type, options) => {
+          const handle = await temporalBridge.client.workflow.start(type, {
+            workflowId: options.workflowId,
+            taskQueue: options.taskQueue,
+            args: options.args,
+          });
+          return { workflowId: handle.workflowId };
+        },
+        signal: async (workflowId, name, payload) => {
+          await temporalBridge.client.workflow.getHandle(workflowId)
+            .signal(name, ...(payload === undefined ? [] : [payload]));
+        },
+      }
+      : undefined),
+  });
+
+  /**
+   * The model call runs here rather than on the engine worker because this is the only process
+   * holding browser sockets — tokens have to be produced next to whoever is watching them.
+   */
+  startStreamWorker({
+    io,
+    services: {
+      registry: engineRegistry,
+      endpoints: createEndpointResolver({ models: modelService, registry: engineRegistry }),
+    },
+  })
+    .then((worker) => {
+      void worker.run().catch((err: Error) =>
+        console.warn(`[engine] stream worker stopped: ${err.message}`));
+      console.log('[engine] stream worker polling engine-stream-queue');
+    })
+    .catch((err: Error) =>
+      console.warn(`[engine] stream worker not started (${err.message}) — runs will not stream until Temporal is reachable`));
 
   const authService = new AuthService(db);
   app.use(cors({
@@ -634,6 +689,41 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const ownedConversations = async (userId: string) =>
     (await db.getConversations()).filter((c) => c.ownerId === userId);
+
+  app.use('/api/engine', engineRouter({
+    runs: engineRuns,
+    registry: engineRegistry,
+    tasks: {
+      list: (ownerId: string) => db.getTasks(ownerId),
+      save: (task) => db.saveTask(task),
+    },
+  }));
+
+  /**
+   * The harness is how a draft tool gets evaluated toward approval, so it is the one caller that
+   * sees drafts. Production stays approved-only.
+   */
+  const draftRegistry = createAgentRegistry({
+    toolCatalogue: { list: async () => contractsFor(BUILDER_TOOLS, ['draft', 'approved']) },
+  });
+
+  const evalActivities = createStreamActivities({
+    registry: draftRegistry,
+    endpoints: createEndpointResolver({ models: modelService, registry: draftRegistry }),
+    bus: createEventBus({ retain: 0 }),
+  });
+
+  app.use('/api/evals', evalsRouter({
+    evals: new EvalService({
+      cases: BUILDER_CASES,
+      catalogue: BUILDER_TOOLS,
+      ports: {
+        call: (args) => evalActivities.EngineModelCallActivity(args),
+        environment: async () => ({ kind: 'none', egress: false }),
+        catalogue: async () => BUILDER_TOOLS,
+      },
+    }),
+  }));
 
   app.use('/api/conversations', conversationsRouter({
     db,

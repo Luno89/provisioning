@@ -11,11 +11,42 @@ import {
 const backendUrl = process.env.KOALA_BACKEND_URL;
 const token = process.env.KOALA_DEVICE_TOKEN;
 const rootDir = path.resolve(process.env.KOALA_ROOT_DIR ?? process.cwd());
+const deviceId = process.env.KOALA_DEVICE_ID;
+const temporalAddress = process.env.KOALA_TEMPORAL_ADDRESS;
+const temporalNamespace = process.env.KOALA_TEMPORAL_NAMESPACE;
 
 if (!backendUrl) throw new Error('KOALA_BACKEND_URL is required (e.g. http://localhost:3001)');
 if (!token) throw new Error('KOALA_DEVICE_TOKEN is required — mint one from the My Machines page');
 
 const activeContainers = new Set<string>();
+
+async function startEngineWorkerIfConfigured(): Promise<void> {
+  if (!deviceId || !temporalAddress) {
+    if (deviceId || temporalAddress) {
+      console.warn(
+        '[koala-local-agent] engine worker not started — it needs both KOALA_DEVICE_ID and KOALA_TEMPORAL_ADDRESS.',
+      );
+    }
+    return;
+  }
+
+  try {
+    const { startDeviceWorker } = await import('./engine-worker.js');
+    const worker = await startDeviceWorker({
+      rootDir,
+      deviceId,
+      address: temporalAddress,
+      ...(temporalNamespace ? { namespace: temporalNamespace } : {}),
+      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${temporalAddress}`),
+    });
+
+    void worker.run().catch((err: unknown) => {
+      console.error(`[koala-local-agent] engine worker stopped: ${(err as Error).message}`);
+    });
+  } catch (err) {
+    console.error(`[koala-local-agent] could not start the engine worker: ${(err as Error).message}`);
+  }
+}
 
 async function main() {
   const docker = await dockerAvailable();
@@ -25,6 +56,8 @@ async function main() {
     console.warn(`[koala-local-agent] ${docker.reason} Falling back to running leaves directly on this host.`);
   }
   const containerMode = docker.ok;
+
+  await startEngineWorkerIfConfigured();
 
   const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode }, reconnection: true });
 

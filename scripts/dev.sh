@@ -93,7 +93,7 @@ reclaim_port 5173 "Frontend Vite"
 
 # Also terminate any stale worker processes from previous sessions
 # Workers do not hot-reload and must start fresh
-STALE_WORKERS=$(pgrep -u "$(id -u)" -f "worker-host|worker-cluster" 2>/dev/null || true)
+STALE_WORKERS=$(pgrep -u "$(id -u)" -f "worker-host|worker-cluster|worker-engine" 2>/dev/null || true)
 if [ -n "$STALE_WORKERS" ]; then
   echo "  ⚠️  Reclaiming stale Temporal workers (PID: ${STALE_WORKERS})..."
   kill $STALE_WORKERS 2>/dev/null || true
@@ -112,9 +112,10 @@ echo "  Headscale:    http://localhost:8080"
 echo "═══════════════════════════════════════════════════════════════════════"
 
 exec npx concurrently --kill-others \
-  --names "backend,frontend,worker-host,worker-cluster" \
-  --prefix-colors "blue,cyan,yellow,magenta" \
+  --names "backend,frontend,worker-host,worker-cluster,worker-engine" \
+  --prefix-colors "blue,cyan,yellow,magenta,green" \
   "npm run dev -w apps/backend" \
   "npm run dev -w apps/frontend" \
   "npm run dev:worker -w apps/backend" \
-  "npm run dev:worker:cluster -w apps/backend"
+  "npm run dev:worker:cluster -w apps/backend" \
+  "npm run dev:worker:engine -w apps/backend"

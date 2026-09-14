@@ -17,6 +17,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { MemoryItem } from './memory-store.js';
+import type { Task } from './tasks.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -51,6 +52,7 @@ export class MemoryDB implements Database {
   private personas: Persona[] = [];
   private personaPacks: PersonaPack[] = [];
   private memories: MemoryItem[] = [];
+  private tasks: Task[] = [];
   private bindingTypes: BindingTypeRecord[] = [];
   private tools: ToolRepositoryItem[] = [];
 
@@ -583,6 +585,21 @@ export class MemoryDB implements Database {
 
   async deleteMemory(id: string): Promise<void> {
     this.memories = this.memories.filter((m) => m.id !== id);
+  }
+
+  async getTasks(ownerId?: string): Promise<Task[]> {
+    if (!ownerId) return [...this.tasks];
+    return this.tasks.filter((t) => t.ownerId === ownerId);
+  }
+
+  async saveTask(task: Task): Promise<void> {
+    const idx = this.tasks.findIndex((t) => t.id === task.id);
+    if (idx >= 0) this.tasks[idx] = task;
+    else this.tasks.push(task);
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    this.tasks = this.tasks.filter((t) => t.id !== id);
   }
 
   async getBindingTypes(): Promise<BindingTypeRecord[]> {
