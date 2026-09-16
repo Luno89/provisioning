@@ -1,5 +1,3 @@
-import { createHash } from 'crypto';
-
 export type EnvironmentKind = 'none' | 'sandbox' | 'machine';
 
 export type EnvironmentLifecycle = 'invocation' | 'conversation' | 'persistent';
@@ -74,6 +72,12 @@ export interface EnvironmentRequirement {
   egress?: boolean | undefined;
   git?: boolean | undefined;
   languages?: string[] | undefined;
+  /**
+   * Wants a working directory to stand in. Spec selection treats this as a request
+   * for a machine-capable environment; unmetRequirements deliberately does not
+   * check it — whether a runtime has a workspace is a property of its scope,
+   * not of the spec's capabilities.
+   */
   workspace?: boolean | undefined;
 }
 
@@ -147,30 +151,4 @@ export function satisfies(
   capabilities: EnvironmentCapabilities,
 ): boolean {
   return unmetRequirements(requirement, capabilities).length === 0;
-}
-
-function stable(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stable);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([, v]) => v !== undefined)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => [k, stable(v)]),
-    );
-  }
-  return value;
-}
-
-export function specFingerprint(spec: EnvironmentSpec): string {
-  const normalised = stable({
-    kind: spec.kind,
-    languages: [...(spec.languages ?? [])].sort(),
-    packages: [...(spec.packages ?? [])].sort(),
-    egress: spec.egress !== false,
-    egressAllowlist: [...(spec.egressAllowlist ?? [])].sort(),
-    env: spec.env ?? {},
-  });
-
-  return createHash('sha256').update(JSON.stringify(normalised)).digest('hex').slice(0, 32);
 }

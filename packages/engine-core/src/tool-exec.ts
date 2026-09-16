@@ -1,6 +1,6 @@
 import { effectiveTools, type ToolContract } from './tools.js';
 import { ScopeError } from './scope.js';
-import type { EnvironmentCapabilities, EnvironmentDriver } from './environment.js';
+import { NO_CAPABILITIES, type EnvironmentDriver } from './environment.js';
 
 export interface ToolOutcome {
   ok: boolean;
@@ -25,14 +25,6 @@ export interface ToolHandlerContext {
 export type ToolHandler = (ctx: ToolHandlerContext) => Promise<ToolOutcome>;
 
 export const DEFAULT_DIGEST_CHARS = 2_000;
-
-export const NO_CAPABILITIES_AT_ALL: EnvironmentCapabilities = {
-  terminal: false,
-  filesystem: false,
-  egress: false,
-  git: false,
-  languages: [],
-};
 
 const clip = (text: string, max: number): string =>
   (text.length <= max ? text : `${text.slice(0, max)}\n[…truncated]`);
@@ -111,7 +103,7 @@ export const refuse = (why: string): ToolOutcome => ({ ok: false, digest: why, c
 export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome> {
   const handlers = { ...environmentHandlers, ...(input.handlers ?? {}) };
   const digestChars = input.digestChars ?? DEFAULT_DIGEST_CHARS;
-  const capabilities = input.driver?.handle().capabilities ?? NO_CAPABILITIES_AT_ALL;
+  const capabilities = input.driver?.handle().capabilities ?? NO_CAPABILITIES;
 
   const { tools, withheld } = effectiveTools({
     granted: input.granted,

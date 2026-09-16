@@ -110,13 +110,23 @@ export interface AgentToolOptions {
   name: string;
   description: string;
   inputs?: Record<string, unknown> | undefined;
+  guidance?: string | undefined;
+  returns?: string | undefined;
+  failures?: readonly { when: string; says: string }[] | undefined;
 }
 
 export function agentAsTool(options: AgentToolOptions): ToolContract {
+  const guidance = [
+    options.guidance?.trim(),
+    options.returns?.trim() ? `Hands back: ${options.returns.trim()}` : undefined,
+    ...(options.failures ?? []).map((failure) => `If ${failure.when}, it says ${failure.says}.`),
+  ].filter(Boolean).join(' ');
+
   return {
     name: options.name,
     description: options.description,
     binding: 'platform',
     parameters: options.inputs ?? { type: 'object', properties: {} },
+    ...(guidance ? { usageGuidance: guidance } : {}),
   };
 }
