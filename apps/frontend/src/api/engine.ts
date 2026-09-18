@@ -1,3 +1,4 @@
+import type { NodeTrace } from '@koala/agent-engine/procedure'
 import { api } from './client'
 
 export interface AgentInputSchema {
@@ -47,7 +48,8 @@ export type EngineEvent =
   | { type: 'tool.called'; runId: string; at: string; nodeId: string; callId: string; name: string; args: string }
   | { type: 'tool.result'; runId: string; at: string; nodeId: string; callId: string; ok: boolean; digest: string }
   | { type: 'usage'; runId: string; at: string; nodeId: string; usage: Record<string, unknown> }
-  | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string }
+  | { type: 'notice'; runId: string; at: string; level: 'info' | 'warn'; message: string; nodeId?: string }
+  | { type: 'node.traced'; runId: string; at: string; nodeId: string; trace: Record<string, unknown> }
   | { type: 'interrupted'; runId: string; at: string; reason: string }
 
 export const ENGINE_EVENT_CHANNEL = 'engine-event'
@@ -70,6 +72,7 @@ export interface EngineTask {
 
 export const engineKeys = {
   agents: () => ['engine', 'agents'] as const,
+  traces: (runId: string) => ['engine', 'traces', runId] as const,
   tasks: () => ['engine', 'tasks'] as const,
 }
 
@@ -96,9 +99,16 @@ export async function startRun(input: {
   message: string
   inputs?: Record<string, unknown>
   conversationId?: string
+  modelId?: string
+  procedure?: string
 }): Promise<StartedRun> {
   const { data } = await api.post<StartedRun>('/engine/runs', input)
   return data
+}
+
+export async function listRunTraces(runId: string): Promise<NodeTrace[]> {
+  const { data } = await api.get<{ traces: NodeTrace[] }>(`/engine/runs/${encodeURIComponent(runId)}/traces`)
+  return data.traces
 }
 
 export async function answerRun(runId: string, nodeId: string, value: unknown): Promise<void> {

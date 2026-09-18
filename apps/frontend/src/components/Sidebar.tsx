@@ -3,7 +3,7 @@ import { useRouter } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
   Shield, FlaskConical, Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Sprout, Box, Sliders, Wrench, Trash2, GitBranch
+  Plus, Sprout, Box, Sliders, Wrench, Trash2, GitBranch, ListChecks, Cpu, Layers
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -316,6 +316,30 @@ export default function Sidebar({ forestTabs, onLogout }: {
           className={nested(isCurrentView('tool-repo'))}
         >
           <Wrench size={15} className="text-[var(--leaf)]" /> Tool Repo
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('evals')}
+          className={nested(isCurrentView('evals'))}
+        >
+          <ListChecks size={15} className="text-[var(--leaf)]" /> Tool Evals
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('studio')}
+          className={nested(isCurrentView('studio'))}
+        >
+          <Layers size={15} className="text-[var(--leaf)]" /> Procedure Studio
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateTo('engine')}
+          className={nested(isCurrentView('engine'))}
+        >
+          <Cpu size={15} className="text-[var(--leaf)]" /> Engine
         </button>
 
         <button

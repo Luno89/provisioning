@@ -32,20 +32,33 @@ import { packsRouter } from './routes/packs.js';
 import { authRouter } from './routes/auth.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { engineRouter } from './routes/engine.js';
-import { evalsRouter } from './routes/evals.js';
-import { EvalService } from './services/EvalService.js';
-import { BUILDER_CASES } from './engine/eval/cases.js';
-import { BUILDER_TOOLS } from './engine/builder-tools-catalogue.js';
-import { contractsFor } from './engine/catalogue.js';
-import { createStreamActivities } from './engine/temporal/activities.js';
-import { createEventBus } from './engine/events.js';
-import { createAgentRegistry } from './engine/adapters/registry.js';
-import { createEndpointResolver } from './engine/adapters/endpoints.js';
-import { createToolRuntime } from './engine/adapters/tool-runtime.js';
-import { createRunStarter } from './engine/adapters/run-starter.js';
-import { createPlatformTools } from './engine/adapters/platform-tools.js';
-import { createTaskTools } from './engine/adapters/task-tools.js';
-import { startStreamWorker } from './engine/temporal/stream-worker.js';
+import { proceduresRouter } from './routes/procedures.js';
+import { ProcedureService } from './services/ProcedureService.js';
+import { createProcedureStore } from './engine-host/registries/procedure-store.js';
+import { createModelNodes, createProcedureExecutor, hostNodesFor } from './engine-host/nodes/index.js';
+import { evalsLevel1Router } from './routes/evals-level1.js';
+import { evalsLevel2Router } from './routes/evals-level2.js';
+import { buildWebTools } from './lib/web-tools-wiring.js';
+import { Level1Service } from './services/Level1Service.js';
+import { Level2Service } from './services/Level2Service.js';
+import {
+  BUILDER_TOOLS,
+  contractsFor,
+  createEventBus,
+} from '@koala/agent-engine';
+import {
+  createStoredToolCatalogue,
+  createEngineHost,
+  storesFromDatabase,
+  createStreamActivities,
+  createStoredAgentRegistry,
+  createEndpointResolver,
+  createToolRuntime,
+  createRunStarter,
+  createPlatformTools,
+  createTaskTools,
+  startStreamWorker,
+} from './engine-host/index.js';
 import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
@@ -295,7 +308,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     console.warn(`⚠️ Temporal TS bridge not available. Routes will fall back to Local DB.`, e.message);
   }
 
-  const engineRegistry = createAgentRegistry();
+  const engineRegistry = createStoredAgentRegistry({
+    personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+    procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
+  });
   const engineRuns = createRunStarter({
     registry: engineRegistry,
     workflows: () => (temporalBridge.isReady()
@@ -322,9 +338,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
    */
   startStreamWorker({
     io,
+    encryptionKey: JWT_SECRET,
     services: {
       registry: engineRegistry,
       endpoints: createEndpointResolver({ models: modelService, registry: engineRegistry }),
+      streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: modelService }), ['stream']),
     },
   })
     .then((worker) => {
@@ -690,40 +708,89 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const ownedConversations = async (userId: string) =>
     (await db.getConversations()).filter((c) => c.ownerId === userId);
 
+  /**
+   * The harness is how a draft tool gets evaluated toward approval, so it is the one caller that
+   * sees drafts. Production stays approved-only.
+   */
+  const draftRegistry = createStoredAgentRegistry({
+    personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+    procedures: { list: (ownerId?: string) => db.getProcedures(ownerId) },
+    tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
+    include: ['draft', 'approved'],
+  });
+
+  const draftCatalogue = createStoredToolCatalogue({
+    tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
+    include: ['draft', 'approved'],
+  });
+
+  const evalWeb = await buildWebTools(db).catch(() => undefined);
+  const evalHost = createEngineHost({
+    models: modelService,
+    stores: storesFromDatabase(db),
+    ...(evalWeb ? { web: evalWeb } : {}),
+    kubeconfig: process.env.KUBECONFIG_PATH,
+    registryHost: process.env.KOALA_REGISTRY,
+    efforts: { save: (effort) => db.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey) },
+  });
+
+  const level1Service = new Level1Service({
+    executor: createProcedureExecutor(evalHost.services, { registry: evalHost.registry }),
+    tools: (ownerId: string) => draftCatalogue.list(ownerId),
+    agents: async (ownerId: string) => (await draftRegistry.agents(ownerId)).map((agent) => agent.slug),
+    store: db,
+    provokedByScenarios: (ownerId: string) => level2Service.provocations(ownerId),
+    efforts: (effort) => db.saveRunEffort(effort),
+  });
+
+  const level2Service: Level2Service = new Level2Service({
+    world: {
+      models: modelService,
+      personas: (ownerId?: string) => db.getEnginePersonas(ownerId),
+      tools: (ownerId?: string) => db.getEngineTools(ownerId),
+      procedures: (ownerId?: string) => db.getProcedures(ownerId),
+      ...(evalWeb ? { web: evalWeb } : {}),
+      kubeconfig: process.env.KUBECONFIG_PATH,
+      registryHost: process.env.KOALA_REGISTRY,
+      efforts: { save: (effort) => db.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey) },
+    },
+    tools: (ownerId: string) => draftCatalogue.list(ownerId),
+    agents: async (ownerId: string) => (await draftRegistry.agents(ownerId)).map((agent) => agent.slug),
+    procedures: async (ownerId: string) => (await engineRegistry.procedures(ownerId)).map((procedure) => procedure.id),
+    store: db,
+    traces: (traces) => db.saveRunTraces(traces),
+  });
+
+  await Promise.all([level1Service.recover(), level2Service.recover()]).catch(() => undefined);
+
+  app.use('/api/procedures', proceduresRouter({
+    procedures: new ProcedureService({
+      procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) } }),
+      sources: {
+        get: (ownerId, id) => db.getProcedure(ownerId, id),
+        save: (source) => db.saveProcedure(source),
+        delete: (ownerId, id) => db.deleteProcedure(ownerId, id),
+      },
+      known: async (ownerId) => ({
+        tools: new Set((await engineRegistry.tools(ownerId)).map((tool) => tool.name)),
+        agents: new Set((await engineRegistry.agents(ownerId)).map((agent) => agent.slug)),
+      }),
+      effort: { list: (ownerId, procedureId) => db.getRunEffort(ownerId, procedureId) },
+    }),
+  }));
+
   app.use('/api/engine', engineRouter({
     runs: engineRuns,
     registry: engineRegistry,
+    traces: { list: (ownerId: string, runId: string) => db.getRunTraces(ownerId, runId) },
     tasks: {
       list: (ownerId: string) => db.getTasks(ownerId),
       save: (task) => db.saveTask(task),
     },
   }));
 
-  /**
-   * The harness is how a draft tool gets evaluated toward approval, so it is the one caller that
-   * sees drafts. Production stays approved-only.
-   */
-  const draftRegistry = createAgentRegistry({
-    toolCatalogue: { list: async () => contractsFor(BUILDER_TOOLS, ['draft', 'approved']) },
-  });
-
-  const evalActivities = createStreamActivities({
-    registry: draftRegistry,
-    endpoints: createEndpointResolver({ models: modelService, registry: draftRegistry }),
-    bus: createEventBus({ retain: 0 }),
-  });
-
-  app.use('/api/evals', evalsRouter({
-    evals: new EvalService({
-      cases: BUILDER_CASES,
-      catalogue: BUILDER_TOOLS,
-      ports: {
-        call: (args) => evalActivities.EngineModelCallActivity(args),
-        environment: async () => ({ kind: 'none', egress: false }),
-        catalogue: async () => BUILDER_TOOLS,
-      },
-    }),
-  }));
+  app.use('/api/evals/level1', evalsLevel1Router({ level1: level1Service }));
+  app.use('/api/evals/level2', evalsLevel2Router({ level2: level2Service }));
 
   app.use('/api/conversations', conversationsRouter({
     db,

@@ -16,7 +16,8 @@ import CloudAccounts from './components/CloudAccounts.js';
 import MeshDevices from './components/MeshDevices.js';
 import Lab from './components/Lab';
 import EngineRunView from './components/EngineRun/EngineRunView';
-import EvalsView from './components/Evals/EvalsView';
+import StudioView from './components/Studio/StudioView';
+import ProcedurePage from './components/Studio/ProcedurePage';
 import Harness from './components/Harness.js';
 import { ToolRepoPanel } from './components/ToolRepoPanel.js';
 import TreeTypes from './components/TreeTypes/index.js';
@@ -200,7 +201,19 @@ export const engineRoute = createRoute({
 export const evalsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/evals',
-  component: EvalsView,
+  component: () => <EngineRunView initialTab="evals" />,
+});
+
+export const studioRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio',
+  component: StudioView,
+});
+
+export const studioProcedureRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/studio/$procedureId',
+  component: ProcedurePage,
 });
 
 export const labRoute = createRoute({
@@ -282,6 +295,8 @@ export const routeTree = rootRoute.addChildren([
   labRoute,
   engineRoute,
   evalsRoute,
+  studioRoute,
+  studioProcedureRoute,
   harnessRoute,
   toolRepoRoute,
   treeTypesRoute,

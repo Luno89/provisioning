@@ -101,3 +101,4 @@ apps/*/src/test/setup.d.ts
 # Scratch written by scripts/test-e2e-setup.sh (which cluster it provisioned, what it stopped).
 # Running the E2E suite otherwise leaves the working tree dirty.
 .test-e2e-state/
+.eval-browser-profile/

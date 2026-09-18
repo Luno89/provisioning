@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
-import { mountRouter, type Harness } from './test-harness.js';
+import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { engineRouter } from './engine.js';
-import { createAgentRegistry } from '../engine/adapters/registry.js';
-import { createRunStarter, type WorkflowStarter } from '../engine/adapters/run-starter.js';
-import type { Task } from '../lib/tasks.js';
+import { createAgentRegistry, createRunStarter, type WorkflowStarter, type Task } from '../engine-host/index.js';
+import type { Database } from '../lib/db-interface.js';
+import { INTERACTIVE_CHAT_V2, RESEARCH_V2 } from '@koala/agent-engine/procedure';
 
 let tasks: Task[] = [];
 
@@ -33,7 +33,10 @@ const seedTask = (over: Partial<Task> & Pick<Task, 'id'>): Task => {
   return task;
 };
 
-beforeEach(() => { tasks = []; });
+beforeEach(() => {
+  tasks = [];
+});
+
 
 function harnessWith(workflows: WorkflowStarter | undefined) {
   const registry = createAgentRegistry();
@@ -45,7 +48,9 @@ function harnessWith(workflows: WorkflowStarter | undefined) {
 
   return mountRouter({
     prefix: '/api/engine',
-    router: () => engineRouter({ runs, registry, tasks: taskAccess }),
+    router: (db) => {
+      return engineRouter({ runs, registry, tasks: taskAccess, traces: { list: (ownerId, runId) => db.getRunTraces(ownerId, runId) } });
+    },
   });
 }
 
@@ -84,11 +89,26 @@ describe('engine routes', () => {
     }));
 
     const [, options] = workflows.start.mock.calls[0] as [string, { args: [Record<string, unknown>] }];
-    expect(options.args[0]).toMatchObject({
-      messages: [{ role: 'user', content: 'hello there' }],
-      callableAgents: ['planner', 'research'],
-      granted: [],
+    expect(options.args[0]).toEqual({
+      ticket: { runId: 'run-fixed', depth: 0, ownerId: 'test-user', agentSlug: 'koala', trigger: 'user' },
+      procedure: INTERACTIVE_CHAT_V2,
+      inputs: { message: 'hello there' },
     });
+
+    await h.close();
+  });
+
+  it('runs a chosen procedure in place of the agent\'s own, and says when that procedure does not exist', async () => {
+    const workflows = starter();
+    const h: Harness = await harnessWith(workflows);
+
+    const res = await axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'hi', procedure: 'research' });
+    const [, options] = workflows.start.mock.calls[0] as [string, { args: [{ procedure: { id: string } }] }];
+
+    expect(res.status).toBe(201);
+    expect(options.args[0].procedure).toEqual(RESEARCH_V2);
+    await expect(axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'hi', procedure: 'nowhere' }))
+      .rejects.toMatchObject({ response: { status: 404, data: { error: expect.stringContaining('nowhere') } } });
 
     await h.close();
   });
@@ -119,6 +139,27 @@ describe('engine routes', () => {
     await expect(axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'hi' }))
       .rejects.toMatchObject({ response: { status: 503 } });
 
+    await h.close();
+  });
+
+  it('returns only the caller\'s traces for a run, in order', async () => {
+    let db: Database | undefined;
+    const h = await mountRouter({
+      prefix: '/api/engine',
+      router: (database) => {
+        db = database;
+        return engineRouter({ runs: createRunStarter({ registry: createAgentRegistry(), workflows: () => undefined }), registry: createAgentRegistry(), traces: { list: (ownerId, runId) => database.getRunTraces(ownerId, runId) } });
+      },
+    });
+    const trace = (sequence: number, ownerId: string) => ({
+      sequence, step: sequence, node: `n${sequence}`, origin: `n${sequence}`, kind: 'finish', role: 'step' as const, cleanup: false,
+      startedAt: 0, durationMs: 1, inputs: {}, runId: 'run-1', ownerId, agentSlug: 'koala', procedureId: 'p', procedureVersion: '1',
+    });
+    await db!.saveRunTraces([trace(2, TEST_USER.id), trace(1, TEST_USER.id), trace(3, 'someone-else')]);
+
+    const res = await axios.get(h.url('/api/engine/runs/run-1/traces'));
+
+    expect(res.data.traces.map((entry: { node: string }) => entry.node)).toEqual(['n1', 'n2']);
     await h.close();
   });
 
@@ -241,4 +282,55 @@ describe('engine routes', () => {
 
     await h.close();
   });
+
+  it('starts a run with modelId and passes it to workflow ticket', async () => {
+    const workflows = starter();
+    const h: Harness = await harnessWith(workflows);
+
+    const res = await axios.post(h.url('/api/engine/runs'), {
+      agent: 'executor',
+      message: 'test command',
+      modelId: 'test-model-123',
+    });
+
+    expect(res.status).toBe(201);
+    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', expect.objectContaining({
+      args: [expect.objectContaining({
+        ticket: expect.objectContaining({
+          modelId: 'test-model-123',
+        }),
+      })],
+    }));
+
+    await h.close();
+  });
+
+  it('turns a temperature into sampling for both kinds of turn, and refuses one out of range', async () => {
+    const workflows = starter();
+    const h: Harness = await harnessWith(workflows);
+
+    const started = await axios.post(h.url('/api/engine/runs'), {
+      agent: 'executor',
+      message: 'test command',
+      temperature: 0.4,
+    });
+    expect(started.status).toBe(201);
+    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', expect.objectContaining({
+      args: [expect.objectContaining({
+        ticket: expect.objectContaining({
+          sampling: { toolTurn: { temperature: 0.4 }, conversation: { temperature: 0.4 } },
+        }),
+      })],
+    }));
+
+    const refused = await axios.post(h.url('/api/engine/runs'), {
+      agent: 'executor',
+      message: 'test command',
+      temperature: 5,
+    }, { validateStatus: () => true });
+    expect(refused.status).toBe(400);
+
+    await h.close();
+  });
+
 });

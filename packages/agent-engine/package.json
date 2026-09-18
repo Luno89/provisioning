@@ -1,0 +1,45 @@
+{
+  "name": "@koala/agent-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Autonomous agent procedure state machine, fluent builder, execution runtime, and test harness",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./workflow": {
+      "types": "./src/workflow.ts",
+      "default": "./src/workflow.ts"
+    },
+    "./procedure": {
+      "types": "./src/procedure/index.ts",
+      "default": "./src/procedure/index.ts"
+    },
+    "./procedure-builder": {
+      "types": "./src/procedure/builder/index.ts",
+      "default": "./src/procedure/builder/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "gen:builder": "tsx scripts/gen-procedure-builder.ts"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.8",
+    "@koala/engine-core": "*",
+    "@koala/harness-types": "*",
+    "axios": "^1.17.0",
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@babel/types": "^7.29.8",
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.9"
+  }
+}

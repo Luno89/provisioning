@@ -141,6 +141,15 @@ describe('fetching a page', () => {
     expect(await tools.fetchPage('https://example.com')).toBe('hi');
   });
 
+  it('says a page could not be read when the site answers with an error, rather than passing the error off as its text', async () => {
+    const { impl } = stubFetch([['gone.dev', { ok: false, status: 404 }], ['fine.dev', { text: async () => '<p>here</p>' }]]);
+    const tools = createWebTools({ fetchImpl: impl });
+
+    expect(await tools.readPage('https://gone.dev/x')).toEqual({ ok: false, text: 'HTTP error 404' });
+    expect(await tools.readPage('https://fine.dev')).toEqual({ ok: true, text: 'here' });
+    expect(await tools.readPage('file:///etc/passwd')).toMatchObject({ ok: false });
+  });
+
   it('refuses a non-http URL before making any request', async () => {
     const { impl, calls } = stubFetch([]);
     const tools = createWebTools({ fetchImpl: impl });

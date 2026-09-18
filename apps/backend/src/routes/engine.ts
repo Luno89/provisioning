@@ -1,17 +1,34 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
-import { EngineUnavailableError, UnknownAgentError, type RunStarter } from '../engine/adapters/run-starter.js';
-import type { AgentRegistry } from '../engine/adapters/registry.js';
-import { blockedBy, isReady, withStatus, type Task, type TaskStatus } from '../lib/tasks.js';
+import {
+  EngineUnavailableError,
+  UnknownAgentError,
+  UnknownProcedureError,
+  type RunStarter,
+  type AgentRegistry,
+  blockedBy,
+  isReady,
+  withStatus,
+  type Task,
+  type TaskStatus,
+} from '../engine-host/index.js';
+import type { StoredNodeTrace } from '../lib/run-traces.js';
+import { replyTokensProblem, samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 
 export interface TaskAccess {
   list(ownerId: string): Promise<Task[]>;
   save(task: Task): Promise<void>;
 }
 
+
+export interface TraceAccess {
+  list(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;
+}
+
 export interface EngineRouterDeps {
   runs: RunStarter;
   registry: AgentRegistry;
+  traces?: TraceAccess | undefined;
   tasks?: TaskAccess | undefined;
 }
 
@@ -21,6 +38,7 @@ const userOf = (req: Request): { id: string } =>
 const fail = (res: Response, err: unknown): Response => {
   if (err instanceof EngineUnavailableError) return res.status(503).json({ error: err.message });
   if (err instanceof UnknownAgentError) return res.status(404).json({ error: err.message });
+  if (err instanceof UnknownProcedureError) return res.status(404).json({ error: err.message });
   throw err;
 };
 
@@ -33,7 +51,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
       slug: agent.slug,
       name: agent.name,
       description: agent.description,
-      loop: agent.loop,
+      loop: agent.procedure,
       tools: agent.tools,
       canDelegateTo: agent.agents ?? [],
       inputs: agent.interface?.inputs ?? null,
@@ -75,7 +93,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   router.post('/tasks/:taskId/drop', decide('dropped'));
 
   router.post('/runs', asyncRoute(async (req: Request, res: Response) => {
-    const { agent, message, inputs, conversationId } = req.body ?? {};
+    const { agent, message, inputs, conversationId, modelId, temperature, procedure } = req.body ?? {};
 
     if (typeof agent !== 'string' || !agent.trim()) {
       return res.status(400).json({ error: 'agent is required' });
@@ -83,6 +101,8 @@ export function engineRouter(deps: EngineRouterDeps): Router {
     if (typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'message is required' });
     }
+    const knobProblem = temperatureProblem(temperature);
+    if (knobProblem) return res.status(400).json({ error: knobProblem });
 
     try {
       const started = await deps.runs.start({
@@ -91,11 +111,19 @@ export function engineRouter(deps: EngineRouterDeps): Router {
         message,
         ...(inputs && typeof inputs === 'object' ? { inputs: inputs as Record<string, unknown> } : {}),
         ...(typeof conversationId === 'string' ? { conversationId } : {}),
+        ...(typeof modelId === 'string' && modelId ? { modelId } : {}),
+        ...(temperature === undefined ? {} : { sampling: samplingAt(temperature) }),
+        ...(typeof procedure === 'string' && procedure.trim() ? { procedureId: procedure.trim() } : {}),
       });
       return res.status(201).json(started);
     } catch (err) {
       return fail(res, err);
     }
+  }));
+
+  router.get('/runs/:runId/traces', asyncRoute(async (req: Request, res: Response) => {
+    const traces = deps.traces ? await deps.traces.list(userOf(req).id, String(req.params.runId)) : [];
+    return res.json({ traces });
   }));
 
   router.post('/runs/:runId/answer', asyncRoute(async (req: Request, res: Response) => {

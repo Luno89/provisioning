@@ -224,7 +224,7 @@ export function RootLayout() {
     return <Login onSuccess={setUser} />;
   }
 
-  const isChatOrProjects = location.pathname.startsWith('/chat') || location.pathname.startsWith('/projects');
+  const isFullBleed = ['/chat', '/projects', '/studio/'].some((prefix) => location.pathname.startsWith(prefix));
 
   const shellContext: ShellContext = {
     clusters,
@@ -251,7 +251,7 @@ export function RootLayout() {
       <Sidebar forestTabs={FOREST_TABS} onLogout={handleLogout} />
       <PendingApprovals />
 
-      <main className={`flex-1 h-full min-h-0 ${isChatOrProjects ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>
+      <main className={`flex-1 h-full min-h-0 ${isFullBleed ? 'p-0 overflow-hidden' : 'p-10 overflow-y-auto'} relative flex flex-col`}>
         <div className="fixed top-6 right-6 z-[60] space-y-3">
           {notifications.map(n => (
             <div key={n.nid} className={`bg-slate-800 border-l-4 ${n.outOfBand ? 'border-yellow-500' : 'border-green-500'} p-4 rounded-lg shadow-2xl flex items-center gap-4 min-w-[300px] animate-in slide-in-from-right`}>

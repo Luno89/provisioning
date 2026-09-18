@@ -9,6 +9,9 @@ import { seedAppSpecs, seedConstructBackedTypes } from '../lib/app-spec.js';
 import { seedClusterProviders } from '../lib/cluster-providers.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
 import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
+import { retireStoredBuiltInProcedures } from '../lib/built-in-procedures.js';
+import { retireStoredBuiltInPersonas } from '../lib/built-in-personas.js';
+import { seedEngineTools } from '../lib/engine-tool-seeds.js';
 
 export async function seedAll(db: Parameters<typeof seedTools>[0] & Record<string, unknown>) {
   const counts: Record<string, number> = {};
@@ -24,6 +27,9 @@ export async function seedAll(db: Parameters<typeof seedTools>[0] & Record<strin
   // that persona is absent, which would leave an account with no packs at all.
   counts.personas = await seedPersonas(db as never);
   counts.packs = await seedPacks(db as never);
+  counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db as never);
+  counts.engineTools = await seedEngineTools(db as never);
+  counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db as never);
   return counts;
 }
 

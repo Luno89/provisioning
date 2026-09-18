@@ -1,0 +1,31 @@
+# CDKTF generated providers and outputs
+packages/cdktf-infra/.gen/
+**/.gen/**
+packages/cdktf-infra/cdktf.out/
+**/cdktf.out/**
+.terraform-cache/
+**/.terraform-cache/**
+*.tfstate*
+**/*.tfstate*
+packages/cdktf-infra/main.js
+packages/cdktf-infra/main.js.map
+packages/cdktf-infra/main.d.ts
+packages/cdktf-infra/main.d.ts.map
+
+# Build and dependencies
+node_modules/
+**/node_modules/**
+dist/
+**/dist/**
+build/
+**/build/**
+
+# Runtime, caches, and test artifacts
+.k3d-storage/
+.vllm-model-cache/
+.tabbyapi-model-cache/
+.backup-tmp/
+tests/.vm-cache/
+apps/backend/data/
+playwright-report/
+test-results/

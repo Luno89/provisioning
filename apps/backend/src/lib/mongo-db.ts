@@ -17,6 +17,11 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
+import { procedureKey, type ProcedureSource } from './procedure-source.js';
+import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
+import type { RunEffort } from '@koala/agent-engine/procedure';
+import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
+import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -161,6 +166,26 @@ export class MongoDB implements Database {
     return this.db!.collection('invites');
   }
 
+  private get procedures(): Collection {
+    return this.db!.collection('procedures');
+  }
+
+  private get runEffort(): Collection {
+    return this.db!.collection('engineRunEffort');
+  }
+
+  private get runTraces(): Collection {
+    return this.db!.collection('engineRunTraces');
+  }
+
+  private get enginePersonas(): Collection {
+    return this.db!.collection('enginePersonas');
+  }
+
+  private get engineTools(): Collection {
+    return this.db!.collection('engineTools');
+  }
+
   private get tasks(): Collection {
     return this.db!.collection('tasks');
   }
@@ -199,6 +224,8 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ clusterId: 1 });
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
+    await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
+    await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
     try {
       await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
         unique: true,
@@ -789,6 +816,126 @@ export class MongoDB implements Database {
     await this.tasks.deleteOne({ _id: id as any });
   }
 
+  async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {
+    const doc = await this.procedures.findOne({ _id: procedureKey(ownerId, id) as any });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return rest as unknown as ProcedureSource;
+  }
+
+  async getProcedures(ownerId?: string): Promise<ProcedureSource[]> {
+    const filter = ownerId === undefined ? {} : { $or: [{ ownerId }, { ownerId: { $exists: false } }] };
+    const docs = await this.procedures.find(filter).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc;
+      return rest as unknown as ProcedureSource;
+    });
+  }
+
+  async saveProcedure(source: ProcedureSource): Promise<void> {
+    await this.procedures.replaceOne(
+      { _id: procedureKey(source.ownerId, source.id) as any },
+      { ...source },
+      { upsert: true },
+    );
+  }
+
+  async saveRunTraces(traces: StoredNodeTrace[]): Promise<void> {
+    if (traces.length === 0) return;
+    await this.runTraces.bulkWrite(traces.map((trace) => ({
+      replaceOne: {
+        filter: { _id: runTraceKey(trace.runId, trace.sequence) as any },
+        replacement: { ...trace },
+        upsert: true,
+      },
+    })));
+  }
+
+  async saveRunEffort(effort: RunEffort): Promise<void> {
+    await this.runEffort.replaceOne({ _id: effort.runId as any }, { ...effort }, { upsert: true });
+  }
+
+  async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {
+    const docs = await this.runEffort
+      .find({ ownerId, procedureId, ...(modelKey ? { modelKey } : {}) })
+      .sort({ finishedAt: -1 })
+      .limit(500)
+      .toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as RunEffort);
+  }
+
+  async getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]> {
+    const docs = await this.runTraces.find({ ownerId, runId }).sort({ sequence: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as StoredNodeTrace);
+  }
+
+  async deleteProcedure(ownerId: string | undefined, id: string): Promise<void> {
+    await this.procedures.deleteOne({ _id: procedureKey(ownerId, id) as any });
+  }
+
+  async getEnginePersonas(ownerId?: string): Promise<EnginePersona[]> {
+    const filter = ownerId === undefined ? {} : { $or: [{ ownerId }, { ownerId: { $exists: false } }] };
+    const docs = await this.enginePersonas.find(filter).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc;
+      return rest as unknown as EnginePersona;
+    });
+  }
+
+  async getEngineTools(ownerId?: string): Promise<EngineTool[]> {
+    const filter = ownerId === undefined ? {} : { $or: [{ ownerId }, { ownerId: { $exists: false } }] };
+    const docs = await this.engineTools.find(filter).toArray();
+    return docs.map((doc) => {
+      const { _id, ...rest } = doc;
+      return rest as unknown as EngineTool;
+    });
+  }
+
+  async getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit = 200): Promise<T[]> {
+    const docs = await this.db!.collection(collection).find({ ownerId }).sort({ startedAt: -1, _id: 1 }).limit(limit).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as T);
+  }
+
+  async getEvalRecordsInState<T extends EvalRecord>(collection: EvalCollection, state: string): Promise<T[]> {
+    const docs = await this.db!.collection(collection).find({ state }).toArray();
+    return docs.map(({ _id, ...rest }) => rest as unknown as T);
+  }
+
+  async getEvalRecord<T extends EvalRecord>(collection: EvalCollection, ownerId: string, id: string): Promise<T | null> {
+    const doc = await this.db!.collection(collection).findOne({ _id: evalRecordKey(ownerId, id) as any });
+    if (!doc) return null;
+    const { _id, ...rest } = doc;
+    return rest as unknown as T;
+  }
+
+  async saveEvalRecord<T extends EvalRecord>(collection: EvalCollection, record: T): Promise<void> {
+    await this.db!.collection(collection).replaceOne({ _id: evalRecordKey(record.ownerId, record.id) as any }, { ...record }, { upsert: true });
+  }
+
+  async deleteEvalRecord(collection: EvalCollection, ownerId: string, id: string): Promise<void> {
+    await this.db!.collection(collection).deleteOne({ _id: evalRecordKey(ownerId, id) as any });
+  }
+
+  async saveEngineTool(tool: EngineTool): Promise<void> {
+    await this.engineTools.replaceOne(
+      { _id: `${tool.ownerId ?? 'builtin'}:${tool.name}` as any },
+      { ...tool },
+      { upsert: true },
+    );
+  }
+
+  async saveEnginePersona(persona: EnginePersona): Promise<void> {
+    await this.enginePersonas.replaceOne(
+      { _id: `${persona.ownerId ?? 'builtin'}:${persona.slug}` as any },
+      { ...persona },
+      { upsert: true },
+    );
+  }
+
+  async deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void> {
+    await this.enginePersonas.deleteOne({ _id: `${ownerId ?? 'builtin'}:${slug}` as any });
+  }
+
   async getBindingTypes(): Promise<BindingTypeRecord[]> {
     return (await this.bindingTypes.find({}).toArray()).map((doc) => fromDoc<BindingTypeRecord>(doc));
   }
@@ -830,4 +977,5 @@ export class MongoDB implements Database {
     const { _id: _ignored, ...doc } = profile as ModelThinkingProfile & { _id?: unknown };
     await this.thinkingProfiles.replaceOne({ modelId: profile.modelId }, doc, { upsert: true });
   }
+
 }

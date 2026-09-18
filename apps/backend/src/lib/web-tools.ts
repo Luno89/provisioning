@@ -41,9 +41,15 @@ export function renderSearchOutcome(query: string, outcome: SearchOutcome): Reco
   return { query, source: outcome.answeredBy, results: outcome.hits };
 }
 
+export interface PageOutcome {
+  ok: boolean;
+  text: string;
+}
+
 export interface WebTools {
   search: (query: string) => Promise<SearchOutcome>;
   fetchPage: (url: string) => Promise<string>;
+  readPage: (url: string) => Promise<PageOutcome>;
   sources: { search: 'searxng' | 'duckduckgo'; fetch: 'crawl4ai' | 'strip-tags' };
 }
 
@@ -112,23 +118,24 @@ async function searxng(doFetch: typeof fetch, base: string, query: string): Prom
   }).filter((h) => h.url);
 }
 
-async function stripTags(doFetch: typeof fetch, url: string): Promise<string> {
+async function stripTags(doFetch: typeof fetch, url: string): Promise<PageOutcome> {
   const res = await tryFetch(doFetch, url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     },
   }, FETCH_TIMEOUT_MS);
-  if (!res) return 'Failed to fetch page.';
-  if (!res.ok) return `HTTP error ${res.status}`;
+  if (!res) return { ok: false, text: 'Failed to fetch page.' };
+  if (!res.ok) return { ok: false, text: `HTTP error ${res.status}` };
 
   const html = await res.text().catch(() => '');
-  return html
+  const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_PAGE_CHARS);
+  return { ok: true, text };
 }
 
 function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
@@ -174,13 +181,17 @@ export function createWebTools(config: WebToolsConfig = {}): WebTools {
       return { hits: [], unavailable: true };
     },
 
-    async fetchPage(url: string): Promise<string> {
-      if (!/^https?:\/\//i.test(url)) return 'Only http and https URLs can be fetched.';
+    async readPage(url: string): Promise<PageOutcome> {
+      if (!/^https?:\/\//i.test(url)) return { ok: false, text: 'Only http and https URLs can be fetched.' };
       if (scrape) {
         const markdown = await scrape(url);
-        if (markdown) return markdown;
+        if (markdown) return { ok: true, text: markdown };
       }
       return stripTags(doFetch, url);
+    },
+
+    async fetchPage(url: string): Promise<string> {
+      return (await this.readPage(url)).text;
     },
   };
 }

@@ -14,6 +14,11 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
+import type { ProcedureSource } from './procedure-source.js';
+import type { StoredNodeTrace } from './run-traces.js';
+import type { RunEffort } from '@koala/agent-engine/procedure';
+import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
+import type { EvalCollection, EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -155,6 +160,29 @@ export interface Database {
   saveTask(task: Task): Promise<void>;
   deleteTask(id: string): Promise<void>;
   deleteMemory(id: string): Promise<void>;
+
+  getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;
+  getProcedures(ownerId?: string): Promise<ProcedureSource[]>;
+  saveProcedure(source: ProcedureSource): Promise<void>;
+  deleteProcedure(ownerId: string | undefined, id: string): Promise<void>;
+
+  saveRunTraces(traces: StoredNodeTrace[]): Promise<void>;
+  getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]>;
+  saveRunEffort(effort: RunEffort): Promise<void>;
+  getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]>;
+
+  getEnginePersonas(ownerId?: string): Promise<EnginePersona[]>;
+  saveEnginePersona(persona: EnginePersona): Promise<void>;
+  deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void>;
+
+  getEngineTools(ownerId?: string): Promise<EngineTool[]>;
+  saveEngineTool(tool: EngineTool): Promise<void>;
+
+  getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit?: number): Promise<T[]>;
+  getEvalRecordsInState<T extends EvalRecord>(collection: EvalCollection, state: string): Promise<T[]>;
+  getEvalRecord<T extends EvalRecord>(collection: EvalCollection, ownerId: string, id: string): Promise<T | null>;
+  saveEvalRecord<T extends EvalRecord>(collection: EvalCollection, record: T): Promise<void>;
+  deleteEvalRecord(collection: EvalCollection, ownerId: string, id: string): Promise<void>;
 
   getBindingTypes(): Promise<BindingTypeRecord[]>;
   saveBindingType(record: BindingTypeRecord): Promise<void>;

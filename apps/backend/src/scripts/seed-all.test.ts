@@ -11,7 +11,9 @@ describe('seed-all', () => {
     expect(await db.getPersonas()).toEqual([]);
     expect(await db.getPersonaPacks()).toEqual([]);
 
-    const counts = await seedAll(db as never);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, ...counts } = await seedAll(db as never);
+    expect(removedBuiltInProcedures).toBe(0);
+    expect(removedBuiltInPersonas).toBe(0);
     for (const [name, n] of Object.entries(counts)) {
       expect(n, `${name} seeded nothing`).toBeGreaterThan(0);
     }

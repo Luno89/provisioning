@@ -10,23 +10,19 @@ import { createModelService } from './lib/model-wiring.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
 
-import { createEventBus } from './engine/events.js';
-import { createRunEnvironments } from './engine/adapters/run-environments.js';
-import { createSandboxDriver } from './engine/drivers/sandbox.js';
-import { createClusterBackend } from './engine/adapters/cluster-backend.js';
-import { createKubeRunner } from './engine/adapters/kube.js';
-import { createImageBuilder } from './engine/adapters/image-builder.js';
-import { BUILDER_TOOLS } from './engine/builder-tools-catalogue.js';
-import { createAgentRegistry } from './engine/adapters/registry.js';
-import { createEndpointResolver } from './engine/adapters/endpoints.js';
-import { createEnvironmentResolver } from './engine/adapters/environments.js';
-import { createMachineBackend } from './engine/adapters/machine-backend.js';
-import { createToolRuntime } from './engine/adapters/tool-runtime.js';
-import { createPlatformTools } from './engine/adapters/platform-tools.js';
-import { createTaskTools } from './engine/adapters/task-tools.js';
+import { createEventBus } from '@koala/agent-engine';
+import {
+  createEngineActivities,
+  createEffortTracker,
+  createEngineHost,
+  storesFromDatabase,
+  DEFAULT_ENGINE_TASK_QUEUE,
+  type Task,
+  type MergeArgs,
+  type RecordTracesArgs,
+} from './engine-host/index.js';
+import { createHostNodes, hostNodesFor } from './engine-host/nodes/index.js';
 import { buildWebTools } from './lib/web-tools-wiring.js';
-import { createEngineActivities } from './engine/temporal/activities.js';
-import { DEFAULT_ENGINE_TASK_QUEUE } from './engine/temporal/contracts.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,42 +46,24 @@ async function buildActivities() {
   await db.init();
 
   const models = createModelService(db, process.env.JWT_SECRET ?? '');
-  const registry = createAgentRegistry();
-  const endpoints = createEndpointResolver({ models, registry });
+  const web = await buildWebTools(db).catch(() => undefined);
 
-  const kube = createKubeRunner({ kubeconfig: process.env.KUBECONFIG_PATH });
-
-  const runEnvironments = createRunEnvironments({
-    provision: async ({ id, ticket, spec, workspace, scope }) => {
-      if (!workspace) {
-        throw new Error(`Run ${ticket.runId} asked for a sandbox without a resolved workspace spec.`);
-      }
-
-      void id;
-      return createSandboxDriver({
-        sandboxId: workspace.runId,
-        spec,
-        ...(scope ? { scope } : {}),
-        backend: createClusterBackend({ run: kube, workspace }),
-      });
-    },
+  const host = createEngineHost({
+    models,
+    stores: storesFromDatabase(db),
+    ...(web ? { web } : {}),
+    kubeconfig: process.env.KUBECONFIG_PATH,
+    registryHost: process.env.KOALA_REGISTRY,
     onLeak: (runId, ageMs) => {
       logger.warn(`[engine] sandbox for ${runId} outlived its run by ${Math.round(ageMs / 60_000)}m — tearing it down`);
     },
   });
+  const { registry, endpoints, environments, tools } = host;
 
   const sweeper = setInterval(() => {
-    void runEnvironments.sweep();
+    void host.runEnvironments.sweep();
   }, 10 * 60_000);
   sweeper.unref();
-
-  const environments = createEnvironmentResolver({
-    registry,
-    environments: runEnvironments,
-    images: createImageBuilder({ run: kube, ...(process.env.KOALA_REGISTRY ? { registry: process.env.KOALA_REGISTRY } : {}) }),
-    tools: async () => BUILDER_TOOLS,
-    machineBackend: createMachineBackend(),
-  });
 
   const bus = createEventBus();
   bus.subscribe((event) => {
@@ -93,49 +71,32 @@ async function buildActivities() {
     logger.info(`[engine] ${event.runId} ${event.type}`);
   });
 
-  const web = await buildWebTools(db).catch(() => undefined);
-
-  const tools = createToolRuntime({
-    registry,
-    environments,
-    handlers: {
-      ...createTaskTools({
-        store: {
-          list: (ownerId: string) => db.getTasks(ownerId),
-          save: (task) => db.saveTask(task),
-        },
-      }),
-      ...createPlatformTools({
-        ...(web
-          ? {
-            web: {
-              search: async (query: string) => {
-                const outcome = await web.search(query);
-                return outcome.unavailable
-                  ? { error: 'Search is unavailable — no backend could be reached. Rephrasing will not help.' }
-                  : { results: outcome.hits };
-              },
-              fetchPage: (url: string) => web.fetchPage(url),
-            },
-          }
-          : {}),
-        memory: {
-          remember: async (item) => {
-            await db.saveMemory(item);
-            return { action: 'saved' };
-          },
-        },
-      }),
-    },
-  });
+  const hostNodes = hostNodesFor(createHostNodes(host.services), ['activity', 'sandbox']);
 
   return createEngineActivities({
     registry,
     endpoints,
     environments,
     tools,
+    hostNodes,
+    tasks: {
+      list: (ownerId: string) => db.getTasks(ownerId),
+      save: (task: Task) => db.saveTask(task),
+    },
+    effort: createEffortTracker({
+      models,
+      registry,
+      store: {
+        save: (effort) => db.saveRunEffort(effort),
+        list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey),
+      },
+    }),
+    traces: {
+      record: ({ ownerId, runId, agentSlug, procedureId, procedureVersion, traces }: RecordTracesArgs) =>
+        db.saveRunTraces(traces.map((trace) => ({ ...trace, ownerId, runId, agentSlug, procedureId, procedureVersion }))),
+    },
     merges: {
-      run: async ({ children }) => ({
+      run: async ({ children }: MergeArgs) => ({
         children: children.map((child) => ({ agent: child.agentId, outcome: child.outcome, outputs: child.outputs })),
       }),
     },

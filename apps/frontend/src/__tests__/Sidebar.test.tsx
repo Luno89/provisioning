@@ -62,7 +62,7 @@ const setup = (init: {
 describe('what the nav offers', () => {
   it('renders the harness entries', () => {
     setup();
-    for (const label of ['Koala', 'Projects', 'Personas', 'Lab', 'Harness', 'Tool Repo', 'Forest']) {
+    for (const label of ['Koala', 'Projects', 'Personas', 'Lab', 'Harness', 'Tool Repo', 'Tool Evals', 'Forest']) {
       expect(screen.getByText(label), label).toBeInTheDocument();
     }
   });

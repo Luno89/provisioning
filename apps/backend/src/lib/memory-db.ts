@@ -18,6 +18,11 @@ import type { HarnessProfile } from './harness-profile.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
+import { procedureKey, type ProcedureSource } from './procedure-source.js';
+import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
+import type { RunEffort } from '@koala/agent-engine/procedure';
+import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
+import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
 import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
@@ -53,6 +58,12 @@ export class MemoryDB implements Database {
   private personaPacks: PersonaPack[] = [];
   private memories: MemoryItem[] = [];
   private tasks: Task[] = [];
+  private procedures: ProcedureSource[] = [];
+  private runTraces = new Map<string, StoredNodeTrace>();
+  private runEffort = new Map<string, RunEffort>();
+  private enginePersonas: EnginePersona[] = [];
+  private engineTools: EngineTool[] = [];
+  private evalRecords = new Map<EvalCollection, Map<string, EvalRecord & { state?: unknown; startedAt?: unknown }>>();
   private bindingTypes: BindingTypeRecord[] = [];
   private tools: ToolRepositoryItem[] = [];
 
@@ -598,6 +609,103 @@ export class MemoryDB implements Database {
     else this.tasks.push(task);
   }
 
+  async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {
+    return this.procedures.find((s) => procedureKey(s.ownerId, s.id) === procedureKey(ownerId, id));
+  }
+
+  async getProcedures(ownerId?: string): Promise<ProcedureSource[]> {
+    if (ownerId === undefined) return [...this.procedures];
+    return this.procedures.filter((s) => s.ownerId === ownerId || s.ownerId === undefined);
+  }
+
+  async saveProcedure(source: ProcedureSource): Promise<void> {
+    const key = procedureKey(source.ownerId, source.id);
+    const idx = this.procedures.findIndex((s) => procedureKey(s.ownerId, s.id) === key);
+    if (idx >= 0) this.procedures[idx] = source;
+    else this.procedures.push(source);
+  }
+
+  async saveRunTraces(traces: StoredNodeTrace[]): Promise<void> {
+    for (const trace of traces) this.runTraces.set(runTraceKey(trace.runId, trace.sequence), trace);
+  }
+
+  async saveRunEffort(effort: RunEffort): Promise<void> {
+    this.runEffort.set(effort.runId, effort);
+  }
+
+  async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {
+    return [...this.runEffort.values()]
+      .filter((effort) => effort.ownerId === ownerId && effort.procedureId === procedureId && (!modelKey || effort.modelKey === modelKey))
+      .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+  }
+
+  async getRunTraces(ownerId: string, runId: string): Promise<StoredNodeTrace[]> {
+    return [...this.runTraces.values()]
+      .filter((trace) => trace.ownerId === ownerId && trace.runId === runId)
+      .sort((a, b) => a.sequence - b.sequence);
+  }
+
+  async deleteProcedure(ownerId: string | undefined, id: string): Promise<void> {
+    this.procedures = this.procedures.filter((s) => procedureKey(s.ownerId, s.id) !== procedureKey(ownerId, id));
+  }
+
+  async getEnginePersonas(ownerId?: string): Promise<EnginePersona[]> {
+    if (ownerId === undefined) return [...this.enginePersonas];
+    return this.enginePersonas.filter((p) => p.ownerId === ownerId || p.ownerId === undefined);
+  }
+
+  async getEngineTools(ownerId?: string): Promise<EngineTool[]> {
+    if (ownerId === undefined) return [...this.engineTools];
+    return this.engineTools.filter((t) => t.ownerId === ownerId || t.ownerId === undefined);
+  }
+
+  private evalCollection(collection: EvalCollection) {
+    const found = this.evalRecords.get(collection) ?? new Map();
+    this.evalRecords.set(collection, found);
+    return found;
+  }
+
+  async getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit = 200): Promise<T[]> {
+    return [...this.evalCollection(collection).values()]
+      .filter((record) => record.ownerId === ownerId)
+      .sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')))
+      .slice(0, limit)
+      .map((record) => structuredClone(record) as unknown as T);
+  }
+
+  async getEvalRecordsInState<T extends EvalRecord>(collection: EvalCollection, state: string): Promise<T[]> {
+    return [...this.evalCollection(collection).values()].filter((record) => record.state === state).map((record) => structuredClone(record) as unknown as T);
+  }
+
+  async getEvalRecord<T extends EvalRecord>(collection: EvalCollection, ownerId: string, id: string): Promise<T | null> {
+    const found = this.evalCollection(collection).get(evalRecordKey(ownerId, id));
+    return found ? (structuredClone(found) as unknown as T) : null;
+  }
+
+  async saveEvalRecord<T extends EvalRecord>(collection: EvalCollection, record: T): Promise<void> {
+    this.evalCollection(collection).set(evalRecordKey(record.ownerId, record.id), structuredClone(record));
+  }
+
+  async deleteEvalRecord(collection: EvalCollection, ownerId: string, id: string): Promise<void> {
+    this.evalCollection(collection).delete(evalRecordKey(ownerId, id));
+  }
+
+  async saveEngineTool(tool: EngineTool): Promise<void> {
+    const idx = this.engineTools.findIndex((t) => t.name === tool.name && t.ownerId === tool.ownerId);
+    if (idx >= 0) this.engineTools[idx] = tool;
+    else this.engineTools.push(tool);
+  }
+
+  async saveEnginePersona(persona: EnginePersona): Promise<void> {
+    const idx = this.enginePersonas.findIndex((p) => p.slug === persona.slug && p.ownerId === persona.ownerId);
+    if (idx >= 0) this.enginePersonas[idx] = persona;
+    else this.enginePersonas.push(persona);
+  }
+
+  async deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void> {
+    this.enginePersonas = this.enginePersonas.filter((p) => !(p.slug === slug && p.ownerId === ownerId));
+  }
+
   async deleteTask(id: string): Promise<void> {
     this.tasks = this.tasks.filter((t) => t.id !== id);
   }
@@ -629,4 +737,5 @@ export class MemoryDB implements Database {
   async deleteTool(id: string): Promise<void> {
     this.tools = this.tools.filter((t) => t.id !== id);
   }
+
 }

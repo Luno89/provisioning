@@ -12,6 +12,24 @@ React UI (Vite :5173) → Express API (:3001) → Temporal.io (workflows) → CD
 
 npm workspaces: `apps/*`, `packages/*`.
 
+## Agent Rules & Standards
+
+1. **Zero Half-Implementations**: NEVER half-implement any feature, view, route, or subsystem. Every feature must be 100% implemented end-to-end across the entire stack — backend services, persistence, API contracts, frontend UI, real-time events, and operational tests. Never leave half-wired buttons, superficial veneers, stubbed callbacks, or partial capabilities.
+
+   Every one of these shipped in this repo and passed its tests:
+   - **A control the server never reads.** Level 2's "sandbox" toggle was sent and stored, but nothing branched on it.
+   - **A fake that passes by construction.** A mock model that calls exactly the tools the case expects, scored by checking those same tools, cannot fail.
+   - **Canned tool handlers standing in for real ones.** `run_command` "succeeded" unless the command contained the word `fail`.
+   - **An invented placeholder shown as real.** The studio displayed a made-up three-node graph for any case naming a built-in procedure, then ran it.
+   - **Data kept only in memory** when the feature is a list of history the user comes back to.
+   - **A field sent in a shape its consumer silently ignores.** `{ temperature }` where the model call reads `{ toolTurn, conversation }`.
+
+   Product-level mock modes this file documents (mock cloud mode, the OAuth and Twilio fallbacks) are features, not stubs. Test doubles belong in tests.
+2. **Proactive Questioning & Architectural Alignment**: If you are not 100% confident about requirements, terminology, design trade-offs, or system boundaries, STOP and ask the user directly before proceeding. Never guess or assume intent. Check existing plan documents (`~/.claude/plans/`, `CLAUDE.md`) and project history first so questions are informed and focused on unsettled decisions. Any architectural decision, abstraction boundary, or UX paradigm shift MUST be surfaced to the user for explicit review and sign-off.
+3. **Mandatory Live Operational E2E Verification**: Never declare any feature or capability "done" based solely on unit tests or typechecks. You MUST perform a live, end-to-end operational verification against the running application (e.g. authenticating, exercising actual HTTP/WebSocket routes, validating client payload contracts, verifying state mutations) proving the exact user flow succeeds end-to-end before concluding.
+
+   A live check must go through the real path. A run in a mock mode proves the mock. When reporting, name what was exercised live and what was not.
+
 ## Commands
 
 ```bash

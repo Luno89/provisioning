@@ -57,6 +57,12 @@ jobs:
         run: npm run lint
 
       # Run separately so a failure names which half broke without scrolling.
+      - name: Engine core unit tests
+        run: npm run test:unit:engine-core
+
+      - name: Agent engine unit tests
+        run: npm run test:unit:agent-engine
+
       - name: Frontend unit tests
         run: npm run test:unit:frontend
 

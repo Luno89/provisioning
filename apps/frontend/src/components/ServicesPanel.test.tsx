@@ -170,7 +170,7 @@ describe('ServicesPanel', () => {
     });
 
     const links = screen.getAllByText('Open Dashboard');
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
 
     expect(links[0]!.closest('a')).toHaveAttribute(
       'href',
@@ -181,6 +181,10 @@ describe('ServicesPanel', () => {
       expect.stringContaining('/proxy/grafana/'),
     );
     expect(links[2]!.closest('a')).toHaveAttribute(
+      'href',
+      expect.stringContaining('/proxy/infisical/'),
+    );
+    expect(links[3]!.closest('a')).toHaveAttribute(
       'href',
       expect.stringContaining('/proxy/traefik/'),
     );
