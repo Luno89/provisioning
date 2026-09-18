@@ -62,6 +62,8 @@ export {
   TYPICAL_PERCENTILE,
   limitsFor,
   replyCeilingFor,
+  replyCeilingFrom,
+  LIMITS_ARE_ADVISORY,
   percentile,
   trackRecord,
   trackRecordsByModel,

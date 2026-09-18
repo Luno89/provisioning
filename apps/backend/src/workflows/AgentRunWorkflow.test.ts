@@ -258,7 +258,7 @@ describe('AgentRunWorkflow', () => {
     })]);
   }, 60_000);
 
-  it('holds a run to 40% more than the model usually needed once it has done the procedure five times', async () => {
+  it('records what a run needed without holding the next one to it, so an easy history cannot cut off a harder ask', async () => {
     const past = (index: number): RunEffort => ({
       runId: `past-${index}`, ownerId: 'user-1', agentSlug: 'executor', procedureId: 'tool-rounds', procedureVersion: '2',
       modelKey: 'tabby', modelLabel: 'Tabby', outcome: 'ok', rounds: 1, toolCalls: 0, totalTokens: 0, childRuns: 0, longestReply: 0, cappedAt: 0,
@@ -271,8 +271,19 @@ describe('AgentRunWorkflow', () => {
 
     const result = await runWorkflow(input('executor', { ...TOOL_ROUNDS_V2, budget: {} }), acts);
 
+    expect(result).toMatchObject({ outcome: 'ok' });
+    expect(acts.efforts.at(-1)).toMatchObject({ outcome: 'ok', limits: {}, rounds: 3 });
+  }, 60_000);
+
+  it('still holds a run to a limit the procedure itself asks for', async () => {
+    const acts = activities({
+      script: [callsATool('c1', 'read_file', '{"path":"a"}'), callsATool('c2', 'read_file', '{"path":"b"}'), { content: 'done' }],
+    });
+
+    const result = await runWorkflow(input('executor', { ...TOOL_ROUNDS_V2, budget: { maxRounds: 2 } }), acts);
+
     expect(result).toMatchObject({ outcome: 'exhausted', reason: 'used all 2 rounds' });
-    expect(acts.efforts.at(-1)).toMatchObject({ outcome: 'exhausted', limits: { maxRounds: 2 } });
+    expect(acts.efforts.at(-1)).toMatchObject({ limits: { maxRounds: 2 } });
   }, 60_000);
 
   it('asks before running a call on someone\'s machine, and runs it there once allowed', async () => {

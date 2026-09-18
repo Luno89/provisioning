@@ -70,6 +70,47 @@ export interface BuildContextNode extends Value {
   wire(wires: BuildContextWires): void
 }
 
+export type CodeWires = Record<string, In<SocketType> | readonly In<SocketType>[]>
+
+export type CodeSettings = {
+  /**
+   * Body
+   * JavaScript. It is given "inputs" and returns an object with the values it declares. Top-level await works.
+   */
+  body: string
+  /**
+   * Values it takes
+   * Each one becomes a socket you can wire into, and a key on "inputs".
+   */
+  inputs?: readonly ({
+    /** Name */
+    name?: string
+    /** Kind */
+    type?: 'text' | 'messages' | 'reply' | 'toolCalls' | 'toolResults' | 'toolSet' | 'environment' | 'memory' | 'persona' | 'modelBinding' | 'json' | 'any'
+    /** What it is */
+    describe?: string
+  })[]
+  /**
+   * Values it hands back
+   * Each one becomes a socket you can wire out of, and a key on what the body returns.
+   */
+  outputs?: readonly ({
+    /** Name */
+    name?: string
+    /** Kind */
+    type?: 'text' | 'messages' | 'reply' | 'toolCalls' | 'toolResults' | 'toolSet' | 'environment' | 'memory' | 'persona' | 'modelBinding' | 'json' | 'any'
+    /** What it is */
+    describe?: string
+  })[]
+  /**
+   * Give up after
+   * Milliseconds before the body is stopped.
+   */
+  timeoutMs?: number
+}
+
+export type CodeNode = Value & Record<string, Out<SocketType>> & { wire(wires: CodeWires): void }
+
 export interface ConversationWires {
   /** The first user message. Required. */
   opening?: In<'text'>
@@ -812,6 +853,8 @@ export interface ToolLoopGroupNode extends Step<'done' | 'refused' | 'failing'> 
 export interface Nodes {
   /** Build Context: Joins sections into the system prompt, in the order they are wired, leaving out any that are empty. */
   buildContext(id: string, wires?: BuildContextWires, settings?: BuildContextSettings, meta?: NodeMeta): BuildContextNode
+  /** Code: Runs a piece of JavaScript you wrote, in this run's own sandbox, with the values you wire in and the values you declare it hands back. The body is never read as a procedure — it is written out and executed there, so it can do anything the sandbox can, and nothing it cannot. */
+  code(id: string, wires: CodeWires, settings: CodeSettings, meta?: NodeMeta): CodeNode
   /**
    * Conversation: Keeps the message history. It starts from the opening message and whatever named inputs the run was given that the opening does not already say; each time it runs it adds any new replies in the order they were made, each with the tool calls it asked for, and once every call in a reply has a result it adds those results, answering each call by id. Nothing is added twice.
    * Leaves through done: Always.

@@ -18,6 +18,7 @@ export interface HostNodeServices {
     list(ownerId: string): Promise<MemoryItem[]>;
     save(item: MemoryItem): Promise<void>;
   };
+  code?: import('./code-runner.js').CodeRunner | undefined;
   efforts?: {
     replyCeiling(args: { ownerId: string; procedureId: string; modelKey: string; agentSlug: string }): Promise<number | undefined>;
   } | undefined;

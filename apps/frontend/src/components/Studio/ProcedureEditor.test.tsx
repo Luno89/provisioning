@@ -156,7 +156,7 @@ describe('the procedure editor', () => {
     expect(screen.getByText('2 of 3 succeeded')).toBeInTheDocument()
     expect(screen.getByText('4 rounds')).toBeInTheDocument()
     expect(screen.getByText('1.5 min')).toBeInTheDocument()
-    expect(screen.getByText('3 more successful runs before limits apply.')).toBeInTheDocument()
+    expect(screen.getByText('3 more successful runs before there is enough to say what this usually takes.')).toBeInTheDocument()
     expect(screen.queryByText('0 child runs')).not.toBeInTheDocument()
   })
   it('shows the procedure as builder code, applies edits to it, and points at code that does not read', async () => {

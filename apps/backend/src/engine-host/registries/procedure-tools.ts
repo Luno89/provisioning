@@ -1,4 +1,5 @@
 import type { Persona, ProcedureSource } from '@koala/agent-engine';
+import { CODE_KIND } from '@koala/agent-engine/procedure';
 import {
   BUILT_IN_GROUPS,
   builtInCatalogue,
@@ -47,11 +48,24 @@ export function createProcedureTools(options: ProcedureToolOptions): Record<stri
 
   const check = async (ownerId: string, source: string | Record<string, unknown>) => {
     const [personas, tools] = await Promise.all([options.scope.personas(ownerId), options.scope.toolNames(ownerId)]);
-    return readAndCheckProcedure(source, {
+    const read = readAndCheckProcedure(source, {
       catalogue,
       groups: BUILT_IN_GROUPS,
       known: { agents: new Set(personas.map((persona) => persona.slug)), tools: new Set(tools) },
     });
+
+    if (!read.ok) return read;
+    const written = read.procedure.nodes.filter((node) => node.kind === CODE_KIND).map((node) => node.id);
+    if (written.length === 0) return read;
+
+    return {
+      ok: false as const,
+      problems: written.map((node) => ({
+        severity: 'error' as const,
+        node,
+        message: 'is a code node, and a procedure written from here may not run code a person has not read',
+      })),
+    };
   };
 
   return {

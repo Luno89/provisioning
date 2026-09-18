@@ -48,6 +48,16 @@ function objectType(schema: GroupSetting, indent: string): string {
 }
 
 function nodeTypes(name: string, definition: NodeDefinition, withSettings: boolean): string {
+  if (definition.sockets) {
+    const settingsType = withSettings ? `export type ${name}Settings = ${objectType(definition.settings, '')}` : '';
+
+    return [
+      `export type ${name}Wires = Record<string, In<SocketType> | readonly In<SocketType>[]>`,
+      settingsType,
+      `export type ${name}Node = Value & Record<string, Out<SocketType>> & { wire(wires: ${name}Wires): void }`,
+    ].filter(Boolean).join('\n\n');
+  }
+
   const wires = definition.inputs.length === 0
     ? `export type ${name}Wires = Record<string, never>`
     : `export interface ${name}Wires {\n${definition.inputs.map((input) =>

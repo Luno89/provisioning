@@ -1,5 +1,5 @@
 import type { RunBudget } from '../runtime/run.js';
-import { GROUP_KIND, type KnownReferences, type NodeCatalogue, type NodeDefinition, type SocketSpec } from './definition.js';
+import { GROUP_KIND, definitionFor as shapedFor, type KnownReferences, type NodeCatalogue, type NodeDefinition, type SocketSpec } from './definition.js';
 import { expandGroups, GROUP_SEPARATOR, GroupExpansionError, groupAsNode, groupLibrary } from './groups.js';
 import {
   PROCEDURE_SCHEMA,
@@ -52,7 +52,7 @@ function definitionFor(node: PlacedNode, scope: Scope): NodeDefinition | string 
     return group ? groupAsNode(group) : `uses group "${node.group}", which does not exist`;
   }
   if (node.group !== undefined) return `names group "${node.group}" but is a "${node.kind}" node, not a group`;
-  return scope.catalogue.get(node.kind) ?? `is a "${node.kind}" node, which is not a kind of node`;
+  return shapedFor(scope.catalogue, node) ?? `is a "${node.kind}" node, which is not a kind of node`;
 }
 
 function checkBody(body: Body & { cleanup?: NodeId | undefined }, scope: Scope): ProcedureProblem[] {

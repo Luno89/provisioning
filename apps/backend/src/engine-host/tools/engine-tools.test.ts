@@ -5,7 +5,8 @@ import {
   BUILDER_TOOLS,
   type ProcedureSource,
 } from '@koala/agent-engine';
-import { EXAMPLE_PROCEDURE, TOOL_ROUNDS_V2 } from '@koala/agent-engine/procedure';
+import { BUILT_IN_GROUPS, EXAMPLE_PROCEDURE, TOOL_ROUNDS_V2, builtInCatalogue } from '@koala/agent-engine/procedure';
+import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
 import type { ToolHandler, ToolHandlerContext } from '@koala/engine-core';
 
 function wired(saved: ProcedureSource[] = []) {
@@ -116,6 +117,35 @@ describe('the wired procedure tools actually run', () => {
     expect(harness.saved.map((row) => [row.id, row.ownerId, row.version])).toEqual([['quick-answer', 'user-1', '2']]);
     expect((await harness.registry.procedure('user-1', 'quick-answer'))?.version).toBe('2');
     expect(await harness.registry.procedure('user-2', 'quick-answer')).toBeUndefined();
+  });
+
+  it('refuses a procedure that would run code, from either tool, and saves nothing', async () => {
+    const harness = wired();
+    const withCode = procedureBuilder({ catalogue: builtInCatalogue(), groups: BUILT_IN_GROUPS })({
+      id: 'runs-code', version: '1', name: 'Runs code', describe: 'Runs a piece of code.', budget: {},
+    }, (p) => {
+      const provision = p.provisionSandbox('provision');
+      const shape = p.code('shape', { environment: provision.environment }, {
+        body: 'return { out: 1 }',
+        inputs: [],
+        outputs: [{ name: 'out', type: 'json' }],
+      });
+      const done = p.finish('done', { result: shape.out! }, { outcome: 'ok' });
+      const nowhere = p.finish('nowhere', { reason: provision.reason }, { outcome: 'failed' });
+
+      p.start(provision);
+      provision.on('ready', done);
+      provision.on('unavailable', nowhere);
+      p.layout({ provision: [0, 0], shape: [260, 0], done: [520, 0], nowhere: [520, 140] });
+    }).procedure;
+
+    const checked = await call(harness.map, 'check_procedure', { source: withCode });
+    const saved = await call(harness.map, 'save_procedure', { source: withCode });
+
+    expect(checked.ok).toBe(false);
+    expect(checked.digest).toContain('may not run code a person has not read');
+    expect(saved.ok).toBe(false);
+    expect(harness.saved).toEqual([]);
   });
 
   it('refuses to save what does not check clean, and saves nothing', async () => {

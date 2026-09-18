@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { limitsFor, percentile, replyCeilingFor, trackRecord, trackRecordsByModel, type RunEffort } from './effort.js';
+import { LIMITS_ARE_ADVISORY, limitsFor, percentile, replyCeilingFor, replyCeilingFrom, trackRecord, trackRecordsByModel, type RunEffort } from './effort.js';
 
 let clock = 0;
 const run = (over: Partial<RunEffort> = {}): RunEffort => ({
@@ -72,10 +72,10 @@ describe("a model's track record on a procedure", () => {
     expect(records.map((record) => [record.modelKey, record.runs])).toEqual([['tabby', 2], ['other', 1]]);
   });
 
-  it('lets a limit written on the procedure win over a learned one', () => {
+  it('works out what a run usually needs, so it can be shown even though nothing is held to it', () => {
     const record = trackRecord(Array.from({ length: 5 }, () => run()));
 
-    expect(limitsFor(record, { maxRounds: 2 })).toMatchObject({ maxRounds: 2, maxToolCalls: 9 });
+    expect(record?.limits).toMatchObject({ maxRounds: 6, maxToolCalls: 9 });
     expect(limitsFor(undefined, {})).toEqual({});
   });
 });
@@ -120,13 +120,13 @@ describe('keeping one persona\'s replies apart from another\'s on the same proce
   ];
 
   it('sizes each persona from its own replies', () => {
-    expect(replyCeilingFor(runs, 'koala')).toBe(84);
-    expect(replyCeilingFor(runs, 'agent-builder')).toBe(7000);
+    expect(replyCeilingFrom(runs, 'koala')).toBe(84);
+    expect(replyCeilingFrom(runs, 'agent-builder')).toBe(7000);
   });
 
   it('offers nothing for a persona that has not run it enough', () => {
-    expect(replyCeilingFor(runs, 'research')).toBeUndefined();
-    expect(replyCeilingFor([...runs, run({ agentSlug: 'research', longestReply: 900 })], 'research')).toBeUndefined();
+    expect(replyCeilingFrom(runs, 'research')).toBeUndefined();
+    expect(replyCeilingFrom([...runs, run({ agentSlug: 'research', longestReply: 900 })], 'research')).toBeUndefined();
   });
 });
 
@@ -135,10 +135,10 @@ describe('a reply the cap cut off says the ceiling was too low, not that the run
 
   it('doubles past the cap that truncated, rather than learning from the successes alone', () => {
     const settled = five();
-    expect(replyCeilingFor(settled, 'agent-builder')).toBe(700);
+    expect(replyCeilingFrom(settled, 'agent-builder')).toBe(700);
 
     const truncated = [...settled, run({ agentSlug: 'agent-builder', outcome: 'failed', longestReply: 0, cappedAt: 700 })];
-    expect(replyCeilingFor(truncated, 'agent-builder')).toBe(1400);
+    expect(replyCeilingFrom(truncated, 'agent-builder')).toBe(1400);
   });
 
   it('keeps the larger of what succeeded and what was cut off', () => {
@@ -147,13 +147,13 @@ describe('a reply the cap cut off says the ceiling was too low, not that the run
       run({ agentSlug: 'agent-builder', outcome: 'failed', longestReply: 0, cappedAt: 900 }),
     ];
 
-    expect(replyCeilingFor(records, 'agent-builder')).toBe(7_000);
+    expect(replyCeilingFrom(records, 'agent-builder')).toBe(7_000);
   });
 
   it('stays wide open while the persona has no track record, whatever was cut off', () => {
     const records = [run({ agentSlug: 'agent-builder', outcome: 'failed', longestReply: 0, cappedAt: 700 })];
 
-    expect(replyCeilingFor(records, 'agent-builder')).toBeUndefined();
+    expect(replyCeilingFrom(records, 'agent-builder')).toBeUndefined();
   });
 
   it('climbs again when the raised ceiling is cut off too', () => {
@@ -163,6 +163,27 @@ describe('a reply the cap cut off says the ceiling was too low, not that the run
       run({ agentSlug: 'agent-builder', outcome: 'failed', cappedAt: 1400 }),
     ];
 
-    expect(replyCeilingFor(records, 'agent-builder')).toBe(2800);
+    expect(replyCeilingFrom(records, 'agent-builder')).toBe(2800);
+  });
+});
+
+describe('none of it is enforced yet', () => {
+  it('is set that way on purpose, so a limit learned from easy asks cannot cut off a harder one', () => {
+    expect(LIMITS_ARE_ADVISORY).toBe(true);
+  });
+
+  it('holds a run only to what its own procedure asked for, never to what was learned', () => {
+    const settled = Array.from({ length: 5 }, () => run());
+
+    expect(trackRecord(settled)?.limits).toMatchObject({ maxRounds: 6 });
+    expect(limitsFor(trackRecord(settled), {})).toEqual({});
+    expect(limitsFor(trackRecord(settled), { maxRounds: 2 })).toEqual({ maxRounds: 2 });
+  });
+
+  it('gives a reply the window\'s room however much the track record says it usually needs', () => {
+    const settled = Array.from({ length: 5 }, () => run({ agentSlug: 'agent-builder', longestReply: 500 }));
+
+    expect(replyCeilingFrom(settled, 'agent-builder')).toBe(700);
+    expect(replyCeilingFor(settled, 'agent-builder')).toBeUndefined();
   });
 });

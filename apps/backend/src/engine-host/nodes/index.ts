@@ -17,6 +17,7 @@ import { createEnvironmentNodes } from './environment-nodes.js';
 import { createMemoryNodes } from './memory-nodes.js';
 import { createModelNodes } from './model-nodes.js';
 import { createToolNodes } from './tool-nodes.js';
+import { createCodeNodes } from './code-nodes.js';
 import { handleFor, launchFor, ticketFor } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { HostNodeServices } from './services.js';
@@ -27,6 +28,7 @@ export function createHostNodes(services: HostNodeServices): NodeImplementation[
     ...createToolNodes(services),
     ...createMemoryNodes(services),
     ...createEnvironmentNodes(services),
+    ...createCodeNodes(services),
   ];
 }
 

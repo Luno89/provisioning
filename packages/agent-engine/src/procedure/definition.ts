@@ -54,6 +54,17 @@ export interface NodeDefinition {
   spends?: readonly BudgetSpend[] | undefined;
   summarize(settings: Readonly<Record<string, unknown>>): string;
   check?(settings: Readonly<Record<string, unknown>>, known: KnownReferences): string[];
+  sockets?(settings: Readonly<Record<string, unknown>>): { inputs: SocketSpec[]; outputs: SocketSpec[] };
+}
+
+export function definitionFor(
+  catalogue: { get(kind: string): NodeDefinition | undefined },
+  node: { kind: string; settings?: Readonly<Record<string, unknown>> | undefined },
+): NodeDefinition | undefined {
+  const found = catalogue.get(node.kind);
+  if (!found?.sockets) return found;
+
+  return { ...found, ...found.sockets(node.settings ?? {}) };
 }
 
 export const defineNode = (definition: NodeDefinition): NodeDefinition => definition;
@@ -85,7 +96,7 @@ export function definitionProblems(definition: NodeDefinition): string[] {
   if (definition.role === 'value' && definition.exits.length > 0) {
     say('is a value node, so it cannot have exits — only steps decide where to go next');
   }
-  if (definition.role === 'value' && definition.outputs.length === 0) {
+  if (definition.role === 'value' && definition.outputs.length === 0 && !definition.sockets) {
     say('is a value node with no outputs, so nothing could ever read it');
   }
 

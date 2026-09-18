@@ -156,7 +156,8 @@ class BodyBuilder {
       if (!['label', 'notes'].includes(key)) throw new BuilderError(`"${id}" has "${key}" beside its settings, but only label and notes can go there`);
     }
 
-    this.definitions.set(id, definition);
+    const shaped = definition.sockets ? { ...definition, ...definition.sockets(settings ?? {}) } : definition;
+    this.definitions.set(id, shaped);
     this.nodes.push({
       id,
       kind,
@@ -169,7 +170,7 @@ class BodyBuilder {
     this.unplaced.push(id);
 
     const handle: Record<string, unknown> = { id };
-    for (const output of definition.outputs) {
+    for (const output of shaped.outputs) {
       if ((HANDLE_MEMBERS as readonly string[]).includes(output.name)) {
         throw new BuilderError(`${definition.title} has an output called "${output.name}", which the builder uses for something else`);
       }
@@ -184,7 +185,7 @@ class BodyBuilder {
       });
     }
     const built = tagged(handle);
-    handles.set(built, { id, definition, body: this });
+    handles.set(built, { id, definition: shaped, body: this });
 
     this.connect(id, wires);
     return built;

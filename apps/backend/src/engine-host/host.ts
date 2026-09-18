@@ -19,6 +19,7 @@ import type { RunTicket, ToolRuntime } from './temporal/contracts.js';
 import type { WebTools } from '../lib/web-tools.js';
 import type { Database } from '../lib/db-interface.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
+import { createCodeRunner } from './nodes/code-runner.js';
 
 export interface EngineHostStores {
   personas: { list(ownerId?: string): Promise<Persona[]> };
@@ -145,6 +146,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tools,
     environments,
     ...(efforts ? { efforts } : {}),
+    code: createCodeRunner({ environments: { forRun: (request) => environments.forRun(request) } }),
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
       save: stores.memories.save,

@@ -41,6 +41,8 @@ export const TYPICAL_PERCENTILE = 0.9;
 export const HEADROOM = 1.4;
 export const EFFORT_HISTORY = 50;
 export const REPLY_GROWTH = 2;
+
+export const LIMITS_ARE_ADVISORY = true;
 export const ASK_CHARS = 2000;
 
 export function percentile(values: readonly number[], fraction: number): number {
@@ -107,13 +109,18 @@ export function trackRecordsByModel(records: readonly RunEffort[]): TrackRecord[
 }
 
 export function limitsFor(record: TrackRecord | undefined, explicit: RunBudget): RunBudget {
+  if (LIMITS_ARE_ADVISORY) return { ...explicit };
   return { ...(record?.limits ?? {}), ...explicit };
 }
 
-export function replyCeilingFor(records: readonly RunEffort[], agentSlug: string): number | undefined {
+export function replyCeilingFrom(records: readonly RunEffort[], agentSlug: string): number | undefined {
   const mine = [...records]
     .filter((record) => record.agentSlug === agentSlug)
     .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
 
   return trackRecord(mine)?.replyCeiling;
+}
+
+export function replyCeilingFor(records: readonly RunEffort[], agentSlug: string): number | undefined {
+  return LIMITS_ARE_ADVISORY ? undefined : replyCeilingFrom(records, agentSlug);
 }

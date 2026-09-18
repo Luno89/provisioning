@@ -1,7 +1,7 @@
 import type { SamplingConfig } from '@koala/harness-types';
 import type { EngineEvent, EventBus, RunOutcome } from '../runtime/events.js';
 import { budgetExceeded, createRunState, type RunBudget, type RunCounters, type RunIdentity } from '../runtime/run.js';
-import { GROUP_KIND, type NodeCatalogue, type NodeDefinition } from './definition.js';
+import { GROUP_KIND, definitionFor, type NodeCatalogue, type NodeDefinition } from './definition.js';
 import { expandGroups, groupLibrary } from './groups.js';
 import type { GroupDefinition, NodeId, PlacedNode, Procedure } from './schema.js';
 import { capForTrace } from './trace.js';
@@ -163,7 +163,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     if (node.kind === GROUP_KIND) {
       throw new RunStop('failed', `"${origin.get(node.id) ?? node.id}" is a group that was not expanded`);
     }
-    const definition = catalogue.get(node.kind);
+    const definition = definitionFor(catalogue, node);
     if (!definition) {
       throw new RunStop('failed', `"${origin.get(node.id) ?? node.id}" is a "${node.kind}" node, and nothing knows how to run one`);
     }

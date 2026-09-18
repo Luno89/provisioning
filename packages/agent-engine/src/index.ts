@@ -12,6 +12,8 @@ export {
 // Run State & Budget
 export {
   createRunState,
+  applyModelResult,
+  recordToolOutcome,
   budgetExceeded,
   settle,
   type RunState,

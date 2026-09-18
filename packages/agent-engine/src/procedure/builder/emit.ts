@@ -17,11 +17,16 @@ const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const quote = (text: string): string =>
   `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}'`;
 
+const asTemplate = (text: string): string =>
+  `\`${text.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')}\``;
+
+const readable = (text: string): string => (text.includes('\n') ? asTemplate(text) : quote(text));
+
 const key = (name: string): string => (IDENTIFIER.test(name) ? name : quote(name));
 
 function literal(value: unknown, indent: string): string {
   if (value === null) return 'null';
-  if (typeof value === 'string') return quote(value);
+  if (typeof value === 'string') return readable(value);
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) {
     if (value.length === 0) return '[]';
