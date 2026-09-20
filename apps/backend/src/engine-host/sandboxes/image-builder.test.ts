@@ -1,3 +1,4 @@
+import { countsIn, lastComplaint, pickAddress } from './image-builder.js';
 import { describe, it, expect, vi } from 'vitest';
 import { createImageBuilder, discoverRegistry, ImageBuildError } from './image-builder.js';
 import { imageReference, planImage, type ToolDefinition } from '@koala/agent-engine';
@@ -85,6 +86,7 @@ describe('building what does', () => {
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
     expect(applied).toContain('ConfigMap');
     expect(applied).toContain('microdnf install -y postgresql');
+    expect(applied).toContain('dnf install -y postgresql');
     expect(applied).toContain('--context=dir:///workspace');
   });
 
@@ -161,5 +163,62 @@ describe('finding the registry rather than being told', () => {
 
     expect(reference.startsWith('10.0.0.130:31737/')).toBe(true);
     expect(lookups).toBe(2);
+  });
+});
+
+
+describe('the address the registry is reached at', () => {
+  it('takes the IPv4 one when a node reports both', () => {
+    expect(pickAddress('10.0.0.130 2601:600:8f00:4030::6dc7')).toBe('10.0.0.130');
+  });
+
+  it('falls back to the only address there is', () => {
+    expect(pickAddress('2601:600:8f00:4030::6dc7')).toBe('2601:600:8f00:4030::6dc7');
+  });
+
+  it('has nothing to give when the node reported nothing', () => {
+    expect(pickAddress('  ')).toBeUndefined();
+  });
+});
+
+
+describe('reading what a build job is doing', () => {
+  it('reads a job that failed as failed, not as one still running', () => {
+    expect(countsIn('||1')).toEqual({ active: 0, succeeded: 0, failed: 1 });
+  });
+
+  it('reads a job still running as active', () => {
+    expect(countsIn('1||')).toEqual({ active: 1, succeeded: 0, failed: 0 });
+  });
+
+  it('reads a finished job as succeeded', () => {
+    expect(countsIn('|1|')).toEqual({ active: 0, succeeded: 1, failed: 0 });
+  });
+
+  it('reads a job that has reported nothing yet as nothing at all', () => {
+    expect(countsIn('||')).toEqual({ active: 0, succeeded: 0, failed: 0 });
+  });
+});
+
+
+describe('saying why a build failed', () => {
+  it('picks the first line that names the cause, not the wrapper it ends with', () => {
+    const logs = [
+      '\u001b[36mINFO\u001b[0m[0001] Unpacking rootfs',
+      'Red Hat Universal Base Image 9 (RPMs) - AppStream  12 MB/s',
+      'No match for argument: ripgrep',
+      'Error: Unable to find a match: ripgrep',
+      'error building image: error building stage: failed to execute command',
+    ].join('\n');
+
+    expect(lastComplaint(logs)).toBe('No match for argument: ripgrep');
+  });
+
+  it('falls back to the last thing said when nothing looks like a complaint', () => {
+    expect(lastComplaint('INFO[0001] Unpacking rootfs\nsomething happened')).toBe('something happened');
+  });
+
+  it('has nothing to say about empty logs', () => {
+    expect(lastComplaint('   ')).toBeUndefined();
   });
 });

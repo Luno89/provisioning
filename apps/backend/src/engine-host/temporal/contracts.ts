@@ -151,7 +151,7 @@ export interface RemoteNodeRequest {
   inputs: Record<string, unknown>;
   previous?: Record<string, unknown> | undefined;
   execution: number;
-  run: Pick<RunContext, 'identity' | 'launch' | 'inputs' | 'counters' | 'budget' | 'cleaningUp'>;
+  run: Pick<RunContext, 'identity' | 'launch' | 'inputs' | 'counters' | 'budget' | 'cleaningUp' | 'handles'>;
 }
 
 export type RemoteNodeResult = StepResult | ValueResult;

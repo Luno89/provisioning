@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   BASES, DEFAULT_BASE, UnbuildableError,
-  fingerprint, imageFor, imageReference, needsBuilding, planImage, renderDockerfile,
+  baseFor, fingerprint, imageFor, imageReference, languagesFor, needsBuilding, planImage, renderDockerfile,
 } from './image.js';
 import type { ToolDefinition } from '../tools/catalogue.js';
 
@@ -119,6 +119,7 @@ describe('the Dockerfile it produces', () => {
 
     expect(dockerfile).toContain(`FROM ${plan.base}`);
     expect(dockerfile).toContain('microdnf install -y postgresql');
+    expect(dockerfile).toContain('dnf install -y postgresql');
     expect(dockerfile).toContain('pip install --no-cache-dir ruff');
     expect(dockerfile.trimEnd().endsWith('USER 1000')).toBe(true);
   });
@@ -146,5 +147,54 @@ describe('the Dockerfile it produces', () => {
   it('is just the base when nothing needs installing', () => {
     expect(renderDockerfile(planImage({ tools: [] })).split('\n').filter(Boolean))
       .toEqual([`FROM ${BASES.find((b) => b.id === DEFAULT_BASE)!.image}`, 'USER root', 'USER 1000']);
+  });
+});
+
+describe('the languages a workspace asks for', () => {
+  it('installs a language the base does not already have', () => {
+    const plan = planImage({ base: 'node', languages: ['node', 'go'], tools: [] });
+
+    expect(plan.installs).toEqual([{ via: 'dnf', packages: ['go-toolset'] }]);
+    expect(needsBuilding(plan)).toBe(true);
+    expect(plan.provides).toContain('go');
+  });
+
+  it('builds nothing when the base already serves every language asked for', () => {
+    const plan = planImage({ base: 'python', languages: ['python', 'node'], tools: [] });
+
+    expect(plan.installs).toEqual([]);
+    expect(needsBuilding(plan)).toBe(false);
+  });
+
+  it('installs pip for a python workspace on the node base, which has none', () => {
+    const plan = planImage({ base: 'node', languages: ['node', 'python'], tools: [] });
+
+    expect(plan.installs).toEqual([{ via: 'dnf', packages: ['python3', 'python3-pip'] }]);
+  });
+
+  it('refuses a language it has no way to install', () => {
+    expect(() => planImage({ base: 'node', languages: ['cobol'], tools: [] }))
+      .toThrow(UnbuildableError);
+  });
+
+  it('gives a different fingerprint once a language is added', () => {
+    const before = planImage({ base: 'node', languages: ['node'], tools: [] });
+    const after = planImage({ base: 'node', languages: ['node', 'go'], tools: [] });
+
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+  });
+});
+
+describe('choosing the base from the languages', () => {
+  it('takes the first language when it is a base of its own', () => {
+    expect(baseFor({ environment: { languages: ['python', 'node'] } })).toBe('python');
+  });
+
+  it('falls back to the default when the first is not a base it knows', () => {
+    expect(baseFor({ environment: { languages: ['cobol'] } })).toBe(DEFAULT_BASE);
+  });
+
+  it('reads every language, not only the one that picked the base', () => {
+    expect(languagesFor({ environment: { languages: ['node', 'go'] } })).toEqual(['node', 'go']);
   });
 });

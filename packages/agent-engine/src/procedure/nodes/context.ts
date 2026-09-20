@@ -12,6 +12,7 @@ import {
   type ResolvedEnvironment,
 } from '../../runtime/context.js';
 import { defineNode } from '../definition.js';
+import { describeHandles } from '../handled.js';
 import { stepImplementation, valueImplementation, type BuiltInNode } from '../implementation.js';
 import { NO_SETTINGS } from '../settings-schema.js';
 import {
@@ -154,6 +155,26 @@ export const describeEnvironmentNode: BuiltInNode = {
         (inputs.delegates as AgentDefinition[] | undefined) ?? [],
       ),
     },
+  })),
+};
+
+export const describeProcedure: BuiltInNode = {
+  definition: defineNode({
+    kind: 'describe-procedure',
+    title: 'Describe Procedure',
+    category: 'context',
+    describe: 'Tells the model which steps the procedure carries out for it, so it does not do them again. Reads every Call Tool step marked as the procedure\'s job.',
+    role: 'value',
+    inputs: [],
+    outputs: [{ name: 'text', type: 'text', describe: 'The section naming what happens around the model.' }],
+    exits: [],
+    settings: NO_SETTINGS,
+    runs: 'workflow',
+    idempotent: true,
+    summarize: () => 'says what the procedure does for the model',
+  }),
+  implementation: valueImplementation('describe-procedure', ({ run }) => ({
+    outputs: { text: describeHandles(run.handles) },
   })),
 };
 
@@ -602,6 +623,7 @@ export const CONTEXT_NODES = [
   resolveTools,
   withdrawTools,
   describeEnvironmentNode,
+  describeProcedure,
   describeTools,
   describeOutputsNode,
   warnRunningOut,

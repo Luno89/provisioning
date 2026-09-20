@@ -22,14 +22,16 @@ interface Carries {
   run: Omit<ComposeOptions, 'procedure' | 'agent'>;
   mustSay: string[];
   mustOffer?: string[];
+  mustNotOffer?: string[];
 }
 
 const MUST_CARRY: Record<string, Carries> = {
   'do-one-task': {
     agent: 'executor',
     run: { message: 'Do the task you have been given.', inputs: { item: TASK } },
-    mustSay: [TASK.id, TASK.title, 'contains exactly the word hello'],
-    mustOffer: ['start_task', 'mark_done', 'run_command', 'write_file'],
+    mustSay: [TASK.id, TASK.title, 'contains exactly the word hello', 'The task has already been claimed for you.'],
+    mustOffer: ['run_command', 'write_file'],
+    mustNotOffer: ['start_task', 'mark_done', 'mark_failed', 'judge'],
   },
   planning: {
     agent: 'planner',
@@ -82,6 +84,9 @@ describe('what each built-in procedure actually puts in front of the model', () 
       }
       for (const tool of carries.mustOffer ?? []) {
         expect(first.toolNames, `${id} did not offer ${tool}`).toContain(tool);
+      }
+      for (const tool of carries.mustNotOffer ?? []) {
+        expect(first.toolNames, `${id} offered ${tool}, which the procedure does itself`).not.toContain(tool);
       }
     });
   }

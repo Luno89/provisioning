@@ -11,6 +11,7 @@ import type { ProcedureSource } from '@koala/agent-engine';
 import { builderCodeToProcedure, placeUnplaced } from '@koala/agent-engine/procedure-builder';
 import type { OwnedProcedure, UnreadableProcedure } from '../engine-host/registries/procedure-store.js';
 import { trackRecordsByModel, type RunEffort, type TrackRecord } from '@koala/agent-engine/procedure';
+import { requiredGrants, type RequiredGrant } from '@koala/agent-engine/procedure';
 
 export interface ProcedureServiceOptions {
   procedures: {
@@ -33,6 +34,7 @@ export interface ProcedureSummary {
   name: string;
   describe: string;
   mine: boolean;
+  requires: RequiredGrant[];
 }
 
 export type SaveOutcome =
@@ -60,6 +62,7 @@ export class ProcedureService {
           name: procedure.name,
           describe: procedure.describe,
           mine: procedure.ownerId === ownerId,
+          requires: requiredGrants(procedure, BUILT_IN_GROUPS),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
       unreadable,

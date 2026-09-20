@@ -20,7 +20,7 @@ function wired(saved: ProcedureSource[] = []) {
     registry,
     map: createEngineToolHandlers({
       registry,
-      images: { ensure: async (plan) => plan.base, exists: async () => true },
+      images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
       catalogue: BUILDER_TOOLS,
       procedures: {
         get: async (ownerId, id) => saved.find((row) => row.id === id && row.ownerId === ownerId),

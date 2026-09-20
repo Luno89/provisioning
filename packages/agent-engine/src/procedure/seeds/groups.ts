@@ -26,10 +26,11 @@ export const MODEL_TURN = defineGroup('model-turn', {
   const model = g.chooseModel('model', { persona: persona.persona });
   const tools = g.resolveTools('tools', { persona: persona.persona, delegates: persona.delegates, environment: g.inputs.environment });
   const environment = g.describeEnvironment('environment', { environment: g.inputs.environment, delegates: persona.delegates });
+  const around = g.describeProcedure('around');
   const toolText = g.describeTools('toolText', { offered: tools.offered, withheld: tools.withheld, environment: g.inputs.environment });
   const memory = g.recallMemory('memory');
   const outputs = g.describeOutputs('outputs', { persona: persona.persona });
-  const context = g.buildContext('context', { sections: [persona.prompt, environment.text, toolText.text, memory.text, outputs.text] });
+  const context = g.buildContext('context', { sections: [persona.prompt, environment.text, around.text, toolText.text, memory.text, outputs.text] });
   const fit = g.fitReplyBudget('fit', { binding: model.binding, system: context.text, messages: g.inputs.messages });
   const call = g.callModel('call', {
     binding: model.binding,
@@ -55,6 +56,7 @@ export const MODEL_TURN = defineGroup('model-turn', {
     model: [260, 0],
     tools: [260, 140],
     environment: [260, 280],
+    around: [520, 280],
     toolText: [520, 140],
     memory: [260, 420],
     outputs: [260, 560],

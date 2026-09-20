@@ -9,6 +9,7 @@ import { createRunState } from '../../runtime/run.js';
 import type { AgentDefinition } from '../../agent/agent.js';
 import type { ModelReply, ToolResult } from '../values.js';
 
+
 type Outcome = { exit?: string; outputs: Record<string, unknown>; usage?: Record<string, number> };
 
 const persona = (over: Partial<AgentDefinition> = {}): AgentDefinition => ({
@@ -47,6 +48,7 @@ async function invoke(
     run: {
       identity: { runId: 'r', depth: 0, agentId: 'worker', loopId: 'p', loopVersion: '2', trigger: 'user' },
       launch: { ownerId: 'owner-1' },
+      handles: {},
       inputs: {},
       counters: createRunState(0).counters,
       budget: {},

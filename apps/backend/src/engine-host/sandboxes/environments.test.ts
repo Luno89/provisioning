@@ -49,7 +49,7 @@ function setup(over: Partial<Parameters<typeof createEnvironmentResolver>[0]> = 
   const resolver = createEnvironmentResolver({
     registry: createAgentRegistry(),
     environments,
-    images: { ensure: async (plan) => plan.base, exists: async () => true },
+    images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
     tools: async () => [],
     ...over,
   });
@@ -159,7 +159,7 @@ describe('describing a run environment', () => {
       registry: createAgentRegistry({ agentStore: { list: async () => [odd] } }),
     });
 
-    await expect(resolver.describe(ticket('odd'))).rejects.toThrow(/no base image called "cobol"/);
+    await expect(resolver.describe(ticket('odd'))).rejects.toThrow(/no language called "cobol"/);
   });
 
   it('refuses when a granted tool needs a binary nothing can install', async () => {

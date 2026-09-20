@@ -1,4 +1,5 @@
 import { effectiveTools, type ToolContract } from './tools.js';
+import { renderCommand } from './command-tool.js';
 import { ScopeError } from './scope.js';
 import { NO_CAPABILITIES, type EnvironmentDriver } from './environment.js';
 
@@ -40,6 +41,26 @@ const stringArg = (parsed: Record<string, unknown>, key: string): string => {
 function requireDriver(ctx: ToolHandlerContext): EnvironmentDriver {
   if (!ctx.driver) throw new Error('this agent has no machine, so it cannot do that');
   return ctx.driver;
+}
+
+export function commandHandlerFor(tool: ToolContract | undefined): ToolHandler | undefined {
+  const template = tool?.command;
+  if (!template) return undefined;
+
+  return async (ctx) => {
+    const driver = requireDriver(ctx);
+    const rendered = renderCommand(template, ctx.parsed);
+    if ('refused' in rendered) return { ok: false, digest: rendered.refused, content: rendered.refused };
+
+    const result = await driver.exec({ command: rendered.command });
+    const body = [result.stdout, result.stderr].filter(Boolean).join('\n');
+
+    return {
+      ok: result.exitCode === 0,
+      digest: body || `exited ${result.exitCode}`,
+      content: body,
+    };
+  };
 }
 
 export const environmentHandlers: Record<string, ToolHandler> = {
@@ -118,7 +139,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome>
     );
   }
 
-  const handler = handlers[input.name];
+  const handler = handlers[input.name] ?? commandHandlerFor(tools.find((tool) => tool.name === input.name));
   if (!handler) return refuse(`"${input.name}" has no implementation here`);
 
   let parsed: Record<string, unknown> = {};

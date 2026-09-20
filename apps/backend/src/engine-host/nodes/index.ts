@@ -51,7 +51,7 @@ export interface RunIdentity {
 }
 
 export interface InProcessOptions {
-  registry: Pick<AgentRegistry, 'runnable'>;
+  registry: Pick<AgentRegistry, 'runnable' | 'agent'>;
   approve?: OrchestrationPorts['approve'] | undefined;
   ask?: OrchestrationPorts['ask'] | undefined;
   onTrace?: ((trace: NodeTrace, run: RunIdentity) => void) | undefined;
@@ -87,6 +87,17 @@ export function createProcedureExecutor(
       const runnable = await options.registry.runnable(run.launch.ownerId, agent);
       if (!runnable) {
         return { runId, agentId: agent, outcome: 'failed', reason: `there is no agent called "${agent}"`, outputs: {} };
+      }
+
+      const caller = await options.registry.agent(run.launch.ownerId, run.identity.agentId);
+      if (caller && !(caller.agents ?? []).includes(agent)) {
+        return {
+          runId,
+          agentId: agent,
+          outcome: 'failed',
+          reason: `${caller.slug} is not allowed to hand work to "${agent}" — grant it the agent first`,
+          outputs: {},
+        };
       }
 
       const result = await runProcedure({

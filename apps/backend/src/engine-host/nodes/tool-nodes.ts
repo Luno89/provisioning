@@ -32,7 +32,18 @@ export function createToolNodes(services: Pick<HostNodeServices, 'registry'>): N
         allowed: allowedFrom(node.settings),
       });
 
-      return { outputs: { offered: tools, withheld } };
+      const handled = run.handles ?? {};
+
+      return {
+        outputs: {
+          offered: tools.filter((tool) => handled[tool.name] === undefined),
+          withheld: [
+            ...withheld,
+            ...tools.filter((tool) => handled[tool.name] !== undefined)
+              .map((tool) => ({ name: tool.name, why: handled[tool.name] as string })),
+          ],
+        },
+      };
     }),
   ];
 }

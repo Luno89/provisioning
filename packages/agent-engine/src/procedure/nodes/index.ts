@@ -38,7 +38,7 @@ export const HOST_KINDS: readonly string[] = BUILT_IN_NODES
 
 export const builtInCatalogue = (): NodeCatalogue => createNodeCatalogue(BUILT_IN_DEFINITIONS);
 
-export { resolveTools, withdrawTools, describeEnvironmentNode, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, clampToolResult, handOff, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings } from './context.js';
+export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, clampToolResult, handOff, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings } from './context.js';
 export { condition, merge, collect, finish, delegate, fanOut, waitForPerson, CONDITION_ROOTS, FINISH_OUTCOMES } from './control.js';
 export { provisionSandbox, releaseSandbox } from './environment.js';
 export { runInput, persona } from './input.js';

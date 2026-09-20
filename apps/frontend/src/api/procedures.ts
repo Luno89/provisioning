@@ -1,12 +1,20 @@
 import type { Procedure, ProcedureProblem, TrackRecord } from '@koala/agent-engine/procedure'
 import { api } from './client'
 
+export interface RequiredGrant {
+  name: string
+  kind: 'tool' | 'agent'
+  node: string
+  why: string
+}
+
 export interface ProcedureSummary {
   id: string
   version: string
   name: string
   describe: string
   mine: boolean
+  requires: RequiredGrant[]
 }
 
 export interface UnreadableProcedure {

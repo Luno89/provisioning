@@ -1,5 +1,5 @@
 import { BUILDER_TOOLS, type Persona, type ProcedureSource, type ToolDefinition } from '@koala/agent-engine';
-import type { EnvironmentDriver } from '@koala/engine-core';
+import { environmentHandlers, type EnvironmentDriver } from '@koala/engine-core';
 import { createStoredAgentRegistry, type AgentRegistry } from './registries/registry.js';
 import { createStoredToolCatalogue, type StoredToolCatalogue } from './registries/tool-catalogue-store.js';
 import { createEndpointResolver, type ModelServiceLike } from './registries/endpoints.js';
@@ -7,7 +7,7 @@ import { createRunEnvironments, type RunEnvironments } from './sandboxes/run-env
 import { createSandboxDriver } from './drivers/sandbox.js';
 import { createClusterBackend } from './sandboxes/cluster-backend.js';
 import { createKubeRunner } from './sandboxes/kube.js';
-import { createImageBuilder, type ImageBuilder } from './sandboxes/image-builder.js';
+import { createImageBuilder, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
 import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
@@ -20,6 +20,7 @@ import type { WebTools } from '../lib/web-tools.js';
 import type { Database } from '../lib/db-interface.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
+import { createWorkspaceImages, type WorkspaceImages } from './sandboxes/warm-images.js';
 
 export interface EngineHostStores {
   personas: { list(ownerId?: string): Promise<Persona[]> };
@@ -42,6 +43,8 @@ export interface EngineHostOptions {
   web?: WebTools | undefined;
   kubeconfig?: string | undefined;
   registryHost?: string | undefined;
+  registryAccount?: (() => Promise<RegistryAccount>) | undefined;
+  registryPushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
   onSandbox?: ((driver: EnvironmentDriver, ticket: RunTicket) => Promise<void>) | undefined;
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
   efforts?: EffortTrackerOptions['store'] | undefined;
@@ -49,6 +52,7 @@ export interface EngineHostOptions {
 
 export interface EngineHost {
   efforts: EffortTracker | undefined;
+  workspaceImages: WorkspaceImages;
   registry: AgentRegistry;
   catalogue: StoredToolCatalogue;
   endpoints: ReturnType<typeof createEndpointResolver>;
@@ -57,6 +61,7 @@ export interface EngineHost {
   images: ImageBuilder;
   tools: ToolRuntime;
   services: HostNodeServices;
+  implemented: ReadonlySet<string>;
 }
 
 export function createEngineHost(options: EngineHostOptions): EngineHost {
@@ -87,7 +92,12 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(options.onLeak ? { onLeak: options.onLeak } : {}),
   });
 
-  const images = createImageBuilder({ run: kube, ...(options.registryHost ? { registry: options.registryHost } : {}) });
+  const images = createImageBuilder({
+    run: kube,
+    ...(options.registryHost ? { registry: options.registryHost } : {}),
+    ...(options.registryAccount ? { account: options.registryAccount } : {}),
+    ...(options.registryPushToken ? { pushToken: options.registryPushToken } : {}),
+  });
 
   const environments = createEnvironmentResolver({
     registry,
@@ -98,10 +108,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   });
 
   const web = options.web;
-  const tools = createToolRuntime({
-    registry,
-    environments,
-    handlers: createEngineToolHandlers({
+  const handlers = createEngineToolHandlers({
       registry,
       images,
       catalogue: BUILDER_TOOLS,
@@ -133,8 +140,9 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
           },
         },
       },
-    }),
   });
+
+  const tools = createToolRuntime({ registry, environments, handlers });
 
   const efforts = options.efforts
     ? createEffortTracker({ models: options.models, registry, store: options.efforts })
@@ -146,6 +154,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tools,
     environments,
     ...(efforts ? { efforts } : {}),
+    images: { waiting: (ownerId: string, agentSlug: string) => workspaceImages.waiting(ownerId, agentSlug) },
     code: createCodeRunner({ environments: { forRun: (request) => environments.forRun(request) } }),
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
@@ -153,7 +162,18 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     },
   };
 
-  return { efforts, registry, catalogue, endpoints, environments, runEnvironments, images, tools, services };
+  const workspaceImages: WorkspaceImages = createWorkspaceImages({
+    images,
+    personas: (ownerId?: string) => registry.agents(ownerId ?? ''),
+    tools: (ownerId?: string) => stores.tools.list(ownerId),
+  });
+
+  const implemented = new Set([...Object.keys(environmentHandlers), ...Object.keys(handlers)]);
+
+  return {
+    efforts, workspaceImages, registry, catalogue, endpoints, environments,
+    runEnvironments, images, tools, services, implemented,
+  };
 }
 
 export function storesFromDatabase(db: Database): EngineHostStores {

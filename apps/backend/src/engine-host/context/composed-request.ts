@@ -130,7 +130,7 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
         },
       }),
     }),
-    images: { ensure: async (plan) => plan.base, exists: async () => true },
+    images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
     tools: async () => [],
   });
 

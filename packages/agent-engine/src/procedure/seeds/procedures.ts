@@ -196,7 +196,12 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const input = p.runInput('input');
   const persona = p.persona('persona');
   const onTask = { values: input.inputs, persona: persona.persona, environment: provision.environment };
-  const claim = p.callTool('claim', onTask, { tool: 'start_task', args: '{"taskId":"{{values.item.id}}"}' });
+  const claim = p.callTool('claim', onTask, {
+    tool: 'start_task',
+    args: '{"taskId":"{{values.item.id}}"}',
+    handles: true,
+    says: 'The task has already been claimed for you.',
+  });
   const conversation = p.conversation('conversation', { opening: input.message, given: input.inputs });
   const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
   const repetition = p.checkRepetition('repetition', { reply: turn.reply });
@@ -207,6 +212,8 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const judge = p.delegate('judge', { values: input.inputs, text: evidence.text, environment: provision.environment }, {
     agent: 'judge',
     inputs: '{"work":"{{text}}","expected":"{{values.item.doneMeans}}"}',
+    handles: true,
+    says: 'When you finish, a judge weighs your work against what the task asked for. You do not have to ask it yourself.',
   });
   const model = p.chooseModel('model', { persona: persona.persona });
   const verdict = p.decide('verdict', { binding: model.binding, text: judge.outputs }, {
@@ -215,14 +222,20 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const record = p.callTool('record', { ...onTask, text: turn.content }, {
     tool: 'mark_done',
     args: '{"taskId":"{{values.item.id}}","evidence":"{{text}}"}',
+    handles: true,
+    says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
   const rejected = p.callTool('rejected', { ...onTask, text: verdict.why }, {
     tool: 'mark_failed',
     args: '{"taskId":"{{values.item.id}}","reason":"{{text}}"}',
+    handles: true,
+    says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
   const unjudged = p.callTool('unjudged', { ...onTask, text: judge.reason }, {
     tool: 'mark_failed',
     args: '{"taskId":"{{values.item.id}}","reason":"the work could not be judged: {{text}}"}',
+    handles: true,
+    says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
   const finished = p.finish('finished', {}, { outcome: 'ok' });
   const didNotPass = p.finish('didNotPass', {}, { outcome: 'failed', reason: 'the judge did not accept the work' });

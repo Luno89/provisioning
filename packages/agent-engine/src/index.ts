@@ -46,6 +46,7 @@ export {
 export {
   resolveAgent,
   visibleAgents,
+  isFork,
   environmentFor,
   needsWorkspace,
   activeGrants,
@@ -123,13 +124,18 @@ export {
 } from './environment/workspace.js';
 export {
   BASES,
+  LANGUAGES,
+  LANGUAGE_IDS,
   baseFor,
+  languagesFor,
   planImage,
+  planFor,
   imageReference,
   needsBuilding,
   renderDockerfile,
   type ImagePlan,
   type BaseImage,
+  type Language,
 } from './environment/image.js';
 export type { ModelProvider } from './model/model-registry.js';
 

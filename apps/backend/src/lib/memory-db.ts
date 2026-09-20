@@ -702,6 +702,10 @@ export class MemoryDB implements Database {
     else this.enginePersonas.push(persona);
   }
 
+  async deleteEngineTool(ownerId: string | undefined, name: string): Promise<void> {
+    this.engineTools = this.engineTools.filter((t) => !(t.name === name && t.ownerId === ownerId));
+  }
+
   async deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void> {
     this.enginePersonas = this.enginePersonas.filter((p) => !(p.slug === slug && p.ownerId === ownerId));
   }

@@ -40,6 +40,20 @@ export const BASES: BaseImage[] = [
 
 export const DEFAULT_BASE = 'node';
 
+export interface Language {
+  id: string;
+  binaries: string[];
+  install: Install;
+}
+
+export const LANGUAGES: Language[] = [
+  { id: 'node', binaries: ['node', 'npm'], install: { via: 'dnf', packages: ['nodejs', 'npm'] } },
+  { id: 'python', binaries: ['python3', 'pip'], install: { via: 'dnf', packages: ['python3', 'python3-pip'] } },
+  { id: 'go', binaries: ['go'], install: { via: 'dnf', packages: ['go-toolset'] } },
+];
+
+export const LANGUAGE_IDS: string[] = LANGUAGES.map((language) => language.id);
+
 export class UnbuildableError extends Error {
   constructor(detail: string) {
     super(detail);
@@ -68,6 +82,7 @@ export function fingerprint(base: string, installs: readonly Install[]): string 
 
 export function planImage(input: {
   base?: string | undefined;
+  languages?: readonly string[] | undefined;
   tools: readonly ToolDefinition[];
 }): ImagePlan {
   const base = BASES.find((candidate) => candidate.id === (input.base ?? DEFAULT_BASE));
@@ -75,6 +90,20 @@ export function planImage(input: {
 
   const provides = new Set(base.provides);
   const installs: Install[] = [];
+
+  for (const asked of input.languages ?? []) {
+    const language = LANGUAGES.find((candidate) => candidate.id === asked);
+    if (!language) {
+      throw new UnbuildableError(
+        `There is no language called "${asked}" — a workspace can ask for ${LANGUAGE_IDS.join(', ')}`,
+      );
+    }
+
+    if (language.binaries.every((binary) => provides.has(binary))) continue;
+
+    installs.push(language.install);
+    for (const binary of language.binaries) provides.add(binary);
+  }
 
   for (const tool of input.tools) {
     if (tool.binding !== 'environment') continue;
@@ -102,7 +131,7 @@ export function planImage(input: {
 }
 
 const RUN_FOR: Record<Exclude<Install['via'], 'script' | 'base'>, (packages: string[]) => string> = {
-  dnf: (packages) => `microdnf install -y ${packages.join(' ')} && microdnf clean all`,
+  dnf: (packages) => `if command -v microdnf >/dev/null 2>&1; then microdnf install -y ${packages.join(' ')} && microdnf clean all; else dnf install -y ${packages.join(' ')} && dnf clean all; fi`,
   apt: (packages) => `apt-get update && apt-get install -y --no-install-recommends ${packages.join(' ')} && rm -rf /var/lib/apt/lists/*`,
   pip: (packages) => `pip install --no-cache-dir ${packages.join(' ')}`,
   npm: (packages) => `npm install -g ${packages.join(' ')}`,
@@ -120,8 +149,10 @@ export function renderDockerfile(plan: ImagePlan): string {
   return `${lines.join('\n')}\n`;
 }
 
-export function imageReference(registry: string, plan: ImagePlan): string {
-  return `${registry}/koala/workspace:${plan.fingerprint}`;
+export const WORKSPACE_IMAGE = 'workspace';
+
+export function imageReference(registry: string, plan: ImagePlan, owner = 'koala'): string {
+  return `${registry}/${owner}/${WORKSPACE_IMAGE}:${plan.fingerprint}`;
 }
 
 export function needsBuilding(plan: ImagePlan): boolean {
@@ -132,10 +163,13 @@ export function imageFor(registry: string, plan: ImagePlan): string {
   return needsBuilding(plan) ? imageReference(registry, plan) : plan.base;
 }
 
+export function languagesFor(agent: Pick<AgentDefinition, 'environmentSpec' | 'environment'>): string[] {
+  return [...(agent.environmentSpec?.languages ?? agent.environment.languages ?? [])];
+}
+
 export function baseFor(agent: Pick<AgentDefinition, 'environmentSpec' | 'environment'>): string {
-  return agent.environmentSpec?.languages?.[0]
-    ?? agent.environment.languages?.[0]
-    ?? DEFAULT_BASE;
+  const first = languagesFor(agent)[0];
+  return first && BASES.some((base) => base.id === first) ? first : DEFAULT_BASE;
 }
 
 export function planFor(
@@ -147,6 +181,7 @@ export function planFor(
   const granted = new Set(agent.tools);
   return planImage({
     base: baseFor(agent),
+    languages: languagesFor(agent),
     tools: catalogue.filter((tool) => granted.has(tool.name)),
   });
 }

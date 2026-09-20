@@ -158,6 +158,16 @@ export interface DescribeOutputsNode extends Value {
   wire(wires: DescribeOutputsWires): void
 }
 
+export type DescribeProcedureWires = Record<string, never>
+
+export type DescribeProcedureSettings = Record<string, never>
+
+export interface DescribeProcedureNode extends Value {
+  /** The section naming what happens around the model. */
+  readonly text: Out<'text'>
+  wire(wires: DescribeProcedureWires): void
+}
+
 export interface DescribeToolsWires {
   /** The tools being offered. */
   offered?: In<'toolSet'>
@@ -386,6 +396,16 @@ export type DelegateSettings = {
    * Inputs are JSON. {{values.name}} is replaced with that part of the wired values, and {{text}} with the wired text.
    */
   inputs?: string
+  /**
+   * The procedure's job
+   * This step hands the work over itself, so the model is not offered this persona and is told the procedure does it.
+   */
+  handles?: boolean
+  /**
+   * What the model is told
+   * One line explaining what this step does for it, such as "A judge weighs your work when you finish." Used when this step is the procedure's job.
+   */
+  says?: string
 }
 
 export interface DelegateNode extends Step<'ok' | 'failed'> {
@@ -777,6 +797,16 @@ export type CallToolSettings = {
    * Arguments are JSON. {{values.name}} is replaced with that part of the wired values, and {{text}} with the wired text.
    */
   args?: string
+  /**
+   * The procedure's job
+   * This step does the work itself, so the model is not offered this tool and is told the procedure handles it.
+   */
+  handles?: boolean
+  /**
+   * What the model is told
+   * One line explaining what this step does for it, such as "The task has already been claimed for you." Used when this step is the procedure's job.
+   */
+  says?: string
 }
 
 export interface CallToolNode extends Step<'ok' | 'failed'> {
@@ -864,6 +894,8 @@ export interface Nodes {
   describeEnvironment(id: string, wires?: DescribeEnvironmentWires, settings?: DescribeEnvironmentSettings, meta?: NodeMeta): DescribeEnvironmentNode
   /** Describe Outputs: Tells the model what its final answer has to contain, from the outputs the persona declares. */
   describeOutputs(id: string, wires?: DescribeOutputsWires, settings?: DescribeOutputsSettings, meta?: NodeMeta): DescribeOutputsNode
+  /** Describe Procedure: Tells the model which steps the procedure carries out for it, so it does not do them again. Reads every Call Tool step marked as the procedure's job. */
+  describeProcedure(id: string, wires?: DescribeProcedureWires, settings?: DescribeProcedureSettings, meta?: NodeMeta): DescribeProcedureNode
   /** Describe Tools: Lists the tools the model can use right now with their guidance, the ones it cannot and why, and what to do when it cannot proceed. */
   describeTools(id: string, wires?: DescribeToolsWires, settings?: DescribeToolsSettings, meta?: NodeMeta): DescribeToolsNode
   /**

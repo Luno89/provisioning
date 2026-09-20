@@ -130,7 +130,7 @@ function world(over: { memories?: MemoryItem[]; tools?: (args: ToolCallArgs) => 
         },
       }),
     }),
-    images: { ensure: async (plan) => plan.base, exists: async () => true },
+    images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
     tools: async () => [],
   });
   const environments = {
@@ -584,3 +584,66 @@ describe('doing one task', () => {
   });
 });
 
+
+describe('a tool the procedure does itself', () => {
+  const withHandledStep = (handles: boolean): Procedure =>
+    procedureBuilder({ catalogue: builtInCatalogue(), groups: BUILT_IN_GROUPS })({
+      id: 'handled', version: '1', name: 'Handled', describe: 'Claims a task, then calls the model.', budget: {},
+    }, (p) => {
+      const persona = p.persona('persona');
+      const input = p.runInput('input');
+      const claim = p.callTool('claim', { persona: persona.persona }, {
+        tool: 'start_task',
+        args: '{"taskId":"t-1"}',
+        ...(handles ? { handles: true, says: 'The task has already been claimed for you.' } : {}),
+      });
+      const conversation = p.conversation('conversation', { opening: input.message });
+      const turn = p.groups.modelTurn('turn', { messages: conversation.messages });
+      const done = p.finish('done', { result: turn.content }, { outcome: 'ok' });
+      const stopped = p.finish('stopped', {}, { outcome: 'failed', reason: 'it stopped' });
+
+      p.start(claim);
+      claim.on('ok', conversation);
+      claim.on('failed', stopped);
+      conversation.on('done', turn);
+      turn.on('answered', done);
+      turn.on('truncated', done);
+      turn.on('toolCalls', done);
+      turn.on('empty', stopped);
+      p.layout({
+        persona: [0, 0], input: [0, 140], claim: [260, 0], conversation: [520, 0],
+        turn: [780, 0], done: [1040, 0], stopped: [1040, 140],
+      });
+    }).procedure;
+
+  const started = async () => ({ ok: true, digest: 'started t-1' });
+
+  it('is not offered to the model, and the model is told what happens instead', async () => {
+    const { services } = world({ tools: started });
+    const model = stubModel(answer('done'));
+
+    await runV2(services, 'executor', withHandledStep(true));
+
+    const [sent] = model.bodies();
+    const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+    const system = sent!.messages.find((message) => message.role === 'system')!.content;
+
+    expect(offered).not.toContain('start_task');
+    expect(system).toContain('WHAT THE PROCEDURE DOES AROUND YOU');
+    expect(system).toContain('The task has already been claimed for you.');
+  });
+
+  it('is still offered when the step does not claim the job', async () => {
+    const { services } = world({ tools: started });
+    const model = stubModel(answer('done'));
+
+    await runV2(services, 'executor', withHandledStep(false));
+
+    const [sent] = model.bodies();
+    const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
+
+    expect(offered).toContain('start_task');
+    expect(sent!.messages.find((message) => message.role === 'system')!.content)
+      .not.toContain('WHAT THE PROCEDURE DOES AROUND YOU');
+  });
+});

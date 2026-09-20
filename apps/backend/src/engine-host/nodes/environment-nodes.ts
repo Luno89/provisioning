@@ -11,6 +11,9 @@ export function createEnvironmentNodes(services: HostNodeServices): NodeImplemen
       const handed = run.launch.environment as EnvironmentValue | undefined;
       if (handed) return { exit: 'ready', outputs: { environment: { ...handed, handedOver: true } } };
 
+      const waiting = await services.images?.waiting(run.launch.ownerId, run.identity.agentId).catch(() => undefined);
+      if (waiting) run.emit({ type: 'notice', level: 'info', message: waiting } as never);
+
       try {
         const environment = await services.environments.describe(ticketFor(run), run.budget.maxWallClockMs);
         return { exit: 'ready', outputs: { environment } };

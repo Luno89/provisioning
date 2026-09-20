@@ -924,6 +924,10 @@ export class MongoDB implements Database {
     );
   }
 
+  async deleteEngineTool(ownerId: string | undefined, name: string): Promise<void> {
+    await this.engineTools.deleteOne({ _id: `${ownerId ?? 'builtin'}:${name}` as any });
+  }
+
   async saveEnginePersona(persona: EnginePersona): Promise<void> {
     await this.enginePersonas.replaceOne(
       { _id: `${persona.ownerId ?? 'builtin'}:${persona.slug}` as any },

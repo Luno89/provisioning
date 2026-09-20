@@ -8,8 +8,7 @@ import {
   allowAll,
   type ApprovalGate,
   BASES,
-  baseFor,
-  planImage,
+  planFor,
   type ToolDefinition,
 } from '@koala/agent-engine';
 import { createNoneDriver } from '@koala/engine-core';
@@ -70,11 +69,8 @@ export async function workspaceFor(input: {
   egressMode: EgressMode;
   wallClockLimitMs?: number | undefined;
 }): Promise<RunWorkspace> {
-  const granted = new Set(input.agent.tools);
-  const plan = planImage({
-    base: baseFor(input.agent),
-    tools: input.tools.filter((tool) => granted.has(tool.name)),
-  });
+  const plan = planFor(input.agent, input.tools);
+  if (!plan) throw new Error(`${input.agent.slug} does not run in a sandbox, so it has no workspace image`);
 
   const reference = await input.images.ensure(plan);
   const access = packageAccessFor(plan.provides);

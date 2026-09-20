@@ -10,6 +10,7 @@ export interface ToolContract {
   requires?: EnvironmentRequirement | undefined;
   parameters?: Record<string, unknown> | undefined;
   usageGuidance?: string | undefined;
+  command?: string | undefined;
 }
 
 export interface WithheldTool {

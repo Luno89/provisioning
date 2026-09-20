@@ -36,11 +36,13 @@ import { describeAsks, describeAvailable, describeEnvironment, describeWithheld 
 import { createRunState } from '../../runtime/run.js';
 import { SEEDED_AGENTS } from '../../agent/seeds.js';
 
+
 type Outcome = { exit?: string; finish?: StepResult extends infer R ? R extends { finish: infer F } ? F : never : never; outputs: Record<string, unknown> };
 
 const context = (over: Partial<RunContext> = {}): RunContext => ({
   identity: { runId: 'r', depth: 0, agentId: 'a', loopId: 'p', loopVersion: '1', trigger: 'user' },
   launch: { ownerId: 'owner-1' },
+  handles: {},
   inputs: {},
   counters: createRunState(0).counters,
   budget: {},

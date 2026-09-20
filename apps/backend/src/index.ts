@@ -36,6 +36,10 @@ import { proceduresRouter } from './routes/procedures.js';
 import { ProcedureService } from './services/ProcedureService.js';
 import { createProcedureStore } from './engine-host/registries/procedure-store.js';
 import { createModelNodes, createProcedureExecutor, hostNodesFor } from './engine-host/nodes/index.js';
+import { agentsRouter } from './routes/agents.js';
+import { engineToolsRouter } from './routes/engine-tools.js';
+import { EngineToolService } from './services/EngineToolService.js';
+import { AgentService } from './services/AgentService.js';
 import { evalsLevel1Router } from './routes/evals-level1.js';
 import { evalsLevel2Router } from './routes/evals-level2.js';
 import { buildWebTools } from './lib/web-tools-wiring.js';
@@ -731,6 +735,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     ...(evalWeb ? { web: evalWeb } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
     registryHost: process.env.KOALA_REGISTRY,
+    registryAccount: async () => ({
+      owner: giteaService.adminUsername,
+      ...(await giteaService.getAdminCredentials()),
+    }),
+    registryPushToken: async () => ({
+      username: giteaService.adminUsername,
+      password: (await giteaService.createDeployToken()).token,
+    }),
     efforts: { save: (effort) => db.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.getRunEffort(ownerId, procedureId, modelKey) },
   });
 
@@ -763,6 +775,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   await Promise.all([level1Service.recover(), level2Service.recover()]).catch(() => undefined);
 
+  void evalHost.workspaceImages.warm().then((images) => {
+    const building = images.filter((image) => image.state === 'building');
+    const failed = images.filter((image) => image.state === 'failed');
+    if (building.length > 0) console.log(`[images] building ${building.length} workspace ${building.length === 1 ? 'image' : 'images'} ahead of the first run`);
+    for (const image of failed) console.warn(`[images] ${image.agent}: ${image.detail ?? 'the image could not be built'}`);
+  }).catch((err: Error) => console.warn(`[images] could not warm workspace images: ${err.message}`));
+
   app.use('/api/procedures', proceduresRouter({
     procedures: new ProcedureService({
       procedures: createProcedureStore({ sources: { list: (ownerId?: string) => db.getProcedures(ownerId) } }),
@@ -787,6 +806,32 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       list: (ownerId: string) => db.getTasks(ownerId),
       save: (task) => db.saveTask(task),
     },
+  }));
+
+  app.use('/api/engine-tools', engineToolsRouter({
+    tools: new EngineToolService({
+      tools: {
+        list: (ownerId?: string) => db.getEngineTools(ownerId),
+        save: (tool) => db.saveEngineTool(tool),
+        remove: (ownerId, name) => db.deleteEngineTool(ownerId, name),
+      },
+      personas: { list: (ownerId?: string) => db.getEnginePersonas(ownerId) },
+      implemented: evalHost.implemented,
+      images: evalHost.images,
+    }),
+  }));
+
+  app.use('/api/agents', agentsRouter({
+    agents: new AgentService({
+      personas: {
+        list: (ownerId?: string) => db.getEnginePersonas(ownerId),
+        save: (persona) => db.saveEnginePersona(persona),
+        remove: (ownerId, slug) => db.deleteEnginePersona(ownerId, slug),
+      },
+      tools: (ownerId: string) => draftCatalogue.list(ownerId),
+      procedures: (ownerId: string) => engineRegistry.procedures(ownerId),
+      images: evalHost.images,
+    }),
   }));
 
   app.use('/api/evals/level1', evalsLevel1Router({ level1: level1Service }));

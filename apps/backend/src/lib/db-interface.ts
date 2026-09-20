@@ -177,6 +177,7 @@ export interface Database {
 
   getEngineTools(ownerId?: string): Promise<EngineTool[]>;
   saveEngineTool(tool: EngineTool): Promise<void>;
+  deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
 
   getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit?: number): Promise<T[]>;
   getEvalRecordsInState<T extends EvalRecord>(collection: EvalCollection, state: string): Promise<T[]>;

@@ -4,6 +4,8 @@ import { AlertTriangle, Loader2, Network, Plus } from 'lucide-react'
 import { BUILT_IN_PROCEDURES } from '@koala/agent-engine/procedure'
 import { procedureIdFrom, starterProcedure } from '../../lib/procedure-drafts'
 import { errorMessage, useProcedureList, useSaveProcedure } from './shared'
+import AgentsView from './AgentsView'
+import ToolsView from './ToolsView'
 
 const BUILT_IN_IDS = new Set(BUILT_IN_PROCEDURES.map((procedure) => procedure.id))
 
@@ -13,6 +15,7 @@ export default function StudioView() {
   const save = useSaveProcedure()
   const [name, setName] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  const [showing, setShowing] = useState<'procedures' | 'agents' | 'tools'>('procedures')
 
   const id = name ? procedureIdFrom(name) : ''
   const taken = new Set(list.data?.procedures.map((procedure) => procedure.id) ?? [])
@@ -44,7 +47,7 @@ export default function StudioView() {
             A procedure is what an agent does, laid out as nodes: building its context, calling the model, running tools, checking itself. Open one to see every step, change it, and run it.
           </p>
         </div>
-        {name === null ? (
+        {showing !== 'procedures' ? null : name === null ? (
           <button
             type="button"
             onClick={() => setName('')}
@@ -80,12 +83,33 @@ export default function StudioView() {
         )}
       </header>
 
-      {failure && <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{failure}</p>}
+      <nav className="flex items-center gap-2 border-b border-[var(--bark-800)] pb-px">
+        {(['procedures', 'agents', 'tools'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setShowing(tab)}
+            className={`rounded-t-md border-b-2 px-4 py-2 text-xs font-medium capitalize transition-all ${
+              showing === tab
+                ? 'border-[var(--leaf)] bg-[var(--bark-900)]/80 font-semibold text-[var(--leaf)]'
+                : 'border-transparent text-slate-400 hover:bg-[var(--bark-900)]/40 hover:text-slate-200'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </nav>
 
-      {list.isPending && <p className="flex items-center gap-2 text-sm text-slate-400"><Loader2 size={14} className="animate-spin" /> Loading procedures…</p>}
-      {list.isError && <p className="text-sm text-red-300">{errorMessage(list.error)}</p>}
+      {showing === 'agents' && <AgentsView />}
 
-      {list.data && (
+      {showing === 'tools' && <ToolsView />}
+
+      {showing === 'procedures' && failure && <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{failure}</p>}
+
+      {showing === 'procedures' && list.isPending && <p className="flex items-center gap-2 text-sm text-slate-400"><Loader2 size={14} className="animate-spin" /> Loading procedures…</p>}
+      {showing === 'procedures' && list.isError && <p className="text-sm text-red-300">{errorMessage(list.error)}</p>}
+
+      {showing === 'procedures' && list.data && (
         <ul className="grid gap-3 sm:grid-cols-2">
           {list.data.procedures.map((procedure) => (
             <li key={procedure.id}>
@@ -108,7 +132,7 @@ export default function StudioView() {
         </ul>
       )}
 
-      {list.data && list.data.unreadable.length > 0 && (
+      {showing === 'procedures' && list.data && list.data.unreadable.length > 0 && (
         <section className="space-y-2">
           <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-300">
             <AlertTriangle size={13} /> Saved procedures that could not be read

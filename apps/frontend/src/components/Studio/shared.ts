@@ -11,6 +11,14 @@ import {
   saveProcedure,
 } from '../../api/procedures'
 import { engineKeys, listEngineAgents, listRunTraces } from '../../api/engine'
+import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
+import {
+  deleteEngineTool,
+  engineToolKeys,
+  listEngineTools,
+  saveEngineTool,
+  type EngineTool,
+} from '../../api/engineTools'
 
 export { errorMessage } from '../../api/client'
 export { STUDIO_CONTEXT } from '../../lib/procedure-drafts'
@@ -48,6 +56,68 @@ export const PLACEMENT_TITLES: Record<string, string> = {
 }
 
 export const NODE_DRAG_TYPE = 'application/x-koala-node'
+
+export function useAgents() {
+  return useQuery({ queryKey: agentKeys.all, queryFn: listAgents })
+}
+
+export function useGrantableTools() {
+  return useQuery({ queryKey: agentKeys.tools, queryFn: listGrantableTools })
+}
+
+export function useEngineTools() {
+  return useQuery({ queryKey: engineToolKeys.all, queryFn: listEngineTools })
+}
+
+export function useSaveEngineTool(onSaved?: (rebuilding: string[]) => void) {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (tool: EngineTool) => saveEngineTool(tool),
+    onSuccess: ({ rebuilding }) => {
+      void client.invalidateQueries({ queryKey: engineToolKeys.all })
+      void client.invalidateQueries({ queryKey: agentKeys.all })
+      onSaved?.(rebuilding)
+    },
+  })
+}
+
+export function useDeleteEngineTool(onDeleted?: () => void) {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (name: string) => deleteEngineTool(name),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: engineToolKeys.all })
+      void client.invalidateQueries({ queryKey: agentKeys.all })
+      onDeleted?.()
+    },
+  })
+}
+
+export function useSaveAgent(onSaved?: (agent: Agent) => void) {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (agent: Agent) => saveAgent(agent),
+    onSuccess: (agent) => {
+      void client.invalidateQueries({ queryKey: agentKeys.all })
+      onSaved?.(agent)
+    },
+  })
+}
+
+export function useDeleteAgent(onDeleted?: (slug: string) => void) {
+  const client = useQueryClient()
+
+  return useMutation({
+    mutationFn: (slug: string) => deleteAgent(slug),
+    onSuccess: (_, slug) => {
+      void client.invalidateQueries({ queryKey: agentKeys.all })
+      onDeleted?.(slug)
+    },
+  })
+}
 
 export function useProcedureList() {
   return useQuery({ queryKey: procedureKeys.list(), queryFn: listProcedures })

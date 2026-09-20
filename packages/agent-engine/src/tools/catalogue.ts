@@ -1,3 +1,4 @@
+import { placeholdersIn } from '@koala/engine-core';
 import type { EnvironmentRequirement, ToolBinding, ToolContract } from '@koala/engine-core';
 
 export type ToolEffect = 'read' | 'write' | 'propose';
@@ -37,6 +38,7 @@ export interface ToolDefinition {
   returns: string;
   failures: Failure[];
 
+  command?: string | undefined;
   requires?: EnvironmentRequirement | undefined;
   needsBinaries?: string[] | undefined;
   provides?: string[] | undefined;
@@ -81,6 +83,15 @@ export function checkDefinition(tool: ToolDefinition): CatalogueProblem[] {
     }
   }
 
+  if (tool.command !== undefined) {
+    if (!tool.command.trim()) say('has an empty command, so calling it would run nothing');
+    if (tool.binding !== 'environment') say('only an environment-bound tool can run a command, because only it has a workspace to run in');
+
+    for (const blank of placeholdersIn(tool.command)) {
+      if (!names.includes(blank)) say(`its command fills in "${blank}", which it does not take as an argument`);
+    }
+  }
+
   if (tool.needsBinaries?.length && !tool.install) {
     say(`needs ${tool.needsBinaries.join(', ')} but does not say how to install it`);
   }
@@ -121,6 +132,7 @@ export function asContract(tool: ToolDefinition): ToolContract {
     binding: tool.binding,
     parameters: tool.parameters as unknown as Record<string, unknown>,
     ...(tool.guidance ? { usageGuidance: tool.guidance } : {}),
+    ...(tool.command ? { command: tool.command } : {}),
     ...(tool.requires ? { requires: tool.requires } : {}),
   };
 }

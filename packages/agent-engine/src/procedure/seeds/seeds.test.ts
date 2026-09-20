@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { BUILT_IN_GROUPS, MODEL_TURN, TOOL_LOOP } from './groups.js';
-import { BUILT_IN_PROCEDURES } from './procedures.js';
+import { BUILT_IN_PROCEDURES, DO_ONE_TASK_V2 } from './procedures.js';
 import { builtInCatalogue } from '../nodes/index.js';
 import { checkProcedure } from '../validate.js';
 import { expandGroups, groupLibrary } from '../groups.js';
 import { PROCEDURE_SCHEMA, type Procedure } from '../schema.js';
+import { describeHandledSteps, handledTools } from '../handled.js';
 
 const catalogue = builtInCatalogue();
 
@@ -29,10 +30,10 @@ describe('built-in groups', () => {
     expect(problems).toEqual([]);
   });
 
-  it('builds the system prompt from the sections in the order the prompt composer uses', () => {
+  it('builds the system prompt from its sections in a settled order', () => {
     const sections = MODEL_TURN.wires.filter((entry) => entry.to.node === 'context' && entry.to.socket === 'sections');
 
-    expect(sections.map((entry) => entry.from.node)).toEqual(['persona', 'environment', 'toolText', 'memory', 'outputs']);
+    expect(sections.map((entry) => entry.from.node)).toEqual(['persona', 'environment', 'around', 'toolText', 'memory', 'outputs']);
   });
 
   it('sizes the reply against the same system prompt and conversation it sends', () => {
@@ -74,5 +75,27 @@ describe('built-in procedures', () => {
       const { body } = expandGroups(procedure, groupLibrary(procedure, BUILT_IN_GROUPS));
       expect(body.nodes.every((node) => node.kind !== 'group'), procedure.id).toBe(true);
     }
+  });
+});
+
+describe('the steps do-one-task carries out for the model', () => {
+  it('claims the task and records the outcome itself, and says so', () => {
+    const handled = handledTools(DO_ONE_TASK_V2);
+
+    expect(Object.keys(handled).sort()).toEqual(['judge', 'mark_done', 'mark_failed', 'start_task']);
+    expect(handled.start_task).toBe('The task has already been claimed for you.');
+    expect(handled.mark_done).toContain('Do not record it yourself.');
+    expect(handled.judge).toContain('You do not have to ask it yourself.');
+  });
+
+  it('leaves run_command alone, because the model still needs it', () => {
+    expect(handledTools(DO_ONE_TASK_V2).run_command).toBeUndefined();
+  });
+
+  it('tells the model what happens around it', () => {
+    const text = describeHandledSteps(DO_ONE_TASK_V2);
+
+    expect(text).toContain('WHAT THE PROCEDURE DOES AROUND YOU');
+    expect(text).toContain('- The task has already been claimed for you.');
   });
 });

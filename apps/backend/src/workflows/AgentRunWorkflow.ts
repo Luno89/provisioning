@@ -98,6 +98,7 @@ const toRemote = (request: NodeRequest): RemoteNodeRequest => ({
   run: {
     identity: request.run.identity,
     launch: request.run.launch,
+    handles: request.run.handles,
     inputs: request.run.inputs,
     counters: { ...request.run.counters },
     budget: request.run.budget,

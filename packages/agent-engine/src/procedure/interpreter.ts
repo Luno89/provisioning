@@ -5,6 +5,7 @@ import { GROUP_KIND, definitionFor, type NodeCatalogue, type NodeDefinition } fr
 import { expandGroups, groupLibrary } from './groups.js';
 import type { GroupDefinition, NodeId, PlacedNode, Procedure } from './schema.js';
 import { capForTrace } from './trace.js';
+import { handledTools, type HandledTools } from './handled.js';
 
 export interface UsageDelta {
   rounds?: number | undefined;
@@ -28,6 +29,7 @@ export interface RunLaunch {
 export interface RunContext {
   identity: RunIdentity;
   launch: RunLaunch;
+  handles: HandledTools;
   inputs: Readonly<Record<string, unknown>>;
   counters: Readonly<RunCounters>;
   budget: Readonly<RunBudget>;
@@ -139,6 +141,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
   const budget = options.budget ?? options.procedure.budget ?? {};
   const maxSteps = options.maxSteps ?? PROCEDURE_STEP_CAP;
   const { identity, executor, catalogue } = options;
+  const handles = handledTools(options.procedure);
 
   const { body, origin } = expandGroups(options.procedure, groupLibrary(options.procedure, options.groups));
   const nodes = new Map(body.nodes.map((node) => [node.id, node]));
@@ -198,6 +201,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
   const context = (cleaningUp: boolean, signal: AbortSignal | undefined): RunContext => ({
     identity,
     launch: options.launch,
+    handles,
     inputs: state.inputs,
     counters,
     budget,

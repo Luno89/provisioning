@@ -92,7 +92,7 @@ function engine(options: {
   const environments = createEnvironmentResolver({
     registry,
     environments: createRunEnvironments({ provision: async (request) => sandboxDriverFor(request) }),
-    images: { ensure: async (plan) => plan.base, exists: async () => true },
+    images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
     tools: async () => [],
     ...(options.workspaces ? { workspaces: options.workspaces } : {}),
     ...(options.withMachine ? { machineBackend: machineBackend() } : {}),
