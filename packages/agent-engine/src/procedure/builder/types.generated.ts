@@ -116,6 +116,8 @@ export interface ConversationWires {
   opening?: In<'text'>
   /** The named inputs the run was started with. Each one the opening does not already say is added to it, labelled, so the model sees everything the run was given. */
   given?: In<'json'>
+  /** What was said in earlier runs. Wired from Load Conversation, it goes in front of the opening so the model sees the whole thread. Nothing wired means the conversation starts here. */
+  history?: In<'messages'>
   /** The model's replies, from any number of model steps. Takes any number of wires. */
   replies?: In<'reply'> | readonly In<'reply'>[]
   /** Tool results, including refusals, from any number of steps. Takes any number of wires. */
@@ -216,6 +218,27 @@ export interface HandOffConversationNode extends Step<'fits' | 'handedOff'> {
   wire(wires: HandOffConversationWires): void
 }
 
+export interface LoadConversationWires {
+  /** Values the id can refer to as {{values.…}}. */
+  values?: In<'json'>
+}
+
+export type LoadConversationSettings = {
+  /**
+   * Conversation
+   * Which conversation, written as a template over the run's inputs — for example {{values.conversationId}}.
+   */
+  id: string
+}
+
+export interface LoadConversationNode extends Value {
+  /** What was said before, oldest first. */
+  readonly messages: Out<'messages'>
+  /** Whether a stored conversation was there to read. */
+  readonly found: Out<'json'>
+  wire(wires: LoadConversationWires): void
+}
+
 export interface ResolveToolsWires {
   /** Whose grants to start from. Required. */
   persona?: In<'persona'>
@@ -244,6 +267,36 @@ export interface ResolveToolsNode extends Value {
   /** Granted tools that are not offered, each with why. */
   readonly withheld: Out<'json'>
   wire(wires: ResolveToolsWires): void
+}
+
+export interface SaveConversationWires {
+  /** Values the id can refer to as {{values.…}}. */
+  values?: In<'json'>
+  /** What the person said this turn. Required. */
+  asked?: In<'text'>
+  /** The model's answer. A turn that was cut short hands back what it had, and that is what gets written. */
+  reply?: In<'reply'>
+  /** What the tools it called gave back. Takes any number of wires. */
+  results?: In<'toolResults'> | readonly In<'toolResults'>[]
+}
+
+export type SaveConversationSettings = {
+  /**
+   * Conversation
+   * Which conversation, written as a template over the run's inputs — for example {{values.conversationId}}.
+   */
+  id: string
+  /**
+   * Title when it is new
+   * Used only when the conversation is being created. Blank means it is named after the first thing asked.
+   */
+  title?: string
+}
+
+export interface SaveConversationNode extends Step<'saved' | 'failed'> {
+  /** The conversation that was written. */
+  readonly conversation: Out<'text'>
+  wire(wires: SaveConversationWires): void
 }
 
 export type TextWires = Record<string, never>
@@ -397,13 +450,13 @@ export type DelegateSettings = {
    */
   inputs?: string
   /**
-   * The procedure's job
-   * This step hands the work over itself, so the model is not offered this persona and is told the procedure does it.
+   * The model may also choose this
+   * By default this step is the procedure's job: the model is not offered this persona and is told the procedure hands the work over. Tick this to offer it to the model as well.
    */
-  handles?: boolean
+  shared?: boolean
   /**
    * What the model is told
-   * One line explaining what this step does for it, such as "A judge weighs your work when you finish." Used when this step is the procedure's job.
+   * One line explaining what this step does for it, such as "A judge weighs your work when you finish." Ignored when the model may also choose it.
    */
   says?: string
 }
@@ -798,13 +851,13 @@ export type CallToolSettings = {
    */
   args?: string
   /**
-   * The procedure's job
-   * This step does the work itself, so the model is not offered this tool and is told the procedure handles it.
+   * The model may also choose this
+   * By default this step is the procedure's job: the model is not offered the tool and is told the procedure calls it. Tick this to offer it to the model as well.
    */
-  handles?: boolean
+  shared?: boolean
   /**
    * What the model is told
-   * One line explaining what this step does for it, such as "The task has already been claimed for you." Used when this step is the procedure's job.
+   * One line explaining what this step does for it, such as "The task has already been claimed for you." Ignored when the model may also choose it.
    */
   says?: string
 }
@@ -886,7 +939,7 @@ export interface Nodes {
   /** Code: Runs a piece of JavaScript you wrote, in this run's own sandbox, with the values you wire in and the values you declare it hands back. The body is never read as a procedure — it is written out and executed there, so it can do anything the sandbox can, and nothing it cannot. */
   code(id: string, wires: CodeWires, settings: CodeSettings, meta?: NodeMeta): CodeNode
   /**
-   * Conversation: Keeps the message history. It starts from the opening message and whatever named inputs the run was given that the opening does not already say; each time it runs it adds any new replies in the order they were made, each with the tool calls it asked for, and once every call in a reply has a result it adds those results, answering each call by id. Nothing is added twice.
+   * Conversation: Keeps the message history. It starts from whatever earlier thread is wired in, then the opening message and whatever named inputs the run was given that the opening does not already say; each time it runs it adds any new replies in the order they were made, each with the tool calls it asked for, and once every call in a reply has a result it adds those results, answering each call by id. Nothing is added twice.
    * Leaves through done: Always.
    */
   conversation(id: string, wires?: ConversationWires, settings?: ConversationSettings, meta?: NodeMeta): ConversationNode
@@ -904,8 +957,16 @@ export interface Nodes {
    * Leaves through handedOff: The history was replaced with a summary and a tail.
    */
   handOffConversation(id: string, wires?: HandOffConversationWires, settings?: HandOffConversationSettings, meta?: NodeMeta): HandOffConversationNode
+  /** Load Conversation: Reads a stored conversation and hands back what was said, so a run carries on where the last one stopped rather than starting cold. Nothing stored yet means an empty history, not a failure. */
+  loadConversation(id: string, wires: LoadConversationWires, settings: LoadConversationSettings, meta?: NodeMeta): LoadConversationNode
   /** Resolve Tools: Works out which tools the model can use on this call: what the persona is granted, including the personas it may delegate to, narrowed to what the environment can support and what this step allows. Everything left out is listed with the reason. */
   resolveTools(id: string, wires?: ResolveToolsWires, settings?: ResolveToolsSettings, meta?: NodeMeta): ResolveToolsNode
+  /**
+   * Save Conversation: Appends this turn to the stored conversation: what the person asked, what the model answered, what it was thinking and which tools it called. A conversation that does not exist yet is created. Put it in the cleanup lane and a turn that was stopped part way is still recorded, rather than vanishing.
+   * Leaves through saved: The turn was appended.
+   * Leaves through failed: It could not be written.
+   */
+  saveConversation(id: string, wires: SaveConversationWires, settings: SaveConversationSettings, meta?: NodeMeta): SaveConversationNode
   /** Text: A piece of text you write, to put anywhere text is taken — usually a section of the system prompt. */
   text(id: string, wires?: TextWires, settings?: TextSettings, meta?: NodeMeta): TextNode
   /** Trim Tool Results: Caps how much of each tool result the model sees, and says how much was cut. It keeps the end of ordinary output, where errors and totals usually are, and the start of anything structured, where a JSON result says what it is. */

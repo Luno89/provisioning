@@ -125,11 +125,16 @@ export async function callModel(spec: ModelCallSpec, sink: StreamSink = () => un
     interrupted: undefined,
   };
 
+  let emitted = false;
+
   const absorb = (events: StreamEvent[]): boolean => {
     for (const event of events) {
       if (event.kind === 'error') {
-        throw new ModelCallError(`Model stream error: ${event.error}`, 500);
+        if (!emitted) throw new ModelCallError(`Model stream error: ${event.error}`, 500);
+        result.interrupted = `Model stream error: ${event.error}`;
+        return true;
       }
+      if (event.kind === 'content' || event.kind === 'thinking') emitted = true;
       if (event.kind === 'content') result.content += event.text;
       if (event.kind === 'thinking') result.thinking += event.text;
       if (event.kind === 'toolCall') result.toolCalls.push(event.call);

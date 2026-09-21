@@ -165,8 +165,6 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
         totalTokens: numberUsage(result.usage, 'total_tokens'),
       };
 
-      if (result.interrupted) return { interrupted: result.interrupted, usage };
-
       const reply: ModelReply = {
         id: `${node.id}#${execution}`,
         content: result.content,
@@ -174,6 +172,14 @@ export function createModelNodes(services: ModelNodeServices): NodeImplementatio
         finishReason: result.finishReason,
         toolCalls: result.toolCalls,
       };
+
+      if (result.interrupted) {
+        return {
+          interrupted: result.interrupted,
+          outputs: { reply, toolCalls: reply.toolCalls, content: reply.content },
+          usage,
+        };
+      }
 
       return {
         exit: replyExit(reply),

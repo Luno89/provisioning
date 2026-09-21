@@ -31,6 +31,7 @@ export interface EngineHostStores {
   };
   tools: { list(ownerId?: string): Promise<ToolDefinition[]> };
   tasks: TaskStore;
+  conversations: import('./nodes/conversation-nodes.js').ConversationStore;
   memories: {
     list(ownerId: string): Promise<MemoryItem[]>;
     save(item: MemoryItem): Promise<void>;
@@ -156,6 +157,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(efforts ? { efforts } : {}),
     images: { waiting: (ownerId: string, agentSlug: string) => workspaceImages.waiting(ownerId, agentSlug) },
     code: createCodeRunner({ environments: { forRun: (request) => environments.forRun(request) } }),
+    conversations: stores.conversations,
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
       save: stores.memories.save,
@@ -185,6 +187,11 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       save: (source: ProcedureSource) => db.saveProcedure(source),
     },
     tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
+    conversations: {
+      get: async (ownerId: string, id: string) =>
+        (await db.getConversations()).find((one) => one.id === id && one.ownerId === ownerId),
+      save: (conversation) => db.saveConversation(conversation),
+    },
     tasks: { list: (ownerId: string) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
   };

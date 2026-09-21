@@ -24,6 +24,7 @@ vi.mock('../../api/procedures', async () => {
       unreadable: [{ id: 'broken', report: 'node "x" is not a kind of node' }],
     })),
     saveProcedure: vi.fn(async (procedure) => ({ saved: true, procedure: { ...procedure, version: '1' }, problems: [] })),
+    deleteProcedure: vi.fn(async () => undefined),
   }
 })
 
@@ -66,5 +67,19 @@ describe('the procedure list', () => {
 
     expect(screen.getByText('"triage" is already taken')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled()
+  })
+})
+
+
+describe('a saved procedure that cannot be read', () => {
+  it('says why, and lets you throw it away', async () => {
+    show()
+
+    expect(await screen.findByText('broken')).toBeInTheDocument()
+    expect(screen.getByText('node "x" is not a kind of node')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete it' }))
+
+    await waitFor(() => expect(vi.mocked(api.deleteProcedure).mock.calls[0]?.[0]).toBe('broken'))
   })
 })

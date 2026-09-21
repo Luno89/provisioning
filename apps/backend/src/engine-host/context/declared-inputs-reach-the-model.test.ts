@@ -12,6 +12,7 @@ type Schema = { type?: string; properties?: Record<string, Schema>; required?: s
 
 const NOT_SHOWN: Record<string, string[]> = {
   executor: ['item.checks'],
+  koala: ['conversationId'],
 };
 
 function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {

@@ -14,7 +14,7 @@ export const PERSONA_SEEDS: Persona[] = [
     tools: [],
     agents: ["planner","research"],
     environment: {},
-    interface: {"inputs":{"type":"object","properties":{"message":{"type":"string"}}}},
+    interface: {"inputs":{"type":"object","properties":{"message":{"type":"string"},"conversationId":{"type":"string"}}}},
     procedure: 'interactive-chat',
     prompt: "You help the person you are talking to work out what they want and how to get it. Ask before assuming. When work needs doing, delegate it rather than guessing at it yourself.",
   },

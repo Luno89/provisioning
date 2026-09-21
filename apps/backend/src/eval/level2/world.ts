@@ -8,6 +8,7 @@ import { newTask, withStatus, type Task } from '../../engine-host/tools/tasks.js
 import type { WebTools } from '../../lib/web-tools.js';
 import type { ToolCallLog } from './score.js';
 import type { Scenario } from './scenario.js';
+import { inMemoryConversations } from '../../engine-host/nodes/conversation-nodes.js';
 
 export interface WorldOptions {
   ownerId: string;
@@ -72,6 +73,7 @@ export function createWorld(scenario: Scenario, options: WorldOptions): World {
   const calls: ToolCallLog[] = [];
 
   const stores: EngineHostStores = {
+    conversations: inMemoryConversations(),
     personas: { list: options.personas },
     tools: { list: options.tools },
     procedures: {

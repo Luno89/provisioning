@@ -8,6 +8,7 @@ import { MEMORY_NODES } from './memory.js';
 import { MODEL_NODES } from './model.js';
 import { SAFETY_NODES } from './safety.js';
 import { CODE_NODES } from './code.js';
+import { CONVERSATION_STORE_NODES } from './conversation-store.js';
 import { TOOL_NODES } from './tools.js';
 
 export const BUILT_IN_NODES: readonly BuiltInNode[] = [
@@ -20,6 +21,7 @@ export const BUILT_IN_NODES: readonly BuiltInNode[] = [
   ...CONTROL_NODES,
   ...SAFETY_NODES,
   ...CODE_NODES,
+  ...CONVERSATION_STORE_NODES,
 ];
 
 export const BUILT_IN_DEFINITIONS: readonly NodeDefinition[] = BUILT_IN_NODES.map((node) => node.definition);
@@ -38,6 +40,7 @@ export const HOST_KINDS: readonly string[] = BUILT_IN_NODES
 
 export const builtInCatalogue = (): NodeCatalogue => createNodeCatalogue(BUILT_IN_DEFINITIONS);
 
+export { loadConversation, saveConversation, CONVERSATION_STORE_NODES } from './conversation-store.js';
 export { resolveTools, withdrawTools, describeEnvironmentNode, describeProcedure, describeTools, describeOutputsNode, warnRunningOut, text, buildContext, conversation, trimToolResults, truncateText, cappedText, handOffConversation, resolvedEnvironment, extendConversation, clampToolResult, handOff, pacingText, NO_ENVIRONMENT, type PacingNote, type HandOffSettings } from './context.js';
 export { condition, merge, collect, finish, delegate, fanOut, waitForPerson, CONDITION_ROOTS, FINISH_OUTCOMES } from './control.js';
 export { provisionSandbox, releaseSandbox } from './environment.js';

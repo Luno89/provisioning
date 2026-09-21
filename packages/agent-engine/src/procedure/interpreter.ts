@@ -51,7 +51,7 @@ export interface NodeRequest {
 export type StepResult =
   | { exit: string; outputs?: Record<string, unknown> | undefined; usage?: UsageDelta | undefined }
   | { finish: { outcome: RunOutcome; reason?: string | undefined }; outputs?: Record<string, unknown> | undefined; usage?: UsageDelta | undefined }
-  | { interrupted: string; usage?: UsageDelta | undefined };
+  | { interrupted: string; outputs?: Record<string, unknown> | undefined; usage?: UsageDelta | undefined };
 
 export interface ValueResult {
   outputs: Record<string, unknown>;
@@ -341,7 +341,8 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     const base = { node: id, kind: node.kind, role: 'step' as const, cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs };
 
     if ('interrupted' in result) {
-      record({ ...base, interrupted: result.interrupted });
+      if (result.outputs) latest.set(id, result.outputs);
+      record({ ...base, interrupted: result.interrupted, outputs: result.outputs });
       emit({ type: 'interrupted', reason: result.interrupted } as never);
       emit({ type: 'node.exited', nodeId: id } as never);
       throw new RunStop('interrupted', result.interrupted);

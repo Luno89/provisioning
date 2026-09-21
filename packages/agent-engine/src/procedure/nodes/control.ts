@@ -200,16 +200,16 @@ export const delegate: BuiltInNode = {
       properties: {
         agent: { type: 'string', title: 'Persona', minLength: 1 },
         inputs: { type: 'string', title: 'Inputs', describe: INPUTS_HELP, multiline: true, default: '{}' },
-        handles: {
+        shared: {
           type: 'boolean',
-          title: 'The procedure\'s job',
-          describe: 'This step hands the work over itself, so the model is not offered this persona and is told the procedure does it.',
+          title: 'The model may also choose this',
+          describe: 'By default this step is the procedure\'s job: the model is not offered this persona and is told the procedure hands the work over. Tick this to offer it to the model as well.',
           default: false,
         },
         says: {
           type: 'string',
           title: 'What the model is told',
-          describe: 'One line explaining what this step does for it, such as "A judge weighs your work when you finish." Used when this step is the procedure\'s job.',
+          describe: 'One line explaining what this step does for it, such as "A judge weighs your work when you finish." Ignored when the model may also choose it.',
           default: '',
         },
       },
@@ -218,13 +218,10 @@ export const delegate: BuiltInNode = {
     spends: ['childRuns'],
     idempotent: false,
     summarize: (settings) =>
-      `hands the work to ${textOf(settings, 'agent') || 'another persona'}${settings.handles === true ? ', which the model is not offered' : ''}`,
+      `hands the work to ${textOf(settings, 'agent') || 'another persona'}${settings.shared === true ? ', which the model may also choose' : ', which the model is not offered'}`,
     check: (settings, known) => [
       ...agentCheck(settings, known),
       ...templateProblems(settings, 'inputs', 'its inputs'),
-      ...(settings.handles === true && !textOf(settings, 'says')
-        ? ['is the procedure\'s job but does not say what the model is told instead']
-        : []),
     ],
   }),
 };

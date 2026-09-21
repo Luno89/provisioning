@@ -9,6 +9,7 @@ import {
   REFUSED_CALL,
   RESEARCH_V2,
   TOOL_ROUNDS_V2,
+  INTERACTIVE_CHAT_V3,
   replyExit,
   stepImplementation,
   type ChatMessage,
@@ -21,6 +22,7 @@ import { createAgentRegistry } from '../engine-host/registries/registry.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
+import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
   type ProcedureRunInput,
@@ -47,8 +49,14 @@ type Scripted = Partial<ModelReply> | Error;
 
 const MACHINE: RunEnvironment = { kind: 'machine', deviceId: 'desk', deviceName: 'Desk', path: 'projects/thing', egressMode: 'declared' };
 
-function activities(options: { script: Scripted[]; environment?: RunEnvironment; history?: RunEffort[] }) {
+function activities(options: {
+  script: Scripted[];
+  environment?: RunEnvironment;
+  history?: RunEffort[];
+  conversations?: ReturnType<typeof inMemoryConversations>;
+}) {
   const registry = createAgentRegistry();
+  const conversations = options.conversations ?? inMemoryConversations();
   const seen: ChatMessage[][] = [];
   let turn = 0;
 
@@ -60,6 +68,7 @@ function activities(options: { script: Scripted[]; environment?: RunEnvironment;
   };
 
   const hostNodes = hostNodesFor(createHostNodes({
+    conversations,
     registry,
     models,
     tools: { run: async () => ({ ok: true, digest: '' }) },
@@ -91,6 +100,7 @@ function activities(options: { script: Scripted[]; environment?: RunEnvironment;
   return {
     seen,
     efforts,
+    conversations,
     engine: {
       EngineRunLimitsActivity: vi.fn((args: RunLimitsArgs) => tracker.limits(args)),
       EngineRecordEffortActivity: vi.fn((effort: RunEffort) => tracker.record(effort)),
@@ -122,10 +132,15 @@ const ticket = (agentSlug: string): RunTicket => ({
   trigger: 'user',
 });
 
-const input = (agentSlug: string, procedure: Procedure, message = 'hello'): ProcedureRunInput => ({
+const input = (
+  agentSlug: string,
+  procedure: Procedure,
+  message = 'hello',
+  extras: Record<string, unknown> = {},
+): ProcedureRunInput => ({
   ticket: ticket(agentSlug),
   procedure,
-  inputs: { message },
+  inputs: { message, ...extras },
 });
 
 async function runWorkflow(
@@ -363,4 +378,74 @@ describe('AgentRunWorkflow', () => {
     expect(result.reason).toMatch(/^"turn" failed/);
     expect(recorded(acts).some((trace) => trace.kind === 'release-sandbox')).toBe(true);
   }, 120_000);
+});
+
+describe('a remembered conversation, through the workflow', () => {
+  it('writes the turn across the activity boundary, not just in process', async () => {
+    const acts = activities({ script: [{ content: 'burnt orange, noted' }] });
+
+    const result = await runWorkflow(
+      input('koala', INTERACTIVE_CHAT_V3, 'my favourite colour is burnt orange', { conversationId: 'c-remembered' }),
+      acts,
+    );
+
+    expect(result.outcome).toBe('ok');
+    const saved = await acts.conversations.get('user-1', 'c-remembered');
+    expect(saved?.messages.map((one) => [one.role, one.content])).toEqual([
+      ['user', 'my favourite colour is burnt orange'],
+      ['assistant', 'burnt orange, noted'],
+    ]);
+  });
+
+  it('reads the earlier turn back on the next run, so the model sees the thread', async () => {
+    const conversations = inMemoryConversations();
+
+    await runWorkflow(
+      input('koala', INTERACTIVE_CHAT_V3, 'my favourite colour is burnt orange', { conversationId: 'c-thread' }),
+      activities({ script: [{ content: 'noted' }], conversations }),
+    );
+
+    const second = activities({ script: [{ content: 'burnt orange' }], conversations });
+    await runWorkflow(
+      input('koala', INTERACTIVE_CHAT_V3, 'what was it again?', { conversationId: 'c-thread' }),
+      second,
+    );
+
+    expect(second.seen[0]!.map((one) => one.content)).toEqual([
+      'my favourite colour is burnt orange',
+      'noted',
+      'what was it again?',
+    ]);
+  });
+
+  it('keeps each owner’s conversation to themselves across the boundary', async () => {
+    const conversations = inMemoryConversations();
+    await conversations.save({
+      id: 'c-theirs', ownerId: 'somebody-else', title: 'Theirs',
+      messages: [{ role: 'user', content: 'private', at: 'x' }], createdAt: 'x', updatedAt: 'x',
+    } as never);
+
+    const acts = activities({ script: [{ content: 'nothing to go on' }], conversations });
+    await runWorkflow(input('koala', INTERACTIVE_CHAT_V3, 'what do you know?', { conversationId: 'c-theirs' }), acts);
+
+    expect(acts.seen[0]!.map((one) => one.content)).toEqual(['what do you know?']);
+  });
+});
+
+describe('when the model call fails', () => {
+  it('is retried by Temporal, because the node says it is idempotent', async () => {
+    const acts = activities({
+      script: [new Error('Model stream error: Chat completion aborted.'), { content: 'second attempt got through' }],
+    });
+
+    const result = await runWorkflow(
+      input('koala', INTERACTIVE_CHAT_V3, 'try me', { conversationId: 'c-retried' }),
+      acts,
+    );
+
+    expect(result.outcome).toBe('ok');
+    expect(acts.seen.length).toBeGreaterThan(1);
+    const saved = await acts.conversations.get('user-1', 'c-retried');
+    expect(saved?.messages.at(-1)?.content).toBe('second attempt got through');
+  });
 });

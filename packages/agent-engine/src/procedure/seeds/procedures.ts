@@ -92,14 +92,81 @@ export const TOOL_ROUNDS_V2 = agentLoop({
   circling: { outcome: 'failed' },
 });
 
-export const INTERACTIVE_CHAT_V2 = agentLoop({
+export const INTERACTIVE_CHAT_V3 = defineProcedure(BUILT_IN_GROUPS, {
   id: 'interactive-chat',
+  version: '3',
   name: 'Interactive chat',
-  describe: 'A conversation turn: the model uses tools as needed, carries on when its reply is cut off, and finishes once it has answered.',
-  answered: { outcome: 'ok' },
-  truncated: 'continue',
-  empty: { outcome: 'ok' },
-  circling: { outcome: 'failed' },
+  describe: 'One turn of a conversation that is remembered: it reads back what was said before, answers with tools as needed, carries on when its reply is cut off, and writes the turn back so the next one picks up where this left off.',
+  budget: {},
+}, (p) => {
+  const input = p.runInput('input');
+  const provision = p.provisionSandbox('provision');
+  const earlier = p.loadConversation('earlier', { values: input.inputs }, { id: '{{values.conversationId}}' });
+  const conversation = p.conversation('conversation', {
+    opening: input.message,
+    history: earlier.messages,
+  });
+  const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
+  const repetition = p.checkRepetition('repetition', { reply: turn.reply });
+  const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: turn.persona, environment: provision.environment });
+  const saidSomething = p.condition('saidSomething', { value: turn.content }, { expression: 'not empty(value)' });
+  const remember = p.saveConversation('remember', {
+    values: input.inputs,
+    asked: input.message,
+    reply: turn.reply,
+    results: tools.results,
+  }, { id: '{{values.conversationId}}' });
+
+  const answered = p.finish('answered', { result: turn.content }, { outcome: 'ok' });
+  const cutOff = p.finish('cutOff', {}, { outcome: 'failed', reason: 'the reply hit the token cap before it said anything' });
+  const empty = p.finish('empty', {}, { outcome: 'ok' });
+  const circling = p.finish('circling', { reason: repetition.reason }, { outcome: 'failed' });
+  const failing = p.finish('failing', { reason: tools.reason }, { outcome: 'failed' });
+  const unavailable = p.finish('unavailable', { reason: provision.reason }, { outcome: 'failed' });
+  const release = p.releaseSandbox('release', { environment: provision.environment });
+  const released = p.finish('released', {}, { outcome: 'ok' });
+
+  conversation.wire({ replies: [turn.reply], results: [tools.refused, tools.results] });
+
+  p.start(provision);
+  p.cleanup(remember);
+  provision.on('ready', conversation);
+  provision.on('unavailable', unavailable);
+  conversation.on('done', turn);
+  turn.on('toolCalls', repetition);
+  turn.on('answered', answered);
+  turn.on('truncated', saidSomething);
+  saidSomething.on('true', answered);
+  saidSomething.on('false', cutOff);
+  turn.on('empty', empty);
+  repetition.on('ok', tools);
+  repetition.on('tripped', circling);
+  tools.on('done', conversation);
+  tools.on('refused', conversation);
+  tools.on('failing', failing);
+  remember.on('saved', release);
+  remember.on('failed', release);
+  release.on('done', released);
+
+  p.layout({
+    input: [0, 140],
+    provision: [0, 0],
+    earlier: [260, 0],
+    conversation: [520, 0],
+    turn: [780, 0],
+    repetition: [1040, 0],
+    tools: [1300, 0],
+    saidSomething: [1040, 280],
+    remember: [0, 560],
+    answered: [1300, 140],
+    cutOff: [1300, 280],
+    empty: [1040, 420],
+    circling: [1300, 60],
+    failing: [1560, 0],
+    unavailable: [260, 140],
+    release: [260, 560],
+    released: [520, 560],
+  });
 });
 
 export const PLANNING_V2 = agentLoop({
@@ -199,7 +266,6 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const claim = p.callTool('claim', onTask, {
     tool: 'start_task',
     args: '{"taskId":"{{values.item.id}}"}',
-    handles: true,
     says: 'The task has already been claimed for you.',
   });
   const conversation = p.conversation('conversation', { opening: input.message, given: input.inputs });
@@ -207,12 +273,15 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const repetition = p.checkRepetition('repetition', { reply: turn.reply });
   const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: persona.persona, environment: provision.environment });
   const hasCheck = p.condition('hasCheck', { value: input.inputs }, { expression: 'not empty(value.item.checks.command)' });
-  const check = p.callTool('check', onTask, { tool: 'run_command', args: '{"command":"{{values.item.checks.command}}"}' });
+  const check = p.callTool('check', onTask, {
+    tool: 'run_command',
+    args: '{"command":"{{values.item.checks.command}}"}',
+    shared: true,
+  });
   const evidence = p.buildContext('evidence', { sections: [turn.content, check.text] });
   const judge = p.delegate('judge', { values: input.inputs, text: evidence.text, environment: provision.environment }, {
     agent: 'judge',
     inputs: '{"work":"{{text}}","expected":"{{values.item.doneMeans}}"}',
-    handles: true,
     says: 'When you finish, a judge weighs your work against what the task asked for. You do not have to ask it yourself.',
   });
   const model = p.chooseModel('model', { persona: persona.persona });
@@ -222,19 +291,16 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   const record = p.callTool('record', { ...onTask, text: turn.content }, {
     tool: 'mark_done',
     args: '{"taskId":"{{values.item.id}}","evidence":"{{text}}"}',
-    handles: true,
     says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
   const rejected = p.callTool('rejected', { ...onTask, text: verdict.why }, {
     tool: 'mark_failed',
     args: '{"taskId":"{{values.item.id}}","reason":"{{text}}"}',
-    handles: true,
     says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
   const unjudged = p.callTool('unjudged', { ...onTask, text: judge.reason }, {
     tool: 'mark_failed',
     args: '{"taskId":"{{values.item.id}}","reason":"the work could not be judged: {{text}}"}',
-    handles: true,
     says: 'The outcome is then recorded on the task for you. Do not record it yourself.',
   });
   const finished = p.finish('finished', {}, { outcome: 'ok' });
@@ -383,7 +449,7 @@ export const DELIVERY_V2 = defineProcedure(BUILT_IN_GROUPS, {
 
 export const BUILT_IN_PROCEDURES: readonly Procedure[] = [
   TOOL_ROUNDS_V2,
-  INTERACTIVE_CHAT_V2,
+  INTERACTIVE_CHAT_V3,
   PLANNING_V2,
   RESEARCH_V2,
   SINGLE_SHOT_V2,

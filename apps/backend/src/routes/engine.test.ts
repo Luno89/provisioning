@@ -4,7 +4,7 @@ import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { engineRouter } from './engine.js';
 import { createAgentRegistry, createRunStarter, type WorkflowStarter, type Task } from '../engine-host/index.js';
 import type { Database } from '../lib/db-interface.js';
-import { INTERACTIVE_CHAT_V2, RESEARCH_V2 } from '@koala/agent-engine/procedure';
+import { INTERACTIVE_CHAT_V3, RESEARCH_V2 } from '@koala/agent-engine/procedure';
 
 let tasks: Task[] = [];
 
@@ -91,7 +91,7 @@ describe('engine routes', () => {
     const [, options] = workflows.start.mock.calls[0] as [string, { args: [Record<string, unknown>] }];
     expect(options.args[0]).toEqual({
       ticket: { runId: 'run-fixed', depth: 0, ownerId: 'test-user', agentSlug: 'koala', trigger: 'user' },
-      procedure: INTERACTIVE_CHAT_V2,
+      procedure: INTERACTIVE_CHAT_V3,
       inputs: { message: 'hello there' },
     });
 

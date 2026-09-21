@@ -19,6 +19,7 @@ export interface HostNodeServices {
     save(item: MemoryItem): Promise<void>;
   };
   code?: import('./code-runner.js').CodeRunner | undefined;
+  conversations: import('./conversation-nodes.js').ConversationStore;
   images?: { waiting(ownerId: string, agentSlug: string): Promise<string | undefined> } | undefined;
   efforts?: {
     replyCeiling(args: { ownerId: string; procedureId: string; modelKey: string; agentSlug: string }): Promise<number | undefined>;

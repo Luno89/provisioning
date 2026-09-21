@@ -51,6 +51,7 @@ export {
   expandGroups,
   type Expanded,
 } from './groups.js';
+export { fillTemplate } from './template.js';
 export { checkProcedure, procedureErrors, type ProcedureProblem, type CheckOptions } from './validate.js';
 export { requiredGrants, missingGrants, type RequiredGrant } from './required.js';
 export { handledSteps, handledTools, describeHandles, describeHandledSteps, type HandledStep, type HandledTools } from './handled.js';
@@ -118,5 +119,5 @@ export {
 } from './implementation.js';
 export * from './nodes/index.js';
 export { MODEL_TURN, TOOL_LOOP, BUILT_IN_GROUPS } from './seeds/groups.js';
-export { BUILT_IN_PROCEDURES, TOOL_ROUNDS_V2, INTERACTIVE_CHAT_V2, PLANNING_V2, RESEARCH_V2, SINGLE_SHOT_V2, DO_ONE_TASK_V2, DELIVERY_V2 } from './seeds/procedures.js';
+export { BUILT_IN_PROCEDURES, TOOL_ROUNDS_V2, INTERACTIVE_CHAT_V3, PLANNING_V2, RESEARCH_V2, SINGLE_SHOT_V2, DO_ONE_TASK_V2, DELIVERY_V2 } from './seeds/procedures.js';
 export { readProcedure, readAndCheckProcedure, formatProcedureProblems, describeProcedureFormat, EXAMPLE_PROCEDURE, type ParsedProcedure } from './source.js';

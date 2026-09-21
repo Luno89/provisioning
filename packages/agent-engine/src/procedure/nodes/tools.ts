@@ -117,16 +117,16 @@ export const callTool: BuiltInNode = {
       properties: {
         tool: { type: 'string', title: 'Tool', minLength: 1 },
         args: { type: 'string', title: 'Arguments', describe: TEMPLATE_HELP, multiline: true, default: '{}' },
-        handles: {
+        shared: {
           type: 'boolean',
-          title: 'The procedure\'s job',
-          describe: 'This step does the work itself, so the model is not offered this tool and is told the procedure handles it.',
+          title: 'The model may also choose this',
+          describe: 'By default this step is the procedure\'s job: the model is not offered the tool and is told the procedure calls it. Tick this to offer it to the model as well.',
           default: false,
         },
         says: {
           type: 'string',
           title: 'What the model is told',
-          describe: 'One line explaining what this step does for it, such as "The task has already been claimed for you." Used when this step is the procedure\'s job.',
+          describe: 'One line explaining what this step does for it, such as "The task has already been claimed for you." Ignored when the model may also choose it.',
           default: '',
         },
       },
@@ -135,15 +135,12 @@ export const callTool: BuiltInNode = {
     spends: ['toolCalls'],
     idempotent: false,
     summarize: (settings) =>
-      `calls ${textOf(settings, 'tool') || 'a tool'}${settings.handles === true ? ', which the model is not offered' : ''}`,
+      `calls ${textOf(settings, 'tool') || 'a tool'}${settings.shared === true ? ', which the model may also choose' : ', which the model is not offered'}`,
     check: (settings, known) => {
       const tool = textOf(settings, 'tool');
       return [
         ...(tool && known.tools && !known.tools.has(tool) ? [`calls "${tool}", which is not a tool`] : []),
         ...templateProblems(settings, 'args', 'its arguments'),
-        ...(settings.handles === true && !textOf(settings, 'says')
-          ? ['is the procedure\'s job but does not say what the model is told instead']
-          : []),
       ];
     },
   }),

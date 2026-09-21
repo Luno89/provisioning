@@ -15,7 +15,7 @@ export function handledSteps(procedure: Pick<Procedure, 'nodes'> | undefined): H
   const steps: HandledStep[] = [];
 
   for (const node of procedure?.nodes ?? []) {
-    if (node.settings.handles !== true) continue;
+    if (node.settings.shared === true) continue;
 
     const named = node.kind === 'call-tool' ? 'tool' : node.kind === 'delegate' ? 'agent' : undefined;
     if (!named) continue;

@@ -19,6 +19,7 @@ import { createRunEnvironments } from '../sandboxes/run-environments.js';
 import { createSandboxDriver } from '../drivers/sandbox.js';
 import { createProcedureExecutor, type HostNodeServices } from '../nodes/index.js';
 import type { ToolCallArgs, ToolCallOutcome } from '../temporal/contracts.js';
+import { inMemoryConversations } from '../nodes/conversation-nodes.js';
 
 export interface ComposedRequest {
   system: string;
@@ -135,6 +136,7 @@ export async function composedRequests(options: ComposeOptions): Promise<Compose
   });
 
   const services: HostNodeServices = {
+    conversations: inMemoryConversations(),
     registry,
     models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
     tools: { run: options.tools ?? (async () => ({ ok: true, digest: 'done', content: 'done' })) },

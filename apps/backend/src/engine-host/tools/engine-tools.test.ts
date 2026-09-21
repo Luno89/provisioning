@@ -74,7 +74,7 @@ describe('the wired procedure tools actually run', () => {
     const out = await call(wired().map, 'read_procedure');
 
     expect(out.ok).toBe(true);
-    expect(out.content).toContain('- interactive-chat v2: Interactive chat');
+    expect(out.content).toContain('- interactive-chat v3: Interactive chat');
   });
 
   it('reads a built-in procedure as the same JSON save_procedure takes', async () => {

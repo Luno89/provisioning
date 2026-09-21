@@ -11,6 +11,7 @@ import { createProcedureExecutor, type HostNodeServices } from '../engine-host/n
 import { ENGINE_TOOL_SEEDS } from '../engine-host/tools/engine-tool-seeds.js';
 import type { EvalCase } from '../eval/cases.js';
 import type { Scenario } from '../eval/level2/scenario.js';
+import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 
 const PROVIDER = { id: 'tabby', name: 'Tabby', source: 'deployment', model: 'test-model', contextTokens: 32_000 } as ModelProvider;
 const quiet = { validateStatus: () => true };
@@ -36,6 +37,7 @@ const level1Harness = (): Promise<Harness> => mountRouter({
   router: (db) => {
     const registry = createAgentRegistry();
     const services: HostNodeServices = {
+      conversations: inMemoryConversations(),
       registry,
       models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
       tools: { run: async () => ({ ok: true, digest: '', content: '' }) },

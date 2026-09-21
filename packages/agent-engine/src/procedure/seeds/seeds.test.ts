@@ -60,10 +60,17 @@ describe('built-in procedures', () => {
 
   it.each(BUILT_IN_PROCEDURES.map((procedure) => [procedure.id, procedure] as const))('%s releases any sandbox it provisions, however it ends', (_id, procedure) => {
     const provisions = procedure.nodes.some((node) => node.kind === 'provision-sandbox');
-    const releasesInCleanup = procedure.cleanup !== undefined
-      && procedure.nodes.find((node) => node.id === procedure.cleanup)?.kind === 'release-sandbox';
 
-    expect(releasesInCleanup).toBe(provisions);
+    const kindsInCleanup = new Set<string>();
+    const walk = (from: string | undefined, seen = new Set<string>()): void => {
+      if (!from || seen.has(from)) return;
+      seen.add(from);
+      kindsInCleanup.add(procedure.nodes.find((node) => node.id === from)?.kind ?? '');
+      for (const edge of procedure.flow.filter((entry) => entry.from === from)) walk(edge.to, seen);
+    };
+    walk(procedure.cleanup);
+
+    expect(kindsInCleanup.has('release-sandbox')).toBe(provisions);
   });
 
   it('keep ids unique and match the procedures agents already point at', () => {

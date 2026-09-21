@@ -17,6 +17,7 @@ const CATALOGUE: ToolContract[] = [
 ];
 import type { MachineBackend } from '../drivers/machine.js';
 import type { RunTicket } from './contracts.js';
+import { inMemoryConversations } from '../nodes/conversation-nodes.js';
 
 const ticket = (agentSlug: string, over: Partial<RunTicket> = {}): RunTicket => ({
   runId: 'run-1',
@@ -99,6 +100,7 @@ function engine(options: {
   });
 
   const services: HostNodeServices = {
+    conversations: inMemoryConversations(),
     registry,
     environments,
     models: {

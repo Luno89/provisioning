@@ -3,7 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { AlertTriangle, Loader2, Network, Plus } from 'lucide-react'
 import { BUILT_IN_PROCEDURES } from '@koala/agent-engine/procedure'
 import { procedureIdFrom, starterProcedure } from '../../lib/procedure-drafts'
-import { errorMessage, useProcedureList, useSaveProcedure } from './shared'
+import { errorMessage, useDeleteProcedure, useProcedureList, useSaveProcedure } from './shared'
 import AgentsView from './AgentsView'
 import ToolsView from './ToolsView'
 
@@ -12,6 +12,7 @@ const BUILT_IN_IDS = new Set(BUILT_IN_PROCEDURES.map((procedure) => procedure.id
 export default function StudioView() {
   const navigate = useNavigate()
   const list = useProcedureList()
+  const discard = useDeleteProcedure()
   const save = useSaveProcedure()
   const [name, setName] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -139,8 +140,19 @@ export default function StudioView() {
           </h2>
           {list.data.unreadable.map((entry) => (
             <div key={entry.id} className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
-              <p className="font-mono text-xs text-amber-200">{entry.id}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-mono text-xs text-amber-200">{entry.id}</p>
+                <button
+                  type="button"
+                  onClick={() => discard.mutate(entry.id)}
+                  disabled={discard.isPending}
+                  className="ml-auto rounded-md border border-red-900 px-2 py-0.5 text-[11px] text-red-300 hover:bg-red-950/40 disabled:opacity-40"
+                >
+                  Delete it
+                </button>
+              </div>
               <pre className="mt-1 whitespace-pre-wrap text-[11px] text-slate-400">{entry.report}</pre>
+              {discard.isError && <p className="mt-1 text-[11px] text-red-300">{errorMessage(discard.error)}</p>}
             </div>
           ))}
         </section>

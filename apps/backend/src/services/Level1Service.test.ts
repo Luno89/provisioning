@@ -5,6 +5,7 @@ import { createProcedureExecutor, type HostNodeServices } from '../engine-host/n
 import { MemoryDB } from '../lib/memory-db.js';
 import type { EvalCase } from '../eval/cases.js';
 import { Level1Service, summariseLevel1, type Level1Run } from './Level1Service.js';
+import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 
 const PROVIDER = { id: 'tabby', name: 'Tabby', source: 'deployment', model: 'test-model', contextTokens: 32_000 } as ModelProvider;
 
@@ -39,6 +40,7 @@ function stubModel(reply: (lastUser: string, body: { messages: { role: string; c
 function world(over: { now?: () => string } = {}) {
   const registry = createAgentRegistry();
   const services: HostNodeServices = {
+    conversations: inMemoryConversations(),
     registry,
     models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
     tools: { run: async () => ({ ok: true, digest: '', content: '' }) },

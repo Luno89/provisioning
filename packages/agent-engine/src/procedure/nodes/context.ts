@@ -368,10 +368,11 @@ export function extendConversation(
   opening: string,
   replies: readonly ModelReply[],
   results: readonly (readonly ToolResult[])[],
+  history: readonly ChatMessage[] = [],
 ): ConversationState {
   const state: ConversationState = previous
     ? { messages: [...previous.messages], replies: [...previous.replies], answered: [...previous.answered] }
-    : { messages: [{ role: 'user', content: opening }], replies: [], answered: [] };
+    : { messages: [...history, { role: 'user', content: opening }], replies: [], answered: [] };
 
   const byCall = new Map<string, ToolResult>();
   for (const batch of results) {
@@ -415,11 +416,12 @@ export const conversation: BuiltInNode = {
     kind: 'conversation',
     title: 'Conversation',
     category: 'context',
-    describe: 'Keeps the message history. It starts from the opening message and whatever named inputs the run was given that the opening does not already say; each time it runs it adds any new replies in the order they were made, each with the tool calls it asked for, and once every call in a reply has a result it adds those results, answering each call by id. Nothing is added twice.',
+    describe: 'Keeps the message history. It starts from whatever earlier thread is wired in, then the opening message and whatever named inputs the run was given that the opening does not already say; each time it runs it adds any new replies in the order they were made, each with the tool calls it asked for, and once every call in a reply has a result it adds those results, answering each call by id. Nothing is added twice.',
     role: 'step',
     inputs: [
       { name: 'opening', type: 'text', describe: 'The first user message.', required: true },
       { name: 'given', type: 'json', describe: 'The named inputs the run was started with. Each one the opening does not already say is added to it, labelled, so the model sees everything the run was given.' },
+      { name: 'history', type: 'messages', describe: 'What was said in earlier runs. Wired from Load Conversation, it goes in front of the opening so the model sees the whole thread. Nothing wired means the conversation starts here.' },
       { name: 'replies', type: 'reply', describe: 'The model\'s replies, from any number of model steps.', many: true },
       { name: 'results', type: 'toolResults', describe: 'Tool results, including refusals, from any number of steps.', many: true },
     ],
@@ -436,6 +438,7 @@ export const conversation: BuiltInNode = {
       openingWith(inputs.opening as string, inputs.given as Record<string, unknown> | undefined),
       (inputs.replies as ModelReply[] | undefined) ?? [],
       (inputs.results as ToolResult[][] | undefined) ?? [],
+      (inputs.history as ChatMessage[] | undefined) ?? [],
     );
     return { exit: 'done', outputs: { ...state } };
   }),

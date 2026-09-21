@@ -19,6 +19,8 @@ import type { MemoryItem } from '../drivers/memory-store.js';
 import type { RunTicket, ToolCallArgs, ToolCallOutcome } from '../temporal/contracts.js';
 import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
 import { createProcedureExecutor, withTemperature, type HostNodeServices } from './index.js';
+import { inMemoryConversations } from './conversation-nodes.js';
+import { INTERACTIVE_CHAT_V3 } from '@koala/agent-engine/procedure';
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true }, usageGuidance: 'Prefer a dedicated tool when one fits.' },
@@ -144,6 +146,7 @@ function world(over: { memories?: MemoryItem[]; tools?: (args: ToolCallArgs) => 
   const saved: MemoryItem[] = [];
 
   const services: HostNodeServices = {
+    conversations: inMemoryConversations(),
     registry,
     models: { resolveBaseUrl: async () => ({ provider: PROVIDER, baseUrl: 'https://models.test/v1', apiKey: 'k' }) },
     tools: { run: toolRuns },
@@ -173,6 +176,7 @@ function runV2(
     traces?: NodeTrace[];
     message?: string;
     launch?: Partial<Parameters<typeof runProcedure>[0]['launch']>;
+    inputs?: Record<string, unknown>;
     bus?: Parameters<typeof runProcedure>[0]['bus'];
   } = {},
 ) {
@@ -183,7 +187,7 @@ function runV2(
     executor: createProcedureExecutor(services, { registry: services.registry as never }),
     identity: identity(slug),
     launch: { ownerId: 'user-1', ...(over.launch ?? {}) },
-    inputs: { message: over.message ?? 'get on with it' },
+    inputs: { message: over.message ?? 'get on with it', ...(over.inputs ?? {}) },
     ...(over.bus ? { bus: over.bus } : {}),
     ...(over.traces ? { onTrace: (trace) => over.traces!.push(trace) } : {}),
   });
@@ -586,7 +590,7 @@ describe('doing one task', () => {
 
 
 describe('a tool the procedure does itself', () => {
-  const withHandledStep = (handles: boolean): Procedure =>
+  const withHandledStep = (shared: boolean): Procedure =>
     procedureBuilder({ catalogue: builtInCatalogue(), groups: BUILT_IN_GROUPS })({
       id: 'handled', version: '1', name: 'Handled', describe: 'Claims a task, then calls the model.', budget: {},
     }, (p) => {
@@ -595,7 +599,8 @@ describe('a tool the procedure does itself', () => {
       const claim = p.callTool('claim', { persona: persona.persona }, {
         tool: 'start_task',
         args: '{"taskId":"t-1"}',
-        ...(handles ? { handles: true, says: 'The task has already been claimed for you.' } : {}),
+        says: 'The task has already been claimed for you.',
+        ...(shared ? { shared: true } : {}),
       });
       const conversation = p.conversation('conversation', { opening: input.message });
       const turn = p.groups.modelTurn('turn', { messages: conversation.messages });
@@ -622,7 +627,7 @@ describe('a tool the procedure does itself', () => {
     const { services } = world({ tools: started });
     const model = stubModel(answer('done'));
 
-    await runV2(services, 'executor', withHandledStep(true));
+    await runV2(services, 'executor', withHandledStep(false));
 
     const [sent] = model.bodies();
     const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
@@ -633,11 +638,11 @@ describe('a tool the procedure does itself', () => {
     expect(system).toContain('The task has already been claimed for you.');
   });
 
-  it('is still offered when the step does not claim the job', async () => {
+  it('is offered again once the step is shared with the model', async () => {
     const { services } = world({ tools: started });
     const model = stubModel(answer('done'));
 
-    await runV2(services, 'executor', withHandledStep(false));
+    await runV2(services, 'executor', withHandledStep(true));
 
     const [sent] = model.bodies();
     const offered = (sent!.tools ?? []).map((tool) => (tool as { function: { name: string } }).function.name);
@@ -645,5 +650,50 @@ describe('a tool the procedure does itself', () => {
     expect(offered).toContain('start_task');
     expect(sent!.messages.find((message) => message.role === 'system')!.content)
       .not.toContain('WHAT THE PROCEDURE DOES AROUND YOU');
+  });
+});
+
+describe('a turn the model stream cut short', () => {
+  const brokenAfter = (said: string): Frame[] => [
+    { choices: [{ delta: { content: said } }] },
+    { error: 'Chat completion aborted. Please check the server console.' },
+  ];
+
+  it('keeps what arrived before it broke, instead of throwing it away', async () => {
+    const { services } = world();
+    stubModel(brokenAfter('I was part way through saying'));
+
+    const result = await runV2(services, 'koala', INTERACTIVE_CHAT_V3, { message: 'tell me something' });
+
+    expect(result.outcome).toBe('interrupted');
+    expect(result.reason).toContain('Model stream error');
+  });
+
+  it('records the half-finished reply on the conversation, because remembering is cleanup', async () => {
+    const conversations = inMemoryConversations();
+    const { services } = world();
+    stubModel(brokenAfter('half a thought'));
+
+    await runV2({ ...services, conversations }, 'koala', INTERACTIVE_CHAT_V3, {
+      message: 'tell me something',
+      inputs: { conversationId: 'cut-short' },
+    });
+
+    const saved = await conversations.get('user-1', 'cut-short');
+    expect(saved?.messages.map((one) => one.content)).toEqual(['tell me something', 'half a thought']);
+  });
+
+  it('still records the turn when the whole reply arrived', async () => {
+    const conversations = inMemoryConversations();
+    const { services } = world();
+    stubModel(answer('a whole thought'));
+
+    await runV2({ ...services, conversations }, 'koala', INTERACTIVE_CHAT_V3, {
+      message: 'tell me something',
+      inputs: { conversationId: 'complete' },
+    });
+
+    const saved = await conversations.get('user-1', 'complete');
+    expect(saved?.messages.map((one) => one.content)).toEqual(['tell me something', 'a whole thought']);
   });
 });
