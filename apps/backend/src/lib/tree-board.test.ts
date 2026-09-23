@@ -23,6 +23,10 @@ describe('which column a leaf belongs in', () => {
     expect(columnFor(leaf({ status: 'pending' }), true)).toBe('blocked');
   });
 
+  it('puts a claimed leaf in the claimed column', () => {
+    expect(columnFor(leaf({ status: 'claimed' }), false)).toBe('claimed');
+  });
+
   it('leaves cancelled work off the board entirely', () => {
     expect(columnFor(leaf({ status: 'cancelled' }), false)).toBeUndefined();
   });

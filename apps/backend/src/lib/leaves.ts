@@ -12,7 +12,7 @@ export function isLeafColumn(value: unknown): value is LeafColumn {
   return typeof value === 'string' && (LEAF_COLUMNS as readonly string[]).includes(value);
 }
 
-export type LeafStatus = 'proposed' | 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type LeafStatus = 'proposed' | 'pending' | 'running' | 'claimed' | 'succeeded' | 'failed' | 'cancelled';
 
 export function isProposed(leaf: Pick<Leaf, 'status'>): boolean {
   return leaf.status === 'proposed';

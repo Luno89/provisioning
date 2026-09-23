@@ -266,7 +266,39 @@ Budget note: the supervisor's `childRuns` must cover the tree's leaf count
 
 Build order (one at a time; each lands only with its context verified on a
 tree, gate green):
-1. `ready_leaves` grove tool (read-side; unblocks the procedure skeleton) — **implemented 2026-07-22**: partitions the tree into ready / unbroken / blocked(waitingOn) / notApproved / inFlight / settled; pending + deps-cleared + has-open-tasks ⇒ ready; unknown dep counts as unmet; another tree's leaves never leak in; wired through host + seeds + standard names; 3 tests; gate green.
+1. `ready_leaves` grove tool (read-side; unblocks the procedure skeleton) — **implemented 2026-07-22**: partitions the tree into ready / unbroken / blocked(waitingOn) / notApproved / claimed / inFlight / settled; pending + deps-cleared + has-open-tasks ⇒ ready; unknown dep counts as unmet; another tree's leaves never leak in; wired through host + seeds + standard names; gate green.
+
+**The claim/judge split (owner-ruled 2026-07-22 — re-shapes items 2–4).** The
+task-level engine already lives this: `do-one-task` = work → evidence →*an
+independent judge* weighs the work against what the task asked for → verdict.
+The leaf level mirrors it; the executor does **not** settle its own leaf.
+- `claimed` is a real `LeafStatus` — the surface (the board's 'claimed'
+  column) said the word all along; the model now lives it. Board word: "work
+  claimed, waiting for judgment". (Landed 2026-07-22, with the cross-boundary
+  mirror test: the frontend `leaf-types.ts` union + `stateFor` must keep the
+  same arms in the same order.)
+- **`claim_leaf`** — the executor's hand: `leafId` + `evidence` (what was run,
+  what it showed — run ids and pointers into the **still-live** workspace, not
+  prose as proof) + `findings`. The claim → leaf `claimed`; may be `failed` +
+  reason when the work is blocked beyond its power (a self-report that costs
+  the claimant — the replan budget is the guard); "succeeded" is refused with
+  a teaching message: *you can't grade your own leaf — a judge weighs this
+  against the goal, using your evidence.*
+- **`settle_leaf`** — the judge's hand (the seeded `judge`, delegated exactly
+  this way on the task path): ternary — `succeeded + verified` (evidence
+  demonstrates the goal), **stay claimed** (plausible, thin — nothing re-run;
+  a later judge or human may promote — the claimed lane's reason to exist),
+  `failed` + reason. Trust is by grant, not slug: the executor persona simply
+  doesn't hold `settle_leaf`.
+- **The judge pass (owner-rulled fork (a))**: fan-out children claim only;
+  at the pass boundary the supervisor judges each fresh claim with the judge
+  persona **in the same live workspace**, re-running checks against primary
+  sources — the claim is a pointer to look at, never the evidence itself.
+  Independence is structural; a re-judge after a crash re-runs judgment,
+  not work. The workspace is released only after settlement.
+- **`leaf-executor` persona** — an honest record: work it, evidence it,
+  claim it; and that is all it may do.
+- `grove-run` supervisor = work pass **+ judge pass** + merge + loop.
 2. `leaf-executor` persona (workspace env; prompt: work → verify → judge, plus
    the sibling-context protocol).
 3. The `grove-run` supervisor procedure over fan-out + merge; proven with the
@@ -395,6 +427,17 @@ tree, gate green):
   unchanged, so their handoffs land on the new persona. The ghost
   `procedure: 'thesis'` in the old record was also dead weight and did not
   survive the rebuild.
+- 2026-07-22 (owner, re: claim and judge) — *The executor claims; a judge
+  settles.* The leaf mirror of the task-level `do-one-task` pattern (work →
+  evidence → independent judge → verdict): the executor holds `claim_leaf`
+  (evidence + pointers into the live workspace; may fail-blocked; may **not**
+  claim success — the tool refuses with a teaching message), the judge holds
+  `settle_leaf` (succeeded + verified / stay-claimed / failed + reason);
+  trust by grant, not slug. The judge runs as its **own pass at the pass
+  boundary** (fork (a)) — structural independence, re-judge ≠ re-work, and
+  the workspace stays alive until settlement. `claimed` joins `LeafStatus`
+  (additive; board column already said the word; mirrored in
+  `leaf-types.ts` under the cross-boundary arm test).
 - 2026-07-22 (owner, re P1 execution) — *Independent leaves run in parallel
   when their dependencies allow, and they are told about it; fan-out and
   merge are part of the procedure.* The tree-level `grove-run` supervisor

@@ -190,6 +190,7 @@ describe('ready_leaves', () => {
       leaf('leaf-blocked', 'pending', { dependsOn: ['leaf-ready', 'ghost-leaf'] }), // dep pending + unknown
       leaf('leaf-unbroken', 'pending'), // pending but zero tasks
       leaf('leaf-proposed', 'proposed'),
+      leaf('leaf-claimed', 'claimed'),
       leaf('leaf-running', 'running'),
       leaf('leaf-done', 'succeeded'),
       leaf('leaf-failed', 'failed'),
@@ -208,13 +209,14 @@ describe('ready_leaves', () => {
     const outcome = await run('ready_leaves', { treeId: 'tree-1' });
 
     expect(outcome.ok).toBe(true);
-    expect(outcome.digest).toBe('2 ready, 1 blocked, 1 without tasks, 1 in flight, 2 settled — tree tree-1');
+    expect(outcome.digest).toBe('2 ready, 1 blocked, 1 without tasks, 1 claimed, 1 in flight, 2 settled — tree tree-1');
 
     const content = JSON.parse(outcome.content as string) as {
       ready: { id: string; taskCount: number }[];
       unbroken: { id: string }[];
       blocked: { id: string; waitingOn: string[] }[];
       notApproved: { id: string }[];
+      claimed: { id: string }[];
       inFlight: { id: string }[];
       settled: { id: string; status: string }[];
     };
@@ -223,6 +225,7 @@ describe('ready_leaves', () => {
     expect(content.unbroken.map((entry) => entry.id)).toEqual(['leaf-unbroken']);
     expect(content.blocked).toEqual([{ id: 'leaf-blocked', title: 'leaf leaf-blocked', waitingOn: ['leaf-ready', 'ghost-leaf'] }]);
     expect(content.notApproved.map((entry) => entry.id)).toEqual(['leaf-proposed']);
+    expect(content.claimed.map((entry) => entry.id)).toEqual(['leaf-claimed']);
     expect(content.inFlight.map((entry) => entry.id)).toEqual(['leaf-running']);
     expect(content.settled).toEqual([
       { id: 'leaf-done', title: 'leaf leaf-done', status: 'succeeded' },

@@ -1,5 +1,5 @@
 
-export type LeafStatus = 'proposed' | 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type LeafStatus = 'proposed' | 'pending' | 'running' | 'claimed' | 'succeeded' | 'failed' | 'cancelled';
 
 export type LeafState = 'proposed' | 'blocked' | 'running' | 'claimed' | 'verified' | 'failed';
 
@@ -29,6 +29,7 @@ export function stateFor(
     case 'proposed': return 'proposed';
     case 'pending': return blockedBy(leaf, all).length > 0 ? 'blocked' : 'proposed';
     case 'running': return 'running';
+    case 'claimed': return 'claimed';
     case 'failed': return 'failed';
     case 'cancelled': return undefined;
     case 'succeeded': return leaf.verified ? 'verified' : 'claimed';

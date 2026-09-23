@@ -11,6 +11,7 @@ export function columnFor(leaf: Leaf, blocked: boolean): BoardColumn | undefined
     case 'proposed': return 'proposed';
     case 'pending': return blocked ? 'blocked' : 'proposed';
     case 'running': return 'running';
+    case 'claimed': return 'claimed';
     case 'failed': return 'failed';
     case 'cancelled': return undefined;
     case 'succeeded': return leaf.verified ? 'verified' : 'claimed';

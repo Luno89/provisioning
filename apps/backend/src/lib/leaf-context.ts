@@ -9,6 +9,7 @@ const STATUS_WORD: Record<LeafStatus, string> = {
   proposed: 'proposed, not yet accepted',
   pending: 'accepted, not started',
   running: 'in progress',
+  claimed: 'work claimed, waiting for judgment',
   succeeded: 'done',
   failed: 'failed',
   cancelled: 'cancelled',

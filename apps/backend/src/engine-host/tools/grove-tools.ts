@@ -135,6 +135,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const blocked: { id: string; title: string; waitingOn: string[] }[] = [];
       const notApproved: { id: string; title: string }[] = [];
       const inFlight: { id: string; title: string }[] = [];
+      const claimed: { id: string; title: string }[] = [];
       const settled: { id: string; title: string; status: TaskStatus | string }[] = [];
 
       for (const leaf of leaves) {
@@ -146,6 +147,9 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
             break;
           case 'proposed':
             notApproved.push({ id: leaf.id, title: leaf.title });
+            break;
+          case 'claimed':
+            claimed.push({ id: leaf.id, title: leaf.title });
             break;
           case 'running':
             inFlight.push({ id: leaf.id, title: leaf.title });
@@ -164,8 +168,8 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         }
       }
 
-      const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
-      const content = JSON.stringify({ treeId, ready, unbroken, blocked, notApproved, inFlight, settled }, null, 2);
+      const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${claimed.length} claimed, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
+      const content = JSON.stringify({ treeId, ready, unbroken, blocked, notApproved, claimed, inFlight, settled }, null, 2);
       return { ok: true, digest, content };
     },
   };
