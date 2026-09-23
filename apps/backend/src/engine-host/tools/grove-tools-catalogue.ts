@@ -78,6 +78,29 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'settle_leaf',
+    summary: 'The judge’s hand: weigh the claim’s evidence against the leaf’s goal and settle it',
+    guidance: 'You weigh the recorded claim — and re-derive what it points at, when the workspace is still live — against what the leaf’s body says must become true. verdict “verified”: the evidence demonstrates the goal — the leaf is succeeded and verified. verdict “stay-claimed”: plausible but thin — do not mark it done, and do not re-run it; leave it claimed with a note on what is missing, so a later judge or a person can promote it. verdict “failed”: the goal was not reached — a reason is required (what the evidence shows is missing), so the replan can pick an angle. Only a claimed leaf settles: a raw, running, or settled leaf is refused, because settling something unfinished is how claims quietly became verdicts. A claim is a pointer to look at, never the evidence itself.',
+    binding: 'platform',
+    effect: 'write',
+    status: 'draft',
+    returns: 'text in the form `settled <leafId> — verified` / `settled <leafId> — failed` / `kept <leafId> claimed — <note>`; the leaf carries the rewrite (status / verified / findings / review note)',
+    failures: [
+      { when: 'the verdict is missing or out of the three', says: 'what each of the three means, in the leaf’s life' },
+      { when: 'the failed settlement has no reason', says: 'what the reason must show' },
+      { when: 'the leaf is not claimed with evidence on file', says: 'which state it is in, and that only claims get settled' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        leafId: { type: 'string', description: 'The claimed leaf to judge.' },
+        verdict: { type: 'string', enum: ['verified', 'stay-claimed', 'failed'], description: 'verified — the evidence demonstrates the goal; stay-claimed — plausible but thin, nothing re-run; failed — the goal was not reached.' },
+        note: { type: 'string', description: 'Required when failed (what the evidence shows is missing). For stay-claimed, what is thin, so a later judge or person can promote it. For verified, anything worth the trace.' },
+      },
+      required: ['leafId', 'verdict'],
+    },
+  },
+  {
     name: 'ready_leaves',
     summary: 'The tree\'s scheduler input: which leaves can be worked now, and what is waiting and why',
     guidance: 'Read-only. Partitions the tree\'s leaves into: ready (pending, dependencies cleared, has open tasks), unbroken (pending but no tasks yet — the plan needs to fill it), blocked (dependencies not succeeded — the ones it waits on), notApproved (proposed — waiting for acceptance), claimed (work claimed, waiting for the judge pass), inFlight (running — should be empty at a fresh pass; treat leftovers as stale), settled (succeeded / failed / cancelled). Returns the partition as JSON; the digest is the count line. Ordering is temporary (creation order); nesting-aware scheduling is not in this v1.',

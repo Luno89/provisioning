@@ -341,3 +341,80 @@ describe('claim_leaf', () => {
     expect(ghost.digest).toContain('no such leaf');
   });
 });
+
+describe('settle_leaf', () => {
+  const claimedLeaf = (id: string, status: LeafStatus, withClaim = true): Leaf => ({
+    id,
+    ownerId: 'user-1',
+    branchId: 'branch-1',
+    title: 'A leaf',
+    body: 'the server answers :3000/health',
+    column: 'todo',
+    status,
+    depth: 0,
+    blocking: false,
+    createdAt: 'now',
+    updatedAt: 'now',
+    ...(withClaim && status === 'claimed'
+      ? { claim: { evidence: 'ran curl :3000/health — 200 OK; server log at /app/server.log', at: 'now' } }
+      : {}),
+  });
+  const settle = (parsed: Record<string, unknown>) => run('settle_leaf', parsed);
+
+  it('verifies a claim the evidence demonstrates: the leaf is succeeded and verified', async () => {
+    leaves.push(claimedLeaf('leaf-j1', 'claimed'));
+    const outcome = await settle({ leafId: 'leaf-j1', verdict: 'verified' });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.digest).toBe('settled leaf-j1 — verified');
+    const saved = leaves.find((leaf) => leaf.id === 'leaf-j1')!;
+    expect(saved.status).toBe('succeeded');
+    expect(saved.verified).toBe(true);
+    expect(saved.claim).toBeDefined(); // the claim stays on file as the trace of the verdict
+  });
+
+  it('keeps a thin claim claimed, with the thinness on file for the next judge or person', async () => {
+    leaves.push(claimedLeaf('leaf-j2', 'claimed'));
+    const outcome = await settle({
+      leafId: 'leaf-j2',
+      verdict: 'stay-claimed',
+      note: 'the health endpoint answered once under load; two more load samples needed before this is demonstrated',
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.digest).toContain('kept leaf-j2 claimed');
+    const saved = leaves.find((leaf) => leaf.id === 'leaf-j2')!;
+    expect(saved.status).toBe('claimed'); // stayed — not promoted, not re-run
+    expect(saved.review).toMatchObject({ verdict: 'concern', reason: expect.stringContaining('two more load samples') });
+  });
+
+  it('fails a claim whose evidence shows the goal was not reached', async () => {
+    leaves.push(claimedLeaf('leaf-j3', 'claimed'));
+    const bare = await settle({ leafId: 'leaf-j3', verdict: 'failed' });
+    expect(bare.ok).toBe(false);
+    expect(bare.digest).toContain('needs a reason');
+
+    const failed = await settle({
+      leafId: 'leaf-j3',
+      verdict: 'failed',
+      note: 'the endpoint answered 200, but on a mock — the real wiring the goal names is absent',
+    });
+    expect(failed.ok).toBe(true);
+    expect(failed.digest).toBe('settled leaf-j3 — failed');
+    const saved = leaves.find((leaf) => leaf.id === 'leaf-j3')!;
+    expect(saved.status).toBe('failed');
+    expect(saved.findings).toContain('on a mock');
+  });
+
+  it('settles claims only — raw, unclaimed, or finished leaves are refused', async () => {
+    for (const status of ['proposed', 'pending', 'running', 'succeeded', 'cancelled'] as const) {
+      leaves.push(claimedLeaf(`leaf-${status}`, status, false));
+      const outcome = await settle({ leafId: `leaf-${status}`, verdict: 'verified' });
+      expect(outcome.ok, status).toBe(false);
+      expect(outcome.digest).toContain('not awaiting judgment');
+    }
+    const ghost = await settle({ leafId: 'leaf-ghost', verdict: 'verified' });
+    expect(ghost.ok).toBe(false);
+    expect(ghost.digest).toContain('no such leaf');
+  });
+});

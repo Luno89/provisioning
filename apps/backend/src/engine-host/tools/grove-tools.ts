@@ -157,6 +157,51 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return { ok: true, digest, content: `${digest} — evidence on file for the judge (${evidence.length} chars${findings ? ', with findings' : ''})` };
     },
 
+    async settle_leaf({ parsed, caller }): Promise<ToolOutcome> {
+      const needle = asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id');
+      if (!needle) return refuse('settle_leaf needs a leafId — the claimed leaf to judge');
+
+      const verdict = asString(parsed, 'verdict');
+      if (verdict !== 'verified' && verdict !== 'stay-claimed' && verdict !== 'failed') {
+        return refuse("a settlement is 'verified' (the evidence demonstrates the goal), 'stay-claimed' (plausible, thin — do not re-run; it waits for more), or 'failed' (the goal was not reached; needs a reason). Nothing else settles a leaf.");
+      }
+      const note = asString(parsed, 'note') ?? asString(parsed, 'reason');
+      if (verdict === 'failed' && !note) return refuse('a failed settlement needs a reason — what the evidence shows the goal is missing, so the replan can pick an angle');
+
+      const leaves = await options.stores.leaves.list();
+      const leaf = leaves.find((candidate) => candidate.id === needle);
+      if (!leaf) return refuse(`no such leaf: ${needle}`);
+      if (leaf.status !== 'claimed' || !leaf.claim) {
+        return refuse(`${leaf.id} is not awaiting judgment — it is ${leaf.status}. Only a claimed leaf with evidence on file gets settled; the judge pass judges claims, not raw or finished leaves.`);
+      }
+
+      const stamp = now();
+      const settled: Leaf = { ...leaf, updatedAt: stamp };
+      let digest: string;
+      if (verdict === 'verified') {
+        settled.status = 'succeeded';
+        settled.verified = true;
+        if (note) settled.findings = note;
+        digest = `settled ${leaf.id} — verified`;
+      } else if (verdict === 'failed') {
+        settled.status = 'failed';
+        settled.verified = false;
+        if (note) settled.findings = note; // note is guaranteed by the refusal above
+        digest = `settled ${leaf.id} — failed`;
+      } else {
+        settled.review = {
+          verdict: 'concern',
+          at: stamp,
+          ...(note ? { reason: note } : {}),
+          ...(caller.agentSlug ? { model: caller.agentSlug } : {}),
+        };
+        digest = note ? `kept ${leaf.id} claimed — ${note}` : `kept ${leaf.id} claimed`;
+      }
+      await options.stores.leaves.save(settled);
+
+      return { ok: true, digest, content: `${digest} — weighed against the claim's evidence (${leaf.claim.evidence.length} chars)` };
+    },
+
     async ready_leaves({ parsed }): Promise<ToolOutcome> {
       const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id');
       if (!treeId) return refuse('ready_leaves needs a treeId — the tree to schedule');
