@@ -141,10 +141,10 @@ describe('seeded agents compose usable prompts', () => {
     expect(tools).toEqual([]);
   });
 
-  it('offers the judge what it needs to check the work for itself', () => {
+  it('offers the judge what it needs to check the work for itself — and, with it, the hand that settles a claimed leaf', () => {
     const { tools } = offered('judge');
 
-    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command']);
+    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command', 'settle_leaf']);
   });
 
   it('still offers koala its delegates, which come from agents rather than tools', () => {
