@@ -50,4 +50,23 @@ export const GROVE_TOOLS: ToolDefinition[] = [
       required: ['branchId', 'title', 'body'],
     },
   },
+  {
+    name: 'ready_leaves',
+    summary: 'The tree\'s scheduler input: which leaves can be worked now, and what is waiting and why',
+    guidance: 'Read-only. Partitions the tree\'s leaves into: ready (pend, dependencies cleared, has open tasks), unbroken (pending but no tasks yet — the plan needs to fill it), blocked (dependencies not succeeded — the ones it waits on), notApproved (proposed — waiting for acceptance), inFlight (running — should be empty at a fresh pass; treat leftovers as stale), settled (succeeded / failed / cancelled). Returns the partition as JSON; the digest is the count line. Ordering is temporary (creation order); nesting-aware scheduling is not in this v1.',
+    binding: 'platform',
+    effect: 'read',
+    status: 'draft',
+    returns: 'A JSON partition { treeId, ready, unbroken, blocked, notApproved, inFlight, settled } and a digest of the form `n ready, n blocked, n without tasks, n in flight, n settled — tree <treeId>`',
+    failures: [
+      { when: 'treeId is missing or does not exist', says: 'what is required / no such tree' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        treeId: { type: 'string', description: 'The tree to compute the ready set for.' },
+      },
+      required: ['treeId'],
+    },
+  },
 ];

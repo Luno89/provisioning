@@ -35,6 +35,8 @@ export interface EngineHostStores {
     trees: { list(): Promise<import('../lib/trees.js').Tree[]>; save(tree: import('../lib/trees.js').Tree): Promise<void> };
     branches: { list(): Promise<import('../lib/leaves.js').Branch[]>; save(branch: import('../lib/leaves.js').Branch): Promise<void> };
     leaves: { list(): Promise<import('../lib/leaves.js').Leaf[]>; save(leaf: import('../lib/leaves.js').Leaf): Promise<void> };
+    /** optional: when absent, no leaf has tasks (P0 planner world) */
+    tasks?: { list(): Promise<import('../lib/tasks.js').Task[]> };
   };
   conversations: import('./nodes/conversation-nodes.js').ConversationStore;
   memories: {
@@ -202,6 +204,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       trees: { list: () => db.getTrees(), save: (tree) => db.saveTree(tree) },
       branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
       leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
+      tasks: { list: () => db.getTasks() },
     },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
   };

@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createGroveTools } from './grove-tools.js';
-import type { Branch, Leaf } from '../../lib/leaves.js';
+import type { Branch, Leaf, LeafStatus } from '../../lib/leaves.js';
 import type { Tree } from '../../lib/trees.js';
+import { type Task, type TaskStatus } from '../../lib/tasks.js';
 
 let trees: Tree[] = [];
 let branches: Branch[] = [];
 let leaves: Leaf[] = [];
+let tasks: Task[] = [];
 let nextId = 0;
 
 const tools = () => createGroveTools({
@@ -13,6 +15,7 @@ const tools = () => createGroveTools({
     trees: { list: async () => trees, save: async (tree) => { trees = [tree]; } },
     branches: { list: async () => branches, save: async (branch) => { branches.push(branch); } },
     leaves: { list: async () => leaves, save: async (leaf) => { leaves.push(leaf); } },
+    tasks: { list: async () => tasks },
   },
   newId: () => `g${++nextId}`,
   now: () => '2026-01-01T00:00:00.000Z',
@@ -38,6 +41,7 @@ beforeEach(() => {
     updatedAt: 'now',
   }];
   leaves = [];
+  tasks = [];
   nextId = 0;
 });
 
@@ -136,5 +140,113 @@ describe('make_leaf', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.digest).toContain('do not exist');
     expect(leaves).toHaveLength(0);
+  });
+});
+
+describe('ready_leaves', () => {
+  const leaf = (id: string, status: LeafStatus, extra: Partial<Leaf> = {}): Leaf => ({
+    id,
+    ownerId: 'user-1',
+    branchId: 'branch-1',
+    title: `leaf ${id}`,
+    body: 'a checkable goal',
+    column: 'todo',
+    status,
+    depth: 0,
+    blocking: false,
+    createdAt: 'now',
+    updatedAt: 'now',
+    ...extra,
+  });
+
+  const task = (id: string, leafId: string, status: TaskStatus = 'proposed'): Task => ({
+    id,
+    ownerId: 'user-1',
+    leafId,
+    title: `task ${id}`,
+    doneMeans: 'it is done',
+    dependsOn: [],
+    status,
+    runs: [],
+    createdAt: 'now',
+    updatedAt: 'now',
+  });
+
+  const seedWorld = () => {
+    trees.push({ id: 'tree-2', ownerId: 'user-1', name: 'Other', type: 'application', projectIds: ['project-9'], createdAt: 'now', updatedAt: 'now' });
+    branches.push({
+      id: 'branch-2',
+      ownerId: 'user-1',
+      treeId: 'tree-2',
+      projectId: 'project-9',
+      title: 'The other direction',
+      messages: [],
+      createdAt: 'now',
+      updatedAt: 'now',
+    });
+    leaves.push(
+      leaf('leaf-ready', 'pending'), // no deps, one open task
+      leaf('leaf-ready-after-done', 'pending', { dependsOn: ['leaf-done'] }), // dep succeeded
+      leaf('leaf-blocked', 'pending', { dependsOn: ['leaf-ready', 'ghost-leaf'] }), // dep pending + unknown
+      leaf('leaf-unbroken', 'pending'), // pending but zero tasks
+      leaf('leaf-proposed', 'proposed'),
+      leaf('leaf-running', 'running'),
+      leaf('leaf-done', 'succeeded'),
+      leaf('leaf-failed', 'failed'),
+      leaf('leaf-other-tree', 'pending', { branchId: 'branch-2' }), // another tree — must not appear
+    );
+    tasks.push(
+      task('task-1', 'leaf-ready'),
+      task('task-2', 'leaf-ready', 'dropped'), // settled — does not count
+      task('task-3', 'leaf-ready-after-done'),
+      task('task-4', 'leaf-done', 'done'),
+    );
+  };
+
+  it('partitions the tree into ready, unbroken, blocked, notApproved, inFlight and settled', async () => {
+    seedWorld();
+    const outcome = await run('ready_leaves', { treeId: 'tree-1' });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.digest).toBe('2 ready, 1 blocked, 1 without tasks, 1 in flight, 2 settled — tree tree-1');
+
+    const content = JSON.parse(outcome.content as string) as {
+      ready: { id: string; taskCount: number }[];
+      unbroken: { id: string }[];
+      blocked: { id: string; waitingOn: string[] }[];
+      notApproved: { id: string }[];
+      inFlight: { id: string }[];
+      settled: { id: string; status: string }[];
+    };
+    expect(content.ready.map((entry) => entry.id)).toEqual(['leaf-ready', 'leaf-ready-after-done']);
+    expect(content.ready.find((entry) => entry.id === 'leaf-ready')!.taskCount).toBe(1); // the dropped task does not count
+    expect(content.unbroken.map((entry) => entry.id)).toEqual(['leaf-unbroken']);
+    expect(content.blocked).toEqual([{ id: 'leaf-blocked', title: 'leaf leaf-blocked', waitingOn: ['leaf-ready', 'ghost-leaf'] }]);
+    expect(content.notApproved.map((entry) => entry.id)).toEqual(['leaf-proposed']);
+    expect(content.inFlight.map((entry) => entry.id)).toEqual(['leaf-running']);
+    expect(content.settled).toEqual([
+      { id: 'leaf-done', title: 'leaf leaf-done', status: 'succeeded' },
+      { id: 'leaf-failed', title: 'leaf leaf-failed', status: 'failed' },
+    ]);
+  });
+
+  it('never leaks another tree’s leaves into the partition', async () => {
+    seedWorld();
+    const outcome = await run('ready_leaves', { treeId: 'tree-2' });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.content).toContain('leaf-other-tree');
+    const named = JSON.parse(outcome.content as string) as { ready: unknown[]; blocked: unknown[] };
+    expect(JSON.stringify(named)).not.toContain('leaf-ready');
+  });
+
+  it('refuses a missing treeId and an unknown tree', async () => {
+    const missing = await run('ready_leaves', {});
+    expect(missing.ok).toBe(false);
+    expect(missing.digest).toContain('needs a treeId');
+
+    const unknown = await run('ready_leaves', { treeId: 'tree-9' });
+    expect(unknown.ok).toBe(false);
+    expect(unknown.digest).toContain('no such tree');
   });
 });
