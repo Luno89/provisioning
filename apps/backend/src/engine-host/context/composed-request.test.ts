@@ -69,6 +69,21 @@ const MUST_CARRY: Record<string, Carries> = {
     },
     mustSay: ['hello.txt'],
   },
+  'run-leaf': {
+    agent: 'leaf-executor',
+    run: {
+      message: 'Work the leaf you have been given.',
+      inputs: {
+        leafId: 'leaf-r1',
+        leafTitle: 'The server answers /health',
+        leafBody: 'The server answers /health on :3000',
+        siblings: '3 other leaves are working in this tree at the same time, among them "The logger writes to the file"',
+      },
+    },
+    mustSay: ['leaf-r1', 'The server answers /health on :3000', '3 other leaves are working in this tree at the same time'],
+    mustOffer: ['claim_leaf', 'list_tasks', 'run_command', 'executor'],
+    mustNotOffer: ['settle_leaf'],
+  },
 };
 
 describe('what each built-in procedure actually puts in front of the model', () => {

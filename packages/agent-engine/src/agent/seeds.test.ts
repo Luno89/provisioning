@@ -51,7 +51,7 @@ describe('seeded agents', () => {
 
   it('replaces the four old engines, plus interactive chat and a delivery loop', () => {
     expect(ALL_SEEDED_AGENTS().map((agent) => agent.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'judge', 'koala', 'planner', 'research']);
+      .toEqual(['agent-builder', 'delivery', 'executor', 'judge', 'koala', 'leaf-executor', 'planner', 'research']);
   });
 
   it('resolves by slug for any user with no forks present', () => {
@@ -151,5 +151,13 @@ describe('seeded agents compose usable prompts', () => {
     const { tools } = offered('koala');
 
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['planner', 'research']));
+  });
+
+  it('gives the leaf executor the claim and its executor delegate, but not settle_leaf', () => {
+    const { tools } = offered('leaf-executor');
+    const names = tools.map((tool) => tool.name);
+
+    expect(names).toEqual(expect.arrayContaining(['claim_leaf', 'list_tasks', 'read_file', 'run_command', 'executor']));
+    expect(names).not.toContain('settle_leaf');
   });
 });

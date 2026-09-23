@@ -383,6 +383,16 @@ export const DO_ONE_TASK_V2 = defineProcedure(BUILT_IN_GROUPS, {
   });
 });
 
+export const RUN_LEAF_V2 = agentLoop({
+  id: 'run-leaf',
+  name: 'Leaf work',
+  describe: 'The model works a leaf’s ready tasks in dependency order — delegating each to the executor — lands the work in the workspace’s repo, then claims the leaf with evidence; it does not judge the work, the leaf’s judge settles the claim',
+  answered: { outcome: 'ok' },
+  truncated: { outcome: 'ok' },
+  empty: { outcome: 'ok' },
+  circling: { outcome: 'ok', reason: 'stopped proposing anything new' },
+});
+
 export const DELIVERY_V2 = defineProcedure(BUILT_IN_GROUPS, {
   id: 'delivery',
   version: '2',
@@ -456,4 +466,5 @@ export const BUILT_IN_PROCEDURES: readonly Procedure[] = [
   SINGLE_SHOT_V2,
   DO_ONE_TASK_V2,
   DELIVERY_V2,
+  RUN_LEAF_V2,
 ];

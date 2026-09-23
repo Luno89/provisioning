@@ -60,7 +60,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     returns: 'text in the form `claimed <leafId>` / `failed <leafId> — <reason>`; the leaf carries the claim record (evidence, findings, runs, at) for the judge',
     failures: [
       { when: 'result is missing, or a success word', says: 'what the result may be, and that the work does not grade itself' },
-      { when: 'evidence is blank', says: 'what evidence is, and where it has to point (the live workspace)' },
+      { when: 'evidence is blank', says: 'what evidence is, and where it has to point (the leaf’s workspace repo and recorded output — the judge re-derives from those on the same build)' },
       { when: 'the failed claim has no reason', says: 'what a reason must carry' },
       { when: 'the leaf is unknown, proposed, already claimed, or settled', says: 'which leaf, which state it is in, and what comes next from it' },
     ],
@@ -69,7 +69,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
       properties: {
         leafId: { type: 'string', description: 'The leaf the work was done under.' },
         result: { type: 'string', enum: ['claimed', 'failed'], description: 'claimed — the tasks are done; failed — the work is blocked beyond this run’s power.' },
-        evidence: { type: 'string', description: 'What was run and what it showed — commands with their output, file paths, run ids: pointers into the still-live workspace the judge can re-derive from.' },
+        evidence: { type: 'string', description: 'What was run and what it showed — file paths, commits, commands with their output, run ids: pointers the judge re-derives on a fresh build of the same workspace (a leaf commits its work to its repo before claiming, so the repo is the primary source).' },
         findings: { type: 'string', description: 'Concerns worth the judge’s eyes when claiming (optional).' },
         reason: { type: 'string', description: 'Required when result is failed: what is blocked, what was tried, and why it is beyond this run’s power.' },
         runs: { type: 'array', items: { type: 'string' }, description: 'Engine run ids that did the work (optional).' },
@@ -80,7 +80,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
   {
     name: 'settle_leaf',
     summary: 'The judge’s hand: weigh the claim’s evidence against the leaf’s goal and settle it',
-    guidance: 'You weigh the recorded claim — and re-derive what it points at, when the workspace is still live — against what the leaf’s body says must become true. verdict “verified”: the evidence demonstrates the goal — the leaf is succeeded and verified. verdict “stay-claimed”: plausible but thin — do not mark it done, and do not re-run it; leave it claimed with a note on what is missing, so a later judge or a person can promote it. verdict “failed”: the goal was not reached — a reason is required (what the evidence shows is missing), so the replan can pick an angle. Only a claimed leaf settles: a raw, running, or settled leaf is refused, because settling something unfinished is how claims quietly became verdicts. A claim is a pointer to look at, never the evidence itself.',
+    guidance: 'You weigh the recorded claim — and re-derive what it points at, in your own fresh workspace built from the same commit — against what the leaf’s body says must become true. verdict “verified”: the evidence demonstrates the goal — the leaf is succeeded and verified. verdict “stay-claimed”: plausible but thin — do not mark it done, and do not re-run it; leave it claimed with a note on what is missing, so a later judge or a person can promote it. verdict “failed”: the goal was not reached — a reason is required (what the evidence shows is missing), so the replan can pick an angle. Only a claimed leaf settles: a raw, running, or settled leaf is refused, because settling something unfinished is how claims quietly became verdicts. A claim is a pointer to look at, never the evidence itself.',
     binding: 'platform',
     effect: 'write',
     status: 'draft',

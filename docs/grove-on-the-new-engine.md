@@ -278,8 +278,9 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   mirror test: the frontend `leaf-types.ts` union + `stateFor` must keep the
   same arms in the same order.)
 - **`claim_leaf`** — the executor's hand: `leafId` + `evidence` (what was run,
-  what it showed — run ids and pointers into the **still-live** workspace, not
-  prose as proof) + `findings`. The claim → leaf `claimed`; may be `failed` +
+  what it showed — run ids and pointers into the leaf's workspace repo and
+  recorded output, not prose as proof) + `findings`. The claim → leaf
+  `claimed`; may be `failed` +
   reason when the work is blocked beyond its power (a self-report that costs
   the claimant — the replan budget is the guard); "succeeded" is refused with
   a teaching message: *you can't grade your own leaf — a judge weighs this
@@ -292,15 +293,30 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   doesn't hold `settle_leaf`.
 - **The judge pass (owner-rulled fork (a))**: fan-out children claim only;
   at the pass boundary the supervisor judges each fresh claim with the judge
-  persona **in the same live workspace**, re-running checks against primary
-  sources — the claim is a pointer to look at, never the evidence itself.
+  persona, re-running its checks against primary sources in **its own fresh
+  workspace built from the same commit** — a leaf commits its work to its
+  workspace repo before claiming, so the repo is the primary source, and the
+  claim is a pointer to look at, never the evidence itself.
   Independence is structural; a re-judge after a crash re-runs judgment,
-  not work. The workspace is released only after settlement.
+  not work. **v1 boundary (noted 2026-07-22):** the agent-loop skeleton
+  releases sandboxes at run-end and `fan-out` has no environment input — the
+  judge pass cannot inherit the executor's workspace; cross-run workspace
+  handoff is a DSL addition, parked (add only if evidence demands grow; v1
+  leans on the repo-as-primary-source rule).
 - **`leaf-executor` persona** — an honest record: work it, evidence it,
-  claim it; and that is all it may do.
+  claim it; and that is all it may do. Workspace environment (terminal +
+  filesystem); `list_tasks`/`claim_leaf` + `read_file`/`run_command`; and the
+  seeded `executor` in `agents` — each task of the leaf is delegated to it,
+  and its do-one-task already ends in the *task-level* judge, so the claim
+  arrives after two independent checks, one per level of the model. The leaf
+  lands its work in the workspace repo before claiming. Procedure: seeded
+  `run-leaf` (an agent-loop skeleton: provision, model rounds with the
+  granted hands, release at done). **Landed 2026-07-22.**
 - `grove-run` supervisor = work pass **+ judge pass** + merge + loop.
-2. `leaf-executor` persona (workspace env; prompt: work → verify → judge, plus
-   the sibling-context protocol).
+2. **`leaf-executor` persona + `run-leaf` procedure — implemented 2026-07-22**
+   (the thin champion: delegates the leaf's tasks to the seeded `executor`,
+   lands the work in the repo, claims with pointers; the judge settles at the
+   pass boundary).
 3. The `grove-run` supervisor procedure over fan-out + merge; proven with the
    in-process stub-model harness on a two-branch fixture — two independent
    leaves fan out in the same pass, a dependent leaf waits a pass.
