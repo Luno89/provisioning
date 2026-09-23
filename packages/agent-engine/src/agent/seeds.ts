@@ -14,6 +14,7 @@ export const STANDARD_HOST_TOOL_NAMES: readonly string[] = [
   'mark_failed',
   'make_branch',
   'make_leaf',
+  'claim_leaf',
   'ready_leaves',
   'run_command',
   'read_file',

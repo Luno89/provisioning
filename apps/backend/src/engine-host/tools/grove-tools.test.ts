@@ -14,7 +14,13 @@ const tools = () => createGroveTools({
   stores: {
     trees: { list: async () => trees, save: async (tree) => { trees = [tree]; } },
     branches: { list: async () => branches, save: async (branch) => { branches.push(branch); } },
-    leaves: { list: async () => leaves, save: async (leaf) => { leaves.push(leaf); } },
+    leaves: {
+      list: async () => leaves,
+      save: async (leaf) => {
+        leaves = leaves.filter((existing) => existing.id !== leaf.id);
+        leaves.push(leaf);
+      },
+    },
     tasks: { list: async () => tasks },
   },
   newId: () => `g${++nextId}`,
@@ -251,5 +257,87 @@ describe('ready_leaves', () => {
     const unknown = await run('ready_leaves', { treeId: 'tree-9' });
     expect(unknown.ok).toBe(false);
     expect(unknown.digest).toContain('no such tree');
+  });
+});
+describe('claim_leaf', () => {
+  const claim = (parsed: Record<string, unknown>) => run('claim_leaf', parsed);
+
+  it('files a claim: the leaf goes claimed, the evidence goes on file for the judge', async () => {
+    leaves.push({
+      id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a checkable goal',
+      column: 'todo', status: 'running', depth: 0, blocking: false,
+      createdAt: 'now', updatedAt: 'now',
+    });
+    const outcome = await claim({
+      leafId: 'leaf-1',
+      result: 'claimed',
+      evidence: 'ran `node server.js` — listening on :3000; config at /app/config.json; run r7',
+      runs: ['r7'],
+      findings: 'health endpoint flaky under load',
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.digest).toBe('claimed leaf-1');
+    const saved = leaves.find((leaf) => leaf.id === 'leaf-1')!;
+    expect(saved.status).toBe('claimed');
+    expect(saved.claim).toMatchObject({
+      evidence: expect.stringContaining('listening on :3000'),
+      findings: 'health endpoint flaky under load',
+      runs: ['r7'],
+    });
+  });
+
+  it('never lets the work grade itself — a success word is refused with the teaching', async () => {
+    leaves.push({
+      id: 'leaf-2', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal',
+      column: 'todo', status: 'running', depth: 0, blocking: false,
+      createdAt: 'now', updatedAt: 'now',
+    });
+    const outcome = await claim({ leafId: 'leaf-2', result: 'succeeded', evidence: 'it works' });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.digest).toContain("can't claim a leaf as succeeded");
+    expect(leaves.find((leaf) => leaf.id === 'leaf-2')!.status).toBe('running');
+  });
+
+  it('a failed claim needs a reason, and carries the evidence forward for the replan', async () => {
+    leaves.push({
+      id: 'leaf-3', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal',
+      column: 'todo', status: 'running', depth: 0, blocking: false,
+      createdAt: 'now', updatedAt: 'now',
+    });
+    const bare = await claim({ leafId: 'leaf-3', result: 'failed', evidence: 'tried the build' });
+    expect(bare.ok).toBe(false);
+    expect(bare.digest).toContain('needs a reason');
+
+    const failed = await claim({
+      leafId: 'leaf-3', result: 'failed',
+      evidence: 'tried the build',
+      reason: 'build needs the private registry, which this workspace cannot reach',
+    });
+    expect(failed.ok).toBe(true);
+    expect(failed.digest).toContain('failed leaf-3');
+    const saved = leaves.find((leaf) => leaf.id === 'leaf-3')!;
+    expect(saved.status).toBe('failed');
+    expect(saved.findings).toContain('private registry');
+    expect(saved.claim!.evidence).toContain('tried the build');
+  });
+
+  it('refuses the wrong states with the state and what comes next', async () => {
+    for (const status of ['proposed', 'claimed', 'succeeded', 'failed'] as const) {
+      leaves.push({
+        id: `leaf-${status}`, ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal',
+        column: 'todo', status, depth: 0, blocking: false,
+        createdAt: 'now', updatedAt: 'now',
+      });
+      const outcome = await claim({ leafId: `leaf-${status}`, result: 'claimed', evidence: 'ran it' });
+      expect(outcome.ok, status).toBe(false);
+    }
+    expect((await claim({ leafId: 'leaf-proposed', result: 'claimed', evidence: 'ran it' })).digest).toContain('not accepted yet');
+    expect((await claim({ leafId: 'leaf-claimed', result: 'claimed', evidence: 'ran it' })).digest).toContain('already claimed');
+    expect((await claim({ leafId: 'leaf-succeeded', result: 'claimed', evidence: 'ran it' })).digest).toContain('already settled');
+    const ghost = await claim({ leafId: 'leaf-ghost', result: 'claimed', evidence: 'ran it' });
+    expect(ghost.ok).toBe(false);
+    expect(ghost.digest).toContain('no such leaf');
   });
 });

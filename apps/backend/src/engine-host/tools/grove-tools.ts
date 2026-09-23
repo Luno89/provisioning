@@ -107,6 +107,56 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return { ok: true, digest: `grown ${leaf.id}`, content: `grown ${leaf.id} — "${title}" under ${branchId}` };
     },
 
+    async claim_leaf({ parsed }): Promise<ToolOutcome> {
+      const needle = asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id');
+      if (!needle) return refuse('claim_leaf needs a leafId — the leaf you worked');
+
+      const outcome = asString(parsed, 'result') ?? asString(parsed, 'outcome');
+      if (outcome === 'succeeded' || outcome === 'verified' || outcome === 'done') {
+        return refuse("you can't claim a leaf as succeeded — the work doesn't get to grade itself. Report 'claimed' with evidence the judge can re-derive (commands with their output, file paths, run ids), or 'failed' with the reason if the work is blocked beyond your power. The judge decides the goal.");
+      }
+      if (outcome !== 'claimed' && outcome !== 'failed') {
+        return refuse("claim_leaf's result is 'claimed' (worked it — here is the evidence) or 'failed' (couldn't — here is why), nothing else");
+      }
+
+      const evidence = asString(parsed, 'evidence') ?? asString(parsed, 'evidenceText');
+      if (!evidence) {
+        return refuse('a claim needs evidence — what you ran and what it showed, with pointers into the workspace the judge can actually look at: commands with their output, file paths, run ids. A claim without it is just the assert-all over again.');
+      }
+      const findings = asString(parsed, 'findings');
+      const reason = asString(parsed, 'reason');
+      if (outcome === 'failed' && !reason) return refuse('a failed claim needs a reason — what is blocked, what you tried, and why it is beyond your power');
+      const runs = asStringList(parsed, 'runs');
+
+      const leaves = await options.stores.leaves.list();
+      const leaf = leaves.find((candidate) => candidate.id === needle);
+      if (!leaf) return refuse(`no such leaf: ${needle}`);
+      if (leaf.status === 'proposed') return refuse(`${leaf.id} is not accepted yet — a proposed leaf has to be admitted into the pass before it can be worked and claimed`);
+      if (leaf.status === 'claimed') return refuse(`${leaf.id} is already claimed — the next word comes from the judge, not a second claim`);
+      if (leaf.status === 'succeeded' || leaf.status === 'failed' || leaf.status === 'cancelled') {
+        return refuse(`${leaf.id} is already settled (${leaf.status}) — there is nothing left to claim`);
+      }
+
+      const stamp = now();
+      const claim: Leaf['claim'] = {
+        evidence,
+        at: stamp,
+        ...(findings ? { findings } : {}),
+        ...(runs.length > 0 ? { runs } : {}),
+      };
+      const claimed: Leaf = {
+        ...leaf,
+        status: outcome === 'failed' ? 'failed' : 'claimed',
+        ...((outcome === 'failed' ? reason : findings) ? { findings: (outcome === 'failed' ? reason : findings)! } : {}),
+        claim,
+        updatedAt: stamp,
+      };
+      await options.stores.leaves.save(claimed);
+
+      const digest = outcome === 'failed' ? `failed ${leaf.id} — ${reason}` : `claimed ${leaf.id}`;
+      return { ok: true, digest, content: `${digest} — evidence on file for the judge (${evidence.length} chars${findings ? ', with findings' : ''})` };
+    },
+
     async ready_leaves({ parsed }): Promise<ToolOutcome> {
       const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id');
       if (!treeId) return refuse('ready_leaves needs a treeId — the tree to schedule');
