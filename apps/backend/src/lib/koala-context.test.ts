@@ -67,6 +67,22 @@ describe('what survives into the artifact', () => {
     expect(buildHandoffNotice(BUDGET, c).content).toContain('Build me an invoicing service');
   });
 
+  it('preserves cumulative user directives across multiple turns without losing scope', () => {
+    const c = conv({
+      messages: [
+        msg({ content: 'Build me an invoicing service' }),
+        msg({ role: 'assistant', content: 'Sure, planning it now' }),
+        msg({ content: 'Important: ensure all taxes are calculated in UTC' }),
+        msg({ role: 'assistant', content: 'Understood' }),
+        msg({ content: 'Also: do not use external currency conversion API' }),
+      ],
+    });
+    const content = buildHandoffNotice(BUDGET, c).content;
+    expect(content).toContain('Build me an invoicing service');
+    expect(content).toContain('ensure all taxes are calculated in UTC');
+    expect(content).toContain('do not use external currency conversion API');
+  });
+
   it('separates proposals still waiting from ones already accepted', () => {
     const c = conv({
       messages: [msg()],

@@ -1,4 +1,5 @@
 import type { WithheldTool } from '@koala/engine-core';
+import { clampDualBoundary, extractContinuityState, DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
 import type { AgentDefinition } from '../../agent/agent.js';
 import { contextPressure } from '../../model/sampling.js';
 import type { BudgetConfig } from '@koala/harness-types';
@@ -340,10 +341,16 @@ export const buildContext: BuiltInNode = {
   })),
 };
 
+export interface ConversationRound {
+  reply: ModelReply;
+  results: ToolResult[];
+}
+
 interface ConversationState {
   messages: ChatMessage[];
   replies: string[];
   answered: string[];
+  rounds: ConversationRound[];
 }
 
 const executionOf = (reply: ModelReply): number => Number(reply.id.split('#').pop()) || 0;
@@ -371,8 +378,13 @@ export function extendConversation(
   history: readonly ChatMessage[] = [],
 ): ConversationState {
   const state: ConversationState = previous
-    ? { messages: [...previous.messages], replies: [...previous.replies], answered: [...previous.answered] }
-    : { messages: [...history, { role: 'user', content: opening }], replies: [], answered: [] };
+    ? {
+      messages: [...previous.messages],
+      replies: [...previous.replies],
+      answered: [...previous.answered],
+      rounds: (previous.rounds ?? []).map((round) => ({ reply: round.reply, results: [...round.results] })),
+    }
+    : { messages: [...history, { role: 'user', content: opening }], replies: [], answered: [], rounds: [] };
 
   const byCall = new Map<string, ToolResult>();
   for (const batch of results) {
@@ -395,6 +407,16 @@ export function extendConversation(
       ...(reply.toolCalls.length > 0 ? { toolCalls: reply.toolCalls } : {}),
     });
     state.replies.push(reply.id);
+    state.rounds.push({ reply, results: [] });
+  }
+
+  // Every tool result this run brought in is filed under the round that asked for it,
+  // so a later save can remember what the tools did in the middle of a multi-round turn.
+  for (const batch of results) {
+    for (const result of batch) {
+      const round = state.rounds.find((candidate) => candidate.reply.id === result.forReply);
+      if (round && !round.results.some((x) => x.callId === result.callId)) round.results.push(result);
+    }
   }
 
   for (const reply of known.sort((a, b) => executionOf(a) - executionOf(b))) {
@@ -425,7 +447,10 @@ export const conversation: BuiltInNode = {
       { name: 'replies', type: 'reply', describe: 'The model\'s replies, from any number of model steps.', many: true },
       { name: 'results', type: 'toolResults', describe: 'Tool results, including refusals, from any number of steps.', many: true },
     ],
-    outputs: [{ name: 'messages', type: 'messages', describe: 'The conversation so far.' }],
+    outputs: [
+      { name: 'messages', type: 'messages', describe: 'The conversation so far.' },
+      { name: 'rounds', type: 'json', describe: 'Every model round the conversation has seen, each with its own reply and the tool results it drew back — the shape of a multi-round turn, so a save can remember the calls made in the middle of it, not only the final words.' },
+    ],
     exits: [{ name: 'done', describe: 'Always.' }],
     settings: NO_SETTINGS,
     runs: 'workflow',
@@ -446,9 +471,13 @@ export const conversation: BuiltInNode = {
 
 const looksStructured = (content: string): boolean => /^[[{]/.test(content.trimStart());
 
-export const clampToolResult = (content: string, maxChars: number): string => {
+export const clampToolResult = (content: string, maxChars: number, headRatio?: number): string => {
   if (content.length <= maxChars) return content;
   const cut = content.length - maxChars;
+
+  if (headRatio !== undefined) {
+    return clampDualBoundary(content, { maxChars, headRatio });
+  }
 
   return looksStructured(content)
     ? `${content.slice(0, maxChars)}\n…[${cut} characters truncated from the end]`
@@ -468,15 +497,15 @@ export const trimToolResults: BuiltInNode = {
     settings: {
       type: 'object',
       properties: {
-        maxChars: { type: 'integer', title: 'Characters kept', minimum: 100, maximum: 200_000, default: 8000 },
+        maxChars: { type: 'integer', title: 'Characters kept', minimum: 100, maximum: 200_000, default: DEFAULT_COMPACTION_CONFIG.maxOutputChars },
       },
     },
     runs: 'workflow',
     idempotent: true,
-    summarize: (settings) => `keeps ${numberOf(settings, 'maxChars', 8000)} characters of each result`,
+    summarize: (settings) => `keeps ${numberOf(settings, 'maxChars', DEFAULT_COMPACTION_CONFIG.maxOutputChars)} characters of each result`,
   }),
   implementation: valueImplementation('trim-tool-results', ({ node, inputs }) => {
-    const maxChars = numberOf(node.settings, 'maxChars', 8000);
+    const maxChars = numberOf(node.settings, 'maxChars', DEFAULT_COMPACTION_CONFIG.maxOutputChars);
     return {
       outputs: {
         results: (inputs.results as ToolResult[]).map((result) => ({ ...result, content: clampToolResult(result.content, maxChars) })),
@@ -493,28 +522,58 @@ export interface HandOffSettings {
   discoveryChars: number;
 }
 
-export function handOff(messages: readonly ChatMessage[], settings: HandOffSettings): ChatMessage[] {
-  const goal = collapse(messages.find((message) => message.role === 'user')?.content ?? '').slice(0, settings.goalChars);
-  const found = messages
-    .filter((message) => message.role === 'tool' && message.content.trim())
-    .map((message) => `${message.name ?? 'tool'} → ${collapse(message.content).slice(0, settings.discoveryChars)}`)
-    .reverse()
-    .slice(0, settings.discoveries);
+export function handOff(
+  messages: readonly ChatMessage[],
+  settings?: Partial<HandOffSettings> | undefined,
+): ChatMessage[] {
+  const goalChars = settings?.goalChars ?? DEFAULT_COMPACTION_CONFIG.goalChars;
+  const discoveries = settings?.discoveries ?? DEFAULT_COMPACTION_CONFIG.maxDiscoveries;
+  const discoveryChars = settings?.discoveryChars ?? DEFAULT_COMPACTION_CONFIG.discoveryChars;
+  const tailCount = settings?.tail ?? DEFAULT_COMPACTION_CONFIG.liveTailTurns;
 
-  let tail = messages.slice(-settings.tail);
+  const state = extractContinuityState(messages, {
+    goalChars,
+    maxDiscoveries: discoveries,
+    discoveryChars,
+  });
+
+  const found = state.recentDiscoveries;
+  const directives = state.cumulativeUserDirectives;
+  const negative = state.negativeKnowledge;
+  const files = [...state.filesCreated, ...state.filesModified];
+
+  let tail = messages.slice(-tailCount);
   while (tail[0]?.role === 'tool') tail = tail.slice(1);
 
-  const notice = [
+  const noticeLines = [
     'Earlier messages in this conversation were summarised to fit the context window.',
     '',
     '**What this conversation is about**',
-    goal || '(not recorded)',
-    ...(found.length > 0 ? ['', '**What the tools found**', ...found.map((line) => `- ${line}`)] : []),
+    state.goal || '(not recorded)',
+  ];
+
+  if (directives.length > 0) {
+    noticeLines.push('', '**Cumulative User Directives & Constraints**', ...directives.map((d) => `- ${d}`));
+  }
+
+  if (files.length > 0) {
+    noticeLines.push('', '**Files Touched**', ...files.slice(0, 10).map((f) => `- ${f}`));
+  }
+
+  if (negative.length > 0) {
+    noticeLines.push('', '**Errors & Negative Knowledge (Do Not Repeat)**', ...negative.slice(0, 5).map((e) => `- ${e}`));
+  }
+
+  if (found.length > 0) {
+    noticeLines.push('', '**What the tools found**', ...found.map((line) => `- ${line}`));
+  }
+
+  noticeLines.push(
     '',
     'Carry on from here. If you need detail that was in the elided messages, call the tool again rather than guessing — the results above are a summary, not the full output.',
-  ].join('\n');
+  );
 
-  return [{ role: 'user', content: notice }, ...tail];
+  return [{ role: 'user', content: noticeLines.join('\n') }, ...tail];
 }
 
 export const handOffConversation: BuiltInNode = {
@@ -537,16 +596,16 @@ export const handOffConversation: BuiltInNode = {
     settings: {
       type: 'object',
       properties: {
-        at: { type: 'number', title: 'Hand off at', describe: 'How full the window may get, from 0 to 1.', minimum: 0.05, maximum: 1, default: 0.55 },
-        tail: { type: 'integer', title: 'Messages kept', minimum: 1, default: 4 },
-        goalChars: { type: 'integer', title: 'Goal length', minimum: 50, default: 600 },
-        discoveries: { type: 'integer', title: 'Findings kept', minimum: 0, default: 8 },
-        discoveryChars: { type: 'integer', title: 'Finding length', minimum: 20, default: 160 },
+        at: { type: 'number', title: 'Hand off at', describe: 'How full the window may get, from 0 to 1.', minimum: 0.05, maximum: 1, default: DEFAULT_COMPACTION_CONFIG.softThreshold },
+        tail: { type: 'integer', title: 'Messages kept', minimum: 1, default: DEFAULT_COMPACTION_CONFIG.liveTailTurns },
+        goalChars: { type: 'integer', title: 'Goal length', minimum: 50, default: DEFAULT_COMPACTION_CONFIG.goalChars },
+        discoveries: { type: 'integer', title: 'Findings kept', minimum: 0, default: DEFAULT_COMPACTION_CONFIG.maxDiscoveries },
+        discoveryChars: { type: 'integer', title: 'Finding length', minimum: 20, default: DEFAULT_COMPACTION_CONFIG.discoveryChars },
       },
     },
     runs: 'workflow',
     idempotent: true,
-    summarize: (settings) => `summarises the history once the window is ${Math.round(numberOf(settings, 'at', 0.55) * 100)}% full`,
+    summarize: (settings) => `summarises the history once the window is ${Math.round(numberOf(settings, 'at', DEFAULT_COMPACTION_CONFIG.softThreshold) * 100)}% full`,
   }),
   implementation: stepImplementation('hand-off-conversation', ({ node, inputs }) => {
     const messages = inputs.messages as ChatMessage[];
@@ -558,17 +617,17 @@ export const handOffConversation: BuiltInNode = {
       binding.contextTokens,
     );
 
-    if (pressure < numberOf(node.settings, 'at', 0.55)) return { exit: 'fits', outputs: { messages } };
+    if (pressure < numberOf(node.settings, 'at', DEFAULT_COMPACTION_CONFIG.softThreshold)) return { exit: 'fits', outputs: { messages } };
 
     return {
       exit: 'handedOff',
       outputs: {
         messages: handOff(messages, {
-          at: numberOf(node.settings, 'at', 0.55),
-          tail: numberOf(node.settings, 'tail', 4),
-          goalChars: numberOf(node.settings, 'goalChars', 600),
-          discoveries: numberOf(node.settings, 'discoveries', 8),
-          discoveryChars: numberOf(node.settings, 'discoveryChars', 160),
+          at: numberOf(node.settings, 'at', DEFAULT_COMPACTION_CONFIG.softThreshold),
+          tail: numberOf(node.settings, 'tail', DEFAULT_COMPACTION_CONFIG.liveTailTurns),
+          goalChars: numberOf(node.settings, 'goalChars', DEFAULT_COMPACTION_CONFIG.goalChars),
+          discoveries: numberOf(node.settings, 'discoveries', DEFAULT_COMPACTION_CONFIG.maxDiscoveries),
+          discoveryChars: numberOf(node.settings, 'discoveryChars', DEFAULT_COMPACTION_CONFIG.discoveryChars),
         }),
       },
     };

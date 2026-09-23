@@ -55,9 +55,13 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     const since = typeof req.query.since === 'string' ? req.query.since : undefined;
     const projects = await db.getProjects();
 
+    const leafIds = new Set(mine.map((l) => l.id));
+    const treeTasks = (await db.getTasks(user.id)).filter((t) => t.leafId !== undefined && leafIds.has(t.leafId));
+
     res.json({
       tree,
       rollup: rollup(mine, isBlocked),
+      taskCount: treeTasks.length,
       changed: changedSince(mine, since),
       repos: (tree.projectIds ?? [])
         .map((id) => projects.find((p) => p.id === id))

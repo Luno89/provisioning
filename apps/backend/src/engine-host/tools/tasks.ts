@@ -3,14 +3,25 @@ export type TaskStatus = 'proposed' | 'accepted' | 'running' | 'done' | 'failed'
 export interface TaskChecks {
   command?: string | undefined;
   expects?: string[] | undefined;
+  /** file-exists: the path that must exist when the task is done */
+  fileExists?: string | undefined;
+  /** content-matches: the path whose contents must hold the pattern */
+  contentPath?: string | undefined;
+  contentPattern?: string | undefined;
+  /** http-probe: the endpoint that must answer, and with which status (default 200) */
+  httpUrl?: string | undefined;
+  httpStatus?: number | undefined;
 }
 
 export interface Task {
   id: string;
   ownerId: string;
   projectId?: string | undefined;
+  leafId?: string | undefined;
   title: string;
   intent?: string | undefined;
+  description?: string | undefined;
+  role?: string | undefined;
   doneMeans: string;
   checks?: TaskChecks | undefined;
   dependsOn: string[];
@@ -31,7 +42,10 @@ export const MAX_DONE_MEANS = 2_000;
 export interface ProposedTask {
   title: string;
   doneMeans: string;
+  leafId?: string | undefined;
   intent?: string | undefined;
+  description?: string | undefined;
+  role?: string | undefined;
   dependsOn?: string[] | undefined;
   agent?: string | undefined;
   checks?: TaskChecks | undefined;
@@ -43,6 +57,10 @@ export function describeProblem(input: Partial<ProposedTask>): string | undefine
   if (input.title.trim().length > MAX_TITLE) return `a title has to be under ${MAX_TITLE} characters`;
   if (!input.doneMeans?.trim()) return 'a task needs to say what "done" means, so anyone can tell whether it worked';
   if (input.doneMeans.trim().length > MAX_DONE_MEANS) return `"done means" has to be under ${MAX_DONE_MEANS} characters`;
+  if (input.leafId) {
+    if (!input.description?.trim()) return 'a task under a leaf needs a full description — what will actually be done, end to end, not a restatement of the title';
+    if (!input.role?.trim()) return 'a task under a leaf needs to say what part it plays in the overall project — which goal it serves and what it makes possible';
+  }
   return undefined;
 }
 
@@ -105,11 +123,14 @@ export function newTask(input: ProposedTask & { id: string; ownerId: string; pro
     ...(input.projectId ? { projectId: input.projectId } : {}),
     title: input.title.trim(),
     ...(input.intent?.trim() ? { intent: input.intent.trim() } : {}),
+    ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+    ...(input.role?.trim() ? { role: input.role.trim() } : {}),
     doneMeans: input.doneMeans.trim(),
     ...(input.checks ? { checks: input.checks } : {}),
     dependsOn: [...(input.dependsOn ?? [])],
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
     ...(input.agent ? { agent: input.agent } : {}),
+    ...(input.leafId ? { leafId: input.leafId } : {}),
     status: 'proposed',
     runs: [],
     createdAt: now,

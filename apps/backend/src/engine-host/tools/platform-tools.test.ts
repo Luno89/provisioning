@@ -73,6 +73,15 @@ describe('search_web', () => {
     expect(await run(tools, 'fetch_web_page', { url: 'https://example.test/missing' })).toMatchObject({ ok: false, digest: 'HTTP error 404' });
     expect((await run(tools, 'fetch_web_page', {})).digest).toContain('needs a "url"');
   });
+
+  it('passes a refusal from the site through so the procedure can tell it apart from a breakage', async () => {
+    const tools = createPlatformTools({
+      web: web({ fetchPage: vi.fn(async () => ({ ok: false, declined: true, text: 'HTTP 403: this site refused the fetch' })) }),
+    });
+
+    expect(await run(tools, 'fetch_web_page', { url: 'https://example.test' }))
+      .toMatchObject({ ok: false, declined: true, digest: 'HTTP 403: this site refused the fetch' });
+  });
 });
 
 describe('save_memory', () => {

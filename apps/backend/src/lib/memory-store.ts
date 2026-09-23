@@ -25,7 +25,9 @@ export interface MemoryItem {
   useCount?: number;
 }
 
-export const MAX_MEMORY_CONTEXT_CHARS = 6000;
+import { DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
+
+export const MAX_MEMORY_CONTEXT_CHARS = DEFAULT_COMPACTION_CONFIG.memoryChars;
 
 const lineFor = (m: MemoryItem) => `- ${m.title}: ${m.text.replace(/\s+/g, ' ').trim()}`;
 
@@ -38,7 +40,8 @@ export function ranked(memories: MemoryItem[]): MemoryItem[] {
 }
 
 export interface MemoryContextOptions {
-  preRanked?: boolean;
+  preRanked?: boolean | undefined;
+  maxChars?: number | undefined;
 }
 
 export function selectForContext(
@@ -58,11 +61,12 @@ export function selectForContext(
 
   if (!activeMemories.length) return { kept: [], dropped: 0 };
 
+  const maxLimit = opts.maxChars ?? MAX_MEMORY_CONTEXT_CHARS;
   const kept: MemoryItem[] = [];
   let used = 0;
   for (const m of (opts.preRanked ? activeMemories : ranked(activeMemories))) {
     const cost = lineFor(m).length + 1;
-    if (used + cost > MAX_MEMORY_CONTEXT_CHARS) continue;
+    if (used + cost > maxLimit) continue;
     kept.push(m);
     used += cost;
   }

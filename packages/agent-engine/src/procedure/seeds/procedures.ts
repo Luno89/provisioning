@@ -114,7 +114,8 @@ export const INTERACTIVE_CHAT_V3 = defineProcedure(BUILT_IN_GROUPS, {
     values: input.inputs,
     asked: input.message,
     reply: turn.reply,
-    results: tools.results,
+    results: [tools.results, tools.refused],
+    rounds: conversation.rounds,
   }, { id: '{{values.conversationId}}' });
 
   const answered = p.finish('answered', { result: turn.content }, { outcome: 'ok' });

@@ -111,6 +111,89 @@ describe('propose_work', () => {
     expect(outcome.digest).toContain('wait on itself');
     expect(stored).toHaveLength(1);
   });
+
+  it('a leaf task needs a full description, not just a title', async () => {
+    const outcome = await run('propose_work', {
+      title: 'Wire the job queue',
+      doneMeans: 'jobs are picked up within a second',
+      leafId: 'leaf-1',
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.digest).toContain('full description');
+    expect(stored).toHaveLength(0);
+  });
+
+  it('a leaf task needs a role — the part it plays in the overall project', async () => {
+    const outcome = await run('propose_work', {
+      title: 'Wire the job queue',
+      doneMeans: 'jobs are picked up within a second',
+      leafId: 'leaf-1',
+      description: 'Add the worker pool, the retry loop, and the startup drain.',
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.digest).toContain('part it plays');
+    expect(stored).toHaveLength(0);
+  });
+
+  it('a briefed leaf task is drafted, and the brief travels with the task', async () => {
+    const outcome = await run('propose_work', {
+      title: 'Wire the job queue',
+      doneMeans: 'jobs are picked up within a second',
+      leafId: 'leaf-1',
+      description: 'Add the worker pool, the retry loop, and the startup drain.',
+      role: 'Every other async piece of the plan — webhooks, the nightly report, the audit trail — rides on this queue.',
+      checks: { fileExists: 'src/queue/worker.ts', httpUrl: 'http://localhost:8080/health' },
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(stored[0]).toMatchObject({
+      leafId: 'leaf-1',
+      title: 'Wire the job queue',
+      description: 'Add the worker pool, the retry loop, and the startup drain.',
+      role: expect.stringContaining('webhooks'),
+    });
+    expect(stored[0]?.checks).toEqual({ fileExists: 'src/queue/worker.ts', httpUrl: 'http://localhost:8080/health' });
+  });
+
+  it('work under a leaf may only wait on work in the same leaf', async () => {
+    seed({ id: 'other-leaf-task', leafId: 'leaf-2' });
+
+    const outcome = await run('propose_work', {
+      title: 'B',
+      doneMeans: 'C',
+      leafId: 'leaf-1',
+      description: 'the full description',
+      role: 'the part it plays',
+      dependsOn: ['other-leaf-task'],
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.digest).toContain('same leaf');
+    expect(stored).toHaveLength(1);
+  });
+
+  it('work under a leaf may wait on work in the same leaf, and on work with no leaf at all', async () => {
+    seed({ id: 'same-leaf-task', leafId: 'leaf-1' });
+    seed({ id: 'free-task' });
+
+    const outcome = await run('propose_work', {
+      title: 'B',
+      doneMeans: 'C',
+      leafId: 'leaf-1',
+      description: 'the full description',
+      role: 'the part it plays',
+      dependsOn: ['same-leaf-task', 'free-task'],
+    });
+
+    expect(outcome.ok).toBe(true);
+  });
+
+  it('a task with no leaf still needs no description or role', async () => {
+    const outcome = await run('propose_work', { title: 'A', doneMeans: 'B' });
+    expect(outcome.ok).toBe(true);
+  });
 });
 
 describe('list_tasks', () => {

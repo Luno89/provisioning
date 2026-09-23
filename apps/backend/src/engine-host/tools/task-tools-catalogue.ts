@@ -7,14 +7,20 @@ export const TASK_TOOLS: ToolDefinition[] = [
     guidance: 'Use this once for each piece of work a goal breaks into. Each proposal should be small '
       + 'enough to finish in one sitting and say what "done" means precisely enough that someone else '
       + 'can check it. Proposed work does nothing until a person accepts it. Give dependsOn the ids of '
-      + 'proposals that must finish first, using the ids earlier calls returned.',
+      + 'proposals that must finish first, using the ids earlier calls returned. '
+      + 'When you are breaking down a Grove leaf (give leafId), the proposal is one task under that leaf: '
+      + 'it also needs a full description — what will actually be done, end to end — and its role, the part '
+      + 'it plays in the overall project. A leaf may keep zero tasks (planned, not broken down), and a leaf '
+      + 'task may wait only on tasks of the same leaf.',
     binding: 'platform',
     effect: 'write',
     status: 'draft',
     returns: 'The new task\'s id and status, so later proposals can depend on it.',
     failures: [
       { when: 'the title or doneMeans is missing', says: 'a task needs a title / a task needs to say what "done" means' },
+      { when: 'a leaf task is missing description or role', says: 'exactly which is missing, and what it is for' },
       { when: 'a dependency does not exist', says: 'these dependencies do not exist: <ids>' },
+      { when: 'a leaf task waits on work outside its leaf', says: 'work under a leaf can only wait on the same leaf' },
       { when: 'the dependencies would form a loop', says: 'that would make work wait on itself: <ids>' },
       { when: 'the run has no owner', says: 'this run has no owner to propose work for' },
     ],
@@ -23,7 +29,10 @@ export const TASK_TOOLS: ToolDefinition[] = [
       properties: {
         title: { type: 'string', description: 'What the work is, in a few words' },
         doneMeans: { type: 'string', description: 'What will be true once it is finished, precisely enough to check' },
+        leafId: { type: 'string', description: 'The Grove leaf this task works under, when planning one. Sets the description and role requirements.' },
         intent: { type: 'string', description: 'Why the work is needed' },
+        description: { type: 'string', description: 'What will actually be done, end to end. Required when leafId is set.' },
+        role: { type: 'string', description: 'The part the task plays in the overall project. Required when leafId is set.' },
         agent: { type: 'string', description: 'Which persona should do it, if not the executor' },
         dependsOn: { type: 'array', items: { type: 'string' }, description: 'Ids of proposals that must be done first' },
         checks: {

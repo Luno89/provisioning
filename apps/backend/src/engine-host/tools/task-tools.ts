@@ -49,8 +49,15 @@ const asChecks = (parsed: Record<string, unknown>): TaskChecks | undefined => {
     ? record.expects.filter((entry): entry is string => typeof entry === 'string')
     : undefined;
 
-  if (!command && !expects?.length) return undefined;
-  return { ...(command ? { command } : {}), ...(expects?.length ? { expects } : {}) };
+  const flat: Record<string, unknown> = {};
+  for (const key of ['fileExists', 'contentPath', 'contentPattern', 'httpUrl'] as const) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) flat[key] = value.trim();
+  }
+  const httpStatus = typeof record.httpStatus === 'number' ? record.httpStatus : undefined;
+
+  if (!command && !expects?.length && Object.keys(flat).length === 0 && httpStatus === undefined) return undefined;
+  return { ...(command ? { command } : {}), ...(expects?.length ? { expects } : {}), ...flat, ...(httpStatus !== undefined ? { httpStatus } : {}) };
 };
 
 const summarise = (task: Task): string =>
@@ -90,7 +97,10 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
       const input = {
         title: asString(parsed, 'title') ?? '',
         doneMeans: asString(parsed, 'doneMeans') ?? asString(parsed, 'done_means') ?? '',
+        ...(asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id') ? { leafId: (asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id'))! } : {}),
         ...(asString(parsed, 'intent') ? { intent: asString(parsed, 'intent') } : {}),
+        ...(asString(parsed, 'description') ? { description: asString(parsed, 'description') } : {}),
+        ...(asString(parsed, 'role') ? { role: asString(parsed, 'role') } : {}),
         ...(asString(parsed, 'agent') ? { agent: asString(parsed, 'agent') } : {}),
         dependsOn: asStringList(parsed, 'dependsOn').concat(asStringList(parsed, 'depends_on')),
         ...(asChecks(parsed) ? { checks: asChecks(parsed) } : {}),
@@ -105,6 +115,16 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
       const unknown = input.dependsOn.filter((id) => !known.has(id));
       if (unknown.length > 0) {
         return refuse(`these dependencies do not exist: ${unknown.join(', ')}`);
+      }
+
+      if (input.leafId) {
+        const across = input.dependsOn.filter((id) => {
+          const dependency = all.find((candidate) => candidate.id === id);
+          return dependency?.leafId !== undefined && dependency.leafId !== input.leafId;
+        });
+        if (across.length > 0) {
+          return refuse(`work under a leaf can only wait on other work in the same leaf: ${across.join(', ')}`);
+        }
       }
 
       const task = newTask({

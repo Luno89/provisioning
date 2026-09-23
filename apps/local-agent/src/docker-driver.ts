@@ -160,11 +160,13 @@ export async function createContainer(opts: CreateContainerOptions): Promise<voi
 }
 
 export async function execInContainer(
-  leafId: string, command: string, timeoutMs: number, subPath?: string,
+  leafId: string, command: string, timeoutMs: number, subPath?: string, maxOutputChars?: number,
 ): Promise<DockerResult> {
+  const opts: { timeoutMs: number; maxOutputChars?: number | undefined } = { timeoutMs };
+  if (maxOutputChars !== undefined) opts.maxOutputChars = maxOutputChars;
   return runDocker(
     ['exec', ...(subPath ? ['-w', `/work/${subPath}`] : []), containerName(leafId), 'sh', '-c', command],
-    { timeoutMs },
+    opts,
   );
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { conversationsRouter } from './conversations.js';
-import { mountRouter, type Harness } from './test-harness.js';
+import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import type { Database } from '../lib/db-interface.js';
 
 const harness: Harness = await mountRouter({
@@ -39,6 +39,67 @@ describe('conversation CRUD', () => {
     expect(delRes.status).toBe(200);
     const afterDel = (await harness.db.getConversations()).find((c: any) => c.id === created.id);
     expect(afterDel).toBeUndefined();
+  });
+});
+
+describe('conversation chat-owned picks', () => {
+  it('patches the pinned model and agent slug on a conversation, strips them with null, and rejects empty or foreign patches', async () => {
+    const createRes = await fetch(harness.url('/api/conversations'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Picks Thread' }),
+    });
+    const created = (await createRes.json()) as { id: string };
+
+    const patchRes = await fetch(harness.url(`/api/conversations/${created.id}`), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ modelId: 'heron-70b', agentSlug: 'heron' }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patched = (await patchRes.json()) as Record<string, unknown>;
+    expect(patched.modelId).toBe('heron-70b');
+    expect(patched.agentSlug).toBe('heron');
+
+    const getRes = await fetch(harness.url(`/api/conversations/${created.id}`));
+    const got = (await getRes.json()) as Record<string, unknown>;
+    expect(got.modelId).toBe('heron-70b');
+    expect(got.agentSlug).toBe('heron');
+
+    // null strips both picks (back to defaults)
+    const clearRes = await fetch(harness.url(`/api/conversations/${created.id}`), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ modelId: null, agentSlug: null }),
+    });
+    expect(clearRes.status).toBe(200);
+    const cleared = (await clearRes.json()) as Record<string, unknown>;
+    expect('modelId' in cleared).toBe(false);
+    expect('agentSlug' in cleared).toBe(false);
+
+    const emptyRes = await fetch(harness.url(`/api/conversations/${created.id}`), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(emptyRes.status).toBe(400);
+
+    const foreign = { id: 'someone-else', email: 'other@example.com', isAdmin: false };
+    harness.setUser(foreign);
+    const foreignRes = await fetch(harness.url(`/api/conversations/${created.id}`), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ modelId: 'x' }),
+    });
+    expect(foreignRes.status).toBe(404);
+    harness.setUser(TEST_USER);
+
+    const missingRes = await fetch(harness.url('/api/conversations/never-existed'), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ modelId: 'x' }),
+    });
+    expect(missingRes.status).toBe(404);
   });
 });
 

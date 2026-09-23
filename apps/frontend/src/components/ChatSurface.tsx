@@ -4,12 +4,14 @@ import { ArrowDown, AlertTriangle, X, Square } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import ProposalsSidebar from './ProposalsSidebar.js';
 import PersonaConfigDrawer from './PersonaConfigDrawer.js';
+import AgentConfigDrawer from './AgentConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
 import KoalaLoading from './KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
 import ChatMessageRow from './Chat/ChatMessageRow.js';
 import { listPacks, packKeys, type PersonaPack } from '../api/packs';
+import { listAgents, agentKeys, type Agent } from '../api/agents';
 import { listTrees, listTreeTypes, updateTreeType, groveKeys } from '../api/grove';
 import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../api/models';
 import { modelOptionLabel } from '../lib/model-label';
@@ -20,6 +22,7 @@ import { errorMessage } from '../api/client.js';
 import { type ChatMessageRecord } from './Chat/chat-stream.js';
 import { useChatScroll } from './Chat/hooks/useChatScroll.js';
 import { useConversationTurn } from './Chat/hooks/useConversationTurn.js';
+import ChatApprovalCard from './Chat/ChatApprovalCard.js';
 import {
   useBranchTurn,
   type ChatMode,
@@ -101,6 +104,12 @@ export default function ChatSurface({
   const { data: packs = [] } = useQuery<PersonaPack[]>({
     queryKey: packKeys.list(),
     queryFn: listPacks,
+  });
+
+  const { data: agents = [] } = useQuery<Agent[]>({
+    queryKey: agentKeys.all,
+    queryFn: listAgents,
+    enabled: !isBranch,
   });
 
   const { data: trees = [] } = useQuery({
@@ -190,22 +199,17 @@ export default function ChatSurface({
     ],
   });
 
-  const personaPacks: PersonaPackOption[] = useMemo(
-    () => packs.map((p) => ({
-      id: p.id,
-      name: p.name,
-      label: p.name.toUpperCase(),
-      desc: p.description ?? '',
-    })),
-    [packs],
-  );
-
   const koalaPackId = packs.find((p) => p.slug === 'koala')?.id;
+  // Which persona answers in normal chat is now an engine agent, picked per conversation and
+  // persisted on the document; the pack-based persona only still drives branch (planner) chats.
+  const selectedAgent = !isBranch ? agents.find((a) => a.slug === conv.selectedAgentSlug) : undefined;
   const activePack: PersonaPackOption | undefined = isBranch
     ? (plannerPack
       ? { id: plannerPack.id, name: plannerPack.name, label: plannerPack.name.toUpperCase(), desc: plannerPack.description ?? '' }
       : undefined)
-    : personaPacks.find((p) => p.id === koalaPackId);
+    : (selectedAgent
+      ? { id: selectedAgent.slug, name: selectedAgent.name, label: selectedAgent.name.toUpperCase(), desc: selectedAgent.description ?? '' }
+      : undefined);
 
   const effectiveModel = models.find((m) => m.id === (activeModelId ?? accountDefaultId));
   const modelLabel = effectiveModel
@@ -213,8 +217,8 @@ export default function ChatSurface({
     : activeModelId ?? 'No model';
 
   const currentPackRecord = activePack ? packs.find((p) => p.id === activePack.id) : undefined;
-  const toolCount = currentPackRecord?.tools?.length;
-  const mcpCount = currentPackRecord?.mcp?.length;
+  const toolCount = isBranch ? currentPackRecord?.tools?.length : selectedAgent?.tools.length;
+  const mcpCount = isBranch ? currentPackRecord?.mcp?.length : undefined;
 
   const openPersonaDrawer = () => setShowPersonaDrawer(true);
 
@@ -372,6 +376,15 @@ export default function ChatSurface({
                     </div>
                   )}
 
+                  {!isBranch && conv.pendingApproval && (
+                    <ChatApprovalCard
+                      reason={conv.pendingApproval.reason}
+                      {...(conv.pendingApproval.toolName ? { toolName: conv.pendingApproval.toolName, args: conv.pendingApproval.args } : {})}
+                      onAllow={() => void conv.decideApproval(true)}
+                      onDeny={() => void conv.decideApproval(false)}
+                    />
+                  )}
+
                   {error && (
                     <div className="w-full p-3 my-2 rounded-md bg-red-950/60 border border-red-500/50 text-red-300 font-sans text-xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -475,16 +488,23 @@ export default function ChatSurface({
         onSelectModel={setActiveModelId}
       />
 
-      <PersonaConfigDrawer
-        isOpen={showPersonaDrawer}
-        onClose={() => setShowPersonaDrawer(false)}
-        activePackId={activePack?.id ?? plannerPack?.id ?? koalaPackId ?? 'koala'}
-        onSelectPack={(packId) => {
-          if (isBranch) {
+      {isBranch ? (
+        <PersonaConfigDrawer
+          isOpen={showPersonaDrawer}
+          onClose={() => setShowPersonaDrawer(false)}
+          activePackId={activePack?.id ?? plannerPack?.id ?? koalaPackId ?? 'koala'}
+          onSelectPack={(packId) => {
             setBranchPlannerPackMutation.mutate(packId);
-          }
-        }}
-      />
+          }}
+        />
+      ) : (
+        <AgentConfigDrawer
+          isOpen={showPersonaDrawer}
+          onClose={() => setShowPersonaDrawer(false)}
+          selectedAgentSlug={conv.selectedAgentSlug}
+          onSelectAgent={conv.setSelectedAgentSlug}
+        />
+      )}
     </div>
   );
 }

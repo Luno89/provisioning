@@ -75,8 +75,13 @@ export interface ChatConversation {
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   messageCount?: number | undefined;
-  /** The engine this conversation was last sent on; absent means it follows pack and default. */
+  /** The engine this conversation runs on; absent means it follows pack and default. */
   modelId?: string | null | undefined;
+  /**
+   * The agent slug this conversation runs turns on (e.g. 'koala', or an owner agent slug).
+   * Absent means the default agent. Patched by the chat surface; preserved across engine turns.
+   */
+  agentSlug?: string | null | undefined;
   messages?: ChatConversationMessage[] | undefined;
   proposedTrees?: ProposedTreeRecord[] | undefined;
   proposedSpecs?: ProposedSpecRecord[] | undefined;
@@ -113,6 +118,17 @@ export const createChatConversation = (title?: string): Promise<ChatConversation
 
 export const deleteChatConversation = (id: string): Promise<void> =>
   api.delete(`/conversations/${id}`).then(() => undefined);
+
+/**
+ * Patch chat-owned metadata on a conversation — the running agent and the pinned model. The
+ * engine's save preserves stored fields it does not write itself, so these ride the doc and
+ * survive engine turns.
+ */
+export const patchChatConversation = (
+  id: string,
+  patch: { modelId?: string | null | undefined; agentSlug?: string | null | undefined },
+): Promise<ChatConversation> =>
+  api.patch<ChatConversation>(`/conversations/${id}`, patch).then((r) => r.data);
 
 export const acceptSpecProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
   api.post<T>(`/conversations/${conversationId}/specs/${proposalId}/accept`, {})

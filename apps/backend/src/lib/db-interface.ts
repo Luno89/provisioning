@@ -134,6 +134,7 @@ export interface Database {
   saveClusterProvider(provider: ClusterProviderSpec): Promise<void>;
 
   getConversations(): Promise<Conversation[]>;
+  getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
   saveConversation(conversation: Conversation): Promise<void>;
   deleteConversation(id: string): Promise<void>;
 

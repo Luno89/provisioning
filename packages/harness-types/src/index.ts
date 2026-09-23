@@ -366,6 +366,37 @@ export interface SamplingConfig {
   byEngine?: Record<string, Record<string, number | string | boolean>>;
 }
 
+export interface CompactionConfig {
+  /** Pressure threshold (0 to 1) to begin masking older tool observations. Default: 0.65 */
+  softThreshold: number;
+  /** Pressure threshold (0 to 1) to collapse middle turns into a Continuity State Frame. Default: 0.78 */
+  hardThreshold: number;
+  /** Pressure threshold (0 to 1) to trigger checkpoint reset. Default: 0.90 */
+  criticalThreshold: number;
+  /** Number of recent turns preserved completely unmasked in active working memory. Default: 6 */
+  liveTailTurns: number;
+  /** Number of head turns (system prompt + initial user prompt) strictly preserved. Default: 2 */
+  preserveHeadTurns: number;
+  /** Maximum characters for raw tool execution output (dual-boundary clipped). Default: 30_000 */
+  maxOutputChars: number;
+  /** Ratio of output characters allocated to the head snippet (rest to tail). Default: 0.20 */
+  outputHeadRatio: number;
+  /** Maximum characters for memory context injection. Default: 6_000 */
+  memoryChars: number;
+  /** Maximum branch messages kept in transcript. Default: 200 */
+  maxBranchMessages: number;
+  /** Number of recent turns to retain reasoning/thinking traces. Default: 6 */
+  reasoningKeptTurns: number;
+  /** Maximum characters for the primary task goal in the continuity state vector. Default: 1200 */
+  goalChars?: number | undefined;
+  /** Maximum number of findings/discoveries extracted into the continuity state vector. Default: 8 */
+  maxDiscoveries?: number | undefined;
+  /** Maximum characters per discovery summary in the continuity state vector. Default: 240 */
+  discoveryChars?: number | undefined;
+  /** Payload byte threshold above which historical tool write calls are elided to receipts. Default: 400 */
+  elidePayloadAboveBytes?: number | undefined;
+}
+
 /**
  * What one run may spend, and what it is shown. Concrete values, not a diff — a pack that said
  * nothing still ran to a 800-token reply cap, 8 rounds and a 60,000-character conversation budget,
@@ -423,6 +454,8 @@ export interface BudgetConfig {
     traceToolResult: number;
     traceToolArgs: number;
   };
+  /** Configurable progressive compaction, observation masking, and dual-boundary limits. */
+  compaction?: CompactionConfig;
 }
 
 /**

@@ -464,6 +464,26 @@ describe('safety nodes', () => {
     expect(tripped.exit).toBe('tripped');
     expect(tripped.outputs.reason).toBe('3 tool calls failed in a row');
   });
+
+  it('treats a call the peer refused as neither a failure nor a recovery', async () => {
+    const batch = async (forReply: string, outcomes: Array<Partial<ToolResult>>, previous?: Record<string, unknown>) =>
+      invoke(checkToolFailures, {
+        inputs: { results: outcomes.map((over, index) => result(forReply, `${forReply}-${index}`, over)) },
+        ...(previous ? { previous } : {}),
+      });
+
+    const broken = await batch('r1', [{ ok: false }]);
+    const blocked = await batch('r2', [{ ok: false, declined: true }], broken.outputs);
+    const blockedAgain = await batch('r3', [{ ok: false, declined: true }], blocked.outputs);
+    const second = await batch('r4', [{ ok: false }], blockedAgain.outputs);
+    const tripped = await batch('r5', [{ ok: false }], second.outputs);
+
+    expect(blocked.outputs.consecutive).toBe(1);
+    expect(blockedAgain.outputs.consecutive).toBe(1);
+    expect(second.outputs.consecutive).toBe(2);
+    expect(tripped.exit).toBe('tripped');
+    expect(tripped.outputs.reason).toBe('3 tool calls failed in a row');
+  });
 });
 
 describe('reading a yes-or-no answer', () => {

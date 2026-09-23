@@ -7,6 +7,8 @@ export interface ToolOutcome {
   ok: boolean;
   digest: string;
   content?: string | undefined;
+  /** The call ran, but the peer answered no (a site that blocks fetches replying 401/403). The tool worked as designed, so failure monitors do not count it. */
+  declined?: boolean;
 }
 
 export interface ToolCallerContext {
@@ -162,6 +164,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome>
       ok: outcome.ok,
       digest: clip(outcome.digest, digestChars),
       ...(outcome.content === undefined ? {} : { content: outcome.content }),
+      ...(outcome.declined ? { declined: outcome.declined } : {}),
     };
   } catch (err) {
     return refuse(

@@ -95,6 +95,12 @@ export interface Conversation {
    * whatever the account defaults to today. Absent means it follows the pack and the default.
    */
   modelId?: string | undefined;
+  /**
+   * The agent slug this conversation runs turns on ("koala" for the default chat persona).
+   * Absent means the default agent. The engine's save path preserves stored fields such as this
+   * rather than replacing the document: chat-owned metadata rides the conversation doc.
+   */
+  agentSlug?: string | undefined;
   enabledMcp?: string[];
   proposedTrees?: ProposedTree[];
   proposedSpecs?: ProposedSpec[];

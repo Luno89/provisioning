@@ -34,6 +34,8 @@ export interface ToolResult {
   ok: boolean;
   digest: string;
   content: string;
+  /** The call ran, but the peer refused it (a site that blocks fetches replying 401/403). Check Tool Failures does not count these. */
+  declined?: boolean;
 }
 
 export interface ModelBinding {

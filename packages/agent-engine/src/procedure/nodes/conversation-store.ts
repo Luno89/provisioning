@@ -35,13 +35,14 @@ export const saveConversation: BuiltInNode = {
     kind: 'save-conversation',
     title: 'Save Conversation',
     category: 'context',
-    describe: 'Appends this turn to the stored conversation: what the person asked, what the model answered, what it was thinking and which tools it called. A conversation that does not exist yet is created. Put it in the cleanup lane and a turn that was stopped part way is still recorded, rather than vanishing.',
+    describe: 'Appends this turn to the stored conversation: what the person asked, what the model answered, what it was thinking and which tools it called. A conversation that does not exist yet is created. A retry of the same save finds the turn already written and does not append it again. Put it in the cleanup lane and a turn that was stopped part way is still recorded, rather than vanishing.',
     role: 'step',
     inputs: [
       { name: 'values', type: 'json', describe: 'Values the id can refer to as {{values.…}}.' },
       { name: 'asked', type: 'text', describe: 'What the person said this turn.', required: true },
       { name: 'reply', type: 'reply', describe: 'The model\'s answer. A turn that was cut short hands back what it had, and that is what gets written.' },
-      { name: 'results', type: 'toolResults', describe: 'What the tools it called gave back.', many: true },
+      { name: 'results', type: 'toolResults', describe: 'What the tools it called gave back, including refusals.', many: true },
+      { name: 'rounds', type: 'json', describe: 'The rounds the Conversation node accumulated, each a reply with the results its calls drew back. They carry the calls made in the middle of a multi-round turn, which the reply and results inputs, being the latest, cannot.' },
     ],
     outputs: [{ name: 'conversation', type: 'text', describe: 'The conversation that was written.' }],
     exits: [
@@ -62,7 +63,7 @@ export const saveConversation: BuiltInNode = {
       },
     },
     runs: 'activity',
-    idempotent: false,
+    idempotent: true,
     summarize: (settings) => `appends this turn to ${textOf(settings, 'id') || 'a conversation you name'}`,
   }),
 };

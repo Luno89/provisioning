@@ -568,7 +568,7 @@ describe('doing one task', () => {
     expect(result).toMatchObject({ outcome: 'ok' });
     expect(judged!.messages.at(-1)?.content).toBe(`work: I wrote hello.txt with the word hello in it.\n\nexpected: ${task.doneMeans}`);
     expect(decided!.messages.at(-1)?.content).toContain('Verdict: met. The file holds the word.');
-    expect(toolRuns.mock.calls.map(([call]) => [call.name, JSON.parse(call.arguments)])).toEqual([
+    expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments)])).toEqual([
       ['start_task', { taskId: 'task-1' }],
       ['mark_done', { taskId: 'task-1', evidence: 'I wrote hello.txt with the word hello in it.' }],
     ]);
@@ -581,7 +581,7 @@ describe('doing one task', () => {
     const result = await doTask(services);
 
     expect(result).toMatchObject({ outcome: 'failed', reason: 'the judge did not accept the work' });
-    expect(toolRuns.mock.calls.map(([call]) => [call.name, JSON.parse(call.arguments)])).toEqual([
+    expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments)])).toEqual([
       ['start_task', { taskId: 'task-1' }],
       ['mark_failed', { taskId: 'task-1', reason: 'no\nThe judge found no evidence the file exists.' }],
     ]);

@@ -31,6 +31,11 @@ export interface EngineHostStores {
   };
   tools: { list(ownerId?: string): Promise<ToolDefinition[]> };
   tasks: TaskStore;
+  grove: {
+    trees: { list(): Promise<import('../lib/trees.js').Tree[]>; save(tree: import('../lib/trees.js').Tree): Promise<void> };
+    branches: { list(): Promise<import('../lib/leaves.js').Branch[]>; save(branch: import('../lib/leaves.js').Branch): Promise<void> };
+    leaves: { list(): Promise<import('../lib/leaves.js').Leaf[]>; save(leaf: import('../lib/leaves.js').Leaf): Promise<void> };
+  };
   conversations: import('./nodes/conversation-nodes.js').ConversationStore;
   memories: {
     list(ownerId: string): Promise<MemoryItem[]>;
@@ -120,6 +125,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         toolNames: (ownerId: string) => catalogue.names(ownerId),
       },
       tasks: stores.tasks,
+      groove: { stores: stores.grove },
       platform: {
         ...(web
           ? {
@@ -188,11 +194,15 @@ export function storesFromDatabase(db: Database): EngineHostStores {
     },
     tools: { list: (ownerId?: string) => db.getEngineTools(ownerId) },
     conversations: {
-      get: async (ownerId: string, id: string) =>
-        (await db.getConversations()).find((one) => one.id === id && one.ownerId === ownerId),
+      get: (ownerId, id) => db.getConversation(ownerId, id),
       save: (conversation) => db.saveConversation(conversation),
     },
     tasks: { list: (ownerId: string) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
+    grove: {
+      trees: { list: () => db.getTrees(), save: (tree) => db.saveTree(tree) },
+      branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
+      leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
+    },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
   };
 }

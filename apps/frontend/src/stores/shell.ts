@@ -75,6 +75,8 @@ interface ShellState {
 
 let lastRoute: Route | undefined = parseHash(window.location.hash)
 
+let nextNotificationId = 0
+
 export const useShellStore = create<ShellState>((set) => ({
   view: resolveView(parseHash(window.location.hash)?.view, KNOWN_VIEWS, 'chat') as ViewName,
 
@@ -118,7 +120,7 @@ export const useShellStore = create<ShellState>((set) => ({
 
   notifications: [],
   pushNotification: (notification) => set((s) => ({
-    notifications: [...s.notifications, { ...notification, nid: Date.now() + Math.random() }],
+    notifications: [...s.notifications, { ...notification, nid: Date.now() + (++nextNotificationId / 1000) }],
   })),
   dismissNotification: (nid) => set((s) => ({
     notifications: s.notifications.filter((n) => n.nid !== nid),

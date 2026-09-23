@@ -50,7 +50,7 @@ export function ChatHero({
       <div
         className={onOpenPersona ? 'cursor-pointer transition-opacity hover:opacity-80' : undefined}
         onClick={onOpenPersona}
-        title={onOpenPersona ? 'Configure persona directives and tools' : undefined}
+        title={onOpenPersona ? 'Configure who answers in this conversation' : undefined}
       >
         <KoalaSpot size={64} mood="idle" />
       </div>

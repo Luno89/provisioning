@@ -27,7 +27,7 @@ const DEFAULT_SAMPLING: SamplingConfig = {
 
 const defaultSampling = (): SamplingConfig => structuredClone(DEFAULT_SAMPLING);
 
-const DEFAULT_BUDGET: BudgetConfig = {
+export const DEFAULT_BUDGET: BudgetConfig = {
   replyTokens: { tool: 800, thinking: 2000, writingFiles: 8000, plan: 8000, ceiling: 16000 },
   contextTokens: 32_768,
   contextMargin: 512,
@@ -46,6 +46,18 @@ const DEFAULT_BUDGET: BudgetConfig = {
   record: {
     callsPerRound: 6, argChars: 400, digestChars: 2000,
     traceReasoning: 6000, traceContent: 2000, traceToolResult: 1200, traceToolArgs: 2000,
+  },
+  compaction: {
+    softThreshold: 0.65,
+    hardThreshold: 0.78,
+    criticalThreshold: 0.90,
+    liveTailTurns: 6,
+    preserveHeadTurns: 2,
+    maxOutputChars: 30_000,
+    outputHeadRatio: 0.20,
+    memoryChars: 6000,
+    maxBranchMessages: 200,
+    reasoningKeptTurns: 6,
   },
 };
 

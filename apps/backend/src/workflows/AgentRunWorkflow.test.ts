@@ -430,6 +430,46 @@ describe('a remembered conversation, through the workflow', () => {
 
     expect(acts.seen[0]!.map((one) => one.content)).toEqual(['what do you know?']);
   });
+
+  it('remembers a declined call with the refusal kind, not an empty failure and not nothing at all', async () => {
+    const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"rm -rf /"}'), { content: 'understood' }] });
+
+    const result = await runWorkflow(
+      input('executor', INTERACTIVE_CHAT_V3, 'run the thing', { conversationId: 'c-declined' }),
+      acts,
+      async (handle) => { await handle.signal(approveSignal, { callId: 'c1', allowed: false }); },
+    );
+
+    expect(result.outcome).toBe('ok');
+    const saved = await acts.conversations.get('user-1', 'c-declined');
+    expect(saved?.messages.map((one) => [one.role, one.content])).toEqual([
+      ['user', 'run the thing'],
+      ['assistant', 'understood'],
+    ]);
+    expect(saved?.messages.at(-1)?.toolCalls).toEqual([
+      { id: 'c1', name: 'run_command', args: '{"command":"rm -rf /"}', ok: false, digest: REFUSED_CALL },
+    ]);
+  }, 60_000);
+
+  it('remembers the calls a turn made in the middle of its rounds, with what they gave back', async () => {
+    const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'it listed fine' }] });
+
+    const result = await runWorkflow(
+      input('executor', INTERACTIVE_CHAT_V3, 'run the thing', { conversationId: 'c-released' }),
+      acts,
+      async (handle) => { await handle.signal(approveSignal, { callId: 'c1', allowed: true }); },
+    );
+
+    expect(result.outcome).toBe('ok');
+    const saved = await acts.conversations.get('user-1', 'c-released');
+    expect(saved?.messages.map((one) => [one.role, one.content])).toEqual([
+      ['user', 'run the thing'],
+      ['assistant', 'it listed fine'],
+    ]);
+    expect(saved?.messages.at(-1)?.toolCalls).toEqual([
+      { id: 'c1', name: 'run_command', args: '{"command":"ls"}', ok: true, digest: 'output of run_command' },
+    ]);
+  }, 60_000);
 });
 
 describe('when the model call fails', () => {

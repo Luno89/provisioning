@@ -50,6 +50,16 @@ describe('runCommand', () => {
     expect(result.stdout.trim()).toBe('out');
     expect(result.stderr.trim()).toBe('err');
   });
+
+  it('clamps large output with dual-boundary preserving head and tail', async () => {
+    // Generate output with start marker and end failure marker
+    const script = 'echo "START_MARKER"; for i in $(seq 1 100); do echo "line $i"; done; echo "CRITICAL_ERROR_AT_TAIL"';
+    const result = await runCommand(rootDir, script, { maxOutputChars: 150 });
+    expect(result.stdout).toContain('START_MARKER');
+    expect(result.stdout).toContain('CRITICAL_ERROR_AT_TAIL');
+    expect(result.stdout).toContain('characters omitted');
+    expect(result.stdout.length).toBeLessThanOrEqual(300);
+  });
 });
 
 describe('readLocalFile / writeLocalFile', () => {

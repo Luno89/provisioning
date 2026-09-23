@@ -129,7 +129,7 @@ export function ChatComposer({
               type="button"
               onClick={onOpenPersonaDrawer}
               className="flex items-center gap-1.5 px-2 py-1 rounded bg-[var(--bark-950,#090d0b)] hover:bg-[var(--bark-800,#1b2620)] border border-[var(--bark-700,#24332b)] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
-              title="Pick the pack, and edit its directives and tools"
+              title="Pick who answers in this conversation, and see its directives and tools"
             >
               <Sparkles size={11} className="text-emerald-400" />
               <span className="font-medium">{activePack?.name ?? 'Loading…'}</span>

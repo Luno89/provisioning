@@ -61,6 +61,39 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     res.json({ success: true });
   }));
 
+  /**
+   * Patch chat-owned metadata on a conversation: the running agent (slug) and the model this
+   * conversation was last sent on. The engine's save path preserves stored fields it does not
+   * write itself, so these ride the conversation doc and survive engine turns; the chat surface
+   * hydrates both from the doc on load and patches them when the user makes a choice.
+   */
+  router.patch('/:id', asyncRoute(async (req, res) => {
+    const userId = (req as any).user.id;
+    const found = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
+    if (!found) return res.status(404).json({ error: 'No such conversation' });
+    const body = req.body ?? {};
+    const next: Conversation = { ...found };
+    let changed = false;
+    if (typeof body.modelId === 'string' && body.modelId.trim()) {
+      next.modelId = body.modelId.trim();
+      changed = true;
+    } else if (body.modelId === null) {
+      delete next.modelId;
+      changed = true;
+    }
+    if (typeof body.agentSlug === 'string' && body.agentSlug.trim()) {
+      next.agentSlug = body.agentSlug.trim();
+      changed = true;
+    } else if (body.agentSlug === null) {
+      delete next.agentSlug;
+      changed = true;
+    }
+    if (!changed) return res.status(400).json({ error: 'Nothing to update' });
+    next.updatedAt = new Date().toISOString();
+    await db.saveConversation(next);
+    res.json(next);
+  }));
+
   const acceptTree = async (req: any, res: any) => {
     const userId = req.user.id;
     const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);

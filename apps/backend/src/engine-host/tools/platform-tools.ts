@@ -15,7 +15,7 @@ export interface SearchOutcomeLike {
 
 export interface WebTools {
   search(query: string): Promise<SearchOutcomeLike>;
-  fetchPage(url: string): Promise<{ ok: boolean; text: string }>;
+  fetchPage(url: string): Promise<{ ok: boolean; text: string; declined?: boolean }>;
 }
 
 export interface MemoryWriter {
@@ -74,7 +74,7 @@ export function createPlatformTools(options: PlatformToolOptions): Record<string
       if (!url) return { ok: false, digest: 'this call needs a "url"', content: '' };
 
       const page = await web.fetchPage(url);
-      return { ok: page.ok, digest: page.text, content: page.text };
+      return { ok: page.ok, digest: page.text, content: page.text, ...(page.declined ? { declined: page.declined } : {}) };
     };
   }
 

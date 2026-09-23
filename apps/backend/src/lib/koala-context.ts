@@ -60,8 +60,12 @@ export function buildHandoffNotice(
   now = new Date().toISOString(),
 ): ConversationMessage {
   const messages = historyForPrompt(conversation.messages);
-  const firstUser = messages.find((m) => m.role === 'user' && !m.notice);
-  const goal = (firstUser?.content ?? conversation.title).replace(/\s+/g, ' ').trim().slice(0, budget.handoff.goalChars);
+  const userMessages = messages.filter((m) => m.role === 'user' && !m.notice);
+  const firstUser = userMessages[0];
+  const goalChars = budget.compaction?.goalChars ?? budget.handoff.goalChars;
+  const goal = (firstUser?.content ?? conversation.title).replace(/\s+/g, ' ').trim().slice(0, goalChars);
+  const subsequentDirectives = userMessages.slice(1).map((m) => m.content.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
   const { open, accepted } = listProposals(budget, conversation.proposedTrees, conversation.proposedSpecs);
   const discoveries = keyDiscoveries(budget, messages);
 
@@ -72,6 +76,9 @@ export function buildHandoffNotice(
     goal || '(not recorded)',
   ];
 
+  if (subsequentDirectives.length) {
+    lines.push('', '**Cumulative User Directives & Constraints**', ...subsequentDirectives.map((d) => `- ${d}`));
+  }
   if (accepted.length) {
     lines.push('', '**Already accepted — do not propose these again**', ...accepted.map((a) => `- ${a}`));
   }

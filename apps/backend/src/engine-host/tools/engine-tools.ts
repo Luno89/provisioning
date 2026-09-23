@@ -1,5 +1,6 @@
 import { createProcedureTools, type ProcedureSourceStore, type ProcedureScope } from '../registries/procedure-tools.js';
 import { createTaskTools, type TaskStore } from './task-tools.js';
+import { createGroveTools, type GroveToolOptions } from './grove-tools.js';
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ImageBuilder } from '../sandboxes/image-builder.js';
@@ -13,6 +14,7 @@ export interface EngineToolDeps {
   procedures: ProcedureSourceStore;
   scope: ProcedureScope;
   tasks: TaskStore;
+  groove?: GroveToolOptions | undefined;
   platform: PlatformToolOptions;
 }
 
@@ -20,6 +22,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
   return {
     ...createProcedureTools({ store: deps.procedures, scope: deps.scope }),
     ...createTaskTools({ store: deps.tasks }),
+    ...(deps.groove ? createGroveTools(deps.groove) : {}),
     ...createPlatformTools(deps.platform),
   };
 }

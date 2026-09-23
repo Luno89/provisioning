@@ -57,7 +57,7 @@ describe('one control for who answers, one for what runs it', () => {
     const onOpenPersonaDrawer = vi.fn();
     render(<ChatComposer {...base} onOpenPersonaDrawer={onOpenPersonaDrawer} toolCount={17} />);
 
-    const control = screen.getByTitle(/pick the pack/i);
+    const control = screen.getByTitle(/pick who answers/i);
     expect(control).toHaveTextContent('Koala');
     expect(control).toHaveTextContent('17 tools');
 
@@ -67,7 +67,7 @@ describe('one control for who answers, one for what runs it', () => {
 
   it('does not claim a tool count it was not given', () => {
     render(<ChatComposer {...base} />);
-    expect(screen.getByTitle(/pick the pack/i)).not.toHaveTextContent(/tools/);
+    expect(screen.getByTitle(/pick who answers/i)).not.toHaveTextContent(/tools/);
   });
 
   it('offers the model as its own control, naming what actually answers', () => {

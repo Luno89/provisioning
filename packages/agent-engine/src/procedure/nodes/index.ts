@@ -50,4 +50,4 @@ export { chooseModel, fitReplyBudget, callModel, decide, readDecision, DECIDE_IN
 export { checkRepetition, checkStall, checkToolFailures } from './safety.js';
 export { code, codeProblems, declaredSockets, codeTimeout, CODE_KIND, DEFAULT_CODE_TIMEOUT_MS, type DeclaredSocket } from './code.js';
 export { approveToolCalls, runToolCalls, callTool, APPROVAL_POLICIES } from './tools.js';
-export { createOrchestrationNodes, REFUSED_CALL, type OrchestrationPorts, type ToolRunRequest, type ToolRunOutcome, type ChildRunRequest, type ApprovalRequest, type QuestionRequest, type QuestionAnswer } from './orchestration.js';
+export { createOrchestrationNodes, REFUSED_CALL, NOT_RUN_CALL, type OrchestrationPorts, type ToolRunRequest, type ToolRunOutcome, type ChildRunRequest, type ApprovalRequest, type QuestionRequest, type QuestionAnswer } from './orchestration.js';

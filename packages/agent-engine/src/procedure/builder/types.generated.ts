@@ -129,6 +129,8 @@ export type ConversationSettings = Record<string, never>
 export interface ConversationNode extends Step<'done'> {
   /** The conversation so far. */
   readonly messages: Out<'messages'>
+  /** Every model round the conversation has seen, each with its own reply and the tool results it drew back — the shape of a multi-round turn, so a save can remember the calls made in the middle of it, not only the final words. */
+  readonly rounds: Out<'json'>
   wire(wires: ConversationWires): void
 }
 
@@ -276,8 +278,10 @@ export interface SaveConversationWires {
   asked?: In<'text'>
   /** The model's answer. A turn that was cut short hands back what it had, and that is what gets written. */
   reply?: In<'reply'>
-  /** What the tools it called gave back. Takes any number of wires. */
+  /** What the tools it called gave back, including refusals. Takes any number of wires. */
   results?: In<'toolResults'> | readonly In<'toolResults'>[]
+  /** The rounds the Conversation node accumulated, each a reply with the results its calls drew back. They carry the calls made in the middle of a multi-round turn, which the reply and results inputs, being the latest, cannot. */
+  rounds?: In<'json'>
 }
 
 export type SaveConversationSettings = {
@@ -962,7 +966,7 @@ export interface Nodes {
   /** Resolve Tools: Works out which tools the model can use on this call: what the persona is granted, including the personas it may delegate to, narrowed to what the environment can support and what this step allows. Everything left out is listed with the reason. */
   resolveTools(id: string, wires?: ResolveToolsWires, settings?: ResolveToolsSettings, meta?: NodeMeta): ResolveToolsNode
   /**
-   * Save Conversation: Appends this turn to the stored conversation: what the person asked, what the model answered, what it was thinking and which tools it called. A conversation that does not exist yet is created. Put it in the cleanup lane and a turn that was stopped part way is still recorded, rather than vanishing.
+   * Save Conversation: Appends this turn to the stored conversation: what the person asked, what the model answered, what it was thinking and which tools it called. A conversation that does not exist yet is created. A retry of the same save finds the turn already written and does not append it again. Put it in the cleanup lane and a turn that was stopped part way is still recorded, rather than vanishing.
    * Leaves through saved: The turn was appended.
    * Leaves through failed: It could not be written.
    */
@@ -1067,7 +1071,7 @@ export interface Nodes {
    */
   checkStall(id: string, wires?: CheckStallWires, settings?: CheckStallSettings, meta?: NodeMeta): CheckStallNode
   /**
-   * Check Tool Failures: Trips when tool calls keep failing one after another, across replies.
+   * Check Tool Failures: Trips when tool calls keep failing one after another, across replies. A call the peer refused — a site that blocks fetches replying 403 or 401 — is not a failure and does not count.
    * Leaves through ok: Nothing wrong yet.
    * Leaves through tripped: The check tripped; "reason" says what it saw.
    */

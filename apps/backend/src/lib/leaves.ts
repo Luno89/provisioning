@@ -1,4 +1,5 @@
 
+import { DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
 import type { WorkspaceLanguage } from './workspace-spec.js';
 import type { AcceptanceCheck } from './acceptance.js';
 import type { ValidationRecipe } from './tree-types.js';
@@ -31,6 +32,9 @@ export interface Leaf {
   blocking: boolean;
 
   dependsOn?: string[];
+
+  /** ids of the engine tasks under this leaf (the work that gets it done) */
+  tasks?: string[];
 
   outputBranch?: string;
 
@@ -253,7 +257,7 @@ export interface Branch {
   updatedAt: string;
 }
 
-export const MAX_BRANCH_MESSAGES = 200;
+export const MAX_BRANCH_MESSAGES = DEFAULT_COMPACTION_CONFIG.maxBranchMessages;
 
 export function deriveBranchTitle(firstMessage: string): string {
   const cleaned = (firstMessage ?? '')
@@ -264,9 +268,19 @@ export function deriveBranchTitle(firstMessage: string): string {
   return cleaned.length > 60 ? `${cleaned.slice(0, 57)}…` : cleaned;
 }
 
-export function trimTranscript(messages: BranchMessage[]): BranchMessage[] {
-  const recent = messages.slice(-MAX_BRANCH_MESSAGES);
-  const keepReasoningFrom = Math.max(0, recent.length - 6);
+export interface TrimTranscriptOptions {
+  maxMessages?: number | undefined;
+  reasoningKept?: number | undefined;
+}
+
+export function trimTranscript(
+  messages: BranchMessage[],
+  options?: TrimTranscriptOptions,
+): BranchMessage[] {
+  const maxMessages = options?.maxMessages ?? MAX_BRANCH_MESSAGES;
+  const reasoningKept = options?.reasoningKept ?? DEFAULT_COMPACTION_CONFIG.reasoningKeptTurns;
+  const recent = messages.slice(-maxMessages);
+  const keepReasoningFrom = Math.max(0, recent.length - reasoningKept);
   return recent.map((m, i) =>
     i >= keepReasoningFrom ? m : (({ reasoning: _drop, ...rest }) => rest)(m),
   );

@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@babel/parser": "^7.29.8",
+    "@koala/context-engine": "*",
     "@koala/engine-core": "*",
     "@koala/harness-types": "*",
     "axios": "^1.17.0",

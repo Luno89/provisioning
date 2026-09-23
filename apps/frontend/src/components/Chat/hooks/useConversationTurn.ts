@@ -1,20 +1,57 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  openChatPackStream,
   listChatConversations,
   getChatConversation,
   createChatConversation,
   deleteChatConversation,
+  patchChatConversation,
   chatPackKeys,
   type ChatConversation,
 } from '../../../api/chat-pack.js';
+import {
+  startRun,
+  cancelRun,
+  approveRunCall,
+  ENGINE_EVENT_CHANNEL,
+  type EngineEvent,
+  type StartedRun,
+} from '../../../api/engine.js';
 import { emptyChatRenderState, type ChatRenderState } from '../../../lib/chat-unified-reducer.js';
 import { useLiveTurnsStore, conversationTurnKey } from '../../../stores/live-turns.js';
+import { useSocketEvent } from '../../../stores/socket.js';
 import { errorMessage } from '../../../api/client.js';
-import { readSseFrames, assistantMsgFromRenderState, type ChatMessageRecord } from '../chat-stream.js';
+import { engineEventToFrame } from '../engine-event-frames.js';
+import { assistantMsgFromRenderState, type ChatMessageRecord } from '../chat-stream.js';
 
 const EMPTY_MESSAGES: ChatMessageRecord[] = [];
+
+/**
+ * The koala chat surface now drives an engine run per turn: POST /engine/runs starts it, the
+ * run's events arrive on ENGINE_EVENT_CHANNEL, and engine-event-frames.ts translates them into
+ * the UnifiedFrames this render state already understands. The legacy /api/chat stream is still
+ * served for the branch scope (see useBranchTurn) until that scope moves over.
+ */
+/** The agent slug every koala-chat turn runs on by default — the seed persona. */
+const DEFAULT_CHAT_AGENT = 'koala';
+
+/**
+ * In-flight runs, by runId, at module scope. This is what a turn "is": a conversation key plus
+ * a live-turn key, and it must survive the surface being navigated away from mid-turn (the old
+ * code had the same shape as an orphaned SSE read feeding the module-level store). A remounted
+ * surface re-attaches to it and keeps receiving frames.
+ */
+const liveRunsByRunId = new Map<string, { convId: string; key: string }>();
+
+export interface PendingApproval {
+  runId: string;
+  /** The engine's warn notice explaining what is being asked. */
+  reason: string;
+  /** Set when the request arrived on the heels of the tool call it needs. */
+  callId?: string | undefined;
+  toolName?: string | undefined;
+  args?: string | undefined;
+}
 
 export interface UseConversationTurnOptions {
   externalConvId?: string | undefined;
@@ -28,12 +65,10 @@ export interface UseConversationTurnOptions {
 
 export function useConversationTurn({
   externalConvId,
-  externalSessionId,
   modelId,
   initialMessages = EMPTY_MESSAGES,
   enabled,
   onConversationChange,
-  onProposedTree,
 }: UseConversationTurnOptions) {
   const qc = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(externalConvId ?? null);
@@ -57,8 +92,19 @@ export function useConversationTurn({
   }, []);
 
   const [unsavedModelPicks, setUnsavedModelPicks] = useState<Record<string, string | null>>({});
-  const abortRef = useRef<AbortController | null>(null);
-  const localSessionId = useRef(externalSessionId ?? Math.random().toString(36).slice(2));
+  // Same, per conversation, for the running agent. Absent (document) or null (picker) means the
+  // default agent — 'koala'.
+  const [unsavedAgentPicks, setUnsavedAgentPicks] = useState<Record<string, string | null>>({});
+
+  // --- the in-flight engine run, and the approvals it asks for ----------------
+  /** The run this instance started, so the steering buttons act on it. */
+  const activeRunRef = useRef<{ runId: string; convId: string; key: string } | null>(null);
+  /** Keys already settled, so a settle racing another settle (optimistic stop vs. the
+   *  run.finished on its tail) cannot append the partial message twice. */
+  const settledKeysRef = useRef<Set<string>>(new Set());
+  /** Tool calls announced but not yet resulted — the pending-call one becomes the approval. */
+  const pendingCallsRef = useRef<Map<string, { name: string; args: string }>>(new Map());
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
 
   const liveTurnKey = enabled && selectedConvId ? conversationTurnKey(selectedConvId) : null;
   const currentTurn = useLiveTurnsStore((s) => (liveTurnKey ? s.turns[liveTurnKey] : undefined));
@@ -145,7 +191,86 @@ export function useConversationTurn({
     : (activeConversation?.modelId ?? modelId ?? null);
   const setPinnedModelId = (id: string | null) =>
     setUnsavedModelPicks((prev) => ({ ...prev, [conversationKey]: id }));
+  const selectedAgentSlug = conversationKey in unsavedAgentPicks
+    ? (unsavedAgentPicks[conversationKey] ?? DEFAULT_CHAT_AGENT)
+    : (activeConversation?.agentSlug ?? DEFAULT_CHAT_AGENT);
+  const setSelectedAgentSlug = (slug: string | null) =>
+    setUnsavedAgentPicks((prev) => ({ ...prev, [conversationKey]: slug }));
 
+  // Persist the picks when they diverge from what the conversation doc already holds — a pick
+  // made after the doc loaded, or the first message (picks linger under the 'unsent' key until
+  // the conversation exists, then get patched). Only fires on divergence, so a refetch that
+  // picks up the patched doc settles without re-patching.
+  const persistSelection = useMutation({
+    mutationFn: (convId: string) =>
+      patchChatConversation(convId, { modelId: pinnedModelId, agentSlug: selectedAgentSlug }),
+  });
+  useEffect(() => {
+    const conv = activeConversation;
+    if (!conv) return;
+    const docModel = conv.modelId ?? null;
+    const localModel = pinnedModelId ?? null;
+    const docAgent = conv.agentSlug ?? null;
+    const localAgent = selectedAgentSlug ?? null;
+    if (docModel === localModel && docAgent === localAgent) return;
+    persistSelection.mutate(conv.id);
+  }, [pinnedModelId, selectedAgentSlug, activeConversation, persistSelection]);
+
+  // --- settling a turn -------------------------------------------------------
+  const settleTurn = useCallback(
+    (convId: string, key: string, outcome: string, reason?: string, stoppedByUser = false) => {
+      if (settledKeysRef.current.has(key)) return;
+      settledKeysRef.current.add(key);
+
+      const turn = useLiveTurnsStore.getState().turns[key];
+      const state = turn?.renderState ?? emptyChatRenderState;
+      const msg = assistantMsgFromRenderState(state);
+      if (msg) {
+        let note: string | undefined;
+        if (stoppedByUser) note = 'Stopped';
+        else if (outcome === 'interrupted') note = reason ?? 'The run stopped early';
+        else if (outcome === 'failed') note = `Stopped early: ${reason ?? outcome}`;
+        appendLocalMessage(convId, note ? { ...msg, interruptedReason: note } : msg);
+      }
+
+      useLiveTurnsStore.getState().finish(key, outcome === 'ok' || outcome === 'interrupted' ? 'done' : 'error');
+      if (outcome === 'ok' || outcome === 'interrupted') setError(null);
+      else setError(`Turn stopped: ${reason ?? outcome}`);
+
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(convId) });
+      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      setPendingApproval(null);
+    },
+    [qc, appendLocalMessage],
+  );
+
+  // --- the run's events --------------------------------------------------------
+  useSocketEvent<EngineEvent>(ENGINE_EVENT_CHANNEL, (event) => {
+    const active = liveRunsByRunId.get(event.runId);
+    if (!active) return;
+
+    if (event.type === 'tool.called') pendingCallsRef.current.set(event.callId, { name: event.name, args: event.args });
+    if (event.type === 'tool.result') pendingCallsRef.current.delete(event.callId);
+    if (event.type === 'notice' && event.level === 'warn') {
+      const pending = pendingCallsRef.current.entries().next();
+      const call = pending.done ? undefined : pending.value;
+      setPendingApproval({
+        runId: event.runId,
+        reason: event.message,
+        ...(call ? { callId: call[0], toolName: call[1].name, args: call[1].args } : {}),
+      });
+    }
+
+    const mapped = engineEventToFrame(event);
+    if (mapped.kind === 'frame') {
+      useLiveTurnsStore.getState().applyFrame(active.key, mapped.frame);
+    } else if (mapped.kind === 'ended') {
+      liveRunsByRunId.delete(event.runId);
+      settleTurn(active.convId, active.key, mapped.outcome, mapped.reason);
+    }
+  });
+
+  // --- sending a turn ----------------------------------------------------------
   const sendConversationTurn = async (text: string) => {
     let targetConvId = selectedConvId;
     if (!targetConvId) {
@@ -172,72 +297,59 @@ export function useConversationTurn({
     };
     appendLocalMessage(targetConvId, userMsg);
     useLiveTurnsStore.getState().start(key);
+    settledKeysRef.current.delete(key);
+    pendingCallsRef.current = new Map();
 
-    const abort = new AbortController();
-    abortRef.current = abort;
-
+    let started: StartedRun;
     try {
-      const response = await openChatPackStream(
-        {
-          conversationId: targetConvId,
-          message: text,
-          sessionId: localSessionId.current,
-          ...(pinnedModelId ? { modelId: pinnedModelId } : {}),
-        },
-        abort.signal,
-      );
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(errText || `Server responded with ${response.status}`);
-      }
-
-      if (response.body) {
-        await readSseFrames(response.body, (frame) => {
-          useLiveTurnsStore.getState().applyFrame(key, frame);
-          if (frame.type === 'proposedTree') onProposedTree?.();
-        });
-      }
-
-      const finalTurn = useLiveTurnsStore.getState().turns[key];
-      const finalState = finalTurn?.renderState ?? emptyChatRenderState;
-      const assistantMsg = assistantMsgFromRenderState(finalState);
-      if (assistantMsg) appendLocalMessage(targetConvId, assistantMsg);
-
-      useLiveTurnsStore.getState().finish(key, 'done');
-
+      started = await startRun({
+        agent: selectedAgentSlug,
+        message: text,
+        inputs: { conversationId: targetConvId },
+        conversationId: targetConvId,
+        ...(pinnedModelId ? { modelId: pinnedModelId } : {}),
+      });
+    } catch (err) {
+      const state = useLiveTurnsStore.getState().turns[key]?.renderState ?? emptyChatRenderState;
+      const msg = assistantMsgFromRenderState(state);
+      if (msg) appendLocalMessage(targetConvId, { ...msg, interruptedReason: `Stopped early: ${errorMessage(err)}` });
+      setError(`Turn failed: ${errorMessage(err)}`);
+      useLiveTurnsStore.getState().finish(key, 'error');
       qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        useLiveTurnsStore.getState().finish(key, 'done');
-      } else {
-        const turn = useLiveTurnsStore.getState().turns[key];
-        const state = turn?.renderState ?? emptyChatRenderState;
-        const msg = assistantMsgFromRenderState(state);
-        if (msg) appendLocalMessage(targetConvId, { ...msg, interruptedReason: `Stopped early: ${errorMessage(err)}` });
-        setError(`Turn failed: ${errorMessage(err)}`);
-        useLiveTurnsStore.getState().finish(key, 'error');
-      }
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
-    } finally {
-      abortRef.current = null;
+      return;
     }
+
+    activeRunRef.current = { runId: started.runId, convId: targetConvId, key };
+    liveRunsByRunId.set(started.runId, { convId: targetConvId, key });
   };
 
   const handleStop = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      if (liveTurnKey && selectedConvId) {
-        const turn = useLiveTurnsStore.getState().turns[liveTurnKey];
-        const state = turn?.renderState ?? emptyChatRenderState;
-        const msg = assistantMsgFromRenderState(state);
-        if (msg) appendLocalMessage(selectedConvId, { ...msg, interruptedReason: 'Stopped' });
+    const active = activeRunRef.current;
+    if (!active) return;
+    activeRunRef.current = null;
+    liveRunsByRunId.delete(active.runId);
+    // The run's own interrupted/run.finished events follow, but the turn is settled now so the
+    // bubble stops immediately instead of waiting on the round-trip.
+    settleTurn(active.convId, active.key, 'interrupted', undefined, true);
+    cancelRun(active.runId).catch(() => {
+      /* the run may already be finished; nothing else to do */
+    });
+  }, [settleTurn]);
+
+  const decideApproval = useCallback(
+    async (allowed: boolean) => {
+      const approval = pendingApproval;
+      if (!approval) return;
+      if (!approval.callId) return;
+      setPendingApproval(null);
+      try {
+        await approveRunCall(approval.runId, { callId: approval.callId, allowed });
+      } catch {
+        setError('Approval could not be sent: the run may already have finished');
       }
-      if (liveTurnKey) useLiveTurnsStore.getState().finish(liveTurnKey, 'done');
-    }
-  }, [liveTurnKey, selectedConvId, appendLocalMessage]);
+    },
+    [pendingApproval],
+  );
 
   const renderedMessages = useMemo(() => {
     if (!enabled) return EMPTY_MESSAGES;
@@ -263,9 +375,13 @@ export function useConversationTurn({
     setError,
     pinnedModelId,
     setPinnedModelId,
+    selectedAgentSlug,
+    setSelectedAgentSlug,
     createMutation,
     deleteMutation,
     sendConversationTurn,
     handleStop,
+    pendingApproval,
+    decideApproval,
   };
 }

@@ -558,6 +558,11 @@ export class MongoDB implements Database {
     return (await this.conversations.find({}).toArray()).map((doc) => fromDoc<Conversation>(doc));
   }
 
+  async getConversation(ownerId: string, id: string): Promise<Conversation | undefined> {
+    const doc = await this.conversations.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<Conversation>(doc) : undefined;
+  }
+
   async saveConversation(conversation: Conversation): Promise<void> {
     const doc = toDoc(conversation);
     const id = doc._id;

@@ -479,6 +479,10 @@ export class MemoryDB implements Database {
     return this.conversations;
   }
 
+  async getConversation(ownerId: string, id: string): Promise<Conversation | undefined> {
+    return this.conversations.find((c) => c.id === id && c.ownerId === ownerId);
+  }
+
   async saveConversation(conversation: Conversation): Promise<void> {
     const i = this.conversations.findIndex((c) => c.id === conversation.id);
     if (i >= 0) this.conversations[i] = conversation;

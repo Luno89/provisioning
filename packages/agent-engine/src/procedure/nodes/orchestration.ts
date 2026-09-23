@@ -23,6 +23,8 @@ export interface ToolRunOutcome {
   ok: boolean;
   digest: string;
   content?: string | undefined;
+  /** The call ran, but the peer refused it — a site that blocks fetches replying 401/403, for example. */
+  declined?: boolean | undefined;
 }
 
 export interface ChildRunRequest {
@@ -61,6 +63,8 @@ export interface OrchestrationPorts {
 }
 
 export const REFUSED_CALL = 'you did not approve that call, so it did not run';
+/** Shown on a saved tool call that never got a result — the run ended before it could run. */
+export const NOT_RUN_CALL = 'it did not run — the run ended before it got a result';
 
 const DEFAULT_DIGEST_CHARS = 2000;
 
@@ -160,6 +164,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           ok: outcome.ok,
           digest: outcome.digest.slice(0, digestChars),
           content: outcome.content ?? outcome.digest,
+          ...(outcome.declined ? { declined: outcome.declined } : {}),
         });
       }
 

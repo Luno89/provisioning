@@ -150,6 +150,27 @@ describe('fetching a page', () => {
     expect(await tools.readPage('file:///etc/passwd')).toMatchObject({ ok: false });
   });
 
+  it('marks a blocked site as a refusal so the agent can reroute instead of retrying', async () => {
+    const { impl } = stubFetch([
+      ['blocked.dev', { ok: false, status: 403 }],
+      ['private.dev', { ok: false, status: 401 }],
+      ['gone.dev', { ok: false, status: 404 }],
+    ]);
+    const tools = createWebTools({ fetchImpl: impl });
+
+    for (const url of ['https://blocked.dev/a', 'https://private.dev/a']) {
+      const refused = await tools.readPage(url);
+      expect(refused).toMatchObject({ ok: false, declined: true });
+      expect(refused.text).toContain('refused the fetch');
+      expect(refused.text).toContain('Do not retry');
+    }
+
+    const gone = await tools.readPage('https://gone.dev/x');
+    expect(gone.ok).toBe(false);
+    expect(gone.declined).toBeUndefined();
+    expect(gone.text).toBe('HTTP error 404');
+  });
+
   it('refuses a non-http URL before making any request', async () => {
     const { impl, calls } = stubFetch([]);
     const tools = createWebTools({ fetchImpl: impl });

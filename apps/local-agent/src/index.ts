@@ -101,13 +101,18 @@ async function main() {
   });
 
   socket.on('sandbox:exec', (
-    { leafId, command, cwd }: { leafId: string; command: string; cwd?: string },
+    { leafId, command, cwd, maxOutputChars }: { leafId: string; command: string; cwd?: string; maxOutputChars?: number },
     ack: (result: ExecResult) => void,
   ) => {
     if (activeContainers.has(leafId)) {
-      execInContainer(leafId, command, DEFAULT_TIMEOUT_MS, cwd).then(ack);
+      execInContainer(leafId, command, DEFAULT_TIMEOUT_MS, cwd, maxOutputChars).then(ack);
     } else {
-      runCommand(rootDir, command, DEFAULT_TIMEOUT_MS, cwd).then(ack);
+      const options: { timeoutMs: number; subPath?: string | undefined; maxOutputChars?: number | undefined } = {
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+      };
+      if (cwd !== undefined) options.subPath = cwd;
+      if (maxOutputChars !== undefined) options.maxOutputChars = maxOutputChars;
+      runCommand(rootDir, command, options).then(ack);
     }
   });
 

@@ -1,4 +1,6 @@
 
+import { DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
+
 export interface OwnedNamespace {
   name: string;
   namespace: string;
@@ -6,7 +8,7 @@ export interface OwnedNamespace {
 }
 
 export const LOG_TAIL = 60;
-const MAX_OUTPUT = 6000;
+export const MAX_OUTPUT = DEFAULT_COMPACTION_CONFIG.memoryChars;
 
 export const SYSTEM_NAMESPACES = ['monitoring', 'gitea', 'kube-system', 'pipeline-builds'] as const;
 
@@ -47,10 +49,11 @@ export function eventsCommand(namespace: string): string[] {
   return ['get', 'events', '-n', namespace, '--sort-by=.lastTimestamp'];
 }
 
-export function trimOutput(raw: string): string {
+export function trimOutput(raw: string, maxOutput?: number): string {
+  const limit = maxOutput ?? MAX_OUTPUT;
   const text = String(raw ?? '').trim();
-  if (text.length <= MAX_OUTPUT) return text;
-  return `…[earlier output trimmed]\n${text.slice(-MAX_OUTPUT)}`;
+  if (text.length <= limit) return text;
+  return `…[earlier output trimmed]\n${text.slice(-limit)}`;
 }
 
 export const READ_VERBS = ['get', 'describe', 'logs', 'events', 'top'] as const;

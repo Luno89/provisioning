@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { executeTool } from './tool-exec.js';
+import { executeTool, type ToolDefinition } from './tool-exec.js';
 
 describe('a tool whose implementation is the command it declares', () => {
   const counter = {
@@ -60,5 +60,39 @@ describe('a tool whose implementation is the command it declares', () => {
 
     expect(outcome).toMatchObject({ ok: false });
     expect(outcome.digest).toContain('no implementation here');
+  });
+});
+
+describe('a peer refusing a call', () => {
+  const definition: ToolDefinition = {
+    name: 'fetch_web_page',
+    description: 'Fetches a page',
+    binding: 'handler' as const,
+    parameters: { type: 'object', properties: {} },
+  };
+
+  const base = {
+    arguments: '{}',
+    granted: ['fetch_web_page'],
+    catalogue: [definition],
+    caller: { ownerId: 'user-1', runId: 'run-1', agentSlug: 'koala' },
+    digestChars: 256,
+  };
+
+  it('carries the refusal past the boundary as a marker, not a crash', async () => {
+    const refused = async () => ({ ok: false, digest: 'HTTP 403: this site refused the fetch', declined: true });
+
+    const outcome = await executeTool({ ...base, name: 'fetch_web_page', handlers: { fetch_web_page: refused } });
+
+    expect(outcome).toMatchObject({ ok: false, declined: true, digest: 'HTTP 403: this site refused the fetch' });
+  });
+
+  it('leaves an ordinary failure unmarked', async () => {
+    const crashed = async () => ({ ok: false, digest: 'HTTP error 500' });
+
+    const outcome = await executeTool({ ...base, name: 'fetch_web_page', handlers: { fetch_web_page: crashed } });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.declined).toBeUndefined();
   });
 });

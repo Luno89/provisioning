@@ -52,6 +52,7 @@ export interface ToolCallOutcome {
   ok: boolean;
   digest: string;
   content?: string | undefined;
+  declined?: boolean;
 }
 
 export interface MergeArgs {

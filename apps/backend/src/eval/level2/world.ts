@@ -85,6 +85,11 @@ export function createWorld(scenario: Scenario, options: WorldOptions): World {
       list: async () => [...tasks.values()],
       save: async (task: Task) => { tasks.set(task.id, task); },
     },
+    grove: {
+      trees: { list: async () => [], save: async () => undefined },
+      branches: { list: async () => [], save: async () => undefined },
+      leaves: { list: async () => [], save: async () => undefined },
+    },
     memories: {
       list: async () => [...memories],
       save: async (item: MemoryItem) => { memories.push(item); },

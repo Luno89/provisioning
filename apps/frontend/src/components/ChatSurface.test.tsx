@@ -5,6 +5,9 @@ import { type ReactNode } from 'react';
 import ChatSurface from '../components/ChatSurface.js';
 import * as chatPackApi from '../api/chat-pack.js';
 import * as client from '../api/client.js';
+import * as engineApi from '../api/engine.js';
+import { useLiveTurnsStore, conversationTurnKey } from '../stores/live-turns.js';
+import { ENGINE_EVENT_CHANNEL, type EngineEvent } from '../api/engine.js';
 
 vi.mock('../api/packs', async (orig) => ({
   ...(await orig<typeof import('../api/packs')>()),
@@ -17,7 +20,6 @@ vi.mock('../api/packs', async (orig) => ({
 
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
-  openChatPackStream: vi.fn(),
   listChatConversations: vi.fn().mockResolvedValue([]),
   getChatConversation: vi.fn().mockImplementation(async (id: string) => ({
     id,
@@ -28,6 +30,34 @@ vi.mock('../api/chat-pack', async (orig) => ({
   denyEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
   acceptSpecProposal: vi.fn().mockResolvedValue({ id: 'mongo' }),
   acceptTreeProposal: vi.fn(),
+  patchChatConversation: vi.fn().mockResolvedValue({ id: 'c1', title: 'Test Conversation', messages: [] }),
+}));
+
+vi.mock('../api/models', async (orig) => ({
+  ...(await orig<typeof import('../api/models.js')>()),
+  listModels: vi.fn().mockResolvedValue([
+    { id: 'm1', name: 'First', source: 'endpoint', model: 'm1-model', sourceLabel: 'Primary' },
+    { id: 'm2', name: 'Second', source: 'endpoint', model: 'm2-model', sourceLabel: 'Secondary' },
+  ] as never),
+  useDefaultModel: () => ({ data: null }),
+}));
+
+vi.mock('../api/agents', async (orig) => ({
+  ...(await orig<typeof import('../api/agents.js')>()),
+  listAgents: vi.fn().mockResolvedValue([
+    {
+      slug: 'koala', ownerId: undefined, name: 'Koala', description: 'The default conversationalist.',
+      version: '1', prompt: '', guidance: '', returns: '', failures: [], procedure: 'procedure: tool-rounds',
+      tools: [], agents: [], environment: { terminal: false, filesystem: false, egress: false, git: false, workspace: false, languages: [] },
+      model: undefined, mine: false,
+    },
+    {
+      slug: 'heron', ownerId: 'u-1', name: 'Heron', description: 'Does careful ground-truth writes.',
+      version: '2', prompt: '', guidance: 'Always check before writing.', returns: '', failures: [], procedure: 'procedure: tool-rounds',
+      tools: ['read', 'write'], agents: [], environment: { terminal: true, filesystem: true, egress: false, git: true, workspace: true, languages: ['bash'] },
+      model: { endpointId: 'm2' }, mine: true,
+    },
+  ] as never),
 }));
 
 vi.mock('../api/client', async (orig) => ({
@@ -36,7 +66,7 @@ vi.mock('../api/client', async (orig) => ({
 }));
 
 vi.mock('../api/grove', async (orig) => ({
-  ...(await orig<any>()),
+  ...(await orig<typeof import('../api/grove.js')>()),
   updateTreeType: vi.fn().mockResolvedValue({ id: 'type-1' }),
   listTrees: vi.fn().mockResolvedValue([{ id: 't-1', name: 'Tree 1', type: 'type-1' }]),
   listTreeTypes: vi.fn().mockResolvedValue([{
@@ -49,6 +79,30 @@ vi.mock('../api/grove', async (orig) => ({
     files: [],
     packs: { planner: 'planner' },
   }]),
+}));
+
+/**
+ * The chat turns ride an engine run: startRun POSTs /engine/runs, and the run's engine events
+ * arrive on the ENGINE_EVENT_CHANNEL via the socket bridge. The mock below keeps a module-level
+ * table of the registered handlers so a test can deliver a scripted event stream to the surface
+ * exactly as the socket bridge would.
+ */
+const { socketHandlers } = vi.hoisted(() => ({
+  socketHandlers: new Map<string, (event: unknown) => void>(),
+}));
+
+vi.mock('../stores/socket.js', () => ({
+  useSocketEvent: (channel: string, handler: (event: unknown) => void) => {
+    socketHandlers.set(channel, handler);
+  },
+  getSocket: () => ({ emit: () => undefined }),
+}));
+
+vi.mock('../api/engine.js', async (orig) => ({
+  ...(await orig<typeof import('../api/engine.js')>()),
+  startRun: vi.fn(),
+  cancelRun: vi.fn().mockResolvedValue({ ok: true }),
+  approveRunCall: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 const queryClient = new QueryClient({
@@ -72,82 +126,98 @@ function makeSseStream(frames: string[]) {
   });
 }
 
+const RUN_ID = 'run-1';
+const AT = '2025-01-01T00:00:00.000Z';
+
+type EventSeed = { type: string } & Record<string, unknown>;
+
+/** Deliver a scripted engine-event stream to the registered socket handler. */
+function emit(...seeds: EventSeed[]) {
+  for (const seed of seeds) {
+    socketHandlers.get(ENGINE_EVENT_CHANNEL)?.({ runId: RUN_ID, at: AT, ...(seed as object) } as EngineEvent);
+  }
+}
+
+/** Wait until sendConversationTurn has posted the /engine/runs start, so the event stream can land. */
+async function waitForRunStarted() {
+  await waitFor(() => expect(engineApi.startRun).toHaveBeenCalledTimes(1));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  socketHandlers.clear();
   queryClient.clear();
+  useLiveTurnsStore.setState({ turns: {} });
+  vi.mocked(engineApi.startRun).mockResolvedValue({ runId: RUN_ID, agentSlug: 'koala', loopId: 'koala-chat' } as never);
+  vi.mocked(engineApi.cancelRun).mockResolvedValue({ ok: true } as never);
+  vi.mocked(engineApi.approveRunCall).mockResolvedValue({ ok: true } as never);
+  vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
+    id,
+    title: 'Test Conversation',
+    messages: [],
+  }) as never);
 });
 
 describe('ChatSurface — unified persona-pack chat surface', () => {
-  it('renders the input and sends the message to the pack route', async () => {
-    const mockRes = new Response(makeSseStream([
-      '{"type":"content","delta":"Hello"}',
-      '{"type":"content","delta":" world"}',
-    ]), { status: 200 });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
-
+  it('renders the input and starts an engine run on the koala agent', async () => {
     renderWithProviders(<ChatSurface conversationId="c1" />);
 
     const input = screen.getByPlaceholderText(/message/i);
     fireEvent.change(input, { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
-    expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: 'c1', message: 'hi' }),
-      expect.any(AbortSignal),
+    await waitForRunStarted();
+    expect(engineApi.startRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent: 'koala',
+        message: 'hi',
+        conversationId: 'c1',
+        inputs: { conversationId: 'c1' },
+      }),
+    );
+
+    emit(
+      { type: 'content', delta: 'Hello' },
+      { type: 'content', delta: ' world' },
+      { type: 'run.finished', outcome: 'ok' },
     );
     await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
   });
 
-  it('keeps a streaming reply alive across an unmount and remount (navigating away and back)', async () => {
-    const encoder = new TextEncoder();
-    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) { controllerRef = controller; },
-    });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
-
-    const { unmount } = renderWithProviders(<ChatSurface conversationId="c1" />);
+  it('keeps a streaming run alive across an unmount and remount (navigating away and back)', async () => {
+    const first = renderWithProviders(<ChatSurface conversationId="c1" />);
     fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
-    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Hello"}\n\n'));
+    await waitForRunStarted();
+    emit({ type: 'content', delta: 'Hello' });
     await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
 
-    // Navigate away: this is a real unmount, same as a view swap in App.tsx. Nothing aborts the
-    // fetch, so the SSE loop reading `stream` keeps running as an orphaned promise — exactly what
-    // happens in the app when the user leaves the chat view mid-stream.
-    unmount();
+    // The in-flight run and its reply accumulation live in module scope (live-turns store and
+    // the liveRuns table), so a real unmount — a view swap in App.tsx — drops the listener but
+    // not the turn. The remaining delta lands while nobody is subscribed, and on remount the
+    // surface picks up the still-streaming turn right where it left off.
+    first.unmount();
+    emit({ type: 'content', delta: ' world' });
 
-    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":" world"}\n\n'));
-    controllerRef.enqueue(encoder.encode('data: [DONE]\n\n'));
-    controllerRef.close();
-
-    // Navigate back: a fresh ChatSurface instance for the same conversation id should pick up
-    // right where the background stream left off, not start blank.
     renderWithProviders(<ChatSurface conversationId="c1" />);
     await waitFor(() => expect(screen.getByText('Hello world')).toBeInTheDocument());
+
+    emit({ type: 'run.finished', outcome: 'ok' });
   });
 
   it('does not lose or duplicate a turn when the sidebar switches conversations while it is still streaming', async () => {
-    const encoder = new TextEncoder();
-    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) { controllerRef = controller; },
-    });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
-
     const { rerender } = renderWithProviders(<ChatSurface conversationId="c1" />);
     fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
-    // Same component instance, same as clicking a different thread in the sidebar mid-turn — the
-    // in-flight send (still tied to c1's conversationTurnKey) keeps running in the background.
+    // Same component instance, as clicking a different thread in the sidebar mid-turn — the
+    // in-flight run (still keyed by conversation c1) keeps painting in the background.
     rerender(<QueryClientProvider client={queryClient}><ChatSurface conversationId="c2" /></QueryClientProvider>);
     rerender(<QueryClientProvider client={queryClient}><ChatSurface conversationId="c1" /></QueryClientProvider>);
 
-    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Hello"}\n\n'));
-    controllerRef.enqueue(encoder.encode('data: [DONE]\n\n'));
-    controllerRef.close();
+    await waitForRunStarted();
+    emit({ type: 'content', delta: 'Hello' }, { type: 'run.finished', outcome: 'ok' });
 
     await waitFor(() => expect(screen.getByText('Hello')).toBeInTheDocument());
     expect(screen.getAllByText('hi')).toHaveLength(1);
@@ -155,103 +225,133 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
   });
 
   it('keeps the partial reply, thinking, and tool call visible after Stop is clicked mid-stream', async () => {
-    const encoder = new TextEncoder();
-    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) { controllerRef = controller; },
-    });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
-
     renderWithProviders(<ChatSurface conversationId="c1" />);
     fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
-    controllerRef.enqueue(encoder.encode('data: {"type":"thinking","delta":"pondering"}\n\n'));
-    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Partial answer"}\n\n'));
-    controllerRef.enqueue(encoder.encode('data: {"type":"toolAnnounce","payload":{"id":"t1","name":"get_logs","args":"{}"}}\n\n'));
+    await waitForRunStarted();
+    emit(
+      { type: 'thinking', delta: 'pondering' },
+      { type: 'content', delta: 'Partial answer' },
+      { type: 'tool.called', nodeId: 'c.cwd.run_command', callId: 'tc1', name: 'run_command', args: '{"command":"ls"}' },
+    );
     await waitFor(() => expect(screen.getByText('Partial answer')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByTitle(/stop generation/i));
+    fireEvent.click(screen.getByTitle(/stop gen/i));
 
-    // The live bubble unmounts the instant Stop is clicked (status flips away from streaming) —
-    // the content must already be in the persisted message list by then, not lost with it.
-    expect(screen.getByText('Partial answer')).toBeInTheDocument();
-    expect(screen.getByText('get_logs')).toBeInTheDocument();
+    // Stop asks the engine to cancel the run and settles the bubble immediately — the partial
+    // must not be lost, and a late run.finished on its tail must not double-save it.
+    expect(engineApi.cancelRun).toHaveBeenCalledWith(RUN_ID);
+    expect(screen.getByText('run_command')).toBeInTheDocument();
     expect(screen.getByText(/interrupted/i)).toBeInTheDocument();
     expect(screen.getByText('Stopped')).toBeInTheDocument();
 
-    controllerRef.close();
+    // A run.finished event coming afterwards must not double-append the partial.
+    emit({ type: 'run.finished', outcome: 'interrupted' });
+    await waitFor(() => expect(screen.getAllByText('Partial answer')).toHaveLength(1));
   });
 
-  it('keeps the partial reply when the stream fails for a reason other than Stop', async () => {
-    const encoder = new TextEncoder();
-    let controllerRef!: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) { controllerRef = controller; },
-    });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(new Response(stream, { status: 200 }) as any);
-
+  it('keeps the partial reply when the run ends failed', async () => {
     renderWithProviders(<ChatSurface conversationId="c1" />);
     fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
-    controllerRef.enqueue(encoder.encode('data: {"type":"content","delta":"Partial before drop"}\n\n'));
+    await waitForRunStarted();
+    emit({ type: 'content', delta: 'Partial before drop' });
     await waitFor(() => expect(screen.getByText('Partial before drop')).toBeInTheDocument());
 
-    // Simulate a dropped connection: the reader rejects with a non-abort error, never emitting [DONE].
-    controllerRef.error(new Error('network reset'));
+    emit({ type: 'run.finished', outcome: 'failed', reason: 'network reset' });
 
-    await waitFor(() => expect(screen.getByText(/turn failed/i)).toBeInTheDocument());
-    expect(screen.getByText('Partial before drop')).toBeInTheDocument();
-    expect(screen.getByText(/stopped early/i)).toBeInTheDocument();
+    await screen.findByText(/Turn stopped: network reset/);
+    expect(screen.getByText(/Stopped early: network reset/)).toBeInTheDocument();
   });
 
-  it('renders a thinking pane when thinking frames arrive', async () => {
-    const mockRes = new Response(makeSseStream([
-      '{"type":"thinking","delta":"let me think"}',
-      '{"type":"content","delta":"Answer"}',
-    ]), { status: 200 });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
-
+  it('renders a thinking pane when thinking events arrive', async () => {
     renderWithProviders(<ChatSurface conversationId="c1" />);
     const inp = screen.getByPlaceholderText(/message/i);
     fireEvent.change(inp, { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
+    await waitForRunStarted();
+    emit(
+      { type: 'thinking', delta: 'let me think' },
+      { type: 'content', delta: 'Answer' },
+      { type: 'run.finished', outcome: 'ok' },
+    );
+
     await waitFor(() => expect(screen.getByText('let me think')).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText('Answer')).toBeInTheDocument());
   });
 
-  it('shows a tool pill that flips to done when toolResult arrives', async () => {
-    const mockRes = new Response(makeSseStream([
-      '{"type":"toolAnnounce","payload":{"id":"c1","name":"get_logs","args":"{\\"pod\\":\\"p\\"}"}}',
-      '{"type":"toolResult","payload":{"id":"c1","ok":true,"digest":"log lines..."}}',
-    ]), { status: 200 });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
-
+  it('shows a tool pill that flips to done when tool.result arrives', async () => {
     renderWithProviders(<ChatSurface conversationId="c1" />);
     const inp = screen.getByPlaceholderText(/message/i);
     fireEvent.change(inp, { target: { value: 'logs' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitForRunStarted();
+    emit(
+      { type: 'tool.called', callId: 'tc1', name: 'get_logs', args: '{"pod":"p"}' },
+      { type: 'tool.result', callId: 'tc1', ok: true, digest: 'log lines...' },
+      { type: 'content', delta: 'Done' },
+      { type: 'run.finished', outcome: 'ok' },
+    );
 
     await waitFor(() => expect(screen.getByText('get_logs')).toBeInTheDocument());
     fireEvent.click(screen.getByText('get_logs'));
     await waitFor(() => expect(screen.getByText('log lines...')).toBeInTheDocument());
   });
 
-  it('accumulates enabled services', async () => {
-    const mockRes = new Response(makeSseStream([
-      '{"type":"enabled","payload":["github-mcp"]}',
-      '{"type":"content","delta":"Ok"}',
-    ]), { status: 200 });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
+  it('accumulates enabled services (branch scope still rides the legacy frames)', async () => {
+    const mockRes = {
+      body: makeSseStream([
+        '{"type":"enabled","payload":["github-mcp"]}',
+        '{"type":"content","delta":"Ok"}',
+      ]),
+      status: 200,
+      ok: true,
+    };
+    vi.mocked(client.postStream).mockResolvedValue(mockRes as never);
 
-    renderWithProviders(<ChatSurface conversationId="c1" />);
-    const inp = screen.getByPlaceholderText(/message/i);
-    fireEvent.change(inp, { target: { value: 'hi' } });
+    let currentMessages: any[] = [];
+    const onMessagesChange = vi.fn().mockImplementation((next) => {
+      currentMessages = typeof next === 'function' ? next(currentMessages) : next;
+    });
+
+    const { rerender } = renderWithProviders(
+      <ChatSurface
+        scope={{
+          kind: 'branch',
+          branchId: 'b-1',
+          treeId: 't-1',
+          mode: 'chat',
+          messages: currentMessages,
+          onMessagesChange,
+        }}
+      />,
+    );
+
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: 'hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(onMessagesChange).toHaveBeenCalled());
 
-    await waitFor(() => expect(screen.getByText((c) => c.includes('github-mcp'))).toBeInTheDocument());
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ChatSurface
+          scope={{
+            kind: 'branch',
+            branchId: 'b-1',
+            treeId: 't-1',
+            mode: 'chat',
+            messages: currentMessages,
+            onMessagesChange,
+          }}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText((c) => c.includes('github-mcp'))).toBeInTheDocument();
   });
 
   it('renders initial messages and handles markdown formatting', () => {
@@ -280,26 +380,30 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
   });
 
   it('renders starter prompt chips in empty state and sends when clicked', async () => {
-    const mockRes = new Response(makeSseStream([
-      '{"type":"content","delta":"Generated project spec"}',
-    ]), { status: 200 });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
-
     renderWithProviders(<ChatSurface conversationId="c1" />);
 
-    // The conversation is fetched first — the hero would otherwise flash and be replaced.
+    // The conversation fetches first — otherwise the hero flashes and gets replaced.
     expect(await screen.findByText('Propose Project Tree')).toBeInTheDocument();
     expect(screen.getByText('Inspect Infrastructure')).toBeInTheDocument();
     expect(screen.getByText('Propose App Spec')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Propose Project Tree'));
 
-    await waitFor(() => expect(chatPackApi.openChatPackStream).toHaveBeenCalledWith(
+    await waitForRunStarted();
+    expect(engineApi.startRun).toHaveBeenCalledWith(
       expect.objectContaining({
+        agent: 'koala',
+        conversationId: 'c1',
         message: expect.stringContaining('Propose a new project architecture'),
+        inputs: { conversationId: 'c1' },
       }),
-      expect.any(AbortSignal),
-    ));
+    );
+
+    // Drain the run so no half-finished turn leaks into the next test's surface.
+    emit({ type: 'run.finished', outcome: 'ok' });
+    await waitFor(() =>
+      expect(useLiveTurnsStore.getState().turns[conversationTurnKey('c1')]?.status).toBe('done'),
+    );
   });
 
   it('renders avatars for user and assistant messages in conversation stream', async () => {
@@ -350,10 +454,10 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
   });
 
   /**
-   * Regression: a proposed spec's "Add to the catalogue" button called the accept endpoint (which
-   * succeeded server-side) but nothing rendered the persisted, post-accept state, so it looked like
-   * clicking did nothing. This asserts a proposedSpecs entry renders in the proposals sidebar, that
-   * accepting calls the real endpoint, and that acceptedAt drops it out of the pending list.
+   * Regression: the "Add to catalogue" button on suggested specs was calling the accept endpoint (which was
+   * succeeding server-side) while not rendering the state after the persisted accept, so it looked like
+   * clicking did nothing. What this asserts: that a proposedSpecs entry renders in the proposal sidebar,
+   * that accept calls the real endpoint, and that acceptedAt makes it drop out of the pending list.
    */
   it('renders a proposed spec in the sidebar, accepts it, and it drops out of the pending list', async () => {
     const spec = {
@@ -368,7 +472,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
         id: 'mongo', spec, proposedAt: '2026-09-03T12:00:00Z',
         ...(accepted ? { acceptedAt: '2026-09-03T12:00:05Z' } : {}),
       }],
-    }));
+    }) as never);
     vi.mocked(chatPackApi.acceptSpecProposal).mockImplementation(async () => {
       accepted = true;
       return { id: 'mongo' };
@@ -389,9 +493,9 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
   });
 
   /**
-   * Regression: acceptTreeMutation used to read `res.treeId`, but the backend response shape is
-   * `{ tree: { id, ... }, branch, project, planning }` — there is no top-level `treeId`, so
-   * onOpenTree never fired and accepting a project proposal silently failed to redirect anywhere.
+   * Regression: acceptTreeMutation was reading `res.treeId`, but the backend response shape is
+   * `{ tree: { id, ... }, branch, project, planning }` — the top-level `treeId` does not exist,
+   * so onOpenTree never fired, and the accept of a project suggestion silently failed to redirect anywhere.
    */
   it('redirects to the accepted tree via onOpenTree, reading the id from res.tree.id', async () => {
     vi.mocked(chatPackApi.getChatConversation).mockResolvedValueOnce({
@@ -401,13 +505,13 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       proposedTrees: [{
         id: 'prop-1', name: 'Odoo Rollout', type: 'default', goal: 'Roll out Odoo', proposedAt: '2026-09-06T12:00:00Z',
       }],
-    });
+    } as never);
     vi.mocked(chatPackApi.acceptTreeProposal).mockResolvedValue({
       tree: { id: 'tree-1', name: 'Odoo Rollout' },
       branch: { id: 'branch-1' },
       project: { id: 'project-1' },
       planning: false,
-    });
+    } as never);
     const onOpenTree = vi.fn();
 
     renderWithProviders(<ChatSurface conversationId="c1" onOpenTree={onOpenTree} />);
@@ -422,19 +526,35 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(onOpenTree).toHaveBeenCalledWith('tree-1'));
   });
 
-  it('opens the Proposals panel on its own when Koala proposes a project live, without the user clicking Toggle proposals', async () => {
-    const mockRes = new Response(makeSseStream([
-      '{"type":"content","delta":"Here is a plan."}',
-      '{"type":"proposedTree","payload":{"id":"prop-2","name":"Odoo Rollout","type":"default"}}',
-    ]), { status: 200 });
-    vi.mocked(chatPackApi.openChatPackStream).mockResolvedValue(mockRes as any);
+  it('raises the proposals badge when the run saved a proposal, and the pending one appears via the panel', async () => {
+    let runFinished = false;
+    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
+      id,
+      title: 'Test Conversation',
+      messages: [],
+      proposedTrees: runFinished
+        ? [{ id: 'prop-2', name: 'Odoo Rollout', type: 'default', goal: 'Roll out Odoo', proposedAt: AT }]
+        : [],
+    }) as never);
 
     renderWithProviders(<ChatSurface conversationId="c1" />);
+    expect(await screen.findByText('Propose Project Tree')).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText(/message/i);
     fireEvent.change(input, { target: { value: 'plan something' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
 
+    await waitForRunStarted();
+    // The engine saves the conversation (proposal and all) before it announces the run is
+    // finished — so the flag that stands in for the persisted proposal flips before the final
+    // events land.
+    runFinished = true;
+    emit({ type: 'content', delta: 'Here is a plan.' }, { type: 'run.finished', outcome: 'ok' });
+
+    // The run finished and the engine persisted the proposal: the surface refreshes the
+    // conversation and displays a pending-proposal badge, and the one surfaces via the panel.
+    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
     await waitFor(() => expect(screen.getByText('Odoo Rollout')).toBeInTheDocument());
     expect(screen.getByText('Accept to Grove')).toBeInTheDocument();
   });
@@ -446,11 +566,115 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       isEscalated: true,
       escalatedScope: 'cluster-admin',
       messages: [{ role: 'user', content: 'Cluster check' }],
-    });
+    } as never);
 
     renderWithProviders(<ChatSurface conversationId="c-elevated" />);
 
     await waitFor(() => expect(screen.getByText(/ELEVATED \(cluster-admin\)/i)).toBeInTheDocument());
+  });
+
+  it('shows an approval card when the run asks about a tool call, and settles it on decision', async () => {
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    const input = screen.getByPlaceholderText(/message/i);
+    fireEvent.change(input, { target: { value: 'run it' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitForRunStarted();
+    emit(
+      { type: 'tool.called', callId: 'tc1', name: 'run_command', args: '{"command":"docker compose up"}' },
+      { type: 'notice', level: 'warn', nodeId: 'turn.run_command', message: 'Koala wants to run run_command on this run: {"command":"docker compose up"}' },
+    );
+
+    const allowText = 'Koala wants to run run_command on this run: {"command":"docker compose up"}';
+    await waitFor(() => expect(screen.getByText(/^Allow$/)).toBeInTheDocument());
+    expect(screen.getByText(allowText)).toBeInTheDocument();
+    expect(screen.getByText('run_command')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/^Allow$/));
+    await waitFor(() =>
+      expect(engineApi.approveRunCall).toHaveBeenCalledWith(RUN_ID, { callId: 'tc1', allowed: true }),
+    );
+    await waitFor(() => expect(screen.queryByText(/^Allow$/)).not.toBeInTheDocument());
+
+    emit(
+      { type: 'tool.result', callId: 'tc1', ok: true, digest: 'compose up done' },
+      { type: 'content', delta: 'All up' },
+      { type: 'run.finished', outcome: 'ok' },
+    );
+    await waitFor(() => expect(screen.getByText('All up')).toBeInTheDocument());
+  });
+
+  it('runs the turn on the conversation\u2019s own agent, with its pinned model', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
+      id,
+      title: 'Test Conversation',
+      messages: [],
+      modelId: 'm1',
+      agentSlug: 'heron',
+    }) as never);
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    // The stored doc's pinned model only reaches the pick state once the conversation has
+    // loaded — wait for that before sending, so the launch carries the doc's picks.
+    await screen.findByRole('button', { name: /m1-model/ });
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hello' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    await waitForRunStarted();
+    expect(engineApi.startRun).toHaveBeenCalledWith(expect.objectContaining({
+      agent: 'heron',
+      message: 'hello',
+      conversationId: 'c1',
+      modelId: 'm1',
+    }));
+    // The picks already match the stored doc, so no re-patch goes out.
+    expect(chatPackApi.patchChatConversation).not.toHaveBeenCalled();
+  });
+
+  it('patches the conversation when a different model is picked in the drawer', async () => {
+    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
+      id,
+      title: 'Test Conversation',
+      messages: [],
+      modelId: 'm1',
+    }) as never);
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hello' } });
+
+    const modelButton = await screen.findByRole('button', { name: /m1-model/ });
+    fireEvent.click(modelButton);
+    // Filter first: it expands every group/vendor, so the target row is always visible.
+    fireEvent.change(screen.getByRole('textbox', { name: /filter models/i }), { target: { value: 'm2' } });
+    fireEvent.click(await screen.findByRole('button', { name: /m2-model/ }));
+
+    await waitFor(() =>
+      expect(chatPackApi.patchChatConversation)
+        .toHaveBeenCalledWith('c1', { modelId: 'm2', agentSlug: 'koala' }),
+    );
+  });
+
+  it('persists the pick to the conversation when an agent is chosen in the drawer', async () => {
+    const { within } = await import('@testing-library/react');
+    const chipTitle = 'Pick who answers in this conversation, and see its directives and tools';
+
+    renderWithProviders(<ChatSurface conversationId="c1" />);
+    // The composer remounts once the conversation finishes loading, so re-query the chip each
+    // time instead of holding a node reference across that transition.
+    await waitFor(() => expect(screen.getByTitle(chipTitle)).toHaveTextContent('Koala'));
+    fireEvent.click(screen.getByTitle(chipTitle));
+
+    const drawer = screen.getByText('Agent & Capabilities').closest('.fixed') as HTMLElement;
+    fireEvent.click(within(drawer).getByRole('button', { name: /Heron/ }));
+    // Right pane shows the drafted agent's grants before anything is committed.
+    expect(within(drawer).getByText('read')).toBeInTheDocument();
+    fireEvent.click(await within(drawer).findByRole('button', { name: /use this agent/i }));
+
+    await waitFor(() =>
+      expect(chatPackApi.patchChatConversation)
+        .toHaveBeenCalledWith('c1', expect.objectContaining({ agentSlug: 'heron' })),
+    );
+    await waitFor(() => expect(screen.getByTitle(chipTitle)).toHaveTextContent('Heron'));
   });
 
   it('opens PersonaConfigDrawer when persona button is clicked on branch chat', async () => {
@@ -467,7 +691,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       />
     );
 
-    const personaBtn = screen.getByTitle('Pick the pack, and edit its directives and tools');
+    const personaBtn = screen.getByTitle('Pick who answers in this conversation, and see its directives and tools');
     expect(personaBtn).toBeInTheDocument();
     fireEvent.click(personaBtn);
 
@@ -491,7 +715,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       />
     );
 
-    const personaBtn = screen.getByTitle('Pick the pack, and edit its directives and tools');
+    const personaBtn = screen.getByTitle('Pick who answers in this conversation, and see its directives and tools');
     fireEvent.click(personaBtn);
 
     await waitFor(() => {
@@ -524,7 +748,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
       status: 200,
       ok: true,
     };
-    vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
+    vi.mocked(client.postStream).mockResolvedValue(mockRes as never);
 
     let currentMessages: any[] = [];
     const onMessagesChange = vi.fn().mockImplementation((next) => {

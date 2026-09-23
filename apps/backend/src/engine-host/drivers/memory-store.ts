@@ -25,7 +25,9 @@ export interface MemoryItem {
   useCount?: number;
 }
 
-export const MAX_MEMORY_CONTEXT_CHARS = 6000;
+import { DEFAULT_COMPACTION_CONFIG } from '@koala/context-engine';
+
+export const MAX_MEMORY_CONTEXT_CHARS = DEFAULT_COMPACTION_CONFIG.memoryChars;
 
 const lineFor = (m: MemoryItem) => `- ${m.title}: ${m.text.replace(/\s+/g, ' ').trim()}`;
 

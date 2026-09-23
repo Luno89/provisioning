@@ -95,7 +95,7 @@ export const checkToolFailures: BuiltInNode = {
     kind: 'check-tool-failures',
     title: 'Check Tool Failures',
     category: 'safety',
-    describe: 'Trips when tool calls keep failing one after another, across replies.',
+    describe: 'Trips when tool calls keep failing one after another, across replies. A call the peer refused — a site that blocks fetches replying 403 or 401 — is not a failure and does not count.',
     role: 'step',
     inputs: [{ name: 'results', type: 'toolResults', describe: 'The latest tool results.', required: true }],
     outputs: [REASON],
@@ -115,7 +115,11 @@ export const checkToolFailures: BuiltInNode = {
     if (batch !== undefined && counted.includes(batch)) return { exit: 'ok', outputs: { ...previous } };
 
     let consecutive = (previous?.consecutive as number | undefined) ?? 0;
-    for (const result of results) consecutive = result.ok ? 0 : consecutive + 1;
+    for (const result of results) {
+      if (result.ok) consecutive = 0;
+      else if (!result.declined) consecutive += 1;
+      // A declined call is the peer saying no, not a broken tool: it neither feeds the count nor heals it.
+    }
 
     const state = { consecutive, counted: batch === undefined ? counted : [...counted, batch] };
     const limit = numberOf(node.settings, 'maxConsecutiveFailures', 3);

@@ -44,6 +44,8 @@ export function renderSearchOutcome(query: string, outcome: SearchOutcome): Reco
 export interface PageOutcome {
   ok: boolean;
   text: string;
+  /** The site answered 401/403: it refused this client rather than the fetch breaking. */
+  declined?: boolean;
 }
 
 export interface WebTools {
@@ -125,7 +127,17 @@ async function stripTags(doFetch: typeof fetch, url: string): Promise<PageOutcom
     },
   }, FETCH_TIMEOUT_MS);
   if (!res) return { ok: false, text: 'Failed to fetch page.' };
-  if (!res.ok) return { ok: false, text: `HTTP error ${res.status}` };
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      return {
+        ok: false,
+        declined: true,
+        text: `HTTP ${res.status}: this site refused the fetch — it blocks automatic clients. ` +
+          'Do not retry this site; work from search results, or choose another source.',
+      };
+    }
+    return { ok: false, text: `HTTP error ${res.status}` };
+  }
 
   const html = await res.text().catch(() => '');
   const text = html
