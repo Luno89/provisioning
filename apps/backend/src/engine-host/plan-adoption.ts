@@ -125,6 +125,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
             body: planLeaf.body,
             column: 'todo',
             status: 'pending',
+            runner: 'engine',
             depth: 0,
             blocking: false,
             tasks: tasks.map((task) => task.id),

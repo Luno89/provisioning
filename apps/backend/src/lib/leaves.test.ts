@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  dependenciesMet, blockedBy, readyToStart, wouldCycle, isLeafColumn, LEAF_COLUMNS, aggregateUsage, failureContext, shouldRetry, MAX_LEAF_ATTEMPTS, type LeafAttempt, canAddChild, budgetExceeded, deriveLeafStatus, childWorkflowId, childrenOf, rootLeaf, subtreeOf, MAX_DEPTH, MAX_CHILDREN_PER_LEAF, type Leaf, type BudgetUsage, barrenStreak,
+  dependenciesMet, blockedBy, readyToStart, wakeableDependents, wouldCycle, isLeafColumn, LEAF_COLUMNS, aggregateUsage, failureContext, shouldRetry, MAX_LEAF_ATTEMPTS, type LeafAttempt, canAddChild, budgetExceeded, deriveLeafStatus, childWorkflowId, childrenOf, rootLeaf, subtreeOf, MAX_DEPTH, MAX_CHILDREN_PER_LEAF, type Leaf, type BudgetUsage, barrenStreak,
 } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
@@ -271,6 +271,15 @@ describe('dependency ordering', () => {
     const next = leaf({ id: 'next', dependsOn: ['base'] });
 
     expect(readyToStart([base, next]).map((l) => l.id)).toEqual(['next']);
+  });
+
+  it('never hands the legacy pipeline a leaf that belongs to the engine, neither from the backstop nor as a woken dependent', () => {
+    const base = leaf({ id: 'base', status: 'succeeded' });
+    const legacy = leaf({ id: 'legacy', dependsOn: ['base'] });
+    const engine = leaf({ id: 'engine', dependsOn: ['base'], runner: 'engine' });
+
+    expect(readyToStart([base, legacy, engine]).map((l) => l.id)).toEqual(['legacy']);
+    expect(wakeableDependents('base', [base, legacy, engine]).map((l) => l.id)).toEqual(['legacy']);
   });
 
   it('keeps holding a leaf whose dependency FAILED, since a retry can still satisfy it', () => {

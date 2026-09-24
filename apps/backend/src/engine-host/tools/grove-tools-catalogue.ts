@@ -62,7 +62,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
           type: 'object',
           description: 'A new tree, when there is no treeId: { name, type, goal } — type is one of the person\'s tree types.',
         },
-        planDoc: { type: 'string', description: 'Markdown for PLAN.md: the goal, the approach, the assumptions you made, the questions still open.' },
+        planDoc: { type: 'string', description: 'Markdown for PLAN.md with three headed sections — ## Destination, ## Not yet specified (fog, including every unchecked fact the plan rests on), ## Out of scope — plus the approach.' },
         branches: {
           type: 'array',
           description: 'The directions the goal breaks into, each with its leaves.',

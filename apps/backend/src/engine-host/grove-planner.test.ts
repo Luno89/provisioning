@@ -55,7 +55,7 @@ const taskStore = {
 
 const PLAN = {
   treeId: 'tree-1',
-  planDoc: '# The job queue\n\nGoal: async work rides on one queue. Assumption: Redis is available.',
+  planDoc: '# The job queue\n\n## Destination\nAsync work rides on one queue.\n\n## Not yet specified\nWhether Redis is reachable from the workers.\n\n## Out of scope\nNone',
   branches: [{
     title: 'A deployment lane',
     leaves: [{

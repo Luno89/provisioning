@@ -23,7 +23,7 @@ const leaf = (over: Record<string, unknown> = {}) => ({
 
 const plan = (over: Record<string, unknown> = {}) => ({
   tree: { name: 'Widget API', type: 'api-service', goal: 'A small API' },
-  planDoc: '# Widget API\n\nGoal, approach, assumptions.',
+  planDoc: '# Widget API\n\n## Destination\nA deployed API answering /health.\n\n## Not yet specified\nWhether the cluster has an ingress.\n\n## Out of scope\nNone',
   branches: [{ title: 'Operability', leaves: [leaf()] }],
   ...over,
 });
@@ -101,6 +101,21 @@ describe('parsePlan', () => {
 
   it('says so plainly when branches is text that is not a list', () => {
     expect(problemOf(plan({ branches: 'one branch, two leaves' }))).toMatch(/branches has to be a list/);
+  });
+
+  it('asks for the destination, the fog and the out-of-scope sections, and names what each is for', () => {
+    expect(problemOf(plan({ planDoc: '# Widget API\n\n## Destination\nA deployed API.' })))
+      .toBe('the planDoc is missing "## Not yet specified" (what is in scope but not sharp enough to plan yet, and every fact the plan rests on that nobody has checked) and "## Out of scope" (what this tree deliberately will not do). Write "None" under a heading that has nothing to say');
+    expect(problemOf(plan({ planDoc: '## destination\nx\n### Not yet specified\nNone\n## Out of scope\nNone' }))).toBeUndefined();
+  });
+
+  it('forgives surplus closing brackets at the end of JSON text, and says where text that still does not parse went wrong', () => {
+    const raw = plan();
+    const surplus = `${JSON.stringify(raw.branches)}}`;
+    expect(parsePlan({ ...raw, branches: surplus }, world)).toMatchObject({ plan: { branches: [{ title: 'Operability' }] } });
+
+    const broken = JSON.stringify(raw.branches).replace('"leaves":', '"leaves"');
+    expect(problemOf(plan({ branches: broken }))).toMatch(/not a JSON list \(.+position \d+.*\)\. Send branches as a JSON array, not a string/);
   });
 });
 

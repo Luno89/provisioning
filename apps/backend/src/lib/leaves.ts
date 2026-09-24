@@ -33,6 +33,8 @@ export interface Leaf {
 
   dependsOn?: string[];
 
+  runner?: 'engine' | undefined;
+
   /** ids of the engine tasks under this leaf (the work that gets it done) */
   tasks?: string[];
 
@@ -307,8 +309,14 @@ export function blockedBy(leaf: Pick<Leaf, 'dependsOn'>, all: Leaf[]): Leaf[] {
     .filter((d): d is Leaf => d !== undefined && d.status !== 'succeeded');
 }
 
+export const runsOnEngine = (leaf: Pick<Leaf, 'runner'>): boolean => leaf.runner === 'engine';
+
 export function readyToStart(all: Leaf[]): Leaf[] {
-  return all.filter((l) => l.status === 'pending' && !l.workflowId && dependenciesMet(l, all));
+  return all.filter((l) => l.status === 'pending' && !l.workflowId && !runsOnEngine(l) && dependenciesMet(l, all));
+}
+
+export function wakeableDependents(leafId: string, all: Leaf[]): Leaf[] {
+  return dependentsOf(leafId, all).filter((l) => (l.status === 'pending' || l.status === 'running') && !runsOnEngine(l));
 }
 
 export function dependentsOf(leafId: string, all: Leaf[]): Leaf[] {

@@ -441,6 +441,20 @@ parks for human review; the volume lives and the pod is started on demand.
    `PLAN.md` and both briefs committed on its volume. Live runs caught three things the
    scripted tests could not: the planner guessing tree types, Qwen sending `branches` as
    JSON text, and duplicate open proposals — all fixed.
+2.5 **Legacy leak + a wayfinder-shaped plan — landed 2026-09-24.** The first live adoption
+   showed the old engine picking up the adopted leaves: they were `pending`, and the legacy
+   reconciler backstop (`readyToStart`) and `ReleaseDependentsActivity` started them on
+   `LeafWorkflow`, whose executor then tried to write nginx in C. Adopted leaves now carry
+   `runner: 'engine'`, and `readyToStart`, `wakeableDependents` and
+   `TemporalBridge.startLeaf` skip them. From wayfinder (mattpocock/skills): `planDoc` must
+   carry `## Destination`, `## Not yet specified` (the fog, including every unchecked fact
+   the plan rests on) and `## Out of scope`, and the planner turns an unchecked fact into
+   fog or a research leaf the build leaf waits on — plan, don't guess. Held for later:
+   conversation-only decision leaves, graduating fog into leaves on replan (P2), and
+   referring by name. Live: `test:planner-live` produced a plan whose fog names "is nginx
+   installed" and "is port 8080 free" instead of assuming them; it also caught a model
+   sending `branches` with a surplus closing brace, now forgiven (and unparseable text is
+   refused with the parser's error).
 3. Worktree per leaf + context pointers through every fan-out/delegation; the claim
    carries the commit — open.
 4. Stay-claimed parks for human review (today it re-judges every pass to the cap) —

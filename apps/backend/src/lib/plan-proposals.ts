@@ -6,6 +6,15 @@ export type { AdoptedPlan, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal
 export const MAX_PLAN_DOC = 40_000;
 export const MAX_BRIEF = 12_000;
 
+export const PLAN_DOC_SECTIONS = [
+  { heading: 'Destination', means: 'what the whole tree reaching its end looks like, in a line or two' },
+  { heading: 'Not yet specified', means: 'what is in scope but not sharp enough to plan yet, and every fact the plan rests on that nobody has checked' },
+  { heading: 'Out of scope', means: 'what this tree deliberately will not do' },
+] as const;
+
+const hasSection = (doc: string, heading: string): boolean =>
+  new RegExp(`^#{1,3}\\s*${heading}\\s*$`, 'im').test(doc);
+
 export interface PlanWorld {
   treeTypes: readonly string[];
   existingLeafIds: ReadonlySet<string>;
@@ -16,15 +25,31 @@ type Parsed = { plan: Plan } | { problem: string };
 const text = (raw: Record<string, unknown>, key: string): string =>
   typeof raw[key] === 'string' ? (raw[key] as string).trim() : '';
 
+const jsonText = (text: string): { value: unknown } | { error: string } => {
+  let candidate = text;
+  for (;;) {
+    try {
+      return { value: JSON.parse(candidate) as unknown };
+    } catch (err) {
+      const shorter = candidate.replace(/[\]}]\s*$/, '');
+      if (shorter === candidate || !/[\]}]\s*$/.test(shorter)) return { error: (err as Error).message };
+      candidate = shorter;
+    }
+  }
+};
+
 const decoded = (value: unknown): unknown => {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
   if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return value;
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    return value;
-  }
+  const parsed = jsonText(trimmed);
+  return 'value' in parsed ? parsed.value : value;
+};
+
+const decodeError = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const parsed = jsonText(value.trim());
+  return 'error' in parsed ? parsed.error : undefined;
 };
 
 const list = (raw: Record<string, unknown>, key: string): unknown[] => {
@@ -150,10 +175,17 @@ export function parsePlan(raw: Record<string, unknown>, world: PlanWorld): Parse
   }
 
   const planDoc = text(raw, 'planDoc') || text(raw, 'plan_doc');
-  if (!planDoc) return { problem: 'a plan needs a planDoc — the markdown that becomes PLAN.md: the goal, the approach, the assumptions you made and the questions still open' };
+  if (!planDoc) return { problem: 'a plan needs a planDoc — the markdown that becomes PLAN.md: the destination, the approach, what is not yet specified and what is out of scope' };
   if (planDoc.length > MAX_PLAN_DOC) return { problem: `the planDoc has to be under ${MAX_PLAN_DOC} characters` };
+  const missing = PLAN_DOC_SECTIONS.filter((section) => !hasSection(planDoc, section.heading));
+  if (missing.length > 0) {
+    return { problem: `the planDoc is missing ${missing.map((section) => `"## ${section.heading}" (${section.means})`).join(' and ')}. Write "None" under a heading that has nothing to say` };
+  }
 
-  if (notAList(raw, 'branches')) return { problem: 'branches has to be a list of { title, leaves } objects — it arrived as text that is not a JSON list' };
+  if (notAList(raw, 'branches')) {
+    const why = decodeError(raw.branches);
+    return { problem: `branches has to be a list of { title, leaves } objects — it arrived as text that is not a JSON list${why ? ` (${why})` : ''}. Send branches as a JSON array, not a string` };
+  }
 
   const branches: PlanBranch[] = [];
   for (const [position, entry] of list(raw, 'branches').entries()) {

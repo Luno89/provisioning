@@ -1,4 +1,4 @@
-import { dependenciesMet, blockedBy, dependentsOf, shouldRetry, type Leaf } from '../lib/leaves.js';
+import { dependenciesMet, blockedBy, shouldRetry, wakeableDependents, type Leaf } from '../lib/leaves.js';
 import { createDatabase } from '../lib/db-interface.js';
 import { getTemporalClient } from '../lib/temporal-client.js';
 
@@ -61,8 +61,7 @@ export async function ReleaseDependentsActivity(args: LeafGateArgs): Promise<Rel
   await db.init();
   try {
     const leaves = await db.getLeaves();
-    const waiting = dependentsOf(args.leafId, leaves)
-      .filter((l) => l.status === 'pending' || l.status === 'running');
+    const waiting = wakeableDependents(args.leafId, leaves);
     if (waiting.length === 0) return { released: [] };
 
     const client = await getTemporalClient();

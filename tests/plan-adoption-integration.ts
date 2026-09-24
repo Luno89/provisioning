@@ -24,7 +24,7 @@ async function main(): Promise<void> {
 
   const conversationId = `conv-${Date.now().toString(36)}`;
   const treeTypes = await stores.grove.treeTypes!(OWNER);
-  const type = treeTypes[0];
+  const type = treeTypes[0]?.id;
   assert.ok(type, 'no tree types are seeded, so no plan can name one');
 
   console.log('[1/5] the planner\'s tool proposes a plan, and the grove is untouched');
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     caller: { ownerId: OWNER, runId: `run-${conversationId}`, agentSlug: 'planner', conversationId },
     parsed: {
       tree: { name: `Plan adoption ${conversationId}`, type, goal: 'Prove adoption end to end' },
-      planDoc: '# Plan adoption proof\n\nAssumption: the cluster is up.',
+      planDoc: '# Plan adoption proof\n\n## Destination\nhello.txt and bye.txt exist.\n\n## Not yet specified\nNone\n\n## Out of scope\nNone',
       branches: [{
         title: 'Proof',
         leaves: [
@@ -99,6 +99,16 @@ async function main(): Promise<void> {
     assert.match(brief.stdout, /## The goal the judge checks\n\nhello.txt exists and says hello/);
     const log = await reader.exec({ command: 'cd /work/repo && git log --format=%H%x20%s -1' });
     assert.equal(log.stdout.trim(), `${commit} plan: ${proposal.id}`);
+
+    if (process.env.WAIT_FOR_BACKSTOP === '1') {
+      console.log('[5a] waiting out one legacy backstop cycle: the old leaf pipeline must leave the adopted leaves alone');
+      const deadline = Date.now() + 330_000;
+      while (Date.now() < deadline) {
+        const touched = (await db.getLeaves()).filter((leaf) => Object.values(records.adopted.leafIds).includes(leaf.id) && (leaf.workflowId || leaf.status !== 'pending'));
+        assert.deepEqual(touched.map((leaf) => leaf.id), [], 'the legacy pipeline started an engine leaf');
+        await new Promise((done) => setTimeout(done, 10_000));
+      }
+    }
 
     console.log('[5/5] releasing the tree removes its sandbox');
     await host.treeWorkspaces.release(treeId);

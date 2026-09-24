@@ -35,6 +35,12 @@ async function main(): Promise<void> {
       const args = (() => { try { return JSON.parse(String(e.args)) as Record<string, unknown>; } catch { return {}; } })();
       const shape = Object.entries(args).map(([key, value]) => `${key}:${Array.isArray(value) ? 'array' : typeof value}`).join(' ');
       console.log(`→ ${String(e.name)} {${shape}}`);
+      if (typeof args.branches === 'string') {
+        const text = args.branches;
+        let why = 'parses';
+        try { JSON.parse(text); } catch (err) { why = (err as Error).message; }
+        console.log(`  branches text (${text.length} chars, ${why}): ${JSON.stringify(text.slice(0, 160))} … ${JSON.stringify(text.slice(-160))}`);
+      }
     }
     if (e.type === 'tool.result') console.log(`← ${e.ok ? 'ok' : 'REFUSED'}: ${String(e.digest).slice(0, 600)}`);
     if (e.type === 'run.finished') console.log(`run finished: ${String(e.outcome)} ${String(e.reason ?? '')}`);
@@ -59,6 +65,11 @@ async function main(): Promise<void> {
   const open = proposals.filter((proposal) => proposal.status === 'proposed');
   assert.equal(open.length, 1, `the planner should leave exactly one plan waiting for approval, left ${open.length}`);
   assert.ok(open[0]!.plan.branches.some((branch) => branch.leaves.some((leaf) => leaf.tasks.length > 0)), 'the open plan has no tasks');
+  for (const branch of open[0]!.plan.branches) {
+    for (const leaf of branch.leaves) console.log(`  leaf ${leaf.key}: ${leaf.title}${leaf.dependsOn.length ? ` (after ${leaf.dependsOn.join(', ')})` : ''} — ${leaf.tasks.length} tasks`);
+  }
+  const fog = /^#{1,3}\s*Not yet specified\s*$([\s\S]*?)(^#{1,3}\s|$(?![\s\S]))/im.exec(open[0]!.plan.planDoc)?.[1]?.trim();
+  console.log(`  not yet specified: ${fog ?? '(missing)'}`);
   console.log('planner live: the real model proposed a plan through the real tool gate — PASS');
 }
 

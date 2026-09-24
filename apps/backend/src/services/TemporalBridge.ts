@@ -20,7 +20,7 @@ import { deploymentIdFor } from '../lib/deployment-id.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
-import { readyToStart } from '../lib/leaves.js'
+import { readyToStart, runsOnEngine } from '../lib/leaves.js'
 import { consolidateMemories, type ConsolidationReport } from '../lib/memory-consolidate.js'
 import { corpusEndpoints } from '../lib/web-tools-resolver.js'
 import { indexMemories, similarTo } from '../lib/memory-index.js'
@@ -415,8 +415,12 @@ export class TemporalBridge {
     }, WORKFLOW_POLL_INTERVAL)
   }
 
-  async startLeaf(leaf: { id: string; title: string; column: string; depth: number }): Promise<string | undefined> {
+  async startLeaf(leaf: { id: string; title: string; column: string; depth: number; runner?: 'engine' | undefined }): Promise<string | undefined> {
     if (!this.client) return undefined
+    if (runsOnEngine(leaf)) {
+      console.warn(`[TemporalBridge] Not starting "${leaf.title}" on the legacy leaf pipeline — it belongs to the engine's grove run`)
+      return undefined
+    }
     const workflowId = `leaf-${leaf.id}`
     try {
       await this.client.workflow.start(LeafWorkflow, {
