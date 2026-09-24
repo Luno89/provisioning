@@ -1,6 +1,6 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 fix-up — the tree's sandbox (slice 1 landed 2026-09-24); next: the planner writes the tree's documents into it, worktree-per-leaf with context pointers through every split, stay-claimed parks for review, then a live run and the launch swap.**
+Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox) and 2 (plan proposal → approval → tree, sandbox, documents) landed 2026-09-24; next: worktree-per-leaf with context pointers through every split, stay-claimed parks for review, then a live run and the launch swap.**
 
 Last updated: 2026-09-24
 
@@ -9,7 +9,7 @@ Last updated: 2026-09-24
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
-| P1 fix-up: one sandbox per tree | **slice 1 landed 2026-09-24** (see *P1 fix-up* below); slices 2–4 open |
+| P1 fix-up: one sandbox per tree | **slices 1–2 landed 2026-09-24** (see *P1 fix-up* below); slices 3–4 open |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
@@ -417,7 +417,30 @@ parks for human review; the volume lives and the pod is started on demand.
    trees whose accepted leaf work is pushed to Gitea as its own commit — Gitea is the
    source of truth there; non-coding trees keep the volume. Until the push lands,
    nothing auto-releases. Reconciling parallel leaves' work is an open design question.
-2. Planner writes `PLAN.md` + leaf briefs into the tree sandbox — open.
+2. **Plan proposal → approval → tree, sandbox, documents — landed 2026-09-24.** Owner
+   ruling: the planner only *proposes*; the person's approval creates the tree's sandbox,
+   writes the plan documents and generates the grove (generate only — starting work is
+   separate). `propose_plan` takes the whole plan (a tree to grow or a new one, `planDoc`,
+   branches → leaves with a judged body and a brief → briefed tasks), validates it at once
+   (`lib/plan-proposals.ts`, reusing the task brief rules; cycles, cross-leaf task deps and
+   unknown leaf deps refused) and stores a `PlanProposal` tied to the conversation; a new
+   proposal supersedes the conversation's open ones. `list_tree_types` lets the planner pick
+   a real type first. The planner lost `make_branch`/`make_leaf`. Approval
+   (`POST /api/plans/:id/approve`) starts `AdoptPlanWorkflow` on the engine worker: grove
+   records with ids derived from the proposal (idempotent on retry), then the tree sandbox,
+   `PLAN.md` (the planner's prose + a generated index) and `leaves/<id>.md`, committed, pod
+   parked. The chat shows a plan card (approve / reject with reason / try again / open the
+   tree). Plan shapes live once in `@koala/harness-types`. Also: every grove tool now checks
+   the caller owns the tree/branch/leaf (they did not), and the engine worker was given the
+   registry credentials the backend host had — without them any workspace image first built
+   on the worker failed to push. Proofs: unit tests (validator, renderer, tool, ownership,
+   routes, card), the planner test through the real tool gate (nothing in the grove before
+   approval, supersede), `AdoptPlanWorkflow.test.ts` on Temporal, live
+   `npm run test:plan-adoption` and `npm run test:planner-live` (real model on tabbyapi), and
+   the full flow in the browser: koala → planner → card → Approve → adopted tree with
+   `PLAN.md` and both briefs committed on its volume. Live runs caught three things the
+   scripted tests could not: the planner guessing tree types, Qwen sending `branches` as
+   JSON text, and duplicate open proposals — all fixed.
 3. Worktree per leaf + context pointers through every fan-out/delegation; the claim
    carries the commit — open.
 4. Stay-claimed parks for human review (today it re-judges every pass to the cap) —

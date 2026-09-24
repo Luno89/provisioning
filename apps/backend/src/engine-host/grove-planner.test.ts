@@ -19,6 +19,8 @@ import { TASK_TOOLS } from './tools/task-tools-catalogue.js';
 import type { Task } from './tools/tasks.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
+import type { PlanProposal } from '../lib/plan-proposals.js';
+import { createToolRuntime } from './tools/tool-runtime.js';
 import type { RunTicket } from './temporal/contracts.js';
 
 const planner = ALL_SEEDED_AGENTS().find((agent) => agent.slug === 'planner')!;
@@ -28,10 +30,18 @@ let branches: Branch[];
 let leaves: Leaf[];
 let tasks: Task[];
 
+let plans: PlanProposal[];
+
 const world = () => ({
   trees: { list: async () => trees, save: async (tree: Tree) => { trees.push(tree); } },
   branches: { list: async () => branches, save: async (branch: Branch) => { branches.push(branch); } },
   leaves: { list: async () => leaves, save: async (leaf: Leaf) => { leaves.push(leaf); } },
+  plans: {
+    save: async (proposal: PlanProposal) => { plans = [...plans.filter((entry) => entry.id !== proposal.id), proposal]; },
+    list: async (ownerId: string, conversationId?: string) =>
+      plans.filter((entry) => entry.ownerId === ownerId && (conversationId === undefined || entry.conversationId === conversationId)),
+  },
+  treeTypes: async () => [{ id: 'application', label: 'Application', summary: 'A running app' }],
 });
 
 const taskStore = {
@@ -43,47 +53,46 @@ const taskStore = {
   },
 };
 
-/**
- * A scripted model that works a Grove plan: branch, leaf, one briefed task, done.
- * It reacts to the observations the tools node records — each branch and leaf id
- * in its next call comes from the previous round's result, as a real model would.
- */
+const PLAN = {
+  treeId: 'tree-1',
+  planDoc: '# The job queue\n\nGoal: async work rides on one queue. Assumption: Redis is available.',
+  branches: [{
+    title: 'A deployment lane',
+    leaves: [{
+      key: 'queue',
+      title: 'The job queue',
+      body: 'A worker pool picks jobs up within a second; failures retry three times.',
+      brief: 'Use the existing Redis; the worker lives in src/worker.ts.',
+      tasks: [{
+        key: 'wire',
+        title: 'Wire the queue',
+        doneMeans: 'jobs are picked up within a second of enqueue',
+        description: 'Add the worker pool, the retry loop, and the startup drain.',
+        role: 'Every async piece of the plan — webhooks, the nightly report — rides on this queue.',
+      }],
+    }],
+  }],
+};
+
 function scriptedModel() {
   let round = 0;
 
-  const bodyOf = (init: RequestInit): { content: string }[] => {
-    const sent = JSON.parse((init.body as string) ?? '{}') as { messages?: { role: string; content?: string }[] };
-    return (sent.messages ?? []).map((message) => ({ content: typeof message.content === 'string' ? message.content : '' }));
-  };
+  const call = (id: string, name: string, args: unknown) => ({
+    choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }],
+  });
 
-  const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+  const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => {
     round += 1;
-    const seen = bodyOf(init).map((message) => message.content).join('\n');
-    const branch = /branched (\S+)/.exec(seen)?.[1];
-    const leaf = /grown (\S+)/.exec(seen)?.[1];
 
-    let payload: string;
-    if (round === 1) {
-      payload = {
-        choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'make_branch', arguments: JSON.stringify({ treeId: 'tree-1', title: 'A deployment lane' }) } }] }, finish_reason: null }]
-      } as never;
-    } else if (round === 2) {
-      payload = {
-        choices: [{ delta: { tool_calls: [{ index: 0, id: 'c2', function: { name: 'make_leaf', arguments: JSON.stringify({ branchId: branch, title: 'The job queue', body: 'A worker pool picks jobs up within a second; failures retry three times.' }) } }] }, finish_reason: null }]
-      } as never;
-    } else if (round === 3) {
-      payload = {
-        choices: [{ delta: { tool_calls: [{ index: 0, id: 'c3', function: { name: 'propose_work', arguments: JSON.stringify({
-          leafId: leaf,
-          title: 'Wire the queue',
-          doneMeans: 'jobs are picked up within a second of enqueue',
-          description: 'Add the worker pool, the retry loop, and the startup drain.',
-          role: 'Every async piece of the plan — webhooks, the nightly report — rides on this queue.',
-        }) } }] }, finish_reason: null }]
-      } as never;
-    } else {
-      payload = { choices: [{ delta: { content: 'Planned: one branch, one leaf, one briefed task.' }, finish_reason: 'stop' }] } as never;
-    }
+    let payload: unknown;
+    if (round === 1) payload = call('c1', 'make_branch', { treeId: 'tree-1', title: 'A deployment lane' });
+    else if (round === 2) {
+      const unbriefed = structuredClone(PLAN) as { branches: { leaves: { brief?: string }[] }[] };
+      delete unbriefed.branches[0]!.leaves[0]!.brief;
+      payload = call('c2', 'propose_plan', unbriefed);
+    } else if (round === 3) payload = call('c3', 'propose_plan', PLAN);
+    else if (round === 4) payload = call('c4', 'propose_plan', { ...PLAN, planDoc: `${PLAN.planDoc}\n\nRevised: the retry count is three.` });
+    else payload = { choices: [{ delta: { content: 'Proposed one branch, one leaf, one briefed task — waiting for your approval.' }, finish_reason: 'stop' }] };
 
     return {
       ok: true,
@@ -133,31 +142,7 @@ function engine() {
         apiKey: 'k',
       }),
     },
-    tools: {
-      run: async (args) => {
-        const handler = handlers[args.name];
-        if (!handler) return { ok: false, digest: `no handler for ${args.name}` };
-
-        const parsed = JSON.parse(args.arguments || '{}') as Record<string, unknown>;
-        const outcome = await handler({
-          name: args.name,
-          parsed,
-          driver: undefined,
-          caller: {
-            ownerId: args.ticket.ownerId,
-            runId: args.ticket.runId,
-            agentSlug: args.ticket.agentSlug,
-            projectId: 'project-9',
-          },
-        });
-        return {
-          ok: outcome.ok,
-          digest: outcome.digest,
-          ...(outcome.content !== undefined && { content: outcome.content }),
-          ...(outcome.declined && { declined: true }),
-        };
-      },
-    },
+    tools: createToolRuntime({ registry, handlers }),
     memories: { list: async () => [], save: async () => undefined },
   };
 
@@ -179,6 +164,7 @@ function setupWorld(): void {
   branches = [];
   leaves = [];
   tasks = [];
+  plans = [];
 }
 
 describe('the seeded planner, end to end against real stores', () => {
@@ -187,7 +173,7 @@ describe('the seeded planner, end to end against real stores', () => {
   beforeEach(setupWorld);
   afterEach(() => vi.unstubAllGlobals());
 
-  it('plans a tree into branch, leaf and one briefed task, each round working from the last', async () => {
+  it('proposes the whole plan for approval and creates nothing in the grove, through the real tool gate', async () => {
     const { services, registry } = engine();
     fetchImpl = scriptedModel();
     vi.stubGlobal('fetch', fetchImpl);
@@ -205,39 +191,28 @@ describe('the seeded planner, end to end against real stores', () => {
         loopVersion: PLANNING_V2.version,
         trigger: 'user',
       },
-      launch: { ownerId: ticket.ownerId },
+      launch: { ownerId: ticket.ownerId, conversationId: 'conv-1' },
       inputs: { treeId: 'tree-1', goal: 'Ship the job queue under the deployment lane.' },
     });
     expect(result.outcome).toBe('ok');
-    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(4);
 
-    expect(branches).toHaveLength(1);
-    expect(branches[0]).toMatchObject({
-      treeId: 'tree-1',
-      title: 'A deployment lane',
-      projectId: 'project-9',
+    const seen = fetchImpl.mock.calls.map(([, init]) => String((init as RequestInit).body)).join('\n');
+    expect(seen).toContain('\\"make_branch\\" is not a tool this agent can use');
+    expect(seen).toContain('needs a brief');
+
+    expect(branches).toEqual([]);
+    expect(leaves).toEqual([]);
+    expect(tasks).toEqual([]);
+
+    expect(plans.map((entry) => entry.status).sort()).toEqual(['proposed', 'superseded']);
+    const open = plans.filter((entry) => entry.status === 'proposed');
+    expect(open[0]!.plan.planDoc).toContain('Revised');
+    expect(plans[0]).toMatchObject({
       ownerId: 'user-1',
+      conversationId: 'conv-1',
+      runId: 'run-grove-1',
+      plan: { treeId: 'tree-1', branches: [{ title: 'A deployment lane', leaves: [{ key: 'queue', tasks: [{ key: 'wire' }] }] }] },
     });
-
-    expect(leaves).toHaveLength(1);
-    expect(leaves[0]).toMatchObject({
-      branchId: branches[0]!.id,
-      title: 'The job queue',
-      column: 'todo',
-      status: 'proposed',
-      blocking: false,
-    });
-    expect(leaves[0]?.body).toContain('within a second');
-
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]).toMatchObject({
-      leafId: leaves[0]!.id,
-      title: 'Wire the queue',
-      status: 'proposed',
-      ownerId: 'user-1',
-      projectId: 'project-9',
-    });
-    expect(tasks[0]?.description).toContain('worker pool');
-    expect(tasks[0]?.role).toContain('webhooks');
+    expect(open[0]!.plan.branches[0]!.leaves[0]!.brief).toContain('src/worker.ts');
   });
 });

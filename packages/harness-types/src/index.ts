@@ -574,3 +574,62 @@ export interface OutcomeCounts {
   incomplete: number;
   broken: number;
 }
+
+export type PlanStatus = 'proposed' | 'superseded' | 'adopting' | 'adopted' | 'rejected' | 'failed';
+
+export interface PlanTask {
+  key: string;
+  title: string;
+  description: string;
+  role: string;
+  doneMeans: string;
+  dependsOn: string[];
+}
+
+export interface PlanLeaf {
+  key: string;
+  title: string;
+  body: string;
+  brief: string;
+  dependsOn: string[];
+  tasks: PlanTask[];
+}
+
+export interface PlanBranch {
+  title: string;
+  leaves: PlanLeaf[];
+}
+
+export interface NewTreeSpec {
+  name: string;
+  type: string;
+  goal?: string | undefined;
+}
+
+export interface Plan {
+  treeId?: string | undefined;
+  tree?: NewTreeSpec | undefined;
+  planDoc: string;
+  branches: PlanBranch[];
+}
+
+export interface AdoptedPlan {
+  treeId: string;
+  branchIds: string[];
+  leafIds: Record<string, string>;
+  taskIds: Record<string, string>;
+  commit?: string | undefined;
+}
+
+export interface PlanProposal {
+  id: string;
+  ownerId: string;
+  conversationId?: string | undefined;
+  runId?: string | undefined;
+  status: PlanStatus;
+  plan: Plan;
+  reason?: string | undefined;
+  adopted?: AdoptedPlan | undefined;
+  createdAt: string;
+  updatedAt: string;
+}

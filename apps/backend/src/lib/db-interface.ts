@@ -14,6 +14,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
+import type { PlanProposal } from './plan-proposals.js';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -160,6 +161,10 @@ export interface Database {
   getTasks(ownerId?: string): Promise<Task[]>;
   saveTask(task: Task): Promise<void>;
   deleteTask(id: string): Promise<void>;
+
+  getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]>;
+  getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined>;
+  savePlanProposal(proposal: PlanProposal): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;

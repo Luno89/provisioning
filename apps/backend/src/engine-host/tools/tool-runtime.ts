@@ -40,6 +40,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
           ownerId: args.ticket.ownerId,
           runId: args.ticket.runId,
           agentSlug: args.ticket.agentSlug,
+          ...(args.ticket.conversationId ? { conversationId: args.ticket.conversationId } : {}),
         },
         ...(driver ? { driver } : {}),
         ...(options.handlers ? { handlers: options.handlers } : {}),

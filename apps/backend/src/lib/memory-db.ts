@@ -18,6 +18,7 @@ import type { HarnessProfile } from './harness-profile.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
+import type { PlanProposal } from './plan-proposals.js';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -58,6 +59,7 @@ export class MemoryDB implements Database {
   private personaPacks: PersonaPack[] = [];
   private memories: MemoryItem[] = [];
   private tasks: Task[] = [];
+  private planProposals: PlanProposal[] = [];
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
   private runEffort = new Map<string, RunEffort>();
@@ -611,6 +613,22 @@ export class MemoryDB implements Database {
     const idx = this.tasks.findIndex((t) => t.id === task.id);
     if (idx >= 0) this.tasks[idx] = task;
     else this.tasks.push(task);
+  }
+
+  async getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]> {
+    return this.planProposals
+      .filter((p) => p.ownerId === ownerId && (conversationId === undefined || p.conversationId === conversationId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined> {
+    return this.planProposals.find((p) => p.id === id && p.ownerId === ownerId);
+  }
+
+  async savePlanProposal(proposal: PlanProposal): Promise<void> {
+    const idx = this.planProposals.findIndex((p) => p.id === proposal.id);
+    if (idx >= 0) this.planProposals[idx] = proposal;
+    else this.planProposals.push(proposal);
   }
 
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {

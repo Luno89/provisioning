@@ -23,6 +23,8 @@ import { treeTypesRouter } from './routes/tree-types.js';
 import { customStepsRouter } from './routes/custom-steps.js';
 import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
+import { plansRouter } from './routes/plans.js';
+import { PlanService } from './services/PlanService.js';
 import { branchesRouter } from './routes/branches.js';
 import { leavesRouter } from './routes/leaves.js';
 import { harnessRouter } from './routes/harness/index.js';
@@ -868,6 +870,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/custom-steps', customStepsRouter({ db }));
   app.use('/api/binding-types', bindingTypesRouter({ db }));
   app.use('/api/trees', treesRouter({ db, temporalBridge, workspaces: evalHost.treeWorkspaces }));
+  app.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge }) }));
   app.use('/api/branches', branchesRouter({ db, temporalBridge }));
 
   async function koalaServers(userId: string) {

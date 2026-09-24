@@ -3,6 +3,7 @@ import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { Branch, Leaf } from '../../lib/leaves.js';
 import { primaryProjectId, type Tree } from '../../lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
+import { parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
 
 export interface GroveStores {
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };
@@ -10,6 +11,17 @@ export interface GroveStores {
   leaves: { list(): Promise<Leaf[]>; save(leaf: Leaf): Promise<void> };
   /** optional here so the P0 planner world (no tasks yet) stays valid; when absent, no leaf has tasks */
   tasks?: { list(): Promise<Task[]> };
+  plans?: {
+    save(proposal: PlanProposal): Promise<void>;
+    list(ownerId: string, conversationId?: string): Promise<PlanProposal[]>;
+  };
+  treeTypes?: (ownerId: string) => Promise<TreeTypeChoice[]>;
+}
+
+export interface TreeTypeChoice {
+  id: string;
+  label: string;
+  summary: string;
 }
 
 export interface GroveToolOptions {
@@ -35,7 +47,61 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
   const newId = options.newId ?? randomUUID;
   const now = options.now ?? (() => new Date().toISOString());
 
+  const treeTypesOf = async (ownerId: string): Promise<TreeTypeChoice[]> =>
+    (options.stores.treeTypes ? await options.stores.treeTypes(ownerId) : []);
+
   return {
+    async list_tree_types({ caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner whose tree types to list');
+      const types = await treeTypesOf(caller.ownerId);
+      if (types.length === 0) return refuse('this person has no tree types set up, so no new tree can be proposed');
+      const lines = types.map((type) => `- ${type.id} — ${type.label}: ${type.summary}`);
+      return { ok: true, digest: `${types.length} tree types`, content: `The tree types a new tree can be:\n${lines.join('\n')}` };
+    },
+
+    async propose_plan({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to propose a plan for');
+      if (!options.stores.plans) return refuse('plans cannot be proposed here — nothing is set up to keep them for approval');
+
+      const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id');
+      let existingLeafIds = new Set<string>();
+      if (treeId) {
+        const tree = (await options.stores.trees.list()).find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
+        if (!tree) return refuse(`no such tree: ${treeId} — to start a new tree, leave treeId out and describe it under tree: { name, type, goal }`);
+        const branchIds = new Set((await options.stores.branches.list()).filter((branch) => branch.treeId === treeId).map((branch) => branch.id));
+        existingLeafIds = new Set((await options.stores.leaves.list()).filter((leaf) => branchIds.has(leaf.branchId)).map((leaf) => leaf.id));
+      }
+
+      const outcome = parsePlan(parsed, {
+        treeTypes: (await treeTypesOf(caller.ownerId)).map((type) => type.id),
+        existingLeafIds,
+      });
+      if ('problem' in outcome) return refuse(`${outcome.problem}. Nothing was saved — send the whole plan again with that fixed.`);
+
+      const stamp = now();
+      const proposal: PlanProposal = {
+        id: newId(),
+        ownerId: caller.ownerId,
+        ...(caller.conversationId ? { conversationId: caller.conversationId } : {}),
+        ...(caller.runId ? { runId: caller.runId } : {}),
+        status: 'proposed',
+        plan: outcome.plan,
+        createdAt: stamp,
+        updatedAt: stamp,
+      };
+      const earlier = (await options.stores.plans.list(caller.ownerId, caller.conversationId))
+        .filter((entry) => entry.status === 'proposed' && (caller.conversationId ? true : entry.runId === caller.runId));
+      for (const entry of earlier) await options.stores.plans.save({ ...entry, status: 'superseded', updatedAt: stamp });
+      await options.stores.plans.save(proposal);
+
+      const summary = planSummary(outcome.plan);
+      return {
+        ok: true,
+        digest: `proposed plan ${proposal.id} — ${summary}`,
+        content: `Proposed plan ${proposal.id}: ${summary}. It is waiting for the person to approve it; nothing exists in the grove until they do. Approval creates the tree, its sandbox, PLAN.md and a brief per leaf.${earlier.length > 0 ? ` It replaces the ${earlier.length === 1 ? 'plan' : `${earlier.length} plans`} proposed earlier in this conversation, which can no longer be approved.` : ''} Propose again only to change the plan — each proposal replaces the last.`,
+      };
+    },
+
     async make_branch({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner to branch a tree for');
 
@@ -45,7 +111,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (!title) return refuse('make_branch needs a title — the direction itself in one line');
 
       const trees = await options.stores.trees.list();
-      const tree = trees.find((candidate) => candidate.id === treeId);
+      const tree = trees.find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
       if (!tree) return refuse(`no such tree: ${treeId} — check the tree id in the run input`);
 
       const stamp = now();
@@ -76,13 +142,13 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (!body) return refuse('make_leaf needs a body — what the leaf is for, in one or two sentences. That text is what a later judge checks, so make it checkable: name the concrete end state this leaf has to reach.');
 
       const branches = await options.stores.branches.list();
-      const branch = branches.find((candidate) => candidate.id === branchId);
+      const branch = branches.find((candidate) => candidate.id === branchId && candidate.ownerId === caller.ownerId);
       if (!branch) return refuse(`no such branch: ${branchId} — make it with make_branch first`);
 
       const dependencies = asStringList(parsed, 'dependsOn').concat(asStringList(parsed, 'depends_on'));
       if (dependencies.length > 0) {
         const leaves = await options.stores.leaves.list();
-        const known = new Set(leaves.map((leaf) => leaf.id));
+        const known = new Set(leaves.filter((leaf) => leaf.ownerId === caller.ownerId).map((leaf) => leaf.id));
         const unknown = dependencies.filter((id) => !known.has(id));
         if (unknown.length > 0) return refuse(`these leaf dependencies do not exist: ${unknown.join(', ')}`);
       }
@@ -107,7 +173,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return { ok: true, digest: `grown ${leaf.id}`, content: `grown ${leaf.id} — "${title}" under ${branchId}` };
     },
 
-    async claim_leaf({ parsed }): Promise<ToolOutcome> {
+    async claim_leaf({ parsed, caller }): Promise<ToolOutcome> {
       const needle = asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id');
       if (!needle) return refuse('claim_leaf needs a leafId — the leaf you worked');
 
@@ -129,7 +195,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const runs = asStringList(parsed, 'runs');
 
       const leaves = await options.stores.leaves.list();
-      const leaf = leaves.find((candidate) => candidate.id === needle);
+      const leaf = leaves.find((candidate) => candidate.id === needle && candidate.ownerId === caller.ownerId);
       if (!leaf) return refuse(`no such leaf: ${needle}`);
       if (leaf.status === 'proposed') return refuse(`${leaf.id} is not accepted yet — a proposed leaf has to be admitted into the pass before it can be worked and claimed`);
       if (leaf.status === 'claimed') return refuse(`${leaf.id} is already claimed — the next word comes from the judge, not a second claim`);
@@ -169,7 +235,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (verdict === 'failed' && !note) return refuse('a failed settlement needs a reason — what the evidence shows the goal is missing, so the replan can pick an angle');
 
       const leaves = await options.stores.leaves.list();
-      const leaf = leaves.find((candidate) => candidate.id === needle);
+      const leaf = leaves.find((candidate) => candidate.id === needle && candidate.ownerId === caller.ownerId);
       if (!leaf) return refuse(`no such leaf: ${needle}`);
       if (leaf.status !== 'claimed' || !leaf.claim) {
         return refuse(`${leaf.id} is not awaiting judgment — it is ${leaf.status}. Only a claimed leaf with evidence on file gets settled; the judge pass judges claims, not raw or finished leaves.`);
@@ -202,12 +268,12 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return { ok: true, digest, content: `${digest} — weighed against the claim's evidence (${leaf.claim.evidence.length} chars)` };
     },
 
-    async ready_leaves({ parsed }): Promise<ToolOutcome> {
+    async ready_leaves({ parsed, caller }): Promise<ToolOutcome> {
       const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id');
       if (!treeId) return refuse('ready_leaves needs a treeId — the tree to schedule');
 
       const trees = await options.stores.trees.list();
-      const tree = trees.find((candidate) => candidate.id === treeId);
+      const tree = trees.find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
       if (!tree) return refuse(`no such tree: ${treeId} — check the tree id in the run input`);
 
       const branches = await options.stores.branches.list();

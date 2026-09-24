@@ -6,6 +6,9 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 import { createDatabase } from './lib/db-interface.js';
+import { createPlanAdoption } from './engine-host/plan-adoption.js';
+import { GiteaService } from './services/GiteaService.js';
+import { InfrastructureService } from './services/InfrastructureService.js';
 import { createModelService } from './lib/model-wiring.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
@@ -48,12 +51,15 @@ async function buildActivities() {
   const models = createModelService(db, process.env.JWT_SECRET ?? '');
   const web = await buildWebTools(db).catch(() => undefined);
 
+  const gitea = new GiteaService(new InfrastructureService(), process.env.JWT_SECRET || 'provisioning-platform-secret-12345', '/tmp/kubeconfig-provisioning-lunorica');
   const host = createEngineHost({
     models,
     stores: storesFromDatabase(db),
     ...(web ? { web } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
     registryHost: process.env.KOALA_REGISTRY,
+    registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
+    registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
     onLeak: (runId, ageMs) => {
       logger.warn(`[engine] sandbox for ${runId} outlived its run by ${Math.round(ageMs / 60_000)}m — tearing it down`);
     },
@@ -84,6 +90,17 @@ async function buildActivities() {
       save: (task: Task) => db.saveTask(task),
     },
     treeWorkspaces: host.treeWorkspaces,
+    planAdoption: createPlanAdoption({
+      stores: {
+        proposals: { get: (ownerId, id) => db.getPlanProposal(ownerId, id), save: (proposal) => db.savePlanProposal(proposal) },
+        trees: { list: () => db.getTrees(), save: (tree) => db.saveTree(tree) },
+        branches: { save: (branch) => db.saveBranch(branch) },
+        leaves: { save: (leaf) => db.saveLeaf(leaf) },
+        tasks: { save: (task) => db.saveTask(task) },
+      },
+      treeWorkspaces: host.treeWorkspaces,
+      environments: host.environments,
+    }),
     grove: {
       trees: { list: () => db.getTrees() },
       branches: { list: () => db.getBranches() },

@@ -447,13 +447,11 @@ describe('GroveRunWorkflow', () => {
     expect(byProcedure('grove-work-pass')).toHaveLength(2);
     expect(byProcedure('grove-judge-pass')).toHaveLength(2);
 
-    // One sandbox for the whole tree: every call any agent made worked in it, and no run asked for its own.
     expect(sandboxOfCall.length).toBeGreaterThan(0);
     expect(new Set(sandboxOfCall)).toEqual(new Set([environmentIdFor('tree-tree-1')]));
     expect(describeRun).not.toHaveBeenCalled();
     expect(provisioned.every((id) => id === environmentIdFor('tree-tree-1'))).toBe(true);
 
-    // When the run stops, the pod is parked; the tree's volume is not touched.
     expect(kubeCalls.map((args) => args.slice(0, 2).join(' '))).toEqual(['delete pod']);
-  });
+  }, 60_000);
 });

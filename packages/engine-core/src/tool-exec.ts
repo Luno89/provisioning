@@ -16,6 +16,7 @@ export interface ToolCallerContext {
   projectId?: string | undefined;
   runId?: string | undefined;
   agentSlug?: string | undefined;
+  conversationId?: string | undefined;
 }
 
 export interface ToolHandlerContext {

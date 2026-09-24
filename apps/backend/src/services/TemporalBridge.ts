@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
+import { DEFAULT_ENGINE_TASK_QUEUE } from '../engine-host/temporal/contracts.js'
 import {
   LIVE_LEAF_STATUSES, reconcileLeaf, reconcileMissingLeafWorkflow, type LeafReconcileAction,
 } from '../lib/leaf-reconcile.js'
@@ -429,6 +430,18 @@ export class TemporalBridge {
       console.warn(`[TemporalBridge] Could not start leaf workflow ${workflowId}: ${err.message}`)
       return undefined
     }
+  }
+
+  async adoptPlan(ownerId: string, proposalId: string): Promise<string | undefined> {
+    if (!this.client) return undefined
+    const workflowId = `adopt-plan-${proposalId}`
+    await this.client.workflow.start('AdoptPlanWorkflow', {
+      workflowId,
+      taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
+      args: [{ ownerId, proposalId }],
+      workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+    })
+    return workflowId
   }
 
   async planProject(treeId: string, branchId: string): Promise<string | undefined> {

@@ -1,10 +1,84 @@
 import type { ToolDefinition } from '@koala/agent-engine';
 
+const PLAN_TASK = {
+  type: 'object',
+  properties: {
+    key: { type: 'string', description: 'A short key for the task, unique within its leaf, for dependsOn.' },
+    title: { type: 'string', description: 'What the task is, in a line.' },
+    description: { type: 'string', description: 'What will actually be done, end to end — not a restatement of the title.' },
+    role: { type: 'string', description: 'The part it plays in the project: which goal it serves and what it makes possible.' },
+    doneMeans: { type: 'string', description: 'How anyone can tell it worked, without reading your mind.' },
+    dependsOn: { type: 'array', items: { type: 'string' }, description: 'Keys of tasks in the same leaf that must finish first.' },
+  },
+  required: ['key', 'title', 'description', 'role', 'doneMeans'],
+};
+
+const PLAN_LEAF = {
+  type: 'object',
+  properties: {
+    key: { type: 'string', description: 'A short key for the leaf, unique within the plan, for dependsOn.' },
+    title: { type: 'string', description: 'The leaf in a few words.' },
+    body: { type: 'string', description: 'The concrete end state a later judge checks: a name, a count, a behaviour you could inspect — not a verb phrase.' },
+    brief: { type: 'string', description: 'Markdown for leaves/<leaf>.md: what whoever works this leaf must know — approach, files and services involved, pitfalls.' },
+    dependsOn: { type: 'array', items: { type: 'string' }, description: 'Keys of leaves in this plan, or ids of the tree\'s existing leaves, that must succeed first.' },
+    tasks: { type: 'array', items: PLAN_TASK, description: 'The briefed tasks that get the leaf done. May be empty: a leaf planned but not yet broken down.' },
+  },
+  required: ['key', 'title', 'body', 'brief'],
+};
+
 /**
  * Engine tools for shaping a Grove tree: branches and leaves. Tasks under a leaf belong to
  * propose_work; this catalogue is the other half of the planner's hands.
  */
 export const GROVE_TOOLS: ToolDefinition[] = [
+  {
+    name: 'list_tree_types',
+    summary: 'List the kinds of project a new tree can be, with what each is for',
+    guidance: 'Check this before proposing a new tree: the tree type decides how the project is built and judged, and only these ids are accepted.',
+    binding: 'platform',
+    effect: 'read',
+    status: 'draft',
+    returns: 'one line per type: `<id> — <label>: <summary>`',
+    failures: [{ when: 'no tree types are set up', says: 'that no new tree can be proposed' }],
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'propose_plan',
+    summary: 'Propose a whole Grove plan for the person to approve: branches, leaves with checkable goals and briefs, and the briefed tasks under each',
+    guidance: 'The planner\'s one hand for a tree. Send the whole plan in one call; it is checked all at once and, if anything is missing, refused with what to fix and nothing saved. A valid plan is kept as a proposal and shown to the person with Approve and Reject — nothing exists in the grove until they approve. Approval creates the tree (when you describe a new one), its branches, leaves and tasks, the tree\'s sandbox, PLAN.md from your planDoc, and leaves/<leaf>.md from each brief; those documents are what every later agent works from, so write them for someone who never met you.',
+    binding: 'platform',
+    effect: 'write',
+    status: 'draft',
+    returns: 'text in the form `proposed plan <id> — <n> branches, <n> leaves, <n> tasks for <tree>`',
+    failures: [
+      { when: 'the plan is incomplete or inconsistent', says: 'the first thing to fix, and that nothing was saved' },
+      { when: 'treeId names a tree that is not yours or does not exist', says: 'no such tree, and how to start a new one instead' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        treeId: { type: 'string', description: 'An existing tree to grow. Leave out to start a new one with tree.' },
+        tree: {
+          type: 'object',
+          description: 'A new tree, when there is no treeId: { name, type, goal } — type is one of the person\'s tree types.',
+        },
+        planDoc: { type: 'string', description: 'Markdown for PLAN.md: the goal, the approach, the assumptions you made, the questions still open.' },
+        branches: {
+          type: 'array',
+          description: 'The directions the goal breaks into, each with its leaves.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'The direction in one line.' },
+              leaves: { type: 'array', items: PLAN_LEAF },
+            },
+            required: ['title', 'leaves'],
+          },
+        },
+      },
+      required: ['planDoc', 'branches'],
+    },
+  },
   {
     name: 'make_branch',
     summary: 'Branch a tree in a direction',

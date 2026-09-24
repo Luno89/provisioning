@@ -418,3 +418,59 @@ describe('settle_leaf', () => {
     expect(ghost.digest).toContain('no such leaf');
   });
 });
+
+describe('another owner\'s grove', () => {
+  const stranger = { ownerId: 'user-2', runId: 'run-9', agentSlug: 'planner' };
+  const as = (name: string, parsed: Record<string, unknown>) => tools()[name]!({ name, parsed, driver: undefined, caller: stranger });
+  const leafOf = (status: LeafStatus, over: Partial<Leaf> = {}): Leaf => ({
+    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state',
+    column: 'todo', status, depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now', ...over,
+  });
+
+  it('cannot branch it, grow a leaf on it, or hang a leaf off its leaves', async () => {
+    leaves = [leafOf('pending')];
+    tasks = [];
+
+    const branched = await as('make_branch', { treeId: 'tree-1', title: 'A lane' });
+    const grown = await as('make_leaf', { branchId: 'branch-1', title: 'A leaf', body: 'an end state' });
+
+    expect(branched).toMatchObject({ ok: false, digest: expect.stringContaining('no such tree') });
+    expect(grown).toMatchObject({ ok: false, digest: expect.stringContaining('no such branch') });
+    expect(branches).toHaveLength(1);
+    expect(leaves).toHaveLength(1);
+  });
+
+  it('cannot claim, settle or schedule it, and learns nothing about it', async () => {
+    leaves = [leafOf('pending')];
+    const claim = await as('claim_leaf', { leafId: 'leaf-1', result: 'claimed', evidence: 'ran it' });
+    leaves = [leafOf('claimed', { claim: { evidence: 'ran it', at: 'now' } })];
+    const settle = await as('settle_leaf', { leafId: 'leaf-1', verdict: 'verified' });
+    const schedule = await as('ready_leaves', { treeId: 'tree-1' });
+
+    expect(claim).toMatchObject({ ok: false, digest: 'no such leaf: leaf-1' });
+    expect(settle).toMatchObject({ ok: false, digest: 'no such leaf: leaf-1' });
+    expect(schedule).toMatchObject({ ok: false, digest: expect.stringContaining('no such tree: tree-1') });
+    expect(leaves[0]!.status).toBe('claimed');
+  });
+});
+
+describe('list_tree_types', () => {
+  it('names the kinds of tree the caller can start, with what each is for', async () => {
+    const withTypes = createGroveTools({
+      stores: {
+        trees: { list: async () => trees, save: async () => undefined },
+        branches: { list: async () => branches, save: async () => undefined },
+        leaves: { list: async () => leaves, save: async () => undefined },
+        treeTypes: async () => [{ id: 'api-service', label: 'API service', summary: 'A deployable HTTP API' }],
+      },
+    });
+    const outcome = await withTypes['list_tree_types']!({ name: 'list_tree_types', parsed: {}, driver: undefined, caller });
+
+    expect(outcome).toMatchObject({ ok: true, content: 'The tree types a new tree can be:\n- api-service — API service: A deployable HTTP API' });
+  });
+
+  it('says so when there are none', async () => {
+    expect(await run('list_tree_types', {})).toMatchObject({ ok: false, digest: expect.stringContaining('no tree types') });
+  });
+});
+

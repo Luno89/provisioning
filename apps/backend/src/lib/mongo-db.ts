@@ -17,6 +17,7 @@ import type { Experiment } from './experiments.js';
 import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
+import type { PlanProposal } from './plan-proposals.js';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -190,6 +191,10 @@ export class MongoDB implements Database {
     return this.db!.collection('tasks');
   }
 
+  private get planProposals(): Collection {
+    return this.db!.collection('planProposals');
+  }
+
   private get memories(): Collection {
     return this.db!.collection('memories');
   }
@@ -225,6 +230,7 @@ export class MongoDB implements Database {
     await this.deployments.createIndex({ name: 1 }, { unique: true });
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
+    await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
     try {
       await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
@@ -819,6 +825,24 @@ export class MongoDB implements Database {
 
   async deleteTask(id: string): Promise<void> {
     await this.tasks.deleteOne({ _id: id as any });
+  }
+
+  async getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]> {
+    const filter = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
+    const docs = await this.planProposals.find(filter).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<PlanProposal>(d));
+  }
+
+  async getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined> {
+    const doc = await this.planProposals.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<PlanProposal>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async savePlanProposal(proposal: PlanProposal): Promise<void> {
+    const doc = toDoc(proposal);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.planProposals.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {

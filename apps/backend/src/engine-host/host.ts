@@ -38,6 +38,11 @@ export interface EngineHostStores {
     leaves: { list(): Promise<import('../lib/leaves.js').Leaf[]>; save(leaf: import('../lib/leaves.js').Leaf): Promise<void> };
     /** optional: when absent, no leaf has tasks (P0 planner world) */
     tasks?: { list(): Promise<import('../lib/tasks.js').Task[]> };
+    plans?: {
+      save(proposal: import('../lib/plan-proposals.js').PlanProposal): Promise<void>;
+      list(ownerId: string, conversationId?: string): Promise<import('../lib/plan-proposals.js').PlanProposal[]>;
+    };
+    treeTypes?: (ownerId: string) => Promise<import('./tools/grove-tools.js').TreeTypeChoice[]>;
   };
   conversations: import('./nodes/conversation-nodes.js').ConversationStore;
   memories: {
@@ -209,6 +214,17 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
       leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
       tasks: { list: () => db.getTasks() },
+      plans: {
+        save: (proposal) => db.savePlanProposal(proposal),
+        list: (ownerId, conversationId) => db.getPlanProposals(ownerId, conversationId),
+      },
+      treeTypes: async (ownerId: string) => {
+        const visible = (await db.getTreeTypes(ownerId)).filter((type) => type.ownerId === undefined || type.ownerId === ownerId);
+        const mine = new Set(visible.filter((type) => type.ownerId === ownerId).map((type) => type.id));
+        return visible
+          .filter((type) => type.ownerId === ownerId || !mine.has(type.id))
+          .map((type) => ({ id: type.id, label: type.label, summary: type.summary }));
+      },
     },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
   };

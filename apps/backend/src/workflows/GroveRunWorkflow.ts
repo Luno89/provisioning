@@ -61,7 +61,7 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
   let passes = 0;
 
   for (;;) {
-    let partition = await GrovePartitionActivity({ treeId: args.treeId });
+    let partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
 
     if (partition.ready.length === 0 && partition.claimed.length === 0) {
       return { treeId: args.treeId, outcome: 'quiet', passes };
@@ -82,7 +82,7 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
         inputs: { ready: workItems(partition.ready, args.treeId) },
       });
       // The work pass files fresh claims; the judge pass must see them, so read the tree again.
-      partition = await GrovePartitionActivity({ treeId: args.treeId });
+      partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
     }
     if (partition.claimed.length > 0) {
       await runGrovePass({

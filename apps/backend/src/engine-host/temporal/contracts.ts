@@ -157,6 +157,20 @@ export interface GroveRunArgs {
 
 export interface GrovePartitionArgs {
   treeId: string;
+  ownerId: string;
+}
+
+export interface AdoptPlanArgs {
+  ownerId: string;
+  proposalId: string;
+}
+
+export interface AdoptPlanResult {
+  proposalId: string;
+  status: 'adopted' | 'failed';
+  treeId?: string | undefined;
+  commit?: string | undefined;
+  reason?: string | undefined;
 }
 
 export interface GroveWorkspaceArgs {

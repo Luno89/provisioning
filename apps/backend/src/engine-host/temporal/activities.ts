@@ -18,6 +18,7 @@ import type {
   GrovePartition,
   GrovePartitionArgs,
   GroveWorkspaceArgs,
+  AdoptPlanArgs,
   MergeArgs,
   MergeRuntime,
   PublishArgs,
@@ -36,6 +37,8 @@ import type {
 } from './contracts.js';
 import { createGroveTools } from '../tools/grove-tools.js';
 import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
+import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
+import type { AdoptedPlan } from '../../lib/plan-proposals.js';
 import type { Tree } from '../../lib/trees.js';
 import type { Branch, Leaf } from '../../lib/leaves.js';
 import type { AgentRegistry } from '../registries/registry.js';
@@ -72,6 +75,7 @@ export interface EngineServices extends StreamServices {
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
+  planAdoption?: PlanAdoption | undefined;
 }
 
 /** Read-side of a grove's stores: just enough for the ready-leaves partition. */
@@ -143,6 +147,9 @@ export interface EngineActivities extends StreamActivities {
   GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition>;
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
+  PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
+  PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
+  PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
   EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
   EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void>;
   EngineRunLimitsActivity(args: RunLimitsArgs): Promise<RunLimits>;
@@ -151,6 +158,11 @@ export interface EngineActivities extends StreamActivities {
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
+  const adoption = (): PlanAdoption => {
+    if (!services.planAdoption) throw new Error('plan adoption is not wired, so an approved plan cannot be built');
+    return services.planAdoption;
+  };
+
   return {
     ...createStreamActivities(services),
 
@@ -194,6 +206,22 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       await services.treeWorkspaces.park(args.treeId);
     },
 
+    async PlanAdoptRecordsActivity(args) {
+      return adoption().records(args.ownerId, args.proposalId);
+    },
+
+    async PlanAdoptDocumentsActivity(args) {
+      return adoption().documents(args.ownerId, args.proposalId, args.records);
+    },
+
+    async PlanAdoptSettleActivity(args) {
+      await adoption().settle(args.ownerId, args.proposalId, {
+        status: args.status,
+        ...(args.adopted ? { adopted: args.adopted } : {}),
+        ...(args.reason ? { reason: args.reason } : {}),
+      });
+    },
+
     async GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition> {
       if (!services.grove) throw new Error('grove stores are not wired, so the grove partition cannot run');
 
@@ -212,7 +240,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         name: 'ready_leaves',
         parsed: { treeId: args.treeId },
         driver: undefined,
-        caller: { ownerId: 'grove', runId: 'partition', agentSlug: 'grove-runner' },
+        caller: { ownerId: args.ownerId, runId: 'partition', agentSlug: 'grove-runner' },
       });
       if (!outcome.ok) throw new Error(`grove partition failed: ${outcome.digest}`);
 

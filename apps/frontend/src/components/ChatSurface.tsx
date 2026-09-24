@@ -23,6 +23,8 @@ import { type ChatMessageRecord } from './Chat/chat-stream.js';
 import { useChatScroll } from './Chat/hooks/useChatScroll.js';
 import { useConversationTurn } from './Chat/hooks/useConversationTurn.js';
 import ChatApprovalCard from './Chat/ChatApprovalCard.js';
+import PlanProposalCard from './Chat/PlanProposalCard.js';
+import { usePlanProposals } from './Chat/hooks/usePlanProposals.js';
 import {
   useBranchTurn,
   type ChatMode,
@@ -88,6 +90,7 @@ export default function ChatSurface({
   });
 
   const streaming = isBranch ? branchTurn.streaming : conv.streaming;
+  const planProposals = usePlanProposals(isBranch ? null : conv.selectedConvId, streaming);
   const overthinkWarning = isBranch ? branchTurn.overthinkWarning : conv.overthinkWarning;
   const error = isBranch ? branchError : conv.error;
   const setError = isBranch ? setBranchError : conv.setError;
@@ -333,6 +336,17 @@ export default function ChatSurface({
                       key={idx}
                       message={msg}
                       packLabel={isBranch ? 'Assistant' : (activePack?.label ?? '')}
+                    />
+                  ))}
+
+                  {planProposals.plans.map((proposal) => (
+                    <PlanProposalCard
+                      key={proposal.id}
+                      proposal={proposal}
+                      deciding={planProposals.deciding}
+                      onApprove={() => planProposals.approve(proposal.id)}
+                      onReject={(reason) => planProposals.reject(proposal.id, reason)}
+                      onOpenTree={onOpenTree}
                     />
                   ))}
 
