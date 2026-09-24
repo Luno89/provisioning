@@ -1,6 +1,6 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) and 4 (stay-claimed parks for a person) landed 2026-09-24; next: a live run on a real model, then the launch swap.**
+Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) 4 (stay-claimed parks for a person) and 5 (live runs on the real model, and what they changed) landed 2026-09-24; next: the launch swap.**
 
 Last updated: 2026-09-24
 
@@ -9,7 +9,7 @@ Last updated: 2026-09-24
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
-| P1 fix-up: one sandbox per tree | **slices 1–4 landed 2026-09-24** (see *P1 fix-up* below) |
+| P1 fix-up: one sandbox per tree | **slices 1–5 landed 2026-09-24** (see *P1 fix-up* below) |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
@@ -485,6 +485,33 @@ parks for human review; the volume lives and the pod is started on demand.
    quiet after one pass, `awaitingReview: ['leafB']`, leafC left waiting), live
    `test:leaf-worktrees` (a kept claim leaves the real partition's judge set), and the
    click in the browser on a throwaway parked leaf (settled; records removed after).
+5. **Live runs on the real model — 2026-09-24.** `npm run test:grove-live` drives the whole grove
+   against the running stack: the planner on tabbyapi proposes, `PlanService` approves,
+   `AdoptPlanWorkflow` adopts, `GroveRunWorkflow` works the tree and the script reports each
+   leaf's claim, commit, verdict and tasks. Goal: a two-leaf Node greeter (greet.js, then a
+   test.sh that waits on it). Three runs, each ending `quiet` with both leaves verified:
+   - *Run 1 (56 min)*: one `judge` persona served both task and leaf judgment; after slice 3's
+     prompt it judged the task "node is on the PATH" against the whole leaf's goal and failed
+     it. **Owner ruling: split** — `judge` is task-only, the new `leaf-judge` alone holds
+     `settle_leaf`.
+   - *Run 2 (28 min)*: the model-driven `leaf-executor` did a task's work itself with
+     `run_command`, so that task skipped its judge and stayed open while the leaf was claimed.
+     **Owner ruling: the leaf level is code.** `GroveLeafWorkflow` runs the leaf's tasks through
+     the executor in dependency order (one at a time: they share the worktree; one retry), then
+     `GroveClaimActivity` commits leftovers and claims at `HEAD` with the tasks' evidence. The
+     `leaf-executor` persona and the `run-leaf` / `grove-work-pass` procedures are gone;
+     `grove-runner` carries only the judge pass. Also fixed: `ready_leaves` counted proposed
+     tasks as work (a leaf would be re-offered every pass), and child run ids now carry the
+     parent run's id.
+   - *Run 3 (35 min)*: every task through the executor and its judge on the first attempt,
+     claims filed by code. One leaf-judge pass failed after the environment block told it "/work
+     is your working directory" while its file tools were confined to its checkout; the next
+     pass re-judged and verified. The environment block now describes worktree-narrowed runs and
+     the tree's shared, persistent workspace truthfully.
+   - Test scripts now build their engine host with the worker's registry credentials
+     (`tests/lib/live-engine-host.ts`); without them a script hung rebuilding an image it could
+     not push.
+   - Speed on this model: ~4–10 min of executor work and ~2 min of judging per task.
 
 ### P2 — planning + launching in engine *(medium)*
 
@@ -552,6 +579,12 @@ parks for human review; the volume lives and the pod is started on demand.
   channel.
 
 ## Decision log
+
+- 2026-09-24 (owner, from the live runs) — *Split the judges*: `judge` weighs a task's work
+  against its done-means; `leaf-judge` settles leaf claims and is the only holder of
+  `settle_leaf`. *The leaf level is code, not a model*: `GroveLeafWorkflow` replaces the
+  `leaf-executor`; models remain at planner / executor / judge / leaf-judge. *Explorer and step
+  replay for engine trees wait for P3 (Gitea-linked project) and P5 (engine run traces).*
 
 - 2026-09-24 (owner) — *One sandbox per tree, planning to last verdict; a worktree per
   leaf; the planner leaves the plan and leaf briefs in it and every split says where the
