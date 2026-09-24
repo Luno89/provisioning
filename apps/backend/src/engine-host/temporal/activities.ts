@@ -15,6 +15,8 @@ import {
   type NodeRequest,
 } from '@koala/agent-engine/procedure';
 import type {
+  GrovePartition,
+  GrovePartitionArgs,
   MergeArgs,
   MergeRuntime,
   PublishArgs,
@@ -31,6 +33,9 @@ import type {
   ToolRuntime,
   SettleClaimsArgs,
 } from './contracts.js';
+import { createGroveTools } from '../tools/grove-tools.js';
+import type { Tree } from '../../lib/trees.js';
+import type { Branch, Leaf } from '../../lib/leaves.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { EnvironmentResolver } from '../sandboxes/environments.js';
 
@@ -62,6 +67,16 @@ export interface EngineServices extends StreamServices {
   traces?: TraceRecorder | undefined;
   effort?: EffortTracker | undefined;
   tasks?: { list(ownerId: string): Promise<Task[]>; save(task: Task): Promise<void> } | undefined;
+  /** the grove's tree stores (read-only use by the partition activity) */
+  grove?: GroveStores | undefined;
+}
+
+/** Read-side of a grove's stores: just enough for the ready-leaves partition. */
+export interface GroveStores {
+  trees: { list(): Promise<Tree[]> };
+  branches: { list(): Promise<Branch[]> };
+  leaves: { list(): Promise<Leaf[]> };
+  tasks: { list(): Promise<Task[]> };
 }
 
 export interface StreamActivities {
@@ -122,6 +137,7 @@ export interface EngineActivities extends StreamActivities {
   EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
+  GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition>;
   EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
   EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void>;
   EngineRunLimitsActivity(args: RunLimitsArgs): Promise<RunLimits>;
@@ -161,6 +177,40 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 
     async EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>> {
       return services.merges.run(args);
+    },
+
+    async GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition> {
+      if (!services.grove) throw new Error('grove stores are not wired, so the grove partition cannot run');
+
+      const readOnlySave = async (): Promise<void> => {
+        throw new Error('the grove partition is read-only');
+      };
+      const tools = createGroveTools({
+        stores: {
+          trees: { list: services.grove.trees.list, save: readOnlySave },
+          branches: { list: services.grove.branches.list, save: readOnlySave },
+          leaves: { list: services.grove.leaves.list, save: readOnlySave },
+          tasks: { list: services.grove.tasks.list },
+        },
+      });
+      const outcome = await tools['ready_leaves']!({
+        name: 'ready_leaves',
+        parsed: { treeId: args.treeId },
+        driver: undefined,
+        caller: { ownerId: 'grove', runId: 'partition', agentSlug: 'grove-runner' },
+      });
+      if (!outcome.ok) throw new Error(`grove partition failed: ${outcome.digest}`);
+
+      const parsed = JSON.parse(outcome.content ?? '{}') as {
+        ready?: unknown[];
+        claimed?: unknown[];
+        settled?: unknown[];
+      };
+      return {
+        ready: (parsed.ready ?? []) as GrovePartition['ready'],
+        claimed: (parsed.claimed ?? []) as GrovePartition['claimed'],
+        settledCount: (parsed.settled ?? []).length,
+      };
     },
 
     EngineNodeActivity: createNodeRunner(services.hostNodes ?? [], services.bus),

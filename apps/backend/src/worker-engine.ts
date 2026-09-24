@@ -83,6 +83,12 @@ async function buildActivities() {
       list: (ownerId: string) => db.getTasks(ownerId),
       save: (task: Task) => db.saveTask(task),
     },
+    grove: {
+      trees: { list: () => db.getTrees() },
+      branches: { list: () => db.getBranches() },
+      leaves: { list: () => db.getLeaves() },
+      tasks: { list: () => db.getTasks() },
+    },
     effort: createEffortTracker({
       models,
       registry,

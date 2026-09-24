@@ -6,6 +6,7 @@ export { executeResizeDiskWorkflow } from './ResizeDiskWorkflow.js';
 export { executeSyncConfigWorkflow } from './SyncConfigWorkflow.js';
 export { executePipelineRunWorkflow } from './PipelineRunWorkflow.js';
 export { LeafWorkflow } from './LeafWorkflow.js';
+export { GroveRunWorkflow } from './GroveRunWorkflow.js';
 export { ProjectPlanWorkflow } from './ProjectPlanWorkflow.js';
 export { executeIngestWorkflow } from './IngestWorkflow.js';
 export { AgentRunWorkflow } from './AgentRunWorkflow.js';

@@ -1,6 +1,6 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 shaping — the parallel leaf execution procedure (owner-ruled 2026-07-22).**
+Living document. Updated as we work. **Current focus: P1 is complete end-to-end (tools, passes, Temporal supervisor, proofs); next: TaskChecks on demand + the P4 launch swap.**
 
 Last updated: 2026-07-22
 
@@ -9,7 +9,7 @@ Last updated: 2026-07-22
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
-| P1 leaf execution on engine lanes | **in progress** — claim/judge split, `claim_leaf`, `settle_leaf`, the pass procedures and the in-process proof are in; the TaskChecks implementations (build-order item 4) remain |
+| P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
 | P4 supervision swap (retire LeafWorkflow) | not started |
@@ -351,15 +351,34 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
    independent leaves' claims predate the dependent one's. The structural
    shape is pinned in `composed-request.test.ts` (`passRun` MUST_CARRY
    variants: the pass itself makes 0 model rounds; the leaves ride in as
-   items; the children carry the work and the claims).
+   items; the children carry the work and the claims). **Durable form
+   (same day):** the pass loop itself landed as the Temporal
+   `GroveRunWorkflow` — each partition read is a small read-only activity
+   (`GrovePartitionActivity`, the real `ready_leaves` handler over db-backed
+   stores), each pass is a child run of the shared `AgentRunWorkflow`, and the
+   loop re-partitions *after the work pass* so the judge pass of the same
+   iteration sees the fresh claims. Workflow-side code stays deterministic
+   (partition via activity; no store reads, date or random in the workflow
+   body); a pass failure fails the run, the loop resumes at the next
+   partition, and because a settled claim is no longer claimed, a re-judge
+   after a crash re-runs judgment, not work. Proven at the durable level in
+   `GroveRunWorkflow.test.ts` (time-skipping Temporal test server, real
+   engine + stream workers, the same three-leaf world, scripted model): the
+   run ends `quiet` after exactly two passes with five partition reads, all
+   three leaves `succeeded` + `verified`, every task `done` through executor
+   and task judge, and the dependent leaf's claim stamps after both
+   independents'. The in-process `grove-run.test.ts` stays the fast proof of
+   the same shape; the Temporal test is the lane proof.
 4. The TaskChecks verification implementations (legacy matrix, gap #2) land
    when the judge needs them, per-leaf, never a batch port.
 
-- `ExecuteLeafActivity` body → **launch the grove-run supervisor** (the
-  LeafWorkflow shell stays until the coexistence window closes; P4 removes it
-  — global cutover, no A/B; the live-k3d-tree acceptance test survives as the
-  one-path proof). ReplanActivity → the P2 planner procedure, leaf-scoped,
-  invoked between passes for failed leaves.
+- `ExecuteLeafActivity` body → **launch the `GroveRunWorkflow` supervisor**
+  (which now exists and is proven at the durable level). What remains is the
+  launch swap: leaf-execution callers start the workflow instead of the leaf
+  pipeline. The LeafWorkflow shell stays until the coexistence window closes;
+  P4 removes it — global cutover, no A/B; the live-k3d-tree acceptance test
+  survives as the one-path proof. ReplanActivity → the P2 planner procedure,
+  leaf-scoped, invoked between passes for failed leaves.
 
 ### P2 — planning + launching in engine *(medium)*
 
@@ -486,6 +505,18 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   the workspace stays alive until settlement. `claimed` joins `LeafStatus`
   (additive; board column already said the word; mirrored in
   `leaf-types.ts` under the cross-boundary arm test).
+- 2026-07-22 (night) — *The supervisor got its durable body.* The pass loop,
+  previously proven only in an in-process harness, landed as the Temporal
+  `GroveRunWorkflow`: partition as a read-only activity over the real
+  `ready_leaves` handler, each pass as a child `AgentRunWorkflow`, and a
+  re-partition after the work pass so the judge pass sees the claims the work
+  just filed. The workflow itself stays deterministic (activities do all the
+  touching); crash semantics are owned — a re-judge never re-works, a settled
+  claim stays settled. Proof: `GroveRunWorkflow.test.ts` on a time-skipping
+  Temporal environment with real workers and the real engine lane (two passes,
+  five partition reads, quiet end; leaves verified; tasks done; dependent leaf
+  waited a pass). *Enforced per the one-at-a-time rule (landed with its proof
+  before anything else).*
 - 2026-07-22 (owner, re P1 execution) — *Independent leaves run in parallel
   when their dependencies allow, and they are told about it; fan-out and
   merge are part of the procedure.* The tree-level `grove-run` supervisor

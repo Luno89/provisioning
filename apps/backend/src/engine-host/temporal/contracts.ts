@@ -146,6 +146,44 @@ export interface ProcedureRunInput {
   projectId?: string | undefined;
 }
 
+/** The grove run: the tree-level loop that alternates work and judge passes until the tree is quiet. */
+export interface GroveRunArgs {
+  treeId: string;
+  ownerId: string;
+  /** hard cap on passes; when the tree is still moving at the cap, the run reports capped instead of crashing */
+  maxPasses?: number | undefined;
+}
+
+export interface GrovePartitionArgs {
+  treeId: string;
+}
+
+export interface GrovePartitionLeaf {
+  id: string;
+  title: string;
+  body: string;
+  branchId: string;
+}
+
+export interface GroveClaim {
+  evidence: string;
+  findings?: string | undefined;
+  runs?: string[] | undefined;
+  at: string;
+}
+
+export interface GrovePartition {
+  ready: GrovePartitionLeaf[];
+  claimed: (GrovePartitionLeaf & { claim?: GroveClaim | undefined })[];
+  settledCount: number;
+}
+
+export interface GroveRunResult {
+  treeId: string;
+  outcome: 'quiet' | 'capped';
+  passes: number;
+}
+
 export interface RemoteNodeRequest {
   node: PlacedNode;
   origin: string;
