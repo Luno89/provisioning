@@ -215,6 +215,7 @@ export interface GroveClaim {
 export interface GrovePartition {
   ready: GrovePartitionLeaf[];
   claimed: (GrovePartitionLeaf & { claim?: GroveClaim | undefined })[];
+  awaitingReview: { id: string; title: string; review?: string | undefined }[];
   settledCount: number;
 }
 
@@ -222,6 +223,7 @@ export interface GroveRunResult {
   treeId: string;
   outcome: 'quiet' | 'capped';
   passes: number;
+  awaitingReview: string[];
 }
 
 export interface RemoteNodeRequest {

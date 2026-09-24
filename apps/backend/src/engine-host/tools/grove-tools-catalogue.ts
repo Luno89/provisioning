@@ -154,7 +154,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
   {
     name: 'settle_leaf',
     summary: 'The judge’s hand: weigh the claim’s evidence against the leaf’s goal and settle it',
-    guidance: 'You weigh the recorded claim — and re-derive what it points at, in your own fresh workspace built from the same commit — against what the leaf’s body says must become true. verdict “verified”: the evidence demonstrates the goal — the leaf is succeeded and verified. verdict “stay-claimed”: plausible but thin — do not mark it done, and do not re-run it; leave it claimed with a note on what is missing, so a later judge or a person can promote it. verdict “failed”: the goal was not reached — a reason is required (what the evidence shows is missing), so the replan can pick an angle. Only a claimed leaf settles: a raw, running, or settled leaf is refused, because settling something unfinished is how claims quietly became verdicts. A claim is a pointer to look at, never the evidence itself.',
+    guidance: 'You weigh the recorded claim — and re-derive what it points at, in your checkout of exactly the claimed commit — against what the leaf’s body says must become true. verdict “verified”: the evidence demonstrates the goal — the leaf is succeeded and verified. verdict “stay-claimed”: plausible but thin — do not mark it done, and do not re-run it; leave it claimed with a note on what is missing: the run parks it for the person, who decides from your note. verdict “failed”: the goal was not reached — a reason is required (what the evidence shows is missing), so the replan can pick an angle. Only a claimed leaf settles: a raw, running, or settled leaf is refused, because settling something unfinished is how claims quietly became verdicts. A claim is a pointer to look at, never the evidence itself.',
     binding: 'platform',
     effect: 'write',
     status: 'draft',
@@ -169,7 +169,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
       properties: {
         leafId: { type: 'string', description: 'The claimed leaf to judge.' },
         verdict: { type: 'string', enum: ['verified', 'stay-claimed', 'failed'], description: 'verified — the evidence demonstrates the goal; stay-claimed — plausible but thin, nothing re-run; failed — the goal was not reached.' },
-        note: { type: 'string', description: 'Required when failed (what the evidence shows is missing). For stay-claimed, what is thin, so a later judge or person can promote it. For verified, anything worth the trace.' },
+        note: { type: 'string', description: 'Required when failed (what the evidence shows is missing). For stay-claimed, exactly what you could not establish — the person decides from it. For verified, anything worth the trace.' },
       },
       required: ['leafId', 'verdict'],
     },

@@ -299,11 +299,13 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       const parsed = JSON.parse(outcome.content ?? '{}') as {
         ready?: unknown[];
         claimed?: unknown[];
+        awaitingReview?: unknown[];
         settled?: unknown[];
       };
       return {
         ready: (parsed.ready ?? []) as GrovePartition['ready'],
         claimed: (parsed.claimed ?? []) as GrovePartition['claimed'],
+        awaitingReview: (parsed.awaitingReview ?? []) as GrovePartition['awaitingReview'],
         settledCount: (parsed.settled ?? []).length,
       };
     },

@@ -70,11 +70,12 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
   for (;;) {
     let partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
 
+    const awaitingReview = partition.awaitingReview.map((leaf) => leaf.id);
     if (partition.ready.length === 0 && partition.claimed.length === 0) {
-      return { treeId: args.treeId, outcome: 'quiet', passes };
+      return { treeId: args.treeId, outcome: 'quiet', passes, awaitingReview };
     }
     if (passes >= maxPasses) {
-      return { treeId: args.treeId, outcome: 'capped', passes };
+      return { treeId: args.treeId, outcome: 'capped', passes, awaitingReview };
     }
 
     passes += 1;

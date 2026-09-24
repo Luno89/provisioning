@@ -233,3 +233,46 @@ describe('acting on one leaf', () => {
     });
   });
 });
+
+describe('settling a claim a judge kept for a person', () => {
+  const parked = (over: Record<string, unknown> = {}) => leaf({
+    id: 'p1', status: 'claimed',
+    claim: { evidence: 'curl answered 200', commit: 'c0ffee', at: '2026-09-24T00:00:00.000Z' },
+    review: { verdict: 'concern', reason: 'the port was never probed', at: '2026-09-24T00:01:00.000Z' },
+    ...over,
+  });
+
+  it('verifies it, and the leaf succeeds', async () => {
+    const harness = await mount();
+    await harness.db.saveLeaf(parked() as never);
+
+    const res = await axios.post(harness.url('/api/leaves/p1/settle'), { verdict: 'verified', note: 'checked it myself' });
+
+    expect(res.data).toMatchObject({ status: 'succeeded', verified: true, findings: 'checked it myself', review: { verdict: 'sound', model: 'person', reason: 'checked it myself' } });
+  });
+
+  it('fails it only with a reason, which the replan will read', async () => {
+    const harness = await mount();
+    await harness.db.saveLeaf(parked() as never);
+
+    const bare = await axios.post(harness.url('/api/leaves/p1/settle'), { verdict: 'failed' }).catch((e) => e);
+    expect(bare.response.status).toBe(409);
+    expect(bare.response.data.error).toMatch(/needs a reason/);
+
+    const res = await axios.post(harness.url('/api/leaves/p1/settle'), { verdict: 'failed', note: 'serves the wrong page' });
+    expect(res.data).toMatchObject({ status: 'failed', verified: false, findings: 'serves the wrong page' });
+  });
+
+  it('refuses a leaf that is not waiting for judgment, a verdict that is not one, and another owner\'s leaf', async () => {
+    const harness = await mount();
+    await harness.db.saveLeaf(parked({ id: 'done', status: 'succeeded' }) as never);
+    await harness.db.saveLeaf(parked({ id: 'theirs', ownerId: 'someone-else' }) as never);
+    await harness.db.saveLeaf(parked() as never);
+
+    const statusOf = (id: string, body: unknown) => axios.post(harness.url(`/api/leaves/${id}/settle`), body).then(() => 200, (e) => e.response.status);
+    expect(await statusOf('done', { verdict: 'verified' })).toBe(409);
+    expect(await statusOf('p1', { verdict: 'stay-claimed' })).toBe(400);
+    expect(await statusOf('theirs', { verdict: 'verified' })).toBe(404);
+  });
+});
+

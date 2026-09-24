@@ -215,7 +215,7 @@ describe('ready_leaves', () => {
     const outcome = await run('ready_leaves', { treeId: 'tree-1' });
 
     expect(outcome.ok).toBe(true);
-    expect(outcome.digest).toBe('2 ready, 1 blocked, 1 without tasks, 1 claimed, 1 in flight, 2 settled — tree tree-1');
+    expect(outcome.digest).toBe("2 ready, 1 blocked, 1 without tasks, 1 claimed, 0 awaiting a person's review, 1 in flight, 2 settled — tree tree-1");
 
     const content = JSON.parse(outcome.content as string) as {
       ready: { id: string; taskCount: number }[];
@@ -503,6 +503,32 @@ describe('claim_leaf in a worktree', () => {
 
     expect(outcome).toMatchObject({ ok: false, digest: expect.stringContaining('uncommitted changes (M site/index.html; ?? notes.txt)') });
     expect(leaves[0]!.status).toBe('pending');
+  });
+});
+
+describe('a claim the judge kept for a person', () => {
+  const claimedLeaf = (): Leaf => ({
+    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state',
+    column: 'todo', status: 'claimed', depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now',
+    claim: { evidence: 'ran it', at: '2025-12-31T00:00:00.000Z' },
+  });
+
+  it('leaves the judge pass and waits for a person, with the judge\'s note', async () => {
+    leaves = [claimedLeaf()];
+    await run('settle_leaf', { leafId: 'leaf-1', verdict: 'stay-claimed', note: 'the port was never probed' });
+
+    const partition = JSON.parse((await run('ready_leaves', { treeId: 'tree-1' })).content ?? '{}') as { claimed: unknown[]; awaitingReview: unknown[] };
+    expect(partition.claimed).toEqual([]);
+    expect(partition.awaitingReview).toEqual([{ id: 'leaf-1', title: 'A leaf', review: 'the port was never probed' }]);
+  });
+
+  it('is still settleable, and a verdict takes it out of review', async () => {
+    leaves = [claimedLeaf()];
+    await run('settle_leaf', { leafId: 'leaf-1', verdict: 'stay-claimed', note: 'thin' });
+    const outcome = await run('settle_leaf', { leafId: 'leaf-1', verdict: 'verified', note: 'checked by hand' });
+
+    expect(outcome.ok).toBe(true);
+    expect(leaves[0]).toMatchObject({ status: 'succeeded', verified: true });
   });
 });
 

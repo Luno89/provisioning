@@ -4,7 +4,7 @@ import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy, withBuiltIns } from '../lib/ownership.js';
 import {
   LEAF_COLUMNS, isLeafColumn, deriveLeafStatus, budgetExceeded, aggregateUsage,
-  rootLeaf, subtreeOf, blockedBy, canAddChild, childrenOf, wouldCycle, type Leaf,
+  rootLeaf, subtreeOf, blockedBy, canAddChild, childrenOf, wouldCycle, settleClaim, type Leaf,
 } from '../lib/leaves.js';
 import { budgetForNewRoot } from '../lib/budget-policy.js';
 import { buildReviewPrompt } from '../lib/failure-review.js';
@@ -309,6 +309,19 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
       await db.saveLeaf({ ...leaf, ...update, updatedAt: new Date().toISOString() });
     }
     res.json({ ...verdict, changed: Boolean(update), branch: leaf.outputBranch, found: facts.found, missing: facts.missing });
+  }));
+
+  router.post('/:id/settle', asyncRoute(async (req, res) => {
+    const leaf = (await ownedLeaves(userOf(req).id)).find((c) => c.id === idOf(req));
+    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
+    const verdict = req.body?.verdict;
+    if (verdict !== 'verified' && verdict !== 'failed') return res.status(400).json({ error: "verdict is 'verified' or 'failed'" });
+    const note = typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim() : undefined;
+
+    const outcome = settleClaim(leaf, { verdict, note, by: 'person', at: new Date().toISOString() });
+    if ('problem' in outcome) return res.status(409).json({ error: outcome.problem });
+    await db.saveLeaf(outcome.leaf);
+    res.json(outcome.leaf);
   }));
 
   router.post('/:id/cancel', asyncRoute(async (req, res) => {

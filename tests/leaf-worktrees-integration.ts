@@ -79,19 +79,25 @@ async function main(): Promise<void> {
     assert.equal(claimed.ok, true, claimed.digest);
     assert.equal((await db.getLeaves()).find((entry) => entry.id === leafA.id)?.claim?.commit, head);
 
-    console.log('[4/6] the judge\'s checkout is exactly the claimed commit');
+    console.log('[4/6] the judge\'s checkout is exactly the claimed commit; a claim it keeps for a person leaves the judge pass');
     const checkouts = await activities.GroveJudgeCheckoutActivity({ treeId, ownerId: OWNER, leafIds: [leafA.id] });
     assert.equal(checkouts[leafA.id], head);
     const judge = await host.environments.forRun({ ticket: ticket(`judge-${suffix}`, 'judge'), environment: handle(`judge/${leafA.id}`) });
     assert.ok(judge);
     assert.equal((await judge.exec({ command: 'git rev-parse HEAD && cat a.txt' })).stdout.trim(), `${head}\nfrom leaf A`);
-    const settled = await host.tools.run({
+    const settle = (verdict: string, note: string) => host.tools.run({
       ticket: ticket(`judge-${suffix}`, 'judge'),
       nodeId: 'tools',
       name: 'settle_leaf',
-      arguments: JSON.stringify({ leafId: leafA.id, verdict: 'verified', note: 'a.txt at the claimed commit says it' }),
+      arguments: JSON.stringify({ leafId: leafA.id, verdict, note }),
       environment: handle(`judge/${leafA.id}`),
     });
+    const kept = await settle('stay-claimed', 'a.txt is there but nothing says it is the right text');
+    assert.equal(kept.ok, true, kept.digest);
+    const parked = await activities.GrovePartitionActivity({ treeId, ownerId: OWNER });
+    assert.deepEqual(parked.claimed, [], 'a parked claim went back to the judge');
+    assert.deepEqual(parked.awaitingReview.map((entry) => entry.id), [leafA.id]);
+    const settled = await settle('verified', 'a.txt at the claimed commit says it');
     assert.equal(settled.ok, true, settled.digest);
 
     console.log('[5/6] leaf B, which waits on A, starts from A\'s work');

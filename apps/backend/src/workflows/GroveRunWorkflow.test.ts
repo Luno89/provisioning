@@ -60,6 +60,7 @@ let branches: Branch[];
 let leaves: Leaf[];
 let tasks: Task[];
 let clock = 0;
+let judgeVerdicts: Record<string, string> = {};
 
 const pad = (value: number) => String(value).padStart(4, '0');
 const fixedNow = () => `now-${pad(++clock)}`;
@@ -192,7 +193,7 @@ const scriptModel = (rounds: Map<string, number>) =>
       const claimed = /"leafId":\s*"(leaf[ABC])"/.exec(seen)?.[1] ?? leaf;
       const claimedName = claimed.slice(-1).toUpperCase();
       if (round === 1) {
-        value = reply({ finishReason: 'tool_calls', toolCalls: [{ id: `c-${kind}-${round}`, name: 'settle_leaf', arguments: JSON.stringify({ leafId: claimed, verdict: 'verified', note: `re-derived from the commit pointer seed-${claimedName}; the endpoint answers` }) }] });
+        value = reply({ finishReason: 'tool_calls', toolCalls: [{ id: `c-${kind}-${round}`, name: 'settle_leaf', arguments: JSON.stringify({ leafId: claimed, verdict: judgeVerdicts[claimed] ?? 'verified', note: `re-derived from the commit pointer seed-${claimedName}; the endpoint answers` }) }] });
       } else {
         value = reply({ content: 'Settled the claim.' });
       }
@@ -227,11 +228,11 @@ afterAll(async () => {
 
 beforeEach(() => {
   clock = 0;
+  judgeVerdicts = {};
   setupWorld();
 });
 
-describe('GroveRunWorkflow', () => {
-  it('works the independent leaves in one pass, judges their claims in its own, and runs the dependent one next', async () => {
+async function runGroveWorld() {
     const stores = worldStores();
     const rounds = new Map<string, number>();
     const registry = createAgentRegistry({
@@ -358,8 +359,8 @@ describe('GroveRunWorkflow', () => {
         caller: { ownerId: 'user-1', runId: 'partition' },
       });
       if (!outcome.ok) throw new Error(outcome.digest);
-      const parsed = JSON.parse(outcome.content ?? '{}') as { ready?: unknown[]; claimed?: unknown[]; settled?: unknown[] };
-      const partition: GrovePartition = { ready: (parsed.ready ?? []) as GrovePartition['ready'], claimed: (parsed.claimed ?? []) as GrovePartition['claimed'], settledCount: (parsed.settled ?? []).length };
+      const parsed = JSON.parse(outcome.content ?? '{}') as { ready?: unknown[]; claimed?: unknown[]; awaitingReview?: unknown[]; settled?: unknown[] };
+      const partition: GrovePartition = { ready: (parsed.ready ?? []) as GrovePartition['ready'], claimed: (parsed.claimed ?? []) as GrovePartition['claimed'], awaitingReview: (parsed.awaitingReview ?? []) as GrovePartition['awaitingReview'], settledCount: (parsed.settled ?? []).length };
       return partition;
     });
 
@@ -436,9 +437,15 @@ describe('GroveRunWorkflow', () => {
     };
 
     const result = await engineWorker.runUntil(() => streamWorker.runUntil(start));
+    return { result, partitionCalls, efforts, sandboxOfCall, worktreeOfCall, gitCommands, provisioned, describeRun, kubeCalls };
+}
+
+describe('GroveRunWorkflow', () => {
+  it('works the independent leaves in one pass, judges their claims in its own, and runs the dependent one next', async () => {
+    const { result, partitionCalls, efforts, sandboxOfCall, worktreeOfCall, gitCommands, provisioned, describeRun, kubeCalls } = await runGroveWorld();
 
     // Two passes: pass 1 clears the independents and their claims; pass 2 the dependent one.
-    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 2 });
+    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 2, awaitingReview: [] });
 
     // Pass structure: the partition ran at each boundary — start, after each work pass, and the final quiet read.
     expect(partitionCalls).toHaveBeenCalledTimes(5);
@@ -484,4 +491,17 @@ describe('GroveRunWorkflow', () => {
 
     expect(kubeCalls.map((args) => args.slice(0, 2).join(' '))).toEqual(['delete pod']);
   }, 60_000);
+
+  it('parks a claim the judge keeps for a person, and goes quiet instead of re-judging it every pass', async () => {
+    judgeVerdicts = { leafB: 'stay-claimed' };
+
+    const { result, efforts } = await runGroveWorld();
+
+    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 1, awaitingReview: ['leafB'] });
+    expect(leaves.find((leaf) => leaf.id === 'leafA')).toMatchObject({ status: 'succeeded', verified: true });
+    expect(leaves.find((leaf) => leaf.id === 'leafB')).toMatchObject({ status: 'claimed', review: { verdict: 'concern' } });
+    expect(leaves.find((leaf) => leaf.id === 'leafC')?.status).toBe('pending');
+    expect(efforts.filter((effort) => effort.procedureId === 'grove-judge-pass')).toHaveLength(1);
+  }, 60_000);
 });
+

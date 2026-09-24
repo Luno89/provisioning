@@ -1,6 +1,6 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) landed 2026-09-24; next: stay-claimed parks for review, then a live run and the launch swap.**
+Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) and 4 (stay-claimed parks for a person) landed 2026-09-24; next: a live run on a real model, then the launch swap.**
 
 Last updated: 2026-09-24
 
@@ -9,7 +9,7 @@ Last updated: 2026-09-24
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
-| P1 fix-up: one sandbox per tree | **slices 1–3 landed 2026-09-24** (see *P1 fix-up* below); slice 4 open |
+| P1 fix-up: one sandbox per tree | **slices 1–4 landed 2026-09-24** (see *P1 fix-up* below) |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
@@ -471,8 +471,20 @@ parks for human review; the volume lives and the pod is started on demand.
    every judge's in its checkout, leafC merging leafA and leafB), and live
    `npm run test:leaf-worktrees` (real git in the tree pod: dirty claim refused, commit
    recorded, judge on exactly that commit, dependent leaf built on it).
-4. Stay-claimed parks for human review (today it re-judges every pass to the cap) —
-   open.
+4. **Stay-claimed parks for a person — landed 2026-09-24.** A claim is parked when the
+   judge's stay-claimed review is newer than the claim (a later re-claim un-parks it);
+   `ready_leaves` puts it in `awaitingReview` instead of `claimed`, so the judge pass stops
+   re-judging it and the run ends `quiet` (reporting `awaitingReview`) instead of spinning
+   to the cap. The settle rule is one pure `settleClaim` in `lib/leaves.ts`, used by
+   `settle_leaf` and by `POST /api/leaves/:id/settle` (verified, or failed with a reason);
+   a settlement records who settled it. The leaf detail shows a claim with its evidence,
+   commit and the judge's note, and — when parked — "It meets the goal" / "It failed…";
+   a person-verified leaf says so rather than "a check ran and passed". No socket event:
+   the frontend never listened to the leaf events; the tree workspace polls. Proofs: tool,
+   route and component tests, a `GroveRunWorkflow.test.ts` case (judge keeps leafB → run
+   quiet after one pass, `awaitingReview: ['leafB']`, leafC left waiting), live
+   `test:leaf-worktrees` (a kept claim leaves the real partition's judge set), and the
+   click in the browser on a throwaway parked leaf (settled; records removed after).
 
 ### P2 — planning + launching in engine *(medium)*
 

@@ -64,6 +64,8 @@ export const explainLeaf = (id: string): Promise<LeafExplain> =>
 export const acceptLeaf = (id: string, body?: unknown) =>
   api.post(`/leaves/${id}/accept`, body ?? {}).then((r) => r.data)
 export const cancelLeaf = (id: string) => api.post(`/leaves/${id}/cancel`, {}).then((r) => r.data)
+export const settleLeaf = (id: string, verdict: 'verified' | 'failed', note?: string) =>
+  api.post(`/leaves/${id}/settle`, { verdict, ...(note ? { note } : {}) }).then((r) => r.data)
 export const retryLeaf = (id: string, body?: unknown) =>
   api.post(`/leaves/${id}/retry`, body ?? {}).then((r) => r.data)
 export const recheckLeaf = (id: string): Promise<{ outcome: string; reason: string; changed?: boolean }> =>

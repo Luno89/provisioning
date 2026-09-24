@@ -312,6 +312,41 @@ export function blockedBy(leaf: Pick<Leaf, 'dependsOn'>, all: Leaf[]): Leaf[] {
 
 export const runsOnEngine = (leaf: Pick<Leaf, 'runner'>): boolean => leaf.runner === 'engine';
 
+export const awaitingReview = (leaf: Pick<Leaf, 'status' | 'claim' | 'review'>): boolean =>
+  leaf.status === 'claimed' && leaf.claim !== undefined && leaf.review !== undefined && leaf.review.at >= leaf.claim.at;
+
+export type ClaimVerdict = 'verified' | 'stay-claimed' | 'failed';
+
+export function settleClaim(
+  leaf: Leaf,
+  settlement: { verdict: ClaimVerdict; note?: string | undefined; by?: string | undefined; at: string },
+): { leaf: Leaf; digest: string } | { problem: string } {
+  const { verdict, note, by, at } = settlement;
+  if (verdict === 'failed' && !note) return { problem: 'a failed settlement needs a reason — what the evidence shows the goal is missing, so the replan can pick an angle' };
+  if (leaf.status !== 'claimed' || !leaf.claim) {
+    return { problem: `${leaf.id} is not awaiting judgment — it is ${leaf.status}. Only a claimed leaf with evidence on file gets settled; the judge pass judges claims, not raw or finished leaves.` };
+  }
+
+  const settled: Leaf = { ...leaf, updatedAt: at };
+  const verdictBy = (kind: 'sound' | 'unsound') => ({ verdict: kind, at, ...(note ? { reason: note } : {}), ...(by ? { model: by } : {}) });
+  if (verdict === 'verified') {
+    settled.status = 'succeeded';
+    settled.verified = true;
+    settled.review = verdictBy('sound');
+    if (note) settled.findings = note;
+    return { leaf: settled, digest: `settled ${leaf.id} — verified` };
+  }
+  if (verdict === 'failed') {
+    settled.status = 'failed';
+    settled.verified = false;
+    settled.review = verdictBy('unsound');
+    settled.findings = note!;
+    return { leaf: settled, digest: `settled ${leaf.id} — failed` };
+  }
+  settled.review = { verdict: 'concern', at, ...(note ? { reason: note } : {}), ...(by ? { model: by } : {}) };
+  return { leaf: settled, digest: note ? `kept ${leaf.id} claimed for a person to review — ${note}` : `kept ${leaf.id} claimed for a person to review` };
+}
+
 export function readyToStart(all: Leaf[]): Leaf[] {
   return all.filter((l) => l.status === 'pending' && !l.workflowId && !runsOnEngine(l) && dependenciesMet(l, all));
 }

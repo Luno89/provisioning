@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import type { Branch, Leaf } from '../../lib/leaves.js';
+import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../lib/leaves.js';
 import { primaryProjectId, type Tree } from '../../lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
 import { parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
@@ -243,40 +243,17 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         return refuse("a settlement is 'verified' (the evidence demonstrates the goal), 'stay-claimed' (plausible, thin — do not re-run; it waits for more), or 'failed' (the goal was not reached; needs a reason). Nothing else settles a leaf.");
       }
       const note = asString(parsed, 'note') ?? asString(parsed, 'reason');
-      if (verdict === 'failed' && !note) return refuse('a failed settlement needs a reason — what the evidence shows the goal is missing, so the replan can pick an angle');
 
       const leaves = await options.stores.leaves.list();
       const leaf = leaves.find((candidate) => candidate.id === needle && candidate.ownerId === caller.ownerId);
       if (!leaf) return refuse(`no such leaf: ${needle}`);
-      if (leaf.status !== 'claimed' || !leaf.claim) {
-        return refuse(`${leaf.id} is not awaiting judgment — it is ${leaf.status}. Only a claimed leaf with evidence on file gets settled; the judge pass judges claims, not raw or finished leaves.`);
-      }
 
-      const stamp = now();
-      const settled: Leaf = { ...leaf, updatedAt: stamp };
-      let digest: string;
-      if (verdict === 'verified') {
-        settled.status = 'succeeded';
-        settled.verified = true;
-        if (note) settled.findings = note;
-        digest = `settled ${leaf.id} — verified`;
-      } else if (verdict === 'failed') {
-        settled.status = 'failed';
-        settled.verified = false;
-        if (note) settled.findings = note; // note is guaranteed by the refusal above
-        digest = `settled ${leaf.id} — failed`;
-      } else {
-        settled.review = {
-          verdict: 'concern',
-          at: stamp,
-          ...(note ? { reason: note } : {}),
-          ...(caller.agentSlug ? { model: caller.agentSlug } : {}),
-        };
-        digest = note ? `kept ${leaf.id} claimed — ${note}` : `kept ${leaf.id} claimed`;
-      }
-      await options.stores.leaves.save(settled);
+      const outcome = settleClaim(leaf, { verdict, note, by: caller.agentSlug, at: now() });
+      if ('problem' in outcome) return refuse(outcome.problem);
+      await options.stores.leaves.save(outcome.leaf);
+      const { digest } = outcome;
 
-      return { ok: true, digest, content: `${digest} — weighed against the claim's evidence (${leaf.claim.evidence.length} chars)` };
+      return { ok: true, digest, content: `${digest} — weighed against the claim's evidence (${leaf.claim?.evidence.length ?? 0} chars)` };
     },
 
     async ready_leaves({ parsed, caller }): Promise<ToolOutcome> {
@@ -309,6 +286,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const inFlight: { id: string; title: string }[] = [];
       const claimed: { id: string; title: string; body: string; branchId: string; claim?: Leaf['claim'] }[] = [];
       const settled: { id: string; title: string; status: TaskStatus | string }[] = [];
+      const parked: { id: string; title: string; review?: string }[] = [];
 
       for (const leaf of leaves) {
         switch (leaf.status) {
@@ -321,6 +299,10 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
             notApproved.push({ id: leaf.id, title: leaf.title });
             break;
           case 'claimed':
+            if (awaitingReview(leaf)) {
+              parked.push({ id: leaf.id, title: leaf.title, ...(leaf.review?.reason ? { review: leaf.review.reason } : {}) });
+              break;
+            }
             claimed.push({ id: leaf.id, title: leaf.title, body: leaf.body ?? '', branchId: leaf.branchId, ...(leaf.claim ? { claim: leaf.claim } : {}) });
             break;
           case 'running':
@@ -340,8 +322,8 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         }
       }
 
-      const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${claimed.length} claimed, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
-      const content = JSON.stringify({ treeId, ready, unbroken, blocked, notApproved, claimed, inFlight, settled }, null, 2);
+      const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${claimed.length} claimed, ${parked.length} awaiting a person's review, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
+      const content = JSON.stringify({ treeId, ready, unbroken, blocked, notApproved, claimed, awaitingReview: parked, inFlight, settled }, null, 2);
       return { ok: true, digest, content };
     },
   };

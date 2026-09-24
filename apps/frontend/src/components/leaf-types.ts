@@ -67,9 +67,15 @@ export interface Leaf {
   packId?: string;
   summary?: string;
   findings?: string;
+  claim?: { evidence: string; commit?: string; findings?: string; at: string };
+  review?: { verdict: string; reason?: string; model?: string; at: string };
   budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number; maxReplans?: number };
   usage?: { tokens?: number; workspaces?: number; replans?: number };
   usageTotal?: { tokens?: number; wallClockMs?: number; workspaces?: number; replans?: number };
+}
+
+export function isAwaitingReview(leaf: Pick<Leaf, 'status' | 'claim' | 'review'>): boolean {
+  return leaf.status === 'claimed' && leaf.claim !== undefined && leaf.review !== undefined && leaf.review.at >= leaf.claim.at;
 }
 
 export const STATE_LABEL: Record<LeafState, string> =

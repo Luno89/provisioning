@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import Markdown from './Markdown.js';
 import LeafSteps from './LeafSteps.js';
+import ClaimReview from './ClaimReview.js';
 import PersonaConfigDrawer from './PersonaConfigDrawer.js';
 import LeafTransparency from './LeafTransparency/index.js';
 import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } from './leaf-types.js';
@@ -184,9 +185,15 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
         </div>
       </div>
 
+      {leaf.status === 'claimed' && <ClaimReview leaf={leaf} />}
+
       {leaf.status === 'succeeded' && (
         <div className="mt-5 flex items-center gap-4 flex-wrap text-[12px]">
-          {leaf.verified ? (
+          {leaf.verified && leaf.review?.model === 'person' ? (
+            <span className="flex items-center gap-1.5 text-green-400" title="A judge could not settle the claim; a person read the evidence and verified it">
+              <ShieldCheck size={13} /> a person verified it{leaf.review.reason ? ` — ${leaf.review.reason}` : ''}
+            </span>
+          ) : leaf.verified ? (
             <span className="flex items-center gap-1.5 text-green-400" title="Its tests ran and passed, or a promised file was checked">
               <ShieldCheck size={13} /> a check ran and passed
             </span>
