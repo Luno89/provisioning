@@ -139,7 +139,7 @@ function packageNote(workspace: RunWorkspace): string {
   ].join(' ');
 }
 
-export function describeWorkspace(workspace: RunWorkspace): string {
+export function describeWorkspace(workspace: RunWorkspace, worktree?: string): string {
   const minutes = Math.round(workspace.lifetimeMs / 60_000);
   const open = workspace.egressMode === 'auto';
   const hosts = reachable(workspace);
@@ -158,14 +158,30 @@ export function describeWorkspace(workspace: RunWorkspace): string {
     '',
     '- Each command runs in a FRESH shell. `cd` and environment variables do NOT carry over to your',
     '  next command. Chain steps in one command (`cd x && npm test`) or use absolute paths.',
-    `- ${WORK_DIR} is your working directory and the only writable place apart from /tmp.`,
-    '  The root filesystem is read-only, so you cannot install system packages.',
+    ...(worktree
+      ? [
+        `- ${WORK_DIR}/${worktree} is your working directory: a git worktree of the tree's repo, on its own branch.`,
+        '  Commands start there and file tools resolve every path from there, so use paths relative to it',
+        `  (PLAN.md, not ${WORK_DIR}/${worktree}/PLAN.md). The rest of ${WORK_DIR} belongs to other leaves of the tree —`,
+        '  do not cd out of your worktree. The root filesystem is read-only, so you cannot install system packages.',
+      ]
+      : [
+        `- ${WORK_DIR} is your working directory and the only writable place apart from /tmp.`,
+        '  The root filesystem is read-only, so you cannot install system packages.',
+      ]),
     '- You are a non-root user. There is no sudo.',
     `- ${network}`,
     `- You have ${workspace.cpu} CPUs and ${workspace.memory} of memory. IGNORE \`nproc\` and \`free\` —`,
     '  they report the host machine, not your limits, and building as if they were true gets you killed.',
-    `- This container belongs to this run alone and is destroyed when the run ends, or after`,
-    `  ${minutes} minutes, whichever comes first. Anything not committed or returned as an output is lost.`,
+    ...(workspace.persistent
+      ? [
+        `- This container belongs to the tree, not to this run: ${WORK_DIR} is kept between runs and other runs of the tree`,
+        '  work in it too, each in its own worktree. Commit your work on your branch — that is what is judged.',
+      ]
+      : [
+        `- This container belongs to this run alone and is destroyed when the run ends, or after`,
+        `  ${minutes} minutes, whichever comes first. Anything not committed or returned as an output is lost.`,
+      ]),
     `- Available: ${workspace.provides.join(', ')}.`,
     `- NOT installed: ${absentFrom(workspace.provides).join(', ')}. Do not plan around them.`,
   ].join('\n');

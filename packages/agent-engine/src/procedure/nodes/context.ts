@@ -32,7 +32,7 @@ export const NO_ENVIRONMENT: EnvironmentValue = { kind: 'none', egress: false };
 
 export function resolvedEnvironment(environment: EnvironmentValue | undefined): ResolvedEnvironment {
   const value = environment ?? NO_ENVIRONMENT;
-  if (value.kind === 'sandbox') return { kind: 'sandbox', workspace: value.workspace };
+  if (value.kind === 'sandbox') return { kind: 'sandbox', workspace: value.workspace, ...(value.worktree ? { worktree: value.worktree } : {}) };
   if (value.kind === 'machine') {
     return { kind: 'machine', deviceName: value.deviceName, root: value.path ?? '.', egressMode: value.egressMode };
   }

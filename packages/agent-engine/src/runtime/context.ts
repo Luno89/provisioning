@@ -17,7 +17,7 @@ export type { EgressMode } from '../agent/agent.js';
 
 export type ResolvedEnvironment =
   | { kind: 'none'; egress: boolean; bases?: readonly string[] | undefined }
-  | { kind: 'sandbox'; workspace: RunWorkspace }
+  | { kind: 'sandbox'; workspace: RunWorkspace; worktree?: string | undefined }
   | { kind: 'machine'; deviceName: string; root: string; egressMode: EgressMode };
 
 export interface ContextRequest {
@@ -43,7 +43,7 @@ export function describeEnvironment(
   if (environment.kind === 'machine') {
     return describeMachine(environment.deviceName, environment.root);
   }
-  if (environment.kind === 'sandbox') return describeWorkspace(environment.workspace);
+  if (environment.kind === 'sandbox') return describeWorkspace(environment.workspace, environment.worktree);
 
   const delegates = callable.some(needsWorkspace);
   const bases = environment.bases ?? [];
