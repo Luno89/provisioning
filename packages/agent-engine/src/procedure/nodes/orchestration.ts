@@ -84,6 +84,11 @@ const template = (request: NodeRequest, setting: string): Record<string, unknown
   }, request.node.id);
 };
 
+const sandboxOf = (environment: unknown): EnvironmentValue | undefined => {
+  const candidate = environment as EnvironmentValue | undefined;
+  return candidate?.kind === 'sandbox' ? candidate : undefined;
+};
+
 const childText = (agent: string, child: ChildOutcomeValue): string =>
   child.outcome === 'ok' ? JSON.stringify(child.outputs) : `${agent} did not finish: ${child.reason ?? child.outcome}`;
 
@@ -102,7 +107,14 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         const why = `the arguments for "${call.name}" were not a JSON object`;
         outcome = { ok: false, digest: why, content: why };
       } else {
-        const child = await ports.runChild({ nodeId: node.id, agent: call.name, inputs: inputs as Record<string, unknown>, run });
+        const handed = sandboxOf(environment) ?? sandboxOf(run.launch.environment);
+        const child = await ports.runChild({
+          nodeId: node.id,
+          agent: call.name,
+          inputs: inputs as Record<string, unknown>,
+          ...(handed ? { environment: handed } : {}),
+          run,
+        });
         const text = childText(call.name, child);
         outcome = { ok: child.outcome === 'ok', digest: text, content: text };
       }
@@ -187,7 +199,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
     stepImplementation('delegate', async (request) => {
       const { node, inputs, run } = request;
       const agent = textOf(node.settings, 'agent');
-      const handed = inputs.environment as EnvironmentValue | undefined;
+      const handed = (inputs.environment as EnvironmentValue | undefined) ?? sandboxOf(run.launch.environment);
       const child = await ports.runChild({
         nodeId: node.id,
         agent,
@@ -223,11 +235,12 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const items = Array.isArray(list) ? list : [];
       const limit = Math.max(1, numberOf(node.settings, 'maxParallel', 3));
       const children: ChildOutcomeValue[] = [];
+      const handed = sandboxOf(run.launch.environment);
 
       for (let offset = 0; offset < items.length; offset += limit) {
         if (run.signal?.aborted) break;
         const batch = await Promise.all(items.slice(offset, offset + limit).map((item, index) =>
-          ports.runChild({ nodeId: node.id, agent, inputs: { item, index: offset + index }, run })));
+          ports.runChild({ nodeId: node.id, agent, inputs: { item, index: offset + index }, ...(handed ? { environment: handed } : {}), run })));
         children.push(...batch);
       }
 

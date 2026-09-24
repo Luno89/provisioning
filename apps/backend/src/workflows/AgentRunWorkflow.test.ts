@@ -54,6 +54,7 @@ function activities(options: {
   environment?: RunEnvironment;
   history?: RunEffort[];
   conversations?: ReturnType<typeof inMemoryConversations>;
+  environments?: { describe: (ticket: RunTicket) => Promise<RunEnvironment>; release: (runId: string) => Promise<void> };
 }) {
   const registry = createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
@@ -72,7 +73,7 @@ function activities(options: {
     registry,
     models,
     tools: { run: async () => ({ ok: true, digest: '' }) },
-    environments: { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
+    environments: options.environments ?? { describe: async () => options.environment ?? { kind: 'none', egress: false }, release: async () => undefined },
     memories: { list: async () => [], save: async () => undefined },
   }), ['activity', 'sandbox']);
 
@@ -361,6 +362,44 @@ describe('AgentRunWorkflow', () => {
     expect(result).toMatchObject({ outcome: 'ok', outputs: { result: 'because it was' } });
     expect(acts.engine.EngineResolveAgentActivity).toHaveBeenCalledWith(expect.objectContaining({ agentSlug: 'research' }));
     expect(acts.seen[0]![0]).toEqual({ role: 'user', content: '{"question":"why"}' });
+  }, 60_000);
+
+  it('hands a delegated persona the sandbox its caller works in, across the child workflow, and only the caller releases it', async () => {
+    const sandbox: RunEnvironment = {
+      kind: 'sandbox',
+      id: 'engine-parent',
+      workspace: {
+        runId: 'parent', ownerId: 'user-1', agent: 'koala', image: 'koala/base', provides: ['git', 'node'],
+        lifetimeMs: 60_000, cpu: '1', memory: '1Gi', egress: [], env: [], egressMode: 'declared',
+      },
+      capabilities: { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] },
+    };
+    const environments = {
+      describe: vi.fn(async (_ticket: RunTicket) => sandbox),
+      release: vi.fn(async (_runId: string) => undefined),
+    };
+    const acts = activities({
+      environments,
+      script: [
+        callsATool('c1', 'research', '{"question":"why"}'),
+        callsATool('c2', 'search_web', '{"query":"why"}'),
+        { content: 'because it was' },
+        { content: 'done' },
+      ],
+    });
+
+    const args = input('koala', TOOL_ROUNDS_V2);
+    const result = await runWorkflow(args, acts);
+
+    expect(result).toMatchObject({ outcome: 'ok' });
+    expect(environments.describe).toHaveBeenCalledTimes(1);
+    expect(environments.describe.mock.calls[0]![0].runId).toBe(args.ticket.runId);
+
+    const childCall = acts.engine.EngineToolActivity.mock.calls.map(([call]) => call).find((call) => call.name === 'search_web');
+    expect(childCall?.ticket.parentRunId).toBe(args.ticket.runId);
+    expect(childCall?.environment?.id).toBe('engine-parent');
+
+    expect(environments.release.mock.calls.map(([runId]) => runId)).toEqual([args.ticket.runId]);
   }, 60_000);
 
   it('fails a delegation readably when the persona does not exist', async () => {

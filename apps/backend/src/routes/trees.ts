@@ -11,10 +11,12 @@ import type { Tree } from '../lib/trees.js';
 import type { Leaf, Branch } from '../lib/leaves.js';
 import type { Database } from '../lib/db-interface.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { TreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
 
 export interface TreesRouterDeps {
   db: Database;
   temporalBridge: TemporalBridge;
+  workspaces: Pick<TreeWorkspaces, 'state' | 'release'>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -23,7 +25,7 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export function treesRouter(deps: TreesRouterDeps): Router {
-  const { db, temporalBridge } = deps;
+  const { db, temporalBridge, workspaces } = deps;
   const router = Router();
 
   const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
@@ -141,10 +143,24 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     res.json(updated);
   }));
 
+  router.get('/:id/workspace', asyncRoute(async (req, res) => {
+    const tree = (await ownedTrees(userOf(req).id)).find((t) => t.id === idOf(req));
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    res.json({ state: await workspaces.state(tree.id) });
+  }));
+
+  router.delete('/:id/workspace', asyncRoute(async (req, res) => {
+    const tree = (await ownedTrees(userOf(req).id)).find((t) => t.id === idOf(req));
+    if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    await workspaces.release(tree.id);
+    res.json({ state: 'none' });
+  }));
+
   router.delete('/:id', asyncRoute(async (req, res) => {
     const user = userOf(req);
     const tree = (await ownedTrees(user.id)).find((t) => t.id === idOf(req));
     if (!tree) return res.status(404).json({ error: 'Tree not found' });
+    await workspaces.release(tree.id);
     for (const branch of (await ownedBranches(user.id)).filter((b) => b.treeId === tree.id)) {
       const { treeId: _dropped, ...rest } = branch;
       await db.saveBranch(rest as Branch);

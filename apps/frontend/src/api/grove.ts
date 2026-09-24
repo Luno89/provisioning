@@ -9,6 +9,7 @@ export const groveKeys = {
   trace: (id: string) => ['leaf-trace', id] as const,
   explain: (id: string) => ['leaf-explain', id] as const,
   board: (id: string) => ['tree-board', id] as const,
+  workspace: (id: string) => ['tree-workspace', id] as const,
 }
 
 export interface TreeRollup {
@@ -26,6 +27,13 @@ export interface TreeBoard {
 
 export const getTreeBoard = (id: string): Promise<TreeBoard> =>
   api.get<TreeBoard>(`/trees/${id}/board`).then((r) => r.data)
+
+export type TreeWorkspaceState = 'none' | 'parked' | 'running'
+
+export const getTreeWorkspace = (id: string): Promise<{ state: TreeWorkspaceState }> =>
+  api.get<{ state: TreeWorkspaceState }>(`/trees/${id}/workspace`).then((r) => r.data)
+export const releaseTreeWorkspace = (id: string): Promise<{ state: TreeWorkspaceState }> =>
+  api.delete<{ state: TreeWorkspaceState }>(`/trees/${id}/workspace`).then((r) => r.data)
 
 export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((r) => r.data)
 export const createTree = <T,>(body: unknown): Promise<T> =>

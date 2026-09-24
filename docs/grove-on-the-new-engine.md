@@ -1,14 +1,15 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 is complete end-to-end (tools, passes, Temporal supervisor, proofs); next: TaskChecks on demand + the P4 launch swap.**
+Living document. Updated as we work. **Current focus: P1 fix-up — the tree's sandbox (slice 1 landed 2026-09-24); next: the planner writes the tree's documents into it, worktree-per-leaf with context pointers through every split, stay-claimed parks for review, then a live run and the launch swap.**
 
-Last updated: 2026-07-22
+Last updated: 2026-09-24
 
 ## Status
 
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
+| P1 fix-up: one sandbox per tree | **slice 1 landed 2026-09-24** (see *P1 fix-up* below); slices 2–4 open |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
@@ -18,7 +19,7 @@ Last updated: 2026-07-22
 
 Decisions (a–e) from the original plan: **all open** except the model change below.
 
-## VERIFICATION FINDER (2026-07-22, engine side)
+## VERIFICATION FINDER (2026-09-23, engine side)
 
 The bridge between the two worlds already exists in the repo:
 
@@ -42,7 +43,7 @@ local target + git branch + budget policy), driven by ~10 Temporal activities
 (PlanProject, ExecuteLeaf, JudgeLeaf, Replan, Land/Accept/ResolveLanding,
 UpdateLeaf, LeafGate) and the `LeafWorkflow` + interpreter supervisor.
 
-## THE MODEL (revised 2026-07-22)
+## THE MODEL (revised 2026-09-23)
 
 Original draft mapped leaf ⇄ task 1:1. Revised after discussion:
 
@@ -96,7 +97,7 @@ task with `task.agent`.
 2. Execution: "claim a task" = pick an open task of an *eligible* leaf
    (leaf state not blocked/running/failed). Each task → engine lane run of
    the task's agent procedure; `mark_done` captures evidence.
-   **Leaves run in parallel when independent** (owner, 2026-07-22): the engine
+   **Leaves run in parallel when independent** (owner, 2026-09-23): the engine
    procedure is the scheduler — it computes the ready set (unterminal leaves
    whose dependencies are terminal), fans out one executor run per ready leaf,
    merges the results, and loops. Each leaf run **is told which siblings are
@@ -153,7 +154,7 @@ task with `task.agent`.
    (or, post-model, leaves that arrive with their task).
 9. **Explain/trace formats** — different; join by link in P5.
 
-**Resolved while shaping P1 (2026-07-22): fan-out could not see run inputs.**
+**Resolved while shaping P1 (2026-09-23): fan-out could not see run inputs.**
 Its `items` socket only carries the full output of one earlier node, so a
 pass supervisor's ready set — a field of the pass's run input — was
 unreachable, and writing it into the graph would have needed a `code` node (a
@@ -170,7 +171,7 @@ dsl change, no new node type.
 
 ### P0 — task/leaf expansion + shared parts *(small)* — **implemented**
 
-Locked model calls (2026-07-22, with owner):
+Locked model calls (2026-09-23, with owner):
 - Planner is **one** engine `planner` agent, parameterized by tree type
   (per-type agents deferred).
 - **A leaf may have zero tasks.** A task-less leaf is a valid "planned, not
@@ -193,7 +194,7 @@ Locked model calls (2026-07-22, with owner):
    **Model note:** the `Task` type exists in two copies — `lib/tasks.ts`
    (document/DB side) and `engine-host/tools/tasks.ts` (tool side; this one is
    what `task-tools.ts` actually imports). Any field walk must land on both —
-   that is how the brief enforcement went missing on 2026-07-22: one copy was
+   that is how the brief enforcement went missing on 2026-09-23: one copy was
    edited, and the wired copy was the unedited one. De-duplication is open
    (decision (b) below).
 2. `Leaf`: add `tasks: string[]` (additive). `status/verified/merged/attempts`
@@ -231,7 +232,7 @@ Locked model calls (2026-07-22, with owner):
    stores persist whole `Task` documents with no per-field handling. The "claim
    rule" belongs to P1 with the judge.)
 
-Ship reality (2026-07-22, same working day): the plan above landed as written
+Ship reality (2026-09-23, same working day): the plan above landed as written
 except item 4's shape — the planner is the *existing* seeded persona extended,
 not a new agent, because `delivery` and `koala` already delegate to a `planner`
 slug and an expectation test already listed it. A parallel work-session landed
@@ -244,7 +245,7 @@ full repo gate.*
 
 ### P1 — leaf execution on engine lanes *(large)*
 
-**Shape (owner-ruled 2026-07-22): independent leaves run in parallel, and the
+**Shape (owner-ruled 2026-09-23): independent leaves run in parallel, and the
 fan-out / merge is part of the procedure — not a serial "next ready leaf"
 queue.** The engine already has both nodes: `fan-out` (one child run per item,
 `maxParallel` 1–50, default 3, waits for all, each child gets `{item, index}`,
@@ -279,15 +280,15 @@ Budget note: the supervisor's `childRuns` must cover the tree's leaf count
 
 Build order (one at a time; each lands only with its context verified on a
 tree, gate green):
-1. `ready_leaves` grove tool (read-side; unblocks the procedure skeleton) — **implemented 2026-07-22**: partitions the tree into ready / unbroken / blocked(waitingOn) / notApproved / claimed / inFlight / settled; pending + deps-cleared + has-open-tasks ⇒ ready; unknown dep counts as unmet; another tree's leaves never leak in; wired through host + seeds + standard names; gate green.
+1. `ready_leaves` grove tool (read-side; unblocks the procedure skeleton) — **implemented 2026-09-23**: partitions the tree into ready / unbroken / blocked(waitingOn) / notApproved / claimed / inFlight / settled; pending + deps-cleared + has-open-tasks ⇒ ready; unknown dep counts as unmet; another tree's leaves never leak in; wired through host + seeds + standard names; gate green.
 
-**The claim/judge split (owner-ruled 2026-07-22 — re-shapes items 2–4).** The
+**The claim/judge split (owner-ruled 2026-09-23 — re-shapes items 2–4).** The
 task-level engine already lives this: `do-one-task` = work → evidence →*an
 independent judge* weighs the work against what the task asked for → verdict.
 The leaf level mirrors it; the executor does **not** settle its own leaf.
 - `claimed` is a real `LeafStatus` — the surface (the board's 'claimed'
   column) said the word all along; the model now lives it. Board word: "work
-  claimed, waiting for judgment". (Landed 2026-07-22, with the cross-boundary
+  claimed, waiting for judgment". (Landed 2026-09-23, with the cross-boundary
   mirror test: the frontend `leaf-types.ts` union + `stateFor` must keep the
   same arms in the same order.)
 - **`claim_leaf`** — the executor's hand: `leafId` + `evidence` (what was run,
@@ -311,7 +312,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   workspace repo before claiming, so the repo is the primary source, and the
   claim is a pointer to look at, never the evidence itself.
   Independence is structural; a re-judge after a crash re-runs judgment,
-  not work. **v1 boundary (noted 2026-07-22):** the agent-loop skeleton
+  not work. **v1 boundary (noted 2026-09-23):** the agent-loop skeleton
   releases sandboxes at run-end and `fan-out` has no environment input — the
   judge pass cannot inherit the executor's workspace; cross-run workspace
   handoff is a DSL addition, parked (add only if evidence demands grow; v1
@@ -324,13 +325,13 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   arrives after two independent checks, one per level of the model. The leaf
   lands its work in the workspace repo before claiming. Procedure: seeded
   `run-leaf` (an agent-loop skeleton: provision, model rounds with the
-  granted hands, release at done). **Landed 2026-07-22.**
+  granted hands, release at done). **Landed 2026-09-23.**
 - `grove-run` supervisor = work pass **+ judge pass** + merge + loop.
-2. **`leaf-executor` persona + `run-leaf` procedure — implemented 2026-07-22**
+2. **`leaf-executor` persona + `run-leaf` procedure — implemented 2026-09-23**
    (the thin champion: delegates the leaf's tasks to the seeded `executor`,
    lands the work in the repo, claims with pointers; the judge settles at the
    pass boundary).
-3. **`grove-run` supervisor — implemented 2026-07-22.** The shape landed as
+3. **`grove-run` supervisor — implemented 2026-09-23.** The shape landed as
    two thin pass procedures, because the pass boundary *is* the procedure
    boundary: `grove-work-pass` (fan-out `leaf-executor` over the run-input
    ready set → merge-all → finish) and `grove-judge-pass` (fan-out `judge`
@@ -380,6 +381,48 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   survives as the one-path proof. ReplanActivity → the P2 planner procedure,
   leaf-scoped, invoked between passes for failed leaves.
 
+### P1 fix-up — one sandbox per tree *(owner-ruled 2026-09-24)*
+
+Review against the code on 2026-09-24 found P1's proofs pass on a scripted model while the
+work could not survive a real one: every agent-loop run provisioned its **own** sandbox
+(keyed by run id) and released it at run end, so the delegated executor's edits, the
+leaf-executor's commit, the task judge and the leaf judge each lived in a different pod.
+The "parked" cross-run workspace handoff is therefore not optional — it is this fix-up.
+
+Rulings: one sandbox per tree, from planning to the last verdict; every run on the tree
+works in it; a git worktree per leaf; the planner leaves `PLAN.md` + `leaves/<leafId>.md`
+and every fan-out or delegation tells the next agent where that context is; stay-claimed
+parks for human review; the volume lives and the pod is started on demand.
+
+1. **Tree sandbox — landed 2026-09-24.** The engine's half-built *handed environment*
+   (`launch.environment`, honoured by `provision-sandbox`/`release-sandbox`) is finished
+   rather than a new key invented: tool-call delegation, `delegate` and `fan-out` hand
+   the caller's sandbox (never a machine) to the child, `AgentRunWorkflow` carries it
+   into the child's launch, and live sandboxes are keyed by sandbox id, so a child
+   re-attaches instead of provisioning, cannot release its parent's pod, and the sweep
+   never tears a handed one down. This applies everywhere, not only in grove (owner) —
+   the task judge now sees the executor's files. `TreeWorkspaces` owns the tree's
+   sandbox: one image covering the grove agents' tools, a PVC for `/work`, a pod that
+   is recreated over the volume when it is gone; `GroveRunWorkflow` hands it to every
+   pass and parks the pod when it stops. Release: deleting the tree, or the board's
+   *Sandbox → Release* action (`GET/DELETE /api/trees/:id/workspace`). Proofs:
+   `run-environments`/`environments`/`cluster-backend` unit tests, the orchestration
+   hand-down tests, a Temporal delegation test in `AgentRunWorkflow.test.ts`, the
+   `GroveRunWorkflow` proof (every tool call of the whole tree in one sandbox, no run
+   describing its own, the pod parked at the end; six sandboxes without the handoff),
+   and **live** `npm run test:tree-sandbox` against the cluster (two runs share one pod,
+   a child's release leaves it standing, park keeps the bound PVC, the next pod reads
+   the file back, release removes the namespace).
+   *Deferred by ruling:* releasing when every leaf succeeded applies only to coding
+   trees whose accepted leaf work is pushed to Gitea as its own commit — Gitea is the
+   source of truth there; non-coding trees keep the volume. Until the push lands,
+   nothing auto-releases. Reconciling parallel leaves' work is an open design question.
+2. Planner writes `PLAN.md` + leaf briefs into the tree sandbox — open.
+3. Worktree per leaf + context pointers through every fan-out/delegation; the claim
+   carries the commit — open.
+4. Stay-claimed parks for human review (today it re-judges every pass to the cap) —
+   open.
+
 ### P2 — planning + launching in engine *(medium)*
 
 - ProjectPlanWorkflow → make-plan lane run; ReplanActivity same procedure,
@@ -427,7 +470,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
 ## Rollout
 
 - **Global cutover, no per-tree A/B** — the old engine holding is decided
-  dead (owner, 2026-07-22). Past state stays in the DB and keeps rendering on
+  dead (owner, 2026-09-23). Past state stays in the DB and keeps rendering on
   the grove surface; leaf work after the cutover runs only on the new engine.
 - Every phase: full repo gate (`npm run test:unit`) green.
 - P4 adds the crash-test protocol; P5 adds trace-equivalence snapshots
@@ -440,24 +483,33 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
 - (b) Grove UI: facade until P5 (plan) vs earlier TaskBoard flip.
 - (c) Cluster/machine work flows (Temporale) stay outside; only env
   seam adapts.
-- (d) ~~Per-tree flag as rollover unit~~ — **retired** by owner 2026-07-22:
+- (d) ~~Per-tree flag as rollover unit~~ — **retired** by owner 2026-09-23:
   global cutover, no flag; see Rollout.
 - (e) Branch delivery/notice as engine proposals (appeal in chat) vs plain
   channel.
 
 ## Decision log
 
-- 2026-07-22 — Plan drafted (original leaf⇄task 1:1 mapping).
-- 2026-07-22 — Model revised: **leaf contains one-or-many tasks**; leaf = goal
+- 2026-09-24 (owner) — *One sandbox per tree, planning to last verdict; a worktree per
+  leaf; the planner leaves the plan and leaf briefs in it and every split says where the
+  context is; stay-claimed parks for review; volume lives, pod on demand; children inherit
+  the caller's sandbox everywhere; finish the engine's handed-environment path rather than
+  add a ticket key.* Release: tree deleted, explicit board action, or — for coding trees
+  once accepted work is on Gitea — every leaf succeeded. The dates in this document before
+  this entry were written as 2026-07-22; the commits are 2026-09-23 and the text is
+  corrected.
+
+- 2026-09-23 — Plan drafted (original leaf⇄task 1:1 mapping).
+- 2026-09-23 — Model revised: **leaf contains one-or-many tasks**; leaf = goal
   broken down from branch, unit of judgment/board status; task = engine work
   item under a leaf; task deps are same-leaf-only in v1. *(per owner)*
-- 2026-07-22 — P0 locked: **one** `planner` agent parameterized by tree type;
+- 2026-09-23 — P0 locked: **one** `planner` agent parameterized by tree type;
   a leaf may have **zero tasks** (planned, not broken down — chat-based leaf
   planning deferred to a later phase); `propose_work` **enforces** a brief on
   leaf tasks via refusal — `description` (full task description) and `role`
   (part it plays in the overall project) are required when `leafId` is set;
   same-leaf-only `dependsOn`. *(per owner)*
-- 2026-07-22 (later, during implementation) — The “one planner” is the
+- 2026-09-23 (later, during implementation) — The “one planner” is the
   **existing seeded `planner` persona extended** (tools `make_branch`/
   `make_leaf`, optional `treeId`/`treeType` inputs, Grove protocol in prompt),
   not a new agent: `koala` and `delivery` already delegate to a `planner`
@@ -465,14 +517,14 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   would duplicate the picker, fork delegation semantics, and force a slug-test
   change with no behaviour gain. *(inferred from the existing seeds; owner
   unobjectionable = keep, flag on next review)*
-- 2026-07-22 (later) — Task-model fork incident: the wired `Task` copy lived
+- 2026-09-23 (later) — Task-model fork incident: the wired `Task` copy lived
   in `engine-host/tools/tasks.ts`, a parallel one in `lib/tasks.ts`; a brief
   enforcement + field added to the unwired copy and *dropped on save* by the
   wired one. Fixed by syncing both (checks shape, `describeProblem`,
   `newTask`). **Two doc copies of any engine model is the hazard** —
   de-duplication decision open until a dedicated green window (no emergency,
   nothing else touches these fields today). *(owner informed; no objection so far)*
-- 2026-07-22 (later) — `packages/context-engine` (observation masking, token
+- 2026-09-23 (later) — `packages/context-engine` (observation masking, token
   estimation, dual-boundary clipping, progressive compaction) landed as a new
   workspace package with its own typecheck/test entries in the root gate,
   and was wired into `agent-engine` `nodes/context.ts`. Independent of grove
@@ -480,7 +532,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   the full gate has an own-lane tightness — and is classified under P5 in
   this document, not P0. *(parallel work-session on the same tree; owner
   to confirm scope on next touch)*
-- 2026-07-22 (later still, owner rulings) — **(a)** *No coexistence of the old
+- 2026-09-23 (later still, owner rulings) — **(a)** *No coexistence of the old
   engine: the cutover is global; per-tree A/B is dropped* — leaf execution
   after the cutover runs only on the new engine; the legacy launch path is
   removed at P4. **(b)** *P1 shaping: the legacy activity capabilities are
@@ -494,7 +546,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   unchanged, so their handoffs land on the new persona. The ghost
   `procedure: 'thesis'` in the old record was also dead weight and did not
   survive the rebuild.
-- 2026-07-22 (owner, re: claim and judge) — *The executor claims; a judge
+- 2026-09-23 (owner, re: claim and judge) — *The executor claims; a judge
   settles.* The leaf mirror of the task-level `do-one-task` pattern (work →
   evidence → independent judge → verdict): the executor holds `claim_leaf`
   (evidence + pointers into the live workspace; may fail-blocked; may **not**
@@ -505,7 +557,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   the workspace stays alive until settlement. `claimed` joins `LeafStatus`
   (additive; board column already said the word; mirrored in
   `leaf-types.ts` under the cross-boundary arm test).
-- 2026-07-22 (night) — *The supervisor got its durable body.* The pass loop,
+- 2026-09-23 (night) — *The supervisor got its durable body.* The pass loop,
   previously proven only in an in-process harness, landed as the Temporal
   `GroveRunWorkflow`: partition as a read-only activity over the real
   `ready_leaves` handler, each pass as a child `AgentRunWorkflow`, and a
@@ -517,7 +569,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
   five partition reads, quiet end; leaves verified; tasks done; dependent leaf
   waited a pass). *Enforced per the one-at-a-time rule (landed with its proof
   before anything else).*
-- 2026-07-22 (owner, re P1 execution) — *Independent leaves run in parallel
+- 2026-09-23 (owner, re P1 execution) — *Independent leaves run in parallel
   when their dependencies allow, and they are told about it; fan-out and
   merge are part of the procedure.* The tree-level `grove-run` supervisor
   computes the ready set, fans out one `leaf-executor` run per ready leaf

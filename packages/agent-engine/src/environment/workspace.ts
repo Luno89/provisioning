@@ -29,6 +29,7 @@ export interface RunWorkspace {
   egress: EgressRule[];
   env: { name: string; value: string }[];
   egressMode: EgressMode;
+  persistent?: boolean | undefined;
 }
 
 export const REGISTRY_MIRROR = 'http://verdaccio.koala-registry.svc.cluster.local:4873';

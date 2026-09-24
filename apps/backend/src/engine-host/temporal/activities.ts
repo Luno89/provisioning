@@ -17,6 +17,7 @@ import {
 import type {
   GrovePartition,
   GrovePartitionArgs,
+  GroveWorkspaceArgs,
   MergeArgs,
   MergeRuntime,
   PublishArgs,
@@ -34,6 +35,7 @@ import type {
   SettleClaimsArgs,
 } from './contracts.js';
 import { createGroveTools } from '../tools/grove-tools.js';
+import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { Tree } from '../../lib/trees.js';
 import type { Branch, Leaf } from '../../lib/leaves.js';
 import type { AgentRegistry } from '../registries/registry.js';
@@ -69,6 +71,7 @@ export interface EngineServices extends StreamServices {
   tasks?: { list(ownerId: string): Promise<Task[]>; save(task: Task): Promise<void> } | undefined;
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
+  treeWorkspaces?: TreeWorkspaces | undefined;
 }
 
 /** Read-side of a grove's stores: just enough for the ready-leaves partition. */
@@ -138,6 +141,8 @@ export interface EngineActivities extends StreamActivities {
   EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome>;
   EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>>;
   GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition>;
+  GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
+  GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   EngineNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
   EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void>;
   EngineRunLimitsActivity(args: RunLimitsArgs): Promise<RunLimits>;
@@ -177,6 +182,16 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 
     async EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>> {
       return services.merges.run(args);
+    },
+
+    async GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox> {
+      if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so a grove run has nowhere to work');
+      return services.treeWorkspaces.describe(args);
+    },
+
+    async GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void> {
+      if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so there is no pod to park');
+      await services.treeWorkspaces.park(args.treeId);
     },
 
     async GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition> {

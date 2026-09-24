@@ -180,7 +180,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       return engine.EngineToolActivity(args);
     },
 
-    async runChild({ agent, inputs, run }): Promise<ChildOutcomeValue> {
+    async runChild({ agent, inputs, environment, run }): Promise<ChildOutcomeValue> {
       children += 1;
       const childRunId = `${ticket.runId}-${agent}-${children}`;
       const resolved = await engine.EngineResolveAgentActivity({ ownerId: ticket.ownerId, agentSlug: agent });
@@ -203,6 +203,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           procedure: resolved.procedure,
           inputs: { ...inputs, message: JSON.stringify(inputs) },
           ...(input.projectId ? { projectId: input.projectId } : {}),
+          ...(environment ? { environment } : {}),
         }],
       });
 
@@ -293,7 +294,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       loopVersion: procedure.version,
       trigger: ticket.trigger,
     },
-    launch: launchFor(ticket, input.projectId),
+    launch: { ...launchFor(ticket, input.projectId), ...(input.environment ? { environment: input.environment } : {}) },
     inputs: input.inputs,
     budget: limits,
     bus,

@@ -307,3 +307,36 @@ describe('using a run environment', () => {
     ]);
   });
 });
+
+describe('a sandbox shared by several agents', () => {
+  const treeTicket = (): RunTicket => ({ runId: 'tree-t1', depth: 0, ownerId: 'user-1', agentSlug: 'grove-runner', trigger: 'user' });
+
+  it('is built to carry every tool the agents working in it hold, and keeps its work on a volume', async () => {
+    const { resolver } = setup();
+    const shared = await resolver.describeShared({ ticket: treeTicket(), agents: ['leaf-executor', 'executor', 'judge'] });
+
+    expect(shared.id).toBe(environmentIdFor('tree-t1'));
+    expect(shared.workspace).toMatchObject({ runId: 'tree-t1', persistent: true, lifetimeMs: MAX_LIFETIME_MS });
+    expect(shared.capabilities).toMatchObject({ kind: 'sandbox', lifecycle: 'persistent' });
+  });
+
+  it('ignores agents that need no sandbox, and refuses when none of them does', async () => {
+    const { resolver } = setup();
+
+    await expect(resolver.describeShared({ ticket: treeTicket(), agents: ['planner', 'executor'] })).resolves.toMatchObject({ kind: 'sandbox' });
+    await expect(resolver.describeShared({ ticket: treeTicket(), agents: ['planner', 'research'] })).rejects.toThrow(/nothing to share/);
+  });
+
+  it('is the one pod every run handed it works in', async () => {
+    const { resolver, provision } = setup();
+    const shared = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'] });
+    const handle = { id: shared.id, spec: shared.capabilities, workspace: shared.workspace };
+
+    const first = await resolver.forRun({ ticket: ticket('executor', 'grove-t1-p1-work-leaf-executor-1'), environment: handle });
+    const second = await resolver.forRun({ ticket: ticket('judge', 'grove-t1-p1-judge-judge-1'), environment: handle });
+
+    expect(second).toBe(first);
+    expect(provision).toHaveBeenCalledTimes(1);
+    expect(provision.mock.calls[0]![0]).toMatchObject({ id: environmentIdFor('tree-t1'), workspace: { runId: 'tree-t1', persistent: true } });
+  });
+});

@@ -18,7 +18,9 @@ import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { createEnvironmentResolver } from '../engine-host/sandboxes/environments.js';
-import { createRunEnvironments } from '../engine-host/sandboxes/run-environments.js';
+import { createRunEnvironments, environmentIdFor } from '../engine-host/sandboxes/run-environments.js';
+import { createTreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
+import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { createSandboxDriver } from '../engine-host/drivers/sandbox.js';
 import { createNodeRunner } from '../engine-host/temporal/activities.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -252,6 +254,42 @@ describe('GroveRunWorkflow', () => {
       ...groveTools,
     };
 
+    const provisioned: string[] = [];
+    const resolver = createEnvironmentResolver({
+      registry,
+      environments: createRunEnvironments({
+        provision: async ({ id, spec }) => {
+          provisioned.push(id);
+          return createSandboxDriver({
+            sandboxId: id,
+            spec,
+            backend: {
+              exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
+              readFile: async () => '',
+              writeFile: async () => undefined,
+              listDir: async () => [],
+              deleteFile: async () => undefined,
+            },
+          });
+        },
+      }),
+      images: {
+        ensure: async (plan) => plan.base,
+        exists: async () => true,
+        start: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
+        standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
+      },
+      tools: async () => [],
+    });
+    const describeRun = vi.spyOn(resolver, 'describe');
+    const kubeCalls: string[][] = [];
+    const kube: KubeRunner = async (args) => {
+      kubeCalls.push(args);
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const treeWorkspaces = createTreeWorkspaces({ resolver, kube });
+    const sandboxOfCall: (string | undefined)[] = [];
+
     const conversations = inMemoryConversations();
     const models = {
       resolveBaseUrl: async () => ({
@@ -287,29 +325,7 @@ describe('GroveRunWorkflow', () => {
           };
         },
       },
-      environments: createEnvironmentResolver({
-        registry,
-        environments: createRunEnvironments({
-          provision: async ({ id, spec }) => createSandboxDriver({
-            sandboxId: id,
-            spec,
-            backend: {
-              exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
-              readFile: async () => '',
-              writeFile: async () => undefined,
-              listDir: async () => [],
-              deleteFile: async () => undefined,
-            },
-          }),
-        }),
-        images: {
-          ensure: async (plan) => plan.base,
-          exists: async () => true,
-          start: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-          standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }),
-        },
-        tools: async () => [],
-      }),
+      environments: resolver,
       memories: { list: async () => [], save: async () => undefined },
     }), ['activity', 'sandbox']);
 
@@ -344,6 +360,8 @@ describe('GroveRunWorkflow', () => {
       workflowsPath: resolve(__dirname),
       activities: {
         GrovePartitionActivity: partitionCalls,
+        GroveWorkspaceActivity: vi.fn((args: { treeId: string; ownerId: string }) => treeWorkspaces.describe(args)),
+        GroveParkWorkspaceActivity: vi.fn((args: { treeId: string }) => treeWorkspaces.park(args.treeId)),
         EngineRunLimitsActivity: vi.fn((args: RunLimitsArgs) => tracker.limits(args)),
         EngineRecordEffortActivity: vi.fn((effort: RunEffort) => tracker.record(effort)),
         EngineSettleClaimsActivity: vi.fn(async () => [] as string[]),
@@ -359,7 +377,8 @@ describe('GroveRunWorkflow', () => {
             callableAgents: callable.map((agent) => agent.slug),
           };
         }),
-        EngineToolActivity: vi.fn(async (args: { name: string; arguments: string; ticket: Record<string, unknown> }) => {
+        EngineToolActivity: vi.fn(async (args: { name: string; arguments: string; ticket: Record<string, unknown>; environment?: { id: string } }) => {
+          if (args.ticket.agentSlug !== 'grove-runner') sandboxOfCall.push(args.environment?.id);
           const handler = toolHandlers[args.name];
           if (!handler) return { ok: false, digest: `no handler for ${args.name}` };
           const parsed = JSON.parse(args.arguments || '{}') as Record<string, unknown>;
@@ -427,5 +446,14 @@ describe('GroveRunWorkflow', () => {
     const byProcedure = (id: string) => efforts.filter((effort) => effort.procedureId === id);
     expect(byProcedure('grove-work-pass')).toHaveLength(2);
     expect(byProcedure('grove-judge-pass')).toHaveLength(2);
+
+    // One sandbox for the whole tree: every call any agent made worked in it, and no run asked for its own.
+    expect(sandboxOfCall.length).toBeGreaterThan(0);
+    expect(new Set(sandboxOfCall)).toEqual(new Set([environmentIdFor('tree-tree-1')]));
+    expect(describeRun).not.toHaveBeenCalled();
+    expect(provisioned.every((id) => id === environmentIdFor('tree-tree-1'))).toBe(true);
+
+    // When the run stops, the pod is parked; the tree's volume is not touched.
+    expect(kubeCalls.map((args) => args.slice(0, 2).join(' '))).toEqual(['delete pod']);
   });
 });

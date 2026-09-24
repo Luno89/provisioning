@@ -85,6 +85,10 @@ export async function destroyWorkspace(run: KubeRunner, namespace: string): Prom
   await run(['delete', 'namespace', namespace, '--ignore-not-found', '--wait=false']);
 }
 
+export async function retirePod(run: KubeRunner, namespace: string, pod: string): Promise<void> {
+  await run(['delete', 'pod', pod, '-n', namespace, '--ignore-not-found', '--wait=true'], undefined, 60_000);
+}
+
 export async function workspaceRunning(run: KubeRunner, namespace: string, pod: string): Promise<boolean> {
   const got = await run(
     ['get', 'pod', pod, '-n', namespace, '-o', 'jsonpath={.status.phase}'],

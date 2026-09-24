@@ -169,3 +169,42 @@ describe('run-owned environments', () => {
     expect(provisioned[0]?.scope).toEqual({ worktree: 'wt-a' });
   });
 });
+
+describe('handed environments', () => {
+  it('gives a child the pod its parent already has, not one of its own', async () => {
+    const { environments, provisioned } = harness();
+
+    const parent = await environments.forRun({ ticket: ticket('run-1'), spec });
+    const child = await environments.forRun({ ticket: ticket('run-1-executor-1'), id: environmentIdFor('run-1'), spec });
+
+    expect(child).toBe(parent);
+    expect(provisioned).toHaveLength(1);
+  });
+
+  it('leaves the pod standing when a child releases, and tears it down when the owner does', async () => {
+    const { environments, disposed } = harness();
+
+    await environments.forRun({ ticket: ticket('run-1'), spec });
+    await environments.forRun({ ticket: ticket('run-1-executor-1'), id: environmentIdFor('run-1'), spec });
+
+    expect(await environments.release('run-1-executor-1')).toBe(false);
+    expect(disposed).toEqual([]);
+
+    expect(await environments.release('run-1')).toBe(true);
+    expect(disposed).toEqual([environmentIdFor('run-1')]);
+  });
+
+  it('re-attaches to a handed pod it has not seen, and the sweep forgets it without tearing it down', async () => {
+    const onLeak = vi.fn();
+    const { environments, disposed, provisioned, clock } = harness({ maxAgeMs: 60_000, onLeak });
+
+    await environments.forRun({ ticket: ticket('run-1-executor-1'), id: environmentIdFor('tree-abc'), spec });
+    expect(provisioned[0]?.id).toBe(environmentIdFor('tree-abc'));
+
+    clock.now = 60_000;
+    expect(await environments.sweep()).toEqual([]);
+    expect(disposed).toEqual([]);
+    expect(onLeak).not.toHaveBeenCalled();
+    expect(environments.live()).toBe(0);
+  });
+});

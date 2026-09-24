@@ -226,3 +226,52 @@ describe('call tool, delegate, fan out and wait', () => {
     expect(unanswered).toMatchObject({ exit: 'unanswered', outputs: { reason: 'the run was cancelled' } });
   });
 });
+
+describe('children work where their parent works', () => {
+  const sandbox = { kind: 'sandbox', id: 'engine-tree-t1', workspace: { runId: 'tree-t1' }, capabilities: { kind: 'sandbox', lifecycle: 'invocation' } } as never;
+  const machine = { kind: 'machine', deviceId: 'd1', deviceName: 'desk', egressMode: 'declared' } as never;
+  const none = { kind: 'none', egress: false } as never;
+  const handedTo = (p: ReturnType<typeof ports>) => (p.runChild as ReturnType<typeof vi.fn>).mock.calls.map(([request]) => (request as { environment?: unknown }).environment);
+
+  it('hands a delegate called as a tool the sandbox its caller is working in', async () => {
+    const p = ports();
+    await invoke(createOrchestrationNodes(p), runToolCalls, {
+      inputs: { persona: persona(), environment: sandbox, reply: reply([{ id: 'a', name: 'research', arguments: '{}' }]) },
+    });
+
+    expect(handedTo(p)).toEqual([sandbox]);
+  });
+
+  it('keeps a machine or an empty environment to the caller, so the child finds its own', async () => {
+    const onMachine = ports();
+    await invoke(createOrchestrationNodes(onMachine), runToolCalls, {
+      inputs: { persona: persona(), environment: machine, reply: reply([{ id: 'a', name: 'research', arguments: '{}' }]) },
+    });
+    const withNothing = ports();
+    await invoke(createOrchestrationNodes(withNothing), runToolCalls, {
+      inputs: { persona: persona(), environment: none, reply: reply([{ id: 'a', name: 'research', arguments: '{}' }]) },
+    });
+
+    expect(handedTo(onMachine)).toEqual([undefined]);
+    expect(handedTo(withNothing)).toEqual([undefined]);
+  });
+
+  it('hands every fanned-out child and every delegate the sandbox the run was launched in', async () => {
+    const launch = { ownerId: 'owner-1', environment: sandbox };
+
+    const fanned = ports();
+    await invoke(createOrchestrationNodes(fanned), fanOut, { settings: { agent: 'leaf-executor' }, inputs: { items: ['l1', 'l2'] }, run: { launch } });
+    const delegated = ports();
+    await invoke(createOrchestrationNodes(delegated), delegate, { settings: { agent: 'judge', inputs: '{}' }, run: { launch } });
+
+    expect(handedTo(fanned)).toEqual([sandbox, sandbox]);
+    expect(handedTo(delegated)).toEqual([sandbox]);
+  });
+
+  it('fans out without an environment when the run was not handed one', async () => {
+    const p = ports();
+    await invoke(createOrchestrationNodes(p), fanOut, { settings: { agent: 'leaf-executor' }, inputs: { items: ['l1'] } });
+
+    expect(handedTo(p)).toEqual([undefined]);
+  });
+});

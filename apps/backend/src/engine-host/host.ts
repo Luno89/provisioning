@@ -9,6 +9,7 @@ import { createClusterBackend } from './sandboxes/cluster-backend.js';
 import { createKubeRunner } from './sandboxes/kube.js';
 import { createImageBuilder, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
+import { createTreeWorkspaces, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
 import { createMachineBackend } from './drivers/machine-backend.js';
 import { createToolRuntime } from './tools/tool-runtime.js';
 import { createEngineToolHandlers } from './tools/engine-tools.js';
@@ -66,6 +67,7 @@ export interface EngineHost {
   endpoints: ReturnType<typeof createEndpointResolver>;
   environments: EnvironmentResolver;
   runEnvironments: RunEnvironments;
+  treeWorkspaces: TreeWorkspaces;
   images: ImageBuilder;
   tools: ToolRuntime;
   services: HostNodeServices;
@@ -114,6 +116,8 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tools: (ownerId: string) => catalogue.list(ownerId),
     machineBackend: createMachineBackend(),
   });
+
+  const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube });
 
   const web = options.web;
   const handlers = createEngineToolHandlers({
@@ -182,7 +186,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   return {
     efforts, workspaceImages, registry, catalogue, endpoints, environments,
-    runEnvironments, images, tools, services, implemented,
+    runEnvironments, treeWorkspaces, images, tools, services, implemented,
   };
 }
 

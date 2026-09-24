@@ -40,6 +40,7 @@ function services(over: Partial<EngineServices> = {}): { services: EngineService
       },
       environments: {
         describe: vi.fn(async () => sandboxEnvironment()),
+        describeShared: vi.fn(async () => sandboxEnvironment()),
         forRun: vi.fn(async () => undefined),
         release: vi.fn(async () => undefined),
       },

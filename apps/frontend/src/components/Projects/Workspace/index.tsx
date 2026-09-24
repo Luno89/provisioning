@@ -31,6 +31,7 @@ import { useOpenFiles } from '../../ProjectEditor/useOpenFiles.js'
 import { isDirty } from '../../ProjectEditor/shared.js'
 import { BuildsDeploysPanel } from './BuildsDeploysPanel.js'
 import { BranchesPanel } from './BranchesPanel.js'
+import { TreeSandboxPanel } from './TreeSandboxPanel.js'
 import { panel, resizeHandle, type SelectedEntity } from './shared.js'
 import { useResizableWidth } from './useResizableWidth.js'
 
@@ -110,6 +111,7 @@ export function Workspace({
   const [modes, setModes] = useState<Record<string, 'chat' | 'auto' | 'plan'>>({})
   const [opening, setOpening] = useState<{ branchId: string; prompt: string } | undefined>()
   const [showNewTree, setShowNewTree] = useState(false)
+  const [sandboxOpen, setSandboxOpen] = useState(false)
   const [promotingBranchId, setPromotingBranchId] = useState<string | null>(null)
   const [acceptError, setAcceptError] = useState<string | null>(null)
 
@@ -574,6 +576,15 @@ export function Workspace({
               onDeleteBranch={(id) => deleteBranch.mutate(id)}
               creating={createBranch.isPending}
             />
+          </CollapsibleSection>
+        )}
+        {hasTree && treeId && (
+          <CollapsibleSection
+            title="Sandbox"
+            isOpen={sandboxOpen}
+            onToggle={setSandboxOpen}
+          >
+            <TreeSandboxPanel treeId={treeId} />
           </CollapsibleSection>
         )}
       </div>

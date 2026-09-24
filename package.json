@@ -40,6 +40,7 @@
     "test:e2e": "npm run test:alive && npm run test:test:e2e:setup && npx playwright test e2e && npm run test:test:e2e:teardown",
     "test:infra:integration": "node tests/infra-integration.ts",
     "test:remote-integration": "tsx tests/remote-host-integration.ts",
+    "test:tree-sandbox": "cd apps/backend && tsx ../../tests/tree-sandbox-integration.ts",
     "test:unit:vpn": "node packages/cdktf-infra/lib/vpn-service.spec.js",
     "test:synth:palworld": "tsx tests/palworld-synth.ts",
     "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",

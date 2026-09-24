@@ -20,6 +20,7 @@ export interface RunEnvironmentOptions {
 export interface RunEnvironments {
   forRun(request: {
     ticket: RunTicket;
+    id?: string | undefined;
     spec: EnvironmentSpec;
     workspace?: RunWorkspace | undefined;
     scope?: EnvironmentScope | undefined;
@@ -44,7 +45,8 @@ export function environmentIdFor(runId: string): string {
 interface Live {
   driver: EnvironmentDriver;
   startedAt: number;
-  pending?: Promise<EnvironmentDriver> | undefined;
+  owned: boolean;
+  runId: string;
 }
 
 export function createRunEnvironments(options: RunEnvironmentOptions): RunEnvironments {
@@ -53,54 +55,58 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
   const live = new Map<string, Live>();
   const starting = new Map<string, Promise<EnvironmentDriver>>();
 
-  const dispose = async (runId: string, entry: Live): Promise<void> => {
-    live.delete(runId);
-    await entry.driver.dispose?.().catch(() => undefined);
+  const dispose = async (id: string, entry: Live): Promise<void> => {
+    live.delete(id);
+    if (entry.owned) await entry.driver.dispose?.().catch(() => undefined);
   };
 
   return {
-    async forRun({ ticket, spec, workspace, scope }): Promise<EnvironmentDriver> {
-      const existing = live.get(ticket.runId);
+    async forRun({ ticket, id, spec, workspace, scope }): Promise<EnvironmentDriver> {
+      const own = environmentIdFor(ticket.runId);
+      const key = id ?? own;
+
+      const existing = live.get(key);
       if (existing) return existing.driver;
 
-      const inFlight = starting.get(ticket.runId);
+      const inFlight = starting.get(key);
       if (inFlight) return inFlight;
 
       const attempt = options.provision({
-        id: environmentIdFor(ticket.runId),
+        id: key,
         ticket,
         spec,
         ...(workspace ? { workspace } : {}),
         ...(scope ? { scope } : {}),
       }).then((driver) => {
-        live.set(ticket.runId, { driver, startedAt: now() });
-        starting.delete(ticket.runId);
+        live.set(key, { driver, startedAt: now(), owned: key === own, runId: ticket.runId });
+        starting.delete(key);
         return driver;
       }).catch((err: unknown) => {
-        starting.delete(ticket.runId);
+        starting.delete(key);
         throw err;
       });
 
-      starting.set(ticket.runId, attempt);
+      starting.set(key, attempt);
       return attempt;
     },
 
     async release(runId: string): Promise<boolean> {
-      const entry = live.get(runId);
+      const key = environmentIdFor(runId);
+      const entry = live.get(key);
       if (!entry) return false;
-      await dispose(runId, entry);
+      await dispose(key, entry);
       return true;
     },
 
     async sweep(at: number = now()): Promise<string[]> {
       const stale = [...live.entries()].filter(([, entry]) => at - entry.startedAt >= maxAge);
 
-      for (const [runId, entry] of stale) {
-        options.onLeak?.(runId, at - entry.startedAt);
-        await dispose(runId, entry);
+      for (const [id, entry] of stale) {
+        if (entry.owned) options.onLeak?.(entry.runId, at - entry.startedAt);
+        await dispose(id, entry);
       }
 
-      return stale.map(([runId]) => runId);
+      return stale.filter(([, entry]) => entry.owned).map(([, entry]) => entry.runId);
     },
 
     live(): number {

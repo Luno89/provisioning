@@ -867,7 +867,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/tree-types', treeTypesRouter({ db }));
   app.use('/api/custom-steps', customStepsRouter({ db }));
   app.use('/api/binding-types', bindingTypesRouter({ db }));
-  app.use('/api/trees', treesRouter({ db, temporalBridge }));
+  app.use('/api/trees', treesRouter({ db, temporalBridge, workspaces: evalHost.treeWorkspaces }));
   app.use('/api/branches', branchesRouter({ db, temporalBridge }));
 
   async function koalaServers(userId: string) {

@@ -83,6 +83,7 @@ async function buildActivities() {
       list: (ownerId: string) => db.getTasks(ownerId),
       save: (task: Task) => db.saveTask(task),
     },
+    treeWorkspaces: host.treeWorkspaces,
     grove: {
       trees: { list: () => db.getTrees() },
       branches: { list: () => db.getBranches() },

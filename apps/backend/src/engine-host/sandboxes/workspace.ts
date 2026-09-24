@@ -14,6 +14,9 @@ export const DEFAULT_MEMORY = '2Gi';
 
 export const MAX_LIFETIME_MS = 12 * 60 * 60_000;
 
+export const WORK_VOLUME = 'work';
+export const WORK_VOLUME_SIZE = '10Gi';
+
 export const EGRESS_PROXY: EgressRule = { namespace: 'koala-egress', ports: [8888] };
 
 export interface RunWorkspace {
@@ -28,6 +31,7 @@ export interface RunWorkspace {
   egress: EgressRule[];
   env: { name: string; value: string }[];
   egressMode: EgressMode;
+  persistent?: boolean | undefined;
 }
 
 export const REGISTRY_MIRROR = 'http://verdaccio.koala-registry.svc.cluster.local:4873';
@@ -142,12 +146,22 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
     app: 'koala-workspace',
   };
 
+  const volume = workspace.persistent
+    ? [{
+      apiVersion: 'v1',
+      kind: 'PersistentVolumeClaim',
+      metadata: { name: WORK_VOLUME, namespace, labels },
+      spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: WORK_VOLUME_SIZE } } },
+    }]
+    : [];
+
   return [
     {
       apiVersion: 'v1',
       kind: 'Namespace',
       metadata: { name: namespace, labels },
     },
+    ...volume,
     {
       apiVersion: 'networking.k8s.io/v1',
       kind: 'NetworkPolicy',
@@ -216,7 +230,9 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
           },
         ],
         volumes: [
-          { name: 'work', emptyDir: {} },
+          workspace.persistent
+            ? { name: 'work', persistentVolumeClaim: { claimName: WORK_VOLUME } }
+            : { name: 'work', emptyDir: {} },
           { name: 'tmp', emptyDir: {} },
         ],
       },

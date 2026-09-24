@@ -68,7 +68,7 @@ describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, temporalBridge: bridge() }),
+      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined } }),
     });
     // Setup seeds the tree types; the route stopped doing it lazily on read.
     await seedTreeTypes(h.db);

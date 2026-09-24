@@ -144,6 +144,7 @@ export interface ProcedureRunInput {
   procedure: Procedure;
   inputs: Record<string, unknown>;
   projectId?: string | undefined;
+  environment?: EnvironmentValue | undefined;
 }
 
 /** The grove run: the tree-level loop that alternates work and judge passes until the tree is quiet. */
@@ -156,6 +157,11 @@ export interface GroveRunArgs {
 
 export interface GrovePartitionArgs {
   treeId: string;
+}
+
+export interface GroveWorkspaceArgs {
+  treeId: string;
+  ownerId: string;
 }
 
 export interface GrovePartitionLeaf {

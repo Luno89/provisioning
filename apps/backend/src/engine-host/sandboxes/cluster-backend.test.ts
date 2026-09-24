@@ -162,3 +162,46 @@ describe('working inside it', () => {
     ]);
   });
 });
+
+describe('a workspace that outlives its pod', () => {
+  const kept: RunWorkspace = { ...workspace, runId: 'tree-t1', persistent: true };
+
+  it('keeps the work on a claimed volume, not on the pod', async () => {
+    const { run, calls } = kube({ get: notRunning });
+    await createClusterBackend({ run, workspace: kept }).exec({ sandboxId: 'x', command: 'echo' });
+
+    const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
+    expect(applied).toContain('"kind":"PersistentVolumeClaim"');
+    expect(applied).toContain('"persistentVolumeClaim":{"claimName":"work"}');
+    expect(applied).not.toContain('"name":"work","emptyDir"');
+  });
+
+  it('a run-owned workspace stays on scratch space', async () => {
+    const { run, calls } = kube({ get: notRunning });
+    await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'echo' });
+
+    const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
+    expect(applied).not.toContain('PersistentVolumeClaim');
+  });
+
+  it('brings a pod back over the same volume after it was parked or ran out its deadline', async () => {
+    let phase: KubeResult = notRunning;
+    const calls: string[][] = [];
+    const run: KubeRunner = vi.fn(async (args) => {
+      calls.push(args);
+      if (args[0] === 'get') return phase;
+      if (args[0] === 'wait') phase = running;
+      return { stdout: '', stderr: '', exitCode: 0 };
+    });
+    const backend = createClusterBackend({ run, workspace: kept });
+
+    await backend.exec({ sandboxId: 'x', command: 'echo one' });
+    phase = notRunning;
+    await backend.exec({ sandboxId: 'x', command: 'echo two' });
+
+    const verbs = calls.map((args) => args.slice(0, 2).join(' '));
+    expect(verbs.filter((verb) => verb === 'delete pod')).toHaveLength(2);
+    expect(verbs.filter((verb) => verb.startsWith('apply'))).toHaveLength(2);
+    expect(verbs.some((verb) => verb === 'delete namespace')).toBe(false);
+  });
+});

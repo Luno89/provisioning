@@ -2,10 +2,12 @@ import { proxyActivities, executeChild } from '@temporalio/workflow';
 import { GROVE_JUDGE_PASS, GROVE_WORK_PASS, type Procedure } from '@koala/agent-engine/procedure';
 import { AgentRunWorkflow } from './AgentRunWorkflow.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
+import type { TreeSandbox } from '../engine-host/sandboxes/tree-workspaces.js';
 import type {
   GrovePartition,
   GrovePartitionArgs,
   GrovePartitionLeaf,
+  GroveWorkspaceArgs,
   GroveRunArgs,
   GroveRunResult,
   ProcedureRunInput,
@@ -20,6 +22,14 @@ const { GrovePartitionActivity } = proxyActivities<{
 }>({
   retry: ACTIVITY_RETRY,
   startToCloseTimeout: '30 seconds',
+});
+
+const { GroveWorkspaceActivity, GroveParkWorkspaceActivity } = proxyActivities<{
+  GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
+  GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
+}>({
+  retry: ACTIVITY_RETRY,
+  startToCloseTimeout: '10 minutes',
 });
 
 /**
@@ -37,6 +47,16 @@ const { GrovePartitionActivity } = proxyActivities<{
  * re-judge only reaches claims that are actually still open.
  */
 export async function GroveRunWorkflow(args: GroveRunArgs): Promise<GroveRunResult> {
+  const workspace = { treeId: args.treeId, ownerId: args.ownerId };
+  const environment = await GroveWorkspaceActivity(workspace);
+  try {
+    return await passUntilQuiet(args, environment);
+  } finally {
+    await GroveParkWorkspaceActivity(workspace);
+  }
+}
+
+async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Promise<GroveRunResult> {
   const maxPasses = args.maxPasses ?? MAX_PASSES_DEFAULT;
   let passes = 0;
 
@@ -55,6 +75,7 @@ export async function GroveRunWorkflow(args: GroveRunArgs): Promise<GroveRunResu
     if (partition.ready.length > 0) {
       await runGrovePass({
         args,
+        environment,
         pass: passes,
         procedure: GROVE_WORK_PASS,
         role: 'work',
@@ -66,6 +87,7 @@ export async function GroveRunWorkflow(args: GroveRunArgs): Promise<GroveRunResu
     if (partition.claimed.length > 0) {
       await runGrovePass({
         args,
+        environment,
         pass: passes,
         procedure: GROVE_JUDGE_PASS,
         role: 'judge',
@@ -104,6 +126,7 @@ function claimItems(claimed: GrovePartition['claimed'], treeId: string): Record<
 /** One pass: one child engine run of the pass procedure; a failed pass fails the run (the loop resumes at the next partition). */
 async function runGrovePass(options: {
   args: GroveRunArgs;
+  environment: TreeSandbox;
   pass: number;
   procedure: Procedure;
   role: 'work' | 'judge';
@@ -117,7 +140,7 @@ async function runGrovePass(options: {
     agentSlug: 'grove-runner',
     trigger: 'user',
   };
-  const input: ProcedureRunInput = { ticket, procedure: options.procedure, inputs: options.inputs };
+  const input: ProcedureRunInput = { ticket, procedure: options.procedure, inputs: options.inputs, environment: options.environment };
 
   const child = await executeChild(AgentRunWorkflow, { workflowId: runId, args: [input] });
   if (child.outcome !== 'ok') {

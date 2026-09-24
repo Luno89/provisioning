@@ -39,6 +39,7 @@ export interface EnvironmentRequest {
 
 export interface EnvironmentResolver {
   describe(ticket: RunTicket, wallClockLimitMs?: number | undefined): Promise<RunEnvironment>;
+  describeShared(request: { ticket: RunTicket; agents: readonly string[] }): Promise<Extract<RunEnvironment, { kind: 'sandbox' }>>;
   forRun(request: EnvironmentRequest): Promise<EnvironmentDriver | undefined>;
   release(runId: string): Promise<void>;
 }
@@ -107,6 +108,40 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
   };
 
   return {
+    async describeShared({ ticket, agents }) {
+      const found = await Promise.all(agents.map((slug) => options.registry.agent(ticket.ownerId, slug)));
+      const working = found.filter((agent): agent is AgentDefinition => agent !== undefined && environmentFor(agent).kind === 'sandbox');
+      const [first] = working;
+      if (!first) throw new Error(`none of ${agents.join(', ')} works in a sandbox, so there is nothing to share`);
+
+      const unique = (values: string[]): string[] => [...new Set(values)];
+      const merged: AgentDefinition = {
+        ...first,
+        slug: ticket.agentSlug,
+        tools: unique(working.flatMap((agent) => agent.tools)),
+        environment: {
+          ...Object.assign({}, ...working.map((agent) => agent.environment)),
+          languages: unique(working.flatMap((agent) => agent.environmentSpec?.languages ?? agent.environment.languages ?? [])),
+        },
+      };
+
+      const workspace = await workspaceFor({
+        runId: ticket.runId,
+        ownerId: ticket.ownerId,
+        agent: merged,
+        tools: await options.tools(ticket.ownerId),
+        images: options.images,
+        egressMode: merged.egressMode ?? 'declared',
+      });
+
+      return {
+        kind: 'sandbox',
+        id: environmentIdFor(ticket.runId),
+        capabilities: { ...environmentFor(merged), lifecycle: 'persistent' },
+        workspace: { ...workspace, persistent: true },
+      };
+    },
+
     async describe(ticket: RunTicket, wallClockLimitMs?: number | undefined): Promise<RunEnvironment> {
       const resolved = await specFor(ticket);
       if (!resolved) return { kind: 'none', egress: false };
@@ -189,6 +224,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
 
       return options.environments.forRun({
         ticket,
+        ...(environment?.id ? { id: environment.id } : {}),
         spec,
         ...(environment?.workspace ? { workspace: environment.workspace } : {}),
         ...(request.worktree ? { scope: { worktree: request.worktree } } : {}),

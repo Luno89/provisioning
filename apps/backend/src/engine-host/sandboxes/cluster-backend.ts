@@ -2,6 +2,7 @@ import { buildManifests, workspaceName, POD, type RunWorkspace } from './workspa
 import {
   applyWorkspace,
   destroyWorkspace,
+  retirePod,
   workspaceRunning,
   type KubeRunner,
 } from './kube.js';
@@ -24,13 +25,16 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
   const { run } = options;
   let standing = false;
 
+  const persistent = options.workspace.persistent === true;
+
   const ensure = async (): Promise<void> => {
-    if (standing) return;
+    if (standing && !persistent) return;
     if (await workspaceRunning(run, namespace, POD).catch(() => false)) {
       standing = true;
       return;
     }
 
+    if (persistent) await retirePod(run, namespace, POD);
     await applyWorkspace(run, {
       manifests: buildManifests(options.workspace),
       namespace,

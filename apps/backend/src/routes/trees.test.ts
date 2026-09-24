@@ -6,10 +6,17 @@ import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
+const workspaces = {
+  state: vi.fn(async (_treeId: string) => 'parked' as const),
+  release: vi.fn(async (_treeId: string) => undefined),
+};
+
 const mount = async (): Promise<Harness> => {
+  workspaces.state.mockClear();
+  workspaces.release.mockClear();
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, temporalBridge: {} as never }),
+    router: (db) => treesRouter({ db, temporalBridge: {} as never, workspaces }),
   });
   return h!;
 };
@@ -72,5 +79,33 @@ describe('PATCH /trees/:id', () => {
     await harness.db.saveTree(tree({ id: 'theirs', ownerId: 'someone-else' }) as never);
     const err = await axios.patch(harness.url('/api/trees/theirs'), { name: 'hijacked' }).catch((e) => e);
     expect(err.response.status).toBe(404);
+  });
+});
+
+describe('a tree\'s workspace', () => {
+  it('reports the state of the tree\'s sandbox', async () => {
+    const harness = await mount();
+    await harness.db.saveTree(tree() as never);
+    const res = await axios.get(harness.url('/api/trees/t1/workspace'));
+    expect(res.data).toEqual({ state: 'parked' });
+    expect(workspaces.state).toHaveBeenCalledWith('t1');
+  });
+
+  it('releases the sandbox on request, and never another owner\'s', async () => {
+    const harness = await mount();
+    await harness.db.saveTree(tree() as never);
+    await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
+
+    const res = await axios.delete(harness.url('/api/trees/t1/workspace'));
+    expect(res.data).toEqual({ state: 'none' });
+    await expect(axios.delete(harness.url('/api/trees/t2/workspace'))).rejects.toMatchObject({ response: { status: 404 } });
+    expect(workspaces.release.mock.calls).toEqual([['t1']]);
+  });
+
+  it('releases the sandbox when the tree itself is deleted', async () => {
+    const harness = await mount();
+    await harness.db.saveTree(tree() as never);
+    await axios.delete(harness.url('/api/trees/t1'));
+    expect(workspaces.release.mock.calls).toEqual([['t1']]);
   });
 });
