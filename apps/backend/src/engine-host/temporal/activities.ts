@@ -21,6 +21,10 @@ import type {
   AdoptPlanArgs,
   GrovePrepareWorkArgs,
   GrovePreparedWork,
+  GroveLeafTasksArgs,
+  GroveLeafTaskView,
+  GroveClaimArgs,
+  GroveClaimOutcome,
   GroveJudgeCheckoutArgs,
   GroveJudgeCheckouts,
   MergeArgs,
@@ -43,6 +47,8 @@ import { createGroveTools } from '../tools/grove-tools.js';
 import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
 import { prepareJudgeCheckout, prepareLeafWorktree, WorktreeConflictError } from '../grove-worktrees.js';
+import { claimEvidence } from '../../lib/grove-leaf.js';
+import { leafWorktree } from '../../lib/plan-documents.js';
 import type { AdoptedPlan } from '../../lib/plan-proposals.js';
 import type { Tree } from '../../lib/trees.js';
 import type { Branch, Leaf } from '../../lib/leaves.js';
@@ -153,6 +159,8 @@ export interface EngineActivities extends StreamActivities {
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
+  GroveLeafTasksActivity(args: GroveLeafTasksArgs): Promise<GroveLeafTaskView[]>;
+  GroveClaimActivity(args: GroveClaimArgs): Promise<GroveClaimOutcome>;
   GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
@@ -174,7 +182,15 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace },
     });
     if (!driver) throw new Error('the tree sandbox could not be reached to prepare worktrees');
-    return { driver, leaves: (await services.grove.leaves.list()).filter((leaf) => leaf.ownerId === ownerId) };
+    const worktreeDriver = async (worktree: string) => {
+      const narrowed = await services.environments.forRun({
+        ticket: { runId: `grove-${treeId}-prepare`, depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
+        environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace, scope: { worktree } },
+      });
+      if (!narrowed) throw new Error(`the tree sandbox could not be reached in ${worktree}`);
+      return narrowed;
+    };
+    return { driver, worktreeDriver, leaves: (await services.grove.leaves.list()).filter((leaf) => leaf.ownerId === ownerId) };
   };
 
   const adoption = (): PlanAdoption => {
@@ -246,6 +262,64 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         }
       }
       return prepared;
+    },
+
+    async GroveLeafTasksActivity(args) {
+      if (!services.tasks) throw new Error('the task store is not wired, so a leaf\'s tasks cannot be read');
+      return (await services.tasks.list(args.ownerId))
+        .filter((task) => task.leafId === args.leafId)
+        .map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          dependsOn: task.dependsOn,
+          doneMeans: task.doneMeans,
+          ...(task.description ? { description: task.description } : {}),
+          ...(task.role ? { role: task.role } : {}),
+          ...(task.checks ? { checks: task.checks } : {}),
+          ...(task.evidence ? { evidence: task.evidence } : {}),
+          ...(task.runs.length > 0 ? { runs: task.runs } : {}),
+        }));
+    },
+
+    async GroveClaimActivity(args) {
+      const saveLeaf = services.grove?.leaves.save;
+      if (!services.tasks || !services.grove || !saveLeaf) throw new Error('the grove stores are not wired for claiming');
+      const { worktreeDriver } = await treeAccess(args.treeId, args.ownerId);
+      const driver = await worktreeDriver(leafWorktree(args.leafId));
+      const leaves = services.grove.leaves;
+      const tasks = (await services.tasks.list(args.ownerId)).filter((task) => task.leafId === args.leafId);
+
+      if (args.result === 'claimed') {
+        const leaf = (await leaves.list()).find((entry) => entry.id === args.leafId);
+        const left = await driver.exec({ command: 'git status --porcelain', timeoutMs: 60_000 });
+        if (left.exitCode === 0 && left.stdout.trim()) {
+          const message = `leaf ${leaf?.title ?? args.leafId}: work its tasks left uncommitted`;
+          await driver.exec({ command: `git add -A && git commit -q -m '${message.replace(/'/g, `'\\''`)}'`, timeoutMs: 60_000 });
+        }
+      }
+
+      const refuse = async (): Promise<void> => { throw new Error('claiming only writes the leaf'); };
+      const tools = createGroveTools({
+        stores: {
+          trees: { list: services.grove.trees.list, save: refuse },
+          branches: { list: services.grove.branches.list, save: refuse },
+          leaves: { list: leaves.list, save: saveLeaf },
+          tasks: { list: services.grove.tasks.list },
+        },
+      });
+      const outcome = await tools['claim_leaf']!({
+        name: 'claim_leaf',
+        parsed: {
+          leafId: args.leafId,
+          result: args.result,
+          evidence: claimEvidence(tasks) || 'no task reported anything',
+          ...(args.reason ? { reason: args.reason } : {}),
+        },
+        driver,
+        caller: { ownerId: args.ownerId, runId: `grove-${args.treeId}-claim-${args.leafId}`, agentSlug: 'grove-leaf-runner' },
+      });
+      return { ok: outcome.ok, digest: outcome.digest };
     },
 
     async GroveJudgeCheckoutActivity(args) {

@@ -41,9 +41,9 @@ async function main(): Promise<void> {
     const handle = { id: shared.id, spec: shared.capabilities, workspace: shared.workspace };
     assert.equal(await host.treeWorkspaces.state(treeId), 'none');
 
-    console.log('[2/6] a leaf-executor run writes into it');
-    const worker = await host.environments.forRun({ ticket: ticket(`grove-${treeId}-p1-work-leaf-executor-1`, 'leaf-executor'), environment: handle });
-    assert.ok(worker, 'the leaf-executor got no sandbox');
+    console.log('[2/6] an executor run writes into it');
+    const worker = await host.environments.forRun({ ticket: ticket(`grove-${treeId}-p1-leaf-a-task-1`, 'executor'), environment: handle });
+    assert.ok(worker, 'the executor got no sandbox');
     const wrote = await worker.exec({ command: 'mkdir -p /work/repo && echo "the leaf did this" > /work/repo/proof.txt' });
     assert.equal(wrote.exitCode, 0, wrote.stderr);
     assert.equal(await host.treeWorkspaces.state(treeId), 'running');
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
     await host.treeWorkspaces.park(treeId);
     assert.equal(await host.treeWorkspaces.state(treeId), 'parked');
     assert.equal(await kubectl('get', 'pvc', 'work', '-n', namespace, '-o', 'jsonpath={.status.phase}'), 'Bound');
-    const later = await host.environments.forRun({ ticket: ticket(`grove-${treeId}-p2-work-leaf-executor-1`, 'leaf-executor'), environment: handle });
+    const later = await host.environments.forRun({ ticket: ticket(`grove-${treeId}-p2-leaf-a-task-1`, 'executor'), environment: handle });
     assert.ok(later, 'the second pass got no sandbox');
     assert.equal((await later.exec({ command: 'cat /work/repo/proof.txt' })).stdout.trim(), 'the leaf did this');
     assert.equal(await host.treeWorkspaces.state(treeId), 'running');

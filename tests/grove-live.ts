@@ -107,7 +107,7 @@ async function main(): Promise<void> {
 
   const shared = await host.treeWorkspaces.describe({ treeId, ownerId: OWNER });
   const reader = await host.environments.forRun({
-    ticket: { runId: `grove-live-reader-${treeId}`, depth: 1, ownerId: OWNER, agentSlug: 'leaf-executor', trigger: 'agent' },
+    ticket: { runId: `grove-live-reader-${treeId}`, depth: 1, ownerId: OWNER, agentSlug: 'executor', trigger: 'agent' },
     environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace },
   });
   const log = await reader?.exec({ command: 'cd /work/repo && git log --all --graph --oneline -20 && echo ---- && git worktree list && echo ---- && ls -R /work/trees 2>/dev/null | head -40' });

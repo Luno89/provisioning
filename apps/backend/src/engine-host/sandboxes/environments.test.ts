@@ -313,7 +313,7 @@ describe('a sandbox shared by several agents', () => {
 
   it('is built to carry every tool the agents working in it hold, and keeps its work on a volume', async () => {
     const { resolver } = setup();
-    const shared = await resolver.describeShared({ ticket: treeTicket(), agents: ['leaf-executor', 'executor', 'judge'] });
+    const shared = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor', 'judge', 'leaf-judge'] });
 
     expect(shared.id).toBe(environmentIdFor('tree-t1'));
     expect(shared.workspace).toMatchObject({ runId: 'tree-t1', persistent: true, lifetimeMs: MAX_LIFETIME_MS });
@@ -332,7 +332,7 @@ describe('a sandbox shared by several agents', () => {
     const shared = await resolver.describeShared({ ticket: treeTicket(), agents: ['executor'] });
     const handle = { id: shared.id, spec: shared.capabilities, workspace: shared.workspace };
 
-    const first = await resolver.forRun({ ticket: ticket('executor', 'grove-t1-p1-work-leaf-executor-1'), environment: handle });
+    const first = await resolver.forRun({ ticket: ticket('executor', 'grove-t1-p1-leaf-a-task-1'), environment: handle });
     const second = await resolver.forRun({ ticket: ticket('judge', 'grove-t1-p1-judge-judge-1'), environment: handle });
 
     expect(second).toBe(first);

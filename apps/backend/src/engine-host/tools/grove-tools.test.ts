@@ -203,10 +203,11 @@ describe('ready_leaves', () => {
       leaf('leaf-other-tree', 'pending', { branchId: 'branch-2' }), // another tree — must not appear
     );
     tasks.push(
-      task('task-1', 'leaf-ready'),
+      task('task-1', 'leaf-ready', 'accepted'),
       task('task-2', 'leaf-ready', 'dropped'), // settled — does not count
-      task('task-3', 'leaf-ready-after-done'),
+      task('task-3', 'leaf-ready-after-done', 'accepted'),
       task('task-4', 'leaf-done', 'done'),
+      task('task-5', 'leaf-unbroken', 'proposed'),
     );
   };
 

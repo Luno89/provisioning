@@ -23,6 +23,7 @@ interface Carries {
   mustSay: string[];
   mustOffer?: string[];
   mustNotOffer?: string[];
+  procedureId?: string;
   /** The run is structure: no model rounds of its own, but the child it fans out makes one — checked for shape instead of count. */
   passRun?: true;
 }
@@ -34,6 +35,16 @@ const MUST_CARRY: Record<string, Carries> = {
     mustSay: [TASK.id, TASK.title, 'contains exactly the word hello', 'The task has already been claimed for you.'],
     mustOffer: ['run_command', 'write_file'],
     mustNotOffer: ['start_task', 'mark_done', 'mark_failed', 'judge'],
+  },
+  'do-one-task for a grove leaf': {
+    procedureId: 'do-one-task',
+    agent: 'executor',
+    run: {
+      message: 'Do the task you have been given.',
+      inputs: { item: { ...TASK, leafId: 'leaf-g1', context: { planDoc: 'PLAN.md', leafBrief: 'leaves/leaf-g1.md', worktree: 'trees/leaf-g1', branch: 'leaf/leaf-g1' } } },
+    },
+    mustSay: [TASK.id, 'PLAN.md', 'leaves/leaf-g1.md', 'trees/leaf-g1', 'leaf/leaf-g1'],
+    mustOffer: ['run_command', 'write_file'],
   },
   planning: {
     agent: 'planner',
@@ -71,32 +82,6 @@ const MUST_CARRY: Record<string, Carries> = {
     },
     mustSay: ['hello.txt'],
   },
-  'run-leaf': {
-    agent: 'leaf-executor',
-    run: {
-      message: 'Work the leaf you have been given.',
-      inputs: {
-        leafId: 'leaf-r1',
-        leafTitle: 'The server answers /health',
-        leafBody: 'The server answers /health on :3000',
-        siblings: '3 other leaves are working in this tree at the same time, among them "The logger writes to the file"',
-      },
-    },
-    mustSay: ['leaf-r1', 'The server answers /health on :3000', '3 other leaves are working in this tree at the same time'],
-    mustOffer: ['claim_leaf', 'list_tasks', 'run_command', 'executor'],
-    mustNotOffer: ['settle_leaf'],
-  },
-  'grove-work-pass': {
-    agent: 'grove-runner',
-    passRun: true,
-    run: {
-      message: 'Grove work pass, tree t-1.',
-      inputs: { ready: [{ leafId: 'leaf-w1', leafTitle: 'Health endpoint', leafBody: 'The server answers /health on :3000', treeId: 't-1' }] },
-    },
-    mustSay: ['leaf-w1', 'The server answers /health on :3000'],
-    mustOffer: ['claim_leaf', 'list_tasks', 'executor'],
-    mustNotOffer: ['settle_leaf'],
-  },
   'grove-judge-pass': {
     agent: 'grove-runner',
     passRun: true,
@@ -108,11 +93,13 @@ const MUST_CARRY: Record<string, Carries> = {
           leafTitle: 'Health endpoint',
           leafBody: 'The server answers /health on :3000',
           treeId: 't-1',
-          claim: { evidence: 'committed at abc1233: server/app.ts answers /health on :3000', at: '2026-07-22T12:00:00.000Z' },
+          worktree: 'judge/leaf-j1',
+          context: { planDoc: 'PLAN.md', leafBrief: 'leaves/leaf-j1.md', worktree: 'judge/leaf-j1', branch: 'leaf/leaf-j1', commit: 'abc1233' },
+          claim: { evidence: 'committed at abc1233: server/app.ts answers /health on :3000', commit: 'abc1233', at: '2026-07-22T12:00:00.000Z' },
         }],
       },
     },
-    mustSay: ['leaf-j1', 'committed at abc1233'],
+    mustSay: ['leaf-j1', 'committed at abc1233', 'leaves/leaf-j1.md', 'judge/leaf-j1'],
     mustOffer: ['settle_leaf', 'read_file'],
   },
 }
@@ -120,7 +107,7 @@ const MUST_CARRY: Record<string, Carries> = {
 describe('what each built-in procedure actually puts in front of the model', () => {
   for (const [id, carries] of Object.entries(MUST_CARRY)) {
     it(`${id} tells the model everything the run was given`, async () => {
-      const { requests, result } = await composedRequests({ procedure: procedure(id), agent: carries.agent, ...carries.run });
+      const { requests, result } = await composedRequests({ procedure: procedure(carries.procedureId ?? id), agent: carries.agent, ...carries.run });
 
       expect(requests.length, 'the model was never called').toBeGreaterThan(0);
       const first = requests[0]!;
@@ -147,7 +134,8 @@ describe('what each built-in procedure actually puts in front of the model', () 
   }
 
   it('every built-in procedure says what its context has to carry', () => {
-    expect(BUILT_IN_PROCEDURES.map((entry) => entry.id).sort()).toEqual(Object.keys(MUST_CARRY).sort());
+    const covered = Object.entries(MUST_CARRY).filter(([, carries]) => carries.procedureId === undefined).map(([id]) => id);
+    expect(BUILT_IN_PROCEDURES.map((entry) => entry.id).sort()).toEqual(covered.sort());
   });
 });
 

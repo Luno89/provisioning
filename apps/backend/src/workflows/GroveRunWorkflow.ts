@@ -1,9 +1,12 @@
-import { proxyActivities, executeChild } from '@temporalio/workflow';
-import { GROVE_JUDGE_PASS, GROVE_WORK_PASS, type Procedure } from '@koala/agent-engine/procedure';
+import { proxyActivities, executeChild, workflowInfo } from '@temporalio/workflow';
+import { GROVE_JUDGE_PASS, type Procedure } from '@koala/agent-engine/procedure';
 import { AgentRunWorkflow } from './AgentRunWorkflow.js';
+import { GroveLeafWorkflow } from './GroveLeafWorkflow.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import type { TreeSandbox } from '../engine-host/sandboxes/tree-workspaces.js';
 import { judgeCheckout, leafContext, leafWorktree } from '../lib/plan-documents.js';
+
+const LEAVES_AT_ONCE = 3;
 import type {
   GrovePartition,
   GrovePartitionArgs,
@@ -43,8 +46,9 @@ const { GroveWorkspaceActivity, GroveParkWorkspaceActivity, GrovePrepareWorkActi
  * The grove run — the tree-level loop that the pass procedures were built for.
  *
  * It IS the activity loop (the pass loop, host-side, deterministic): partition
- * the tree; work every ready leaf in one fan-out (grove-work-pass, a child
- * engine run); judge every fresh claim in its own run (grove-judge-pass);
+ * the tree; work every ready leaf as its own GroveLeafWorkflow (its tasks
+ * through the executor, then the claim, all by code); judge every fresh claim
+ * in its own run (grove-judge-pass);
  * re-partition; until the tree is quiet or the pass cap is reached.
  *
  * Reading the partition as an activity and the passes as child workflows keeps
@@ -86,16 +90,7 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
     const workable = partition.ready.filter((leaf) => prepared.ready.includes(leaf.id));
 
     if (partition.ready.length > 0) {
-      if (workable.length > 0) {
-        await runGrovePass({
-          args,
-          environment,
-          pass: passes,
-          procedure: GROVE_WORK_PASS,
-          role: 'work',
-          inputs: { ready: workItems(workable, args.treeId) },
-        });
-      }
+      await workLeaves(args, environment, passes, workable);
       // The work pass files fresh claims; the judge pass must see them, so read the tree again.
       partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
     }
@@ -113,20 +108,27 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
   }
 }
 
-/** The fan-out item the pass children receive — the leaf the child owns, and who else is working on the same tree. */
-function workItems(ready: GrovePartitionLeaf[], treeId: string): Record<string, unknown>[] {
-  return ready.map((leaf) => ({
-    leafId: leaf.id,
-    leafTitle: leaf.title,
-    leafBody: leaf.body,
-    treeId,
-    branchId: leaf.branchId,
-    worktree: leafWorktree(leaf.id),
-    context: leafContext(leaf.id),
-    ...(ready.length > 1
-      ? { siblings: `${ready.length - 1} other leaves are working in this tree at the same time, each in its own worktree — stay inside ${leaf.title}.` }
-      : {}),
-  }));
+async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: number, leaves: GrovePartitionLeaf[]): Promise<void> {
+  const run = workflowInfo().workflowId;
+  for (let offset = 0; offset < leaves.length; offset += LEAVES_AT_ONCE) {
+    await Promise.all(leaves.slice(offset, offset + LEAVES_AT_ONCE).map((leaf) => {
+      const runId = `${run}-p${pass}-leaf-${leaf.id}`;
+      return executeChild(GroveLeafWorkflow, {
+        workflowId: runId,
+        args: [{
+          treeId: args.treeId,
+          ownerId: args.ownerId,
+          leafId: leaf.id,
+          leafTitle: leaf.title,
+          runId,
+          environment,
+          ...(leaves.length > 1
+            ? { siblings: `${leaves.length - 1} other leaves of this tree are being worked at the same time, each in its own worktree — keep to ${leaf.title}.` }
+            : {}),
+        }],
+      });
+    }));
+  }
 }
 
 /** The fan-out item the judge children receive — the leaf and the claim that is against it. */
@@ -153,10 +155,10 @@ async function runGrovePass(options: {
   environment: TreeSandbox;
   pass: number;
   procedure: Procedure;
-  role: 'work' | 'judge';
+  role: 'judge';
   inputs: Record<string, unknown>;
 }): Promise<void> {
-  const runId = `grove-${options.args.treeId}-p${options.pass}-${options.role}`;
+  const runId = `${workflowInfo().workflowId}-p${options.pass}-${options.role}`;
   const ticket: RunTicket = {
     runId,
     depth: 0,

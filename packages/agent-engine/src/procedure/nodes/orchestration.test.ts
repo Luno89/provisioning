@@ -260,7 +260,7 @@ describe('children work where their parent works', () => {
     const launch = { ownerId: 'owner-1', environment: sandbox };
 
     const fanned = ports();
-    await invoke(createOrchestrationNodes(fanned), fanOut, { settings: { agent: 'leaf-executor' }, inputs: { items: ['l1', 'l2'] }, run: { launch } });
+    await invoke(createOrchestrationNodes(fanned), fanOut, { settings: { agent: 'leaf-judge' }, inputs: { items: ['l1', 'l2'] }, run: { launch } });
     const delegated = ports();
     await invoke(createOrchestrationNodes(delegated), delegate, { settings: { agent: 'judge', inputs: '{}' }, run: { launch } });
 
@@ -272,7 +272,7 @@ describe('children work where their parent works', () => {
     const launch = { ownerId: 'owner-1', environment: sandbox };
     const p = ports();
     await invoke(createOrchestrationNodes(p), fanOut, {
-      settings: { agent: 'leaf-executor' },
+      settings: { agent: 'leaf-judge' },
       inputs: { items: [{ leafId: 'a', worktree: 'trees/a' }, { leafId: 'b', worktree: 'trees/b' }, { leafId: 'c' }] },
       run: { launch },
     });
@@ -283,7 +283,7 @@ describe('children work where their parent works', () => {
 
   it('fans out without an environment when the run was not handed one', async () => {
     const p = ports();
-    await invoke(createOrchestrationNodes(p), fanOut, { settings: { agent: 'leaf-executor' }, inputs: { items: ['l1'] } });
+    await invoke(createOrchestrationNodes(p), fanOut, { settings: { agent: 'leaf-judge' }, inputs: { items: ['l1'] } });
 
     expect(handedTo(p)).toEqual([undefined]);
   });

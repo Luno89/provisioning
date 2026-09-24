@@ -51,7 +51,7 @@ describe('seeded agents', () => {
 
   it('replaces the four old engines, plus interactive chat and a delivery loop', () => {
     expect(ALL_SEEDED_AGENTS().map((agent) => agent.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-executor', 'leaf-judge', 'planner', 'research']);
+      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-judge', 'planner', 'research']);
   });
 
   it('resolves by slug for any user with no forks present', () => {
@@ -160,11 +160,8 @@ describe('seeded agents compose usable prompts', () => {
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['planner', 'research']));
   });
 
-  it('gives the leaf executor the claim and its executor delegate, but not settle_leaf', () => {
-    const { tools } = offered('leaf-executor');
-    const names = tools.map((tool) => tool.name);
-
-    expect(names).toEqual(expect.arrayContaining(['claim_leaf', 'list_tasks', 'read_file', 'run_command', 'executor']));
-    expect(names).not.toContain('settle_leaf');
+  it('has no model at the leaf level: nothing seeded claims a leaf, and the grove runner only hands claims to the leaf-judge', () => {
+    expect(ALL_SEEDED_AGENTS().filter((agent) => agent.tools.includes('claim_leaf')).map((agent) => agent.slug)).toEqual([]);
+    expect(agentBySlug('grove-runner').agents).toEqual(['leaf-judge']);
   });
 });

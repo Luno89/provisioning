@@ -89,7 +89,7 @@ const makeTask = (id: string, leafId: string, title: string, doneMeans: string):
   description: `${title} — write the endpoint`,
   doneMeans,
   dependsOn: [],
-  status: 'proposed',
+  status: 'accepted',
   runs: [],
   createdAt: fixedNow(),
   updatedAt: fixedNow(),
@@ -301,6 +301,7 @@ async function runGroveWorld() {
       environments: resolver,
       treeWorkspaces,
       grove: { trees: { list: stores.trees.list }, branches: { list: stores.branches.list }, leaves: { list: stores.leaves.list, save: stores.leaves.save }, tasks: { list: stores.tasks.list } },
+      tasks: { list: async (ownerId: string) => tasks.filter((task) => task.ownerId === ownerId), save: stores.tasks.save },
     } as never);
     const sandboxOfCall: (string | undefined)[] = [];
     const worktreeOfCall: string[] = [];
@@ -377,6 +378,8 @@ async function runGroveWorld() {
         GrovePartitionActivity: partitionCalls,
         GrovePrepareWorkActivity: realGrove.GrovePrepareWorkActivity,
         GroveJudgeCheckoutActivity: realGrove.GroveJudgeCheckoutActivity,
+        GroveLeafTasksActivity: realGrove.GroveLeafTasksActivity,
+        GroveClaimActivity: realGrove.GroveClaimActivity,
         GroveWorkspaceActivity: vi.fn((args: { treeId: string; ownerId: string }) => treeWorkspaces.describe(args)),
         GroveParkWorkspaceActivity: vi.fn((args: { treeId: string }) => treeWorkspaces.park(args.treeId)),
         EngineRunLimitsActivity: vi.fn((args: RunLimitsArgs) => tracker.limits(args)),
@@ -469,16 +472,20 @@ describe('GroveRunWorkflow', () => {
     // The model's work landed through the executor and its task judge.
     expect(tasks.map((task) => task.status)).toEqual(['done', 'done', 'done']);
 
-    // The passes made their own engine runs: two work passes, two judge passes, nothing else.
     const byProcedure = (id: string) => efforts.filter((effort) => effort.procedureId === id);
-    expect(byProcedure('grove-work-pass')).toHaveLength(2);
+    expect(byProcedure('do-one-task')).toHaveLength(3);
     expect(byProcedure('grove-judge-pass')).toHaveLength(2);
+    expect(efforts.some((effort) => effort.agentSlug === 'leaf-executor')).toBe(false);
+
+    for (const id of ['leafA', 'leafB', 'leafC']) {
+      const claim = leaves.find((entry) => entry.id === id)!.claim!;
+      expect(claim.commit, `${id} claim commit`).toBe('c0ffee');
+      expect(claim.evidence, `${id} claim evidence`).toMatch(/\[done\] \(runs: [^)]+\)\n  Wrote app-[ABC]\.ts/);
+    }
 
     expect(sandboxOfCall.length).toBeGreaterThan(0);
     expect(new Set(sandboxOfCall)).toEqual(new Set([environmentIdFor('tree-tree-1')]));
 
-    expect(worktreeOfCall.filter((line) => line.startsWith('leaf-executor claim_leaf')).sort())
-      .toEqual(['leaf-executor claim_leaf trees/leafA', 'leaf-executor claim_leaf trees/leafB', 'leaf-executor claim_leaf trees/leafC']);
     expect(worktreeOfCall.filter((line) => line.startsWith('leaf-judge settle_leaf')).sort())
       .toEqual(['leaf-judge settle_leaf judge/leafA', 'leaf-judge settle_leaf judge/leafB', 'leaf-judge settle_leaf judge/leafC']);
     expect(worktreeOfCall.some((line) => line.startsWith('judge settle_leaf'))).toBe(false);
@@ -487,8 +494,8 @@ describe('GroveRunWorkflow', () => {
     expect(leafCWorktree).toBeGreaterThan(-1);
     const mergedIntoC = gitCommands.slice(leafCWorktree).filter((command) => command.startsWith("git -C '/work/trees/leafC' merge"));
     expect(mergedIntoC).toEqual([
-      "git -C '/work/trees/leafC' merge -q --no-edit 'leaf/leafA'",
-      "git -C '/work/trees/leafC' merge -q --no-edit 'leaf/leafB'",
+      "git -C '/work/trees/leafC' merge -q --no-edit 'c0ffee'",
+      "git -C '/work/trees/leafC' merge -q --no-edit 'c0ffee'",
     ]);
     expect(gitCommands.some((command) => command.includes("worktree add -q --detach '/work/judge/leafA'"))).toBe(true);
     expect(describeRun).not.toHaveBeenCalled();

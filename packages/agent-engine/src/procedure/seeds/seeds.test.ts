@@ -89,7 +89,7 @@ describe('built-in procedures', () => {
   });
 
   it('keep ids unique and match the procedures agents already point at', () => {
-    expect(BUILT_IN_PROCEDURES.map((procedure) => procedure.id)).toEqual(['tool-rounds', 'interactive-chat', 'planning', 'research', 'single-shot', 'do-one-task', 'delivery', 'run-leaf', 'grove-work-pass', 'grove-judge-pass']);
+    expect(BUILT_IN_PROCEDURES.map((procedure) => procedure.id)).toEqual(['tool-rounds', 'interactive-chat', 'planning', 'research', 'single-shot', 'do-one-task', 'delivery', 'grove-judge-pass']);
   });
 
   it('expand into plain nodes a run can execute', () => {

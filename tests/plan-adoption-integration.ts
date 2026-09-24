@@ -84,7 +84,7 @@ async function main(): Promise<void> {
     console.log('[4/5] a later run on the tree reads them back from a fresh pod');
     const shared = await host.treeWorkspaces.describe({ treeId, ownerId: OWNER });
     const reader = await host.environments.forRun({
-      ticket: { runId: `reader-${conversationId}`, depth: 1, ownerId: OWNER, agentSlug: 'leaf-executor', trigger: 'agent' },
+      ticket: { runId: `reader-${conversationId}`, depth: 1, ownerId: OWNER, agentSlug: 'executor', trigger: 'agent' },
       environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace },
     });
     assert.ok(reader);

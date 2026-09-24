@@ -273,7 +273,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (options.stores.tasks) {
         const tasks = await options.stores.tasks.list();
         for (const task of tasks) {
-          if (task.leafId && !SETTLED.includes(task.status)) {
+          if (task.leafId && !SETTLED.includes(task.status) && task.status !== 'proposed') {
             openTasksByLeaf.set(task.leafId, (openTasksByLeaf.get(task.leafId) ?? 0) + 1);
           }
         }

@@ -192,6 +192,53 @@ export interface GroveJudgeCheckoutArgs {
 
 export type GroveJudgeCheckouts = Record<string, string | undefined>;
 
+export interface GroveLeafArgs {
+  treeId: string;
+  ownerId: string;
+  leafId: string;
+  leafTitle: string;
+  runId: string;
+  environment: EnvironmentValue;
+  siblings?: string | undefined;
+}
+
+export interface GroveLeafResult {
+  leafId: string;
+  outcome: 'claimed' | 'failed' | 'unbroken';
+  reason?: string | undefined;
+}
+
+export interface GroveLeafTasksArgs {
+  ownerId: string;
+  leafId: string;
+}
+
+export interface GroveLeafTaskView {
+  id: string;
+  title: string;
+  status: import('../../lib/tasks.js').TaskStatus;
+  dependsOn: string[];
+  doneMeans: string;
+  description?: string | undefined;
+  role?: string | undefined;
+  checks?: import('../../lib/tasks.js').TaskChecks | undefined;
+  evidence?: string | undefined;
+  runs?: string[] | undefined;
+}
+
+export interface GroveClaimArgs {
+  treeId: string;
+  ownerId: string;
+  leafId: string;
+  result: 'claimed' | 'failed';
+  reason?: string | undefined;
+}
+
+export interface GroveClaimOutcome {
+  ok: boolean;
+  digest: string;
+}
+
 export interface GroveWorkspaceArgs {
   treeId: string;
   ownerId: string;
