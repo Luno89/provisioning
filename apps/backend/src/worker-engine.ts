@@ -104,7 +104,7 @@ async function buildActivities() {
     grove: {
       trees: { list: () => db.getTrees() },
       branches: { list: () => db.getBranches() },
-      leaves: { list: () => db.getLeaves() },
+      leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
       tasks: { list: () => db.getTasks() },
     },
     effort: createEffortTracker({

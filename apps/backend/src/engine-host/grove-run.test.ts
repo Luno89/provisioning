@@ -127,25 +127,25 @@ function scriptedModel() {
   const rounds = new Map<string, number>();
 
   const classify = (seen: string, system: string): string => {
-    if (system.startsWith('You run one grove leaf in your workspace')) {
-      const leaf = /leaf[ABC]/.exec(seen)?.[0];
+    if (system.startsWith('You run one grove leaf')) {
+      const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
       return leaf ? `leaf-${leaf}` : 'leaf-none';
     }
     if (system.startsWith('You carry out one unit of work on a real machine')) {
-      const leaf = /leaf[ABC]/.exec(seen)?.[0];
+      const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
       return leaf ? `exec-${leaf}` : 'exec-none';
     }
     if (system.startsWith('You decide whether a piece of finished work meets what was asked')) {
       // The judge pass hands the claim itself (the leaf id rides inside it); a
       // task-level judge gets work signed by the seed name from the executor.
-      const claimedLeaf = /leaf[ABC]/.exec(seen.includes('"claim"') || seen.includes('claim:') ? seen : 'none')?.[0];
+      const claimedLeaf = /\bleaf[ABC]\b/.exec(seen.includes('"claim"') || seen.includes('claim:') ? seen : 'none')?.[0];
       if (claimedLeaf) return `judge-claim-${claimedLeaf}`;
       return `judge-task-${/seed-([A-C])/.exec(seen)?.[1] ?? 'x'}`;
     }
     return 'unknown';
   };
 
-  const leafOf = (key: string) => key.match(/leaf[ABC]/)?.[0] ?? 'leafDrop';
+  const leafOf = (key: string) => key.match(/\bleaf[ABC]\b/)?.[0] ?? 'leafDrop';
   const taskOf = (key: string) => `task${key.slice(-1).toUpperCase()}`;
 
   const bodyOf = (init: RequestInit): { content: string }[] => {
@@ -182,7 +182,7 @@ function scriptedModel() {
       payload = say(`Wrote app-${nameText}.ts and committed it as seed-${nameText}; the endpoint answers 200 on :3000.`);
     } else if (kind.startsWith('judge-claim')) {
       // The claim's item carries the leaf id; re-derive it from the run's own conversation.
-      const settleLeaf = /"leafId":\s*"(leaf[ABC])"/.exec(seen)?.[1] ?? /leaf[ABC]/.exec(seen)?.[0];
+      const settleLeaf = /"leafId":\s*"(leaf[ABC])"/.exec(seen)?.[1] ?? /\bleaf[ABC]\b/.exec(seen)?.[0];
       const settleName = settleLeaf?.slice(-1).toUpperCase() ?? '-';
       if (round === 1) {
         payload = call(`c-judge-${round}`, 'settle_leaf', { leafId: settleLeaf, verdict: 'verified', note: `re-derived from the commit pointer seed-${settleName}; the endpoint answers` });

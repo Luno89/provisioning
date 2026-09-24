@@ -337,3 +337,28 @@ describe('ownership', () => {
     }
   });
 });
+
+describe('tasks under a grove leaf', () => {
+  it('lists only the leaf\'s tasks when asked, each saying where its plan, brief and worktree are', async () => {
+    seed({ id: 'a1', leafId: 'leaf-a', description: 'write it', role: 'the page' });
+    seed({ id: 'b1', leafId: 'leaf-b', description: 'serve it', role: 'the server' });
+    seed({ id: 'x1' });
+
+    const outcome = await run('list_tasks', { leafId: 'leaf-a' });
+    const listed = JSON.parse(outcome.content ?? '[]') as { id: string; context?: string; description?: string }[];
+
+    expect(listed.map((task) => task.id)).toEqual(['a1']);
+    expect(listed[0]).toMatchObject({
+      description: 'write it',
+      context: 'leaf leaf-a: work in trees/leaf-a on branch leaf/leaf-a; the plan is PLAN.md and the leaf\'s brief is leaves/leaf-a.md, both at the top of that worktree — read them before changing anything',
+    });
+  });
+
+  it('tells whoever starts a leaf\'s task where its context is', async () => {
+    seed({ id: 'a1', leafId: 'leaf-a' });
+    const outcome = await run('start_task', { taskId: 'a1' });
+
+    expect(JSON.parse(outcome.content ?? '{}')).toMatchObject({ taskId: 'a1', context: expect.stringContaining('work in trees/leaf-a') });
+  });
+});
+

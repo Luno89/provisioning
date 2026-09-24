@@ -474,3 +474,35 @@ describe('list_tree_types', () => {
   });
 });
 
+describe('claim_leaf in a worktree', () => {
+  const driverWith = (outputs: Record<string, { stdout: string; exitCode?: number }>) => ({
+    exec: async ({ command }: { command: string }) => {
+      const found = Object.entries(outputs).find(([prefix]) => command.startsWith(prefix))?.[1];
+      return { stdout: found?.stdout ?? '', stderr: '', exitCode: found?.exitCode ?? 0 };
+    },
+  }) as never;
+  const pending = (): Leaf => ({
+    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state',
+    column: 'todo', status: 'pending', depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now',
+  });
+  const claimWith = (driver: never) => tools()['claim_leaf']!({
+    name: 'claim_leaf', parsed: { leafId: 'leaf-1', result: 'claimed', evidence: 'ran it' }, driver, caller,
+  });
+
+  it('records the commit the judge will check out', async () => {
+    leaves = [pending()];
+    const outcome = await claimWith(driverWith({ 'git status': { stdout: '' }, 'git rev-parse HEAD': { stdout: 'c0ffee1234567890' } }));
+
+    expect(outcome).toMatchObject({ ok: true, digest: 'claimed leaf-1 at c0ffee123456' });
+    expect(leaves[0]!.claim).toMatchObject({ commit: 'c0ffee1234567890' });
+  });
+
+  it('refuses while work is uncommitted, and names it', async () => {
+    leaves = [pending()];
+    const outcome = await claimWith(driverWith({ 'git status': { stdout: ' M site/index.html\n?? notes.txt' } }));
+
+    expect(outcome).toMatchObject({ ok: false, digest: expect.stringContaining('uncommitted changes (M site/index.html; ?? notes.txt)') });
+    expect(leaves[0]!.status).toBe('pending');
+  });
+});
+

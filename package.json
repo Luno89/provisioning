@@ -43,6 +43,7 @@
     "test:tree-sandbox": "cd apps/backend && tsx ../../tests/tree-sandbox-integration.ts",
     "test:plan-adoption": "cd apps/backend && tsx ../../tests/plan-adoption-integration.ts",
     "test:planner-live": "cd apps/backend && tsx ../../tests/planner-live.ts",
+    "test:leaf-worktrees": "cd apps/backend && tsx ../../tests/leaf-worktrees-integration.ts",
     "test:unit:vpn": "node packages/cdktf-infra/lib/vpn-service.spec.js",
     "test:synth:palworld": "tsx tests/palworld-synth.ts",
     "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",

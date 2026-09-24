@@ -22,7 +22,7 @@ import { createRunEnvironments, environmentIdFor } from '../engine-host/sandboxe
 import { createTreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { createSandboxDriver } from '../engine-host/drivers/sandbox.js';
-import { createNodeRunner } from '../engine-host/temporal/activities.js';
+import { createEngineActivities, createNodeRunner } from '../engine-host/temporal/activities.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
@@ -132,16 +132,16 @@ const worldStores = () => {
 };
 
 const classify = (seen: string, system: string): string => {
-  if (system.startsWith('You run one grove leaf in your workspace')) {
-    const leaf = /leaf[ABC]/.exec(seen)?.[0];
+  if (system.startsWith('You run one grove leaf')) {
+    const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
     return leaf ? `leaf-${leaf}` : 'leaf-none';
   }
   if (system.startsWith('You carry out one unit of work on a real machine')) {
-    const leaf = /leaf[ABC]/.exec(seen)?.[0];
+    const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
     return leaf ? `exec-${leaf}` : 'exec-none';
   }
   if (system.startsWith('You decide whether a piece of finished work meets what was asked')) {
-    const claimedLeaf = /leaf[ABC]/.exec(seen.includes('"claim"') || seen.includes('claim:') ? seen : 'none')?.[0];
+    const claimedLeaf = /\bleaf[ABC]\b/.exec(seen.includes('"claim"') || seen.includes('claim:') ? seen : 'none')?.[0];
     if (claimedLeaf) return `judge-claim-${claimedLeaf}`;
     return `judge-task-${/seed-([A-C])/.exec(seen)?.[1] ?? 'x'}`;
   }
@@ -159,7 +159,7 @@ const scriptModel = (rounds: Map<string, number>) =>
     const round = (rounds.get(kind) ?? 0) + 1;
     rounds.set(kind, round);
 
-    const leaf = kind.match(/leaf[ABC]/)?.[0] ?? 'leafNone';
+    const leaf = kind.match(/\bleaf[ABC]\b/)?.[0] ?? 'leafNone';
     const name = leaf.slice(-1).toUpperCase();
     const task = `task${name}`;
 
@@ -255,6 +255,7 @@ describe('GroveRunWorkflow', () => {
     };
 
     const provisioned: string[] = [];
+    const gitCommands: string[] = [];
     const resolver = createEnvironmentResolver({
       registry,
       environments: createRunEnvironments({
@@ -264,7 +265,10 @@ describe('GroveRunWorkflow', () => {
             sandboxId: id,
             spec,
             backend: {
-              exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
+              exec: async ({ command }) => {
+                gitCommands.push(command);
+                return { stdout: command.includes('rev-parse') ? 'c0ffee' : '', stderr: '', exitCode: command.startsWith('test -e') ? 1 : 0 };
+              },
               readFile: async () => '',
               writeFile: async () => undefined,
               listDir: async () => [],
@@ -288,7 +292,13 @@ describe('GroveRunWorkflow', () => {
       return { stdout: '', stderr: '', exitCode: 0 };
     };
     const treeWorkspaces = createTreeWorkspaces({ resolver, kube });
+    const realGrove = createEngineActivities({
+      environments: resolver,
+      treeWorkspaces,
+      grove: { trees: { list: stores.trees.list }, branches: { list: stores.branches.list }, leaves: { list: stores.leaves.list, save: stores.leaves.save }, tasks: { list: stores.tasks.list } },
+    } as never);
     const sandboxOfCall: (string | undefined)[] = [];
+    const worktreeOfCall: string[] = [];
 
     const conversations = inMemoryConversations();
     const models = {
@@ -360,6 +370,8 @@ describe('GroveRunWorkflow', () => {
       workflowsPath: resolve(__dirname),
       activities: {
         GrovePartitionActivity: partitionCalls,
+        GrovePrepareWorkActivity: realGrove.GrovePrepareWorkActivity,
+        GroveJudgeCheckoutActivity: realGrove.GroveJudgeCheckoutActivity,
         GroveWorkspaceActivity: vi.fn((args: { treeId: string; ownerId: string }) => treeWorkspaces.describe(args)),
         GroveParkWorkspaceActivity: vi.fn((args: { treeId: string }) => treeWorkspaces.park(args.treeId)),
         EngineRunLimitsActivity: vi.fn((args: RunLimitsArgs) => tracker.limits(args)),
@@ -379,6 +391,10 @@ describe('GroveRunWorkflow', () => {
         }),
         EngineToolActivity: vi.fn(async (args: { name: string; arguments: string; ticket: Record<string, unknown>; environment?: { id: string } }) => {
           if (args.ticket.agentSlug !== 'grove-runner') sandboxOfCall.push(args.environment?.id);
+          if (args.ticket.agentSlug !== 'grove-runner') {
+            const where = (args.environment as { scope?: { worktree?: string } } | undefined)?.scope?.worktree ?? 'none';
+            worktreeOfCall.push(`${args.ticket.agentSlug} ${args.name} ${where}`);
+          }
           const handler = toolHandlers[args.name];
           if (!handler) return { ok: false, digest: `no handler for ${args.name}` };
           const parsed = JSON.parse(args.arguments || '{}') as Record<string, unknown>;
@@ -449,6 +465,20 @@ describe('GroveRunWorkflow', () => {
 
     expect(sandboxOfCall.length).toBeGreaterThan(0);
     expect(new Set(sandboxOfCall)).toEqual(new Set([environmentIdFor('tree-tree-1')]));
+
+    expect(worktreeOfCall.filter((line) => line.startsWith('leaf-executor claim_leaf')).sort())
+      .toEqual(['leaf-executor claim_leaf trees/leafA', 'leaf-executor claim_leaf trees/leafB', 'leaf-executor claim_leaf trees/leafC']);
+    expect(worktreeOfCall.filter((line) => line.startsWith('judge settle_leaf')).sort())
+      .toEqual(['judge settle_leaf judge/leafA', 'judge settle_leaf judge/leafB', 'judge settle_leaf judge/leafC']);
+    expect(worktreeOfCall.filter((line) => line.startsWith('executor ')).every((line) => /trees\/leaf[ABC]$/.test(line))).toBe(true);
+    const leafCWorktree = gitCommands.findIndex((command) => command.includes('worktree add') && command.includes("'/work/trees/leafC'"));
+    expect(leafCWorktree).toBeGreaterThan(-1);
+    const mergedIntoC = gitCommands.slice(leafCWorktree).filter((command) => command.startsWith("git -C '/work/trees/leafC' merge"));
+    expect(mergedIntoC).toEqual([
+      "git -C '/work/trees/leafC' merge -q --no-edit 'leaf/leafA'",
+      "git -C '/work/trees/leafC' merge -q --no-edit 'leaf/leafB'",
+    ]);
+    expect(gitCommands.some((command) => command.includes("worktree add -q --detach '/work/judge/leafA'"))).toBe(true);
     expect(describeRun).not.toHaveBeenCalled();
     expect(provisioned.every((id) => id === environmentIdFor('tree-tree-1'))).toBe(true);
 

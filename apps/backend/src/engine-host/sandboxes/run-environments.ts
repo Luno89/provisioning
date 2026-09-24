@@ -63,7 +63,8 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
   return {
     async forRun({ ticket, id, spec, workspace, scope }): Promise<EnvironmentDriver> {
       const own = environmentIdFor(ticket.runId);
-      const key = id ?? own;
+      const base = id ?? own;
+      const key = scope?.worktree ? `${base}#${scope.worktree}` : base;
 
       const existing = live.get(key);
       if (existing) return existing.driver;
@@ -72,13 +73,13 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
       if (inFlight) return inFlight;
 
       const attempt = options.provision({
-        id: key,
+        id: base,
         ticket,
         spec,
         ...(workspace ? { workspace } : {}),
         ...(scope ? { scope } : {}),
       }).then((driver) => {
-        live.set(key, { driver, startedAt: now(), owned: key === own, runId: ticket.runId });
+        live.set(key, { driver, startedAt: now(), owned: base === own, runId: ticket.runId });
         starting.delete(key);
         return driver;
       }).catch((err: unknown) => {
@@ -91,11 +92,10 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
     },
 
     async release(runId: string): Promise<boolean> {
-      const key = environmentIdFor(runId);
-      const entry = live.get(key);
-      if (!entry) return false;
-      await dispose(key, entry);
-      return true;
+      const own = environmentIdFor(runId);
+      const mine = [...live.entries()].filter(([key]) => key === own || key.startsWith(`${own}#`));
+      for (const [key, entry] of mine) await dispose(key, entry);
+      return mine.length > 0;
     },
 
     async sweep(at: number = now()): Promise<string[]> {

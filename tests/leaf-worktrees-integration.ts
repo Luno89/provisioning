@@ -1,0 +1,122 @@
+import assert from 'node:assert/strict';
+import dotenv from 'dotenv';
+import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
+import { createModelService } from '../apps/backend/src/lib/model-wiring.js';
+import { createEngineHost, storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
+import { createEngineActivities } from '../apps/backend/src/engine-host/temporal/activities.js';
+import type { RunTicket } from '../apps/backend/src/engine-host/temporal/contracts.js';
+import type { Branch, Leaf } from '../apps/backend/src/lib/leaves.js';
+
+dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
+
+const OWNER = 'leaf-worktrees-integration';
+
+async function main(): Promise<void> {
+  const db = createDatabase();
+  await db.init();
+  const host = createEngineHost({
+    models: createModelService(db, process.env.JWT_SECRET ?? ''),
+    stores: storesFromDatabase(db),
+    kubeconfig: process.env.KUBECONFIG_PATH,
+    registryHost: process.env.KOALA_REGISTRY,
+  });
+  const activities = createEngineActivities({
+    environments: host.environments,
+    treeWorkspaces: host.treeWorkspaces,
+    grove: {
+      trees: { list: () => db.getTrees() },
+      branches: { list: () => db.getBranches() },
+      leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
+      tasks: { list: () => db.getTasks() },
+    },
+  } as never);
+
+  const stamp = new Date().toISOString();
+  const suffix = Date.now().toString(36);
+  const treeId = `wt-${suffix}`;
+  const branch: Branch = { id: `${treeId}-b`, ownerId: OWNER, treeId, title: 'Proof', messages: [], createdAt: stamp, updatedAt: stamp };
+  const leaf = (id: string, over: Partial<Leaf> = {}): Leaf => ({
+    id, ownerId: OWNER, branchId: branch.id, title: id, body: `${id} exists`, column: 'todo', status: 'pending',
+    runner: 'engine', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp, ...over,
+  });
+  const leafA = leaf(`${treeId}-a`);
+  const leafB = leaf(`${treeId}-b`, { dependsOn: [leafA.id] });
+
+  await db.saveTree({ id: treeId, ownerId: OWNER, name: 'Worktree proof', type: 'freeform', projectIds: [], createdAt: stamp, updatedAt: stamp });
+  await db.saveBranch(branch);
+  await db.saveLeaf(leafA);
+  await db.saveLeaf(leafB);
+
+  const shared = await host.treeWorkspaces.describe({ treeId, ownerId: OWNER });
+  const handle = (worktree: string) => ({ id: shared.id, spec: shared.capabilities, workspace: shared.workspace, scope: { worktree } });
+  const ticket = (runId: string, agentSlug: string): RunTicket => ({ runId, depth: 1, ownerId: OWNER, agentSlug, trigger: 'agent' });
+
+  try {
+    console.log('[1/6] preparing leaf A\'s worktree');
+    const first = await activities.GrovePrepareWorkActivity({ treeId, ownerId: OWNER, leafIds: [leafA.id] });
+    assert.deepEqual(first, { ready: [leafA.id], failed: [] });
+
+    console.log('[2/6] an executor in A\'s worktree changes a file; claiming before committing is refused');
+    const inA = await host.environments.forRun({ ticket: ticket(`exec-${suffix}`, 'executor'), environment: handle(`trees/${leafA.id}`) });
+    assert.ok(inA);
+    const wrote = await inA.exec({ command: 'echo "from leaf A" > a.txt && git branch --show-current' });
+    assert.equal(wrote.stdout.trim(), `leaf/${leafA.id}`, 'the executor is not on the leaf\'s branch in its worktree');
+    const claim = (runId: string) => host.tools.run({
+      ticket: ticket(runId, 'leaf-executor'),
+      nodeId: 'tools',
+      name: 'claim_leaf',
+      arguments: JSON.stringify({ leafId: leafA.id, result: 'claimed', evidence: 'a.txt holds "from leaf A"' }),
+      environment: handle(`trees/${leafA.id}`),
+    });
+    const dirty = await claim(`claim1-${suffix}`);
+    assert.equal(dirty.ok, false);
+    assert.match(dirty.digest, /uncommitted changes \(\?\? a\.txt\)/);
+
+    console.log('[3/6] committed, the claim records the commit, and the judge settles it');
+    await inA.exec({ command: 'git add a.txt && git commit -q -m "leaf A: a.txt"' });
+    const head = (await inA.exec({ command: 'git rev-parse HEAD' })).stdout.trim();
+    const claimed = await claim(`claim2-${suffix}`);
+    assert.equal(claimed.ok, true, claimed.digest);
+    assert.equal((await db.getLeaves()).find((entry) => entry.id === leafA.id)?.claim?.commit, head);
+
+    console.log('[4/6] the judge\'s checkout is exactly the claimed commit');
+    const checkouts = await activities.GroveJudgeCheckoutActivity({ treeId, ownerId: OWNER, leafIds: [leafA.id] });
+    assert.equal(checkouts[leafA.id], head);
+    const judge = await host.environments.forRun({ ticket: ticket(`judge-${suffix}`, 'judge'), environment: handle(`judge/${leafA.id}`) });
+    assert.ok(judge);
+    assert.equal((await judge.exec({ command: 'git rev-parse HEAD && cat a.txt' })).stdout.trim(), `${head}\nfrom leaf A`);
+    const settled = await host.tools.run({
+      ticket: ticket(`judge-${suffix}`, 'judge'),
+      nodeId: 'tools',
+      name: 'settle_leaf',
+      arguments: JSON.stringify({ leafId: leafA.id, verdict: 'verified', note: 'a.txt at the claimed commit says it' }),
+      environment: handle(`judge/${leafA.id}`),
+    });
+    assert.equal(settled.ok, true, settled.digest);
+
+    console.log('[5/6] leaf B, which waits on A, starts from A\'s work');
+    const second = await activities.GrovePrepareWorkActivity({ treeId, ownerId: OWNER, leafIds: [leafB.id] });
+    assert.deepEqual(second, { ready: [leafB.id], failed: [] });
+    const inB = await host.environments.forRun({ ticket: ticket(`execB-${suffix}`, 'executor'), environment: handle(`trees/${leafB.id}`) });
+    assert.ok(inB);
+    assert.equal((await inB.exec({ command: 'git branch --show-current && cat a.txt' })).stdout.trim(), `leaf/${leafB.id}\nfrom leaf A`);
+
+    console.log('[6/6] the two leaves never shared a working directory');
+    assert.equal((await inB.exec({ command: 'pwd' })).stdout.trim(), `/work/trees/${leafB.id}`);
+    assert.equal((await inA.exec({ command: 'pwd' })).stdout.trim(), `/work/trees/${leafA.id}`);
+
+    console.log('\nleaf worktrees: own branch per leaf, claim pinned to a commit, judge on that commit, dependents built on it — PASS');
+  } finally {
+    await host.treeWorkspaces.release(treeId).catch(() => undefined);
+    await db.deleteLeaf(leafA.id);
+    await db.deleteLeaf(leafB.id);
+    await db.deleteBranch(branch.id);
+    await db.deleteTree(treeId);
+    await db.close();
+  }
+}
+
+main().then(() => process.exit(0), (err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

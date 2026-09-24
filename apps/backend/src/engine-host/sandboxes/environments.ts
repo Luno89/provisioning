@@ -227,7 +227,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
         ...(environment?.id ? { id: environment.id } : {}),
         spec,
         ...(environment?.workspace ? { workspace: environment.workspace } : {}),
-        ...(request.worktree ? { scope: { worktree: request.worktree } } : {}),
+        ...(request.worktree ?? environment?.scope?.worktree ? { scope: { worktree: (request.worktree ?? environment?.scope?.worktree)! } } : {}),
       });
     },
 

@@ -208,3 +208,28 @@ describe('handed environments', () => {
     expect(environments.live()).toBe(0);
   });
 });
+
+describe('worktrees of a sandbox', () => {
+  it('gives each worktree its own driver over the one pod, and the owner\'s release takes them all down', async () => {
+    const { environments, provisioned, disposed } = harness();
+
+    const whole = await environments.forRun({ ticket: ticket('run-1'), spec });
+    const leafA = await environments.forRun({ ticket: ticket('run-1-a'), id: environmentIdFor('run-1'), spec, scope: { worktree: 'trees/a' } });
+    const leafB = await environments.forRun({ ticket: ticket('run-1-b'), id: environmentIdFor('run-1'), spec, scope: { worktree: 'trees/b' } });
+    const again = await environments.forRun({ ticket: ticket('run-1-a2'), id: environmentIdFor('run-1'), spec, scope: { worktree: 'trees/a' } });
+
+    expect(new Set([whole, leafA, leafB]).size).toBe(3);
+    expect(again).toBe(leafA);
+    expect(provisioned.map((request) => [request.id, request.scope?.worktree])).toEqual([
+      [environmentIdFor('run-1'), undefined],
+      [environmentIdFor('run-1'), 'trees/a'],
+      [environmentIdFor('run-1'), 'trees/b'],
+    ]);
+
+    expect(await environments.release('run-1-a')).toBe(false);
+    expect(await environments.release('run-1')).toBe(true);
+    expect(environments.live()).toBe(0);
+    expect(disposed).toHaveLength(1);
+  });
+});
+

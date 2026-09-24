@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { leafContextLine } from '../../lib/plan-documents.js';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import {
   describeProblem,
@@ -152,12 +153,14 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
       if (!caller.ownerId) return refuse('this run has no owner whose work it could list');
 
       const status = asString(parsed, 'status');
+      const leafId = asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id');
       const onlyReady = parsed.ready === true;
       const all = await options.store.list(caller.ownerId);
 
-      const filtered = onlyReady
+      const chosen = onlyReady
         ? readyTasks(all)
         : (status ? all.filter((task) => task.status === status) : all);
+      const filtered = leafId ? chosen.filter((task) => task.leafId === leafId) : chosen;
 
       if (filtered.length === 0) {
         const nothing = onlyReady ? 'nothing is ready to start' : (status ? `no ${status} work` : 'no work yet');
@@ -174,6 +177,7 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
           doneMeans: task.doneMeans,
           dependsOn: task.dependsOn,
           agent: task.agent,
+          ...(task.leafId ? { description: task.description, role: task.role, context: leafContextLine(task.leafId) } : {}),
         }))),
       };
     },
@@ -210,7 +214,7 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
       return {
         ok: true,
         digest: `started ${running.id} — ${running.title}`,
-        content: JSON.stringify({ taskId: running.id, runs: running.runs }),
+        content: JSON.stringify({ taskId: running.id, runs: running.runs, ...(running.leafId ? { context: leafContextLine(running.leafId) } : {}) }),
       };
     },
 

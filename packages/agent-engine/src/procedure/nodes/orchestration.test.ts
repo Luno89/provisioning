@@ -268,6 +268,19 @@ describe('children work where their parent works', () => {
     expect(handedTo(delegated)).toEqual([sandbox]);
   });
 
+  it('narrows the sandbox to the worktree an item names, so each fanned-out child works in its own', async () => {
+    const launch = { ownerId: 'owner-1', environment: sandbox };
+    const p = ports();
+    await invoke(createOrchestrationNodes(p), fanOut, {
+      settings: { agent: 'leaf-executor' },
+      inputs: { items: [{ leafId: 'a', worktree: 'trees/a' }, { leafId: 'b', worktree: 'trees/b' }, { leafId: 'c' }] },
+      run: { launch },
+    });
+
+    expect(handedTo(p).map((environment) => (environment as { worktree?: string }).worktree)).toEqual(['trees/a', 'trees/b', undefined]);
+    expect(handedTo(p).every((environment) => (environment as { id: string }).id === 'engine-tree-t1')).toBe(true);
+  });
+
   it('fans out without an environment when the run was not handed one', async () => {
     const p = ports();
     await invoke(createOrchestrationNodes(p), fanOut, { settings: { agent: 'leaf-executor' }, inputs: { items: ['l1'] } });

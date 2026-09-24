@@ -3,11 +3,16 @@ import { GROVE_JUDGE_PASS, GROVE_WORK_PASS, type Procedure } from '@koala/agent-
 import { AgentRunWorkflow } from './AgentRunWorkflow.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import type { TreeSandbox } from '../engine-host/sandboxes/tree-workspaces.js';
+import { judgeCheckout, leafContext, leafWorktree } from '../lib/plan-documents.js';
 import type {
   GrovePartition,
   GrovePartitionArgs,
   GrovePartitionLeaf,
   GroveWorkspaceArgs,
+  GroveJudgeCheckoutArgs,
+  GroveJudgeCheckouts,
+  GrovePrepareWorkArgs,
+  GrovePreparedWork,
   GroveRunArgs,
   GroveRunResult,
   ProcedureRunInput,
@@ -24,9 +29,11 @@ const { GrovePartitionActivity } = proxyActivities<{
   startToCloseTimeout: '30 seconds',
 });
 
-const { GroveWorkspaceActivity, GroveParkWorkspaceActivity } = proxyActivities<{
+const { GroveWorkspaceActivity, GroveParkWorkspaceActivity, GrovePrepareWorkActivity, GroveJudgeCheckoutActivity } = proxyActivities<{
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
+  GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
+  GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
 }>({
   retry: ACTIVITY_RETRY,
   startToCloseTimeout: '10 minutes',
@@ -72,26 +79,34 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
 
     passes += 1;
 
+    const prepared = partition.ready.length > 0
+      ? await GrovePrepareWorkActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds: partition.ready.map((leaf) => leaf.id) })
+      : { ready: [], failed: [] };
+    const workable = partition.ready.filter((leaf) => prepared.ready.includes(leaf.id));
+
     if (partition.ready.length > 0) {
-      await runGrovePass({
-        args,
-        environment,
-        pass: passes,
-        procedure: GROVE_WORK_PASS,
-        role: 'work',
-        inputs: { ready: workItems(partition.ready, args.treeId) },
-      });
+      if (workable.length > 0) {
+        await runGrovePass({
+          args,
+          environment,
+          pass: passes,
+          procedure: GROVE_WORK_PASS,
+          role: 'work',
+          inputs: { ready: workItems(workable, args.treeId) },
+        });
+      }
       // The work pass files fresh claims; the judge pass must see them, so read the tree again.
       partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
     }
     if (partition.claimed.length > 0) {
+      const checkouts = await GroveJudgeCheckoutActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds: partition.claimed.map((leaf) => leaf.id) });
       await runGrovePass({
         args,
         environment,
         pass: passes,
         procedure: GROVE_JUDGE_PASS,
         role: 'judge',
-        inputs: { claimed: claimItems(partition.claimed, args.treeId) },
+        inputs: { claimed: claimItems(partition.claimed, args.treeId, checkouts) },
       });
     }
   }
@@ -105,22 +120,30 @@ function workItems(ready: GrovePartitionLeaf[], treeId: string): Record<string, 
     leafBody: leaf.body,
     treeId,
     branchId: leaf.branchId,
+    worktree: leafWorktree(leaf.id),
+    context: leafContext(leaf.id),
     ...(ready.length > 1
-      ? { siblings: `${ready.length - 1} other leaves are working in this tree at the same time — stay inside ${leaf.title}.` }
+      ? { siblings: `${ready.length - 1} other leaves are working in this tree at the same time, each in its own worktree — stay inside ${leaf.title}.` }
       : {}),
   }));
 }
 
 /** The fan-out item the judge children receive — the leaf and the claim that is against it. */
-function claimItems(claimed: GrovePartition['claimed'], treeId: string): Record<string, unknown>[] {
-  return claimed.map((leaf) => ({
-    leafId: leaf.id,
-    leafTitle: leaf.title,
-    leafBody: leaf.body,
-    treeId,
-    branchId: leaf.branchId,
-    ...(leaf.claim ? { claim: leaf.claim } : {}),
-  }));
+function claimItems(claimed: GrovePartition['claimed'], treeId: string, checkouts: GroveJudgeCheckouts): Record<string, unknown>[] {
+  return claimed.map((leaf) => {
+    const commit = checkouts[leaf.id];
+    const worktree = commit ? judgeCheckout(leaf.id) : leafWorktree(leaf.id);
+    return {
+      leafId: leaf.id,
+      leafTitle: leaf.title,
+      leafBody: leaf.body,
+      treeId,
+      branchId: leaf.branchId,
+      worktree,
+      context: { ...leafContext(leaf.id), worktree, ...(commit ? { commit } : {}) },
+      ...(leaf.claim ? { claim: leaf.claim } : {}),
+    };
+  });
 }
 
 /** One pass: one child engine run of the pass procedure; a failed pass fails the run (the loop resumes at the next partition). */

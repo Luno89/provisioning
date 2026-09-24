@@ -19,6 +19,10 @@ import type {
   GrovePartitionArgs,
   GroveWorkspaceArgs,
   AdoptPlanArgs,
+  GrovePrepareWorkArgs,
+  GrovePreparedWork,
+  GroveJudgeCheckoutArgs,
+  GroveJudgeCheckouts,
   MergeArgs,
   MergeRuntime,
   PublishArgs,
@@ -38,6 +42,7 @@ import type {
 import { createGroveTools } from '../tools/grove-tools.js';
 import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
+import { prepareJudgeCheckout, prepareLeafWorktree, WorktreeConflictError } from '../grove-worktrees.js';
 import type { AdoptedPlan } from '../../lib/plan-proposals.js';
 import type { Tree } from '../../lib/trees.js';
 import type { Branch, Leaf } from '../../lib/leaves.js';
@@ -82,7 +87,7 @@ export interface EngineServices extends StreamServices {
 export interface GroveStores {
   trees: { list(): Promise<Tree[]> };
   branches: { list(): Promise<Branch[]> };
-  leaves: { list(): Promise<Leaf[]> };
+  leaves: { list(): Promise<Leaf[]>; save?(leaf: Leaf): Promise<void> };
   tasks: { list(): Promise<Task[]> };
 }
 
@@ -147,6 +152,8 @@ export interface EngineActivities extends StreamActivities {
   GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition>;
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
+  GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
+  GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
   PlanAdoptSettleActivity(args: AdoptPlanArgs & { status: 'adopted' | 'failed'; adopted?: AdoptedPlan | undefined; reason?: string | undefined }): Promise<void>;
@@ -158,6 +165,18 @@ export interface EngineActivities extends StreamActivities {
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
+  const treeAccess = async (treeId: string, ownerId: string) => {
+    if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so there is no worktree to prepare');
+    if (!services.grove) throw new Error('grove stores are not wired, so the tree\'s leaves cannot be read');
+    const shared = await services.treeWorkspaces.describe({ treeId, ownerId });
+    const driver = await services.environments.forRun({
+      ticket: { runId: `grove-${treeId}-prepare`, depth: 0, ownerId, agentSlug: 'grove-runner', trigger: 'user' },
+      environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace },
+    });
+    if (!driver) throw new Error('the tree sandbox could not be reached to prepare worktrees');
+    return { driver, leaves: (await services.grove.leaves.list()).filter((leaf) => leaf.ownerId === ownerId) };
+  };
+
   const adoption = (): PlanAdoption => {
     if (!services.planAdoption) throw new Error('plan adoption is not wired, so an approved plan cannot be built');
     return services.planAdoption;
@@ -204,6 +223,39 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     async GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void> {
       if (!services.treeWorkspaces) throw new Error('tree workspaces are not wired, so there is no pod to park');
       await services.treeWorkspaces.park(args.treeId);
+    },
+
+    async GrovePrepareWorkActivity(args) {
+      const { driver, leaves } = await treeAccess(args.treeId, args.ownerId);
+      const prepared: GrovePreparedWork = { ready: [], failed: [] };
+      for (const leafId of args.leafIds) {
+        const leaf = leaves.find((entry) => entry.id === leafId);
+        if (!leaf) continue;
+        const dependencies = (leaf.dependsOn ?? []).map((id) => {
+          const commit = leaves.find((entry) => entry.id === id)?.claim?.commit;
+          return { leafId: id, ...(commit ? { commit } : {}) };
+        });
+        try {
+          await prepareLeafWorktree(driver, leafId, dependencies);
+          prepared.ready.push(leafId);
+        } catch (err) {
+          if (!(err instanceof WorktreeConflictError)) throw err;
+          const reason = `could not prepare its worktree: ${err.message}`;
+          await services.grove?.leaves.save?.({ ...leaf, status: 'failed', findings: reason, updatedAt: new Date().toISOString() });
+          prepared.failed.push({ leafId, reason });
+        }
+      }
+      return prepared;
+    },
+
+    async GroveJudgeCheckoutActivity(args) {
+      const { driver, leaves } = await treeAccess(args.treeId, args.ownerId);
+      const checkouts: GroveJudgeCheckouts = {};
+      for (const leafId of args.leafIds) {
+        const commit = leaves.find((entry) => entry.id === leafId)?.claim?.commit;
+        checkouts[leafId] = await prepareJudgeCheckout(driver, leafId, commit);
+      }
+      return checkouts;
     },
 
     async PlanAdoptRecordsActivity(args) {

@@ -5,6 +5,27 @@ export const PLAN_DOC_PATH = 'PLAN.md';
 
 export const leafBriefPath = (leafId: string): string => `leaves/${leafId}.md`;
 
+export const leafWorktree = (leafId: string): string => `trees/${leafId}`;
+export const judgeCheckout = (leafId: string): string => `judge/${leafId}`;
+export const leafBranch = (leafId: string): string => `leaf/${leafId}`;
+
+export interface LeafContext {
+  planDoc: string;
+  leafBrief: string;
+  worktree: string;
+  branch: string;
+}
+
+export const leafContext = (leafId: string): LeafContext => ({
+  planDoc: PLAN_DOC_PATH,
+  leafBrief: leafBriefPath(leafId),
+  worktree: leafWorktree(leafId),
+  branch: leafBranch(leafId),
+});
+
+export const leafContextLine = (leafId: string): string =>
+  `leaf ${leafId}: work in ${leafWorktree(leafId)} on branch ${leafBranch(leafId)}; the plan is ${PLAN_DOC_PATH} and the leaf's brief is ${leafBriefPath(leafId)}, both at the top of that worktree — read them before changing anything`;
+
 export interface PlanDocument {
   path: string;
   content: string;

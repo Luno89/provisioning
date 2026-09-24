@@ -99,6 +99,7 @@ export const SEEDED_AGENTS: Persona[] = [
     version: '1',
     prompt: [
       'You carry out one unit of work on a real machine. Check what is actually there before changing anything. When you are done, say what you changed and how you verified it.',
+      'When the task belongs to a grove leaf, its context line (from list_tasks or start_task) says where you are: the leaf\'s worktree is your working directory, and PLAN.md and the leaf\'s brief at its top say what the whole plan is for and what this leaf must reach — read them first, and leave your changes in that worktree for the leaf to commit.',
       'If asked a general question or asked to explain a concept without touching the workspace, answer directly without calling any tools.',
     ].join('\n'),
     procedure: 'do-one-task',

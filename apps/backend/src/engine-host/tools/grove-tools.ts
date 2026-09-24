@@ -4,6 +4,7 @@ import type { Branch, Leaf } from '../../lib/leaves.js';
 import { primaryProjectId, type Tree } from '../../lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
 import { parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
+import { worktreeHead } from '../grove-worktrees.js';
 
 export interface GroveStores {
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };
@@ -173,7 +174,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return { ok: true, digest: `grown ${leaf.id}`, content: `grown ${leaf.id} — "${title}" under ${branchId}` };
     },
 
-    async claim_leaf({ parsed, caller }): Promise<ToolOutcome> {
+    async claim_leaf({ parsed, caller, driver }): Promise<ToolOutcome> {
       const needle = asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id');
       if (!needle) return refuse('claim_leaf needs a leafId — the leaf you worked');
 
@@ -203,9 +204,19 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         return refuse(`${leaf.id} is already settled (${leaf.status}) — there is nothing left to claim`);
       }
 
+      let commit: string | undefined;
+      if (outcome === 'claimed' && driver) {
+        const head = await worktreeHead(driver);
+        if (head.dirty.length > 0) {
+          return refuse(`the leaf's worktree has uncommitted changes (${head.dirty.slice(0, 5).join('; ')}${head.dirty.length > 5 ? '; …' : ''}) — commit the work on the leaf's branch first. The judge checks out the commit you claim, so anything not committed does not exist for it.`);
+        }
+        commit = head.commit;
+      }
+
       const stamp = now();
       const claim: Leaf['claim'] = {
         evidence,
+        ...(commit ? { commit } : {}),
         at: stamp,
         ...(findings ? { findings } : {}),
         ...(runs.length > 0 ? { runs } : {}),
@@ -219,7 +230,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       };
       await options.stores.leaves.save(claimed);
 
-      const digest = outcome === 'failed' ? `failed ${leaf.id} — ${reason}` : `claimed ${leaf.id}`;
+      const digest = outcome === 'failed' ? `failed ${leaf.id} — ${reason}` : `claimed ${leaf.id}${commit ? ` at ${commit.slice(0, 12)}` : ''}`;
       return { ok: true, digest, content: `${digest} — evidence on file for the judge (${evidence.length} chars${findings ? ', with findings' : ''})` };
     },
 

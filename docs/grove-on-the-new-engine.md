@@ -1,6 +1,6 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox) and 2 (plan proposal → approval → tree, sandbox, documents) landed 2026-09-24; next: worktree-per-leaf with context pointers through every split, stay-claimed parks for review, then a live run and the launch swap.**
+Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) landed 2026-09-24; next: stay-claimed parks for review, then a live run and the launch swap.**
 
 Last updated: 2026-09-24
 
@@ -9,7 +9,7 @@ Last updated: 2026-09-24
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
-| P1 fix-up: one sandbox per tree | **slices 1–2 landed 2026-09-24** (see *P1 fix-up* below); slices 3–4 open |
+| P1 fix-up: one sandbox per tree | **slices 1–3 landed 2026-09-24** (see *P1 fix-up* below); slice 4 open |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
@@ -455,8 +455,22 @@ parks for human review; the volume lives and the pod is started on demand.
    installed" and "is port 8080 free" instead of assuming them; it also caught a model
    sending `branches` with a surplus closing brace, now forgiven (and unparseable text is
    refused with the parser's error).
-3. Worktree per leaf + context pointers through every fan-out/delegation; the claim
-   carries the commit — open.
+3. **Worktree per leaf + context through every split — landed 2026-09-24.** Before a work
+   pass `GrovePrepareWorkActivity` gives each ready leaf `trees/<leaf>` on `leaf/<leaf>`,
+   cut from main with its dependencies' claimed commits merged in (owner ruling); a merge
+   conflict fails that leaf with the files named. A fan-out item that names a `worktree`
+   hands its child the tree sandbox narrowed to it (a driver per sandbox+worktree over the
+   one pod), and delegates inherit it — executors and task judges work in the leaf's
+   worktree. `claim_leaf` records `HEAD` as the claim's commit and refuses a claim with
+   uncommitted changes; before a judge pass `GroveJudgeCheckoutActivity` checks the commit
+   out detached at `judge/<leaf>` and the judge works there. Pointers ride in the fan-out
+   items (`context: { planDoc, leafBrief, worktree, branch, commit? }`) and in `list_tasks`
+   (now filterable by `leafId`) / `start_task` results for a leaf's tasks, so an executor
+   sees them from the tool, not only if a model relays them. Proofs: worktree/claim/task
+   tool unit tests, `GroveRunWorkflow.test.ts` (every leaf's tool calls in its worktree,
+   every judge's in its checkout, leafC merging leafA and leafB), and live
+   `npm run test:leaf-worktrees` (real git in the tree pod: dirty claim refused, commit
+   recorded, judge on exactly that commit, dependent leaf built on it).
 4. Stay-claimed parks for human review (today it re-judges every pass to the cap) —
    open.
 

@@ -173,6 +173,25 @@ export interface AdoptPlanResult {
   reason?: string | undefined;
 }
 
+export interface GrovePrepareWorkArgs {
+  treeId: string;
+  ownerId: string;
+  leafIds: string[];
+}
+
+export interface GrovePreparedWork {
+  ready: string[];
+  failed: { leafId: string; reason: string }[];
+}
+
+export interface GroveJudgeCheckoutArgs {
+  treeId: string;
+  ownerId: string;
+  leafIds: string[];
+}
+
+export type GroveJudgeCheckouts = Record<string, string | undefined>;
+
 export interface GroveWorkspaceArgs {
   treeId: string;
   ownerId: string;
@@ -187,6 +206,7 @@ export interface GrovePartitionLeaf {
 
 export interface GroveClaim {
   evidence: string;
+  commit?: string | undefined;
   findings?: string | undefined;
   runs?: string[] | undefined;
   at: string;
@@ -247,7 +267,12 @@ export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => (
 export function handleFor(environment: EnvironmentValue | undefined): EnvironmentHandleRef | undefined {
   if (!environment) return undefined;
   if (environment.kind === 'sandbox') {
-    return { id: environment.id, spec: environment.capabilities, workspace: environment.workspace };
+    return {
+      id: environment.id,
+      spec: environment.capabilities,
+      workspace: environment.workspace,
+      ...(environment.worktree ? { scope: { worktree: environment.worktree } } : {}),
+    };
   }
   if (environment.kind === 'machine') {
     return {

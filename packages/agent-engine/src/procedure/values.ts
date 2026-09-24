@@ -57,7 +57,7 @@ export type Withheld = WithheldTool[];
 
 export type EnvironmentValue =
   | { kind: 'none'; egress: boolean; bases?: string[] | undefined }
-  | { kind: 'sandbox'; id: string; workspace: RunWorkspace; capabilities: EnvironmentSpec }
+  | { kind: 'sandbox'; id: string; workspace: RunWorkspace; capabilities: EnvironmentSpec; worktree?: string | undefined }
   | { kind: 'machine'; deviceId: string; deviceName: string; path?: string | undefined; egressMode: EgressMode };
 
 export interface RecalledMemory {

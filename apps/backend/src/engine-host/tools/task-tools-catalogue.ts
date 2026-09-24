@@ -74,6 +74,10 @@ export const TASK_TOOLS: ToolDefinition[] = [
           description: 'List only work in this state',
           enum: ['proposed', 'accepted', 'running', 'done', 'failed', 'dropped'],
         },
+        leafId: {
+          type: 'string',
+          description: 'List only the tasks under this grove leaf; each comes with where the leaf\'s plan, brief and worktree are',
+        },
       },
     },
   },

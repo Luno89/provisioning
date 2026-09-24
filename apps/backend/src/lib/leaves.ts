@@ -53,6 +53,7 @@ export interface Leaf {
   /** the executor's claim: evidence with pointers into the live workspace. It is the judge's input, not a verdict — a claimed leaf waits for judgment. */
   claim?: {
     evidence: string;
+    commit?: string;
     findings?: string;
     runs?: string[];
     at: string;
