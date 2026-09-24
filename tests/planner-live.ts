@@ -3,8 +3,7 @@ import dotenv from 'dotenv';
 import { BUILT_IN_GROUPS, builtInCatalogue, runProcedure } from '@koala/agent-engine/procedure';
 import { createEventBus } from '@koala/agent-engine/workflow';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { createModelService } from '../apps/backend/src/lib/model-wiring.js';
-import { createEngineHost, storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
+import { liveEngineHost } from './lib/live-engine-host.js';
 import { createProcedureExecutor } from '../apps/backend/src/engine-host/nodes/index.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
@@ -16,12 +15,7 @@ const GOAL = process.env.PLANNER_LIVE_GOAL
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const host = createEngineHost({
-    models: createModelService(db, process.env.JWT_SECRET ?? ''),
-    stores: storesFromDatabase(db),
-    kubeconfig: process.env.KUBECONFIG_PATH,
-    registryHost: process.env.KOALA_REGISTRY,
-  });
+  const host = liveEngineHost(db);
 
   const runnable = await host.registry.runnable(OWNER, 'planner');
   assert.ok(runnable, 'there is no planner');

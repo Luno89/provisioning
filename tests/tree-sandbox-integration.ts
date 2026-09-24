@@ -3,8 +3,7 @@ import dotenv from 'dotenv';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { createModelService } from '../apps/backend/src/lib/model-wiring.js';
-import { createEngineHost, storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
+import { liveEngineHost } from './lib/live-engine-host.js';
 import { treeWorkspaceRunId } from '../apps/backend/src/engine-host/sandboxes/tree-workspaces.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 import type { RunTicket } from '../apps/backend/src/engine-host/temporal/contracts.js';
@@ -29,12 +28,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
 
-  const host = createEngineHost({
-    models: createModelService(db, process.env.JWT_SECRET ?? ''),
-    stores: storesFromDatabase(db),
-    kubeconfig: process.env.KUBECONFIG_PATH,
-    registryHost: process.env.KOALA_REGISTRY,
-  });
+  const host = liveEngineHost(db);
 
   const treeId = `live-${Date.now().toString(36)}`;
   const namespace = workspaceName(treeWorkspaceRunId(treeId));

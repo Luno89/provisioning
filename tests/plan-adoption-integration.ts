@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { createModelService } from '../apps/backend/src/lib/model-wiring.js';
-import { createEngineHost, storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
+import { storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
+import { liveEngineHost } from './lib/live-engine-host.js';
 import { createGroveTools } from '../apps/backend/src/engine-host/tools/grove-tools.js';
 import { createPlanAdoption } from '../apps/backend/src/engine-host/plan-adoption.js';
 import type { PlanProposal } from '../apps/backend/src/lib/plan-proposals.js';
@@ -15,12 +15,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   const stores = storesFromDatabase(db);
-  const host = createEngineHost({
-    models: createModelService(db, process.env.JWT_SECRET ?? ''),
-    stores,
-    kubeconfig: process.env.KUBECONFIG_PATH,
-    registryHost: process.env.KOALA_REGISTRY,
-  });
+  const host = liveEngineHost(db);
 
   const conversationId = `conv-${Date.now().toString(36)}`;
   const treeTypes = await stores.grove.treeTypes!(OWNER);

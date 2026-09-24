@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/lib/db-interface.js';
-import { createModelService } from '../apps/backend/src/lib/model-wiring.js';
-import { createEngineHost, storesFromDatabase } from '../apps/backend/src/engine-host/host.js';
+import { liveEngineHost } from './lib/live-engine-host.js';
 import { createEngineActivities } from '../apps/backend/src/engine-host/temporal/activities.js';
 import type { RunTicket } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import type { Branch, Leaf } from '../apps/backend/src/lib/leaves.js';
@@ -14,12 +13,7 @@ const OWNER = 'leaf-worktrees-integration';
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const host = createEngineHost({
-    models: createModelService(db, process.env.JWT_SECRET ?? ''),
-    stores: storesFromDatabase(db),
-    kubeconfig: process.env.KUBECONFIG_PATH,
-    registryHost: process.env.KOALA_REGISTRY,
-  });
+  const host = liveEngineHost(db);
   const activities = createEngineActivities({
     environments: host.environments,
     treeWorkspaces: host.treeWorkspaces,
