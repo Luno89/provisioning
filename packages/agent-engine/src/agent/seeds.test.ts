@@ -51,7 +51,7 @@ describe('seeded agents', () => {
 
   it('replaces the four old engines, plus interactive chat and a delivery loop', () => {
     expect(ALL_SEEDED_AGENTS().map((agent) => agent.slug).sort())
-      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-executor', 'planner', 'research']);
+      .toEqual(['agent-builder', 'delivery', 'executor', 'grove-runner', 'judge', 'koala', 'leaf-executor', 'leaf-judge', 'planner', 'research']);
   });
 
   it('resolves by slug for any user with no forks present', () => {
@@ -141,10 +141,17 @@ describe('seeded agents compose usable prompts', () => {
     expect(tools).toEqual([]);
   });
 
-  it('offers the judge what it needs to check the work for itself — and, with it, the hand that settles a claimed leaf', () => {
+  it('offers the judge what it needs to check work for itself, and not the hand that settles a leaf', () => {
     const { tools } = offered('judge');
 
+    expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command']);
+  });
+
+  it('gives the settling hand to the leaf-judge alone, alongside what it needs to check the claimed commit', () => {
+    const { tools } = offered('leaf-judge');
+
     expect(tools.map((tool) => tool.name).sort()).toEqual(['list_dir', 'read_file', 'run_command', 'settle_leaf']);
+    expect(ALL_SEEDED_AGENTS().filter((agent) => agent.tools.includes('settle_leaf')).map((agent) => agent.slug)).toEqual(['leaf-judge']);
   });
 
   it('still offers koala its delegates, which come from agents rather than tools', () => {

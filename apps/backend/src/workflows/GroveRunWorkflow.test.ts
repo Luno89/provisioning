@@ -141,6 +141,10 @@ const classify = (seen: string, system: string): string => {
     const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
     return leaf ? `exec-${leaf}` : 'exec-none';
   }
+  if (system.startsWith("You settle one grove leaf's claim")) {
+    const claimedLeaf = /"leafId":\s*"(leaf[ABC])"/.exec(seen)?.[1] ?? /\bleaf[ABC]\b/.exec(seen)?.[0];
+    return claimedLeaf ? `judge-claim-${claimedLeaf}` : 'judge-claim-none';
+  }
   if (system.startsWith('You decide whether a piece of finished work meets what was asked')) {
     const claimedLeaf = /\bleaf[ABC]\b/.exec(seen.includes('"claim"') || seen.includes('claim:') ? seen : 'none')?.[0];
     if (claimedLeaf) return `judge-claim-${claimedLeaf}`;
@@ -475,8 +479,9 @@ describe('GroveRunWorkflow', () => {
 
     expect(worktreeOfCall.filter((line) => line.startsWith('leaf-executor claim_leaf')).sort())
       .toEqual(['leaf-executor claim_leaf trees/leafA', 'leaf-executor claim_leaf trees/leafB', 'leaf-executor claim_leaf trees/leafC']);
-    expect(worktreeOfCall.filter((line) => line.startsWith('judge settle_leaf')).sort())
-      .toEqual(['judge settle_leaf judge/leafA', 'judge settle_leaf judge/leafB', 'judge settle_leaf judge/leafC']);
+    expect(worktreeOfCall.filter((line) => line.startsWith('leaf-judge settle_leaf')).sort())
+      .toEqual(['leaf-judge settle_leaf judge/leafA', 'leaf-judge settle_leaf judge/leafB', 'leaf-judge settle_leaf judge/leafC']);
+    expect(worktreeOfCall.some((line) => line.startsWith('judge settle_leaf'))).toBe(false);
     expect(worktreeOfCall.filter((line) => line.startsWith('executor ')).every((line) => /trees\/leaf[ABC]$/.test(line))).toBe(true);
     const leafCWorktree = gitCommands.findIndex((command) => command.includes('worktree add') && command.includes("'/work/trees/leafC'"));
     expect(leafCWorktree).toBeGreaterThan(-1);

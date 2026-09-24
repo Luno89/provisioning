@@ -135,6 +135,10 @@ function scriptedModel() {
       const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
       return leaf ? `exec-${leaf}` : 'exec-none';
     }
+    if (system.startsWith("You settle one grove leaf's claim")) {
+      const claimedLeaf = /"leafId":\s*"(leaf[ABC])"/.exec(seen)?.[1] ?? /\bleaf[ABC]\b/.exec(seen)?.[0];
+      return claimedLeaf ? `judge-claim-${claimedLeaf}` : 'judge-claim-none';
+    }
     if (system.startsWith('You decide whether a piece of finished work meets what was asked')) {
       // The judge pass hands the claim itself (the leaf id rides inside it); a
       // task-level judge gets work signed by the seed name from the executor.

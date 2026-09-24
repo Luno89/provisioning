@@ -419,7 +419,7 @@ export const GROVE_JUDGE_PASS = defineProcedure(BUILT_IN_GROUPS, {
   describe: 'The judging half of a grove run: one judge run per fresh claim, in its own pass, every outcome handed back. The judges never share a run with the workers, so no claim flows back to the hand that filed it.',
 }, (p) => {
   const input = p.runInput('input');
-  const judged = p.fanOut('judged', {}, { agent: 'judge', maxParallel: 3, items: '{{values.claimed}}' });
+  const judged = p.fanOut('judged', {}, { agent: 'leaf-judge', maxParallel: 3, items: '{{values.claimed}}' });
   judged.wire({ values: input.inputs, text: input.message });
   const kept = p.merge('judgedKept', undefined, { strategy: 'all' });
   kept.wire({ children: judged.children });

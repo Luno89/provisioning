@@ -3,7 +3,7 @@ import type { EnvironmentResolver } from './environments.js';
 import { destroyWorkspace, retirePod, workspaceRunning, type KubeRunner } from './kube.js';
 import { POD, workspaceName } from './workspace.js';
 
-export const GROVE_WORKSPACE_AGENTS = ['planner', 'leaf-executor', 'executor', 'judge'] as const;
+export const GROVE_WORKSPACE_AGENTS = ['planner', 'leaf-executor', 'executor', 'judge', 'leaf-judge'] as const;
 
 export type TreeSandbox = Extract<RunEnvironment, { kind: 'sandbox' }>;
 
