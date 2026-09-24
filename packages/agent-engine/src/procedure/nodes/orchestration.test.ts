@@ -181,6 +181,26 @@ describe('call tool, delegate, fan out and wait', () => {
     expect(outcome.usage).toEqual({ childRuns: 5 });
   });
 
+  it('reads its list from an items reference over the wired values, whole value kept intact', async () => {
+    const leaves = [{ leafId: 'l1' }, { leafId: 'l2' }, { leafId: 'l3' }];
+    const p = ports({ runChild: vi.fn(async ({ inputs }) => ({ runId: `c${inputs.index}`, agentId: 'executor', outcome: 'ok', outputs: { item: inputs.item } })) });
+
+    const outcome = await invoke(createOrchestrationNodes(p), fanOut, {
+      settings: { agent: 'executor', maxParallel: 3, items: '{{values.ready}}' },
+      inputs: { values: { ready: leaves, other: 'not the list' } },
+    });
+
+    expect((p.runChild as ReturnType<typeof vi.fn>).mock.calls.length).toBe(3);
+    expect((outcome.outputs.children as { outputs: { item: unknown } }[]).map((child) => child.outputs.item)).toEqual(leaves);
+
+    // A reference that comes back as something other than a list fans out over nothing.
+    const scalar = await invoke(createOrchestrationNodes(ports({ runChild: vi.fn(async () => ({ runId: 'c', agentId: 'e', outcome: 'ok', outputs: {} })) })), fanOut, {
+      settings: { agent: 'executor', items: '{{values.ready}}' },
+      inputs: { values: { ready: 'not a list' } },
+    });
+    expect(scalar.outputs.children).toEqual([]);
+  });
+
   it('shows what was wired in as details under the message', async () => {
     const outcome = await invoke(createOrchestrationNodes(ports()), waitForPerson, { settings: { prompt: 'Accept the plan?' }, inputs: { details: '  1. write the file  ' } });
 

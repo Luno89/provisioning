@@ -393,6 +393,44 @@ export const RUN_LEAF_V2 = agentLoop({
   circling: { outcome: 'ok', reason: 'stopped proposing anything new' },
 });
 
+export const GROVE_WORK_PASS = defineProcedure(BUILT_IN_GROUPS, {
+  id: 'grove-work-pass',
+  version: '2',
+  name: 'Grove work pass',
+  describe: 'The working half of a grove run: one leaf-executor run per ready leaf, all in the same pass, every outcome handed back. No model rounds — the pass is structure, the leaves do the thinking.',
+}, (p) => {
+  const input = p.runInput('input');
+  const work = p.fanOut('work', {}, { agent: 'leaf-executor', maxParallel: 3, items: '{{values.ready}}' });
+  work.wire({ values: input.inputs, text: input.message });
+  const kept = p.merge('kept', undefined, { strategy: 'all' });
+  kept.wire({ children: work.children });
+  const done = p.finish('done', { result: kept.merged }, { outcome: 'ok' });
+
+  p.start(work);
+  work.on('done', kept);
+  kept.on('done', done);
+  p.layout({ input: [0, 4], work: [8, 4], kept: [16, 4], done: [24, 4] });
+});
+
+export const GROVE_JUDGE_PASS = defineProcedure(BUILT_IN_GROUPS, {
+  id: 'grove-judge-pass',
+  version: '2',
+  name: 'Grove judge pass',
+  describe: 'The judging half of a grove run: one judge run per fresh claim, in its own pass, every outcome handed back. The judges never share a run with the workers, so no claim flows back to the hand that filed it.',
+}, (p) => {
+  const input = p.runInput('input');
+  const judged = p.fanOut('judged', {}, { agent: 'judge', maxParallel: 3, items: '{{values.claimed}}' });
+  judged.wire({ values: input.inputs, text: input.message });
+  const kept = p.merge('judgedKept', undefined, { strategy: 'all' });
+  kept.wire({ children: judged.children });
+  const done = p.finish('done', { result: kept.merged }, { outcome: 'ok' });
+
+  p.start(judged);
+  judged.on('done', kept);
+  kept.on('done', done);
+  p.layout({ input: [0, 4], judged: [8, 4], judgedKept: [16, 4], done: [24, 4] });
+});
+
 export const DELIVERY_V2 = defineProcedure(BUILT_IN_GROUPS, {
   id: 'delivery',
   version: '2',
@@ -467,4 +505,6 @@ export const BUILT_IN_PROCEDURES: readonly Procedure[] = [
   DO_ONE_TASK_V2,
   DELIVERY_V2,
   RUN_LEAF_V2,
+  GROVE_WORK_PASS,
+  GROVE_JUDGE_PASS,
 ];

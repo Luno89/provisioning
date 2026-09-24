@@ -233,7 +233,11 @@ export const fanOut: BuiltInNode = {
     category: 'control',
     describe: 'Starts one child run of a persona per item in a list, a few at a time, and waits for all of them. Each child gets { item, index }. Every outcome is handed on, successes and failures alike — use Merge to keep the ones you want.',
     role: 'step',
-    inputs: [{ name: 'items', type: 'json', describe: 'The list to fan out over.', required: true }],
+    inputs: [
+      { name: 'items', type: 'json', describe: 'The list to fan out over. Superseded when the settings carry an items reference.', required: false },
+      { name: 'values', type: 'json', describe: 'Values the items reference can read as {{values.\u2026}}.' },
+      { name: 'text', type: 'text', describe: 'Text the items reference can read as {{text}}.' },
+    ],
     outputs: [{ name: 'children', type: 'json', describe: 'Every child\'s outcome, in list order.' }],
     exits: [{ name: 'done', describe: 'Every child has finished.' }],
     settings: {
@@ -242,13 +246,27 @@ export const fanOut: BuiltInNode = {
       properties: {
         agent: { type: 'string', title: 'Persona', minLength: 1 },
         maxParallel: { type: 'integer', title: 'At a time', minimum: 1, maximum: 50, default: 3 },
+        items: {
+          type: 'string',
+          title: 'The list, elsewhere',
+          describe: 'A single value reference like {{values.ready}} — the whole list, not one item of it. Supersedes the wired list when set; it must come back as a list, or the fan-out runs over nothing.',
+          default: '',
+        },
       },
     },
     runs: 'orchestration',
     spends: ['childRuns'],
     idempotent: false,
     summarize: (settings) => `runs ${textOf(settings, 'agent') || 'a persona'} for each item, ${numberOf(settings, 'maxParallel', 3)} at a time`,
-    check: agentCheck,
+    check: (settings, known) => {
+      const problems = [...agentCheck(settings, known)];
+      const written = textOf(settings, 'items');
+      // A bare whole reference ({{values.ready}}) is the idiom for a list that lives elsewhere.
+      if (written && !/^\s*\{\{\s*[\w.]+\s*\}\}\s*$/.test(written)) {
+        problems.push(...templateProblems(settings, 'items', 'its items reference'));
+      }
+      return problems;
+    },
   }),
 };
 

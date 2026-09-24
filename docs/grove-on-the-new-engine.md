@@ -9,7 +9,7 @@ Last updated: 2026-07-22
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
-| P1 leaf execution on engine lanes | **shaped** (parallel fan-out/merge supervisor; not started) |
+| P1 leaf execution on engine lanes | **in progress** — claim/judge split, `claim_leaf`, `settle_leaf`, the pass procedures and the in-process proof are in; the TaskChecks implementations (build-order item 4) remain |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
 | P4 supervision swap (retire LeafWorkflow) | not started |
@@ -152,6 +152,19 @@ task with `task.agent`.
 8. **Work-out/judge publishing** — should emit tasks (with leafId) not raw leaves
    (or, post-model, leaves that arrive with their task).
 9. **Explain/trace formats** — different; join by link in P5.
+
+**Resolved while shaping P1 (2026-07-22): fan-out could not see run inputs.**
+Its `items` socket only carries the full output of one earlier node, so a
+pass supervisor's ready set — a field of the pass's run input — was
+unreachable, and writing it into the graph would have needed a `code` node (a
+sandbox the supervisor persona does not have). The fix landed engine-side
+instead: `fan-out` takes an `items` string setting holding a *bare*
+reference (`{{values.ready}}`) plus input sockets `values`/`text` to scope
+the reference against; bare whole-references resolve through
+`fillTemplate`'s whole-reference rule (the list comes back intact, not
+stringified), everything else still goes through the template checker. The
+`items` socket is no longer required when the setting stands in — no other
+dsl change, no new node type.
 
 ## Phases
 
@@ -317,9 +330,28 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
    (the thin champion: delegates the leaf's tasks to the seeded `executor`,
    lands the work in the repo, claims with pointers; the judge settles at the
    pass boundary).
-3. The `grove-run` supervisor procedure over fan-out + merge; proven with the
-   in-process stub-model harness on a two-branch fixture — two independent
-   leaves fan out in the same pass, a dependent leaf waits a pass.
+3. **`grove-run` supervisor — implemented 2026-07-22.** The shape landed as
+   two thin pass procedures, because the pass boundary *is* the procedure
+   boundary: `grove-work-pass` (fan-out `leaf-executor` over the run-input
+   ready set → merge-all → finish) and `grove-judge-pass` (fan-out `judge`
+   over the claimed set → merge-all → finish) are each one small
+   `runProcedure` run; the pass loop lives in the host (the future
+   `ExecuteLeafActivity`), which re-partitions with `ready_leaves` between
+   passes and starts the next. Splitting instead of one looping graph
+   sidesteps the `code`/sandbox need for in-graph partitioning, keeps the
+   scheduling math visible and deterministic in the host layer, and makes
+   each pass crash-safe — a re-judge after a crash re-runs judgment, not
+   work, and a settled claim stays settled. It also *is* fork (a): work
+   runs and judge runs share nothing. Proven in-process
+   (`grove-run.test.ts`: two independent leaves plus one dependent leaf,
+   each with one task, scripted model): pass 1 fans both independents out
+   inside the same work run (two child runs) and judges both claims inside
+   its own judge run; the dependent leaf appears only in pass 2, after its
+   blockers are settled; all three end succeeded + verified; the
+   independent leaves' claims predate the dependent one's. The structural
+   shape is pinned in `composed-request.test.ts` (`passRun` MUST_CARRY
+   variants: the pass itself makes 0 model rounds; the leaves ride in as
+   items; the children carry the work and the claims).
 4. The TaskChecks verification implementations (legacy matrix, gap #2) land
    when the judge needs them, per-leaf, never a batch port.
 

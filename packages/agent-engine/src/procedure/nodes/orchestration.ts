@@ -209,7 +209,18 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
 
     stepImplementation('fan-out', async ({ node, inputs, run }) => {
       const agent = textOf(node.settings, 'agent');
-      const items = Array.isArray(inputs.items) ? inputs.items : [];
+
+      let list: unknown = inputs.items;
+      const written = textOf(node.settings, 'items');
+      if (written) {
+        // A whole reference like '{{values.ready}}' resolves to the raw value, list intact.
+        list = fillTemplate({ items: written }, {
+          values: (inputs.values as Record<string, unknown> | undefined) ?? {},
+          text: typeof inputs.text === 'string' ? inputs.text : '',
+        }, node.id).items;
+      }
+
+      const items = Array.isArray(list) ? list : [];
       const limit = Math.max(1, numberOf(node.settings, 'maxParallel', 3));
       const children: ChildOutcomeValue[] = [];
 

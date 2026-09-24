@@ -476,8 +476,12 @@ export interface DelegateNode extends Step<'ok' | 'failed'> {
 }
 
 export interface FanOutWires {
-  /** The list to fan out over. Required. */
+  /** The list to fan out over. Superseded when the settings carry an items reference. */
   items?: In<'json'>
+  /** Values the items reference can read as {{values.…}}. */
+  values?: In<'json'>
+  /** Text the items reference can read as {{text}}. */
+  text?: In<'text'>
 }
 
 export type FanOutSettings = {
@@ -485,6 +489,11 @@ export type FanOutSettings = {
   agent: string
   /** At a time */
   maxParallel?: number
+  /**
+   * The list, elsewhere
+   * A single value reference like {{values.ready}} — the whole list, not one item of it. Supersedes the wired list when set; it must come back as a list, or the fan-out runs over nothing.
+   */
+  items?: string
 }
 
 export interface FanOutNode extends Step<'done'> {

@@ -39,7 +39,11 @@ function sentinelsFor(persona: Persona, procedure: Procedure): Sentinelled {
 
 const pairs = ALL_SEEDED_AGENTS().flatMap((persona) => {
   const procedure = BUILT_IN_PROCEDURES.find((entry) => entry.id === persona.procedure);
-  return procedure && persona.interface?.inputs ? [{ persona, procedure }] : [];
+  if (!procedure || !persona.interface?.inputs) return [];
+  // The pass procedures are structure: their owner makes no model rounds, so its declared
+  // inputs reach the model on the child's prompt instead — pinned by composed-request.test.
+  if (persona.slug === 'grove-runner') return [];
+  return [{ persona, procedure }];
 });
 
 describe('everything a persona says it takes reaches the model', () => {

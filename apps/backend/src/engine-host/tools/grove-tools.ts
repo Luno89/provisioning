@@ -225,12 +225,12 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         }
       }
 
-      const ready: { id: string; title: string; branchId: string; taskCount: number }[] = [];
+      const ready: { id: string; title: string; body: string; branchId: string; taskCount: number }[] = [];
       const unbroken: { id: string; title: string; branchId: string }[] = [];
       const blocked: { id: string; title: string; waitingOn: string[] }[] = [];
       const notApproved: { id: string; title: string }[] = [];
       const inFlight: { id: string; title: string }[] = [];
-      const claimed: { id: string; title: string }[] = [];
+      const claimed: { id: string; title: string; body: string; branchId: string; claim?: Leaf['claim'] }[] = [];
       const settled: { id: string; title: string; status: TaskStatus | string }[] = [];
 
       for (const leaf of leaves) {
@@ -244,7 +244,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
             notApproved.push({ id: leaf.id, title: leaf.title });
             break;
           case 'claimed':
-            claimed.push({ id: leaf.id, title: leaf.title });
+            claimed.push({ id: leaf.id, title: leaf.title, body: leaf.body ?? '', branchId: leaf.branchId, ...(leaf.claim ? { claim: leaf.claim } : {}) });
             break;
           case 'running':
             inFlight.push({ id: leaf.id, title: leaf.title });
@@ -256,7 +256,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
             } else if ((openTasksByLeaf.get(leaf.id) ?? 0) === 0) {
               unbroken.push({ id: leaf.id, title: leaf.title, branchId: leaf.branchId });
             } else {
-              ready.push({ id: leaf.id, title: leaf.title, branchId: leaf.branchId, taskCount: openTasksByLeaf.get(leaf.id)! });
+              ready.push({ id: leaf.id, title: leaf.title, body: leaf.body ?? '', branchId: leaf.branchId, taskCount: openTasksByLeaf.get(leaf.id)! });
             }
             break;
           }

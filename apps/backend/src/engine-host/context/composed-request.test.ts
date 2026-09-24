@@ -23,6 +23,8 @@ interface Carries {
   mustSay: string[];
   mustOffer?: string[];
   mustNotOffer?: string[];
+  /** The run is structure: no model rounds of its own, but the child it fans out makes one — checked for shape instead of count. */
+  passRun?: true;
 }
 
 const MUST_CARRY: Record<string, Carries> = {
@@ -84,15 +86,53 @@ const MUST_CARRY: Record<string, Carries> = {
     mustOffer: ['claim_leaf', 'list_tasks', 'run_command', 'executor'],
     mustNotOffer: ['settle_leaf'],
   },
-};
+  'grove-work-pass': {
+    agent: 'grove-runner',
+    passRun: true,
+    run: {
+      message: 'Grove work pass, tree t-1.',
+      inputs: { ready: [{ leafId: 'leaf-w1', leafTitle: 'Health endpoint', leafBody: 'The server answers /health on :3000', treeId: 't-1' }] },
+    },
+    mustSay: ['leaf-w1', 'The server answers /health on :3000'],
+    mustOffer: ['claim_leaf', 'list_tasks', 'executor'],
+    mustNotOffer: ['settle_leaf'],
+  },
+  'grove-judge-pass': {
+    agent: 'grove-runner',
+    passRun: true,
+    run: {
+      message: 'Grove judge pass, tree t-1.',
+      inputs: {
+        claimed: [{
+          leafId: 'leaf-j1',
+          leafTitle: 'Health endpoint',
+          leafBody: 'The server answers /health on :3000',
+          treeId: 't-1',
+          claim: { evidence: 'committed at abc1233: server/app.ts answers /health on :3000', at: '2026-07-22T12:00:00.000Z' },
+        }],
+      },
+    },
+    mustSay: ['leaf-j1', 'committed at abc1233'],
+    mustOffer: ['settle_leaf', 'read_file'],
+  },
+}
 
 describe('what each built-in procedure actually puts in front of the model', () => {
   for (const [id, carries] of Object.entries(MUST_CARRY)) {
     it(`${id} tells the model everything the run was given`, async () => {
-      const { requests } = await composedRequests({ procedure: procedure(id), agent: carries.agent, ...carries.run });
+      const { requests, result } = await composedRequests({ procedure: procedure(id), agent: carries.agent, ...carries.run });
 
       expect(requests.length, 'the model was never called').toBeGreaterThan(0);
       const first = requests[0]!;
+
+      if (carries.passRun) {
+        // The pass itself makes no model rounds; its children do. The pass ends only when the merge ran.
+        expect(result.outcome, 'the pass did not run clean').toBe('ok');
+        const items = (carries.run.inputs as { ready?: unknown[]; claimed?: unknown[] }).ready
+          ?? (carries.run.inputs as { claimed?: unknown[] }).claimed!;
+        const kept = (result.outputs as Record<string, Record<string, { agentId: string }[]>>).done?.result;
+        expect(kept?.length, 'each item of the pass fanned out into exactly one child run').toBe(items.length);
+      }
 
       for (const text of carries.mustSay) {
         expect(`${first.system}\n${said(first)}`, `${id} never told the model about "${text}"`).toContain(text);
