@@ -1,5 +1,5 @@
 import type { EnvironmentDriver } from '@koala/engine-core';
-import { judgeCheckout, leafBranch, leafWorktree, TREE_REPO } from '../lib/plan-documents.js';
+import { judgeCheckout, leafBranch, leafBriefPath, leafWorktree, TREE_REPO } from '../lib/plan-documents.js';
 
 export interface LeafDependency {
   leafId: string;
@@ -55,6 +55,34 @@ export async function prepareLeafWorktree(driver: EnvironmentDriver, leafId: str
       throw new WorktreeConflictError(leafId, conflicted.out.split('\n').filter(Boolean));
     }
   }
+}
+
+const listed = (out: string): string[] => out.split('\n').map((line) => line.trim()).filter(Boolean);
+
+export async function pruneLeafWorktrees(driver: EnvironmentDriver, liveLeafIds: readonly string[]): Promise<string[]> {
+  await ensureTreeRepo(driver);
+  const live = new Set(liveLeafIds);
+  const worktrees = listed((await run(driver, `ls -1 ${at('trees')} ${at('judge')} 2>/dev/null | grep -v ':$' || true`)).out);
+  const branches = listed((await run(driver, `git -C ${TREE_REPO} for-each-ref --format='%(refname:short)' refs/heads/leaf/`)).out)
+    .map((branch) => branch.replace(/^leaf\//, ''));
+  const briefs = listed((await run(driver, `ls -1 ${TREE_REPO}/leaves 2>/dev/null || true`)).out)
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => name.replace(/\.md$/, ''));
+  const stale = [...new Set([...worktrees, ...branches, ...briefs])].filter((leafId) => !live.has(leafId));
+  if (stale.length === 0) return [];
+
+  for (const leafId of stale) {
+    for (const path of [at(leafWorktree(leafId)), at(judgeCheckout(leafId))]) {
+      await run(driver, `git -C ${TREE_REPO} worktree remove --force ${quote(path)}; rm -rf ${quote(path)}`);
+    }
+  }
+  await run(driver, `git -C ${TREE_REPO} worktree prune`);
+  for (const leafId of stale) await run(driver, `git -C ${TREE_REPO} branch -D ${quote(leafBranch(leafId))}`);
+  const briefPaths = stale.filter((leafId) => briefs.includes(leafId)).map((leafId) => quote(leafBriefPath(leafId)));
+  if (briefPaths.length > 0) {
+    await must(driver, `cd ${TREE_REPO} && git rm -q --ignore-unmatch ${briefPaths.join(' ')} && (git diff --cached --quiet || git commit -q -m ${quote(`prune: ${stale.length} deleted leaf${stale.length === 1 ? '' : 'ves'}`)})`);
+  }
+  return stale;
 }
 
 export async function prepareJudgeCheckout(driver: EnvironmentDriver, leafId: string, commit: string | undefined): Promise<string | undefined> {

@@ -8,6 +8,7 @@ import {
 import Markdown from './Markdown.js';
 import LeafSteps from './LeafSteps.js';
 import ClaimReview from './ClaimReview.js';
+import ConfirmDelete from './ConfirmDelete.js';
 import PersonaConfigDrawer from './PersonaConfigDrawer.js';
 import LeafTransparency from './LeafTransparency/index.js';
 import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } from './leaf-types.js';
@@ -71,6 +72,7 @@ export default function LeafDetail({ leaf, subLeaves, all = [], frozen = false }
 
   const cancel = useMutation(call(() => cancelLeaf(leaf.id)));
   const remove = useMutation(call(() => deleteLeaf(leaf.id)));
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const raiseBudget = useMutation(call(() => patchLeaf(
     leaf.id,
@@ -169,10 +171,22 @@ export default function LeafDetail({ leaf, subLeaves, all = [], frozen = false }
             <button onClick={() => cancel.mutate()} title="Cancel"
               className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-[var(--bark-700)]"><CircleSlash size={15} /></button>
           )}
-          <button onClick={() => remove.mutate()} title="Delete, with its sub-leaves"
+          <button onClick={() => setConfirmingDelete(true)} title="Delete, with its sub-leaves"
             className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><Trash2 size={15} /></button>
         </div>
       </div>
+
+      {confirmingDelete && (
+        <div className="mt-3">
+          <ConfirmDelete
+            prompt="Delete this leaf with its sub-leaves, their tasks and plans? A run in progress is stopped."
+            confirmLabel="Delete leaf"
+            pending={remove.isPending}
+            onConfirm={() => remove.mutate()}
+            onCancel={() => setConfirmingDelete(false)}
+          />
+        </div>
+      )}
 
       {leaf.status === 'claimed' && <ClaimReview leaf={leaf} />}
 

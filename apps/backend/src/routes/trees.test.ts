@@ -3,10 +3,19 @@ import axios from 'axios';
 import { treesRouter } from './trees.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { GroveRunService } from '../services/GroveRunService.js';
+import { GroveDeletionService } from '../services/GroveDeletionService.js';
+import type { Database } from '../lib/db-interface.js';
+const deletionFor = (db: Database, terminated: string[] = [], released: string[] = []) => new GroveDeletionService({
+  store: db,
+  workflows: { terminate: async (workflowId: string) => { terminated.push(workflowId); return false; } },
+  workspaces: { release: async (treeId: string) => { released.push(treeId); } },
+});
+
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
+const terminate = vi.fn(async (_workflowId: string, _reason: string) => true);
 const workspaces = {
   state: vi.fn(async (_treeId: string) => 'parked' as const),
   release: vi.fn(async (_treeId: string) => undefined),
@@ -29,7 +38,7 @@ const mount = async (): Promise<Harness> => {
   running = false;
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, temporalBridge: {} as never, workspaces, runs: new GroveRunService({ store: db, launcher }) }),
+    router: (db) => treesRouter({ db, temporalBridge: {} as never, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { terminate: terminate }, workspaces }) }),
   });
   return h!;
 };
@@ -115,11 +124,40 @@ describe('a tree\'s workspace', () => {
     expect(workspaces.release.mock.calls).toEqual([['t1']]);
   });
 
-  it('releases the sandbox when the tree itself is deleted', async () => {
+  it('deleting a tree takes everything about it: its run, branches, leaves, tasks, plans, conversations and sandbox', async () => {
     const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    await axios.delete(harness.url('/api/trees/t1'));
+    terminate.mockClear();
+    const db = harness.db;
+    const stamp = 'now';
+    await db.saveTree(tree() as never);
+    await db.saveTree(tree({ id: 'keep' }) as never);
+    await db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveBranch({ id: 'b-keep', ownerId: TEST_USER.id, treeId: 'keep', title: 'B', messages: [], createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', column: 'todo', status: 'pending', runner: 'engine', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveLeaf({ id: 'l-keep', ownerId: TEST_USER.id, branchId: 'b-keep', title: 'L', column: 'todo', status: 'pending', runner: 'engine', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 'about t1', treeId: 't1', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'adopting', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: stamp, updatedAt: stamp });
+
+    const res = await axios.delete(harness.url('/api/trees/t1'));
+
+    expect(res.data).toMatchObject({ success: true, stoppedRun: true });
+    expect(terminate.mock.calls.map(([id]) => id)).toEqual(['grove-run-t1', 'adopt-plan-p1']);
     expect(workspaces.release.mock.calls).toEqual([['t1']]);
+    expect((await db.getTrees()).map((t) => t.id)).toEqual(['keep']);
+    expect((await db.getBranches()).map((b) => b.id)).toEqual(['b-keep']);
+    expect((await db.getLeaves()).map((l) => l.id)).toEqual(['l-keep']);
+    expect(await db.getTasks(TEST_USER.id)).toEqual([]);
+    expect(await db.getConversation(TEST_USER.id, 'c1')).toBeUndefined();
+    expect(await db.getPlanProposals(TEST_USER.id)).toEqual([]);
+  });
+
+  it('refuses to delete another owner\'s tree and touches nothing', async () => {
+    const harness = await mount();
+    await harness.db.saveTree(tree({ ownerId: 'someone-else' }) as never);
+    const err = await axios.delete(harness.url('/api/trees/t1')).catch((e) => e);
+    expect(err.response.status).toBe(404);
+    expect(await harness.db.getTrees()).toHaveLength(1);
   });
 });
 

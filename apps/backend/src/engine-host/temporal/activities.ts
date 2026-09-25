@@ -48,7 +48,7 @@ import type {
 import { createGroveTools } from '../tools/grove-tools.js';
 import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
-import { prepareJudgeCheckout, prepareLeafWorktree, WorktreeConflictError } from '../grove-worktrees.js';
+import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from '../grove-worktrees.js';
 import { claimEvidence, leavesNeedingPlan } from '../../lib/grove-leaf.js';
 import { leafWorktree } from '../../lib/plan-documents.js';
 import type { AdoptedPlan } from '../../lib/plan-proposals.js';
@@ -259,6 +259,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 
     async GrovePrepareWorkActivity(args) {
       const { driver, leaves } = await treeAccess(args.treeId, args.ownerId);
+      await pruneLeafWorktrees(driver, (await treeLeaves(args.treeId, args.ownerId)).map((leaf) => leaf.id));
       const prepared: GrovePreparedWork = { ready: [], failed: [] };
       for (const leafId of args.leafIds) {
         const leaf = leaves.find((entry) => entry.id === leafId);

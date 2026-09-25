@@ -759,6 +759,20 @@ export class TemporalBridge {
     setInterval(reconcileLeaves, RECONCILE_INTERVAL)
   }
 
+  async terminateIfRunning(wfId: string, reason: string): Promise<boolean> {
+    if (!this.client) return false
+    const handle = this.client.workflow.getHandle(wfId)
+    try {
+      const described = await handle.describe()
+      if (described.status.name !== 'RUNNING') return false
+    } catch (err: any) {
+      if (/not\s*found/i.test(String(err?.message ?? err))) return false
+      throw err
+    }
+    await handle.terminate(reason)
+    return true
+  }
+
   async terminateWorkflow(wfId: string, reason = 'User aborted operation'): Promise<boolean> {
     try {
       const handle = this.client.workflow.getHandle(wfId);

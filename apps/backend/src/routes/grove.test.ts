@@ -7,6 +7,14 @@ import { branchesRouter } from './branches.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
 import { seedWorkspaceImages } from '../lib/workspace-image-seeds.js';
+import { GroveDeletionService } from '../services/GroveDeletionService.js';
+import type { Database } from '../lib/db-interface.js';
+const deletionFor = (db: Database, terminated: string[] = [], released: string[] = []) => new GroveDeletionService({
+  store: db,
+  workflows: { terminate: async (workflowId: string) => { terminated.push(workflowId); return false; } },
+  workspaces: { release: async (treeId: string) => { released.push(treeId); } },
+});
+
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -69,7 +77,7 @@ describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }) } }) }),
+      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }) } }), deletion: deletionFor(db) }),
     });
     // Setup seeds the tree types; the route stopped doing it lazily on read.
     await seedTreeTypes(h.db);
@@ -106,7 +114,7 @@ describe('branches', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/branches',
-      router: (db) => branchesRouter({ db, temporalBridge: bridge() }),
+      router: (db) => branchesRouter({ db, deletion: deletionFor(db) }),
     });
     return h!;
   };

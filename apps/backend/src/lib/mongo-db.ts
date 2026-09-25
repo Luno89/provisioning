@@ -845,6 +845,10 @@ export class MongoDB implements Database {
     await this.planProposals.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
+  async deletePlanProposal(ownerId: string, id: string): Promise<void> {
+    await this.planProposals.deleteOne({ _id: id as any, ownerId });
+  }
+
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {
     const doc = await this.procedures.findOne({ _id: procedureKey(ownerId, id) as any });
     if (!doc) return undefined;

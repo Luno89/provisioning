@@ -4,6 +4,14 @@ import { leavesRouter } from './leaves.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { LEAF_COLUMNS } from '../lib/leaves.js';
 import { GroveRunService } from '../services/GroveRunService.js';
+import { GroveDeletionService } from '../services/GroveDeletionService.js';
+import type { Database } from '../lib/db-interface.js';
+const deletionFor = (db: Database, terminated: string[] = [], released: string[] = []) => new GroveDeletionService({
+  store: db,
+  workflows: { terminate: async (workflowId: string) => { terminated.push(workflowId); return false; } },
+  workspaces: { release: async (treeId: string) => { released.push(treeId); } },
+});
+
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -18,7 +26,7 @@ const mount = async (user: typeof TEST_USER | null = TEST_USER) => {
   h = await mountRouter({
     prefix: '/api/leaves',
     user,
-    router: (db) => leavesRouter({ db, temporalBridge: bridge(), giteaService: {} as never }),
+    router: (db) => leavesRouter({ db, temporalBridge: bridge(), giteaService: {} as never, deletion: deletionFor(db) }),
   });
   return h!;
 };
@@ -147,6 +155,7 @@ describe('acting on one leaf', () => {
         db: { getLeaves: async () => { throw new Error('db is down'); } } as never,
         temporalBridge: bridge(),
         giteaService: {} as never,
+        deletion: {} as never,
       }),
     });
     h = harness;
@@ -207,7 +216,7 @@ describe('retrying a failed engine leaf', () => {
     };
     h = await mountRouter({
       prefix: '/api/leaves',
-      router: (db) => leavesRouter({ db, temporalBridge: legacy as never, giteaService: {} as never, runs: new GroveRunService({ store: db, launcher, now: () => 'later' }) }),
+      router: (db) => leavesRouter({ db, temporalBridge: legacy as never, giteaService: {} as never, runs: new GroveRunService({ store: db, launcher, now: () => 'later' }), deletion: deletionFor(db) }),
     });
     await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' } as never);
     await h.db.saveLeaf(leaf({ id: 'e1', status: 'failed', runner: 'engine', findings: 'test.sh exits 1', claim: { evidence: 'ran it', at: 'then' } }) as never);
@@ -226,7 +235,7 @@ describe('retrying a failed engine leaf', () => {
     const launcher = { startGroveRun: vi.fn(), groveRunStatus: vi.fn() };
     h = await mountRouter({
       prefix: '/api/leaves',
-      router: (db) => leavesRouter({ db, temporalBridge: bridge(), giteaService: {} as never, runs: new GroveRunService({ store: db, launcher: launcher as never }) }),
+      router: (db) => leavesRouter({ db, temporalBridge: bridge(), giteaService: {} as never, runs: new GroveRunService({ store: db, launcher: launcher as never }), deletion: deletionFor(db) }),
     });
     await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' } as never);
     await h.db.saveLeaf(leaf({ id: 'old', status: 'failed' }) as never);
@@ -244,3 +253,28 @@ describe('retrying a failed engine leaf', () => {
   });
 });
 
+
+describe('deleting a leaf', () => {
+  it('takes its sub-leaves, their tasks and its leaf plans, and stops the tree\'s run', async () => {
+    const terminated: string[] = [];
+    h = await mountRouter({
+      prefix: '/api/leaves',
+      router: (db) => leavesRouter({ db, temporalBridge: bridge(), giteaService: {} as never, deletion: deletionFor(db, terminated) }),
+    });
+    const db = h.db;
+    await db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await db.saveLeaf(leaf({ id: 'l1', runner: 'engine' }) as never);
+    await db.saveLeaf(leaf({ id: 'l1-sub', parentLeafId: 'l1', runner: 'engine' }) as never);
+    await db.saveLeaf(leaf({ id: 'l2', runner: 'engine' }) as never);
+    await db.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1-sub', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await db.saveTask({ id: 'k2', ownerId: TEST_USER.id, leafId: 'l2', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await db.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'proposed', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: 'now', updatedAt: 'now' });
+
+    await axios.delete(h.url('/api/leaves/l1'));
+
+    expect((await db.getLeaves()).map((l) => l.id)).toEqual(['l2']);
+    expect((await db.getTasks(TEST_USER.id)).map((t) => t.id)).toEqual(['k2']);
+    expect(await db.getPlanProposals(TEST_USER.id)).toEqual([]);
+    expect(terminated).toEqual(['grove-run-t1']);
+  });
+});

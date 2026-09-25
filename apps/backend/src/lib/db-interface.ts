@@ -165,6 +165,7 @@ export interface Database {
   getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]>;
   getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined>;
   savePlanProposal(proposal: PlanProposal): Promise<void>;
+  deletePlanProposal(ownerId: string, id: string): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;

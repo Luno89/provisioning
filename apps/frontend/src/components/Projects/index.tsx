@@ -176,6 +176,7 @@ export function Projects({ clusters }: {
               {...(open.kind === 'tree' && open.branchId ? { initialBranchId: open.branchId } : {})}
               {...(open.kind === 'tree' && open.leafId ? { initialLeafId: open.leafId } : {})}
               onTreeReady={(treeId) => openEntity({ kind: 'tree', id: treeId })}
+              onTreeDeleted={closeEntity}
             />
           </Suspense>
         </WorkspaceErrorBoundary>

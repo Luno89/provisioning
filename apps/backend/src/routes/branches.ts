@@ -9,11 +9,11 @@ import { blockedBy } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
 import type { Leaf, Branch } from '../lib/leaves.js';
 import type { Database } from '../lib/db-interface.js';
-import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 
 export interface BranchesRouterDeps {
   db: Database;
-  temporalBridge: TemporalBridge;
+  deletion: Pick<GroveDeletionService, 'deleteBranch'>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -22,7 +22,7 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export function branchesRouter(deps: BranchesRouterDeps): Router {
-  const { db, temporalBridge } = deps;
+  const { db } = deps;
   const router = Router();
 
   const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
@@ -94,15 +94,9 @@ export function branchesRouter(deps: BranchesRouterDeps): Router {
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
-    const user = userOf(req);
-    const branch = (await ownedBranches(user.id)).find((b) => b.id === idOf(req));
-    if (!branch) return res.status(404).json({ error: 'Branch not found' });
-    for (const leaf of (await ownedLeaves(user.id)).filter((l) => l.branchId === branch.id)) {
-      await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
-      await db.deleteLeaf(leaf.id);
-    }
-    await db.deleteBranch(branch.id);
-    res.json({ success: true });
+    const outcome = await deps.deletion.deleteBranch(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ success: true, stoppedRun: outcome.value.stoppedRun, deleted: outcome.value.scope });
   }));
 
   return router;

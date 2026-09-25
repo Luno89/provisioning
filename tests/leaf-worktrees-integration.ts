@@ -48,11 +48,11 @@ async function main(): Promise<void> {
   const ticket = (runId: string, agentSlug: string): RunTicket => ({ runId, depth: 1, ownerId: OWNER, agentSlug, trigger: 'agent' });
 
   try {
-    console.log('[1/6] preparing leaf A\'s worktree');
+    console.log('[1/7] preparing leaf A\'s worktree');
     const first = await activities.GrovePrepareWorkActivity({ treeId, ownerId: OWNER, leafIds: [leafA.id] });
     assert.deepEqual(first, { ready: [leafA.id], failed: [] });
 
-    console.log('[2/6] an executor in A\'s worktree does its task and leaves the file uncommitted');
+    console.log('[2/7] an executor in A\'s worktree does its task and leaves the file uncommitted');
     const inA = await host.environments.forRun({ ticket: ticket(`exec-${suffix}`, 'executor'), environment: handle(`trees/${leafA.id}`) });
     assert.ok(inA);
     const wrote = await inA.exec({ command: 'echo "from leaf A" > a.txt && git branch --show-current' });
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
       dependsOn: [], status: 'done', runs: [`exec-${suffix}`], evidence: 'wrote a.txt; cat a.txt → from leaf A', createdAt: stamp, updatedAt: stamp,
     });
 
-    console.log('[3/6] the leaf runner commits what the task left, claims at that commit with the task\'s evidence');
+    console.log('[3/7] the leaf runner commits what the task left, claims at that commit with the task\'s evidence');
     const claimed = await activities.GroveClaimActivity({ treeId, ownerId: OWNER, leafId: leafA.id, result: 'claimed' });
     assert.equal(claimed.ok, true, claimed.digest);
     const head = (await inA.exec({ command: 'git rev-parse HEAD' })).stdout.trim();
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
     assert.equal(claimRecord?.commit, head);
     assert.match(claimRecord?.evidence ?? '', /- Write a\.txt \[done\] \(runs: exec-.*\)\n  wrote a\.txt; cat a\.txt → from leaf A/);
 
-    console.log('[4/6] the judge\'s checkout is exactly the claimed commit; a claim it keeps for a person leaves the judge pass');
+    console.log('[4/7] the judge\'s checkout is exactly the claimed commit; a claim it keeps for a person leaves the judge pass');
     const checkouts = await activities.GroveJudgeCheckoutActivity({ treeId, ownerId: OWNER, leafIds: [leafA.id] });
     assert.equal(checkouts[leafA.id], head);
     const judge = await host.environments.forRun({ ticket: ticket(`judge-${suffix}`, 'leaf-judge'), environment: handle(`judge/${leafA.id}`) });
@@ -92,18 +92,27 @@ async function main(): Promise<void> {
     const settled = await settle('verified', 'a.txt at the claimed commit says it');
     assert.equal(settled.ok, true, settled.digest);
 
-    console.log('[5/6] leaf B, which waits on A, starts from A\'s work');
+    console.log('[5/7] leaf B, which waits on A, starts from A\'s work');
     const second = await activities.GrovePrepareWorkActivity({ treeId, ownerId: OWNER, leafIds: [leafB.id] });
     assert.deepEqual(second, { ready: [leafB.id], failed: [] });
     const inB = await host.environments.forRun({ ticket: ticket(`execB-${suffix}`, 'executor'), environment: handle(`trees/${leafB.id}`) });
     assert.ok(inB);
     assert.equal((await inB.exec({ command: 'git branch --show-current && cat a.txt' })).stdout.trim(), `leaf/${leafB.id}\nfrom leaf A`);
 
-    console.log('[6/6] the two leaves never shared a working directory');
+    console.log('[6/7] the two leaves never shared a working directory');
     assert.equal((await inB.exec({ command: 'pwd' })).stdout.trim(), `/work/trees/${leafB.id}`);
     assert.equal((await inA.exec({ command: 'pwd' })).stdout.trim(), `/work/trees/${leafA.id}`);
 
-    console.log('\nleaf worktrees: own branch per leaf, claim pinned to a commit, judge on that commit, dependents built on it — PASS');
+    console.log('[7/7] once leaf B is deleted, the next prepare removes its worktree and branch from the sandbox');
+    await db.deleteLeaf(leafB.id);
+    await activities.GrovePrepareWorkActivity({ treeId, ownerId: OWNER, leafIds: [] });
+    const repo = await host.environments.forRun({ ticket: ticket(`inspect-${suffix}`, 'executor'), environment: { id: shared.id, spec: shared.capabilities, workspace: shared.workspace } });
+    assert.ok(repo);
+    const left = (await repo.exec({ command: `ls -1 /work/trees; git -C /work/repo branch --list 'leaf/*'` })).stdout;
+    assert.ok(!left.includes(leafB.id), `leaf B's work is still in the sandbox:\n${left}`);
+    assert.ok(left.includes(leafA.id), `leaf A's work went with it:\n${left}`);
+
+    console.log('\nleaf worktrees: own branch per leaf, claim pinned to a commit, judge on that commit, dependents built on it, deleted leaves pruned — PASS');
   } finally {
     await host.treeWorkspaces.release(treeId).catch(() => undefined);
     await db.deleteTask(taskId);

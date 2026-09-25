@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { prepareJudgeCheckout, prepareLeafWorktree, WorktreeConflictError } from './grove-worktrees.js';
+import { prepareJudgeCheckout, prepareLeafWorktree, pruneLeafWorktrees, WorktreeConflictError } from './grove-worktrees.js';
 
 function shell(script: (command: string) => { stdout?: string; exitCode?: number } | undefined) {
   const commands: string[] = [];
@@ -64,5 +64,31 @@ describe('checking out a claim for its judge', () => {
   it('has nothing to check out when the claim names no commit that exists', async () => {
     const { driver } = shell((command) => (command.includes('git -C /work/repo rev-parse --verify') ? { exitCode: 1 } : undefined));
     expect(await prepareJudgeCheckout(driver, 'a', undefined)).toBeUndefined();
+  });
+});
+
+describe('pruning the work of deleted leaves', () => {
+  it('removes the worktree, judge checkout, branch and brief of every leaf that no longer exists, and nothing else', async () => {
+    const { driver, commands } = shell((command) => {
+      if (command.startsWith('ls -1 /work/trees')) return { stdout: 'kept\ngone\n' };
+      if (command.includes('for-each-ref')) return { stdout: 'leaf/kept\nleaf/gone\nleaf/orphan\n' };
+      if (command.startsWith('ls -1 /work/repo/leaves')) return { stdout: 'kept.md\ngone.md\n' };
+      return undefined;
+    });
+
+    const pruned = await pruneLeafWorktrees(driver, ['kept']);
+
+    expect(pruned.sort()).toEqual(['gone', 'orphan']);
+    expect(commands).toContain("git -C /work/repo worktree remove --force '/work/trees/gone'; rm -rf '/work/trees/gone'");
+    expect(commands).toContain("git -C /work/repo worktree remove --force '/work/judge/gone'; rm -rf '/work/judge/gone'");
+    expect(commands).toContain("git -C /work/repo branch -D 'leaf/orphan'");
+    expect(commands.some((command) => command.includes("git rm -q --ignore-unmatch 'leaves/gone.md'"))).toBe(true);
+    expect(commands.some((command) => command.includes("'leaf/kept'") || command.includes("'/work/trees/kept'"))).toBe(false);
+  });
+
+  it('does nothing when every leaf in the sandbox still exists', async () => {
+    const { driver, commands } = shell((command) => (command.startsWith('ls -1 /work/trees') ? { stdout: 'kept\n' } : undefined));
+    expect(await pruneLeafWorktrees(driver, ['kept'])).toEqual([]);
+    expect(commands.some((command) => command.includes('branch -D') || command.includes('worktree remove'))).toBe(false);
   });
 });

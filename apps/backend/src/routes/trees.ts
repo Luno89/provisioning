@@ -12,6 +12,7 @@ import type { Leaf, Branch } from '../lib/leaves.js';
 import type { Database } from '../lib/db-interface.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { TreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
+import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { GroveRunService } from '../services/GroveRunService.js';
 
 export interface TreesRouterDeps {
@@ -19,6 +20,7 @@ export interface TreesRouterDeps {
   temporalBridge: TemporalBridge;
   workspaces: Pick<TreeWorkspaces, 'state' | 'release'>;
   runs: Pick<GroveRunService, 'run' | 'status'>;
+  deletion: Pick<GroveDeletionService, 'deleteTree'>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -172,16 +174,9 @@ export function treesRouter(deps: TreesRouterDeps): Router {
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
-    const user = userOf(req);
-    const tree = (await ownedTrees(user.id)).find((t) => t.id === idOf(req));
-    if (!tree) return res.status(404).json({ error: 'Tree not found' });
-    await workspaces.release(tree.id);
-    for (const branch of (await ownedBranches(user.id)).filter((b) => b.treeId === tree.id)) {
-      const { treeId: _dropped, ...rest } = branch;
-      await db.saveBranch(rest as Branch);
-    }
-    await db.deleteTree(tree.id);
-    res.json({ success: true });
+    const outcome = await deps.deletion.deleteTree(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ success: true, stoppedRun: outcome.value.stoppedRun, deleted: outcome.value.scope });
   }));
 
   return router;

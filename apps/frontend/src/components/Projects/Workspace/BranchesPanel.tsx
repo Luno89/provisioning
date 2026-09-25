@@ -3,6 +3,7 @@ import { ChevronRight, ChevronDown, GitBranch, Trash2 } from 'lucide-react'
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from '../../leaf-types.js'
 import type { BranchRecord } from '../../BranchHistory.js'
 import type { SelectedEntity } from './shared.js'
+import ConfirmDelete from '../../ConfirmDelete.js'
 
 export function BranchesPanel({
   branches, leaves, selected, onSelectBranch, onSelectLeaf, onDeleteBranch,
@@ -15,6 +16,7 @@ export function BranchesPanel({
   onDeleteBranch: (id: string) => void
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [confirming, setConfirming] = useState<string | null>(null)
 
   const leavesOf = (branchId: string) => leaves.filter((l) => l.branchId === branchId && !l.parentLeafId)
   const childrenOf = (leafId: string) => leaves.filter((l) => l.parentLeafId === leafId)
@@ -74,7 +76,7 @@ export function BranchesPanel({
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (confirm(`Delete branch "${branch.title}" and all its leaves?`)) onDeleteBranch(branch.id)
+                  setConfirming(branch.id)
                 }}
                 title="Delete branch"
                 className="text-slate-500 hover:text-red-400 p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0"
@@ -82,6 +84,14 @@ export function BranchesPanel({
                 <Trash2 size={12} />
               </button>
             </div>
+            {confirming === branch.id && (
+              <ConfirmDelete
+                prompt={`Delete "${branch.title}" with its leaves, their tasks and plans? A run in progress is stopped.`}
+                confirmLabel="Delete branch"
+                onConfirm={() => { setConfirming(null); onDeleteBranch(branch.id) }}
+                onCancel={() => setConfirming(null)}
+              />
+            )}
             {!bCollapsed && roots.map((l) => renderLeaf(l, 1))}
           </div>
         )

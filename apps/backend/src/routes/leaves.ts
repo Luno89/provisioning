@@ -17,6 +17,7 @@ import { usablePaths } from '../lib/leaf-artifacts.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import type { Database } from '../lib/db-interface.js';
 import type { GroveRunService } from '../services/GroveRunService.js';
+import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { treeTypeForLeaf, packForRole } from '../lib/tree-type-packs.js';
@@ -29,6 +30,7 @@ export interface LeavesRouterDeps {
   temporalBridge: TemporalBridge;
   giteaService: GiteaService;
   runs?: Pick<GroveRunService, 'retryLeaf'> | undefined;
+  deletion: Pick<GroveDeletionService, 'deleteLeaf'>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -228,19 +230,9 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
-    const user = userOf(req);
-    const leaves = await ownedLeaves(user.id);
-    const leaf = leaves.find((c) => c.id === idOf(req));
-    if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
-    for (const descendant of subtreeOf(leaves, leaf.id)) {
-      await temporalBridge?.signalLeaf(descendant.id, 'cancelLeaf');
-      await db.deleteLeaf(descendant.id);
-      await db.deleteLeafTrace(descendant.id);
-    }
-    await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
-    await db.deleteLeaf(leaf.id);
-    await db.deleteLeafTrace(leaf.id);
-    res.json({ success: true, deleted: subtreeOf(leaves, leaf.id).length + 1 });
+    const outcome = await deps.deletion.deleteLeaf(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json({ success: true, stoppedRun: outcome.value.stoppedRun, deleted: outcome.value.scope });
   }));
 
   return router;

@@ -631,6 +631,10 @@ export class MemoryDB implements Database {
     else this.planProposals.push(proposal);
   }
 
+  async deletePlanProposal(ownerId: string, id: string): Promise<void> {
+    this.planProposals = this.planProposals.filter((p) => !(p.id === id && p.ownerId === ownerId));
+  }
+
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {
     return this.procedures.find((s) => procedureKey(s.ownerId, s.id) === procedureKey(ownerId, id));
   }
