@@ -190,6 +190,7 @@ export function buildManifests(workspace: RunWorkspace): Record<string, unknown>
       spec: {
         automountServiceAccountToken: false,
         restartPolicy: 'Never',
+        terminationGracePeriodSeconds: 1,
         activeDeadlineSeconds: seconds,
         securityContext: {
           runAsNonRoot: true,

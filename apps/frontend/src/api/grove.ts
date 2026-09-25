@@ -10,6 +10,7 @@ export const groveKeys = {
   explain: (id: string) => ['leaf-explain', id] as const,
   board: (id: string) => ['tree-board', id] as const,
   workspace: (id: string) => ['tree-workspace', id] as const,
+  run: (id: string) => ['tree-run', id] as const,
 }
 
 export interface TreeRollup {
@@ -34,6 +35,23 @@ export const getTreeWorkspace = (id: string): Promise<{ state: TreeWorkspaceStat
   api.get<{ state: TreeWorkspaceState }>(`/trees/${id}/workspace`).then((r) => r.data)
 export const releaseTreeWorkspace = (id: string): Promise<{ state: TreeWorkspaceState }> =>
   api.delete<{ state: TreeWorkspaceState }>(`/trees/${id}/workspace`).then((r) => r.data)
+
+export interface TreeRunResult {
+  outcome: 'quiet' | 'capped'
+  passes: number
+  awaitingReview: string[]
+}
+
+export type TreeRunStatus =
+  | { state: 'none' | 'unavailable'; engine: boolean }
+  | { state: 'running'; engine: boolean; startedAt: string }
+  | { state: 'finished'; engine: boolean; startedAt: string; closedAt?: string; result: TreeRunResult }
+  | { state: 'failed'; engine: boolean; startedAt: string; closedAt?: string; reason: string }
+
+export const getTreeRun = (id: string): Promise<TreeRunStatus> =>
+  api.get<TreeRunStatus>(`/trees/${id}/run`).then((r) => r.data)
+export const runTree = (id: string): Promise<TreeRunStatus> =>
+  api.post<TreeRunStatus>(`/trees/${id}/run`).then((r) => r.data)
 
 export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((r) => r.data)
 export const createTree = <T,>(body: unknown): Promise<T> =>

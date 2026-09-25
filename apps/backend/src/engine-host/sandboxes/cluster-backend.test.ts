@@ -81,6 +81,7 @@ describe('standing a workspace up', () => {
 
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
     expect(applied).toContain('"activeDeadlineSeconds":14400');
+    expect(applied).toContain('"terminationGracePeriodSeconds":1');
     expect(applied).not.toContain('"activeDeadlineSeconds":3600');
   });
 

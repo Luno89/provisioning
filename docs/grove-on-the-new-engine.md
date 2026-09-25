@@ -1,6 +1,6 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) 4 (stay-claimed parks for a person) and 5 (live runs on the real model, and what they changed) landed 2026-09-24; next: the launch swap.**
+Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) 4 (stay-claimed parks for a person), 5 (live runs on the real model) and 6 (the engine's own launch) landed 2026-09-24/25; next: P2 — planning and launching on the engine, then retire every legacy launcher in one step.**
 
 Last updated: 2026-09-24
 
@@ -9,7 +9,7 @@ Last updated: 2026-09-24
 | Phase | State |
 |---|---|
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
-| P1 fix-up: one sandbox per tree | **slices 1–5 landed 2026-09-24** (see *P1 fix-up* below) |
+| P1 fix-up: one sandbox per tree | **slices 1–6 landed 2026-09-24/25** (see *P1 fix-up* below) |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | not started |
 | P3 landing as engine tools | not started |
@@ -512,6 +512,21 @@ parks for human review; the volume lives and the pod is started on demand.
      (`tests/lib/live-engine-host.ts`); without them a script hung rebuilding an image it could
      not push.
    - Speed on this model: ~4–10 min of executor work and ~2 min of judging per task.
+6. **The engine's own launch — 2026-09-25.** Owner ruling: launch on the engine now, and let the
+   legacy launchers retire in P2, once planning and launching move (the New Tree dialog's
+   `ProjectPlanWorkflow`, branch-chat plan mode, leaf create/accept/retry for legacy leaves).
+   Legacy leaves have no tasks, so switching those launchers off now would strand legacy trees.
+   Coexistence is by where a tree came from, not by a flag. `GroveRunService` behind
+   `POST/GET /api/trees/:id/run` starts `GroveRunWorkflow` (workflow id `grove-run-<tree>`, one
+   run at a time, only for trees with engine leaves) and reports none / running / finished
+   (outcome, passes, awaiting review) / failed. Retrying a failed engine leaf resets it
+   (`resetForRetry`: pending, attempt recorded, failed tasks back to accepted) and starts a run
+   instead of a `LeafWorkflow`. Child run ids carry the execution's run id, so re-runs of one
+   tree never reuse them. The tree workspace has a **Run** section. Sandbox pods get a 1-second
+   grace period: their `sleep` ignored SIGTERM, so every park waited 30 s. Live, all in the
+   browser: chat → planner → Approve → Open the tree → **Run the tree** → the leaf verified at
+   its commit, the panel "finished after 1 pass" (~4 min). Not exercised live: the retry route
+   (route test only).
 
 ### P2 — planning + launching in engine *(medium)*
 

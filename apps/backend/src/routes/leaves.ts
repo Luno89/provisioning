@@ -4,7 +4,7 @@ import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy, withBuiltIns } from '../lib/ownership.js';
 import {
   LEAF_COLUMNS, isLeafColumn, deriveLeafStatus, budgetExceeded, aggregateUsage,
-  rootLeaf, subtreeOf, blockedBy, canAddChild, childrenOf, wouldCycle, settleClaim, type Leaf,
+  rootLeaf, subtreeOf, blockedBy, canAddChild, childrenOf, wouldCycle, settleClaim, runsOnEngine, type Leaf,
 } from '../lib/leaves.js';
 import { budgetForNewRoot } from '../lib/budget-policy.js';
 import { buildReviewPrompt } from '../lib/failure-review.js';
@@ -17,6 +17,7 @@ import { usablePaths } from '../lib/leaf-artifacts.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import { acceptLeaf } from '../lib/accept-leaf.js';
 import type { Database } from '../lib/db-interface.js';
+import type { GroveRunService } from '../services/GroveRunService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import { treeTypeForLeaf, packForRole } from '../lib/tree-type-packs.js';
@@ -28,6 +29,7 @@ export interface LeavesRouterDeps {
   db: Database;
   temporalBridge: TemporalBridge;
   giteaService: GiteaService;
+  runs?: Pick<GroveRunService, 'retryLeaf'> | undefined;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -260,6 +262,12 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
     if (leaf.status !== 'failed') {
       return res.status(409).json({ error: `Only a failed leaf can be retried; this one is ${leaf.status}.` });
+    }
+    if (runsOnEngine(leaf)) {
+      if (!deps.runs) return res.status(503).json({ error: 'Engine runs are not wired here.' });
+      const retried = await deps.runs.retryLeaf(user.id, leaf);
+      if (!retried.ok) return res.status(retried.status).json({ error: retried.error });
+      return res.json(retried.value);
     }
 
     const reset = { ...leaf, status: 'proposed' as const, updatedAt: new Date().toISOString() };

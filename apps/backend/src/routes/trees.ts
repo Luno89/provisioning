@@ -12,11 +12,13 @@ import type { Leaf, Branch } from '../lib/leaves.js';
 import type { Database } from '../lib/db-interface.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { TreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.js';
+import type { GroveRunService } from '../services/GroveRunService.js';
 
 export interface TreesRouterDeps {
   db: Database;
   temporalBridge: TemporalBridge;
   workspaces: Pick<TreeWorkspaces, 'state' | 'release'>;
+  runs: Pick<GroveRunService, 'run' | 'status'>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -25,7 +27,7 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
   (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export function treesRouter(deps: TreesRouterDeps): Router {
-  const { db, temporalBridge, workspaces } = deps;
+  const { db, temporalBridge, workspaces, runs } = deps;
   const router = Router();
 
   const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
@@ -141,6 +143,18 @@ export function treesRouter(deps: TreesRouterDeps): Router {
 
     await db.saveTree(updated);
     res.json(updated);
+  }));
+
+  router.get('/:id/run', asyncRoute(async (req, res) => {
+    const outcome = await runs.status(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.json(outcome.value);
+  }));
+
+  router.post('/:id/run', asyncRoute(async (req, res) => {
+    const outcome = await runs.run(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.status(202).json(outcome.value);
   }));
 
   router.get('/:id/workspace', asyncRoute(async (req, res) => {

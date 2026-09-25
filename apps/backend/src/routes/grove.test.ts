@@ -1,3 +1,4 @@
+import { GroveRunService } from '../services/GroveRunService.js';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import { treeTypesRouter } from './tree-types.js';
@@ -68,7 +69,7 @@ describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined } }),
+      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }) } }) }),
     });
     // Setup seeds the tree types; the route stopped doing it lazily on read.
     await seedTreeTypes(h.db);

@@ -351,6 +351,26 @@ export function readyToStart(all: Leaf[]): Leaf[] {
   return all.filter((l) => l.status === 'pending' && !l.workflowId && !runsOnEngine(l) && dependenciesMet(l, all));
 }
 
+export function resetForRetry<T extends { status: string; updatedAt: string }>(
+  leaf: Leaf,
+  tasks: readonly T[],
+  at: string,
+): { leaf: Leaf; tasks: T[] } {
+  const attempts = leaf.attempts ?? [];
+  const failure = leaf.findings ?? leaf.claim?.evidence ?? 'failed';
+  const { claim: _claim, review: _review, ...rest } = leaf;
+  return {
+    leaf: {
+      ...rest,
+      status: 'pending',
+      verified: false,
+      attempts: [...attempts, { attempt: attempts.length + 1, error: failure, failedAt: leaf.updatedAt }],
+      updatedAt: at,
+    },
+    tasks: tasks.filter((task) => task.status === 'failed').map((task) => ({ ...task, status: 'accepted', updatedAt: at })),
+  };
+}
+
 export function wakeableDependents(leafId: string, all: Leaf[]): Leaf[] {
   return dependentsOf(leafId, all).filter((l) => (l.status === 'pending' || l.status === 'running') && !runsOnEngine(l));
 }

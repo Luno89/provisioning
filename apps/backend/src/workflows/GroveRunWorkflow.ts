@@ -7,6 +7,11 @@ import type { TreeSandbox } from '../engine-host/sandboxes/tree-workspaces.js';
 import { judgeCheckout, leafContext, leafWorktree } from '../lib/plan-documents.js';
 
 const LEAVES_AT_ONCE = 3;
+
+const runPrefix = (): string => {
+  const info = workflowInfo();
+  return `${info.workflowId}-${info.runId.slice(0, 8)}`;
+};
 import type {
   GrovePartition,
   GrovePartitionArgs,
@@ -109,7 +114,7 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
 }
 
 async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: number, leaves: GrovePartitionLeaf[]): Promise<void> {
-  const run = workflowInfo().workflowId;
+  const run = runPrefix();
   for (let offset = 0; offset < leaves.length; offset += LEAVES_AT_ONCE) {
     await Promise.all(leaves.slice(offset, offset + LEAVES_AT_ONCE).map((leaf) => {
       const runId = `${run}-p${pass}-leaf-${leaf.id}`;
@@ -158,7 +163,7 @@ async function runGrovePass(options: {
   role: 'judge';
   inputs: Record<string, unknown>;
 }): Promise<void> {
-  const runId = `${workflowInfo().workflowId}-p${options.pass}-${options.role}`;
+  const runId = `${runPrefix()}-p${options.pass}-${options.role}`;
   const ticket: RunTicket = {
     runId,
     depth: 0,

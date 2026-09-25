@@ -11,7 +11,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
-import { DEFAULT_ENGINE_TASK_QUEUE } from '../engine-host/temporal/contracts.js'
+import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../engine-host/temporal/contracts.js'
+
+export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeId}`
+
+export type GroveRunStatus =
+  | { state: 'none' | 'unavailable' }
+  | { state: 'running'; startedAt: string }
+  | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult }
+  | { state: 'failed'; startedAt: string; closedAt?: string; reason: string }
 import {
   LIVE_LEAF_STATUSES, reconcileLeaf, reconcileMissingLeafWorkflow, type LeafReconcileAction,
 } from '../lib/leaf-reconcile.js'
@@ -446,6 +454,44 @@ export class TemporalBridge {
       workflowIdReusePolicy: 'ALLOW_DUPLICATE',
     })
     return workflowId
+  }
+
+  async startGroveRun(ownerId: string, treeId: string): Promise<{ started: true; workflowId: string } | { started: false; reason: 'unavailable' | 'running' }> {
+    if (!this.client) return { started: false, reason: 'unavailable' }
+    const workflowId = groveRunWorkflowId(treeId)
+    try {
+      await this.client.workflow.start('GroveRunWorkflow', {
+        workflowId,
+        taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
+        args: [{ treeId, ownerId }],
+        workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+      })
+      return { started: true, workflowId }
+    } catch (err: any) {
+      if (/already started|AlreadyStarted/i.test(`${err?.name} ${err?.message}`)) return { started: false, reason: 'running' }
+      throw err
+    }
+  }
+
+  async groveRunStatus(treeId: string): Promise<GroveRunStatus> {
+    if (!this.client) return { state: 'unavailable' }
+    const handle = this.client.workflow.getHandle(groveRunWorkflowId(treeId))
+    let described
+    try {
+      described = await handle.describe()
+    } catch (err: any) {
+      if (/not found/i.test(err?.message ?? '')) return { state: 'none' }
+      throw err
+    }
+    const startedAt = described.startTime.toISOString()
+    const closedAt = described.closeTime?.toISOString()
+    const status = described.status.name
+    if (status === 'RUNNING') return { state: 'running', startedAt }
+    if (status === 'COMPLETED') {
+      const result = await handle.result() as GroveRunResult
+      return { state: 'finished', startedAt, ...(closedAt ? { closedAt } : {}), result }
+    }
+    return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: status.toLowerCase().replace(/_/g, ' ') }
   }
 
   async planProject(treeId: string, branchId: string): Promise<string | undefined> {

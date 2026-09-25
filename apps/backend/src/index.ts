@@ -25,6 +25,7 @@ import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
 import { plansRouter } from './routes/plans.js';
 import { PlanService } from './services/PlanService.js';
+import { GroveRunService } from './services/GroveRunService.js';
 import { branchesRouter } from './routes/branches.js';
 import { leavesRouter } from './routes/leaves.js';
 import { harnessRouter } from './routes/harness/index.js';
@@ -869,7 +870,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/tree-types', treeTypesRouter({ db }));
   app.use('/api/custom-steps', customStepsRouter({ db }));
   app.use('/api/binding-types', bindingTypesRouter({ db }));
-  app.use('/api/trees', treesRouter({ db, temporalBridge, workspaces: evalHost.treeWorkspaces }));
+  const groveRuns = new GroveRunService({ store: db, launcher: temporalBridge });
+  app.use('/api/trees', treesRouter({ db, temporalBridge, workspaces: evalHost.treeWorkspaces, runs: groveRuns }));
   app.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge }) }));
   app.use('/api/branches', branchesRouter({ db, temporalBridge }));
 
@@ -883,7 +885,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   }
 
-  app.use('/api/leaves', leavesRouter({ db, temporalBridge, giteaService }));
+  app.use('/api/leaves', leavesRouter({ db, temporalBridge, giteaService, runs: groveRuns }));
 
   if (process.env.NODE_ENV !== 'test') {
     appExposureService.syncExposedApps().catch((e) => {

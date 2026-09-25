@@ -3,6 +3,7 @@ import axios from 'axios';
 import { leavesRouter } from './leaves.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { LEAF_COLUMNS } from '../lib/leaves.js';
+import { GroveRunService } from '../services/GroveRunService.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -273,6 +274,32 @@ describe('settling a claim a judge kept for a person', () => {
     expect(await statusOf('done', { verdict: 'verified' })).toBe(409);
     expect(await statusOf('p1', { verdict: 'stay-claimed' })).toBe(400);
     expect(await statusOf('theirs', { verdict: 'verified' })).toBe(404);
+  });
+});
+
+describe('retrying a failed engine leaf', () => {
+  it('resets the leaf and its failed tasks, records the attempt, and runs the tree on the engine — never the legacy pipeline', async () => {
+    const legacy = bridge() as unknown as { startLeaf: ReturnType<typeof vi.fn> };
+    const launcher = {
+      startGroveRun: vi.fn(async () => ({ started: true as const, workflowId: 'grove-run-t1' })),
+      groveRunStatus: vi.fn(async () => ({ state: 'running' as const, startedAt: 'then' })),
+    };
+    h = await mountRouter({
+      prefix: '/api/leaves',
+      router: (db) => leavesRouter({ db, temporalBridge: legacy as never, giteaService: {} as never, runs: new GroveRunService({ store: db, launcher, now: () => 'later' }) }),
+    });
+    await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.saveLeaf(leaf({ id: 'e1', status: 'failed', runner: 'engine', findings: 'test.sh exits 1', claim: { evidence: 'ran it', at: 'then' } }) as never);
+    await h.db.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write test.sh', doneMeans: 'it exits 0', dependsOn: [], status: 'failed', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.saveTask({ id: 'k2', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write greet.js', doneMeans: 'it greets', dependsOn: [], status: 'done', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
+
+    const res = await axios.post(h.url('/api/leaves/e1/retry'));
+
+    expect(res.data).toMatchObject({ status: 'pending', attempts: [{ attempt: 1, error: 'test.sh exits 1' }] });
+    expect(res.data.claim).toBeUndefined();
+    expect((await h.db.getTasks(TEST_USER.id)).map((task) => [task.id, task.status]).sort()).toEqual([['k1', 'accepted'], ['k2', 'done']]);
+    expect(launcher.startGroveRun).toHaveBeenCalledWith(TEST_USER.id, 't1');
+    expect(legacy.startLeaf).not.toHaveBeenCalled();
   });
 });
 
