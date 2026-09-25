@@ -51,22 +51,3 @@ describe('NewTreeDialog — plain creation', () => {
     expect(screen.getByRole('button', { name: /create/i })).toBeDisabled()
   });
 });
-
-describe('NewTreeDialog — promoting a tree-less branch', () => {
-  beforeEach(() => { vi.clearAllMocks() })
-
-  it('shows promotion copy and re-files the branch + links the project after creating the tree', async () => {
-    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-2' } as any)
-    const { onCreated } = renderDialog({ promoteFromBranchId: 'branch-1', promoteToProjectId: 'proj-1' })
-
-    expect(screen.getByText('Track as a typed tree')).toBeInTheDocument()
-
-    fireEvent.change(screen.getByPlaceholderText('Koala API'), { target: { value: 'Promoted' } })
-    fireEvent.click(await screen.findByText('Freeform project'))
-    fireEvent.click(screen.getByRole('button', { name: /create/i }))
-
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('tree-2'))
-    expect(groveApi.patchBranch).toHaveBeenCalledWith('branch-1', { treeId: 'tree-2' })
-    expect(groveApi.patchTree).toHaveBeenCalledWith('tree-2', { projectId: 'proj-1' })
-  });
-});

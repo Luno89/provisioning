@@ -66,8 +66,7 @@ import {
   createTaskTools,
   startStreamWorker,
 } from './engine-host/index.js';
-import { boundTreeReader } from './engine-host/bound-tree.js';
-import { chatRouter } from './routes/chat.js';
+import { conversationBinding } from './engine-host/conversation-binding.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { projectFilesRouter } from './routes/project-files.js';
@@ -161,7 +160,6 @@ import { wantsMcp } from './lib/agent-run.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { preferUsable } from './lib/mcp-registry.js';
-import { acceptLeaf } from './lib/accept-leaf.js';
 import { droppedCount } from './lib/leaf-trace.js';
 import { rollup, changedSince, columnFor } from './lib/tree-board.js';
 import { fittedMaxTokens } from './lib/sampling.js';
@@ -338,7 +336,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         },
       }
       : undefined),
-    boundTree: boundTreeReader(db),
+    binding: conversationBinding(db),
   });
 
   /**
@@ -851,15 +849,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     jwtSecret: JWT_SECRET,
     ownedConversations,
     ownedTrees,
-  }));
-  app.use('/api/chat', chatRouter({
-    db, modelService, temporalBridge, projectRepoService, clusterService,
-    ownedBranches, ownedLeaves, ownedTrees,
-    webSearch: executeWebSearch, fetchWebPage: executeFetchWebPage, toolRefused,
-    packs: personaPackService,
-    serversFor: koalaServers,
-    ownedConversations,
-    infisicalService,
+    ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
   }));
 
   app.use('/api/harness', harnessRouter({

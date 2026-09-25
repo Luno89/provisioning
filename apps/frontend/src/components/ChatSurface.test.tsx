@@ -113,18 +113,6 @@ function renderWithProviders(ui: ReactNode) {
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
-function makeSseStream(frames: string[]) {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const frame of frames) {
-        controller.enqueue(encoder.encode(`data: ${frame}\n\n`));
-      }
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-      controller.close();
-    },
-  });
-}
 
 const RUN_ID = 'run-1';
 const AT = '2025-01-01T00:00:00.000Z';
@@ -302,58 +290,6 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(screen.getByText('log lines...')).toBeInTheDocument());
   });
 
-  it('accumulates enabled services (branch scope still rides the legacy frames)', async () => {
-    const mockRes = {
-      body: makeSseStream([
-        '{"type":"enabled","payload":["github-mcp"]}',
-        '{"type":"content","delta":"Ok"}',
-      ]),
-      status: 200,
-      ok: true,
-    };
-    vi.mocked(client.postStream).mockResolvedValue(mockRes as never);
-
-    let currentMessages: any[] = [];
-    const onMessagesChange = vi.fn().mockImplementation((next) => {
-      currentMessages = typeof next === 'function' ? next(currentMessages) : next;
-    });
-
-    const { rerender } = renderWithProviders(
-      <ChatSurface
-        scope={{
-          kind: 'branch',
-          branchId: 'b-1',
-          treeId: 't-1',
-          mode: 'chat',
-          messages: currentMessages,
-          onMessagesChange,
-        }}
-      />,
-    );
-
-    const input = screen.getByPlaceholderText(/message/i);
-    fireEvent.change(input, { target: { value: 'hi' } });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
-    await waitFor(() => expect(onMessagesChange).toHaveBeenCalled());
-
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <ChatSurface
-          scope={{
-            kind: 'branch',
-            branchId: 'b-1',
-            treeId: 't-1',
-            mode: 'chat',
-            messages: currentMessages,
-            onMessagesChange,
-          }}
-        />
-      </QueryClientProvider>
-    );
-
-    expect(await screen.findByText((c) => c.includes('github-mcp'))).toBeInTheDocument();
-  });
-
   it('renders initial messages and handles markdown formatting', () => {
     renderWithProviders(
       <ChatSurface
@@ -497,35 +433,6 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
    * `{ tree: { id, ... }, branch, project, planning }` — the top-level `treeId` does not exist,
    * so onOpenTree never fired, and the accept of a project suggestion silently failed to redirect anywhere.
    */
-  it('redirects to the accepted tree via onOpenTree, reading the id from res.tree.id', async () => {
-    vi.mocked(chatPackApi.getChatConversation).mockResolvedValueOnce({
-      id: 'c1',
-      title: 'Test Conversation',
-      messages: [{ role: 'user', content: 'plan a new project' }],
-      proposedTrees: [{
-        id: 'prop-1', name: 'Odoo Rollout', type: 'default', goal: 'Roll out Odoo', proposedAt: '2026-09-06T12:00:00Z',
-      }],
-    } as never);
-    vi.mocked(chatPackApi.acceptTreeProposal).mockResolvedValue({
-      tree: { id: 'tree-1', name: 'Odoo Rollout' },
-      branch: { id: 'branch-1' },
-      project: { id: 'project-1' },
-      planning: false,
-    } as never);
-    const onOpenTree = vi.fn();
-
-    renderWithProviders(<ChatSurface conversationId="c1" onOpenTree={onOpenTree} />);
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
-
-    await waitFor(() => expect(screen.getByText('Accept to Grove')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('Accept to Grove'));
-
-    await waitFor(() => expect(chatPackApi.acceptTreeProposal).toHaveBeenCalledWith('c1', 'prop-1'));
-    await waitFor(() => expect(onOpenTree).toHaveBeenCalledWith('tree-1'));
-  });
-
   it('raises the proposals badge when the run saved a proposal, and the pending one appears via the panel', async () => {
     let runFinished = false;
     vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
@@ -556,7 +463,7 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
     await waitFor(() => expect(screen.getByText('Odoo Rollout')).toBeInTheDocument());
-    expect(screen.getByText('Accept to Grove')).toBeInTheDocument();
+    expect(screen.getByText(/ask Koala to plan it/)).toBeInTheDocument();
   });
 
   it('displays ELEVATED badge in header bar when conversation is escalated', async () => {
@@ -654,6 +561,22 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     );
   });
 
+  it('saves a new conversation\'s default picks once, not on every render while a reply streams', async () => {
+    queryClient.clear();
+    renderWithProviders(<ChatSurface conversationId="c-fresh" />);
+    await waitFor(() => expect(chatPackApi.patchChatConversation).toHaveBeenCalledWith('c-fresh', expect.objectContaining({ agentSlug: 'koala' })));
+
+    fireEvent.change(screen.getByPlaceholderText(/message/i), { target: { value: 'hello' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    await waitForRunStarted();
+    emit({ type: 'content', delta: 'Hi' });
+    emit({ type: 'content', delta: ' there' });
+    await screen.findByText(/Hi there/);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(chatPackApi.patchChatConversation).toHaveBeenCalledTimes(1);
+  });
+
   it('persists the pick to the conversation when an agent is chosen in the drawer', async () => {
     const { within } = await import('@testing-library/react');
     const chipTitle = 'Pick who answers in this conversation, and see its directives and tools';
@@ -677,154 +600,4 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(screen.getByTitle(chipTitle)).toHaveTextContent('Heron'));
   });
 
-  it('opens PersonaConfigDrawer when persona button is clicked on branch chat', async () => {
-    renderWithProviders(
-      <ChatSurface
-        scope={{
-          kind: 'branch',
-          branchId: 'b-1',
-          treeId: 't-1',
-          mode: 'chat',
-          messages: [],
-          onMessagesChange: vi.fn(),
-        }}
-      />
-    );
-
-    const personaBtn = screen.getByTitle('Pick who answers in this conversation, and see its directives and tools');
-    expect(personaBtn).toBeInTheDocument();
-    fireEvent.click(personaBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText('Persona & Capabilities')).toBeInTheDocument();
-    });
-  });
-
-  it('sets the persona-pack on the branch tree type when a pack is selected in PersonaConfigDrawer', async () => {
-    const groveApi = await import('../api/grove.js');
-    renderWithProviders(
-      <ChatSurface
-        scope={{
-          kind: 'branch',
-          branchId: 'b-1',
-          treeId: 't-1',
-          mode: 'chat',
-          messages: [],
-          onMessagesChange: vi.fn(),
-        }}
-      />
-    );
-
-    const personaBtn = screen.getByTitle('Pick who answers in this conversation, and see its directives and tools');
-    fireEvent.click(personaBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText('Persona & Capabilities')).toBeInTheDocument();
-    });
-
-    // Click the pack in the packs list
-    const packBtn = await screen.findByRole('button', { name: /Koala/i });
-    fireEvent.click(packBtn);
-
-    await waitFor(() => {
-      expect(groveApi.updateTreeType).toHaveBeenCalledWith(
-        'type-1',
-        expect.objectContaining({
-          id: 'type-1',
-          packs: expect.objectContaining({ planner: 'koala' }),
-        })
-      );
-    });
-  });
-
-  it('renders thinking disclosure and tool calls in branch chat during SSE stream', async () => {
-    const mockRes = {
-      body: makeSseStream([
-        '{"type":"thinking","delta":"Analyzing repo structure..."}',
-        '{"type":"toolAnnounce","payload":{"id":"tool-1","name":"read_file","args":"{\\"path\\":\\"package.json\\"}"}}',
-        '{"type":"toolResult","payload":{"id":"tool-1","ok":true,"digest":"read 45 lines"}}',
-        '{"type":"content","delta":"The package is configured correctly."}',
-      ]),
-      status: 200,
-      ok: true,
-    };
-    vi.mocked(client.postStream).mockResolvedValue(mockRes as never);
-
-    let currentMessages: any[] = [];
-    const onMessagesChange = vi.fn().mockImplementation((next) => {
-      currentMessages = typeof next === 'function' ? next(currentMessages) : next;
-    });
-
-    const { rerender } = renderWithProviders(
-      <ChatSurface
-        scope={{
-          kind: 'branch',
-          branchId: 'b-1',
-          treeId: 't-1',
-          mode: 'chat',
-          messages: currentMessages,
-          onMessagesChange,
-        }}
-      />
-    );
-
-    const input = screen.getByPlaceholderText(/message/i);
-    fireEvent.change(input, { target: { value: 'Inspect the code' } });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
-
-    // Re-render when onMessagesChange triggers
-    await waitFor(() => expect(onMessagesChange).toHaveBeenCalled());
-
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <ChatSurface
-          scope={{
-            kind: 'branch',
-            branchId: 'b-1',
-            treeId: 't-1',
-            mode: 'chat',
-            messages: currentMessages,
-            onMessagesChange,
-          }}
-        />
-      </QueryClientProvider>
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText('read_file')).toBeInTheDocument();
-      expect(screen.getByText('completed')).toBeInTheDocument();
-      expect(screen.getByText('Analyzing repo structure...')).toBeInTheDocument();
-    });
-  });
-
-  it('renders thinking disclosure and tool calls for persisted branch messages', () => {
-    renderWithProviders(
-      <ChatSurface
-        scope={{
-          kind: 'branch',
-          branchId: 'b-1',
-          treeId: 't-1',
-          mode: 'chat',
-          messages: [
-            { role: 'user', content: 'check tree' },
-            {
-              role: 'assistant',
-              content: 'Everything looks healthy.',
-              reasoning: 'Verified all dependencies and cluster health.',
-              toolCalls: [
-                { id: 't1', name: 'check_health', args: '{}', ok: true, digest: 'All ok' },
-              ],
-            },
-          ],
-          onMessagesChange: vi.fn(),
-        }}
-      />
-    );
-
-    expect(screen.getByText('check_health')).toBeInTheDocument();
-    expect(screen.getByText('completed')).toBeInTheDocument();
-    expect(screen.getByText(/Thought Process & Analysis/i)).toBeInTheDocument();
-    expect(screen.getByText('Verified all dependencies and cluster health.')).toBeInTheDocument();
-    expect(screen.getByText('Everything looks healthy.')).toBeInTheDocument();
-  });
 });

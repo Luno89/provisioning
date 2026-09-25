@@ -118,36 +118,14 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     ).rejects.toMatchObject({ response: { status: 404 } });
   });
 
-  it('keeps branch fields the chat turn does not own', async () => {
+  it('no longer starts work the old way: no hand-made leaves, branch chats or legacy chat turns', async () => {
     expect(session).toBeTruthy();
-    const auth = { headers: { Cookie: session } };
+    const auth = { headers: { Cookie: session }, validateStatus: () => true };
 
-    const created = await axios.post(getUrl('/api/branches'), { title: 'acceptance survives' }, auth);
-    const id = created.data.id;
-
-    const leaf = await axios.post(getUrl('/api/leaves'), { title: 'something', branchId: id }, auth);
-    expect(leaf.data.branchId).toBe(id);
-
-    const after = await axios.get(getUrl('/api/branches'), auth);
-    const branch = after.data.find((b: any) => b.id === id);
-    expect(branch).toBeTruthy();
-    expect(branch.title).toBe('acceptance survives');
-  });
-
-  it('keeps the fields that decide how a leaf runs', async () => {
-    expect(session).toBeTruthy();
-    const auth = { headers: { Cookie: session } };
-
-    const first = await axios.post(getUrl('/api/leaves'), { title: 'First step' }, auth);
-    const second = await axios.post(getUrl('/api/leaves'), {
-      title: 'Second step',
-      branchId: first.data.branchId,
-      dependsOn: [first.data.id],
-      expects: ['NOTES.md'],
-    }, auth);
-
-    expect(second.data.dependsOn).toEqual([first.data.id]);
-    expect(second.data.expects).toEqual(['NOTES.md']);
+    for (const [path, body] of [['/api/leaves', { title: 'by hand' }], ['/api/branches', { title: 'a chat' }], ['/api/chat', { message: 'hi' }]] as const) {
+      const res = await axios.post(getUrl(path), body, auth);
+      expect(res.status, path).toBe(404);
+    }
   });
 
   it('should support Mock social oauth redirect loops', async () => {

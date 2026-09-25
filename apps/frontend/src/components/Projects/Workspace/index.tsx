@@ -6,22 +6,17 @@ import {
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Folder, MessageSquare,
 } from 'lucide-react'
-import BranchChat, { type BranchRecord } from '../../BranchChat.js'
+import BranchHistory, { type BranchRecord } from '../../BranchHistory.js'
 import ChatSurface from '../../ChatSurface.js'
-import { type ChatAttachment } from '../../ChatSurface.js'
 import Home from '../../Home.js'
 import LeafDetail from '../../LeafDetail.js'
-import NewTreeDialog from '../../NewTreeDialog.js'
 import { type Leaf } from '../../leaf-types.js'
-import { type ChatMessageRecord as Message } from '../../ChatSurface.js'
 import {
-  listTrees, listBranches, listLeaves, patchBranch, patchTree, acceptLeaf, groveKeys,
-  createBranch as apiCreateBranch,
+  listTrees, listBranches, listLeaves, groveKeys,
   deleteBranch as apiDeleteBranch,
-  deleteLeaf as apiDeleteLeaf,
 } from '../../../api/grove.js'
 import { listPacks } from '../../../api/packs.js'
-import { chatPackKeys, createChatConversation } from '../../../api/chat-pack.js'
+import { chatPackKeys, createChatConversation, type ConversationBinding } from '../../../api/chat-pack.js'
 import { listProjects, projectKeys } from '../../../api/projects.js'
 import { lastSeen, markSeenAfterDwell } from '../../../lib/seen.js'
 import { findLinkedProject } from '../../../lib/tree-project-link.js'
@@ -45,6 +40,7 @@ interface WorkspaceTree {
   name: string
   goal?: string
   projectIds?: string[]
+  frozen?: boolean
 }
 
 function CollapsibleSection({ title, defaultOpen = true, isOpen, onToggle, children }: {
@@ -76,21 +72,19 @@ function CollapsibleSection({ title, defaultOpen = true, isOpen, onToggle, child
 }
 
 export function Workspace({
-  treeId, projectId, initialBranchId, initialLeafId, onTreeReady, handoff, onHandoffTaken,
+  treeId, projectId, initialBranchId, initialLeafId, onTreeReady,
 }: {
   treeId?: string | undefined
   projectId?: string | undefined
   initialBranchId?: string | undefined
   initialLeafId?: string | undefined
   onTreeReady?: ((treeId: string) => void) | undefined
-  handoff?: { branchId: string; prompt: string } | undefined
-  onHandoffTaken?: (() => void) | undefined
 }) {
   const qc = useQueryClient()
 
   const [selected, setSelected] = useState<SelectedEntity>(() => {
     if (initialLeafId) return { kind: 'leaf', id: initialLeafId }
-    if (initialBranchId ?? handoff?.branchId) return { kind: 'branch', id: initialBranchId ?? handoff!.branchId }
+    if (initialBranchId) return { kind: 'branch', id: initialBranchId }
     return { kind: 'tree', id: treeId ?? '' }
   })
   const [branchesOpen, setBranchesOpen] = useState(() => selected.kind !== 'branch')
@@ -98,13 +92,6 @@ export function Workspace({
     setSelected({ kind: 'branch', id })
     setBranchesOpen(false)
   }
-  const openedHandoffRef = useRef<string | null>(handoff?.branchId ?? null)
-  useEffect(() => {
-    if (!handoff || openedHandoffRef.current === handoff.branchId) return
-    openedHandoffRef.current = handoff.branchId
-    selectBranch(handoff.branchId)
-  }, [handoff])
-
   useEffect(() => {
     if (initialLeafId) {
       setSelected({ kind: 'leaf', id: initialLeafId })
@@ -112,17 +99,11 @@ export function Workspace({
       selectBranch(initialBranchId)
     }
   }, [initialBranchId, initialLeafId])
-  const [transcripts, setTranscripts] = useState<Record<string, Message[]>>({})
-  const [modes, setModes] = useState<Record<string, 'chat' | 'auto' | 'plan'>>({})
-  const [opening, setOpening] = useState<{ branchId: string; prompt: string } | undefined>()
   const [openingChat, setOpeningChat] = useState<{ conversationId: string; prompt: string } | undefined>()
   const [conversationsOpen, setConversationsOpen] = useState(true)
-  const [showNewTree, setShowNewTree] = useState(false)
   const [sandboxOpen, setSandboxOpen] = useState(false)
   const [runOpen, setRunOpen] = useState(true)
   const [proposalsOpen, setProposalsOpen] = useState(true)
-  const [promotingBranchId, setPromotingBranchId] = useState<string | null>(null)
-  const [acceptError, setAcceptError] = useState<string | null>(null)
 
   const seenAt = useRef<string | undefined>(lastSeen('grove-seen'))
   useEffect(() => markSeenAfterDwell('grove-seen'), [])
@@ -167,24 +148,9 @@ export function Workspace({
     qc.invalidateQueries({ queryKey: ['branches'] })
   }
 
-  const createBranch = useMutation({
-    mutationFn: () => apiCreateBranch<BranchRecord>(treeId ? { treeId } : project ? { projectId: project.id } : {}),
-    onSuccess: (branch: BranchRecord) => {
-      selectBranch(branch.id)
-      qc.invalidateQueries({ queryKey: ['branches'] })
-    },
-  })
-  const startWork = useMutation({
-    mutationFn: (_args: { prompt: string }) =>
-      apiCreateBranch<BranchRecord>(project ? { projectId: project.id } : {}),
-    onSuccess: (branch, { prompt }) => {
-      selectBranch(branch.id)
-      setOpening({ branchId: branch.id, prompt })
-      qc.invalidateQueries({ queryKey: ['branches'] })
-    },
-  })
-  const openTreeChat = useMutation({
-    mutationFn: ({ prompt }: { prompt?: string }) => createChatConversation(prompt ?? 'New conversation', treeId),
+  const binding: ConversationBinding | undefined = treeId ? { treeId } : project ? { projectId: project.id } : undefined
+  const openChat = useMutation({
+    mutationFn: ({ prompt }: { prompt?: string }) => createChatConversation(prompt ?? 'New conversation', binding),
     onSuccess: (conversation, { prompt }) => {
       setSelected({ kind: 'conversation', id: conversation.id })
       if (prompt) setOpeningChat({ conversationId: conversation.id, prompt })
@@ -194,40 +160,10 @@ export function Workspace({
   const deleteBranch = useMutation({
     mutationFn: (id: string) => apiDeleteBranch(id),
     onSuccess: (_, id) => {
-      setTranscripts((prev) => { const copy = { ...prev }; delete copy[id]; return copy })
       if (selected.kind === 'branch' && selected.id === id) setSelected({ kind: 'tree', id: treeId ?? '' })
       refresh()
     },
   })
-  const refusal = (err: any) => err?.response?.data?.error ?? err?.message ?? 'That could not be accepted.'
-  const accept = useMutation({
-    mutationFn: (id: string) => acceptLeaf(id),
-    onSuccess: () => { setAcceptError(null); refresh() },
-    onError: (err) => setAcceptError(refusal(err)),
-  })
-  const reject = useMutation({
-    mutationFn: (id: string) => apiDeleteLeaf(id),
-    onSuccess: refresh,
-  })
-  const acceptAll = useMutation({
-    mutationFn: async (ids: string[]) => {
-      let failed: string | null = null
-      for (const id of ids) {
-        await acceptLeaf(id).catch((err) => { if (!failed) failed = refusal(err) })
-      }
-      setAcceptError(failed)
-    },
-    onSuccess: refresh,
-  })
-
-  const linkTree = useMutation({
-    mutationFn: (newTreeId: string) => patchTree(newTreeId, { projectId }),
-    onSuccess: (_r, newTreeId) => {
-      qc.invalidateQueries({ queryKey: groveKeys.trees() })
-      onTreeReady?.(newTreeId)
-    },
-  })
-
   const childrenOf = (leafId: string) => leaves.filter((l) => l.parentLeafId === leafId)
   const selectedLeaf = selected.kind === 'leaf' ? leaves.find((l) => l.id === selected.id) : undefined
   const selectedBranch = selected.kind === 'branch'
@@ -268,23 +204,6 @@ export function Workspace({
     loadFile, openFile, closeFile, changeContent, saveFile,
   } = useOpenFiles(projectId_)
 
-  const [manualAttachments, setManualAttachments] = useState<ChatAttachment[]>([])
-  const [dismissedActivePath, setDismissedActivePath] = useState<string | null>(null)
-  const attachments = useMemo(() => {
-    const list = [...manualAttachments]
-    if (active?.path && active.path !== dismissedActivePath && !list.some((a) => a.path === active.path)) {
-      list.unshift({ path: active.path, type: 'file' })
-    }
-    return list
-  }, [manualAttachments, active?.path, dismissedActivePath])
-  const attachPath = (path: string, type: 'file' | 'dir') => {
-    setManualAttachments((prev) => (prev.some((a) => a.path === path) ? prev : [...prev, { path, type }]))
-  }
-  const removeAttachment = (path: string) => {
-    setManualAttachments((prev) => prev.filter((a) => a.path !== path))
-    if (path === active?.path) setDismissedActivePath(path)
-  }
-
   const leftPanel = useResizableWidth(
     'workspace-left-width',
     256,
@@ -300,14 +219,6 @@ export function Workspace({
 
   return (
     <div className="flex-1 min-h-0 flex gap-0 relative">
-      {acceptError && (
-        <div className="absolute top-0 left-0 right-0 z-30 m-2 rounded-xl border border-amber-500/40 bg-amber-950/60 px-4 py-2.5 flex items-start gap-3">
-          <AlertTriangle size={15} className="text-amber-400 shrink-0 mt-0.5" />
-          <p className="text-[12px] text-amber-100 leading-relaxed flex-1">{acceptError}</p>
-          <button onClick={() => setAcceptError(null)} className="text-amber-400/70 hover:text-amber-200 text-[11px]">dismiss</button>
-        </div>
-      )}
-
       {hasProject && (
         leftPanel.isCollapsed ? (
           <div
@@ -349,7 +260,7 @@ export function Workspace({
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-2 min-h-0">
-              <FileTree projectId={projectId_} activePath={activePath} onOpen={(path) => void openFile(path)} onAttach={attachPath} />
+              <FileTree projectId={projectId_} activePath={activePath} onOpen={(path) => void openFile(path)} />
             </div>
             <CollapsibleSection title="Builds & Deploys">
               <BuildsDeploysPanel project={project} />
@@ -482,7 +393,7 @@ export function Workspace({
               <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 truncate">
                 <MessageSquare size={13} className="text-emerald-400 shrink-0" />
                 <span className="truncate">
-                  {selectedLeaf ? 'Leaf Detail' : selectedBranch ? (selectedBranch.title || 'Branch Chat') : 'Conversation'}
+                  {selectedLeaf ? 'Leaf Detail' : selectedBranch ? (selectedBranch.title || 'History') : 'Conversation'}
                 </span>
               </div>
               <button
@@ -498,24 +409,25 @@ export function Workspace({
           )}
 
           <div className="flex-1 overflow-y-auto p-3 min-h-0">
-          {!hasTree && treeBranches.length === 0 && selected.kind !== 'branch' ? (
+          {!hasTree && selected.kind === 'tree' ? (
             <div className="h-full flex flex-col items-center justify-center text-center gap-3 text-slate-400">
               <MessageSquarePlus size={28} className="text-slate-600" />
-              <p className="text-[13px]">No Koala conversation for this project yet.</p>
+              <p className="text-[13px]">Talk to Koala about this project. A plan it proposes becomes this project's tree once you approve it.</p>
               <button
-                onClick={() => createBranch.mutate()}
-                disabled={createBranch.isPending}
+                onClick={() => openChat.mutate({})}
+                disabled={openChat.isPending || !binding}
                 className="text-[12px] px-3 py-1.5 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white cursor-pointer disabled:opacity-50"
               >
                 Start a conversation
               </button>
             </div>
-          ) : selected.kind === 'conversation' && treeId ? (
+          ) : selected.kind === 'conversation' && binding ? (
             <ChatSurface
               key={selected.id}
               conversationId={selected.id}
-              treeId={treeId}
+              binding={binding}
               hideSidebar
+              onOpenTree={(id) => { if (id !== treeId) onTreeReady?.(id) }}
               onConversationChange={(id) => { if (id) setSelected({ kind: 'conversation', id }) }}
               {...(openingChat?.conversationId === selected.id
                 ? { autoSend: { text: openingChat.prompt, onSent: () => setOpeningChat(undefined) } }
@@ -526,51 +438,10 @@ export function Workspace({
               leaf={selectedLeaf}
               subLeaves={childrenOf(selectedLeaf.id)}
               all={leaves}
-              onReview={(branchId) => selectBranch(branchId)}
+              frozen={Boolean(selectedLeaf.frozen)}
             />
           ) : selectedBranch ? (
-            <>
-              {!hasTree && (
-                <div className="flex items-center justify-between px-3 py-2 mb-2 rounded-lg bg-[var(--bark-800)]/60 border border-[var(--bark-700)] text-[12px] text-slate-400">
-                  <span>Just talking — nothing is tracked yet.</span>
-                  <button
-                    onClick={() => setPromotingBranchId(selectedBranch.id)}
-                    className="text-[var(--leaf)] hover:underline cursor-pointer"
-                  >
-                    Track as a typed tree →
-                  </button>
-                </div>
-              )}
-              <BranchChat
-                branchId={selectedBranch.id}
-                record={selectedBranch}
-                leaves={leaves}
-                messages={transcripts[selectedBranch.id] ?? selectedBranch.messages ?? []}
-                onMessagesChange={(next) =>
-                  setTranscripts((t) => ({
-                    ...t,
-                    [selectedBranch.id]: typeof next === 'function' ? next(t[selectedBranch.id] ?? selectedBranch.messages ?? []) : next,
-                  }))
-                }
-                mode={modes[selectedBranch.id] ?? 'auto'}
-                onModeChange={(m) => setModes((all) => ({ ...all, [selectedBranch.id]: m }))}
-                onProposals={refresh}
-                {...(hasProject ? { projectId: projectId_, attachments, onRemoveAttachment: removeAttachment } : {})}
-                onAccept={(id) => accept.mutate(id)}
-                onSetAcceptance={async (commands) => {
-                  await patchBranch(selectedBranch.id, { acceptance: commands })
-                  setAcceptError(null)
-                  refresh()
-                }}
-                onReject={(id) => reject.mutate(id)}
-                onAcceptAll={(ids) => acceptAll.mutate(ids)}
-                {...(handoff && handoff.branchId === selectedBranch.id
-                  ? { autoSend: handoff.prompt, ...(onHandoffTaken ? { onAutoSent: onHandoffTaken } : {}) }
-                  : opening && opening.branchId === selectedBranch.id
-                    ? { autoSend: opening.prompt, onAutoSent: () => setOpening(undefined) }
-                    : {})}
-              />
-            </>
+            <BranchHistory key={selectedBranch.id} record={selectedBranch} />
           ) : (
             <Home
               leaves={leaves}
@@ -580,30 +451,31 @@ export function Workspace({
               lastSeen={seenAt.current}
               onOpenBranch={(id) => selectBranch(id)}
               packNames={Object.fromEntries(packs.map((p) => [p.id, p.name]))}
-              starting={startWork.isPending || openTreeChat.isPending}
-              onStart={(_treeId, prompt) => (hasTree ? openTreeChat.mutate({ prompt }) : startWork.mutate({ prompt }))}
+              starting={openChat.isPending}
+              frozen={Boolean(tree?.frozen)}
+              onStart={(_treeId, prompt) => openChat.mutate({ prompt })}
               onOpenLeaf={(leaf) => setSelected({ kind: 'leaf', id: leaf.id })}
               onOpenTree={() => undefined}
             />
           )}
         </div>
 
-        {hasTree && treeId && (
+        {binding && (
           <CollapsibleSection
             title="Conversations"
             isOpen={conversationsOpen}
             onToggle={setConversationsOpen}
           >
             <TreeConversationsPanel
-              treeId={treeId}
+              binding={binding}
               selected={selected}
               onSelect={(id) => setSelected({ kind: 'conversation', id })}
-              onNew={() => openTreeChat.mutate({})}
-              creating={openTreeChat.isPending}
+              {...(tree?.frozen ? {} : { onNew: () => openChat.mutate({}) })}
+              creating={openChat.isPending}
             />
           </CollapsibleSection>
         )}
-        {hasTree && (
+        {(hasTree || treeBranches.length > 0) && (
           <CollapsibleSection
             title="Branches"
             isOpen={branchesOpen}
@@ -615,13 +487,11 @@ export function Workspace({
               selected={selected}
               onSelectBranch={selectBranch}
               onSelectLeaf={(id) => setSelected({ kind: 'leaf', id })}
-              onCreateBranch={() => createBranch.mutate()}
               onDeleteBranch={(id) => deleteBranch.mutate(id)}
-              creating={createBranch.isPending}
             />
           </CollapsibleSection>
         )}
-        {hasTree && treeId && (
+        {hasTree && treeId && !tree?.frozen && (
           <CollapsibleSection
             title="Proposals"
             isOpen={proposalsOpen}
@@ -630,7 +500,7 @@ export function Workspace({
             <TreeProposalsPanel treeId={treeId} />
           </CollapsibleSection>
         )}
-        {hasTree && treeId && (
+        {hasTree && treeId && !tree?.frozen && (
           <CollapsibleSection
             title="Run"
             isOpen={runOpen}
@@ -651,18 +521,6 @@ export function Workspace({
       </div>
       )}
 
-      {(showNewTree || promotingBranchId) && (
-        <NewTreeDialog
-          {...(promotingBranchId ? { promoteFromBranchId: promotingBranchId, promoteToProjectId: project?.id } : {})}
-          onClose={() => { setShowNewTree(false); setPromotingBranchId(null) }}
-          onCreated={(id) => {
-            if (!id) return
-            if (promotingBranchId) onTreeReady?.(id)
-            else linkTree.mutate(id)
-            setPromotingBranchId(null)
-          }}
-        />
-      )}
     </div>
   )
 }

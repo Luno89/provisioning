@@ -25,7 +25,6 @@ function baseProps(overrides: Partial<ProposalsSidebarProps> = {}): ProposalsSid
 
     liveTrees: [],
     persistedTrees: undefined,
-    onAcceptTree: vi.fn(),
     onDismissTree: vi.fn(),
     treeActionPending: false,
 
@@ -67,19 +66,16 @@ describe('ProposalsSidebar', () => {
     expect(screen.getByText('Nothing pending')).toBeInTheDocument();
   });
 
-  it('renders a pending tree proposal and calls accept/dismiss', () => {
-    const onAcceptTree = vi.fn();
+  it('shows an old tree proposal that can only be dismissed now that trees come from an approved plan', () => {
     const onDismissTree = vi.fn();
     renderWithProviders(<ProposalsSidebar {...baseProps({
       liveTrees: [{ id: 't-1', name: 'Odoo Stack', type: 'app', goal: 'Deploy odoo', proposedAt: '2026-09-01T00:00:00Z' }],
-      onAcceptTree,
       onDismissTree,
     })} />);
 
     expect(screen.getByText('Odoo Stack')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Accept to Grove'));
-    expect(onAcceptTree).toHaveBeenCalledWith('t-1');
+    expect(screen.queryByText('Accept to Grove')).toBeNull();
+    expect(screen.getByText(/ask Koala to plan it/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Dismiss'));
     expect(onDismissTree).toHaveBeenCalledWith('t-1');

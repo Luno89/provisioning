@@ -48,30 +48,3 @@ describe('an unbuildable Dockerfile does not reach the default branch', () => {
     expect(verdict).toMatch(/if \(params\.dockerProblems\) return \{ earned, combined, settled: 'failed' \}/);
   });
 });
-
-describe('a plan that mixes tool calls and prose', () => {
-  const route = read('../routes/chat.ts');
-
-  it('keeps prose proposals the tool calls did not cover', () => {
-    expect(route).toMatch(/const fromProse = extracted\?\.length\s*\n?\s*\? extracted\s*\n?\s*: extractProposals\(reply, budget\.proposalsPerReply\)/);
-    expect(route).toMatch(/newProposals\(fromProse/);
-  });
-
-  it('compares against this user\'s leaves on this branch, not every leaf on the instance', () => {
-    const at = route.indexOf('const already = (await ownedLeaves(');
-    expect(at).toBeGreaterThan(-1);
-    expect(route.slice(at, at + 300)).toMatch(/l\.branchId === String\(branchId\)/);
-  });
-
-  it('reports look-alike leaves to the reviewer instead of dropping them', () => {
-    expect(route).toMatch(/duplicateNotice\(suspectedDuplicates\(/);
-  });
-
-  it('assigns the pack the plan named, so a prose leaf can actually be started', () => {
-    // myPacks, not myPersonas — Leaf.packId is a PersonaPack id. Resolving against the wrong
-    // collection and writing its id under a field Leaf doesn't declare (personaId) is exactly the
-    // bug that made every prose-extracted leaf come out unassigned regardless of what name matched.
-    expect(route).toMatch(/resolvePersonaNamed\(proposal\.persona, myPacks\)/);
-    expect(route).toMatch(/\.\.\.\(assigned \? \{ packId: assigned\.id \} : \{\}\)/);
-  });
-});

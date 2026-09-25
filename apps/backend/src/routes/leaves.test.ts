@@ -9,7 +9,6 @@ let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
 const bridge = () => ({
-  startLeaf: vi.fn(async () => ({ id: 'w1' })),
   signalLeaf: vi.fn(async () => undefined),
   cancelLeaf: vi.fn(async () => undefined),
   terminateLeaf: vi.fn(async () => undefined),
@@ -48,93 +47,15 @@ describe('listing the board', () => {
   });
 });
 
-describe('creating a leaf', () => {
-  it('requires a title, and says which field', async () => {
+describe('which leaves are frozen', () => {
+  it('marks every leaf the old pipeline made, and none of the engine\'s in an open tree', async () => {
     const harness = await mount();
-    const err = await axios.post(harness.url('/api/leaves'), { branchId: 'b1' }).catch((e) => e);
-    expect(err.response.status).toBe(400);
-    expect(err.response.data.error).toMatch(/title/i);
-  });
-
-  it('rejects a column that is not one of the real ones', async () => {
-    const harness = await mount();
-    const err = await axios.post(harness.url('/api/leaves'), {
-      title: 'x', branchId: 'b1', column: 'not-a-column',
-    }).catch((e) => e);
-    expect(err.response.status).toBe(400);
-    for (const col of LEAF_COLUMNS) {
-      expect(err.response.data.error).toContain(col);
-    }
-  });
-
-  it('owns the new leaf to the session user, whatever the body claims', async () => {
-    const harness = await mount();
-    const res = await axios.post(harness.url('/api/leaves'), {
-      title: 'x', branchId: 'b1', ownerId: 'someone-else',
-    }, { validateStatus: () => true });
-    expect(res.status, JSON.stringify(res.data)).toBeLessThan(300);
-    expect(res.data.ownerId).toBe(TEST_USER.id);
-  });
-
-  it('404s a parent belonging to someone else, rather than 403', async () => {
-    const harness = await mount();
-    await harness.db.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else' }) as never);
-    const err = await axios.post(harness.url('/api/leaves'), {
-      title: 'x', parentLeafId: 'theirs',
-    }).catch((e) => e);
-    expect(err.response.status).toBe(404);
-  });
-
-  /**
-   * Used to write `personaId` straight onto the leaf, a field Leaf never declares — the real
-   * `packId` stayed unset regardless of what was sent, so the leaf came out unassigned every time.
-   * `packId` is the only field accepted now — no legacy `personaId` acceptance, since nothing
-   * writes it anymore (frontend included). Same rule as PATCH /:id.
-   */
-  describe('assigning a pack', () => {
-    const pack = (over: Record<string, unknown> = {}) => ({
-      id: 'pack-1', slug: 'builder', name: 'Builder', personaId: 'persona-1',
-      personaName: 'Builder', tools: [], canRunLeaf: true,
-      sampling: { toolTurn: {}, conversation: {} }, budget: {} as never,
-      prompt: { sections: {} }, createdAt: '', updatedAt: '',
-      ...over,
-    });
-
-    it('resolves packId directly', async () => {
-      const harness = await mount();
-      await harness.db.savePersonaPack(pack() as never);
-      const res = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'pack-1' });
-      expect(res.data.packId).toBe('pack-1');
-    });
-
-    it('resolves a slug the same way', async () => {
-      const harness = await mount();
-      await harness.db.savePersonaPack(pack() as never);
-      const res = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'builder' });
-      expect(res.data.packId).toBe('pack-1');
-    });
-
-    it('ignores personaId — packId is the only field this accepts', async () => {
-      const harness = await mount();
-      await harness.db.savePersonaPack(pack() as never);
-      const res = await axios.post(harness.url('/api/leaves'), { title: 'x', personaId: 'persona-1' });
-      expect(res.data.packId).toBeUndefined();
-    });
-
-    it('400s a packId that matches nothing, rather than creating it unassigned', async () => {
-      const harness = await mount();
-      const err = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'nope' }).catch((e) => e);
-      expect(err.response.status).toBe(400);
-      expect(err.response.data.error).toMatch(/no pack with that id/i);
-    });
-
-    it('400s a pack with no sandbox, since it cannot carry out work', async () => {
-      const harness = await mount();
-      await harness.db.savePersonaPack(pack({ canRunLeaf: false }) as never);
-      const err = await axios.post(harness.url('/api/leaves'), { title: 'x', packId: 'pack-1' }).catch((e) => e);
-      expect(err.response.status).toBe(400);
-      expect(err.response.data.error).toMatch(/no sandbox/i);
-    });
+    await harness.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await harness.db.saveBranch({ id: 'b2', ownerId: TEST_USER.id, treeId: 't2', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await harness.db.saveLeaf(leaf({ id: 'old', branchId: 'b1' }) as never);
+    await harness.db.saveLeaf(leaf({ id: 'new', branchId: 'b2', runner: 'engine' }) as never);
+    const listed = (await axios.get(harness.url('/api/leaves'))).data as { id: string; frozen: boolean }[];
+    expect(Object.fromEntries(listed.map((entry) => [entry.id, entry.frozen]))).toEqual({ old: true, new: false });
   });
 });
 
@@ -278,8 +199,8 @@ describe('settling a claim a judge kept for a person', () => {
 });
 
 describe('retrying a failed engine leaf', () => {
-  it('resets the leaf and its failed tasks, records the attempt, and runs the tree on the engine — never the legacy pipeline', async () => {
-    const legacy = bridge() as unknown as { startLeaf: ReturnType<typeof vi.fn> };
+  it('resets the leaf and its failed tasks, records the attempt, and runs the tree on the engine', async () => {
+    const legacy = bridge();
     const launcher = {
       startGroveRun: vi.fn(async () => ({ started: true as const, workflowId: 'grove-run-t1' })),
       groveRunStatus: vi.fn(async () => ({ state: 'running' as const, startedAt: 'then' })),
@@ -299,7 +220,27 @@ describe('retrying a failed engine leaf', () => {
     expect(res.data.claim).toBeUndefined();
     expect((await h.db.getTasks(TEST_USER.id)).map((task) => [task.id, task.status]).sort()).toEqual([['k1', 'accepted'], ['k2', 'done']]);
     expect(launcher.startGroveRun).toHaveBeenCalledWith(TEST_USER.id, 't1');
-    expect(legacy.startLeaf).not.toHaveBeenCalled();
+  });
+
+  it('refuses to retry or edit a leaf the old pipeline made, or an engine leaf in a tree it froze', async () => {
+    const launcher = { startGroveRun: vi.fn(), groveRunStatus: vi.fn() };
+    h = await mountRouter({
+      prefix: '/api/leaves',
+      router: (db) => leavesRouter({ db, temporalBridge: bridge(), giteaService: {} as never, runs: new GroveRunService({ store: db, launcher: launcher as never }) }),
+    });
+    await h.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' } as never);
+    await h.db.saveLeaf(leaf({ id: 'old', status: 'failed' }) as never);
+    await h.db.saveLeaf(leaf({ id: 'mixed', status: 'failed', runner: 'engine' }) as never);
+
+    for (const id of ['old', 'mixed']) {
+      for (const call of [() => axios.post(h!.url(`/api/leaves/${id}/retry`)), () => axios.patch(h!.url(`/api/leaves/${id}`), { title: 'changed' })]) {
+        const err = await call().catch((e: { response?: { status?: number; data?: { error?: string } } }) => e);
+        expect((err as { response?: { status?: number } }).response?.status, id).toBe(409);
+        expect((err as { response?: { data?: { error?: string } } }).response?.data?.error).toMatch(/frozen/);
+      }
+    }
+    expect(launcher.startGroveRun).not.toHaveBeenCalled();
+    expect((await h.db.getLeaves()).find((l) => l.id === 'old')?.title).toBe('do a thing');
   });
 });
 

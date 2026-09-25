@@ -549,7 +549,7 @@ describe('a conversation about one tree', () => {
       tasks: { list: async () => tasks },
       plans: { save: async (entry) => { saved = [...saved.filter((e) => e.id !== entry.id), entry]; }, list: async () => saved },
       treeTypes: async () => [{ id: 'application', label: 'App', summary: 'an app' }],
-      boundTree: async (ownerId, id) => (ownerId === 'user-1' && id === 'conv-tree' ? 'tree-1' : undefined),
+      binding: async (ownerId, id) => (ownerId !== 'user-1' ? undefined : id === 'conv-tree' ? { treeId: 'tree-1' } : id === 'conv-project' ? { projectId: 'project-9' } : {}),
     },
     newId: () => `g${++nextId}`,
     now: () => '2026-01-01T00:00:00.000Z',
@@ -584,6 +584,23 @@ describe('a conversation about one tree', () => {
     const outcome = await call('conv-free', 'propose_plan', { ...PLAN, tree: { name: 'New', type: 'application', goal: 'x' }, branches: [{ title: 'More', leaves: [{ ...PLAN.branches[0]!.leaves[0]!, dependsOn: [] }] }] });
     expect(outcome.ok, outcome.digest).toBe(true);
     expect(saved[0]?.plan?.tree?.name).toBe('New');
+  });
+
+  it('marks a new tree planned in a conversation about a project for linking to it, and only a new one', async () => {
+    const fresh = await call('conv-project', 'propose_plan', { ...PLAN, tree: { name: 'New', type: 'application', goal: 'x' }, branches: [{ title: 'More', leaves: [{ ...PLAN.branches[0]!.leaves[0]!, dependsOn: [] }] }] });
+    expect(fresh.ok, fresh.digest).toBe(true);
+    expect(saved.at(-1)?.projectId).toBe('project-9');
+    const grow = await call('conv-project', 'propose_plan', { ...PLAN, treeId: 'tree-1' });
+    expect(grow.ok, grow.digest).toBe(true);
+    expect(saved.find((entry) => entry.status === 'proposed')?.projectId).toBeUndefined();
+  });
+
+  it('refuses to grow a tree the old pipeline built, which is frozen', async () => {
+    leaves.push({ ...leaves[0]!, id: 'old', runner: undefined });
+    const outcome = await call('conv-tree', 'propose_plan', PLAN);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.digest).toContain('frozen');
+    expect(saved).toEqual([]);
   });
 
   it('reads the bound tree without being told which, and refuses another owner\'s', async () => {

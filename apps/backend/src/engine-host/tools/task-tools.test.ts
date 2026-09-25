@@ -50,6 +50,26 @@ beforeEach(() => {
 });
 
 describe('propose_work', () => {
+  it('refuses loose tasks in a conversation about a tree or a project, and says to plan a Grove tree instead', async () => {
+    const bound = createTaskTools({
+      store,
+      binding: async (_ownerId, id) => (id === 'about-tree' ? { treeId: 'tree-1' } : id === 'about-project' ? { projectId: 'project-9' } : {}),
+    });
+    const call = (conversationId: string) => bound['propose_work']!({
+      name: 'propose_work', parsed: { title: 'Write hi.js', doneMeans: 'it greets' }, driver: undefined, caller: { ...caller, conversationId },
+    });
+
+    const tree = await call('about-tree');
+    expect(tree.ok).toBe(false);
+    expect(tree.digest).toContain('propose_plan with treeId tree-1');
+    const project = await call('about-project');
+    expect(project.ok).toBe(false);
+    expect(project.digest).toContain('propose_plan with tree: { name, type, goal }');
+    expect(stored).toEqual([]);
+    expect((await call('free')).ok).toBe(true);
+  });
+
+
   it('creates work in proposed state, owned and scoped to the project', async () => {
     const outcome = await run('propose_work', {
       title: 'Point Odoo at the right database',

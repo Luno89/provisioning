@@ -1,22 +1,10 @@
 import { useState } from 'react';
 import {
-  History, ChevronDown, ShieldAlert, Inbox, Plus, AlertTriangle
+  History, ChevronDown, ShieldAlert, Inbox, Plus
 } from 'lucide-react';
 import type { ChatConversation } from '../../api/chat-pack.js';
-import type { ChatMode, ChatScope } from './hooks/useBranchTurn.js';
-
-export const MODE_HINT: Record<ChatMode, string> = {
-  chat: 'just talking — nothing is created',
-  auto: 'work is extracted from every reply',
-  plan: 'actively breaking the work down',
-};
 
 export interface ChatHeaderProps {
-  isBranch: boolean;
-  branch?: ChatScope | undefined;
-  branchTree?: { id: string; name: string } | undefined;
-  plannerPack?: { id: string; name: string } | undefined;
-  onOpenLab?: () => void;
   hideSidebar?: boolean | undefined;
   showHistory?: boolean;
   onToggleHistory?: () => void;
@@ -32,11 +20,6 @@ export interface ChatHeaderProps {
 }
 
 export function ChatHeader({
-  isBranch,
-  branch,
-  branchTree,
-  plannerPack,
-  onOpenLab,
   hideSidebar = false,
   showHistory = false,
   onToggleHistory,
@@ -51,38 +34,6 @@ export function ChatHeader({
   isCreatingChat = false,
 }: ChatHeaderProps) {
   const [showDropdown, setShowDropdown] = useState(false);
-
-  if (isBranch && branch) {
-    return (
-      <div className="flex-none flex items-center justify-between gap-3 px-4 py-2.5 bg-[var(--bark-900,#111814)] border-b border-[var(--bark-800,#1b2620)] select-none font-sans">
-        <div className="flex items-center gap-2 text-[11px] min-w-0">
-          <span className={`font-mono ${branch.mode === 'chat' ? 'text-slate-500' : branch.mode === 'plan' ? 'text-emerald-400' : 'text-blue-400'}`}>
-            /{branch.mode}
-          </span>
-          <span className="text-slate-600">{MODE_HINT[branch.mode]}</span>
-          {branchTree && (
-            <>
-              <span className="text-slate-700">·</span>
-              <span className="text-slate-400 truncate">scoped to {branchTree.name}</span>
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-2 relative">
-          {!plannerPack && onOpenLab && (
-            <button
-              type="button"
-              onClick={onOpenLab}
-              title="No planner pack is assigned to this project type — set one in Lab > Tree Types"
-              className="flex items-center gap-1 text-amber-500/90 hover:text-amber-400 truncate cursor-pointer text-[11px]"
-            >
-              <AlertTriangle size={11} className="shrink-0" />
-              <span className="truncate">No planner pack assigned</span>
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex-none flex items-center justify-between gap-3 px-4 py-2.5 bg-[var(--bark-900,#111814)] border-b border-[var(--bark-800,#1b2620)] select-none font-sans">
@@ -153,7 +104,7 @@ export function ChatHeader({
             <span>ELEVATED ({activeConversation.escalatedScope ?? 'cluster-read'})</span>
           </div>
         )}
-        {!hideSidebar && !isBranch && onToggleProposals && (
+        {!hideSidebar && onToggleProposals && (
           <button
             type="button"
             aria-label="Toggle proposals"

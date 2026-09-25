@@ -1,6 +1,5 @@
-import { dependenciesMet, blockedBy, shouldRetry, wakeableDependents, type Leaf } from '../lib/leaves.js';
+import { dependenciesMet, blockedBy, shouldRetry, type Leaf } from '../lib/leaves.js';
 import { createDatabase } from '../lib/db-interface.js';
-import { getTemporalClient } from '../lib/temporal-client.js';
 
 export interface LeafGateArgs {
   leafId: string;
@@ -57,32 +56,6 @@ export interface ReleaseDependentsResult {
 }
 
 export async function ReleaseDependentsActivity(args: LeafGateArgs): Promise<ReleaseDependentsResult> {
-  const db = createDatabase();
-  await db.init();
-  try {
-    const leaves = await db.getLeaves();
-    const waiting = wakeableDependents(args.leafId, leaves);
-    if (waiting.length === 0) return { released: [] };
-
-    const client = await getTemporalClient();
-    const released: string[] = [];
-
-    for (const leaf of waiting) {
-      try {
-        await client.workflow.signalWithStart('LeafWorkflow', {
-          workflowId: `leaf-${leaf.id}`,
-          taskQueue: process.env.TEMPORAL_TASK_QUEUE || 'host-ops-queue',
-          args: [{ leafId: leaf.id, title: leaf.title, column: leaf.column, depth: leaf.depth }],
-          signal: 'dependencyCompleted',
-          signalArgs: [args.leafId],
-        });
-        released.push(leaf.id);
-      } catch (err) {
-        console.warn(`[ReleaseDependents] could not wake leaf ${leaf.id}: ${(err as Error).message}`);
-      }
-    }
-    return { released };
-  } finally {
-    await db.close();
-  }
+  console.warn(`[ReleaseDependents] ${args.leafId} finished, but the old leaf pipeline no longer starts leaves, so nothing waiting on it is woken`);
+  return { released: [] };
 }

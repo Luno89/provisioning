@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dependenciesMet, blockedBy, dependentsOf, readyToStart, shouldRetry, type Leaf } from './leaves.js';
+import { dependenciesMet, blockedBy, dependentsOf, shouldRetry, type Leaf } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'l', ownerId: 'u1', branchId: 'b', title: 't', body: '', column: 'todo',
@@ -95,18 +95,4 @@ describe('a dependency that can never succeed', () => {
   });
 });
 
-describe('the backstop', () => {
-  it('claims nothing that already has a workflow', () => {
-    const a = leaf({ id: 'a', status: 'succeeded' });
-    const parked = leaf({ id: 'b', dependsOn: ['a'], workflowId: 'leaf-b' });
 
-    expect(readyToStart([a, parked])).toEqual([]);
-  });
-
-  it('still catches a ready leaf that nothing ever started', () => {
-    const a = leaf({ id: 'a', status: 'succeeded' });
-    const stranded = leaf({ id: 'b', dependsOn: ['a'] });
-
-    expect(readyToStart([a, stranded]).map((l) => l.id)).toEqual(['b']);
-  });
-});

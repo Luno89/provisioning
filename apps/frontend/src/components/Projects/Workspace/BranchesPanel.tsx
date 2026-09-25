@@ -1,20 +1,18 @@
 import { useState } from 'react'
-import { ChevronRight, ChevronDown, GitBranch, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, GitBranch, Trash2 } from 'lucide-react'
 import { STATE_DOT, STATE_LABEL, CANCELLED_DOT, stateFor, type Leaf } from '../../leaf-types.js'
-import type { BranchRecord } from '../../BranchChat.js'
+import type { BranchRecord } from '../../BranchHistory.js'
 import type { SelectedEntity } from './shared.js'
 
 export function BranchesPanel({
-  branches, leaves, selected, onSelectBranch, onSelectLeaf, onCreateBranch, onDeleteBranch, creating,
+  branches, leaves, selected, onSelectBranch, onSelectLeaf, onDeleteBranch,
 }: {
   branches: BranchRecord[]
   leaves: Leaf[]
   selected: SelectedEntity
   onSelectBranch: (id: string) => void
   onSelectLeaf: (id: string) => void
-  onCreateBranch: () => void
   onDeleteBranch: (id: string) => void
-  creating?: boolean
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
@@ -90,16 +88,8 @@ export function BranchesPanel({
       })}
 
       {branches.length === 0 && (
-        <p className="text-[11px] text-slate-500 italic px-2 py-1">No conversations yet.</p>
+        <p className="text-[11px] text-slate-500 italic px-2 py-1">No branches yet.</p>
       )}
-
-      <button
-        onClick={onCreateBranch}
-        disabled={creating}
-        className="flex items-center gap-1.5 px-2 py-1 text-[12px] text-slate-600 hover:text-[var(--leaf)] disabled:opacity-50"
-      >
-        <Plus size={12} /> new conversation
-      </button>
     </div>
   )
 }

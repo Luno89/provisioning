@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  acceptTreeProposal,
   dismissTreeProposal,
   acceptSpecProposal,
   dismissSpecProposal,
@@ -19,31 +18,15 @@ import type { ChatRenderState } from '../../../lib/chat-unified-reducer.js';
 export interface UseChatProposalsOptions {
   activeConversation?: ChatConversation | null | undefined;
   liveState: ChatRenderState;
-  onOpenTree?: ((treeId: string) => void) | undefined;
   onError: (msg: string | null) => void;
 }
 
 export function useChatProposals({
   activeConversation,
   liveState,
-  onOpenTree,
   onError,
 }: UseChatProposalsOptions) {
   const qc = useQueryClient();
-
-  const acceptTreeMutation = useMutation({
-    mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
-      acceptTreeProposal(convId, proposalId),
-    onSuccess: (res: any, variables) => {
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(variables.convId) });
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
-      qc.invalidateQueries({ queryKey: ['trees'] });
-      if (res?.tree?.id) {
-        onOpenTree?.(res.tree.id);
-      }
-    },
-    onError: (err) => onError(`Could not accept the proposal: ${errorMessage(err)}`),
-  });
 
   const dismissTreeMutation = useMutation({
     mutationFn: ({ convId, proposalId }: { convId: string; proposalId: string }) =>
@@ -140,7 +123,6 @@ export function useChatProposals({
   }), [liveTrees, liveSpecs, liveEscalations, liveSecretRequests, activeConversation]);
 
   return {
-    acceptTreeMutation,
     dismissTreeMutation,
     acceptSpecMutation,
     dismissSpecMutation,

@@ -21,6 +21,7 @@ export interface TaskStore {
 
 export interface TaskToolOptions {
   store: TaskStore;
+  binding?: ((ownerId: string, conversationId: string) => Promise<{ treeId?: string | undefined; projectId?: string | undefined } | undefined>) | undefined;
   newId?: (() => string) | undefined;
   now?: (() => string) | undefined;
 }
@@ -94,6 +95,9 @@ export function createTaskTools(options: TaskToolOptions): Record<string, ToolHa
   return {
     async propose_work({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner to propose work for');
+      const bound = caller.conversationId && options.binding ? await options.binding(caller.ownerId, caller.conversationId) : undefined;
+      if (bound?.treeId) return refuse(`this conversation is about Grove tree ${bound.treeId}, so its work is planned as part of the tree: propose_plan with treeId ${bound.treeId}, not loose tasks`);
+      if (bound?.projectId) return refuse(`this conversation is about project ${bound.projectId}, which has no tree yet, so its work is planned as a new Grove tree: propose_plan with tree: { name, type, goal } (list_tree_types first), not loose tasks — approving it links the tree to the project`);
 
       const input = {
         title: asString(parsed, 'title') ?? '',

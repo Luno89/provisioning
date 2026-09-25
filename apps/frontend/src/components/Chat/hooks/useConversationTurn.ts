@@ -8,6 +8,7 @@ import {
   patchChatConversation,
   chatPackKeys,
   type ChatConversation,
+  type ConversationBinding,
 } from '../../../api/chat-pack.js';
 import {
   startRun,
@@ -29,8 +30,7 @@ const EMPTY_MESSAGES: ChatMessageRecord[] = [];
 /**
  * The koala chat surface now drives an engine run per turn: POST /engine/runs starts it, the
  * run's events arrive on ENGINE_EVENT_CHANNEL, and engine-event-frames.ts translates them into
- * the UnifiedFrames this render state already understands. The legacy /api/chat stream is still
- * served for the branch scope (see useBranchTurn) until that scope moves over.
+ * the UnifiedFrames this render state already understands.
  */
 /** The agent slug every koala-chat turn runs on by default — the seed persona. */
 const DEFAULT_CHAT_AGENT = 'koala';
@@ -61,7 +61,7 @@ export interface UseConversationTurnOptions {
   enabled: boolean;
   onConversationChange?: ((id: string | null) => void) | undefined;
   onProposedTree?: (() => void) | undefined;
-  treeId?: string | undefined;
+  binding?: ConversationBinding | undefined;
 }
 
 export function useConversationTurn({
@@ -70,7 +70,7 @@ export function useConversationTurn({
   initialMessages = EMPTY_MESSAGES,
   enabled,
   onConversationChange,
-  treeId,
+  binding,
 }: UseConversationTurnOptions) {
   const qc = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(externalConvId ?? null);
@@ -164,7 +164,7 @@ export function useConversationTurn({
   }, [enabled, conversations, selectedConvId, externalConvId, onConversationChange]);
 
   const createMutation = useMutation({
-    mutationFn: () => createChatConversation('New conversation', treeId),
+    mutationFn: () => createChatConversation('New conversation', binding),
     onSuccess: (newConv) => {
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       setSelectedConvId(newConv.id);
@@ -203,20 +203,24 @@ export function useConversationTurn({
   // made after the doc loaded, or the first message (picks linger under the 'unsent' key until
   // the conversation exists, then get patched). Only fires on divergence, so a refetch that
   // picks up the patched doc settles without re-patching.
-  const persistSelection = useMutation({
-    mutationFn: (convId: string) =>
-      patchChatConversation(convId, { modelId: pinnedModelId, agentSlug: selectedAgentSlug }),
+  const { mutate: persistSelection, isPending: persistingSelection } = useMutation({
+    mutationFn: (picks: { convId: string; modelId: string | null; agentSlug: string | null }) =>
+      patchChatConversation(picks.convId, { modelId: picks.modelId, agentSlug: picks.agentSlug }),
+    onSuccess: (_doc, picks) => {
+      qc.setQueryData<ChatConversation | null>(chatPackKeys.conversation(picks.convId), (prev) =>
+        (prev ? { ...prev, modelId: picks.modelId, agentSlug: picks.agentSlug } : prev));
+    },
   });
   useEffect(() => {
     const conv = activeConversation;
-    if (!conv) return;
+    if (!conv || persistingSelection) return;
     const docModel = conv.modelId ?? null;
     const localModel = pinnedModelId ?? null;
     const docAgent = conv.agentSlug ?? null;
     const localAgent = selectedAgentSlug ?? null;
     if (docModel === localModel && docAgent === localAgent) return;
-    persistSelection.mutate(conv.id);
-  }, [pinnedModelId, selectedAgentSlug, activeConversation, persistSelection]);
+    persistSelection({ convId: conv.id, modelId: localModel, agentSlug: localAgent });
+  }, [pinnedModelId, selectedAgentSlug, activeConversation, persistingSelection, persistSelection]);
 
   // --- settling a turn -------------------------------------------------------
   const settleTurn = useCallback(
@@ -278,7 +282,7 @@ export function useConversationTurn({
     if (!targetConvId) {
       setCreatingConversation(true);
       try {
-        const created = await createChatConversation('New conversation', treeId);
+        const created = await createChatConversation('New conversation', binding);
         targetConvId = created.id;
         setSelectedConvId(created.id);
         onConversationChange?.(created.id);

@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, X } from 'lucide-react';
-import { listTreeTypes, createTree, patchBranch, patchTree, groveKeys } from '../api/grove';
+import { listTreeTypes, createTree, groveKeys } from '../api/grove';
 import type { TreeType } from '../types/grove.js';
 
-export default function NewTreeDialog({ onClose, onCreated, promoteFromBranchId, promoteToProjectId }: {
+export default function NewTreeDialog({ onClose, onCreated }: {
   onClose: () => void;
   onCreated?: (treeId: string) => void;
-  promoteFromBranchId?: string | undefined;
-  promoteToProjectId?: string | undefined;
 }) {
   const qc = useQueryClient();
   const [pickedType, setPickedType] = useState('');
@@ -20,15 +18,9 @@ export default function NewTreeDialog({ onClose, onCreated, promoteFromBranchId,
   });
 
   const create = useMutation({
-    mutationFn: async (body: { name: string; type: string; goal: string }) => {
-      const tree = await createTree<{ id: string }>(body);
-      if (promoteFromBranchId) await patchBranch(promoteFromBranchId, { treeId: tree.id });
-      if (promoteToProjectId) await patchTree(tree.id, { projectId: promoteToProjectId });
-      return tree;
-    },
+    mutationFn: (body: { name: string; type: string; goal: string }) => createTree<{ id: string }>(body),
     onSuccess: (tree: { id: string }) => {
       qc.invalidateQueries({ queryKey: ['trees'] });
-      qc.invalidateQueries({ queryKey: ['branches'] });
       onCreated?.(tree?.id ?? '');
       onClose();
     },
@@ -43,15 +35,9 @@ export default function NewTreeDialog({ onClose, onCreated, promoteFromBranchId,
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-2xl font-bold">{promoteFromBranchId ? 'Track as a typed tree' : 'New tree'}</h3>
+          <h3 className="text-2xl font-bold">New tree</h3>
           <button onClick={onClose} className="text-slate-500 hover:text-white"><X size={20} /></button>
         </div>
-        {promoteFromBranchId && (
-          <p className="text-sm text-slate-400 -mt-3 mb-5">
-            This conversation keeps its history — picking a type just adds leaf tracking and acceptance
-            checks going forward.
-          </p>
-        )}
 
         <form
           onSubmit={(e) => {

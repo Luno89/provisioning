@@ -54,6 +54,8 @@ export interface Leaf {
   blocking: boolean;
   childCount: number;
   workflowId?: string;
+  runner?: 'engine';
+  frozen?: boolean;
   attempts?: LeafAttempt[];
   updatedAt: string;
 

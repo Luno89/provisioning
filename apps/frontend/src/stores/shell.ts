@@ -56,8 +56,6 @@ interface ShellState {
   projectsOpen: boolean
   setProjectsOpen: (open: boolean | ((open: boolean) => boolean)) => void
 
-  handoff: { branchId: string; prompt: string } | undefined
-  setHandoff: (handoff: { branchId: string; prompt: string } | undefined) => void
 
   user: AppUser | null
   setUser: (user: AppUser | null) => void
@@ -110,8 +108,6 @@ export const useShellStore = create<ShellState>((set) => ({
     projectsOpen: typeof open === 'function' ? open(s.projectsOpen) : open,
   })),
 
-  handoff: undefined,
-  setHandoff: (handoff) => set({ handoff }),
 
   user: isMockedAuth() ? MOCK_USER : null,
   setUser: (user) => set({ user }),

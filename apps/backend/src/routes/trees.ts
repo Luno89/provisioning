@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { resolveTreeType } from '../lib/tree-types.js';
 import { normaliseTreeInput, withProject } from '../lib/trees.js';
 import { columnFor, changedSince, rollup } from '../lib/tree-board.js';
-import { blockedBy } from '../lib/leaves.js';
+import { blockedBy, frozenTreeIds } from '../lib/leaves.js';
 import { specsToSeed } from '../lib/app-spec.js';
 import type { Tree } from '../lib/trees.js';
 import type { Leaf, Branch } from '../lib/leaves.js';
@@ -37,10 +37,11 @@ export function treesRouter(deps: TreesRouterDeps): Router {
   router.get('/', asyncRoute(async (req, res) => {
     const trees = await ownedTrees(userOf(req).id);
     const branches = await ownedBranches(userOf(req).id);
+    const frozen = frozenTreeIds(branches, await ownedLeaves(userOf(req).id));
     res.json(
       [...trees]
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .map((t) => ({ ...t, branchCount: branches.filter((b) => b.treeId === t.id).length })),
+        .map((t) => ({ ...t, branchCount: branches.filter((b) => b.treeId === t.id).length, frozen: frozen.has(t.id) })),
     );
   }));
 

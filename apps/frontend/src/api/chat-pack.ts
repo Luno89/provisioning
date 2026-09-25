@@ -83,6 +83,7 @@ export interface ChatConversation {
    */
   agentSlug?: string | null | undefined;
   treeId?: string | undefined;
+  projectId?: string | undefined;
   messages?: ChatConversationMessage[] | undefined;
   proposedTrees?: ProposedTreeRecord[] | undefined;
   proposedSpecs?: ProposedSpecRecord[] | undefined;
@@ -114,8 +115,17 @@ export const listChatConversations = (): Promise<ChatConversation[]> =>
 export const getChatConversation = (id: string): Promise<ChatConversation | null> =>
   api.get<ChatConversation>(`/conversations/${id}`).then((r) => r.data);
 
-export const createChatConversation = (title?: string, treeId?: string): Promise<ChatConversation> =>
-  api.post<ChatConversation>('/conversations', { title, ...(treeId ? { treeId } : {}) }).then((r) => r.data);
+export interface ConversationBinding {
+  treeId?: string | undefined;
+  projectId?: string | undefined;
+}
+
+export const createChatConversation = (title?: string, binding: ConversationBinding = {}): Promise<ChatConversation> =>
+  api.post<ChatConversation>('/conversations', {
+    title,
+    ...(binding.treeId ? { treeId: binding.treeId } : {}),
+    ...(binding.projectId ? { projectId: binding.projectId } : {}),
+  }).then((r) => r.data);
 
 export const deleteChatConversation = (id: string): Promise<void> =>
   api.delete(`/conversations/${id}`).then(() => undefined);
@@ -133,10 +143,6 @@ export const patchChatConversation = (
 
 export const acceptSpecProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
   api.post<T>(`/conversations/${conversationId}/specs/${proposalId}/accept`, {})
-    .then((r) => r.data);
-
-export const acceptTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/trees/${proposalId}/accept`, {})
     .then((r) => r.data);
 
 export const dismissTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>

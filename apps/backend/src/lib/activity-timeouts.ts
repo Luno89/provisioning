@@ -49,7 +49,6 @@ export const acceptRequestActivityMeta = { name: 'AcceptRequestActivity', startT
 
 export const replanActivityMeta = { startToCloseTimeout: '10 minutes' } as const;
 
-export const planProjectActivityMeta = { startToCloseTimeout: '20 minutes' } as const;
 
 export const crawlActivityMeta = {
   startToCloseTimeout: '2 minutes',

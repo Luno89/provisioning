@@ -314,6 +314,31 @@ export function blockedBy(leaf: Pick<Leaf, 'dependsOn'>, all: Leaf[]): Leaf[] {
 
 export const runsOnEngine = (leaf: Pick<Leaf, 'runner'>): boolean => leaf.runner === 'engine';
 
+export const FROZEN_TREE = 'This tree was built on the old pipeline and is frozen: its history stays, but new work goes into a new tree.';
+
+export const FROZEN_LEAF = 'This leaf belongs to a tree built on the old pipeline, which is frozen: its history stays, but new work goes into a new tree.';
+
+export function frozenTreeIds(
+  branches: readonly Pick<Branch, 'id' | 'treeId'>[],
+  leaves: readonly Pick<Leaf, 'branchId' | 'runner'>[],
+): Set<string> {
+  const treeOf = new Map(branches.flatMap((branch) => (branch.treeId ? [[branch.id, branch.treeId] as const] : [])));
+  return new Set(leaves.flatMap((leaf) => {
+    const treeId = treeOf.get(leaf.branchId);
+    return treeId && !runsOnEngine(leaf) ? [treeId] : [];
+  }));
+}
+
+export function isFrozenLeaf(
+  leaf: Pick<Leaf, 'branchId' | 'runner'>,
+  branches: readonly Pick<Branch, 'id' | 'treeId'>[],
+  leaves: readonly Pick<Leaf, 'branchId' | 'runner'>[],
+): boolean {
+  if (!runsOnEngine(leaf)) return true;
+  const treeId = branches.find((branch) => branch.id === leaf.branchId)?.treeId;
+  return Boolean(treeId && frozenTreeIds(branches, leaves).has(treeId));
+}
+
 export const awaitingReview = (leaf: Pick<Leaf, 'status' | 'claim' | 'review'>): boolean =>
   leaf.status === 'claimed' && leaf.claim !== undefined && leaf.review !== undefined && leaf.review.at >= leaf.claim.at;
 
@@ -349,10 +374,6 @@ export function settleClaim(
   return { leaf: settled, digest: note ? `kept ${leaf.id} claimed for a person to review — ${note}` : `kept ${leaf.id} claimed for a person to review` };
 }
 
-export function readyToStart(all: Leaf[]): Leaf[] {
-  return all.filter((l) => l.status === 'pending' && !l.workflowId && !runsOnEngine(l) && dependenciesMet(l, all));
-}
-
 export function resetForRetry<T extends { status: string; updatedAt: string }>(
   leaf: Leaf,
   tasks: readonly T[],
@@ -371,10 +392,6 @@ export function resetForRetry<T extends { status: string; updatedAt: string }>(
     },
     tasks: tasks.filter((task) => task.status === 'failed').map((task) => ({ ...task, status: 'accepted', updatedAt: at })),
   };
-}
-
-export function wakeableDependents(leafId: string, all: Leaf[]): Leaf[] {
-  return dependentsOf(leafId, all).filter((l) => (l.status === 'pending' || l.status === 'running') && !runsOnEngine(l));
 }
 
 export function dependentsOf(leafId: string, all: Leaf[]): Leaf[] {

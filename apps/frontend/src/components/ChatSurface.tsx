@@ -1,43 +1,28 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, AlertTriangle, X, Square } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
 import ProposalsSidebar from './ProposalsSidebar.js';
-import PersonaConfigDrawer from './PersonaConfigDrawer.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
 import KoalaLoading from './KoalaLoading.js';
 import ChatHero from './Chat/ChatHero.js';
 import ChatComposer, { type PersonaPackOption } from './Chat/ChatComposer.js';
 import ChatMessageRow from './Chat/ChatMessageRow.js';
-import { listPacks, packKeys, type PersonaPack } from '../api/packs';
 import { listAgents, agentKeys, type Agent } from '../api/agents';
-import { listTrees, listTreeTypes, updateTreeType, groveKeys } from '../api/grove';
 import { listModels, providerKeys, useDefaultModel, type ModelProvider } from '../api/models';
+import type { ConversationBinding } from '../api/chat-pack.js';
 import { modelOptionLabel } from '../lib/model-label';
-import { useShellStore } from '../stores/shell.js';
-import { errorMessage } from '../api/client.js';
-
-// Extracted modules
 import { type ChatMessageRecord } from './Chat/chat-stream.js';
 import { useChatScroll } from './Chat/hooks/useChatScroll.js';
 import { useConversationTurn } from './Chat/hooks/useConversationTurn.js';
 import ChatApprovalCard from './Chat/ChatApprovalCard.js';
 import PlanProposalCard from './Chat/PlanProposalCard.js';
 import { usePlanProposals } from './Chat/hooks/usePlanProposals.js';
-import {
-  useBranchTurn,
-  type ChatMode,
-  type ProposedLeaf,
-  type ChatAttachment,
-  type ChatScope,
-} from './Chat/hooks/useBranchTurn.js';
 import { useChatProposals } from './Chat/hooks/useChatProposals.js';
-import { ChatHeader, MODE_HINT } from './Chat/ChatHeader.js';
-import { SproutingLeavesCard } from './Chat/SproutingLeavesCard.js';
+import { ChatHeader } from './Chat/ChatHeader.js';
 
-export type { ChatMessageRecord, ChatMode, ProposedLeaf, ChatAttachment, ChatScope };
-export { MODE_HINT };
+export type { ChatMessageRecord };
 
 export interface ChatSurfaceProps {
   conversationId?: string | undefined;
@@ -47,8 +32,7 @@ export interface ChatSurfaceProps {
   hideSidebar?: boolean | undefined;
   onConversationChange?: ((conversationId: string | null) => void) | undefined;
   onOpenTree?: ((treeId: string) => void) | undefined;
-  scope?: ChatScope | undefined;
-  treeId?: string | undefined;
+  binding?: ConversationBinding | undefined;
   autoSend?: { text: string; onSent?: (() => void) | undefined } | undefined;
 }
 
@@ -60,117 +44,41 @@ export default function ChatSurface({
   hideSidebar = false,
   onConversationChange,
   onOpenTree,
-  scope,
-  treeId,
+  binding,
   autoSend,
 }: ChatSurfaceProps) {
-  const setShellView = useShellStore((s) => s.setView);
-  const isBranch = scope?.kind === 'branch';
-  const branch = isBranch ? scope : undefined;
-
   const [showHistory, setShowHistory] = useState(false);
   const [showProposals, setShowProposals] = useState(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState(false);
   const [showModelDrawer, setShowModelDrawer] = useState(false);
-  const [branchModelId, setBranchModelId] = useState<string | null>(null);
-  const [branchError, setBranchError] = useState<string | null>(null);
 
-  // 1. Conversation lifecycle hook (for Koala chat)
   const conv = useConversationTurn({
     externalConvId,
     externalSessionId,
     modelId,
     initialMessages,
-    enabled: !isBranch,
+    enabled: true,
     onConversationChange,
     onProposedTree: () => setShowProposals(true),
-    treeId,
+    binding,
   });
 
-  // 2. Branch lifecycle hook (for workspace branch chat)
-  const branchTurn = useBranchTurn({
-    branch,
-    branchModelId,
-    onError: setBranchError,
-  });
+  const { streaming, overthinkWarning, error, setError } = conv;
+  const planProposals = usePlanProposals(conv.selectedConvId, streaming);
 
-  const streaming = isBranch ? branchTurn.streaming : conv.streaming;
-  const planProposals = usePlanProposals(isBranch ? null : conv.selectedConvId, streaming);
-  const overthinkWarning = isBranch ? branchTurn.overthinkWarning : conv.overthinkWarning;
-  const error = isBranch ? branchError : conv.error;
-  const setError = isBranch ? setBranchError : conv.setError;
-
-  // 3. Proposals and mutations hook
   const proposals = useChatProposals({
     activeConversation: conv.activeConversation,
     liveState: conv.liveState,
-    onOpenTree,
     onError: setError,
-  });
-
-  // 4. Queries for metadata (packs, trees, treeTypes, models)
-  const { data: packs = [] } = useQuery<PersonaPack[]>({
-    queryKey: packKeys.list(),
-    queryFn: listPacks,
   });
 
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: agentKeys.all,
     queryFn: listAgents,
-    enabled: !isBranch,
-  });
-
-  const { data: trees = [] } = useQuery({
-    queryKey: groveKeys.trees(),
-    queryFn: listTrees,
-    enabled: isBranch,
-  });
-  const qc = useQueryClient();
-  const [selectedBranchPackSlug, setSelectedBranchPackSlug] = useState<string | null>(null);
-
-  const { data: treeTypes = [] } = useQuery({
-    queryKey: groveKeys.treeTypes(),
-    queryFn: listTreeTypes,
-    enabled: isBranch,
-  });
-  const branchTree = isBranch ? trees.find((t) => t.id === branch?.treeId) : undefined;
-  const branchTreeType = branchTree ? treeTypes.find((t: any) => t.id === branchTree.type) : undefined;
-  const plannerPackId = (branchTreeType as any)?.packs?.planner as string | undefined;
-  const effectivePlannerPackSlug = selectedBranchPackSlug ?? plannerPackId;
-  const plannerPack = effectivePlannerPackSlug
-    ? packs.find((p) => p.id === effectivePlannerPackSlug || p.slug === effectivePlannerPackSlug)
-    : undefined;
-
-  const setBranchPlannerPackMutation = useMutation({
-    mutationFn: async (packId: string) => {
-      if (!isBranch) return;
-      const targetTree = branchTree ?? trees.find((t) => t.id === branch?.treeId);
-      const targetType = branchTreeType ?? treeTypes.find((t: any) => t.id === targetTree?.type);
-      if (!targetType) return;
-      const pack = packs.find((p) => p.id === packId || p.slug === packId);
-      const slug = pack?.slug ?? packId;
-      setSelectedBranchPackSlug(slug);
-      return updateTreeType(targetType.id, {
-        ...targetType,
-        packs: {
-          ...(targetType.packs ?? {}),
-          planner: slug,
-        },
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: groveKeys.treeTypes() });
-    },
-    onError: (err) => {
-      setError(`Could not set persona pack: ${errorMessage(err)}`);
-    },
   });
 
   const { data: defaultSetting } = useDefaultModel();
   const accountDefaultId = defaultSetting?.defaultModelId ?? null;
-
-  const activeModelId = isBranch ? branchModelId : conv.pinnedModelId;
-  const setActiveModelId = isBranch ? setBranchModelId : conv.setPinnedModelId;
 
   const { data: models = [] } = useQuery<ModelProvider[]>({
     queryKey: providerKeys.list(),
@@ -178,12 +86,8 @@ export default function ChatSurface({
     staleTime: 5 * 60_000,
   });
 
-  const renderedMessages = useMemo(() => {
-    if (branch) return branch.messages;
-    return conv.renderedMessages;
-  }, [branch, conv.renderedMessages]);
+  const renderedMessages = conv.renderedMessages;
 
-  // 5. Scroll observation and management hook
   const {
     scrollRef,
     bottomAnchorRef,
@@ -196,43 +100,28 @@ export default function ChatSurface({
     dependencies: [
       conv.activeConversation?.messages,
       conv.localMessages,
-      branch?.messages,
       conv.liveState.live,
       conv.liveState.liveThinking,
       conv.liveState.tools,
-      branchTurn.liveState.live,
-      branchTurn.liveState.liveThinking,
-      branchTurn.liveState.tools,
       streaming,
     ],
   });
 
-  const koalaPackId = packs.find((p) => p.slug === 'koala')?.id;
-  // Which persona answers in normal chat is now an engine agent, picked per conversation and
-  // persisted on the document; the pack-based persona only still drives branch (planner) chats.
-  const selectedAgent = !isBranch ? agents.find((a) => a.slug === conv.selectedAgentSlug) : undefined;
-  const activePack: PersonaPackOption | undefined = isBranch
-    ? (plannerPack
-      ? { id: plannerPack.id, name: plannerPack.name, label: plannerPack.name.toUpperCase(), desc: plannerPack.description ?? '' }
-      : undefined)
-    : (selectedAgent
-      ? { id: selectedAgent.slug, name: selectedAgent.name, label: selectedAgent.name.toUpperCase(), desc: selectedAgent.description ?? '' }
-      : undefined);
+  const selectedAgent = agents.find((a) => a.slug === conv.selectedAgentSlug);
+  const activePack: PersonaPackOption | undefined = selectedAgent
+    ? { id: selectedAgent.slug, name: selectedAgent.name, label: selectedAgent.name.toUpperCase(), desc: selectedAgent.description ?? '' }
+    : undefined;
 
-  const effectiveModel = models.find((m) => m.id === (activeModelId ?? accountDefaultId));
+  const effectiveModel = models.find((m) => m.id === (conv.pinnedModelId ?? accountDefaultId));
   const modelLabel = effectiveModel
     ? modelOptionLabel(effectiveModel)
-    : activeModelId ?? 'No model';
+    : conv.pinnedModelId ?? 'No model';
 
-  const currentPackRecord = activePack ? packs.find((p) => p.id === activePack.id) : undefined;
-  const toolCount = isBranch ? currentPackRecord?.tools?.length : selectedAgent?.tools.length;
-  const mcpCount = isBranch ? currentPackRecord?.mcp?.length : undefined;
-
+  const toolCount = selectedAgent?.tools.length;
   const openPersonaDrawer = () => setShowPersonaDrawer(true);
 
-  const proposed = branch?.proposed ?? [];
-  const isLoadingThread = !isBranch && conv.loadingConversation && renderedMessages.length === 0 && !streaming;
-  const isConversationEmpty = renderedMessages.length === 0 && !streaming && !isLoadingThread && proposed.length === 0;
+  const isLoadingThread = conv.loadingConversation && renderedMessages.length === 0 && !streaming;
+  const isConversationEmpty = renderedMessages.length === 0 && !streaming && !isLoadingThread;
 
   const handleSend = (rawText: string) => {
     const text = rawText.trim();
@@ -241,41 +130,37 @@ export default function ChatSurface({
     setError(null);
     setIsAtBottom(true);
     requestAnimationFrame(scrollToBottomInstant);
-
-    if (branch) {
-      branchTurn.handleBranchSend(rawText);
-      return;
-    }
-
     void conv.sendConversationTurn(text);
   };
 
   const autoSentRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isBranch || !autoSend || streaming || !conv.selectedConvId) return;
+    if (!autoSend || streaming || !conv.selectedConvId) return;
     const key = `${conv.selectedConvId}:${autoSend.text}`;
     if (autoSentRef.current === key) return;
     autoSentRef.current = key;
     handleSend(autoSend.text);
     autoSend.onSent?.();
-  }, [autoSend, conv.selectedConvId, isBranch, streaming, handleSend]);
+  }, [autoSend, conv.selectedConvId, streaming, handleSend]);
 
-  const handleStop = () => {
-    if (isBranch) {
-      branchTurn.handleBranchStop();
-    } else {
-      conv.handleStop();
-    }
-  };
+  const handleStop = () => conv.handleStop();
+
+  const composer = (
+    <ChatComposer
+      onSend={handleSend}
+      onStop={handleStop}
+      isStreaming={streaming}
+      {...(activePack ? { activePack } : {})}
+      onOpenPersonaDrawer={openPersonaDrawer}
+      {...(toolCount !== undefined ? { toolCount } : {})}
+      modelLabel={modelLabel}
+      onOpenModelDrawer={() => setShowModelDrawer(true)}
+    />
+  );
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full bg-[var(--bark-950,#090d0b)] text-slate-200 font-sans overflow-hidden">
       <ChatHeader
-        isBranch={isBranch}
-        branch={branch}
-        branchTree={branchTree}
-        plannerPack={plannerPack}
-        onOpenLab={() => setShellView('lab')}
         hideSidebar={hideSidebar}
         showHistory={showHistory}
         onToggleHistory={() => setShowHistory(!showHistory)}
@@ -294,7 +179,7 @@ export default function ChatSurface({
       />
 
       <div className="flex-1 min-h-0 flex flex-col sm:flex-row overflow-hidden relative">
-        {!hideSidebar && !isBranch && (
+        {!hideSidebar && (
           <CollapsibleHistoryList
             conversations={conv.conversations}
             activeId={conv.selectedConvId ?? undefined}
@@ -316,24 +201,9 @@ export default function ChatSurface({
                 <ChatHero
                   packName={activePack?.name ?? 'Koala'}
                   onSelectPrompt={(p) => handleSend(p)}
-                  {...(openPersonaDrawer ? { onOpenPersona: openPersonaDrawer } : {})}
-                  {...(isBranch ? { headline: `Ask about ${branchTree?.name ?? 'this tree'}`, hideStarterPrompts: true } : {})}
+                  onOpenPersona={openPersonaDrawer}
                 />
-
-                <ChatComposer
-                  onSend={handleSend}
-                  onStop={handleStop}
-                  isStreaming={streaming}
-                  {...(activePack ? { activePack } : {})}
-                  {...(openPersonaDrawer ? { onOpenPersonaDrawer: openPersonaDrawer } : {})}
-                  {...(toolCount !== undefined ? { toolCount } : {})}
-                  {...(mcpCount !== undefined ? { mcpCount } : {})}
-                  modelLabel={modelLabel}
-                  onOpenModelDrawer={() => setShowModelDrawer(true)}
-                  {...(isBranch ? { placeholder: 'Send a message…  (/chat, /auto or /plan to switch mode)' } : {})}
-                  {...(branch?.attachments ? { attachments: branch.attachments } : {})}
-                  {...(branch?.onRemoveAttachment ? { onRemoveAttachment: branch.onRemoveAttachment } : {})}
-                />
+                {composer}
               </div>
             </div>
           ) : (
@@ -350,7 +220,7 @@ export default function ChatSurface({
                     <ChatMessageRow
                       key={idx}
                       message={msg}
-                      packLabel={isBranch ? 'Assistant' : (activePack?.label ?? '')}
+                      packLabel={activePack?.label ?? ''}
                     />
                   ))}
 
@@ -369,22 +239,13 @@ export default function ChatSurface({
                     <ChatMessageRow
                       message={{
                         role: 'assistant',
-                        content: isBranch ? branchTurn.liveState.live : conv.liveState.live,
-                        reasoning: isBranch ? branchTurn.liveState.liveThinking : conv.liveState.liveThinking,
-                        enabled: isBranch ? branchTurn.liveState.enabled : conv.liveState.enabled,
-                        toolCalls: isBranch ? branchTurn.liveState.tools : conv.liveState.tools,
+                        content: conv.liveState.live,
+                        reasoning: conv.liveState.liveThinking,
+                        enabled: conv.liveState.enabled,
+                        toolCalls: conv.liveState.tools,
                       }}
-                      packLabel={isBranch ? 'Assistant' : (activePack?.label ?? '')}
+                      packLabel={activePack?.label ?? ''}
                       isStreaming={true}
-                    />
-                  )}
-
-                  {isBranch && (
-                    <SproutingLeavesCard
-                      proposed={proposed}
-                      onAccept={branch?.onAccept}
-                      onReject={branch?.onReject}
-                      onAcceptAll={branch?.onAcceptAll}
                     />
                   )}
 
@@ -405,7 +266,7 @@ export default function ChatSurface({
                     </div>
                   )}
 
-                  {!isBranch && conv.pendingApproval && (
+                  {conv.pendingApproval && (
                     <ChatApprovalCard
                       reason={conv.pendingApproval.reason}
                       {...(conv.pendingApproval.toolName ? { toolName: conv.pendingApproval.toolName, args: conv.pendingApproval.args } : {})}
@@ -450,35 +311,21 @@ export default function ChatSurface({
                 )}
 
                 <div className="max-w-4xl mx-auto pointer-events-auto">
-                  <ChatComposer
-                    onSend={handleSend}
-                    onStop={handleStop}
-                    isStreaming={streaming}
-                    {...(activePack ? { activePack } : {})}
-                    {...(openPersonaDrawer ? { onOpenPersonaDrawer: openPersonaDrawer } : {})}
-                    {...(toolCount !== undefined ? { toolCount } : {})}
-                    {...(mcpCount !== undefined ? { mcpCount } : {})}
-                    modelLabel={modelLabel}
-                    onOpenModelDrawer={() => setShowModelDrawer(true)}
-                    {...(isBranch ? { placeholder: 'Send a message…  (/chat, /auto or /plan to switch mode)' } : {})}
-                    {...(branch?.attachments ? { attachments: branch.attachments } : {})}
-                    {...(branch?.onRemoveAttachment ? { onRemoveAttachment: branch.onRemoveAttachment } : {})}
-                  />
+                  {composer}
                 </div>
               </div>
             </>
           )}
         </div>
 
-        {!hideSidebar && !isBranch && (
+        {!hideSidebar && (
           <ProposalsSidebar
             isOpen={showProposals}
             onToggle={() => setShowProposals(false)}
             liveTrees={proposals.liveTrees}
             persistedTrees={conv.activeConversation?.proposedTrees}
-            onAcceptTree={(id) => conv.selectedConvId && proposals.acceptTreeMutation.mutate({ convId: conv.selectedConvId, proposalId: id })}
             onDismissTree={(id) => conv.selectedConvId && proposals.dismissTreeMutation.mutate({ convId: conv.selectedConvId, proposalId: id })}
-            treeActionPending={proposals.acceptTreeMutation.isPending || proposals.dismissTreeMutation.isPending}
+            treeActionPending={proposals.dismissTreeMutation.isPending}
             liveSpecs={proposals.liveSpecs}
             persistedSpecs={conv.activeConversation?.proposedSpecs}
             onAcceptSpec={(id) => conv.selectedConvId && proposals.acceptSpecMutation.mutate({ convId: conv.selectedConvId, proposalId: id })}
@@ -513,27 +360,16 @@ export default function ChatSurface({
       <ModelConfigDrawer
         isOpen={showModelDrawer}
         onClose={() => setShowModelDrawer(false)}
-        selectedModelId={activeModelId}
-        onSelectModel={setActiveModelId}
+        selectedModelId={conv.pinnedModelId}
+        onSelectModel={conv.setPinnedModelId}
       />
 
-      {isBranch ? (
-        <PersonaConfigDrawer
-          isOpen={showPersonaDrawer}
-          onClose={() => setShowPersonaDrawer(false)}
-          activePackId={activePack?.id ?? plannerPack?.id ?? koalaPackId ?? 'koala'}
-          onSelectPack={(packId) => {
-            setBranchPlannerPackMutation.mutate(packId);
-          }}
-        />
-      ) : (
-        <AgentConfigDrawer
-          isOpen={showPersonaDrawer}
-          onClose={() => setShowPersonaDrawer(false)}
-          selectedAgentSlug={conv.selectedAgentSlug}
-          onSelectAgent={conv.setSelectedAgentSlug}
-        />
-      )}
+      <AgentConfigDrawer
+        isOpen={showPersonaDrawer}
+        onClose={() => setShowPersonaDrawer(false)}
+        selectedAgentSlug={conv.selectedAgentSlug}
+        onSelectAgent={conv.setSelectedAgentSlug}
+      />
     </div>
   );
 }

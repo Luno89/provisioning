@@ -92,12 +92,7 @@ describe('chat-pack conversation & proposal helpers', () => {
   });
 
   it('calls proposal acceptance endpoints', async () => {
-    const { acceptTreeProposal, acceptSpecProposal } = await import('../api/chat-pack.js');
-
-    vi.mocked(client.api.post).mockResolvedValueOnce({ data: { tree: { id: 'tree-1' } } });
-    const treeRes = await acceptTreeProposal('conv-1', 'prop-1');
-    expect(client.api.post).toHaveBeenCalledWith('/conversations/conv-1/trees/prop-1/accept', {});
-    expect(treeRes).toEqual({ tree: { id: 'tree-1' } });
+    const { acceptSpecProposal } = await import('../api/chat-pack.js');
 
     vi.mocked(client.api.post).mockResolvedValueOnce({ data: { id: 'spec-1' } });
     const specRes = await acceptSpecProposal('conv-1', 'spec-1');

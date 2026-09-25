@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  dependenciesMet, blockedBy, readyToStart, wakeableDependents, wouldCycle, isLeafColumn, LEAF_COLUMNS, aggregateUsage, failureContext, shouldRetry, MAX_LEAF_ATTEMPTS, type LeafAttempt, canAddChild, budgetExceeded, deriveLeafStatus, childWorkflowId, childrenOf, rootLeaf, subtreeOf, MAX_DEPTH, MAX_CHILDREN_PER_LEAF, type Leaf, type BudgetUsage, barrenStreak,
+  dependenciesMet, blockedBy, wouldCycle, frozenTreeIds, isFrozenLeaf, isLeafColumn, LEAF_COLUMNS, aggregateUsage, failureContext, shouldRetry, MAX_LEAF_ATTEMPTS, type LeafAttempt, canAddChild, budgetExceeded, deriveLeafStatus, childWorkflowId, childrenOf, rootLeaf, subtreeOf, MAX_DEPTH, MAX_CHILDREN_PER_LEAF, type Leaf, type BudgetUsage, barrenStreak,
 } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
@@ -262,25 +262,10 @@ describe('dependency ordering', () => {
     const next = leaf({ id: 'next', dependsOn: ['base'] });
 
     expect(dependenciesMet(next, [base, next])).toBe(false);
-    expect(readyToStart([base, next])).toEqual([]);
     expect(blockedBy(next, [base, next]).map((l) => l.id)).toEqual(['base']);
   });
 
-  it('releases it once they have', () => {
-    const base = leaf({ id: 'base', status: 'succeeded' });
-    const next = leaf({ id: 'next', dependsOn: ['base'] });
 
-    expect(readyToStart([base, next]).map((l) => l.id)).toEqual(['next']);
-  });
-
-  it('never hands the legacy pipeline a leaf that belongs to the engine, neither from the backstop nor as a woken dependent', () => {
-    const base = leaf({ id: 'base', status: 'succeeded' });
-    const legacy = leaf({ id: 'legacy', dependsOn: ['base'] });
-    const engine = leaf({ id: 'engine', dependsOn: ['base'], runner: 'engine' });
-
-    expect(readyToStart([base, legacy, engine]).map((l) => l.id)).toEqual(['legacy']);
-    expect(wakeableDependents('base', [base, legacy, engine]).map((l) => l.id)).toEqual(['legacy']);
-  });
 
   it('keeps holding a leaf whose dependency FAILED, since a retry can still satisfy it', () => {
     const base = leaf({ id: 'base', status: 'failed' });
@@ -295,11 +280,6 @@ describe('dependency ordering', () => {
     expect(dependenciesMet(next, [next])).toBe(true);
   });
 
-  it('never starts a leaf that already has a workflow', () => {
-    const started = leaf({ id: 'started', workflowId: 'leaf-started' });
-
-    expect(readyToStart([started])).toEqual([]);
-  });
 
   it('refuses a dependency that would close a cycle', () => {
     const a = leaf({ id: 'a', dependsOn: ['b'] });
@@ -311,14 +291,30 @@ describe('dependency ordering', () => {
     expect(wouldCycle('c', ['c'], [a, b, c])).toBe(true);
   });
 
-  it('releases a whole chain one step at a time, not all at once', () => {
-    const one = leaf({ id: 'one', status: 'succeeded' });
-    const two = leaf({ id: 'two', dependsOn: ['one'] });
-    const three = leaf({ id: 'three', dependsOn: ['two'] });
+});
 
-    expect(readyToStart([one, two, three]).map((l) => l.id)).toEqual(['two']);
-    const done = { ...two, status: 'succeeded' as const };
-    expect(readyToStart([one, done, three]).map((l) => l.id)).toEqual(['three']);
+describe('frozen trees', () => {
+  const branches = [{ id: 'b-old', treeId: 'old' }, { id: 'b-new', treeId: 'new' }, { id: 'b-mixed', treeId: 'mixed' }, { id: 'loose' }];
+  it('freezes a tree holding any leaf the old pipeline made, and no other', () => {
+    const frozen = frozenTreeIds(branches, [
+      { branchId: 'b-old' },
+      { branchId: 'b-new', runner: 'engine' },
+      { branchId: 'b-mixed', runner: 'engine' },
+      { branchId: 'b-mixed' },
+      { branchId: 'loose' },
+    ]);
+    expect([...frozen].sort()).toEqual(['mixed', 'old']);
+  });
+
+  it('leaves an empty tree open', () => {
+    expect(frozenTreeIds(branches, []).size).toBe(0);
+  });
+
+  it('freezes every leaf the old pipeline made, and the engine\'s leaves in a frozen tree', () => {
+    const all = [{ branchId: 'b-mixed' }, { branchId: 'b-mixed', runner: 'engine' as const }, { branchId: 'b-new', runner: 'engine' as const }];
+    expect(isFrozenLeaf({ branchId: 'loose' }, branches, all)).toBe(true);
+    expect(isFrozenLeaf(all[1]!, branches, all)).toBe(true);
+    expect(isFrozenLeaf(all[2]!, branches, all)).toBe(false);
   });
 });
 

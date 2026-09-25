@@ -56,13 +56,10 @@ export interface RunStarterOptions {
   workflows: () => WorkflowStarter | undefined;
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
-  boundTree?: ((ownerId: string, conversationId: string) => Promise<BoundTree | undefined>) | undefined;
+  binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
 }
 
-export interface BoundTree {
-  treeId: string;
-  outline: string;
-}
+export const BINDING_INPUTS = ['treeId', 'tree', 'projectId', 'project'] as const;
 
 export function createRunStarter(options: RunStarterOptions) {
   const queue = options.taskQueue ?? DEFAULT_ENGINE_TASK_QUEUE;
@@ -92,9 +89,10 @@ export function createRunStarter(options: RunStarterOptions) {
         ...(request.sampling ? { sampling: request.sampling } : {}),
       };
 
-      const { treeId: _claimedTree, tree: _claimedOutline, ...asked } = request.inputs ?? {};
-      const bound = request.conversationId && options.boundTree
-        ? await options.boundTree(request.ownerId, request.conversationId)
+      const asked = Object.fromEntries(Object.entries(request.inputs ?? {})
+        .filter(([name]) => !(BINDING_INPUTS as readonly string[]).includes(name)));
+      const bound = request.conversationId && options.binding
+        ? await options.binding(request.ownerId, request.conversationId)
         : undefined;
 
       const input: ProcedureRunInput = {
@@ -102,7 +100,7 @@ export function createRunStarter(options: RunStarterOptions) {
         procedure: runnable.procedure,
         inputs: {
           ...asked,
-          ...(bound ? { treeId: bound.treeId, tree: bound.outline } : {}),
+          ...(bound ?? {}),
           message: request.message,
         },
       };

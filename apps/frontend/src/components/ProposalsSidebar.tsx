@@ -22,7 +22,6 @@ export interface ProposalsSidebarProps {
 
   liveTrees: readonly ProposedTreeRecord[];
   persistedTrees: readonly ProposedTreeRecord[] | undefined;
-  onAcceptTree: (id: string) => void;
   onDismissTree: (id: string) => void;
   treeActionPending: boolean;
 
@@ -273,7 +272,7 @@ export default function ProposalsSidebar(props: ProposalsSidebarProps) {
             <div className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider">Proposed Trees</div>
             {pendingTrees.map((p) => (
               <div key={p.id}>
-                <ProposedTreeCard proposal={p} onAccept={props.onAcceptTree} isPending={props.treeActionPending} />
+                <ProposedTreeCard proposal={p} />
                 <button
                   type="button"
                   onClick={() => props.onDismissTree(p.id)}

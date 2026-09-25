@@ -114,7 +114,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
           name: plan.tree.name,
           type: plan.tree.type,
           ...(plan.tree.goal ? { goal: plan.tree.goal } : {}),
-          projectIds: [],
+          projectIds: proposal.projectId ? [proposal.projectId] : [],
           createdAt: stamp,
           updatedAt: stamp,
         };

@@ -91,8 +91,6 @@ function ProjectsRoute() {
   return (
     <Projects
       clusters={ctx?.clusters ?? []}
-      handoff={ctx?.handoff}
-      onHandoffTaken={() => ctx?.setHandoff(undefined)}
     />
   );
 }

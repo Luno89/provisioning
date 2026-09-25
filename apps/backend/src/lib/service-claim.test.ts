@@ -64,20 +64,3 @@ describe('what it must not do', () => {
     expect(claimService('   ', tree(), [owner()])).toEqual({});
   });
 });
-
-describe('how the route applies it', () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const route = readFileSync(join(here, '../routes/chat.ts'), 'utf8');
-
-  it('attaches the adopted project to the tree', () => {
-    expect(route).toMatch(/withProject\(\{ \.\.\.tree, serviceName: declaredName, updatedAt: now \}, claim\.adoptProjectId\)/);
-  });
-
-  it('posts the notice to the branch', () => {
-    expect(route).toMatch(/const text = claimNotice\(declaredName, claim\)/);
-  });
-
-  it('only claims against this user\'s trees', () => {
-    expect(route).toMatch(/claimService\(declaredName, tree, await ownedTrees\(/);
-  });
-});

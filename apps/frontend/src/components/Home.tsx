@@ -2,7 +2,7 @@ import { useState, Fragment } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Loader2, Check, ArrowRight, Trees as TreesIcon, Clock, Sparkles,
-  GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck,
+  GitBranch, Coins, MessageSquare, RotateCcw, X, SearchCheck, Archive,
 } from 'lucide-react';
 import {
   needsYou, running, changedSince, treeRollups, scopeToTree, groupWork, ago,
@@ -15,7 +15,7 @@ import { errorMessage } from '../api/client';
 
 export default function Home({
   leaves, branches, trees, tree, lastSeen, packNames = {},
-  onStart, onOpenLeaf, onOpenTree, onOpenBranch, starting,
+  onStart, onOpenLeaf, onOpenTree, onOpenBranch, starting, frozen = false,
 }: {
   leaves: Leaf[];
   branches: { id: string; title: string; treeId?: string }[];
@@ -28,6 +28,7 @@ export default function Home({
   onOpenTree: (treeId: string) => void;
   onOpenBranch?: (branchId: string) => void;
   starting?: boolean;
+  frozen?: boolean;
 }) {
   const qc = useQueryClient();
 
@@ -111,6 +112,12 @@ export default function Home({
         {tree?.goal && <p className="text-xs text-slate-400 mb-3 ml-9">{tree.goal}</p>}
         {!tree && <div className="mb-3" />}
 
+        {frozen ? (
+          <div className="rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)]/60 p-3 text-xs text-slate-400 flex items-start gap-2" data-testid="frozen-tree">
+            <Archive size={14} className="shrink-0 mt-0.5 text-slate-500" />
+            <span>This tree was built on the old pipeline and is frozen: its history stays here, but new work goes into a new tree.</span>
+          </div>
+        ) : (
         <div className="rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)]/60 p-3 shadow-xs">
           <textarea
             value={prompt}
@@ -144,6 +151,7 @@ export default function Home({
             </button>
           </div>
         </div>
+        )}
         {trees.length === 0 && (
           <p className="text-xs text-amber-400/80 mt-2">Make a tree first — work is filed under one.</p>
         )}
@@ -218,7 +226,7 @@ export default function Home({
             Attempted, not delivered · {owed.length}
           </h3>
           <p className="text-[11px] text-slate-500 mb-2">
-            From runs that have finished. Ask Koala above to pick any of these up again.
+            {frozen ? 'From runs that have finished. This tree is frozen, so they stay as a record.' : 'From runs that have finished. Ask Koala above to pick any of these up again.'}
           </p>
           <div className="space-y-1.5">
             {owed.map(({ leaf, from, summary, lastError }) => (

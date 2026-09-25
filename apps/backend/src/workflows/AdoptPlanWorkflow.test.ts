@@ -160,7 +160,7 @@ describe('AdoptPlanWorkflow', () => {
     const result = await adopt(w);
 
     expect(result).toMatchObject({ status: 'adopted', treeId: 'plan-p1-tree', commit: 'c0ffee' });
-    expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', ownerId: 'user-1', name: 'Widget API', type: 'api-service' })]);
+    expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', ownerId: 'user-1', name: 'Widget API', type: 'api-service', projectIds: [] })]);
     expect([...w.branches.values()]).toEqual([expect.objectContaining({ id: 'plan-p1-b0', treeId: 'plan-p1-tree', title: 'Operability' })]);
 
     const health = w.leaves.get('plan-p1-b0-l0')!;
@@ -179,6 +179,14 @@ describe('AdoptPlanWorkflow', () => {
       status: 'adopted',
       adopted: { treeId: 'plan-p1-tree', branchIds: ['plan-p1-b0'], leafIds: { health: 'plan-p1-b0-l0', deploy: 'plan-p1-b0-l1' }, commit: 'c0ffee' },
     });
+  }, 60_000);
+
+  it('links a new tree planned in a conversation about a project to that project', async () => {
+    const w = world([proposal({ projectId: 'project-9' })]);
+
+    await adopt(w);
+
+    expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-9'] })]);
   }, 60_000);
 
   it('adopting the same plan again rewrites the same records instead of doubling them', async () => {

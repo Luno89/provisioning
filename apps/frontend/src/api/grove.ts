@@ -63,8 +63,6 @@ export const patchTree = <T,>(id: string, patch: Record<string, unknown>): Promi
 
 export const listBranches = (): Promise<Branch[]> =>
   api.get<Branch[]>('/branches').then((r) => r.data)
-export const createBranch = <T,>(body: unknown): Promise<T> =>
-  api.post<T>('/branches', body).then((r) => r.data)
 
 export const patchBranch = (id: string, patch: Record<string, unknown>) =>
   api.patch(`/branches/${id}`, patch).then((r) => r.data)
@@ -80,8 +78,6 @@ export const getLeafTrace = (id: string) => api.get(`/leaves/${id}/trace`).then(
 export const explainLeaf = (id: string): Promise<LeafExplain> =>
   api.get<LeafExplain>(`/leaves/${id}/explain`).then((r) => r.data)
 
-export const acceptLeaf = (id: string, body?: unknown) =>
-  api.post(`/leaves/${id}/accept`, body ?? {}).then((r) => r.data)
 export const cancelLeaf = (id: string) => api.post(`/leaves/${id}/cancel`, {}).then((r) => r.data)
 export const settleLeaf = (id: string, verdict: 'verified' | 'failed', note?: string) =>
   api.post(`/leaves/${id}/settle`, { verdict, ...(note ? { note } : {}) }).then((r) => r.data)
@@ -90,8 +86,6 @@ export const retryLeaf = (id: string, body?: unknown) =>
 export const recheckLeaf = (id: string): Promise<{ outcome: string; reason: string; changed?: boolean }> =>
   api.post<{ outcome: string; reason: string; changed?: boolean }>(`/leaves/${id}/recheck`, {})
     .then((r) => r.data)
-export const reviewLeaf = (id: string): Promise<{ branchId: string; prompt: string }> =>
-  api.post<{ branchId: string; prompt: string }>(`/leaves/${id}/review`, {}).then((r) => r.data)
 
 export const listTreeTypes = (): Promise<TreeType[]> =>
   api.get<TreeType[]>('/tree-types').then((r) => r.data)

@@ -10,6 +10,7 @@ const harness: Harness = await mountRouter({
     ownedConversations: async (userId: string) =>
       db.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),
     ownedTrees: async (userId: string) => (await db.getTrees()).filter((tree) => tree.ownerId === userId),
+    ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
   }),
 });
 
@@ -62,6 +63,32 @@ describe('a conversation about a tree', () => {
 
     expect((await create('theirs')).status).toBe(404);
     expect((await create('nowhere')).status).toBe(404);
+  });
+
+  it('refuses a tree the old pipeline built, which is frozen', async () => {
+    const stamp = new Date().toISOString();
+    await harness.db.saveTree({ id: 'old', ownerId: TEST_USER.id, name: 'Old', type: 'software', projectIds: [], createdAt: stamp, updatedAt: stamp });
+    await harness.db.saveBranch({ id: 'old-b', ownerId: TEST_USER.id, treeId: 'old', title: 'b', messages: [], createdAt: stamp, updatedAt: stamp });
+    await harness.db.saveLeaf({ id: 'old-l', ownerId: TEST_USER.id, branchId: 'old-b', title: 'l', column: 'todo', status: 'succeeded', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp });
+    const res = await fetch(harness.url('/api/conversations'), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ treeId: 'old' }),
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/frozen/);
+  });
+
+  it('binds to a project the person owns, never to one they do not, and never to a tree and a project at once', async () => {
+    await harness.db.saveProjectInfo({ id: 'p-mine', name: 'mine', ownerId: TEST_USER.id, appType: 'local', createdAt: 'now' } as never);
+    await harness.db.saveProjectInfo({ id: 'p-theirs', name: 'theirs', ownerId: 'someone-else', appType: 'local', createdAt: 'now' } as never);
+    const create = (body: Record<string, string>) => fetch(harness.url('/api/conversations'), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    const bound = await create({ projectId: 'p-mine' });
+    expect(bound.status).toBe(200);
+    expect(((await bound.json()) as { projectId?: string }).projectId).toBe('p-mine');
+    expect((await create({ projectId: 'p-theirs' })).status).toBe(404);
+    expect((await create({ projectId: 'p-mine', treeId: 'mine' })).status).toBe(400);
   });
 });
 
@@ -127,7 +154,7 @@ describe('conversation chat-owned picks', () => {
 });
 
 describe('proposal accept/dismiss', () => {
-  it('accepts project tree and app spec proposals', async () => {
+  it('accepts an app spec proposal, and no longer builds a tree from an old tree proposal — trees come from an approved plan', async () => {
     const convId = 'proposal-test-conv';
     const now = new Date().toISOString();
     await harness.db.saveConversation({
@@ -154,9 +181,9 @@ describe('proposal accept/dismiss', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
     });
-    expect(treeRes.status).toBe(200);
-    const treeBody = (await treeRes.json()) as { tree?: { id: string } };
-    expect(treeBody.tree?.id).toBeDefined();
+    const treesBefore = (await harness.db.getTrees()).length;
+    expect(treeRes.status).toBe(404);
+    expect((await harness.db.getTrees()).length).toBe(treesBefore);
 
     const specRes = await fetch(harness.url(`/api/conversations/${convId}/specs/my-custom-app/accept`), {
       method: 'POST',
@@ -178,14 +205,14 @@ describe('proposal accept/dismiss', () => {
       createdAt: now, updatedAt: now,
     });
 
-    await fetch(harness.url(`/api/conversations/${convId}/trees/t1/accept`), { method: 'POST' });
+    await fetch(harness.url(`/api/conversations/${convId}/trees/t1/dismiss`), { method: 'POST' });
     await fetch(harness.url(`/api/conversations/${convId}/escalations/e1/deny`), { method: 'POST' });
     await fetch(harness.url(`/api/conversations/${convId}/secrets/s1/dismiss`), { method: 'POST' });
 
     const conv = (await harness.db.getConversations()).find((c: any) => c.id === convId);
     const notices = (conv?.messages ?? []).filter((m: any) => m.notice);
     expect(notices).toHaveLength(3);
-    expect(notices[0]?.content).toMatch(/Accepted the "Tree A" tree/);
+    expect(notices[0]?.content).toMatch(/Dismissed the "Tree A" tree proposal/);
     expect(notices[1]?.content).toMatch(/Denied the privilege escalation/);
     expect(notices[2]?.content).toMatch(/Dismissed the request for FOO/);
   });

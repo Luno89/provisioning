@@ -1,5 +1,5 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axios from 'axios';
 import * as modelsApi from '../../../api/models';
@@ -18,12 +18,10 @@ vi.mock('../../../api/grove', async (importOriginal) => ({
   listTrees: vi.fn(),
   listBranches: vi.fn(),
   listLeaves: vi.fn(),
-  createBranch: vi.fn(),
   patchBranch: vi.fn(),
   patchTree: vi.fn(),
   deleteBranch: vi.fn(),
   deleteLeaf: vi.fn(),
-  acceptLeaf: vi.fn(),
   getLeafTrace: vi.fn(),
 }));
 vi.mock('../../../api/projects', async (importOriginal) => ({
@@ -90,11 +88,11 @@ const mockApi = ({ branches = [] as unknown[], leaves = [] as unknown[], trees =
   });
 };
 
-const renderWorkspace = (handoff?: { branchId: string; prompt: string }, onHandoffTaken?: () => void) => {
+const renderWorkspace = (props: { treeId?: string; projectId?: string } = { treeId: 'tree-1' }) => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <Workspace treeId="tree-1" {...(handoff ? { handoff } : {})} {...(onHandoffTaken ? { onHandoffTaken } : {})} />
+      <Workspace {...props} />
     </QueryClientProvider>,
   );
 };
@@ -107,7 +105,6 @@ const openBranch = async (title: string) => {
 beforeEach(() => {
   vi.clearAllMocks();
   mockApi({});
-  vi.mocked(groveApi.acceptLeaf).mockResolvedValue({} as never);
   mockedAxios.delete.mockResolvedValue({ data: {} });
 });
 
@@ -137,149 +134,36 @@ describe('selecting a leaf', () => {
   });
 });
 
-describe('proposals', () => {
-  it('offers accept and reject even with no model configured, so proposals are never stranded', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed', packId: 'p1' })] });
+describe('an old branch conversation', () => {
+  it('opens as read-only history', async () => {
+    mockApi({ branches: [branch({ messages: [{ role: 'user', content: 'make it rate limited' }] })] });
     renderWorkspace();
     await openBranch('Rate limiting work');
-    await waitFor(() => expect(screen.getByTitle('Accept — starts the work')).toBeInTheDocument());
-    expect(screen.getByTitle('Reject')).toBeInTheDocument();
+
+    expect(await screen.findByText('make it rate limited')).toBeInTheDocument();
+    expect(screen.getByText(/History from the old pipeline, kept read-only/)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Send a message|Message Koala/i)).toBeNull();
   });
+});
 
-  it('will not let you accept work with nobody assigned to it', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ status: 'proposed' })] });
-    renderWorkspace();
-    await openBranch('Rate limiting work');
-    await waitFor(() => expect(screen.getByText(/needs a persona/i)).toBeInTheDocument());
-    expect(screen.getByTitle('Assign a persona first')).toBeDisabled();
-    expect(screen.getByTitle('Reject')).not.toBeDisabled();
-  });
-
-  it('accepting posts to the accept endpoint with the real leaf id', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', packId: 'p1' })] });
-    renderWorkspace();
-    await openBranch('Rate limiting work');
-    await waitFor(() => expect(screen.getByTitle('Accept — starts the work')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTitle('Accept — starts the work'));
-    await waitFor(() => expect(groveApi.acceptLeaf).toHaveBeenCalledWith('real-id'));
-  });
-
-  it('shows accept-all for several, and accepts each one', async () => {
+describe('a tree the old pipeline built', () => {
+  it('is frozen: no Start, no Run, no new conversation, and its failed leaves cannot be retried', async () => {
     mockApi({
+      trees: [{ ...TREES[0], frozen: true }],
       branches: [branch()],
-      leaves: [leaf({ status: 'proposed', packId: 'p1' }), leaf({ id: 'leaf-2', title: 'Add metrics', status: 'proposed', packId: 'p1' })],
+      leaves: [leaf({ status: 'failed', frozen: true, attempts: [{ attempt: 0, error: 'it broke', failedAt: 'x' }] })],
     });
     renderWorkspace();
-    await openBranch('Rate limiting work');
-    await waitFor(() => expect(screen.getByText('Accept all')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Accept all'));
-    await waitFor(() => expect(groveApi.acceptLeaf).toHaveBeenCalledTimes(2));
-    expect(groveApi.acceptLeaf).toHaveBeenCalledWith('leaf-1');
-    expect(groveApi.acceptLeaf).toHaveBeenCalledWith('leaf-2');
-  });
-});
-
-describe('a failure handed over from the board', () => {
-  const stubChat = () => {
-    const calls: { url: string; body: string }[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
-      calls.push({ url: String(url), body: String(init?.body ?? '') });
-      return {
-        ok: true,
-        body: {
-          getReader: () => {
-            let done = false;
-            return {
-              read: async () => {
-                if (done) return { done: true, value: undefined };
-                done = true;
-                return { done: false, value: new TextEncoder().encode('data: [DONE]\n\n') };
-              },
-            };
-          },
-        },
-      };
-    }));
-    return calls;
-  };
-
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("opens the leaf's conversation and asks for the review without the user typing", async () => {
-    const calls = stubChat();
-    const taken = vi.fn();
-    mockApi({ branches: [branch()], leaves: [] });
-    renderWorkspace({ branchId: 'branch-1', prompt: 'One of the leaves on this branch failed. Read the record.' }, taken);
-
-    await waitFor(() => {
-      const sent = calls.find((c) => c.url.includes('/chat'));
-      expect(sent).toBeTruthy();
-      expect(sent!.body).toContain('One of the leaves on this branch failed');
-    });
-    expect(taken).toHaveBeenCalled();
-  });
-
-  it('sends it once, not once per render', async () => {
-    const calls = stubChat();
-    mockApi({ branches: [branch()], leaves: [] });
-    renderWorkspace({ branchId: 'branch-1', prompt: 'Review this failure please.' }, () => {});
-    await waitFor(() => expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1));
-    await new Promise((r) => setTimeout(r, 60));
-    expect(calls.filter((c) => c.url.includes('/chat')).length).toBe(1);
-  });
-});
-
-describe('chat mode surviving the panel', () => {
-  it('keeps the mode after looking at a leaf and coming back', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ body: 'Some detail.' })] });
-    renderWorkspace();
-    await openBranch('Rate limiting work');
-
-    await waitFor(() => expect(screen.getByPlaceholderText(/Send a message/i)).toBeInTheDocument());
-    const box = screen.getByPlaceholderText(/Send a message/i);
-    fireEvent.change(box, { target: { value: '/chat' } });
-    fireEvent.keyDown(box, { key: 'Enter' });
-    await waitFor(() => expect(screen.getByText('/chat')).toBeInTheDocument());
+    expect(await screen.findByTestId('frozen-tree')).toBeInTheDocument();
+    expect(screen.queryByText('Start')).toBeNull();
+    expect(screen.queryByText('Run')).toBeNull();
+    expect(screen.queryByText('New conversation')).toBeNull();
 
     fireEvent.click(screen.getByText('Branches'));
-    fireEvent.click(screen.getByText('Add rate limiting'));
-    await waitFor(() => expect(screen.getByText('Some detail.')).toBeInTheDocument());
-    fireEvent.click(screen.getAllByText('Rate limiting work')[0]!);
-
-    await waitFor(() => expect(screen.getByText('/chat')).toBeInTheDocument());
-  });
-});
-
-describe('an accept the server refuses', () => {
-  it('shows why, instead of doing nothing', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', packId: 'p1' })] });
-    vi.mocked(groveApi.acceptLeaf).mockRejectedValue({
-      response: { data: { error: 'Nothing would check the finished result. Ask the planner to call set_acceptance for this request.' } },
-    });
-    renderWorkspace();
-    await openBranch('Rate limiting work');
-    await waitFor(() => expect(screen.getByTitle('Accept — starts the work')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTitle('Accept — starts the work'));
-
-    expect(await screen.findByText(/Ask the planner to call set_acceptance/)).toBeInTheDocument();
-  });
-
-  it('clears the warning once an accept succeeds', async () => {
-    mockApi({ branches: [branch()], leaves: [leaf({ id: 'real-id', status: 'proposed', packId: 'p1' })] });
-    vi.mocked(groveApi.acceptLeaf).mockRejectedValueOnce({ response: { data: { error: 'Assign a persona first.' } } });
-    renderWorkspace();
-    await openBranch('Rate limiting work');
-    await waitFor(() => expect(screen.getByTitle('Accept — starts the work')).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTitle('Accept — starts the work'));
-    expect(await screen.findByText(/Assign a persona first/)).toBeInTheDocument();
-
-    vi.mocked(groveApi.acceptLeaf).mockResolvedValue({} as never);
-    fireEvent.click(screen.getByTitle('Accept — starts the work'));
-    await waitFor(() => expect(screen.queryByText(/Assign a persona first/)).not.toBeInTheDocument());
+    fireEvent.click(await screen.findByText('Add rate limiting'));
+    expect(await screen.findByTestId('frozen-leaf')).toBeInTheDocument();
+    expect(screen.queryByText('Retry')).toBeNull();
   });
 });
 
@@ -293,9 +177,23 @@ describe('asking for more work on a tree', () => {
     fireEvent.change(box, { target: { value: 'Add metrics' } });
     fireEvent.click(screen.getByText('Start'));
 
-    await waitFor(() => expect(chatPackApi.createChatConversation).toHaveBeenCalledWith('Add metrics', 'tree-1'));
+    await waitFor(() => expect(chatPackApi.createChatConversation).toHaveBeenCalledWith('Add metrics', { treeId: 'tree-1' }));
     await waitFor(() => expect(engineApi.startRun).toHaveBeenCalledWith(expect.objectContaining({ message: 'Add metrics', conversationId: 'conv-tree' })));
     expect(engineApi.startRun).toHaveBeenCalledTimes(1);
-    expect(groveApi.createBranch).not.toHaveBeenCalled();
+  });
+});
+
+describe('a project with no tree yet', () => {
+  it('starts a koala conversation about the project, which the plan it proposes will be linked to', async () => {
+    vi.mocked(projectsApi.listProjects).mockResolvedValue([{ id: 'proj-1', name: 'gateway', ownerId: 'u' }] as never);
+    vi.mocked(chatPackApi.createChatConversation).mockResolvedValue({ id: 'conv-proj', title: 'New conversation', projectId: 'proj-1' });
+    mockApi({ trees: [] });
+    renderWorkspace({ projectId: 'proj-1' });
+
+    const start = (await screen.findByText('Start a conversation')).closest('button')!;
+    await waitFor(() => expect(start).not.toBeDisabled());
+    fireEvent.click(start);
+
+    await waitFor(() => expect(chatPackApi.createChatConversation).toHaveBeenCalledWith('New conversation', { projectId: 'proj-1' }));
   });
 });

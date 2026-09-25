@@ -21,7 +21,7 @@ export interface EngineToolDeps {
 export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, ToolHandler> {
   return {
     ...createProcedureTools({ store: deps.procedures, scope: deps.scope }),
-    ...createTaskTools({ store: deps.tasks }),
+    ...createTaskTools({ store: deps.tasks, binding: deps.groove?.stores.binding }),
     ...(deps.groove ? createGroveTools(deps.groove) : {}),
     ...createPlatformTools(deps.platform),
   };

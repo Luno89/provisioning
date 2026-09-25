@@ -79,15 +79,7 @@ export function ThinkingDisclosure({
   );
 }
 
-export function ProposedTreeCard({
-  proposal,
-  onAccept,
-  isPending = false,
-}: {
-  proposal: ProposedTreeData;
-  onAccept: (id: string) => void;
-  isPending?: boolean;
-}) {
+export function ProposedTreeCard({ proposal }: { proposal: ProposedTreeData }) {
   return (
     <div className="my-2 p-3 rounded-lg border border-amber-500/40 bg-[var(--bark-900,#111814)] text-xs space-y-1.5 font-sans">
       <div className="flex items-center justify-between gap-3">
@@ -112,14 +104,7 @@ export function ProposedTreeCard({
             <span>Open in Grove</span>
           </a>
         ) : (
-          <button
-            type="button"
-            onClick={() => onAccept(proposal.id)}
-            disabled={isPending}
-            className="px-3 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
-          >
-            {isPending ? 'Branching...' : 'Accept to Grove'}
-          </button>
+          <span className="text-[11px] text-slate-500 text-right">An old proposal — ask Koala to plan it and approve the plan</span>
         )}
       </div>
 

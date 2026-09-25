@@ -1,4 +1,4 @@
-import { resetForRetry, runsOnEngine, type Leaf, type Branch } from '../lib/leaves.js';
+import { resetForRetry, frozenTreeIds, FROZEN_TREE, type Leaf, type Branch } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
 import type { Task } from '../lib/tasks.js';
 import type { GroveRunStatus } from './TemporalBridge.js';
@@ -29,11 +29,10 @@ export class GroveRunService {
   private async engineTree(ownerId: string, treeId: string): Promise<GroveRunOutcome<{ tree: Tree; leaves: Leaf[] }>> {
     const tree = (await this.deps.store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
     if (!tree) return { ok: false, status: 404, error: 'Tree not found' };
-    const branchIds = new Set((await this.deps.store.getBranches()).filter((branch) => branch.treeId === treeId).map((branch) => branch.id));
+    const branches = (await this.deps.store.getBranches()).filter((branch) => branch.treeId === treeId);
+    const branchIds = new Set(branches.map((branch) => branch.id));
     const leaves = (await this.deps.store.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
-    if (!leaves.some(runsOnEngine)) {
-      return { ok: false, status: 409, error: 'This tree runs on the legacy leaf pipeline; only trees adopted from a plan run on the engine.' };
-    }
+    if (frozenTreeIds(branches, leaves).has(treeId)) return { ok: false, status: 409, error: FROZEN_TREE };
     return { ok: true, value: { tree, leaves } };
   }
 
@@ -46,6 +45,7 @@ export class GroveRunService {
   async run(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus>> {
     const found = await this.engineTree(ownerId, treeId);
     if (!found.ok) return found;
+    if (found.value.leaves.length === 0) return { ok: false, status: 409, error: 'Nothing is planned in this tree yet — ask for work in its conversation, and approve the plan.' };
     const started = await this.deps.launcher.startGroveRun(ownerId, treeId);
     if (!started.started && started.reason === 'unavailable') return { ok: false, status: 503, error: 'Temporal is not reachable, so the tree cannot run.' };
     return { ok: true, value: await this.deps.launcher.groveRunStatus(treeId) };

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { review, reviewBatch, DEFAULT_POLICY, MAX_AUTO_ACCEPT } from './auto-accept.js';
 import type { Leaf } from './leaves.js';
-import { acceptLeaf } from './accept-leaf.js';
 
 const withPlan = async () => [
   { id: 'b1', acceptance: [{ name: 'runs', command: 'node src/cli.js' }] } as any,
@@ -88,47 +87,3 @@ describe('reviewing a batch', () => {
   });
 });
 
-describe('accepting by hand', () => {
-  it('refuses a leaf with no pack, the same as the automatic path', async () => {
-    const { packId, ...unassignedLeaf } = leaf();
-    const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: withPlan } }, unassignedLeaf as Leaf, []);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/no pack/i);
-  });
-
-  it('accepts an assigned one', async () => {
-    const saved: Leaf[] = [];
-    const result = await acceptLeaf(
-      { db: { saveLeaf: async (l: Leaf) => { saved.push(l); }, getBranches: withPlan } }, leaf(), []);
-    expect(result.ok).toBe(true);
-    expect(saved[0]!.status).toBe('pending');
-  });
-
-  it('refuses when nothing would check the finished result', async () => {
-    const result = await acceptLeaf(
-      { db: { saveLeaf: async () => {}, getBranches: async () => [{ id: 'b1' } as any] } }, leaf(), []);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(409);
-      expect(result.error).toMatch(/set_acceptance/);
-    }
-  });
-
-  it('refuses when the branch declares a plan of no usable checks', async () => {
-    const empty = async () => [{ id: 'b1', acceptance: [{ name: 'blank', command: '  ' }] } as any];
-    const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: empty } }, leaf(), []);
-    expect(result.ok).toBe(false);
-  });
-
-  it('refuses when the leaf\'s branch cannot be found at all', async () => {
-    const result = await acceptLeaf(
-      { db: { saveLeaf: async () => {}, getBranches: async () => [] }, }, leaf(), []);
-    expect(result.ok).toBe(false);
-  });
-
-  it('checks the plan on the leaf\'s OWN branch', async () => {
-    const other = async () => [{ id: 'somewhere-else', acceptance: [{ name: 'c', command: 'true' }] } as any];
-    const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: other } }, leaf(), []);
-    expect(result.ok).toBe(false);
-  });
-});

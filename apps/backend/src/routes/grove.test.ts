@@ -127,14 +127,4 @@ describe('branches', () => {
     const stored = (await harness.db.getBranches()).find((b) => b.id === 'b2');
     expect(stored?.title).toBe('theirs');
   });
-
-  it('creates a branch owned by the session user', async () => {
-    const harness = await mount();
-    await harness.db.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'T', projectIds: [] } as never);
-    const res = await axios.post(harness.url('/api/branches'), {
-      treeId: 't1', title: 'new', ownerId: 'someone-else',
-    });
-    expect(res.status).toBeLessThan(300);
-    expect(res.data.ownerId).toBe(TEST_USER.id);
-  });
 });

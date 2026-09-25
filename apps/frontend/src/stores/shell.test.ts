@@ -9,7 +9,6 @@ const reset = () => {
   useShellStore.setState({
     view: 'chat',
     forestOpen: true,
-    handoff: undefined,
     notifications: [],
     confirmDestroy: null,
   })

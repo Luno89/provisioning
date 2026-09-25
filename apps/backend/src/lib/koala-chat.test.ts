@@ -6,7 +6,6 @@ import { titleFrom, enabledForSession, withEnabled, type Conversation } from './
 import { buildKoalaPrompt, KOALA_NAME, KOALA_PROMPT } from './koala-persona.js';
 import { PACK_SEEDS } from './pack-seeds.js';
 import { canRunLeaf } from './persona-scope.js';
-import { acceptLeaf } from './accept-leaf.js';
 import { seedTools, ALL_TOOL_SEEDS } from './tool-seeds.js';
 import { seedAppSpecs } from './app-spec.js';
 import { TOOL_HANDLERS } from './tool-registry.js';
@@ -284,50 +283,6 @@ describe('naming a thread', () => {
 
   it('truncates rather than storing an essay', () => {
     expect(titleFrom('x'.repeat(400)).length).toBeLessThanOrEqual(120);
-  });
-});
-
-describe('a leaf must never be assigned to a persona with no environment', () => {
-  const leaf = { id: 'l1', ownerId: 'u1', branchId: 'b1', status: 'proposed', packId: 'k1' } as any;
-  const withPlan = async () => [{ id: 'b1', acceptance: [{ name: 'runs', command: 'node cli.js' }] } as any];
-  const accept = (persona: any) => acceptLeaf(
-    { db: { saveLeaf: async () => {}, getBranches: withPlan }, packOf: async () => persona },
-    leaf,
-    [],
-  );
-
-  it('refuses, and says to pick one that builds', async () => {
-    const result = await accept({ name: KOALA_NAME, tools: ['propose_tree'] });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(409);
-      expect(result.error).toMatch(/chat only/);
-      expect(result.error).toMatch(/Assign a pack that builds/);
-    }
-  });
-
-  it('accepts a leaf assigned to one that does build', async () => {
-    const result = await accept({
-      name: 'Builder',
-      tools: ['run_command', 'read_file', 'write_file', 'finish'],
-      canRunLeaf: true,
-    });
-    expect(result.ok).toBe(true);
-  });
-
-  it('accepts a tool-less reviewer, whose empty toolset is a decision and not an absence', async () => {
-    const result = await accept({ name: 'Reviewer', tools: [], canRunLeaf: true });
-    expect(result.ok).toBe(true);
-  });
-
-  it('still refuses a chat pack that has been renamed', async () => {
-    const result = await accept({ name: 'Talky', tools: ['propose_tree'] });
-    expect(result.ok).toBe(false);
-  });
-
-  it('skips the check when the caller passed no lookup', async () => {
-    const result = await acceptLeaf({ db: { saveLeaf: async () => {}, getBranches: withPlan } }, leaf, []);
-    expect(result.ok).toBe(true);
   });
 });
 

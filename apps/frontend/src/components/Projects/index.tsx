@@ -1,11 +1,9 @@
-import { useState, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react'
+import { useState, useEffect, lazy, Suspense, Component, type ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft } from 'lucide-react'
 import NewTreeDialog from '../NewTreeDialog.js'
 import { NewProjectDialog } from './NewProjectDialog.js'
 import { ProjectList } from './ProjectList.js'
-import { listBranches } from '../../api/grove.js'
 import { parseHash, formatHash } from '../../lib/route.js'
 
 const Workspace = lazy(() => import('./Workspace/index.js'))
@@ -96,10 +94,8 @@ function useSafeProjectsRoute() {
   };
 }
 
-export function Projects({ clusters, handoff, onHandoffTaken }: {
+export function Projects({ clusters }: {
   clusters: Cluster[]
-  handoff?: { branchId: string; prompt: string } | undefined
-  onHandoffTaken?: (() => void) | undefined
 }) {
   const { params: routerParams, navigate } = useSafeProjectsRoute()
 
@@ -142,30 +138,6 @@ export function Projects({ clusters, handoff, onHandoffTaken }: {
     }
   }, [])
 
-  const { data: branches = [] } = useQuery({
-    queryKey: ['branches'],
-    queryFn: listBranches,
-    enabled: Boolean(handoff),
-  })
-
-  const openedHandoffRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!handoff || openedHandoffRef.current === handoff.branchId) return
-    const record = branches.find((b: { id: string; treeId?: string }) => b.id === handoff.branchId)
-    if (!record?.treeId) return
-    openedHandoffRef.current = handoff.branchId
-    const nextOpen: Open = { kind: 'tree', id: record.treeId, branchId: handoff.branchId }
-    setOpen(nextOpen)
-    if (navigate) {
-      navigate({
-        to: '/projects/tree/$treeId/$branchId',
-        params: { treeId: record.treeId, branchId: handoff.branchId },
-      }).catch(() => {})
-    } else {
-      window.location.hash = formatHash('projects', ['tree', record.treeId, handoff.branchId])
-    }
-  }, [handoff, branches, navigate])
-
   const openEntity = (next: Open) => {
     const path = next.kind === 'tree' ? ['tree', next.id] : ['project', next.id]
     window.location.hash = formatHash('projects', path)
@@ -203,9 +175,6 @@ export function Projects({ clusters, handoff, onHandoffTaken }: {
               {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
               {...(open.kind === 'tree' && open.branchId ? { initialBranchId: open.branchId } : {})}
               {...(open.kind === 'tree' && open.leafId ? { initialLeafId: open.leafId } : {})}
-              {...(handoff && open.kind === 'tree' && open.branchId === handoff.branchId
-                ? { handoff, ...(onHandoffTaken ? { onHandoffTaken } : {}) }
-                : {})}
               onTreeReady={(treeId) => openEntity({ kind: 'tree', id: treeId })}
             />
           </Suspense>

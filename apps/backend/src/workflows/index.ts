@@ -9,6 +9,5 @@ export { LeafWorkflow } from './LeafWorkflow.js';
 export { GroveRunWorkflow } from './GroveRunWorkflow.js';
 export { GroveLeafWorkflow } from './GroveLeafWorkflow.js';
 export { AdoptPlanWorkflow } from './AdoptPlanWorkflow.js';
-export { ProjectPlanWorkflow } from './ProjectPlanWorkflow.js';
 export { executeIngestWorkflow } from './IngestWorkflow.js';
 export { AgentRunWorkflow } from './AgentRunWorkflow.js';

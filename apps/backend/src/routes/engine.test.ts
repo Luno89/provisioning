@@ -4,7 +4,7 @@ import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { engineRouter } from './engine.js';
 import { createAgentRegistry, createRunStarter, type WorkflowStarter, type Task } from '../engine-host/index.js';
 import type { Database } from '../lib/db-interface.js';
-import { boundTreeReader } from '../engine-host/bound-tree.js';
+import { conversationBinding } from '../engine-host/conversation-binding.js';
 import { INTERACTIVE_CHAT_V4, RESEARCH_V2 } from '@koala/agent-engine/procedure';
 
 let tasks: Task[] = [];
@@ -121,7 +121,7 @@ describe('engine routes', () => {
       prefix: '/api/engine',
       router: (database) => {
         db = database;
-        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => 'run-fixed', boundTree: boundTreeReader(database) });
+        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => 'run-fixed', binding: conversationBinding(database) });
         return engineRouter({ runs, registry: createAgentRegistry() });
       },
     });
@@ -144,8 +144,15 @@ describe('engine routes', () => {
     expect(bound.tree).toContain('Tree "Greeter" (tree-1)');
     expect(bound.tree).toContain('Hello (l1) [pending, 0/0 tasks done] — hello.txt says hello');
 
-    const free = await inputsOf('free', { conversationId: 'free', treeId: 'forged', tree: 'forged' });
+    const free = await inputsOf('free', { conversationId: 'free', treeId: 'forged', tree: 'forged', projectId: 'forged' });
     expect(free).toEqual({ conversationId: 'free', message: 'more please' });
+
+    await db!.saveProjectInfo({ id: 'proj-1', name: 'gateway', ownerId: TEST_USER.id, appType: 'local', createdAt: stamp } as never);
+    await db!.saveConversation({ id: 'about-project', ownerId: TEST_USER.id, title: 't', projectId: 'proj-1', messages: [], createdAt: stamp, updatedAt: stamp });
+    const project = await inputsOf('about-project', { conversationId: 'about-project' });
+    expect(project.projectId).toBe('proj-1');
+    expect(project.project).toContain('Project "gateway" (proj-1)');
+    expect(project.treeId).toBeUndefined();
 
     await h.close();
   });

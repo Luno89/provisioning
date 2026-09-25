@@ -5,13 +5,18 @@ import { Workspace } from './index.js'
 import * as groveApi from '../../../api/grove.js'
 import * as projectsApi from '../../../api/projects.js'
 import * as packsApi from '../../../api/packs.js'
+import * as chatPackApi from '../../../api/chat-pack.js'
 
 vi.mock('../../../api/grove.js', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
   listTrees: vi.fn(),
   listBranches: vi.fn(),
   listLeaves: vi.fn(),
-  createBranch: vi.fn(),
+}))
+vi.mock('../../../api/chat-pack.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof chatPackApi>()),
+  createChatConversation: vi.fn(),
+  listChatConversations: vi.fn(async () => []),
 }))
 vi.mock('../../../api/projects.js', async (importOriginal) => ({
   ...(await importOriginal<typeof projectsApi>()),
@@ -23,9 +28,9 @@ vi.mock('../../../api/packs.js', async (importOriginal) => ({
 }))
 
 vi.mock('../../Home.js', () => ({ default: () => <div data-testid="home">home</div> }))
-vi.mock('../../BranchChat.js', () => ({ default: () => <div data-testid="branch-chat">branch-chat</div> }))
+vi.mock('../../BranchHistory.js', () => ({ default: () => <div data-testid="branch-chat">branch-chat</div> }))
+vi.mock('../../ChatSurface.js', () => ({ default: () => <div data-testid="koala-chat">koala-chat</div> }))
 vi.mock('../../LeafDetail.js', () => ({ default: () => <div data-testid="leaf-detail">leaf-detail</div> }))
-vi.mock('../../NewTreeDialog.js', () => ({ default: () => <div data-testid="new-tree-dialog">new-tree-dialog</div> }))
 vi.mock('../../ProjectEditor/FileTree.js', () => ({ FileTree: () => <div data-testid="file-tree">file-tree</div> }))
 vi.mock('../../ProjectEditor/EditorPane.js', () => ({ EditorPane: () => <div data-testid="editor-pane">editor-pane</div> }))
 vi.mock('../../ProjectEditor/TabBar.js', () => ({ TabBar: () => <div data-testid="tab-bar">tab-bar</div> }))
@@ -94,12 +99,12 @@ describe('Workspace layout', () => {
     expect(screen.queryByTestId('branches-panel')).not.toBeInTheDocument()
   })
 
-  it('clicking "Start a conversation" creates a tree-less branch scoped to the project directly, no dialog', async () => {
+  it('clicking "Start a conversation" opens a koala conversation about the project', async () => {
     vi.mocked(groveApi.listTrees).mockResolvedValue([])
     vi.mocked(groveApi.listBranches).mockResolvedValue([])
     vi.mocked(groveApi.listLeaves).mockResolvedValue([])
     vi.mocked(projectsApi.listProjects).mockResolvedValue([project])
-    vi.mocked(groveApi.createBranch).mockResolvedValue({ id: 'b-new', title: 'New branch', messages: [], projectId: 'p1', updatedAt: '' } as never)
+    vi.mocked(chatPackApi.createChatConversation).mockResolvedValue({ id: 'c-new', title: 'New conversation', projectId: 'p1' })
 
     renderWorkspace({ projectId: 'p1' })
 
@@ -107,12 +112,11 @@ describe('Workspace layout', () => {
     const startBtn = screen.getByText('Start a conversation')
     fireEvent.click(startBtn)
 
-    await waitFor(() => expect(groveApi.createBranch).toHaveBeenCalledWith({ projectId: 'p1' }))
-    expect(screen.queryByTestId('new-tree-dialog')).not.toBeInTheDocument()
-    expect(await screen.findByTestId('branch-chat')).toBeInTheDocument()
+    await waitFor(() => expect(chatPackApi.createChatConversation).toHaveBeenCalledWith('New conversation', { projectId: 'p1' }))
+    expect(await screen.findByTestId('koala-chat')).toBeInTheDocument()
   })
 
-  it('swaps the right column to BranchChat when a branch is selected, and to LeafDetail when a leaf is selected', async () => {
+  it('swaps the right column to the branch history when a branch is selected, and to LeafDetail when a leaf is selected', async () => {
     vi.mocked(groveApi.listTrees).mockResolvedValue([treeWithProject] as never)
     vi.mocked(groveApi.listBranches).mockResolvedValue([{ id: 'b1', title: 'demo', treeId: 't1', messages: [], updatedAt: '' } as never])
     vi.mocked(groveApi.listLeaves).mockResolvedValue([{ id: 'l1', branchId: 'b1', title: 'a leaf' } as never])

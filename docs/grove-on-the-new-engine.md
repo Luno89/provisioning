@@ -11,7 +11,7 @@ Last updated: 2026-09-24
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
 | P1 fix-up: one sandbox per tree | **slices 1–6 landed 2026-09-24/25** (see *P1 fix-up* below) |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
-| P2 planning + launching in engine | **steps 1–2 landed 2026-09-25** (leaf-scoped replan and breakdown proposed by the run; tree entry through a koala chat bound to the tree); step 3 open |
+| P2 planning + launching in engine | **landed 2026-09-25** — leaf-scoped replan and breakdown proposed by the run; tree entry through a koala chat bound to the tree; legacy trees frozen and every legacy launcher switched off |
 | P3 landing as engine tools | not started |
 | P4 supervision swap (retire LeafWorkflow) | not started |
 | P5 grove surface on engine + grove UI flip | not started |
@@ -578,7 +578,62 @@ parks for human review; the volume lives and the pod is started on demand.
    - **Found live and fixed:** approving in the panel left the chat card saying "Waiting".
    - **Not exercised live:** the refusals (a new tree or a foreign treeId in a bound chat),
      which are unit-tested.
-3. Freeze legacy trees; switch off every legacy launcher in one step — open.
+3. **Legacy trees frozen and every legacy launcher switched off — landed 2026-09-25.**
+   - **Frozen means** a tree holding any leaf the old pipeline made (`frozenTreeIds` /
+     `isFrozenLeaf` in `lib/leaves.ts`); an empty tree is open. The server reports `frozen` on
+     `GET /api/trees` and `GET /api/leaves`, and refuses on a frozen tree:
+     - `propose_plan`;
+     - a tree-bound conversation;
+     - Run;
+     - leaf retry and edit.
+
+     The tree page shows the frozen note instead of Start. Run and Proposals are hidden, the
+     conversation list offers no new chat, and a frozen leaf offers no Retry or pack change.
+   - **Gone:**
+     - `TemporalBridge.startLeaf`, `planProject` and the dependency backstop;
+     - `ReleaseDependents` no longer wakes anything;
+     - `ProjectPlanWorkflow` + `PlanProjectActivity`, `bootstrapAcceptedTree` and the old koala
+       tree-proposal accept;
+     - the legacy `/api/chat` router and everything only it used (chat-turn, chat-runtime,
+       chat-wire, round-loop, sse, smart-token-controller, planning-brief, the chat-pack context,
+       tools and model-call modules);
+     - `POST /api/leaves`, `/api/leaves/:id/accept`, `/api/leaves/:id/review`,
+       `POST /api/branches`;
+     - the leaf reconcile's restart path, which now fails the leaf and says why;
+     - the webdesign runner script.
+
+     `LeafWorkflow` itself stays registered for P4 to delete. Nothing can start one.
+   - **Branch chats are read-only history** (`BranchHistory`). ChatSurface lost its branch scope,
+     and with it `useBranchTurn`, the branch header, the sprouting-leaves card, the acceptance
+     editor, attachments, the handoff plumbing and NewTreeDialog's promote-a-branch path. Old
+     koala tree proposals can only be dismissed.
+   - **A project with no tree** (owner ruling): its Start opens a koala conversation bound to the
+     project (`projectId`, ownership-checked). Koala v3 hands the goal to planner v8 with the
+     `projectId`. `propose_work` refuses loose tasks in any bound conversation and teaches
+     `propose_plan`. The proposal records the project, and adoption links the new tree to it; the
+     card's "Open the tree" moves the page there.
+   - **Found and fixed on the way:**
+     - A unit-test run started real LeafWorkflows on the live Temporal. The full-app test's
+       backstop timer woke in-memory leaves; the leak is gone with the backstop.
+     - The chat hook PATCHed a new conversation on every render while a reply streamed
+       (hundreds of requests), because the default agent differed from the empty document and
+       the cache never learned the patch. It now caches what it sent and never double-sends.
+       Regression test fails without the fix.
+     - The first live project attempt had the planner file loose tasks; that led to the guard
+       above.
+   - **Live (UI):**
+     - Frozen `hello-page` and `odoo-customization-platform` trees: frozen note, no
+       Start/Run/Proposals/new chat, 67-message branch history read-only, failed legacy leaf with
+       no Retry.
+     - A throwaway project: Start a conversation → koala → planner v8 proposed a new tree carrying
+       the project → approved → tree created, linked, three engine leaves → "Open the tree"
+       landed on it.
+     - Temporal across the whole session: only AgentRun and AdoptPlan workflows; no LeafWorkflow
+       or ProjectPlanWorkflow, and no backstop.
+   - **Not exercised live:** the HTTP 404s for the removed routes (unit-tested against the booted
+     app). One planner run ran away (a single tabbyapi reply generating for 25+ minutes). Cancel
+     did not reach the delegated planner's model stream, so it had to be terminated — an engine
+     cancel gap, not part of this step.
 
 - ProjectPlanWorkflow → make-plan lane run; ReplanActivity same procedure,
   leaf-scoped.

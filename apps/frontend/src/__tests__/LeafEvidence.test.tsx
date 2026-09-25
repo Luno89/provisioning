@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import * as modelsApi from '../api/models';
-import ChatSurface from '../components/ChatSurface';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LeafDetail from '../components/LeafDetail';
 import AcceptancePlan from '../components/AcceptancePlan';
@@ -110,25 +109,5 @@ describe('the acceptance plan', () => {
   it('renders nothing when no checks are declared', () => {
     const { container } = render(<AcceptancePlan acceptance={[]} />);
     expect(container.firstChild).toBeNull();
-  });
-});
-
-describe('system notices in the transcript', () => {
-  it('renders a notice as an event, not as the assistant speaking', async () => {
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <ChatSurface
-          scope={{
-            kind: 'branch',
-            branchId: 'b1',
-            mode: 'auto',
-            messages: [{ role: 'assistant', content: 'Leaf failed and will not be retried.', notice: true }],
-            onMessagesChange: () => {},
-          }}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(await screen.findByText(/Leaf failed and will not be retried/)).toBeTruthy();
   });
 });

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, ShieldCheck,
-  ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Stethoscope, Loader2, Sliders,
+  CircleSlash, Trash2, Link2, Unlink, AlertTriangle, Coins, ShieldCheck,
+  ShieldQuestion, GitBranch, GitMerge, FileCheck, BookOpen, RotateCw, Loader2, Sliders,
   ChevronDown, ChevronRight, Eye,
 } from 'lucide-react';
 import Markdown from './Markdown.js';
@@ -12,7 +12,7 @@ import PersonaConfigDrawer from './PersonaConfigDrawer.js';
 import LeafTransparency from './LeafTransparency/index.js';
 import { STATE_LABEL, STATE_STYLE, STATE_HINT, stateFor, blockedBy, type Leaf } from './leaf-types.js';
 import {
-  acceptLeaf, cancelLeaf, retryLeaf, reviewLeaf, deleteLeaf, patchLeaf,
+  cancelLeaf, retryLeaf, deleteLeaf, patchLeaf,
 } from '../api/grove';
 import { errorMessage } from '../api/client';
 import { listPacks, packKeys } from '../api/packs';
@@ -56,11 +56,11 @@ function AttemptError({ error }: { error: string }) {
   );
 }
 
-export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
+export default function LeafDetail({ leaf, subLeaves, all = [], frozen = false }: {
   leaf: Leaf;
   subLeaves: Leaf[];
   all?: Leaf[];
-  onReview?: (branchId: string, prompt: string) => void;
+  frozen?: boolean;
 }) {
   const qc = useQueryClient();
   const invalidate = () => {
@@ -69,7 +69,6 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
   };
   const call = (fn: () => Promise<unknown>) => ({ mutationFn: fn, onSuccess: invalidate });
 
-  const accept = useMutation(call(() => acceptLeaf(leaf.id)));
   const cancel = useMutation(call(() => cancelLeaf(leaf.id)));
   const remove = useMutation(call(() => deleteLeaf(leaf.id)));
 
@@ -85,16 +84,12 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
     mutationFn: (packId: string) => patchLeaf(leaf.id, { packId }),
     onSuccess: invalidate,
   });
-  const canReassign = leaf.status === 'proposed' || leaf.status === 'pending' || leaf.status === 'failed';
+  const canReassign = !frozen && (leaf.status === 'proposed' || leaf.status === 'pending' || leaf.status === 'failed');
   const [showPackConfig, setShowPackConfig] = useState(false);
 
   const [showTransparency, setShowTransparency] = useState(false);
 
   const retry = useMutation(call(() => retryLeaf(leaf.id)));
-  const review = useMutation({
-    mutationFn: () => reviewLeaf(leaf.id),
-    onSuccess: (data) => onReview?.(data.branchId, data.prompt),
-  });
 
   const derived = subLeaves.length > 0;
   const state = stateFor(leaf, all);
@@ -170,12 +165,6 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {leaf.status === 'proposed' && (
-            <button onClick={() => accept.mutate()}
-              className="px-3 py-1.5 rounded-lg bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-emerald-50 text-xs flex items-center gap-1.5">
-              <Check size={13} /> Accept
-            </button>
-          )}
           {leaf.status === 'running' && (
             <button onClick={() => cancel.mutate()} title="Cancel"
               className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-[var(--bark-700)]"><CircleSlash size={15} /></button>
@@ -220,31 +209,28 @@ export default function LeafDetail({ leaf, subLeaves, all = [], onReview }: {
 
       {leaf.status === 'failed' && (
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => review.mutate()}
-            disabled={review.isPending}
-            title="Open Koala with this failure and ask it why. You can reply and argue with the answer."
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] bg-[var(--leaf-stem)] hover:bg-[var(--leaf)] text-white disabled:opacity-50"
-          >
-            {review.isPending ? <Loader2 size={13} className="animate-spin" /> : <Stethoscope size={13} />}
-            {review.isPending ? 'Opening Koala…' : 'Review the failure'}
-          </button>
-          <button
-            onClick={() => retry.mutate()}
-            disabled={retry.isPending}
-            title="Run it again. The next attempt is given this failure, but a cause in the environment will repeat."
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] bg-[var(--bark-700)] hover:bg-[var(--bark-600)] text-slate-200 disabled:opacity-50"
-          >
-            {retry.isPending ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />} Retry
-          </button>
-          {(review.error || retry.error) && (
+          {frozen ? (
+            <span className="text-[11px] text-slate-500" data-testid="frozen-leaf">
+              Built on the old pipeline, which is frozen: this leaf keeps its history but cannot be retried. New work goes into a new tree.
+            </span>
+          ) : (
+            <button
+              onClick={() => retry.mutate()}
+              disabled={retry.isPending}
+              title="Run it again. The next attempt is given this failure, but a cause in the environment will repeat."
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] bg-[var(--bark-700)] hover:bg-[var(--bark-600)] text-slate-200 disabled:opacity-50"
+            >
+              {retry.isPending ? <Loader2 size={13} className="animate-spin" /> : <RotateCw size={13} />} Retry
+            </button>
+          )}
+          {retry.error && (
             <span className="text-[11px] text-red-400">
-              {errorMessage(review.error ?? retry.error) || 'That did not work.'}
+              {errorMessage(retry.error) || 'That did not work.'}
             </span>
           )}
           {attemptCount > 1 && (
             <span className="text-[11px] text-slate-500">
-              Already tried {attemptCount} times — a review is more likely to help than another run.
+              Already tried {attemptCount} times.
             </span>
           )}
         </div>

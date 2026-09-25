@@ -56,8 +56,6 @@ export interface ShellContext {
   vpnDomains: Record<string, string>;
   setVpnDomains: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setShowNginxWizard: (show: boolean) => void;
-  handoff: { branchId: string; prompt: string } | undefined;
-  setHandoff: (handoff: { branchId: string; prompt: string } | undefined) => void;
   deployApp: any;
 }
 
@@ -69,8 +67,6 @@ export function RootLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handoff = useShellStore((s) => s.handoff);
-  const setHandoff = useShellStore((s) => s.setHandoff);
   const user = useShellStore((s) => s.user);
   const setUser = useShellStore((s) => s.setUser);
   const authLoading = useShellStore((s) => s.authLoading);
@@ -241,8 +237,6 @@ export function RootLayout() {
     vpnDomains,
     setVpnDomains,
     setShowNginxWizard,
-    handoff,
-    setHandoff,
     deployApp,
   };
 

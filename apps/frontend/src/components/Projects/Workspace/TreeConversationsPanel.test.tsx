@@ -20,7 +20,7 @@ describe('TreeConversationsPanel', () => {
     const onNew = vi.fn()
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <TreeConversationsPanel treeId="t1" selected={{ kind: 'tree', id: 't1' }} onSelect={onSelect} onNew={onNew} />
+        <TreeConversationsPanel binding={{ treeId: 't1' }} selected={{ kind: 'tree', id: 't1' }} onSelect={onSelect} onNew={onNew} />
       </QueryClientProvider>,
     )
 
@@ -30,5 +30,21 @@ describe('TreeConversationsPanel', () => {
     expect(screen.queryByText('Unbound')).toBeNull()
     fireEvent.click(screen.getByText('New conversation'))
     expect(onNew).toHaveBeenCalled()
+  })
+
+  it('lists a project\'s conversations, and offers no new one when told not to', async () => {
+    vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([
+      { id: 'c1', title: 'About the project', projectId: 'p1' },
+      { id: 'c2', title: 'About a tree', treeId: 't1' },
+    ])
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TreeConversationsPanel binding={{ projectId: 'p1' }} selected={{ kind: 'tree', id: '' }} onSelect={vi.fn()} />
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByText('About the project')).toBeTruthy()
+    expect(screen.queryByText('About a tree')).toBeNull()
+    expect(screen.queryByText('New conversation')).toBeNull()
   })
 })

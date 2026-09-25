@@ -7,7 +7,7 @@ import { withConversationNotice } from '../lib/conversation-notice.js';
 import { v4 as uuidv4 } from 'uuid';
 import { validateSpec, explainSpecProblems } from '../lib/app-spec-validate.js';
 import { visibleAppSpecs, type AppSpec } from '../lib/app-spec.js';
-import { bootstrapAcceptedTree } from '../lib/tree-bootstrap.js';
+import { frozenTreeIds, FROZEN_TREE } from '../lib/leaves.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
@@ -22,6 +22,7 @@ export interface ConversationsRouterDeps {
   jwtSecret?: string;
   ownedConversations: (userId: string) => Promise<Conversation[]>;
   ownedTrees?: (userId: string) => Promise<{ id: string }[]>;
+  ownedProjects?: (userId: string) => Promise<{ id: string }[]>;
 }
 
 export function conversationsRouter(deps: ConversationsRouterDeps): Router {
@@ -44,9 +45,16 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
   router.post('/', asyncRoute(async (req, res) => {
     const userId = (req as any).user.id;
     const treeId = typeof req.body?.treeId === 'string' && req.body.treeId.trim() ? req.body.treeId.trim() : undefined;
+    const projectId = typeof req.body?.projectId === 'string' && req.body.projectId.trim() ? req.body.projectId.trim() : undefined;
+    if (treeId && projectId) return res.status(400).json({ error: 'A conversation is about a tree or a project, not both' });
     if (treeId) {
       const trees = deps.ownedTrees ? await deps.ownedTrees(userId) : [];
       if (!trees.some((tree) => tree.id === treeId)) return res.status(404).json({ error: 'No such tree' });
+      if (frozenTreeIds(await db.getBranches(), await db.getLeaves()).has(treeId)) return res.status(409).json({ error: FROZEN_TREE });
+    }
+    if (projectId) {
+      const projects = deps.ownedProjects ? await deps.ownedProjects(userId) : [];
+      if (!projects.some((project) => project.id === projectId)) return res.status(404).json({ error: 'No such project' });
     }
     const now = new Date().toISOString();
     const conversation: Conversation = {
@@ -54,6 +62,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
       ownerId: userId,
       title: titleFrom(String(req.body?.title ?? '')),
       ...(treeId ? { treeId } : {}),
+      ...(projectId ? { projectId } : {}),
       messages: [],
       createdAt: now,
       updatedAt: now,
@@ -102,50 +111,6 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     res.json(next);
   }));
 
-  const acceptTree = async (req: any, res: any) => {
-    const userId = req.user.id;
-    const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
-    if (!conversation) return res.status(404).json({ error: 'No such conversation' });
-    const proposal = (conversation.proposedTrees ?? []).find((p) => p.id === req.params.proposalId);
-    if (!proposal) return res.status(404).json({ error: 'No such proposal' });
-    if (proposal.treeId) return res.status(409).json({ error: 'That project has already been created' });
-
-    let nodeIp: string | undefined;
-    if (deps.infraService) {
-      try {
-        nodeIp = (await deps.infraService.runKubectl(
-          ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
-          '/tmp/kubeconfig-provisioning-lunorica',
-        )).trim();
-      } catch {}
-    }
-
-    const bootstrapped = await bootstrapAcceptedTree({
-      db,
-      projectRepoService: deps.projectRepoService,
-      temporalBridge: deps.temporalBridge,
-      nodeIp,
-      jwtSecret: deps.jwtSecret,
-    }, {
-      userId,
-      proposal,
-    });
-
-    const now = new Date().toISOString();
-    await db.saveConversation(withConversationNotice({
-      ...conversation,
-      proposedTrees: (conversation.proposedTrees ?? [])
-        .map((p) => (p.id === proposal.id ? { ...p, treeId: bootstrapped.tree.id } : p)),
-      updatedAt: now,
-    }, `Accepted the "${proposal.name}" tree.`, now));
-    res.json({
-      tree: bootstrapped.tree,
-      branch: bootstrapped.branch,
-      project: bootstrapped.project,
-      planning: Boolean(bootstrapped.planWorkflowId),
-    });
-  };
-
   const dismissTree = async (req: any, res: any) => {
     const userId = req.user.id;
     const conversation = (await deps.ownedConversations(userId)).find((c) => c.id === req.params.id);
@@ -165,8 +130,6 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     res.json({ ok: true });
   };
 
-  router.post('/:id/trees/:proposalId/accept', asyncRoute(acceptTree));
-  router.post('/:id/proposals/:proposalId/accept', asyncRoute(acceptTree));
   router.post('/:id/trees/:proposalId/dismiss', asyncRoute(dismissTree));
   router.post('/:id/proposals/:proposalId/dismiss', asyncRoute(dismissTree));
 

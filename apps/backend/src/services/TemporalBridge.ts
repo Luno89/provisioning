@@ -26,7 +26,6 @@ import { deploymentIdFor } from '../lib/deployment-id.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
 import { decryptValue, encryptValue } from '../lib/crypto.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
-import { readyToStart, runsOnEngine } from '../lib/leaves.js'
 import { consolidateMemories, type ConsolidationReport } from '../lib/memory-consolidate.js'
 import { corpusEndpoints } from '../lib/web-tools-resolver.js'
 import { indexMemories, similarTo } from '../lib/memory-index.js'
@@ -38,8 +37,6 @@ import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, ProjectMetad
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js'
 import type { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../workflows/ClusterProvisionWorkflow.js'
-import { LeafWorkflow } from '../workflows/LeafWorkflow.js'
-import { ProjectPlanWorkflow } from '../workflows/ProjectPlanWorkflow.js'
 import { executeDestroyClusterWorkflow } from '../workflows/DestroyClusterWorkflow.js'
 import { executeDeployAppWorkflow } from '../workflows/AppDeployWorkflow.js'
 import { executeDestroyAppWorkflow } from '../workflows/DestroyAppWorkflow.js'
@@ -56,7 +53,6 @@ const HOST_QUEUE = 'host-ops-queue'
 const CLUSTER_QUEUE = 'cluster-ops-queue'
 const WORKFLOW_POLL_INTERVAL = 5000
 const RECONCILE_INTERVAL = 30000
-const DEPENDENCY_BACKSTOP_INTERVAL = 300000
 
 const CONSOLIDATE_INTERVAL = 1_800_000
 const MAX_POLL_FAILURES = 12
@@ -421,27 +417,6 @@ export class TemporalBridge {
     }, WORKFLOW_POLL_INTERVAL)
   }
 
-  async startLeaf(leaf: { id: string; title: string; column: string; depth: number; runner?: 'engine' | undefined }): Promise<string | undefined> {
-    if (!this.client) return undefined
-    if (runsOnEngine(leaf)) {
-      console.warn(`[TemporalBridge] Not starting "${leaf.title}" on the legacy leaf pipeline — it belongs to the engine's grove run`)
-      return undefined
-    }
-    const workflowId = `leaf-${leaf.id}`
-    try {
-      await this.client.workflow.start(LeafWorkflow, {
-        workflowId,
-        taskQueue: HOST_QUEUE,
-        args: [{ leafId: leaf.id, title: leaf.title, column: leaf.column as any, depth: leaf.depth }],
-      })
-      return workflowId
-    } catch (err: any) {
-      if (/already started/i.test(err?.message ?? '')) return workflowId
-      console.warn(`[TemporalBridge] Could not start leaf workflow ${workflowId}: ${err.message}`)
-      return undefined
-    }
-  }
-
   async adoptPlan(ownerId: string, proposalId: string): Promise<string | undefined> {
     if (!this.client) return undefined
     const workflowId = `adopt-plan-${proposalId}`
@@ -490,23 +465,6 @@ export class TemporalBridge {
       return { state: 'finished', startedAt, ...(closedAt ? { closedAt } : {}), result }
     }
     return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: status.toLowerCase().replace(/_/g, ' ') }
-  }
-
-  async planProject(treeId: string, branchId: string): Promise<string | undefined> {
-    if (!this.client) return undefined
-    const workflowId = `plan-${treeId}`
-    try {
-      await this.client.workflow.start(ProjectPlanWorkflow, {
-        workflowId,
-        taskQueue: HOST_QUEUE,
-        args: [{ treeId, branchId }],
-      })
-      return workflowId
-    } catch (err: any) {
-      if (/already started/i.test(err?.message ?? '')) return workflowId
-      console.warn(`[TemporalBridge] Could not start planning workflow ${workflowId}: ${err.message}`)
-      return undefined
-    }
   }
 
   async signalLeaf(leafId: string, signal: 'moveLeaf' | 'cancelLeaf' | 'completeLeaf' | 'addChild', payload?: unknown): Promise<boolean> {
@@ -683,21 +641,6 @@ export class TemporalBridge {
 
     }
 
-    const releaseBackstop = async () => {
-    try {
-      const leaves = await this.db.getLeaves()
-      for (const leaf of readyToStart(leaves)) {
-        const workflowId = await this.startLeaf(leaf)
-        if (!workflowId) continue
-        await this.db.saveLeaf({ ...leaf, workflowId, updatedAt: new Date().toISOString() })
-        console.warn(`[Reconcile] BACKSTOP started "${leaf.title}" — its dependencies completed but nothing woke it. A leaf workflow was probably terminated.`)
-        if (this.io) this.io.emit('leaf-updated')
-      }
-    } catch (err: any) {
-      console.warn(`[Reconcile] Could not release waiting leaves: ${err.message}`)
-    }
-  }
-
     const reconcileRuns = async () => {
       if (!this.client) return
       try {
@@ -784,24 +727,21 @@ export class TemporalBridge {
           const fresh = (await this.db.getLeaves()).find((l) => l.id === leaf.id)
           if (!fresh || fresh.status !== leaf.status) continue
 
-          if (decision.action === 'restart') {
-            const { workflowId: _dead, ...withoutWorkflow } = fresh
-            await this.db.saveLeaf({ ...withoutWorkflow, updatedAt: new Date().toISOString() })
-            console.warn(`[Reconcile] leaf ${leaf.id.slice(0, 8)}: ${decision.reason}`)
-          } else {
-            await this.db.saveLeaf({
-              ...fresh,
-              status: 'failed',
-              attempts: [...(fresh.attempts ?? []), {
-                attempt: attempts,
-                error: decision.reason,
-                failedAt: new Date().toISOString(),
-                produced: false,
-              }],
-              updatedAt: new Date().toISOString(),
-            })
-            console.warn(`[Reconcile] leaf ${leaf.id.slice(0, 8)} -> failed: ${decision.reason}`)
-          }
+          const reason = decision.action === 'restart'
+            ? `${decision.reason}; the old leaf pipeline no longer starts leaves, so it cannot be restarted`
+            : decision.reason
+          await this.db.saveLeaf({
+            ...fresh,
+            status: 'failed',
+            attempts: [...(fresh.attempts ?? []), {
+              attempt: attempts,
+              error: reason,
+              failedAt: new Date().toISOString(),
+              produced: false,
+            }],
+            updatedAt: new Date().toISOString(),
+          })
+          console.warn(`[Reconcile] leaf ${leaf.id.slice(0, 8)} -> failed: ${reason}`)
           if (this.io) this.io.emit('leaves-updated')
         }
       } catch (err: any) {
@@ -817,8 +757,6 @@ export class TemporalBridge {
     setInterval(reconcileRuns, RECONCILE_INTERVAL)
     reconcileLeaves()
     setInterval(reconcileLeaves, RECONCILE_INTERVAL)
-    releaseBackstop()
-    setInterval(releaseBackstop, DEPENDENCY_BACKSTOP_INTERVAL)
   }
 
   async terminateWorkflow(wfId: string, reason = 'User aborted operation'): Promise<boolean> {

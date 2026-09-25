@@ -147,7 +147,7 @@ describe('running a tree on the engine', () => {
     expect(status.data).toMatchObject({ state: 'running', engine: true });
   });
 
-  it('refuses a legacy tree, says it is not an engine tree, and never another owner\'s', async () => {
+  it('refuses a frozen legacy tree and says why, refuses an empty tree, never another owner\'s, and marks frozen trees in the list', async () => {
     const harness = await mount();
     await harness.db.saveTree(tree() as never);
     await harness.db.saveBranch(branch as never);
@@ -156,9 +156,15 @@ describe('running a tree on the engine', () => {
 
     const legacy = await axios.post(harness.url('/api/trees/t1/run')).catch((e) => e);
     expect(legacy.response.status).toBe(409);
-    expect(legacy.response.data.error).toMatch(/legacy leaf pipeline/);
+    expect(legacy.response.data.error).toMatch(/frozen/);
     expect((await axios.get(harness.url('/api/trees/t1/run'))).data).toEqual({ state: 'none', engine: false });
     expect((await axios.post(harness.url('/api/trees/t2/run')).catch((e) => e)).response.status).toBe(404);
+    await harness.db.saveTree(tree({ id: 't3' }) as never);
+    const empty = await axios.post(harness.url('/api/trees/t3/run')).catch((e) => e);
+    expect(empty.response.status).toBe(409);
+    expect(empty.response.data.error).toMatch(/Nothing is planned/);
+    const listed = (await axios.get(harness.url('/api/trees'))).data as { id: string; frozen: boolean }[];
+    expect(Object.fromEntries(listed.map((entry) => [entry.id, entry.frozen]))).toEqual({ t1: true, t3: false });
     expect(launcher.startGroveRun).not.toHaveBeenCalled();
   });
 });

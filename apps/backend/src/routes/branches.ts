@@ -1,12 +1,10 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
-import { v4 as uuidv4 } from 'uuid';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
 import { summariseDelivery } from '../lib/branch-delivery.js';
 import { usableAcceptancePlan, type AcceptanceCheck } from '../lib/acceptance.js';
 import { hollowChecks, explainHollow } from '../lib/acceptance-validation.js';
-import { inheritedAcceptance } from '../lib/acceptance-inherit.js';
 import { blockedBy } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
 import type { Leaf, Branch } from '../lib/leaves.js';
@@ -49,41 +47,6 @@ export function branchesRouter(deps: BranchesRouterDeps): Router {
       };
     });
     res.json(withDelivery.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
-  }));
-
-  router.post('/', asyncRoute(async (req, res) => {
-    const user = userOf(req);
-    const now = new Date().toISOString();
-    const requestedTree = typeof req.body?.treeId === 'string' ? req.body.treeId : '';
-    const tree = requestedTree
-      ? (await ownedTrees(user.id)).find((t) => t.id === requestedTree)
-      : undefined;
-    if (requestedTree && !tree) return res.status(404).json({ error: 'Tree not found' });
-
-    const requestedProject = typeof req.body?.projectId === 'string' ? req.body.projectId : '';
-    const project = requestedProject
-      ? (await db.getProjects()).find((p: any) => p.id === requestedProject && p.ownerId === user.id)
-      : undefined;
-    if (requestedProject && !project) return res.status(404).json({ error: 'Project not found' });
-
-    const inherited = tree ? inheritedAcceptance(tree.id, await ownedBranches(user.id)) : [];
-    if (inherited.length) {
-      console.log(`[branches] new branch inherits ${inherited.length} acceptance check(s) from tree ${tree!.id.slice(0, 8)}`);
-    }
-
-    const branch: Branch = {
-      id: uuidv4(),
-      ownerId: user.id,
-      title: typeof req.body?.title === 'string' && req.body.title.trim() ? req.body.title.trim() : 'New branch',
-      messages: [],
-      ...(tree ? { treeId: tree.id } : {}),
-      ...(project ? { projectId: project.id } : {}),
-      createdAt: now,
-      updatedAt: now,
-          ...(inherited.length ? { acceptance: inherited } : {}),
-};
-    await db.saveBranch(branch);
-    res.status(201).json(branch);
   }));
 
   router.patch('/:id', asyncRoute(async (req, res) => {

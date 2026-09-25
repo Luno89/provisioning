@@ -639,6 +639,7 @@ export interface PlanProposal {
   ownerId: string;
   conversationId?: string | undefined;
   runId?: string | undefined;
+  projectId?: string | undefined;
   status: PlanStatus;
   plan?: Plan | undefined;
   leafPlan?: LeafPlan | undefined;
