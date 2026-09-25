@@ -613,6 +613,19 @@ export interface Plan {
   branches: PlanBranch[];
 }
 
+export type LeafPlanMode = 'replan' | 'breakdown';
+
+export interface LeafPlan {
+  treeId: string;
+  leafId: string;
+  leafTitle: string;
+  mode: LeafPlanMode;
+  why: string;
+  body?: string | undefined;
+  brief: string;
+  tasks: PlanTask[];
+}
+
 export interface AdoptedPlan {
   treeId: string;
   branchIds: string[];
@@ -627,7 +640,8 @@ export interface PlanProposal {
   conversationId?: string | undefined;
   runId?: string | undefined;
   status: PlanStatus;
-  plan: Plan;
+  plan?: Plan | undefined;
+  leafPlan?: LeafPlan | undefined;
   reason?: string | undefined;
   adopted?: AdoptedPlan | undefined;
   createdAt: string;

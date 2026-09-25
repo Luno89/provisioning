@@ -40,6 +40,7 @@ export interface TreeRunResult {
   outcome: 'quiet' | 'capped'
   passes: number
   awaitingReview: string[]
+  awaitingApproval?: string[]
 }
 
 export type TreeRunStatus =

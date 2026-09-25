@@ -206,13 +206,13 @@ describe('the seeded planner, end to end against real stores', () => {
 
     expect(plans.map((entry) => entry.status).sort()).toEqual(['proposed', 'superseded']);
     const open = plans.filter((entry) => entry.status === 'proposed');
-    expect(open[0]!.plan.planDoc).toContain('Revised');
+    expect(open[0]!.plan!.planDoc).toContain('Revised');
     expect(plans[0]).toMatchObject({
       ownerId: 'user-1',
       conversationId: 'conv-1',
       runId: 'run-grove-1',
       plan: { treeId: 'tree-1', branches: [{ title: 'A deployment lane', leaves: [{ key: 'queue', tasks: [{ key: 'wire' }] }] }] },
     });
-    expect(open[0]!.plan.branches[0]!.leaves[0]!.brief).toContain('src/worker.ts');
+    expect(open[0]!.plan!.branches[0]!.leaves[0]!.brief).toContain('src/worker.ts');
   });
 });

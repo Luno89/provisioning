@@ -3,10 +3,14 @@ import { api } from './client'
 
 export const planKeys = {
   forConversation: (conversationId: string) => ['plans', conversationId] as const,
+  forTree: (treeId: string) => ['plans', 'tree', treeId] as const,
 }
 
 export const listPlans = (conversationId: string): Promise<PlanProposal[]> =>
   api.get<PlanProposal[]>('/plans', { params: { conversationId } }).then((r) => r.data)
+
+export const listTreePlans = (treeId: string): Promise<PlanProposal[]> =>
+  api.get<PlanProposal[]>('/plans', { params: { treeId } }).then((r) => r.data)
 
 export const approvePlan = (id: string): Promise<PlanProposal> =>
   api.post<PlanProposal>(`/plans/${id}/approve`).then((r) => r.data)

@@ -1,7 +1,7 @@
 import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from './tasks.js';
-import type { NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask } from '@koala/harness-types';
+import type { LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask } from '@koala/harness-types';
 
-export type { AdoptedPlan, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal, PlanStatus, PlanTask } from '@koala/harness-types';
+export type { AdoptedPlan, LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal, PlanStatus, PlanTask } from '@koala/harness-types';
 
 export const MAX_PLAN_DOC = 40_000;
 export const MAX_BRIEF = 12_000;
@@ -224,3 +224,36 @@ export function planSummary(plan: Plan): string {
   const where = plan.tree ? `a new ${plan.tree.type} tree "${plan.tree.name}"` : `tree ${plan.treeId}`;
   return `${plan.branches.length} branch${plan.branches.length === 1 ? '' : 'es'}, ${leaves.length} lea${leaves.length === 1 ? 'f' : 'ves'}, ${tasks} task${tasks === 1 ? '' : 's'} for ${where}`;
 }
+
+export interface LeafPlanWorld {
+  treeId: string;
+  leafId: string;
+  leafTitle: string;
+  leafBody: string;
+}
+
+export function parseLeafPlan(raw: Record<string, unknown>, world: LeafPlanWorld): { plan: LeafPlan } | { problem: string } {
+  const mode = text(raw, 'mode') as LeafPlanMode;
+  if (mode !== 'replan' && mode !== 'breakdown') return { problem: "mode is 'replan' (the leaf failed and needs a new angle) or 'breakdown' (the leaf has no tasks yet)" };
+  const why = text(raw, 'why');
+  if (!why) return { problem: 'a leaf plan needs a why — for a replan, what the failure showed and why these tasks will get past it; for a breakdown, how the tasks reach the goal' };
+  const body = text(raw, 'body') || text(raw, 'goal');
+
+  const parsed = parseLeaf({ key: world.leafId, title: world.leafTitle, body: body || world.leafBody, brief: raw.brief, tasks: raw.tasks }, 0);
+  if ('problem' in parsed) return parsed;
+  if (parsed.leaf.tasks.length === 0) return { problem: 'a leaf plan needs at least one task — that is what gets worked next' };
+
+  return {
+    plan: {
+      treeId: world.treeId,
+      leafId: world.leafId,
+      leafTitle: world.leafTitle,
+      mode,
+      why,
+      ...(body && body !== world.leafBody ? { body } : {}),
+      brief: parsed.leaf.brief,
+      tasks: parsed.leaf.tasks,
+    },
+  };
+}
+

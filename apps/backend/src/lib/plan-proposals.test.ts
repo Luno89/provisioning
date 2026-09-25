@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePlan, planSummary } from './plan-proposals.js';
+import { parseLeafPlan, parsePlan, planSummary } from './plan-proposals.js';
 
 const world = { treeTypes: ['api-service', 'research'], existingLeafIds: new Set(['old-leaf']) };
 
@@ -116,6 +116,32 @@ describe('parsePlan', () => {
 
     const broken = JSON.stringify(raw.branches).replace('"leaves":', '"leaves"');
     expect(problemOf(plan({ branches: broken }))).toMatch(/not a JSON list \(.+position \d+.*\)\. Send branches as a JSON array, not a string/);
+  });
+});
+
+describe('parseLeafPlan', () => {
+  const world = { treeId: 't1', leafId: 'leaf-1', leafTitle: 'Serve it', leafBody: 'curl :8080 returns the page' };
+  const raw = (over: Record<string, unknown> = {}) => ({
+    mode: 'replan',
+    why: 'nginx is not installed; python3 is, so serve with its http.server',
+    brief: 'Serve site/ with python3 -m http.server 8080.',
+    tasks: [task({ key: 'serve', title: 'Serve with python' })],
+    ...over,
+  });
+
+  it('takes new tasks and a brief for one leaf, keeping the goal unless it is amended', () => {
+    const parsed = parseLeafPlan(raw(), world);
+    expect(parsed).toMatchObject({ plan: { treeId: 't1', leafId: 'leaf-1', mode: 'replan', brief: expect.stringContaining('http.server'), tasks: [{ key: 'serve' }] } });
+    expect('plan' in parsed && parsed.plan.body).toBeFalsy();
+    expect(parseLeafPlan(raw({ body: 'curl :8080 returns the page, served by any web server' }), world)).toMatchObject({ plan: { body: 'curl :8080 returns the page, served by any web server' } });
+  });
+
+  it('asks for the mode, the why, a brief and at least one task, with task briefs held to the usual rules', () => {
+    expect(parseLeafPlan(raw({ mode: 'retry' }), world)).toMatchObject({ problem: expect.stringContaining("'replan'") });
+    expect(parseLeafPlan(raw({ why: '' }), world)).toMatchObject({ problem: expect.stringContaining('needs a why') });
+    expect(parseLeafPlan(raw({ brief: '' }), world)).toMatchObject({ problem: expect.stringContaining('needs a brief') });
+    expect(parseLeafPlan(raw({ tasks: [] }), world)).toMatchObject({ problem: expect.stringContaining('at least one task') });
+    expect(parseLeafPlan(raw({ tasks: JSON.stringify([task({ role: '' })]) }), world)).toMatchObject({ problem: expect.stringContaining('what part it plays') });
   });
 });
 

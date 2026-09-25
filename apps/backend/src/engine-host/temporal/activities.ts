@@ -25,6 +25,8 @@ import type {
   GroveLeafTaskView,
   GroveClaimArgs,
   GroveClaimOutcome,
+  GroveTreeArgs,
+  GroveLeafNeedingPlan,
   GroveJudgeCheckoutArgs,
   GroveJudgeCheckouts,
   MergeArgs,
@@ -47,7 +49,7 @@ import { createGroveTools } from '../tools/grove-tools.js';
 import type { TreeSandbox, TreeWorkspaces } from '../sandboxes/tree-workspaces.js';
 import type { AdoptedRecords, PlanAdoption } from '../plan-adoption.js';
 import { prepareJudgeCheckout, prepareLeafWorktree, WorktreeConflictError } from '../grove-worktrees.js';
-import { claimEvidence } from '../../lib/grove-leaf.js';
+import { claimEvidence, leavesNeedingPlan } from '../../lib/grove-leaf.js';
 import { leafWorktree } from '../../lib/plan-documents.js';
 import type { AdoptedPlan } from '../../lib/plan-proposals.js';
 import type { Tree } from '../../lib/trees.js';
@@ -87,6 +89,7 @@ export interface EngineServices extends StreamServices {
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
   planAdoption?: PlanAdoption | undefined;
+  plans?: { list(ownerId: string): Promise<import('../../lib/plan-proposals.js').PlanProposal[]> } | undefined;
 }
 
 /** Read-side of a grove's stores: just enough for the ready-leaves partition. */
@@ -161,6 +164,8 @@ export interface EngineActivities extends StreamActivities {
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
   GroveLeafTasksActivity(args: GroveLeafTasksArgs): Promise<GroveLeafTaskView[]>;
   GroveClaimActivity(args: GroveClaimArgs): Promise<GroveClaimOutcome>;
+  GroveNeedsPlanActivity(args: GroveTreeArgs): Promise<GroveLeafNeedingPlan[]>;
+  GroveOpenProposalsActivity(args: GroveTreeArgs): Promise<string[]>;
   GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
   PlanAdoptDocumentsActivity(args: AdoptPlanArgs & { records: AdoptedRecords }): Promise<string>;
@@ -191,6 +196,17 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       return narrowed;
     };
     return { driver, worktreeDriver, leaves: (await services.grove.leaves.list()).filter((leaf) => leaf.ownerId === ownerId) };
+  };
+
+  const treeLeaves = async (treeId: string, ownerId: string) => {
+    const branchIds = new Set((await services.grove!.branches.list()).filter((branch) => branch.treeId === treeId).map((branch) => branch.id));
+    return (await services.grove!.leaves.list()).filter((leaf) => leaf.ownerId === ownerId && branchIds.has(leaf.branchId));
+  };
+
+  const openLeafProposals = async (ownerId: string, leafIds: string[]) => {
+    const inTree = new Set(leafIds);
+    return (await services.plans!.list(ownerId)).filter((proposal) =>
+      proposal.leafPlan && inTree.has(proposal.leafPlan.leafId) && (proposal.status === 'proposed' || proposal.status === 'adopting'));
   };
 
   const adoption = (): PlanAdoption => {
@@ -320,6 +336,19 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         caller: { ownerId: args.ownerId, runId: `grove-${args.treeId}-claim-${args.leafId}`, agentSlug: 'grove-leaf-runner' },
       });
       return { ok: outcome.ok, digest: outcome.digest };
+    },
+
+    async GroveNeedsPlanActivity(args) {
+      if (!services.grove || !services.tasks || !services.plans) throw new Error('the grove, task and plan stores are not wired for replanning');
+      const leaves = await treeLeaves(args.treeId, args.ownerId);
+      const open = await openLeafProposals(args.ownerId, leaves.map((leaf) => leaf.id));
+      return leavesNeedingPlan(leaves, await services.tasks.list(args.ownerId), new Set(open.map((proposal) => proposal.leafPlan!.leafId)));
+    },
+
+    async GroveOpenProposalsActivity(args) {
+      if (!services.plans) return [];
+      const leaves = await treeLeaves(args.treeId, args.ownerId);
+      return (await openLeafProposals(args.ownerId, leaves.map((leaf) => leaf.id))).map((proposal) => proposal.id);
     },
 
     async GroveJudgeCheckoutActivity(args) {

@@ -32,6 +32,31 @@ const PLAN_LEAF = {
  */
 export const GROVE_TOOLS: ToolDefinition[] = [
   {
+    name: 'propose_leaf_plan',
+    summary: 'Propose new tasks for one leaf — a replan after it failed, or the breakdown of a leaf with no tasks — for the person to approve',
+    guidance: 'Plans one leaf, not a tree. For a replan, read what failed first (the failure you were handed, the leaf brief and PLAN.md, and the work committed in the worktree you are in) and propose tasks that get past it; amend the goal only if the failure shows the goal itself was wrong, and say so in why. For a breakdown, propose the tasks that reach the goal as it stands. The proposal waits for the person; approving replaces the leaf\'s unfinished tasks with these and runs the tree again.',
+    binding: 'platform',
+    effect: 'write',
+    status: 'draft',
+    returns: 'text in the form `proposed leaf plan <id> — <mode> of "<leaf>": <n> tasks`',
+    failures: [
+      { when: 'the plan is incomplete', says: 'the first thing to fix, and that nothing was saved' },
+      { when: 'the leaf belongs to a frozen legacy tree', says: 'that new work goes into a new tree' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        leafId: { type: 'string', description: 'The leaf this plan is for.' },
+        mode: { type: 'string', enum: ['replan', 'breakdown'], description: 'replan: the leaf failed. breakdown: the leaf has no tasks yet.' },
+        why: { type: 'string', description: 'For a replan: what the failure showed and why these tasks get past it. For a breakdown: how the tasks reach the goal.' },
+        body: { type: 'string', description: 'An amended goal — only when the failure shows the goal itself was wrong.' },
+        brief: { type: 'string', description: 'The new brief for leaves/<leaf>.md: approach, files and services involved, what the last attempt taught.' },
+        tasks: { type: 'array', items: PLAN_TASK, description: 'The tasks to work next, each with key, title, description, role, doneMeans and same-leaf dependsOn.' },
+      },
+      required: ['leafId', 'mode', 'why', 'brief', 'tasks'],
+    },
+  },
+  {
     name: 'list_tree_types',
     summary: 'List the kinds of project a new tree can be, with what each is for',
     guidance: 'Check this before proposing a new tree: the tree type decides how the project is built and judged, and only these ids are accepted.',

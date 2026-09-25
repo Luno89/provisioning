@@ -3,7 +3,8 @@ import type { Tree } from '../lib/trees.js';
 import { primaryProjectId } from '../lib/trees.js';
 import { newTask, type Task } from '../lib/tasks.js';
 import type { AdoptedPlan, PlanProposal, PlanStatus } from '../lib/plan-proposals.js';
-import { planDocuments, TREE_REPO } from '../lib/plan-documents.js';
+import { leafBriefPath, leafWorktree, planDocuments, renderLeafBrief, TREE_REPO } from '../lib/plan-documents.js';
+import { resetForRetry } from '../lib/leaves.js';
 import type { EnvironmentResolver } from './sandboxes/environments.js';
 import type { TreeWorkspaces } from './sandboxes/tree-workspaces.js';
 
@@ -13,9 +14,9 @@ export interface PlanAdoptionStores {
     save(proposal: PlanProposal): Promise<void>;
   };
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };
-  branches: { save(branch: Branch): Promise<void> };
-  leaves: { save(leaf: Leaf): Promise<void> };
-  tasks: { save(task: Task): Promise<void> };
+  branches: { list(): Promise<Branch[]>; save(branch: Branch): Promise<void> };
+  leaves: { list(): Promise<Leaf[]>; save(leaf: Leaf): Promise<void> };
+  tasks: { list(ownerId: string): Promise<Task[]>; save(task: Task): Promise<void> };
 }
 
 export interface PlanAdoptionOptions {
@@ -28,6 +29,7 @@ export interface PlanAdoptionOptions {
 export interface AdoptedRecords {
   adopted: AdoptedPlan;
   treeName: string;
+  kind: 'tree' | 'leaf';
 }
 
 export interface PlanAdoption {
@@ -50,9 +52,55 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
   return {
     async records(ownerId, proposalId) {
       const proposal = await proposalOf(ownerId, proposalId);
-      const { plan } = proposal;
       const stamp = now();
       const idOf = (suffix: string) => `plan-${proposalId}-${suffix}`;
+
+      if (proposal.leafPlan) {
+        const leafPlan = proposal.leafPlan;
+        const leaf = (await options.stores.leaves.list()).find((entry) => entry.id === leafPlan.leafId && entry.ownerId === ownerId);
+        if (!leaf) throw new Error(`the plan is for leaf ${leafPlan.leafId}, which no longer exists`);
+        const tree = (await options.stores.trees.list()).find((entry) => entry.id === leafPlan.treeId && entry.ownerId === ownerId);
+        if (!tree) throw new Error(`the plan's tree ${leafPlan.treeId} no longer exists`);
+        const projectId = primaryProjectId(tree);
+
+        const existing = (await options.stores.tasks.list(ownerId)).filter((task) => task.leafId === leaf.id);
+        for (const task of existing.filter((entry) => entry.status !== 'done' && entry.status !== 'dropped')) {
+          await options.stores.tasks.save({ ...task, status: 'dropped', updatedAt: stamp });
+        }
+        const taskIds: Record<string, string> = {};
+        leafPlan.tasks.forEach((task, t) => { taskIds[`${leaf.id}/${task.key}`] = idOf(`t${t}`); });
+        const added = leafPlan.tasks.map((planTask) => ({
+          ...newTask({
+            id: taskIds[`${leaf.id}/${planTask.key}`]!,
+            ownerId,
+            ...(projectId ? { projectId } : {}),
+            leafId: leaf.id,
+            title: planTask.title,
+            description: planTask.description,
+            role: planTask.role,
+            doneMeans: planTask.doneMeans,
+            dependsOn: planTask.dependsOn.map((dependency) => taskIds[`${leaf.id}/${dependency}`]!),
+          }, stamp),
+          status: 'accepted' as const,
+        }));
+        for (const task of added) await options.stores.tasks.save(task);
+
+        const base = leaf.status === 'failed' ? resetForRetry(leaf, [], stamp).leaf : { ...leaf, updatedAt: stamp };
+        const kept = existing.filter((task) => task.status === 'done').map((task) => task.id);
+        await options.stores.leaves.save({
+          ...base,
+          status: 'pending',
+          runner: 'engine',
+          ...(leafPlan.body ? { body: leafPlan.body } : {}),
+          tasks: [...kept, ...added.map((task) => task.id)],
+          replans: (leaf.replans ?? 0) + (leafPlan.mode === 'replan' ? 1 : 0),
+        });
+
+        return { adopted: { treeId: tree.id, branchIds: [], leafIds: { [leaf.id]: leaf.id }, taskIds }, treeName: tree.name, kind: 'leaf' };
+      }
+
+      const plan = proposal.plan;
+      if (!plan) throw new Error('the proposal holds no plan');
 
       let tree: Tree;
       if (plan.treeId) {
@@ -137,7 +185,7 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         }
       }
 
-      return { adopted: { treeId: tree.id, branchIds, leafIds, taskIds }, treeName: tree.name };
+      return { adopted: { treeId: tree.id, branchIds, leafIds, taskIds }, treeName: tree.name, kind: 'tree' };
     },
 
     async documents(ownerId, proposalId, { adopted, treeName }) {
@@ -156,6 +204,30 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
       };
 
       await run(`mkdir -p ${TREE_REPO} && cd ${TREE_REPO} && (git rev-parse --git-dir >/dev/null 2>&1 || git init -q -b main)`);
+
+      if (proposal.leafPlan) {
+        const leafPlan = proposal.leafPlan;
+        const leaf = (await options.stores.leaves.list()).find((entry) => entry.id === leafPlan.leafId);
+        const branchTitle = (await options.stores.branches.list()).find((entry) => entry.id === leaf?.branchId)?.title ?? '';
+        const brief = renderLeafBrief({
+          key: leafPlan.leafId,
+          title: leafPlan.leafTitle,
+          body: leafPlan.body ?? leaf?.body ?? '',
+          brief: `${leafPlan.brief}\n\n_${leafPlan.mode === 'replan' ? 'Replanned' : 'Broken down'}: ${leafPlan.why}_`,
+          dependsOn: leaf?.dependsOn ?? [],
+          tasks: leafPlan.tasks,
+        }, adopted, branchTitle);
+        const path = leafBriefPath(leafPlan.leafId);
+        await driver.writeFile(`${TREE_REPO}/${path}`, brief);
+        await run(`cd ${TREE_REPO} && git add ${shell(path)} && (git diff --cached --quiet || git -c user.name=koala -c user.email=koala@grove.local commit -q -m ${shell(`${leafPlan.mode}: ${leafPlan.leafTitle}`)})`);
+        const commit = await run(`cd ${TREE_REPO} && git rev-parse HEAD`);
+        const worktree = `/work/${leafWorktree(leafPlan.leafId)}`;
+        await run(`test ! -e ${shell(worktree)}/.git || git -C ${shell(worktree)} merge -q --no-edit main || git -C ${shell(worktree)} merge --abort || true`);
+        await options.treeWorkspaces.park(adopted.treeId);
+        return commit;
+      }
+
+      if (!proposal.plan) throw new Error('the proposal holds no plan');
       const documents = planDocuments(proposal.plan, adopted, treeName);
       for (const document of documents) await driver.writeFile(`${TREE_REPO}/${document.path}`, document.content);
       const paths = documents.map((document) => shell(document.path)).join(' ');

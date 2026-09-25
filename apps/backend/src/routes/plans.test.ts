@@ -87,4 +87,15 @@ describe('/api/plans', () => {
     expect(await statusOf(axios.post(harness.url('/api/plans/p3/reject')))).toBe(404);
     expect(adopter.adoptPlan).not.toHaveBeenCalled();
   });
+
+  it('lists a tree\'s proposals — leaf plans for its leaves and the plan that grew it', async () => {
+    const harness = await mount();
+    await harness.db.savePlanProposal(proposal({ id: 'grew', status: 'adopted', adopted: { treeId: 't9', branchIds: [], leafIds: {}, taskIds: {} } }));
+    await harness.db.savePlanProposal(proposal({ id: 'replan', plan: undefined, leafPlan: { treeId: 't9', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
+    await harness.db.savePlanProposal(proposal({ id: 'elsewhere', plan: undefined, leafPlan: { treeId: 't8', leafId: 'l2', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
+
+    const res = await axios.get(harness.url('/api/plans?treeId=t9'));
+    expect(res.data.map((entry: PlanProposal) => entry.id).sort()).toEqual(['grew', 'replan']);
+  });
 });
+

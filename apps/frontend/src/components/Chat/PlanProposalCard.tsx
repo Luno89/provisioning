@@ -23,8 +23,10 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const [showDoc, setShowDoc] = useState(false)
-  const { plan, status } = proposal
-  const where = plan.tree ? `New ${plan.tree.type} tree “${plan.tree.name}”` : 'Grows the current tree'
+  const { plan, leafPlan, status } = proposal
+  const where = leafPlan
+    ? `${leafPlan.mode === 'replan' ? 'Replan' : 'Break down'} “${leafPlan.leafTitle}”`
+    : plan?.tree ? `New ${plan.tree.type} tree “${plan.tree.name}”` : 'Grows the current tree'
   const decidable = status === 'proposed' || status === 'failed'
 
   return (
@@ -40,6 +42,24 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
         {status === 'rejected' && <XCircle size={14} className="text-slate-500 shrink-0" />}
       </div>
 
+      {leafPlan && (
+        <>
+          <div className="text-slate-300"><span className="text-slate-500">Why: </span>{leafPlan.why}</div>
+          {leafPlan.body && <div className="text-slate-300"><span className="text-slate-500">New goal: </span>{leafPlan.body}</div>}
+          <button type="button" onClick={() => setShowDoc((open) => !open)} className="self-start text-slate-400 hover:text-slate-200 underline cursor-pointer">
+            {showDoc ? 'Hide the brief' : 'Read the brief'}
+          </button>
+          {showDoc && <pre className="whitespace-pre-wrap font-sans text-slate-300 bg-[var(--bark-900)]/60 rounded p-2 max-h-72 overflow-y-auto">{leafPlan.brief}</pre>}
+          <ul className="ml-3 text-slate-400 list-disc list-inside">
+            {leafPlan.tasks.map((task) => (
+              <li key={task.key}>{task.title} <span className="text-slate-500">— done means: {task.doneMeans}</span></li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {plan && (
+      <>
       <button type="button" onClick={() => setShowDoc((open) => !open)} className="self-start text-slate-400 hover:text-slate-200 underline cursor-pointer">
         {showDoc ? 'Hide PLAN.md' : 'Read PLAN.md'}
       </button>
@@ -70,6 +90,8 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
           </li>
         ))}
       </ul>
+      </>
+      )}
 
       {decidable && !rejecting && (
         <div className="flex items-center gap-1.5 self-end">

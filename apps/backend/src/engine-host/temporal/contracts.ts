@@ -135,6 +135,8 @@ export interface MergeRuntime {
 
 export const DEFAULT_ENGINE_TASK_QUEUE = 'engine-queue';
 
+export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeId}`;
+
 export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';
 
 export type TerminalOutcome = RunOutcome;
@@ -239,6 +241,19 @@ export interface GroveClaimOutcome {
   digest: string;
 }
 
+export interface GroveTreeArgs {
+  treeId: string;
+  ownerId: string;
+}
+
+export interface GroveLeafNeedingPlan {
+  leafId: string;
+  leafTitle: string;
+  leafBody: string;
+  mode: 'replan' | 'breakdown';
+  failure?: string | undefined;
+}
+
 export interface GroveWorkspaceArgs {
   treeId: string;
   ownerId: string;
@@ -271,6 +286,7 @@ export interface GroveRunResult {
   outcome: 'quiet' | 'capped';
   passes: number;
   awaitingReview: string[];
+  awaitingApproval?: string[] | undefined;
 }
 
 export interface RemoteNodeRequest {

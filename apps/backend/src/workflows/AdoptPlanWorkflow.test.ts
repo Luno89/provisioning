@@ -120,9 +120,9 @@ function world(start: PlanProposal[]) {
           else trees.push(tree);
         },
       },
-      branches: { save: async (branch) => { branches.set(branch.id, branch); } },
-      leaves: { save: async (leaf) => { leaves.set(leaf.id, leaf); } },
-      tasks: { save: async (task) => { tasks.set(task.id, task); } },
+      branches: { list: async () => [...branches.values()], save: async (branch) => { branches.set(branch.id, branch); } },
+      leaves: { list: async () => [...leaves.values()], save: async (leaf) => { leaves.set(leaf.id, leaf); } },
+      tasks: { list: async (ownerId) => [...tasks.values()].filter((task) => task.ownerId === ownerId), save: async (task) => { tasks.set(task.id, task); } },
     },
     treeWorkspaces: createTreeWorkspaces({ resolver, kube }),
     environments: resolver,
@@ -194,7 +194,7 @@ describe('AdoptPlanWorkflow', () => {
   }, 60_000);
 
   it('marks the proposal failed with the reason when the tree it grows is gone, and builds nothing', async () => {
-    const w = world([proposal({ plan: { ...proposal().plan, tree: undefined, treeId: 'gone' } })]);
+    const w = world([proposal({ plan: { ...proposal().plan!, tree: undefined, treeId: 'gone' } })]);
 
     const result = await adopt(w);
 
@@ -203,4 +203,38 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.leaves.size).toBe(0);
     expect(w.files.size).toBe(0);
   }, 120_000);
+
+  it('adopts a leaf plan: drops the leaf\'s unfinished tasks, adds the new ones, resets the leaf, rewrites its brief, and runs the tree again', async () => {
+    const leafProposal: PlanProposal = {
+      id: 'p2', ownerId: 'user-1', status: 'adopting', createdAt: 'then', updatedAt: 'then',
+      leafPlan: {
+        treeId: 'tree-r', leafId: 'leaf-r', leafTitle: 'Serve it', mode: 'replan',
+        why: 'nginx is not installed; python3 is', brief: 'Serve with python3 -m http.server.',
+        tasks: [{ key: 'serve', title: 'Serve with python', description: 'python3 -m http.server 8080 in site/', role: 'The page answers', doneMeans: 'curl :8080 answers 200', dependsOn: [] }],
+      },
+    };
+    const w = world([leafProposal]);
+    w.trees.push({ id: 'tree-r', ownerId: 'user-1', name: 'Site', type: 'freeform', projectIds: [], createdAt: 'then', updatedAt: 'then' } as never);
+    w.branches.set('branch-r', { id: 'branch-r', ownerId: 'user-1', treeId: 'tree-r', title: 'Serve', messages: [], createdAt: 'then', updatedAt: 'then' } as never);
+    w.leaves.set('leaf-r', { id: 'leaf-r', ownerId: 'user-1', branchId: 'branch-r', title: 'Serve it', body: 'curl :8080 answers', column: 'todo', status: 'failed', runner: 'engine', findings: 'nginx is not installed', claim: { evidence: 'tried', at: 'then' }, depth: 0, blocking: false, createdAt: 'then', updatedAt: 'then' } as never);
+    w.tasks.set('old-done', { id: 'old-done', ownerId: 'user-1', leafId: 'leaf-r', title: 'Write the page', doneMeans: 'x', dependsOn: [], status: 'done', runs: [], createdAt: 'then', updatedAt: 'then' } as never);
+    w.tasks.set('old-failed', { id: 'old-failed', ownerId: 'user-1', leafId: 'leaf-r', title: 'Start nginx', doneMeans: 'x', dependsOn: [], status: 'failed', runs: [], createdAt: 'then', updatedAt: 'then' } as never);
+
+    const result = await adopt(w, 'p2');
+
+    expect(result).toMatchObject({ status: 'adopted', treeId: 'tree-r' });
+    expect(w.tasks.get('old-failed')?.status).toBe('dropped');
+    expect(w.tasks.get('old-done')?.status).toBe('done');
+    expect(w.tasks.get('plan-p2-t0')).toMatchObject({ status: 'accepted', leafId: 'leaf-r', title: 'Serve with python' });
+    expect(w.leaves.get('leaf-r')).toMatchObject({ status: 'pending', replans: 1, tasks: ['old-done', 'plan-p2-t0'], attempts: [{ attempt: 1, error: 'nginx is not installed' }] });
+    expect(w.leaves.get('leaf-r')?.claim).toBeUndefined();
+    expect(w.files.get('repo/leaves/leaf-r.md')).toContain('Serve with python3 -m http.server.');
+    expect(w.files.get('repo/leaves/leaf-r.md')).toContain('_Replanned: nginx is not installed; python3 is_');
+    expect(w.commands.some((command) => command.includes("commit -q -m 'replan: Serve it'"))).toBe(true);
+
+    const run = await env.client.workflow.getHandle('grove-run-tree-r').describe();
+    expect(run.type).toBe('GroveRunWorkflow');
+    await env.client.workflow.getHandle('grove-run-tree-r').terminate('test over');
+  }, 60_000);
 });
+

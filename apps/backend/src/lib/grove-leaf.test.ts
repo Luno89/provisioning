@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimEvidence, nextLeafStep, type LeafTask } from './grove-leaf.js';
+import { claimEvidence, leavesNeedingPlan, MAX_REPLANS, nextLeafStep, type LeafTask } from './grove-leaf.js';
 
 const task = (id: string, over: Partial<LeafTask> = {}): LeafTask => ({ id, title: `task ${id}`, status: 'accepted', dependsOn: [], ...over });
 
@@ -36,3 +36,29 @@ describe('claimEvidence', () => {
       .toBe('- task a [done]\n  wrote greet.js\n  exit 0\n- task b [done] (runs: r1)');
   });
 });
+
+describe('leavesNeedingPlan', () => {
+  const leaf = (id: string, over: Record<string, unknown> = {}) => ({ id, title: `leaf ${id}`, status: 'pending', runner: 'engine' as const, ...over });
+
+  it('replans a failed engine leaf with everything that failed, and breaks down a pending one with no work', () => {
+    const needs = leavesNeedingPlan(
+      [leaf('f', { status: 'failed', findings: 'nginx is not installed', review: { reason: 'nothing served :8080' } }), leaf('e'), leaf('w')],
+      [{ ...task('t1', { status: 'failed', evidence: 'apt-get: permission denied' }), leafId: 'f' }, { ...task('t2', { status: 'accepted' }), leafId: 'w' }],
+      new Set(),
+    );
+
+    expect(needs).toEqual([
+      { leafId: 'f', leafTitle: 'leaf f', leafBody: '', mode: 'replan', failure: 'Why the leaf failed: nginx is not installed\nThe judge said: nothing served :8080\n- task "task t1" failed: apt-get: permission denied' },
+      { leafId: 'e', leafTitle: 'leaf e', leafBody: '', mode: 'breakdown' },
+    ]);
+  });
+
+  it('leaves alone legacy leaves, leaves with an open proposal, and failed leaves past the replan cap', () => {
+    expect(leavesNeedingPlan([
+      leaf('legacy', { runner: undefined }),
+      leaf('proposed', { status: 'failed' }),
+      leaf('capped', { status: 'failed', replans: MAX_REPLANS }),
+    ], [], new Set(['proposed']))).toEqual([]);
+  });
+});
+

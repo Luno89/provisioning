@@ -39,3 +39,45 @@ export function claimEvidence(tasks: readonly (LeafTask & { runs?: string[] | un
     .map((task) => `- ${task.title} [${task.status}]${task.runs?.length ? ` (runs: ${task.runs.join(', ')})` : ''}${task.evidence ? `\n  ${task.evidence.replace(/\n/g, '\n  ')}` : ''}`)
     .join('\n');
 }
+
+export const MAX_REPLANS = 2;
+
+export interface LeafNeedingPlan {
+  leafId: string;
+  leafTitle: string;
+  leafBody: string;
+  mode: 'replan' | 'breakdown';
+  failure?: string | undefined;
+}
+
+type PlannableLeaf = { id: string; title: string; body?: string | undefined; status: string; runner?: 'engine' | undefined; replans?: number | undefined; findings?: string | undefined; review?: { reason?: string | undefined } | undefined; claim?: { evidence: string } | undefined };
+type PlannableTask = LeafTask & { leafId?: string | undefined };
+
+export function leavesNeedingPlan(
+  leaves: readonly PlannableLeaf[],
+  tasks: readonly PlannableTask[],
+  openProposalLeafIds: ReadonlySet<string>,
+): LeafNeedingPlan[] {
+  const needs: LeafNeedingPlan[] = [];
+  for (const leaf of leaves) {
+    if (leaf.runner !== 'engine' || openProposalLeafIds.has(leaf.id)) continue;
+    const own = tasks.filter((task) => task.leafId === leaf.id);
+
+    if (leaf.status === 'failed' && (leaf.replans ?? 0) < MAX_REPLANS) {
+      const failedTasks = own.filter((task) => task.status === 'failed').map((task) => `- task "${task.title}" failed${task.evidence ? `: ${task.evidence}` : ''}`);
+      const failure = [
+        leaf.findings ? `Why the leaf failed: ${leaf.findings}` : '',
+        leaf.review?.reason ? `The judge said: ${leaf.review.reason}` : '',
+        ...failedTasks,
+        leaf.claim ? `The last claim: ${leaf.claim.evidence}` : '',
+      ].filter(Boolean).join('\n');
+      needs.push({ leafId: leaf.id, leafTitle: leaf.title, leafBody: leaf.body ?? '', mode: 'replan', ...(failure ? { failure } : {}) });
+      continue;
+    }
+
+    const live = own.filter((task) => task.status !== 'proposed' && task.status !== 'dropped');
+    if (leaf.status === 'pending' && live.length === 0) needs.push({ leafId: leaf.id, leafTitle: leaf.title, leafBody: leaf.body ?? '', mode: 'breakdown' });
+  }
+  return needs;
+}
+

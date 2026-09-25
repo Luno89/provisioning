@@ -1,8 +1,10 @@
-import { ApplicationFailure, proxyActivities } from '@temporalio/workflow';
+import { ApplicationFailure, ParentClosePolicy, proxyActivities, startChild } from '@temporalio/workflow';
+import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
+import { GroveRunWorkflow } from './GroveRunWorkflow.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import type { AdoptedRecords } from '../engine-host/plan-adoption.js';
 import type { AdoptedPlan } from '../lib/plan-proposals.js';
-import type { AdoptPlanArgs, AdoptPlanResult } from '../engine-host/temporal/contracts.js';
+import { groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 
 const { PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity } = proxyActivities<{
   PlanAdoptRecordsActivity(args: AdoptPlanArgs): Promise<AdoptedRecords>;
@@ -24,6 +26,7 @@ export async function AdoptPlanWorkflow(args: AdoptPlanArgs): Promise<AdoptPlanR
     const commit = await PlanAdoptDocumentsActivity({ ...args, records });
     const adopted: AdoptedPlan = { ...records.adopted, commit };
     await PlanAdoptSettleActivity({ ...args, status: 'adopted', adopted });
+    if (records.kind === 'leaf') await runTreeAgain(adopted.treeId, args.ownerId);
     return { proposalId: args.proposalId, status: 'adopted', treeId: adopted.treeId, commit };
   } catch (err) {
     const reason = reasonOf(err);
@@ -31,3 +34,16 @@ export async function AdoptPlanWorkflow(args: AdoptPlanArgs): Promise<AdoptPlanR
     return { proposalId: args.proposalId, status: 'failed', reason };
   }
 }
+
+async function runTreeAgain(treeId: string, ownerId: string): Promise<void> {
+  try {
+    await startChild(GroveRunWorkflow, {
+      workflowId: groveRunWorkflowId(treeId),
+      args: [{ treeId, ownerId }],
+      parentClosePolicy: ParentClosePolicy.ABANDON,
+    });
+  } catch (err) {
+    if (!(err instanceof WorkflowExecutionAlreadyStartedError)) throw err;
+  }
+}
+

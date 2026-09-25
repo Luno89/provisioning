@@ -77,4 +77,23 @@ describe('PlanProposalCard', () => {
     expect(screen.queryByText('Approve')).toBeNull()
     expect(screen.queryByText('Reject')).toBeNull()
   })
+
+  it('shows a leaf replan: which leaf, why, the new goal, the brief and the tasks', () => {
+    renderCard({
+      plan: undefined,
+      leafPlan: {
+        treeId: 't1', leafId: 'l1', leafTitle: 'Serve it', mode: 'replan',
+        why: 'nginx is not installed; python3 is', body: 'curl :8080 answers with the page', brief: 'Use python3 -m http.server.',
+        tasks: [{ key: 's', title: 'Serve with python', description: 'd', role: 'r', doneMeans: 'curl answers 200', dependsOn: [] }],
+      },
+    })
+    expect(screen.getByText('Replan “Serve it”')).toBeTruthy()
+    expect(screen.getByText('nginx is not installed; python3 is')).toBeTruthy()
+    expect(screen.getByText('curl :8080 answers with the page')).toBeTruthy()
+    expect(screen.getByText(/done means: curl answers 200/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Read the brief'))
+    expect(screen.getByText('Use python3 -m http.server.')).toBeTruthy()
+    expect(screen.queryByText('Read PLAN.md')).toBeNull()
+  })
 })
+

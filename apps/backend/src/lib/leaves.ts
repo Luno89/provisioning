@@ -35,6 +35,8 @@ export interface Leaf {
 
   runner?: 'engine' | undefined;
 
+  replans?: number | undefined;
+
   /** ids of the engine tasks under this leaf (the work that gets it done) */
   tasks?: string[];
 

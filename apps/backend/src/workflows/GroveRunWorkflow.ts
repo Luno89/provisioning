@@ -4,7 +4,7 @@ import { AgentRunWorkflow } from './AgentRunWorkflow.js';
 import { GroveLeafWorkflow } from './GroveLeafWorkflow.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import type { TreeSandbox } from '../engine-host/sandboxes/tree-workspaces.js';
-import { judgeCheckout, leafContext, leafWorktree } from '../lib/plan-documents.js';
+import { judgeCheckout, leafBriefPath, leafContext, leafWorktree } from '../lib/plan-documents.js';
 
 const LEAVES_AT_ONCE = 3;
 
@@ -17,6 +17,10 @@ import type {
   GrovePartitionArgs,
   GrovePartitionLeaf,
   GroveWorkspaceArgs,
+  GroveTreeArgs,
+  GroveLeafNeedingPlan,
+  ResolveAgentArgs,
+  ResolvedAgentInfo,
   GroveJudgeCheckoutArgs,
   GroveJudgeCheckouts,
   GrovePrepareWorkArgs,
@@ -37,11 +41,17 @@ const { GrovePartitionActivity } = proxyActivities<{
   startToCloseTimeout: '30 seconds',
 });
 
-const { GroveWorkspaceActivity, GroveParkWorkspaceActivity, GrovePrepareWorkActivity, GroveJudgeCheckoutActivity } = proxyActivities<{
+const {
+  GroveWorkspaceActivity, GroveParkWorkspaceActivity, GrovePrepareWorkActivity, GroveJudgeCheckoutActivity,
+  GroveNeedsPlanActivity, GroveOpenProposalsActivity, EngineResolveAgentActivity,
+} = proxyActivities<{
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
   GroveJudgeCheckoutActivity(args: GroveJudgeCheckoutArgs): Promise<GroveJudgeCheckouts>;
+  GroveNeedsPlanActivity(args: GroveTreeArgs): Promise<GroveLeafNeedingPlan[]>;
+  GroveOpenProposalsActivity(args: GroveTreeArgs): Promise<string[]>;
+  EngineResolveAgentActivity(args: ResolveAgentArgs): Promise<ResolvedAgentInfo>;
 }>({
   retry: ACTIVITY_RETRY,
   startToCloseTimeout: '10 minutes',
@@ -81,10 +91,13 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
 
     const awaitingReview = partition.awaitingReview.map((leaf) => leaf.id);
     if (partition.ready.length === 0 && partition.claimed.length === 0) {
-      return { treeId: args.treeId, outcome: 'quiet', passes, awaitingReview };
+      await proposeLeafPlans(args, environment);
+      const awaitingApproval = await GroveOpenProposalsActivity({ treeId: args.treeId, ownerId: args.ownerId });
+      return { treeId: args.treeId, outcome: 'quiet', passes, awaitingReview, awaitingApproval };
     }
     if (passes >= maxPasses) {
-      return { treeId: args.treeId, outcome: 'capped', passes, awaitingReview };
+      const awaitingApproval = await GroveOpenProposalsActivity({ treeId: args.treeId, ownerId: args.ownerId });
+      return { treeId: args.treeId, outcome: 'capped', passes, awaitingReview, awaitingApproval };
     }
 
     passes += 1;
@@ -110,6 +123,37 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
         inputs: { claimed: claimItems(partition.claimed, args.treeId, checkouts) },
       });
     }
+  }
+}
+
+async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox): Promise<void> {
+  const needs = await GroveNeedsPlanActivity({ treeId: args.treeId, ownerId: args.ownerId });
+  if (needs.length === 0) return;
+  const planner = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: 'planner' });
+  if (!planner.found || !planner.procedure) return;
+  await GrovePrepareWorkActivity({ treeId: args.treeId, ownerId: args.ownerId, leafIds: needs.map((need) => need.leafId) });
+
+  const run = runPrefix();
+  for (let offset = 0; offset < needs.length; offset += LEAVES_AT_ONCE) {
+    await Promise.all(needs.slice(offset, offset + LEAVES_AT_ONCE).map((need) => {
+      const runId = `${run}-plan-${need.leafId}`;
+      const inputs = {
+        treeId: args.treeId,
+        leafId: need.leafId,
+        leafTitle: need.leafTitle,
+        leafBody: need.leafBody,
+        leafBrief: leafBriefPath(need.leafId),
+        mode: need.mode,
+        ...(need.failure ? { failure: need.failure } : {}),
+      };
+      const input: ProcedureRunInput = {
+        ticket: { runId, depth: 0, ownerId: args.ownerId, agentSlug: 'planner', trigger: 'user' },
+        procedure: planner.procedure!,
+        inputs: { ...inputs, goal: `${need.mode === 'replan' ? 'Replan' : 'Break down'} the leaf "${need.leafTitle}".`, message: JSON.stringify(inputs) },
+        environment: { ...environment, worktree: leafWorktree(need.leafId) },
+      };
+      return executeChild(AgentRunWorkflow, { workflowId: runId, args: [input] });
+    }));
   }
 }
 

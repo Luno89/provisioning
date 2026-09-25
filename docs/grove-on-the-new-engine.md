@@ -11,7 +11,7 @@ Last updated: 2026-09-24
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
 | P1 fix-up: one sandbox per tree | **slices 1–6 landed 2026-09-24/25** (see *P1 fix-up* below) |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
-| P2 planning + launching in engine | not started |
+| P2 planning + launching in engine | **step 1 landed 2026-09-25** (leaf-scoped replan and breakdown, proposed by the run); steps 2–3 open |
 | P3 landing as engine tools | not started |
 | P4 supervision swap (retire LeafWorkflow) | not started |
 | P5 grove surface on engine + grove UI flip | not started |
@@ -529,6 +529,33 @@ parks for human review; the volume lives and the pod is started on demand.
    (route test only).
 
 ### P2 — planning + launching in engine *(medium)*
+
+**Owner rulings (2026-09-25):**
+- **Tree entry:** an engine chat bound to the tree.
+- **Replan:** the run proposes and the person approves.
+- **Legacy trees:** frozen.
+- **Order:** leaf-scoped planner → tree entry → freeze and switch off every legacy launcher.
+
+1. **Leaf-scoped replan and breakdown — landed 2026-09-25.** When the passes go quiet,
+   `GroveRunWorkflow` asks `leavesNeedingPlan` (`lib/grove-leaf.ts`) for leaves to plan:
+   failed engine leaves under the cap (`MAX_REPLANS` = 2) get a replan, pending engine leaves
+   with no live tasks get a breakdown, and leaves with an open proposal are skipped. It
+   prepares each leaf's worktree and runs the planner leaf-scoped there, handing it the
+   leaf's title, goal and brief path, and for a replan the failure (findings, judge note,
+   failed tasks' evidence, last claim). The planner files `propose_leaf_plan` (a why, an
+   optional amended goal, a new brief, new tasks, validated by `parseLeafPlan` with the usual
+   brief rules). The run ends `quiet` with `awaitingApproval`. The tree page's **Proposals**
+   section shows the cards; approving runs `AdoptPlanWorkflow` for the leaf plan: unfinished
+   tasks dropped, new ones accepted, leaf reset (attempt recorded, `replans` + 1), brief
+   rewritten on main and merged into the leaf's worktree. Then **the run starts again by
+   itself**. Live (UI): a realistic adopted tree with one leaf failed (file written to /tmp)
+   and one leaf with no tasks → Run → the real planner proposed a replan that diagnosed the
+   /tmp mistake and a breakdown → approved both on the tree page → the run restarted itself →
+   both leaves verified. The first attempt caught the planner getting neither the leaf's goal
+   nor any tolerance for missing docs; three failed lookups tripped its guard. Both fixed.
+2. Tree entry: the tree page's "Ask for more work / Start" opens a koala conversation bound
+   to the tree — open.
+3. Freeze legacy trees; switch off every legacy launcher in one step — open.
 
 - ProjectPlanWorkflow → make-plan lane run; ReplanActivity same procedure,
   leaf-scoped.

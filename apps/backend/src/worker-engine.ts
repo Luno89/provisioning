@@ -90,13 +90,14 @@ async function buildActivities() {
       save: (task: Task) => db.saveTask(task),
     },
     treeWorkspaces: host.treeWorkspaces,
+    plans: { list: (ownerId) => db.getPlanProposals(ownerId) },
     planAdoption: createPlanAdoption({
       stores: {
         proposals: { get: (ownerId, id) => db.getPlanProposal(ownerId, id), save: (proposal) => db.savePlanProposal(proposal) },
         trees: { list: () => db.getTrees(), save: (tree) => db.saveTree(tree) },
-        branches: { save: (branch) => db.saveBranch(branch) },
-        leaves: { save: (leaf) => db.saveLeaf(leaf) },
-        tasks: { save: (task) => db.saveTask(task) },
+        branches: { list: () => db.getBranches(), save: (branch) => db.saveBranch(branch) },
+        leaves: { list: () => db.getLeaves(), save: (leaf) => db.saveLeaf(leaf) },
+        tasks: { list: (ownerId) => db.getTasks(ownerId), save: (task) => db.saveTask(task) },
       },
       treeWorkspaces: host.treeWorkspaces,
       environments: host.environments,

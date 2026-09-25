@@ -33,6 +33,7 @@ import { BuildsDeploysPanel } from './BuildsDeploysPanel.js'
 import { BranchesPanel } from './BranchesPanel.js'
 import { TreeSandboxPanel } from './TreeSandboxPanel.js'
 import { TreeRunPanel } from './TreeRunPanel.js'
+import { TreeProposalsPanel } from './TreeProposalsPanel.js'
 import { panel, resizeHandle, type SelectedEntity } from './shared.js'
 import { useResizableWidth } from './useResizableWidth.js'
 
@@ -114,6 +115,7 @@ export function Workspace({
   const [showNewTree, setShowNewTree] = useState(false)
   const [sandboxOpen, setSandboxOpen] = useState(false)
   const [runOpen, setRunOpen] = useState(true)
+  const [proposalsOpen, setProposalsOpen] = useState(true)
   const [promotingBranchId, setPromotingBranchId] = useState<string | null>(null)
   const [acceptError, setAcceptError] = useState<string | null>(null)
 
@@ -578,6 +580,15 @@ export function Workspace({
               onDeleteBranch={(id) => deleteBranch.mutate(id)}
               creating={createBranch.isPending}
             />
+          </CollapsibleSection>
+        )}
+        {hasTree && treeId && (
+          <CollapsibleSection
+            title="Proposals"
+            isOpen={proposalsOpen}
+            onToggle={setProposalsOpen}
+          >
+            <TreeProposalsPanel treeId={treeId} />
           </CollapsibleSection>
         )}
         {hasTree && treeId && (

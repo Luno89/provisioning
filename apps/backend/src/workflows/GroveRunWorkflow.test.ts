@@ -38,6 +38,7 @@ import { TASK_TOOLS } from '../engine-host/tools/task-tools-catalogue.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
+import type { PlanProposal } from '../lib/plan-proposals.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -61,6 +62,7 @@ let leaves: Leaf[];
 let tasks: Task[];
 let clock = 0;
 let judgeVerdicts: Record<string, string> = {};
+let plans: PlanProposal[] = [];
 
 const pad = (value: number) => String(value).padStart(4, '0');
 const fixedNow = () => `now-${pad(++clock)}`;
@@ -133,9 +135,9 @@ const worldStores = () => {
 };
 
 const classify = (seen: string, system: string): string => {
-  if (system.startsWith('You run one grove leaf')) {
-    const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
-    return leaf ? `leaf-${leaf}` : 'leaf-none';
+  if (system.startsWith('You break an agreed goal into work')) {
+    const leaf = /"leafId":\s*"(leaf[ABC])"/.exec(seen)?.[1];
+    return leaf ? `planner-${leaf}` : 'planner-none';
   }
   if (system.startsWith('You carry out one unit of work on a real machine')) {
     const leaf = /\bleaf[ABC]\b/.exec(seen)?.[0];
@@ -201,6 +203,19 @@ const scriptModel = (rounds: Map<string, number>) =>
       } else {
         value = reply({ content: 'Settled the claim.' });
       }
+    } else if (kind.startsWith('planner-') && kind !== 'planner-none') {
+      value = round === 1
+        ? reply({
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: `c-${kind}-1`, name: 'propose_leaf_plan', arguments: JSON.stringify({
+            leafId: leaf,
+            mode: 'replan',
+            why: `the failure says the ${name} endpoint never started; start it before probing`,
+            brief: `Start app-${name}.ts, then probe it.`,
+            tasks: [{ key: 'start', title: `Start the ${name} endpoint`, description: `Run app-${name}.ts in the background, then curl it`, role: 'Makes the probe possible', doneMeans: 'curl answers 200' }],
+          }) }],
+        })
+        : reply({ content: `Proposed a replan for ${leaf}.` });
     } else if (kind.startsWith('judge-task')) {
       value = reply({ content: 'It does what was asked; the evidence holds.' });
     } else if (system.startsWith('You answer one yes-or')) {
@@ -233,6 +248,7 @@ afterAll(async () => {
 beforeEach(() => {
   clock = 0;
   judgeVerdicts = {};
+  plans = [];
   setupWorld();
 });
 
@@ -250,6 +266,10 @@ async function runGroveWorld() {
         branches: { list: stores.branches.list, save: stores.branches.save },
         leaves: { list: stores.leaves.list, save: stores.leaves.save },
         tasks: { list: stores.tasks.list },
+        plans: {
+          save: async (proposal: PlanProposal) => { plans = [...plans.filter((entry) => entry.id !== proposal.id), proposal]; },
+          list: async (ownerId: string) => plans.filter((entry) => entry.ownerId === ownerId),
+        },
       },
       now: fixedNow,
     });
@@ -302,6 +322,7 @@ async function runGroveWorld() {
       treeWorkspaces,
       grove: { trees: { list: stores.trees.list }, branches: { list: stores.branches.list }, leaves: { list: stores.leaves.list, save: stores.leaves.save }, tasks: { list: stores.tasks.list } },
       tasks: { list: async (ownerId: string) => tasks.filter((task) => task.ownerId === ownerId), save: stores.tasks.save },
+      plans: { list: async (ownerId: string) => plans.filter((entry) => entry.ownerId === ownerId) },
     } as never);
     const sandboxOfCall: (string | undefined)[] = [];
     const worktreeOfCall: string[] = [];
@@ -380,6 +401,8 @@ async function runGroveWorld() {
         GroveJudgeCheckoutActivity: realGrove.GroveJudgeCheckoutActivity,
         GroveLeafTasksActivity: realGrove.GroveLeafTasksActivity,
         GroveClaimActivity: realGrove.GroveClaimActivity,
+        GroveNeedsPlanActivity: realGrove.GroveNeedsPlanActivity,
+        GroveOpenProposalsActivity: realGrove.GroveOpenProposalsActivity,
         GroveWorkspaceActivity: vi.fn((args: { treeId: string; ownerId: string }) => treeWorkspaces.describe(args)),
         GroveParkWorkspaceActivity: vi.fn((args: { treeId: string }) => treeWorkspaces.park(args.treeId)),
         EngineRunLimitsActivity: vi.fn((args: RunLimitsArgs) => tracker.limits(args)),
@@ -452,7 +475,7 @@ describe('GroveRunWorkflow', () => {
     const { result, partitionCalls, efforts, sandboxOfCall, worktreeOfCall, gitCommands, provisioned, describeRun, kubeCalls } = await runGroveWorld();
 
     // Two passes: pass 1 clears the independents and their claims; pass 2 the dependent one.
-    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 2, awaitingReview: [] });
+    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 2, awaitingReview: [], awaitingApproval: [] });
 
     // Pass structure: the partition ran at each boundary — start, after each work pass, and the final quiet read.
     expect(partitionCalls).toHaveBeenCalledTimes(5);
@@ -509,11 +532,27 @@ describe('GroveRunWorkflow', () => {
 
     const { result, efforts } = await runGroveWorld();
 
-    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 1, awaitingReview: ['leafB'] });
+    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 1, awaitingReview: ['leafB'], awaitingApproval: [] });
     expect(leaves.find((leaf) => leaf.id === 'leafA')).toMatchObject({ status: 'succeeded', verified: true });
     expect(leaves.find((leaf) => leaf.id === 'leafB')).toMatchObject({ status: 'claimed', review: { verdict: 'concern' } });
     expect(leaves.find((leaf) => leaf.id === 'leafC')?.status).toBe('pending');
     expect(efforts.filter((effort) => effort.procedureId === 'grove-judge-pass')).toHaveLength(1);
+  }, 60_000);
+
+  it('when a leaf fails, proposes a replan for it with its failure, goes quiet, and waits for approval', async () => {
+    judgeVerdicts = { leafB: 'failed' };
+    leaves = leaves.map((entry) => ({ ...entry, runner: 'engine' as const }));
+
+    const { result } = await runGroveWorld();
+
+    expect(leaves.find((entry) => entry.id === 'leafB')).toMatchObject({ status: 'failed' });
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({
+      status: 'proposed',
+      leafPlan: { leafId: 'leafB', mode: 'replan', tasks: [{ key: 'start', title: 'Start the B endpoint' }] },
+    });
+    expect(result).toEqual({ treeId: 'tree-1', outcome: 'quiet', passes: 1, awaitingReview: [], awaitingApproval: [plans[0]!.id] });
+    expect(leaves.find((entry) => entry.id === 'leafC')?.status).toBe('pending');
   }, 60_000);
 });
 

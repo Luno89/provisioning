@@ -27,6 +27,11 @@ export class PlanService {
     return this.deps.store.getPlanProposals(ownerId, conversationId);
   }
 
+  async forTree(ownerId: string, treeId: string): Promise<PlanProposal[]> {
+    return (await this.deps.store.getPlanProposals(ownerId)).filter((proposal) =>
+      proposal.leafPlan?.treeId === treeId || proposal.plan?.treeId === treeId || proposal.adopted?.treeId === treeId);
+  }
+
   get(ownerId: string, id: string): Promise<PlanProposal | undefined> {
     return this.deps.store.getPlanProposal(ownerId, id);
   }

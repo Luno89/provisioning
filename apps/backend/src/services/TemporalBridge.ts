@@ -11,9 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOG_DIR = path.resolve(__dirname, '../../data/logs');
 import { getTemporalClient, pollWorkflowRun } from '../lib/temporal-client.js'
-import { DEFAULT_ENGINE_TASK_QUEUE, type GroveRunResult } from '../engine-host/temporal/contracts.js'
-
-export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeId}`
+import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type GroveRunResult } from '../engine-host/temporal/contracts.js'
 
 export type GroveRunStatus =
   | { state: 'none' | 'unavailable' }

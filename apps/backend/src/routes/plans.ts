@@ -15,6 +15,8 @@ export function plansRouter(deps: PlansRouterDeps): Router {
   const router = Router();
 
   router.get('/', asyncRoute(async (req, res) => {
+    const treeId = typeof req.query.treeId === 'string' ? req.query.treeId : undefined;
+    if (treeId) return res.json(await deps.plans.forTree(userOf(req).id, treeId));
     const conversationId = typeof req.query.conversationId === 'string' ? req.query.conversationId : undefined;
     res.json(await deps.plans.list(userOf(req).id, conversationId));
   }));

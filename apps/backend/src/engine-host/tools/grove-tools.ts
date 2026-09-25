@@ -3,7 +3,7 @@ import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../lib/leaves.js';
 import { primaryProjectId, type Tree } from '../../lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
-import { parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
+import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
 import { worktreeHead } from '../grove-worktrees.js';
 
 export interface GroveStores {
@@ -100,6 +100,45 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         ok: true,
         digest: `proposed plan ${proposal.id} — ${summary}`,
         content: `Proposed plan ${proposal.id}: ${summary}. It is waiting for the person to approve it; nothing exists in the grove until they do. Approval creates the tree, its sandbox, PLAN.md and a brief per leaf.${earlier.length > 0 ? ` It replaces the ${earlier.length === 1 ? 'plan' : `${earlier.length} plans`} proposed earlier in this conversation, which can no longer be approved.` : ''} Propose again only to change the plan — each proposal replaces the last.`,
+      };
+    },
+
+    async propose_leaf_plan({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to propose a leaf plan for');
+      if (!options.stores.plans) return refuse('leaf plans cannot be proposed here — nothing is set up to keep them for approval');
+
+      const leafId = asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id');
+      if (!leafId) return refuse('propose_leaf_plan needs the leafId of the leaf to plan');
+      const leaf = (await options.stores.leaves.list()).find((candidate) => candidate.id === leafId && candidate.ownerId === caller.ownerId);
+      if (!leaf) return refuse(`no such leaf: ${leafId}`);
+      if (leaf.runner !== 'engine') return refuse(`${leafId} belongs to a frozen legacy tree; new work goes into a new tree`);
+      const branch = (await options.stores.branches.list()).find((candidate) => candidate.id === leaf.branchId);
+      if (!branch?.treeId) return refuse(`${leafId} belongs to no tree`);
+
+      const outcome = parseLeafPlan(parsed, { treeId: branch.treeId, leafId, leafTitle: leaf.title, leafBody: leaf.body ?? '' });
+      if ('problem' in outcome) return refuse(`${outcome.problem}. Nothing was saved — send the whole leaf plan again with that fixed.`);
+
+      const stamp = now();
+      const earlier = (await options.stores.plans.list(caller.ownerId))
+        .filter((entry) => entry.status === 'proposed' && entry.leafPlan?.leafId === leafId);
+      for (const entry of earlier) await options.stores.plans.save({ ...entry, status: 'superseded', updatedAt: stamp });
+      const proposal: PlanProposal = {
+        id: newId(),
+        ownerId: caller.ownerId,
+        ...(caller.runId ? { runId: caller.runId } : {}),
+        status: 'proposed',
+        leafPlan: outcome.plan,
+        createdAt: stamp,
+        updatedAt: stamp,
+      };
+      await options.stores.plans.save(proposal);
+
+      const tasks = outcome.plan.tasks.length;
+      const summary = `${outcome.plan.mode} of "${leaf.title}": ${tasks} task${tasks === 1 ? '' : 's'}${outcome.plan.body ? ', with an amended goal' : ''}`;
+      return {
+        ok: true,
+        digest: `proposed leaf plan ${proposal.id} — ${summary}`,
+        content: `Proposed leaf plan ${proposal.id}: ${summary}. It waits on the tree for the person to approve; approving replaces the leaf's unfinished tasks with these and runs the tree again.`,
       };
     },
 
