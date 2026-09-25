@@ -7,6 +7,8 @@ import * as groveApi from '../../../api/grove';
 import * as projectsApi from '../../../api/projects';
 import * as personasApi from '../../../api/personas';
 import * as harnessApi from '../../../api/harness';
+import * as chatPackApi from '../../../api/chat-pack';
+import * as engineApi from '../../../api/engine';
 import Workspace from './index';
 
 vi.mock('axios');
@@ -41,6 +43,14 @@ vi.mock('../../../api/personas', async (importOriginal) => ({
 vi.mock('../../../api/harness', async (importOriginal) => ({
   ...(await importOriginal<typeof harnessApi>()),
   getConfig: vi.fn().mockResolvedValue({ effective: [] }),
+}));
+vi.mock('../../../api/chat-pack', async (importOriginal) => ({
+  ...(await importOriginal<typeof chatPackApi>()),
+  createChatConversation: vi.fn(),
+}));
+vi.mock('../../../api/engine', async (importOriginal) => ({
+  ...(await importOriginal<typeof engineApi>()),
+  startRun: vi.fn(),
 }));
 vi.mock('../../ProjectEditor/FileTree.js', () => ({ FileTree: () => <div>file-tree</div> }));
 vi.mock('../../ProjectEditor/EditorPane.js', () => ({ EditorPane: () => <div>editor-pane</div> }));
@@ -270,5 +280,22 @@ describe('an accept the server refuses', () => {
     vi.mocked(groveApi.acceptLeaf).mockResolvedValue({} as never);
     fireEvent.click(screen.getByTitle('Accept — starts the work'));
     await waitFor(() => expect(screen.queryByText(/Assign a persona first/)).not.toBeInTheDocument());
+  });
+});
+
+describe('asking for more work on a tree', () => {
+  it('opens a conversation about the tree and sends the ask as its first turn', async () => {
+    vi.mocked(chatPackApi.createChatConversation).mockResolvedValue({ id: 'conv-tree', title: 'Add metrics', treeId: 'tree-1' });
+    vi.mocked(engineApi.startRun).mockResolvedValue({ runId: 'run-1', agentSlug: 'koala', loopId: 'interactive-chat' });
+    renderWorkspace();
+
+    const box = await screen.findByPlaceholderText('Ask for more work on Gateway, or ask about what is already there.');
+    fireEvent.change(box, { target: { value: 'Add metrics' } });
+    fireEvent.click(screen.getByText('Start'));
+
+    await waitFor(() => expect(chatPackApi.createChatConversation).toHaveBeenCalledWith('Add metrics', 'tree-1'));
+    await waitFor(() => expect(engineApi.startRun).toHaveBeenCalledWith(expect.objectContaining({ message: 'Add metrics', conversationId: 'conv-tree' })));
+    expect(engineApi.startRun).toHaveBeenCalledTimes(1);
+    expect(groveApi.createBranch).not.toHaveBeenCalled();
   });
 });

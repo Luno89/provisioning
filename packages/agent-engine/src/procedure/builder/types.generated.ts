@@ -124,7 +124,13 @@ export interface ConversationWires {
   results?: In<'toolResults'> | readonly In<'toolResults'>[]
 }
 
-export type ConversationSettings = Record<string, never>
+export type ConversationSettings = {
+  /**
+   * Leave out
+   * Named inputs never shown to the model, such as ids the procedure uses only to find things.
+   */
+  omit?: readonly (string)[]
+}
 
 export interface ConversationNode extends Step<'done'> {
   /** The conversation so far. */

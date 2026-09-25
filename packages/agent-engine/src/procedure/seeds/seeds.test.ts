@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { BUILT_IN_GROUPS, MODEL_TURN, TOOL_LOOP } from './groups.js';
-import { BUILT_IN_PROCEDURES, DO_ONE_TASK_V2, INTERACTIVE_CHAT_V3 } from './procedures.js';
+import { BUILT_IN_PROCEDURES, DO_ONE_TASK_V2, INTERACTIVE_CHAT_V4 } from './procedures.js';
 import { builtInCatalogue } from '../nodes/index.js';
 import { checkProcedure } from '../validate.js';
 import { expandGroups, groupLibrary } from '../groups.js';
@@ -55,7 +55,7 @@ describe('built-in groups', () => {
 
 describe('built-in procedures', () => {
   it('remembers refusals into the saved conversation, alongside the results', () => {
-    const intoResults = INTERACTIVE_CHAT_V3.wires
+    const intoResults = INTERACTIVE_CHAT_V4.wires
       .filter((wire) => wire.to.node === 'remember' && wire.to.socket === 'results')
       .map((wire) => wire.from.socket)
       .sort();
@@ -63,7 +63,7 @@ describe('built-in procedures', () => {
     expect(intoResults).toEqual(['refused', 'results']);
   });
   it('remembers the accumulated rounds, so a multi-round turn keeps the calls it made in the middle', () => {
-    const intoRounds = INTERACTIVE_CHAT_V3.wires
+    const intoRounds = INTERACTIVE_CHAT_V4.wires
       .filter((wire) => wire.to.node === 'remember' && wire.to.socket === 'rounds')
       .map((wire) => wire.from.node);
 

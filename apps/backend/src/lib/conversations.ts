@@ -101,6 +101,7 @@ export interface Conversation {
    * rather than replacing the document: chat-owned metadata rides the conversation doc.
    */
   agentSlug?: string | undefined;
+  treeId?: string | undefined;
   enabledMcp?: string[];
   proposedTrees?: ProposedTree[];
   proposedSpecs?: ProposedSpec[];

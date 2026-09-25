@@ -19,13 +19,14 @@ export function usePlanProposals(conversationId: string | null | undefined, stre
   const wasStreaming = useRef(streaming)
   useEffect(() => {
     if (wasStreaming.current && !streaming && conversationId) {
-      void qc.invalidateQueries({ queryKey: planKeys.forConversation(conversationId) })
+      void qc.invalidateQueries({ queryKey: planKeys.all })
     }
     wasStreaming.current = streaming
   }, [streaming, conversationId, qc])
 
   const settle = (next: PlanProposal) => {
     qc.setQueryData<PlanProposal[]>(key, (current = []) => current.map((plan) => (plan.id === next.id ? next : plan)))
+    void qc.invalidateQueries({ queryKey: planKeys.all })
   }
 
   const approve = useMutation({ mutationFn: (id: string) => approvePlan(id), onSuccess: settle })

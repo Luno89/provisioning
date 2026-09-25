@@ -27,18 +27,18 @@ const renderPanel = () => render(
 describe('TreeProposalsPanel', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('shows the tree\'s open leaf plans and approves one', async () => {
+  it('shows the tree\'s open plans, leaf and growth alike, and approves one', async () => {
     vi.mocked(plansApi.listTreePlans).mockResolvedValue([
       leafProposal(),
       leafProposal({ id: 'old', status: 'adopted' }),
-      leafProposal({ id: 'tree-plan', leafPlan: undefined, plan: { planDoc: 'd', branches: [] } }),
+      leafProposal({ id: 'tree-plan', leafPlan: undefined, plan: { treeId: 't1', planDoc: '# Grow it', branches: [] } }),
     ])
     vi.mocked(plansApi.approvePlan).mockResolvedValue(leafProposal({ status: 'adopting' }))
     renderPanel()
 
     expect(await screen.findByText('Replan “Serve it”')).toBeTruthy()
-    expect(screen.getAllByTestId('plan-proposal')).toHaveLength(1)
-    fireEvent.click(screen.getByText('Approve'))
+    expect(screen.getAllByTestId('plan-proposal')).toHaveLength(2)
+    fireEvent.click(screen.getAllByText('Approve')[0]!)
     await waitFor(() => expect(plansApi.approvePlan).toHaveBeenCalledWith('p1'))
     expect(plansApi.listTreePlans).toHaveBeenCalledWith('t1')
   })
@@ -46,6 +46,17 @@ describe('TreeProposalsPanel', () => {
   it('says so when nothing waits', async () => {
     vi.mocked(plansApi.listTreePlans).mockResolvedValue([])
     renderPanel()
-    expect(await screen.findByText('No leaf plans waiting.')).toBeTruthy()
+    expect(await screen.findByText('No plans waiting.')).toBeTruthy()
+  })
+
+  it('refreshes the conversation that proposed it, so its card stops asking', async () => {
+    vi.mocked(plansApi.listTreePlans).mockResolvedValue([leafProposal()])
+    vi.mocked(plansApi.approvePlan).mockResolvedValue(leafProposal({ status: 'adopting' }))
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(plansApi.planKeys.forConversation('conv-1'), [leafProposal()])
+    render(<QueryClientProvider client={qc}><TreeProposalsPanel treeId="t1" /></QueryClientProvider>)
+
+    fireEvent.click(await screen.findByText('Approve'))
+    await waitFor(() => expect(qc.getQueryState(plansApi.planKeys.forConversation('conv-1'))?.isInvalidated).toBe(true))
   })
 })

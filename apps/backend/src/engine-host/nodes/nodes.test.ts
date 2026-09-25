@@ -20,7 +20,7 @@ import type { RunTicket, ToolCallArgs, ToolCallOutcome } from '../temporal/contr
 import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
 import { createProcedureExecutor, withTemperature, type HostNodeServices } from './index.js';
 import { inMemoryConversations } from './conversation-nodes.js';
-import { INTERACTIVE_CHAT_V3 } from '@koala/agent-engine/procedure';
+import { INTERACTIVE_CHAT_V4 } from '@koala/agent-engine/procedure';
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true }, usageGuidance: 'Prefer a dedicated tool when one fits.' },
@@ -663,7 +663,7 @@ describe('a turn the model stream cut short', () => {
     const { services } = world();
     stubModel(brokenAfter('I was part way through saying'));
 
-    const result = await runV2(services, 'koala', INTERACTIVE_CHAT_V3, { message: 'tell me something' });
+    const result = await runV2(services, 'koala', INTERACTIVE_CHAT_V4, { message: 'tell me something' });
 
     expect(result.outcome).toBe('interrupted');
     expect(result.reason).toContain('Model stream error');
@@ -674,7 +674,7 @@ describe('a turn the model stream cut short', () => {
     const { services } = world();
     stubModel(brokenAfter('half a thought'));
 
-    await runV2({ ...services, conversations }, 'koala', INTERACTIVE_CHAT_V3, {
+    await runV2({ ...services, conversations }, 'koala', INTERACTIVE_CHAT_V4, {
       message: 'tell me something',
       inputs: { conversationId: 'cut-short' },
     });
@@ -688,7 +688,7 @@ describe('a turn the model stream cut short', () => {
     const { services } = world();
     stubModel(answer('a whole thought'));
 
-    await runV2({ ...services, conversations }, 'koala', INTERACTIVE_CHAT_V3, {
+    await runV2({ ...services, conversations }, 'koala', INTERACTIVE_CHAT_V4, {
       message: 'tell me something',
       inputs: { conversationId: 'complete' },
     });

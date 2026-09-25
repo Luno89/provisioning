@@ -9,7 +9,7 @@ import {
   REFUSED_CALL,
   RESEARCH_V2,
   TOOL_ROUNDS_V2,
-  INTERACTIVE_CHAT_V3,
+  INTERACTIVE_CHAT_V4,
   replyExit,
   stepImplementation,
   type ChatMessage,
@@ -424,7 +424,7 @@ describe('a remembered conversation, through the workflow', () => {
     const acts = activities({ script: [{ content: 'burnt orange, noted' }] });
 
     const result = await runWorkflow(
-      input('koala', INTERACTIVE_CHAT_V3, 'my favourite colour is burnt orange', { conversationId: 'c-remembered' }),
+      input('koala', INTERACTIVE_CHAT_V4, 'my favourite colour is burnt orange', { conversationId: 'c-remembered' }),
       acts,
     );
 
@@ -440,13 +440,13 @@ describe('a remembered conversation, through the workflow', () => {
     const conversations = inMemoryConversations();
 
     await runWorkflow(
-      input('koala', INTERACTIVE_CHAT_V3, 'my favourite colour is burnt orange', { conversationId: 'c-thread' }),
+      input('koala', INTERACTIVE_CHAT_V4, 'my favourite colour is burnt orange', { conversationId: 'c-thread' }),
       activities({ script: [{ content: 'noted' }], conversations }),
     );
 
     const second = activities({ script: [{ content: 'burnt orange' }], conversations });
     await runWorkflow(
-      input('koala', INTERACTIVE_CHAT_V3, 'what was it again?', { conversationId: 'c-thread' }),
+      input('koala', INTERACTIVE_CHAT_V4, 'what was it again?', { conversationId: 'c-thread' }),
       second,
     );
 
@@ -465,7 +465,7 @@ describe('a remembered conversation, through the workflow', () => {
     } as never);
 
     const acts = activities({ script: [{ content: 'nothing to go on' }], conversations });
-    await runWorkflow(input('koala', INTERACTIVE_CHAT_V3, 'what do you know?', { conversationId: 'c-theirs' }), acts);
+    await runWorkflow(input('koala', INTERACTIVE_CHAT_V4, 'what do you know?', { conversationId: 'c-theirs' }), acts);
 
     expect(acts.seen[0]!.map((one) => one.content)).toEqual(['what do you know?']);
   });
@@ -474,7 +474,7 @@ describe('a remembered conversation, through the workflow', () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"rm -rf /"}'), { content: 'understood' }] });
 
     const result = await runWorkflow(
-      input('executor', INTERACTIVE_CHAT_V3, 'run the thing', { conversationId: 'c-declined' }),
+      input('executor', INTERACTIVE_CHAT_V4, 'run the thing', { conversationId: 'c-declined' }),
       acts,
       async (handle) => { await handle.signal(approveSignal, { callId: 'c1', allowed: false }); },
     );
@@ -494,7 +494,7 @@ describe('a remembered conversation, through the workflow', () => {
     const acts = activities({ environment: MACHINE, script: [callsATool('c1', 'run_command', '{"command":"ls"}'), { content: 'it listed fine' }] });
 
     const result = await runWorkflow(
-      input('executor', INTERACTIVE_CHAT_V3, 'run the thing', { conversationId: 'c-released' }),
+      input('executor', INTERACTIVE_CHAT_V4, 'run the thing', { conversationId: 'c-released' }),
       acts,
       async (handle) => { await handle.signal(approveSignal, { callId: 'c1', allowed: true }); },
     );
@@ -518,7 +518,7 @@ describe('when the model call fails', () => {
     });
 
     const result = await runWorkflow(
-      input('koala', INTERACTIVE_CHAT_V3, 'try me', { conversationId: 'c-retried' }),
+      input('koala', INTERACTIVE_CHAT_V4, 'try me', { conversationId: 'c-retried' }),
       acts,
     );
 

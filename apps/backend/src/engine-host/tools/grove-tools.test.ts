@@ -3,6 +3,7 @@ import { createGroveTools } from './grove-tools.js';
 import type { Branch, Leaf, LeafStatus } from '../../lib/leaves.js';
 import type { Tree } from '../../lib/trees.js';
 import { type Task, type TaskStatus } from '../../lib/tasks.js';
+import type { PlanProposal } from '../../lib/plan-proposals.js';
 
 let trees: Tree[] = [];
 let branches: Branch[] = [];
@@ -533,3 +534,65 @@ describe('a claim the judge kept for a person', () => {
   });
 });
 
+
+describe('a conversation about one tree', () => {
+  const PLAN = {
+    planDoc: '# More\n\n## Destination\nbye.txt exists.\n\n## Not yet specified\nNone\n\n## Out of scope\nNone',
+    branches: [{ title: 'More', leaves: [{ key: 'bye', title: 'Bye', body: 'bye.txt says bye', brief: 'Write bye.txt.', dependsOn: ['leaf-1'], tasks: [] }] }],
+  };
+  let saved: PlanProposal[] = [];
+  const bound = (conversationId: string) => createGroveTools({
+    stores: {
+      trees: { list: async () => trees, save: async () => undefined },
+      branches: { list: async () => branches, save: async () => undefined },
+      leaves: { list: async () => leaves, save: async () => undefined },
+      tasks: { list: async () => tasks },
+      plans: { save: async (entry) => { saved = [...saved.filter((e) => e.id !== entry.id), entry]; }, list: async () => saved },
+      treeTypes: async () => [{ id: 'application', label: 'App', summary: 'an app' }],
+      boundTree: async (ownerId, id) => (ownerId === 'user-1' && id === 'conv-tree' ? 'tree-1' : undefined),
+    },
+    newId: () => `g${++nextId}`,
+    now: () => '2026-01-01T00:00:00.000Z',
+  });
+  const call = (conversationId: string, name: string, parsed: Record<string, unknown>) =>
+    bound(conversationId)[name]!({ name, parsed, driver: undefined, caller: { ...caller, conversationId } });
+
+  beforeEach(() => {
+    saved = [];
+    leaves = [{ id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'Hello', body: 'hello.txt says hello', column: 'todo', status: 'succeeded', runner: 'engine', depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now' }];
+  });
+
+  it('grows the bound tree when the plan names none', async () => {
+    const outcome = await call('conv-tree', 'propose_plan', PLAN);
+    expect(outcome.ok, outcome.digest).toBe(true);
+    expect(saved[0]?.plan?.treeId).toBe('tree-1');
+    expect(saved[0]?.plan?.branches[0]?.leaves[0]?.dependsOn).toEqual(['leaf-1']);
+  });
+
+  it('refuses a new tree or another tree, and saves nothing', async () => {
+    const fresh = await call('conv-tree', 'propose_plan', { ...PLAN, tree: { name: 'Other', type: 'application', goal: 'x' } });
+    expect(fresh.ok).toBe(false);
+    expect(fresh.digest).toContain('grows it — send treeId tree-1');
+    trees.push({ ...trees[0]!, id: 'tree-2' });
+    const elsewhere = await call('conv-tree', 'propose_plan', { ...PLAN, treeId: 'tree-2' });
+    expect(elsewhere.ok).toBe(false);
+    expect(elsewhere.digest).toContain('grows that tree, not tree-2');
+    expect(saved).toEqual([]);
+  });
+
+  it('leaves a conversation about no tree free to start one', async () => {
+    const outcome = await call('conv-free', 'propose_plan', { ...PLAN, tree: { name: 'New', type: 'application', goal: 'x' }, branches: [{ title: 'More', leaves: [{ ...PLAN.branches[0]!.leaves[0]!, dependsOn: [] }] }] });
+    expect(outcome.ok, outcome.digest).toBe(true);
+    expect(saved[0]?.plan?.tree?.name).toBe('New');
+  });
+
+  it('reads the bound tree without being told which, and refuses another owner\'s', async () => {
+    const outcome = await call('conv-tree', 'read_tree', {});
+    expect(outcome.ok, outcome.digest).toBe(true);
+    expect(outcome.content).toContain('Tree "The app" (tree-1)');
+    expect(outcome.content).toContain('(leaf-1) [succeeded');
+    trees.push({ ...trees[0]!, id: 'tree-x', ownerId: 'someone-else' });
+    expect((await call('conv-free', 'read_tree', { treeId: 'tree-x' })).ok).toBe(false);
+    expect((await call('conv-free', 'read_tree', {})).digest).toContain('needs the treeId');
+  });
+});

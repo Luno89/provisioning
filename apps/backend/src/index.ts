@@ -66,6 +66,7 @@ import {
   createTaskTools,
   startStreamWorker,
 } from './engine-host/index.js';
+import { boundTreeReader } from './engine-host/bound-tree.js';
 import { chatRouter } from './routes/chat.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
@@ -337,6 +338,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         },
       }
       : undefined),
+    boundTree: boundTreeReader(db),
   });
 
   /**
@@ -848,6 +850,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     infisicalService,
     jwtSecret: JWT_SECRET,
     ownedConversations,
+    ownedTrees,
   }));
   app.use('/api/chat', chatRouter({
     db, modelService, temporalBridge, projectRepoService, clusterService,

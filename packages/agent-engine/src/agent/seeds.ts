@@ -15,6 +15,7 @@ export const STANDARD_HOST_TOOL_NAMES: readonly string[] = [
   'propose_plan',
   'propose_leaf_plan',
   'list_tree_types',
+  'read_tree',
   'make_branch',
   'make_leaf',
   'claim_leaf',

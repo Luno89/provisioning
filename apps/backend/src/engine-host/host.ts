@@ -43,6 +43,7 @@ export interface EngineHostStores {
       list(ownerId: string, conversationId?: string): Promise<import('../lib/plan-proposals.js').PlanProposal[]>;
     };
     treeTypes?: (ownerId: string) => Promise<import('./tools/grove-tools.js').TreeTypeChoice[]>;
+    boundTree?: (ownerId: string, conversationId: string) => Promise<string | undefined>;
   };
   conversations: import('./nodes/conversation-nodes.js').ConversationStore;
   memories: {
@@ -225,6 +226,7 @@ export function storesFromDatabase(db: Database): EngineHostStores {
           .filter((type) => type.ownerId === ownerId || !mine.has(type.id))
           .map((type) => ({ id: type.id, label: type.label, summary: type.summary }));
       },
+      boundTree: async (ownerId: string, conversationId: string) => (await db.getConversation(ownerId, conversationId))?.treeId,
     },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
   };

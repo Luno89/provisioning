@@ -17,15 +17,15 @@ export function TreeProposalsPanel({ treeId }: { treeId: string }) {
   })
 
   const settled = () => {
-    void qc.invalidateQueries({ queryKey: planKeys.forTree(treeId) })
+    void qc.invalidateQueries({ queryKey: planKeys.all })
     void qc.invalidateQueries({ queryKey: groveKeys.run(treeId) })
     void qc.invalidateQueries({ queryKey: groveKeys.leaves() })
   }
   const approve = useMutation({ mutationFn: (id: string) => approvePlan(id), onSuccess: settled })
   const reject = useMutation({ mutationFn: ({ id, reason }: { id: string; reason?: string }) => rejectPlan(id, reason), onSuccess: settled })
 
-  const open = proposals.filter((proposal) => proposal.leafPlan && SHOWN.includes(proposal.status))
-  if (open.length === 0) return <div className="px-3 py-2 text-[12px] text-slate-500">No leaf plans waiting.</div>
+  const open = proposals.filter((proposal) => SHOWN.includes(proposal.status))
+  if (open.length === 0) return <div className="px-3 py-2 text-[12px] text-slate-500">No plans waiting.</div>
 
   return (
     <div className="px-2 flex flex-col" data-testid="tree-proposals">

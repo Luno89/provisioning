@@ -56,6 +56,12 @@ export interface RunStarterOptions {
   workflows: () => WorkflowStarter | undefined;
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
+  boundTree?: ((ownerId: string, conversationId: string) => Promise<BoundTree | undefined>) | undefined;
+}
+
+export interface BoundTree {
+  treeId: string;
+  outline: string;
 }
 
 export function createRunStarter(options: RunStarterOptions) {
@@ -86,10 +92,19 @@ export function createRunStarter(options: RunStarterOptions) {
         ...(request.sampling ? { sampling: request.sampling } : {}),
       };
 
+      const { treeId: _claimedTree, tree: _claimedOutline, ...asked } = request.inputs ?? {};
+      const bound = request.conversationId && options.boundTree
+        ? await options.boundTree(request.ownerId, request.conversationId)
+        : undefined;
+
       const input: ProcedureRunInput = {
         ticket,
         procedure: runnable.procedure,
-        inputs: { ...(request.inputs ?? {}), message: request.message },
+        inputs: {
+          ...asked,
+          ...(bound ? { treeId: bound.treeId, tree: bound.outline } : {}),
+          message: request.message,
+        },
       };
 
       await workflows.start('AgentRunWorkflow', {

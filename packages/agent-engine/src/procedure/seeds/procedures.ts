@@ -92,9 +92,9 @@ export const TOOL_ROUNDS_V2 = agentLoop({
   circling: { outcome: 'failed' },
 });
 
-export const INTERACTIVE_CHAT_V3 = defineProcedure(BUILT_IN_GROUPS, {
+export const INTERACTIVE_CHAT_V4 = defineProcedure(BUILT_IN_GROUPS, {
   id: 'interactive-chat',
-  version: '3',
+  version: '4',
   name: 'Interactive chat',
   describe: 'One turn of a conversation that is remembered: it reads back what was said before, answers with tools as needed, carries on when its reply is cut off, and writes the turn back so the next one picks up where this left off.',
   budget: {},
@@ -104,8 +104,9 @@ export const INTERACTIVE_CHAT_V3 = defineProcedure(BUILT_IN_GROUPS, {
   const earlier = p.loadConversation('earlier', { values: input.inputs }, { id: '{{values.conversationId}}' });
   const conversation = p.conversation('conversation', {
     opening: input.message,
+    given: input.inputs,
     history: earlier.messages,
-  });
+  }, { omit: ['conversationId'] });
   const turn = p.groups.modelTurn('turn', { messages: conversation.messages, environment: provision.environment });
   const repetition = p.checkRepetition('repetition', { reply: turn.reply });
   const tools = p.groups.toolLoop('tools', { reply: turn.reply, persona: turn.persona, environment: provision.environment });
@@ -469,7 +470,7 @@ export const DELIVERY_V2 = defineProcedure(BUILT_IN_GROUPS, {
 
 export const BUILT_IN_PROCEDURES: readonly Procedure[] = [
   TOOL_ROUNDS_V2,
-  INTERACTIVE_CHAT_V3,
+  INTERACTIVE_CHAT_V4,
   PLANNING_V2,
   RESEARCH_V2,
   SINGLE_SHOT_V2,

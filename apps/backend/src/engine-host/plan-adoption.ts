@@ -3,7 +3,7 @@ import type { Tree } from '../lib/trees.js';
 import { primaryProjectId } from '../lib/trees.js';
 import { newTask, type Task } from '../lib/tasks.js';
 import type { AdoptedPlan, PlanProposal, PlanStatus } from '../lib/plan-proposals.js';
-import { leafBriefPath, leafWorktree, planDocuments, renderLeafBrief, TREE_REPO } from '../lib/plan-documents.js';
+import { leafBriefPath, leafWorktree, PLAN_DOC_PATH, planDocuments, renderLeafBrief, TREE_REPO } from '../lib/plan-documents.js';
 import { resetForRetry } from '../lib/leaves.js';
 import type { EnvironmentResolver } from './sandboxes/environments.js';
 import type { TreeWorkspaces } from './sandboxes/tree-workspaces.js';
@@ -228,7 +228,10 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
       }
 
       if (!proposal.plan) throw new Error('the proposal holds no plan');
-      const documents = planDocuments(proposal.plan, adopted, treeName);
+      const earlier = proposal.plan.treeId
+        ? (await driver.exec({ command: `cat ${TREE_REPO}/${PLAN_DOC_PATH} 2>/dev/null || true`, timeoutMs: 30_000 })).stdout
+        : '';
+      const documents = planDocuments(proposal.plan, adopted, treeName, { earlier, proposalId });
       for (const document of documents) await driver.writeFile(`${TREE_REPO}/${document.path}`, document.content);
       const paths = documents.map((document) => shell(document.path)).join(' ');
       await run(`cd ${TREE_REPO} && git add ${paths} && (git diff --cached --quiet || git -c user.name=koala -c user.email=koala@grove.local commit -q -m ${shell(`plan: ${proposalId}`)})`);

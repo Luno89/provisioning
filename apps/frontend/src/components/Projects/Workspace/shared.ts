@@ -1,5 +1,5 @@
 export interface SelectedEntity {
-  kind: 'tree' | 'branch' | 'leaf'
+  kind: 'tree' | 'branch' | 'leaf' | 'conversation'
   id: string
 }
 

@@ -4,7 +4,8 @@ import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { engineRouter } from './engine.js';
 import { createAgentRegistry, createRunStarter, type WorkflowStarter, type Task } from '../engine-host/index.js';
 import type { Database } from '../lib/db-interface.js';
-import { INTERACTIVE_CHAT_V3, RESEARCH_V2 } from '@koala/agent-engine/procedure';
+import { boundTreeReader } from '../engine-host/bound-tree.js';
+import { INTERACTIVE_CHAT_V4, RESEARCH_V2 } from '@koala/agent-engine/procedure';
 
 let tasks: Task[] = [];
 
@@ -91,7 +92,7 @@ describe('engine routes', () => {
     const [, options] = workflows.start.mock.calls[0] as [string, { args: [Record<string, unknown>] }];
     expect(options.args[0]).toEqual({
       ticket: { runId: 'run-fixed', depth: 0, ownerId: 'test-user', agentSlug: 'koala', trigger: 'user' },
-      procedure: INTERACTIVE_CHAT_V3,
+      procedure: INTERACTIVE_CHAT_V4,
       inputs: { message: 'hello there' },
     });
 
@@ -109,6 +110,42 @@ describe('engine routes', () => {
     expect(options.args[0].procedure).toEqual(RESEARCH_V2);
     await expect(axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'hi', procedure: 'nowhere' }))
       .rejects.toMatchObject({ response: { status: 404, data: { error: expect.stringContaining('nowhere') } } });
+
+    await h.close();
+  });
+
+  it('hands a conversation about a tree that tree, decided by the conversation and never by the caller', async () => {
+    const workflows = starter();
+    let db: Database | undefined;
+    const h: Harness = await mountRouter({
+      prefix: '/api/engine',
+      router: (database) => {
+        db = database;
+        const runs = createRunStarter({ registry: createAgentRegistry(), workflows: () => workflows, newRunId: () => 'run-fixed', boundTree: boundTreeReader(database) });
+        return engineRouter({ runs, registry: createAgentRegistry() });
+      },
+    });
+    const stamp = new Date().toISOString();
+    await db!.saveTree({ id: 'tree-1', ownerId: TEST_USER.id, name: 'Greeter', type: 'software', goal: 'greets', projectIds: [], createdAt: stamp, updatedAt: stamp });
+    await db!.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 'tree-1', title: 'Core', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db!.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'Hello', body: 'hello.txt says hello', column: 'todo', status: 'pending', runner: 'engine', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp });
+    await db!.saveConversation({ id: 'about-tree', ownerId: TEST_USER.id, title: 't', treeId: 'tree-1', messages: [], createdAt: stamp, updatedAt: stamp });
+    await db!.saveConversation({ id: 'free', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: stamp, updatedAt: stamp });
+
+    const inputsOf = async (conversationId: string, inputs: Record<string, unknown>) => {
+      workflows.start.mockClear();
+      await axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'more please', conversationId, inputs });
+      const [, options] = workflows.start.mock.calls[0] as [string, { args: [{ inputs: Record<string, unknown> }] }];
+      return options.args[0].inputs;
+    };
+
+    const bound = await inputsOf('about-tree', { conversationId: 'about-tree', treeId: 'forged' });
+    expect(bound.treeId).toBe('tree-1');
+    expect(bound.tree).toContain('Tree "Greeter" (tree-1)');
+    expect(bound.tree).toContain('Hello (l1) [pending, 0/0 tasks done] — hello.txt says hello');
+
+    const free = await inputsOf('free', { conversationId: 'free', treeId: 'forged', tree: 'forged' });
+    expect(free).toEqual({ conversationId: 'free', message: 'more please' });
 
     await h.close();
   });

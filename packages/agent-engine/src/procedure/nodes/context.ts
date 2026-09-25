@@ -452,15 +452,22 @@ export const conversation: BuiltInNode = {
       { name: 'rounds', type: 'json', describe: 'Every model round the conversation has seen, each with its own reply and the tool results it drew back — the shape of a multi-round turn, so a save can remember the calls made in the middle of it, not only the final words.' },
     ],
     exits: [{ name: 'done', describe: 'Always.' }],
-    settings: NO_SETTINGS,
+    settings: {
+      type: 'object',
+      properties: {
+        omit: { type: 'array', title: 'Leave out', describe: 'Named inputs never shown to the model, such as ids the procedure uses only to find things.', items: { type: 'string', minLength: 1 }, default: [] },
+      },
+    },
     runs: 'workflow',
     idempotent: true,
     summarize: () => 'keeps the message history',
   }),
-  implementation: stepImplementation('conversation', ({ inputs, previous }) => {
+  implementation: stepImplementation('conversation', ({ node, inputs, previous }) => {
+    const omit = new Set((node.settings?.omit as string[] | undefined) ?? []);
+    const given = Object.fromEntries(Object.entries((inputs.given as Record<string, unknown> | undefined) ?? {}).filter(([name]) => !omit.has(name)));
     const state = extendConversation(
       previous as ConversationState | undefined,
-      openingWith(inputs.opening as string, inputs.given as Record<string, unknown> | undefined),
+      openingWith(inputs.opening as string, given),
       (inputs.replies as ModelReply[] | undefined) ?? [],
       (inputs.results as ToolResult[][] | undefined) ?? [],
       (inputs.history as ChatMessage[] | undefined) ?? [],

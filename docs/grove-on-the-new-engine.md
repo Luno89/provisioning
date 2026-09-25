@@ -11,7 +11,7 @@ Last updated: 2026-09-24
 | P0 task/leaf expansion + shared parts | **implemented** (model + extended planner + tests; gate green; commit pending) |
 | P1 fix-up: one sandbox per tree | **slices 1–6 landed 2026-09-24/25** (see *P1 fix-up* below) |
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
-| P2 planning + launching in engine | **step 1 landed 2026-09-25** (leaf-scoped replan and breakdown, proposed by the run); steps 2–3 open |
+| P2 planning + launching in engine | **steps 1–2 landed 2026-09-25** (leaf-scoped replan and breakdown proposed by the run; tree entry through a koala chat bound to the tree); step 3 open |
 | P3 landing as engine tools | not started |
 | P4 supervision swap (retire LeafWorkflow) | not started |
 | P5 grove surface on engine + grove UI flip | not started |
@@ -553,8 +553,31 @@ parks for human review; the volume lives and the pod is started on demand.
    /tmp mistake and a breakdown → approved both on the tree page → the run restarted itself →
    both leaves verified. The first attempt caught the planner getting neither the leaf's goal
    nor any tolerance for missing docs; three failed lookups tripped its guard. Both fixed.
-2. Tree entry: the tree page's "Ask for more work / Start" opens a koala conversation bound
-   to the tree — open.
+2. **Tree entry through a koala chat bound to the tree — landed 2026-09-25.**
+   - **Binding.** A conversation can carry a `treeId`. `POST /api/conversations` refuses a tree
+     that isn't the person's. The tree page's Start creates one and sends the ask as its first
+     turn. The right panel's new **Conversations** section lists the tree's conversations and
+     opens them in place.
+   - **The binding is the server's, never the caller's.** The run starter reads it from the
+     stored conversation (`engine-host/bound-tree.ts`), drops any `treeId` or `tree` the client
+     sent, and hands koala `treeId` plus `tree`, the pure `lib/tree-outline.ts` outline of the
+     goal, branches and leaves with their states.
+   - **Koala sees the tree.** `interactive-chat` v4 passes the run's inputs to the conversation.
+     A new `omit` setting on the conversation node keeps `conversationId` out of the model's
+     view. Koala v2 delegates growth to the planner with the treeId.
+   - **Planner.** Planner v7 gets `read_tree`. `propose_plan` inside a bound conversation grows
+     that tree: it defaults to it and refuses a new tree or another treeId.
+   - **Adopting a growth plan** appends a "Grown" section to PLAN.md instead of replacing it.
+   - **Proposals everywhere.** The tree's Proposals section now shows growth plans as well as
+     leaf plans. A decision in either place refreshes both.
+   - **Live (UI):** the greeter tree → Start "add a --shout flag … hand it to the planner" →
+     koala delegated, and the planner read the tree and proposed a new branch whose first leaf
+     waits on the existing greet.js leaf by id → approved on the tree's Proposals → same tree,
+     PLAN.md grown (original intact) → Run the tree → both new leaves verified, "finished after
+     2 passes".
+   - **Found live and fixed:** approving in the panel left the chat card saying "Waiting".
+   - **Not exercised live:** the refusals (a new tree or a foreign treeId in a bound chat),
+     which are unit-tested.
 3. Freeze legacy trees; switch off every legacy launcher in one step — open.
 
 - ProjectPlanWorkflow → make-plan lane run; ReplanActivity same procedure,

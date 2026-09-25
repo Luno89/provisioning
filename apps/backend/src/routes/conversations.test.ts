@@ -9,6 +9,7 @@ const harness: Harness = await mountRouter({
     db,
     ownedConversations: async (userId: string) =>
       db.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),
+    ownedTrees: async (userId: string) => (await db.getTrees()).filter((tree) => tree.ownerId === userId),
   }),
 });
 
@@ -39,6 +40,28 @@ describe('conversation CRUD', () => {
     expect(delRes.status).toBe(200);
     const afterDel = (await harness.db.getConversations()).find((c: any) => c.id === created.id);
     expect(afterDel).toBeUndefined();
+  });
+});
+
+describe('a conversation about a tree', () => {
+  it('binds to a tree the person owns, and refuses one they do not', async () => {
+    const stamp = new Date().toISOString();
+    await harness.db.saveTree({ id: 'mine', ownerId: TEST_USER.id, name: 'Mine', type: 'software', projectIds: [], createdAt: stamp, updatedAt: stamp });
+    await harness.db.saveTree({ id: 'theirs', ownerId: 'someone-else', name: 'Theirs', type: 'software', projectIds: [], createdAt: stamp, updatedAt: stamp });
+    const create = (treeId: string) => fetch(harness.url('/api/conversations'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Grow it', treeId }),
+    });
+
+    const bound = await create('mine');
+    expect(bound.status).toBe(200);
+    const created = (await bound.json()) as { id: string; treeId?: string };
+    expect(created.treeId).toBe('mine');
+    expect((await harness.db.getConversation(TEST_USER.id, created.id))?.treeId).toBe('mine');
+
+    expect((await create('theirs')).status).toBe(404);
+    expect((await create('nowhere')).status).toBe(404);
   });
 });
 

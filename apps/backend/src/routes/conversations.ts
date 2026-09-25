@@ -21,6 +21,7 @@ export interface ConversationsRouterDeps {
   infisicalService?: InfisicalService;
   jwtSecret?: string;
   ownedConversations: (userId: string) => Promise<Conversation[]>;
+  ownedTrees?: (userId: string) => Promise<{ id: string }[]>;
 }
 
 export function conversationsRouter(deps: ConversationsRouterDeps): Router {
@@ -41,11 +42,18 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
   }));
 
   router.post('/', asyncRoute(async (req, res) => {
+    const userId = (req as any).user.id;
+    const treeId = typeof req.body?.treeId === 'string' && req.body.treeId.trim() ? req.body.treeId.trim() : undefined;
+    if (treeId) {
+      const trees = deps.ownedTrees ? await deps.ownedTrees(userId) : [];
+      if (!trees.some((tree) => tree.id === treeId)) return res.status(404).json({ error: 'No such tree' });
+    }
     const now = new Date().toISOString();
     const conversation: Conversation = {
       id: uuidv4(),
-      ownerId: (req as any).user.id,
+      ownerId: userId,
       title: titleFrom(String(req.body?.title ?? '')),
+      ...(treeId ? { treeId } : {}),
       messages: [],
       createdAt: now,
       updatedAt: now,

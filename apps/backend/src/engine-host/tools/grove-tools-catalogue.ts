@@ -57,6 +57,25 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'read_tree',
+    summary: 'Read what a Grove tree already holds: its goal, branches, and each leaf with its id, state, tasks and what it waits on',
+    guidance: 'Read the tree before planning more of it, so a plan grows what is there instead of repeating it: new leaves can wait on existing leaf ids. In a conversation about one tree, treeId may be left out.',
+    binding: 'platform',
+    effect: 'read',
+    status: 'draft',
+    returns: 'the tree\'s name, id, type and goal, then each branch with its leaves as `<title> (<id>) [<status>, <done>/<n> tasks done, waits on …] — <goal>`',
+    failures: [
+      { when: 'the tree is not yours or does not exist', says: 'no such tree' },
+      { when: 'no treeId is given and the conversation is about no tree', says: 'that it needs the treeId' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        treeId: { type: 'string', description: 'The tree to read. Optional in a conversation about one tree.' },
+      },
+    },
+  },
+  {
     name: 'list_tree_types',
     summary: 'List the kinds of project a new tree can be, with what each is for',
     guidance: 'Check this before proposing a new tree: the tree type decides how the project is built and judged, and only these ids are accepted.',

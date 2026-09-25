@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, AlertTriangle, X, Square } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
@@ -48,6 +48,8 @@ export interface ChatSurfaceProps {
   onConversationChange?: ((conversationId: string | null) => void) | undefined;
   onOpenTree?: ((treeId: string) => void) | undefined;
   scope?: ChatScope | undefined;
+  treeId?: string | undefined;
+  autoSend?: { text: string; onSent?: (() => void) | undefined } | undefined;
 }
 
 export default function ChatSurface({
@@ -59,6 +61,8 @@ export default function ChatSurface({
   onConversationChange,
   onOpenTree,
   scope,
+  treeId,
+  autoSend,
 }: ChatSurfaceProps) {
   const setShellView = useShellStore((s) => s.setView);
   const isBranch = scope?.kind === 'branch';
@@ -80,6 +84,7 @@ export default function ChatSurface({
     enabled: !isBranch,
     onConversationChange,
     onProposedTree: () => setShowProposals(true),
+    treeId,
   });
 
   // 2. Branch lifecycle hook (for workspace branch chat)
@@ -244,6 +249,16 @@ export default function ChatSurface({
 
     void conv.sendConversationTurn(text);
   };
+
+  const autoSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isBranch || !autoSend || streaming || !conv.selectedConvId) return;
+    const key = `${conv.selectedConvId}:${autoSend.text}`;
+    if (autoSentRef.current === key) return;
+    autoSentRef.current = key;
+    handleSend(autoSend.text);
+    autoSend.onSent?.();
+  }, [autoSend, conv.selectedConvId, isBranch, streaming, handleSend]);
 
   const handleStop = () => {
     if (isBranch) {

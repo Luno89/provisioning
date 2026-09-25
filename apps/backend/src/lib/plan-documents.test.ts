@@ -52,4 +52,30 @@ describe('the plan documents', () => {
   it('produces PLAN.md and one brief per leaf, at the paths the runs are pointed at', () => {
     expect(planDocuments(plan, adopted, 'Widget API').map((doc) => doc.path)).toEqual(['PLAN.md', leafBriefPath('leaf-h'), leafBriefPath('leaf-d')]);
   });
+
+  it('grows an existing tree\'s PLAN.md by a section, keeping what was planned before', () => {
+    const earlier = renderPlanDoc(plan, adopted, 'Widget API');
+    const growth: Plan = {
+      treeId: 'tree-1',
+      planDoc: '# Metrics\n\n## Destination\n/metrics answers.\n\n## Out of scope\nDashboards.',
+      branches: [{ title: 'Observability', leaves: [{ key: 'metrics', title: 'Metrics', body: '/metrics lists request counts', brief: 'Prometheus text format.', dependsOn: ['leaf-h'], tasks: [] }] }],
+    };
+    const [doc] = planDocuments(growth, { treeId: 'tree-1', branchIds: ['branch-2'], leafIds: { metrics: 'leaf-m' }, taskIds: {} }, 'Widget API', { earlier, proposalId: 'plan-9' });
+
+    expect(doc!.content.startsWith(earlier.trimEnd())).toBe(true);
+    expect(doc!.content).toContain('## Grown: Metrics (plan `plan-9`)\n\n### Destination\n/metrics answers.\n\n### Out of scope\nDashboards.');
+    expect(doc!.content).toContain('#### Observability\n\nBranch `branch-2`');
+    expect(doc!.content).toContain('- **Metrics** (`leaf-m`, 0 tasks) — waits on `leaf-h`');
+  });
+
+  it('writes a fresh PLAN.md when the tree had none', () => {
+    const [doc] = planDocuments(plan, adopted, 'Widget API', { earlier: '', proposalId: 'plan-1' });
+    expect(doc!.content).toBe(renderPlanDoc(plan, adopted, 'Widget API'));
+  });
+
+  it('names a growth by its first branch when the planner gave the doc no title', () => {
+    const growth: Plan = { treeId: 'tree-1', planDoc: '## Destination\nMore.', branches: [{ title: 'Shouting', leaves: [] }] };
+    const [doc] = planDocuments(growth, { treeId: 'tree-1', branchIds: ['b2'], leafIds: {}, taskIds: {} }, 'Widget API', { earlier: '# Widget API', proposalId: 'plan-9' });
+    expect(doc!.content).toContain('## Grown: Shouting (plan `plan-9`)\n\n### Destination\nMore.');
+  });
 });

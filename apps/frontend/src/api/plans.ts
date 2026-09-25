@@ -2,6 +2,7 @@ import type { PlanProposal } from '@koala/harness-types'
 import { api } from './client'
 
 export const planKeys = {
+  all: ['plans'] as const,
   forConversation: (conversationId: string) => ['plans', conversationId] as const,
   forTree: (treeId: string) => ['plans', 'tree', treeId] as const,
 }

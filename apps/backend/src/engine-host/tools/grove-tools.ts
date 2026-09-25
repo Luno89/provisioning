@@ -5,6 +5,7 @@ import { primaryProjectId, type Tree } from '../../lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
 import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
 import { worktreeHead } from '../grove-worktrees.js';
+import { treeOutline } from '../../lib/tree-outline.js';
 
 export interface GroveStores {
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };
@@ -17,6 +18,7 @@ export interface GroveStores {
     list(ownerId: string, conversationId?: string): Promise<PlanProposal[]>;
   };
   treeTypes?: (ownerId: string) => Promise<TreeTypeChoice[]>;
+  boundTree?: (ownerId: string, conversationId: string) => Promise<string | undefined>;
 }
 
 export interface TreeTypeChoice {
@@ -48,6 +50,9 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
   const newId = options.newId ?? randomUUID;
   const now = options.now ?? (() => new Date().toISOString());
 
+  const boundTreeOf = async (ownerId: string, conversationId: string | undefined): Promise<string | undefined> =>
+    (conversationId && options.stores.boundTree ? options.stores.boundTree(ownerId, conversationId) : undefined);
+
   const treeTypesOf = async (ownerId: string): Promise<TreeTypeChoice[]> =>
     (options.stores.treeTypes ? await options.stores.treeTypes(ownerId) : []);
 
@@ -60,11 +65,30 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       return { ok: true, digest: `${types.length} tree types`, content: `The tree types a new tree can be:\n${lines.join('\n')}` };
     },
 
+    async read_tree({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner whose tree to read');
+      const bound = await boundTreeOf(caller.ownerId, caller.conversationId);
+      const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id') ?? bound;
+      if (!treeId) return refuse('read_tree needs the treeId of the tree to read');
+      const tree = (await options.stores.trees.list()).find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
+      if (!tree) return refuse(`no such tree: ${treeId}`);
+      const branches = (await options.stores.branches.list()).filter((branch) => branch.treeId === tree.id);
+      const branchIds = new Set(branches.map((branch) => branch.id));
+      const leaves = (await options.stores.leaves.list()).filter((leaf) => branchIds.has(leaf.branchId));
+      const leafIds = new Set(leaves.map((leaf) => leaf.id));
+      const tasks = options.stores.tasks ? (await options.stores.tasks.list()).filter((task) => task.leafId && leafIds.has(task.leafId)) : [];
+      return { ok: true, digest: `tree ${tree.name}: ${branches.length} branches, ${leaves.length} leaves`, content: treeOutline(tree, branches, leaves, tasks) };
+    },
+
     async propose_plan({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner to propose a plan for');
       if (!options.stores.plans) return refuse('plans cannot be proposed here — nothing is set up to keep them for approval');
 
-      const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id');
+      const bound = await boundTreeOf(caller.ownerId, caller.conversationId);
+      const named = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id');
+      if (bound && named && named !== bound) return refuse(`this conversation is about tree ${bound}; a plan made here grows that tree, not ${named}`);
+      if (bound && !named && parsed['tree'] !== undefined) return refuse(`this conversation is about tree ${bound}; a plan made here grows it — send treeId ${bound} and leave tree out. A new project starts from a conversation outside any tree`);
+      const treeId = named ?? bound;
       let existingLeafIds = new Set<string>();
       if (treeId) {
         const tree = (await options.stores.trees.list()).find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
@@ -73,7 +97,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         existingLeafIds = new Set((await options.stores.leaves.list()).filter((leaf) => branchIds.has(leaf.branchId)).map((leaf) => leaf.id));
       }
 
-      const outcome = parsePlan(parsed, {
+      const outcome = parsePlan(treeId && !named ? { ...parsed, treeId } : parsed, {
         treeTypes: (await treeTypesOf(caller.ownerId)).map((type) => type.id),
         existingLeafIds,
       });

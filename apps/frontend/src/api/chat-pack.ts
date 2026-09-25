@@ -82,6 +82,7 @@ export interface ChatConversation {
    * Absent means the default agent. Patched by the chat surface; preserved across engine turns.
    */
   agentSlug?: string | null | undefined;
+  treeId?: string | undefined;
   messages?: ChatConversationMessage[] | undefined;
   proposedTrees?: ProposedTreeRecord[] | undefined;
   proposedSpecs?: ProposedSpecRecord[] | undefined;
@@ -113,8 +114,8 @@ export const listChatConversations = (): Promise<ChatConversation[]> =>
 export const getChatConversation = (id: string): Promise<ChatConversation | null> =>
   api.get<ChatConversation>(`/conversations/${id}`).then((r) => r.data);
 
-export const createChatConversation = (title?: string): Promise<ChatConversation> =>
-  api.post<ChatConversation>('/conversations', { title }).then((r) => r.data);
+export const createChatConversation = (title?: string, treeId?: string): Promise<ChatConversation> =>
+  api.post<ChatConversation>('/conversations', { title, ...(treeId ? { treeId } : {}) }).then((r) => r.data);
 
 export const deleteChatConversation = (id: string): Promise<void> =>
   api.delete(`/conversations/${id}`).then(() => undefined);

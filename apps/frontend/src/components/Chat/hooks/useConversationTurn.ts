@@ -61,6 +61,7 @@ export interface UseConversationTurnOptions {
   enabled: boolean;
   onConversationChange?: ((id: string | null) => void) | undefined;
   onProposedTree?: (() => void) | undefined;
+  treeId?: string | undefined;
 }
 
 export function useConversationTurn({
@@ -69,6 +70,7 @@ export function useConversationTurn({
   initialMessages = EMPTY_MESSAGES,
   enabled,
   onConversationChange,
+  treeId,
 }: UseConversationTurnOptions) {
   const qc = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(externalConvId ?? null);
@@ -162,7 +164,7 @@ export function useConversationTurn({
   }, [enabled, conversations, selectedConvId, externalConvId, onConversationChange]);
 
   const createMutation = useMutation({
-    mutationFn: () => createChatConversation('New conversation'),
+    mutationFn: () => createChatConversation('New conversation', treeId),
     onSuccess: (newConv) => {
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       setSelectedConvId(newConv.id);
@@ -276,7 +278,7 @@ export function useConversationTurn({
     if (!targetConvId) {
       setCreatingConversation(true);
       try {
-        const created = await createChatConversation('New conversation');
+        const created = await createChatConversation('New conversation', treeId);
         targetConvId = created.id;
         setSelectedConvId(created.id);
         onConversationChange?.(created.id);

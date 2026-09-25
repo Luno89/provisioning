@@ -68,6 +68,34 @@ export function renderPlanDoc(plan: Plan, adopted: AdoptedPlan, treeName: string
   ].join('\n');
 }
 
+export function renderPlanGrowth(earlier: string, plan: Plan, adopted: AdoptedPlan, proposalId: string): string {
+  const title = plan.planDoc.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? plan.branches[0]?.title ?? 'more work';
+  const body = plan.planDoc
+    .replace(/^#\s+.+\n?/m, '')
+    .trim()
+    .replace(/^(#{1,5}) /gm, '#$1 ');
+  const index = plan.branches.map((branch, position) => [
+    `#### ${branch.title}`,
+    '',
+    `Branch \`${adopted.branchIds[position] ?? ''}\``,
+    '',
+    ...branch.leaves.map((leaf) => leafIndexLine(leaf, adopted)),
+  ].join('\n'));
+
+  return [
+    earlier.trimEnd(),
+    '',
+    '---',
+    '',
+    `## Grown: ${title} (plan \`${proposalId}\`)`,
+    '',
+    body,
+    '',
+    ...index,
+    '',
+  ].join('\n');
+}
+
 export function renderLeafBrief(leaf: PlanLeaf, adopted: AdoptedPlan, branchTitle: string): string {
   const id = leafIdOf(adopted, leaf.key);
   const waits = leaf.dependsOn.length > 0
@@ -111,9 +139,17 @@ export function renderLeafBrief(leaf: PlanLeaf, adopted: AdoptedPlan, branchTitl
   ].join('\n');
 }
 
-export function planDocuments(plan: Plan, adopted: AdoptedPlan, treeName: string): PlanDocument[] {
+export function planDocuments(
+  plan: Plan,
+  adopted: AdoptedPlan,
+  treeName: string,
+  growing?: { earlier: string; proposalId: string } | undefined,
+): PlanDocument[] {
+  const planDoc = growing?.earlier.trim()
+    ? renderPlanGrowth(growing.earlier, plan, adopted, growing.proposalId)
+    : renderPlanDoc(plan, adopted, treeName);
   return [
-    { path: PLAN_DOC_PATH, content: renderPlanDoc(plan, adopted, treeName) },
+    { path: PLAN_DOC_PATH, content: planDoc },
     ...plan.branches.flatMap((branch) => branch.leaves.map((leaf) => ({
       path: leafBriefPath(leafIdOf(adopted, leaf.key)),
       content: renderLeafBrief(leaf, adopted, branch.title),
