@@ -15,7 +15,7 @@ const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | '
   return 'granted';
 };
 
-export function createToolNodes(services: Pick<HostNodeServices, 'registry'>): NodeImplementation[] {
+export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 'mcp'>): NodeImplementation[] {
   return [
     valueImplementation('resolve-tools', async ({ node, inputs, run }) => {
       const persona = inputs.persona as AgentDefinition;
@@ -24,10 +24,11 @@ export function createToolNodes(services: Pick<HostNodeServices, 'registry'>): N
         ? capabilitiesOf(environment.capabilities)
         : capabilitiesOf(environmentFor(persona));
 
+      const mcp = services.mcp ? await services.mcp.forRun(run.launch.ownerId, persona, run.launch.conversationId) : undefined;
       const { tools, withheld } = resolveToolSet({
-        agent: persona,
+        agent: mcp ? { ...persona, tools: [...persona.tools, ...mcp.contracts.map((tool) => tool.name)] } : persona,
         callable: (inputs.delegates as AgentDefinition[] | undefined) ?? [],
-        catalogue: await services.registry.tools(run.launch.ownerId),
+        catalogue: [...await services.registry.tools(run.launch.ownerId), ...(mcp?.contracts ?? [])],
         capabilities,
         allowed: allowedFrom(node.settings),
       });

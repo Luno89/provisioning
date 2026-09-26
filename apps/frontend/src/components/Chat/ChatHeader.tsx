@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   History, ChevronDown, Plus
 } from 'lucide-react';
@@ -14,6 +14,7 @@ export interface ChatHeaderProps {
   onSelectConversation?: (id: string) => void;
   onNewChat?: () => void;
   isCreatingChat?: boolean;
+  actions?: ReactNode;
 }
 
 export function ChatHeader({
@@ -26,6 +27,7 @@ export function ChatHeader({
   onSelectConversation,
   onNewChat,
   isCreatingChat = false,
+  actions,
 }: ChatHeaderProps) {
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -48,6 +50,8 @@ export function ChatHeader({
             <span className="hidden sm:inline">History</span>
           </button>
         )}
+
+        {actions}
 
         <div className="relative">
           <button

@@ -16,6 +16,8 @@ import { InfisicalService } from './services/InfisicalService.js';
 import { ClusterProxyService } from './services/ClusterProxyService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { createSecretVault } from './services/SecretRequestService.js';
+import { McpRegistryService } from './services/McpRegistryService.js';
+import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
 
@@ -66,6 +68,14 @@ async function buildActivities() {
     new ClusterProxyService(),
   );
   const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
+  const mcpRegistries = new Map<string, McpRegistryService>();
+  const registryFor = (ownerId: string): McpRegistryService => {
+    const known = mcpRegistries.get(ownerId);
+    if (known) return known;
+    const made = new McpRegistryService(db, ownerId, (namespace: string) => resolveMcpProbeUrl(namespace));
+    mcpRegistries.set(ownerId, made);
+    return made;
+  };
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -74,6 +84,10 @@ async function buildActivities() {
     models,
     stores: storesFromDatabase(db),
     vault,
+    mcp: {
+      servers: (ownerId) => registryFor(ownerId).listWithTools(),
+      call: (ownerId, server, tool, args) => registryFor(ownerId).call(server, tool, args),
+    },
     ...(web ? { web } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
     registryHost: process.env.KOALA_REGISTRY,

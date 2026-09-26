@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { Agent } from '../../api/agents'
-import { errorMessage, useDeleteAgent, useGrantableTools, useProcedureList, useSaveAgent } from './shared'
+import { errorMessage, useDeleteAgent, useGrantableTools, useMcpServerList, useProcedureList, useSaveAgent } from './shared'
 import { NEEDS, requirementFor, toolProblem, withRequired } from './agent-forms'
 
 const field = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
@@ -15,6 +15,7 @@ export default function AgentEditor({ agent, agents, onClose }: {
 }) {
   const [draft, setDraft] = useState<Agent>(agent)
   const [problems, setProblems] = useState<string[]>([])
+  const mcpServers = useMcpServerList()
   const grantable = useGrantableTools()
   const languages = grantable.data?.languages ?? []
   const procedures = useProcedureList()
@@ -166,6 +167,25 @@ export default function AgentEditor({ agent, agents, onClose }: {
               </label>
             )
           })}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <span className={label}>MCP servers it may use</span>
+        {(mcpServers.data ?? []).length === 0 && <p className="text-[11px] text-slate-500">You are not running any MCP servers.</p>}
+        <div className="flex flex-wrap gap-3 text-[11px] text-slate-300">
+          {(mcpServers.data ?? []).map((server) => (
+            <label key={server.name} className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                className="accent-[var(--leaf-stem)]"
+                checked={(draft.mcp ?? []).includes(server.name)}
+                onChange={() => set('mcp', toggle(draft.mcp ?? [], server.name))}
+              />
+              {server.name}
+              <span className="text-slate-500">({server.tools.length} tools)</span>
+            </label>
+          ))}
         </div>
       </div>
 

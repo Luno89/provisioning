@@ -11,7 +11,7 @@ export const PERSONA_SEEDS: Persona[] = [
     name: "Koala",
     description: "Talks things through and works out what needs doing",
     version: "3",
-    tools: ["request_secret", "list_project_secrets"],
+    tools: ["request_secret", "list_project_secrets", "enable_mcp_server"],
     agents: ["planner","research"],
     environment: {},
     interface: {"inputs":{"type":"object","properties":{"message":{"type":"string"},"conversationId":{"type":"string"},"treeId":{"type":"string","description":"The Grove tree this conversation is about, when it is about one."},"tree":{"type":"string","description":"What that tree holds right now: its goal, branches and leaves with their states."},"projectId":{"type":"string","description":"The project this conversation is about, when it is about one that has no tree yet."},"project":{"type":"string","description":"Which project that is."}}}},

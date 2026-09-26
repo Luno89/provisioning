@@ -210,6 +210,13 @@ export const BUILDER_CASES: EvalCase[] = [
     expect: { tool: 'list_project_secrets' },
   },
   {
+    name: 'koala/asks-to-switch-a-server-on',
+    category: 'simple',
+    agent: 'koala',
+    say: 'Switch my Gitea MCP server on for this chat — I want you to look through my repositories.',
+    expect: { tool: 'enable_mcp_server', args: [{ arg: 'server', contains: 'Gitea' }, { arg: 'why', nonEmpty: true }] },
+  },
+  {
     name: 'koala/explains-a-reference-without-a-tool',
     category: 'irrelevance',
     agent: 'koala',

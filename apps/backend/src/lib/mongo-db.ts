@@ -15,6 +15,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
+import type { McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -168,6 +169,10 @@ export class MongoDB implements Database {
 
   private get secretRequests(): Collection {
     return this.db!.collection('secretRequests');
+  }
+
+  private get mcpRequests(): Collection {
+    return this.db!.collection('mcpRequests');
   }
 
   private get memories(): Collection {
@@ -730,6 +735,24 @@ export class MongoDB implements Database {
 
   async deleteSecretRequest(ownerId: string, id: string): Promise<void> {
     await this.secretRequests.deleteOne({ _id: id as any, ownerId });
+  }
+
+  async getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]> {
+    const query = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
+    const docs = await this.mcpRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<McpRequest>(d));
+  }
+
+  async getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined> {
+    const doc = await this.mcpRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<McpRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveMcpRequest(request: McpRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.mcpRequests.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {

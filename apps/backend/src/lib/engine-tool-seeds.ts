@@ -1,9 +1,9 @@
 import { checkDefinition, type ToolDefinition } from '@koala/agent-engine';
-import { SECRET_TOOLS, TASK_TOOLS, WORKSPACE_TOOLS } from '../engine-host/index.js';
+import { MCP_TOOLS, SECRET_TOOLS, TASK_TOOLS, WORKSPACE_TOOLS } from '../engine-host/index.js';
 import { GROVE_TOOLS } from '../engine-host/tools/grove-tools-catalogue.js';
 import { sameSeededRow } from './seed-diff.js';
 
-export const ENGINE_TOOL_SEEDS: ToolDefinition[] = [...TASK_TOOLS, ...GROVE_TOOLS, ...WORKSPACE_TOOLS, ...SECRET_TOOLS];
+export const ENGINE_TOOL_SEEDS: ToolDefinition[] = [...TASK_TOOLS, ...GROVE_TOOLS, ...WORKSPACE_TOOLS, ...SECRET_TOOLS, ...MCP_TOOLS];
 
 export interface EngineToolStore {
   getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;

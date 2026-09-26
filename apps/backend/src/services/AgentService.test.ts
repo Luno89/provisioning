@@ -88,6 +88,12 @@ describe('what an agent is refused for', () => {
       .toContain('it is granted "ghost_tool", which is not a tool');
   });
 
+  it('may only be given MCP servers the person runs', () => {
+    expect(agentProblems(agent({ mcp: ['Gitea MCP'] }), { ...known(), mcpServers: ['Gitea MCP'] })).toEqual([]);
+    expect(agentProblems(agent({ mcp: ['Jira'] }), { ...known(), mcpServers: ['Gitea MCP'] }))
+      .toContain('it may use "Jira", which is not one of your MCP servers');
+  });
+
   it('cannot be granted a tool above the limit it is held to', () => {
     expect(agentProblems(agent({ maxEffect: 'read' }), known())).toEqual([]);
     expect(agentProblems(agent({ maxEffect: 'read', tools: ['read_file', 'write_file'] }), known()))

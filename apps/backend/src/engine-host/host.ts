@@ -22,6 +22,7 @@ import type { Database } from '../lib/db-interface.js';
 import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } from './registries/effort.js';
 import { createCodeRunner } from './nodes/code-runner.js';
 import { createWorkspaceImages, type WorkspaceImages } from './sandboxes/warm-images.js';
+import { createMcpToolSource } from './tools/mcp-tools.js';
 
 export interface EngineHostStores {
   personas: { list(ownerId?: string): Promise<Persona[]> };
@@ -51,6 +52,7 @@ export interface EngineHostStores {
     save(item: MemoryItem): Promise<void>;
   };
   secrets?: import('./tools/secret-tools.js').SecretToolStores | undefined;
+  mcp?: import('./tools/mcp-tools.js').McpToolStores | undefined;
 }
 
 export interface EngineHostOptions {
@@ -65,6 +67,7 @@ export interface EngineHostOptions {
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
   efforts?: EffortTrackerOptions['store'] | undefined;
   vault?: import('./tools/secret-tools.js').SecretVault | undefined;
+  mcp?: import('./tools/mcp-tools.js').McpAccess | undefined;
 }
 
 export interface EngineHost {
@@ -141,6 +144,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       tasks: stores.tasks,
       groove: { stores: stores.grove },
       ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
+      ...(options.mcp && stores.mcp ? { mcp: { access: options.mcp, stores: stores.mcp } } : {}),
       platform: {
         ...(web
           ? {
@@ -164,7 +168,8 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       },
   });
 
-  const tools = createToolRuntime({ registry, environments, handlers });
+  const mcp = options.mcp && stores.mcp ? createMcpToolSource({ access: options.mcp, stores: stores.mcp }) : undefined;
+  const tools = createToolRuntime({ registry, environments, handlers, ...(mcp ? { mcp } : {}) });
 
   const efforts = options.efforts
     ? createEffortTracker({ models: options.models, registry, store: options.efforts })
@@ -179,6 +184,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     images: { waiting: (ownerId: string, agentSlug: string) => workspaceImages.waiting(ownerId, agentSlug) },
     code: createCodeRunner({ environments: { forRun: (request) => environments.forRun(request) } }),
     conversations: stores.conversations,
+    ...(mcp ? { mcp } : {}),
     memories: {
       list: async (ownerId: string) => (await stores.memories.list(ownerId)).filter((memory) => memory.ownerId === ownerId),
       save: stores.memories.save,
@@ -235,6 +241,13 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       },
     },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
+    mcp: {
+      enabled: async (ownerId: string, conversationId: string) => (await db.getConversation(ownerId, conversationId))?.mcpServers ?? [],
+      requests: {
+        list: (ownerId: string, conversationId: string) => db.getMcpRequests(ownerId, conversationId),
+        save: (request) => db.saveMcpRequest(request),
+      },
+    },
     secrets: {
       requests: {
         list: (ownerId, filter) => db.getSecretRequests(ownerId, filter),

@@ -12,6 +12,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
+import type { McpRequest } from '@koala/harness-types';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -146,6 +147,10 @@ export interface Database {
   getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined>;
   saveSecretRequest(request: SecretRequest): Promise<void>;
   deleteSecretRequest(ownerId: string, id: string): Promise<void>;
+
+  getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]>;
+  getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined>;
+  saveMcpRequest(request: McpRequest): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;

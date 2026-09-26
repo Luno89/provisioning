@@ -23,6 +23,8 @@ import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
 import { plansRouter } from './routes/plans.js';
 import { secretRequestsRouter } from './routes/secret-requests.js';
+import { mcpRouter } from './routes/mcp.js';
+import { McpService } from './services/McpService.js';
 import { SecretRequestService } from './services/SecretRequestService.js';
 import { PlanService } from './services/PlanService.js';
 import { GroveRunService } from './services/GroveRunService.js';
@@ -99,7 +101,6 @@ import { decryptValue } from './lib/crypto.js';
 
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
-import { preferUsable } from './lib/mcp-registry.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
 import { seedAll } from './scripts/seed-all.js';
 import type { SearchOutcome } from './lib/web-tools.js';
@@ -654,6 +655,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
       tools: (ownerId: string) => draftCatalogue.list(ownerId),
       procedures: (ownerId: string) => engineRegistry.procedures(ownerId),
+      mcpServers: async (ownerId: string) => [...new Set((await new McpRegistryService(db, ownerId, (n: string) => resolveMcpProbeUrl(n)).list()).map((server) => server.name))],
       images: evalHost.images,
     }),
   }));
@@ -683,15 +685,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   app.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));
 
-  async function koalaServers(userId: string) {
-    try {
-      const registry = new McpRegistryService(db, userId, (n: string) => resolveMcpProbeUrl(n));
-      return preferUsable(await registry.listWithTools());
-    } catch (err: any) {
-      console.warn(`[koala] could not list services: ${err.message}`);
-      return [];
-    }
-  }
+  const mcpRegistries = new Map<string, McpRegistryService>();
+  const mcpServersOf = (ownerId: string) => {
+    const known = mcpRegistries.get(ownerId) ?? new McpRegistryService(db, ownerId, (n: string) => resolveMcpProbeUrl(n));
+    mcpRegistries.set(ownerId, known);
+    return known.listWithTools();
+  };
+  app.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, servers: mcpServersOf }) }));
 
   app.use('/api/leaves', leavesRouter({ db, runs: groveRuns, deletion: groveDeletion }));
 

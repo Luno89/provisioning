@@ -26,6 +26,7 @@ export const STANDARD_HOST_TOOL_NAMES: readonly string[] = [
   'delete_file',
   'request_secret',
   'list_project_secrets',
+  'enable_mcp_server',
 ];
 import { PERSONA_SEEDS } from './persona-records.js';
 

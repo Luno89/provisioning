@@ -36,6 +36,7 @@ export interface ChatConversation {
    */
   agentSlug?: string | null | undefined;
   treeId?: string | undefined;
+  mcpServers?: string[] | undefined;
   projectId?: string | undefined;
   messages?: ChatConversationMessage[] | undefined;
 }

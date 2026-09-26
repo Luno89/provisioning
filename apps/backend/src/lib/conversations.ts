@@ -41,6 +41,7 @@ export interface Conversation {
   agentSlug?: string | undefined;
   treeId?: string | undefined;
   projectId?: string | undefined;
+  mcpServers?: string[] | undefined;
   createdAt: string;
   updatedAt: string;
 }

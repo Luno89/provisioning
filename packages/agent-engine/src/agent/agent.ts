@@ -56,6 +56,7 @@ export interface Persona {
   procedure: string;
   tools: string[];
   maxEffect?: ToolEffect | undefined;
+  mcp?: string[] | undefined;
   agents?: string[] | undefined;
   budget?: RunBudget | undefined;
   sampling?: SamplingConfig | undefined;

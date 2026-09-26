@@ -666,3 +666,17 @@ export interface SecretRequest {
   createdAt: string;
   updatedAt: string;
 }
+
+export type McpRequestStatus = 'requested' | 'enabled' | 'dismissed';
+
+export interface McpRequest {
+  id: string;
+  ownerId: string;
+  conversationId: string;
+  server: string;
+  why: string;
+  status: McpRequestStatus;
+  runId?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+}

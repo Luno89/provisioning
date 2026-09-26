@@ -21,6 +21,9 @@ import { usePlanProposals } from './Chat/hooks/usePlanProposals.js';
 import SecretRequestCard from './Chat/SecretRequestCard.js';
 import { useSecretRequests } from './Chat/hooks/useSecretRequests.js';
 import { listConversationSecretRequests, secretRequestKeys } from '../api/secret-requests.js';
+import McpRequestCard from './Chat/McpRequestCard.js';
+import McpServersMenu from './Chat/McpServersMenu.js';
+import { useConversationMcp, useMcpServers } from './Chat/hooks/useMcp.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
 
 export type { ChatMessageRecord };
@@ -70,6 +73,8 @@ export default function ChatSurface({
     Boolean(conv.selectedConvId),
     streaming,
   );
+  const mcp = useConversationMcp(conv.selectedConvId, streaming);
+  const { data: mcpServers = [] } = useMcpServers();
 
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: agentKeys.all,
@@ -172,6 +177,14 @@ export default function ChatSurface({
         }}
         onNewChat={() => conv.createMutation.mutate()}
         isCreatingChat={conv.createMutation.isPending}
+        actions={conv.selectedConvId ? (
+          <McpServersMenu
+            servers={mcpServers}
+            enabled={conv.activeConversation?.mcpServers ?? []}
+            busy={mcp.busy}
+            onChoose={mcp.choose}
+          />
+        ) : undefined}
       />
 
       <div className="flex-1 min-h-0 flex flex-col sm:flex-row overflow-hidden relative">
@@ -228,6 +241,17 @@ export default function ChatSurface({
                       onApprove={() => planProposals.approve(proposal.id)}
                       onReject={(reason) => planProposals.reject(proposal.id, reason)}
                       onOpenTree={onOpenTree}
+                    />
+                  ))}
+
+                  {mcp.requests.map((request) => (
+                    <McpRequestCard
+                      key={request.id}
+                      request={request}
+                      busy={mcp.busy}
+                      error={mcp.error}
+                      onEnable={() => mcp.enable(request.id)}
+                      onDismiss={() => mcp.dismiss(request.id)}
                     />
                   ))}
 

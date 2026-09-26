@@ -25,6 +25,7 @@ export interface AgentServiceOptions {
   };
   tools(ownerId: string): Promise<ToolDefinition[]>;
   procedures(ownerId: string): Promise<readonly Procedure[]>;
+  mcpServers?: ((ownerId: string) => Promise<string[]>) | undefined;
   images?: {
     start(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
     standing(plan: NonNullable<ReturnType<typeof planFor>>): Promise<ImageStanding>;
@@ -44,6 +45,7 @@ export function agentProblems(
     tools: readonly ToolDefinition[];
     procedures: readonly Procedure[];
     agents: ReadonlySet<string>;
+    mcpServers?: readonly string[] | undefined;
   },
 ): string[] {
   if (typeof value !== 'object' || value === null) return ['an agent has to be an object'];
@@ -82,6 +84,13 @@ export function agentProblems(
     if (!known.agents.has(delegate)) problems.push(`it may hand work to "${delegate}", which is not an agent`);
   }
   if ((agent.agents ?? []).includes(agent.slug as string)) problems.push('an agent cannot hand work to itself');
+  if (agent.mcp !== undefined && (!Array.isArray(agent.mcp) || agent.mcp.some((name) => typeof name !== 'string'))) {
+    problems.push('the MCP servers it may use have to be a list of names');
+  } else {
+    for (const server of agent.mcp ?? []) {
+      if (!(known.mcpServers ?? []).includes(server)) problems.push(`it may use "${server}", which is not one of your MCP servers`);
+    }
+  }
 
   for (const language of agent.environment?.languages ?? []) {
     if (!LANGUAGE_IDS.includes(language)) {
@@ -163,16 +172,18 @@ export class AgentService {
   }
 
   async save(ownerId: string, input: unknown): Promise<SaveAgentOutcome> {
-    const [tools, procedures, agents] = await Promise.all([
+    const [tools, procedures, agents, mcpServers] = await Promise.all([
       this.options.tools(ownerId),
       this.options.procedures(ownerId),
       this.all(ownerId),
+      this.options.mcpServers?.(ownerId) ?? Promise.resolve([]),
     ]);
 
     const problems = agentProblems(input, {
       tools,
       procedures,
       agents: new Set(agents.map((agent) => agent.slug)),
+      mcpServers,
     });
     if (problems.length > 0) return { saved: false, problems };
 

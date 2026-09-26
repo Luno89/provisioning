@@ -12,6 +12,7 @@ import {
 } from '../../api/procedures'
 import { engineKeys, listEngineAgents, listRunTraces } from '../../api/engine'
 import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
+import { listMcpServers, mcpKeys } from '../../api/mcp'
 import {
   deleteEngineTool,
   engineToolKeys,
@@ -59,6 +60,10 @@ export const NODE_DRAG_TYPE = 'application/x-koala-node'
 
 export function useAgents() {
   return useQuery({ queryKey: agentKeys.all, queryFn: listAgents })
+}
+
+export function useMcpServerList() {
+  return useQuery({ queryKey: mcpKeys.servers(), queryFn: listMcpServers })
 }
 
 export function useGrantableTools() {

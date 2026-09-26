@@ -16,6 +16,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
+import type { McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -50,6 +51,7 @@ export class MemoryDB implements Database {
   private tasks: Task[] = [];
   private planProposals: PlanProposal[] = [];
   private secretRequests: SecretRequest[] = [];
+  private mcpRequests: McpRequest[] = [];
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
   private runEffort = new Map<string, RunEffort>();
@@ -544,6 +546,22 @@ export class MemoryDB implements Database {
 
   async deleteSecretRequest(ownerId: string, id: string): Promise<void> {
     this.secretRequests = this.secretRequests.filter((r) => !(r.id === id && r.ownerId === ownerId));
+  }
+
+  async getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]> {
+    return this.mcpRequests
+      .filter((r) => r.ownerId === ownerId && (conversationId === undefined || r.conversationId === conversationId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined> {
+    return this.mcpRequests.find((r) => r.id === id && r.ownerId === ownerId);
+  }
+
+  async saveMcpRequest(request: McpRequest): Promise<void> {
+    const idx = this.mcpRequests.findIndex((r) => r.id === request.id);
+    if (idx >= 0) this.mcpRequests[idx] = request;
+    else this.mcpRequests.push(request);
   }
 
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {

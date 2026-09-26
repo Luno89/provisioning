@@ -1,6 +1,8 @@
 import { executeTool, refuse, type EnvironmentDriver, type ToolHandler } from '@koala/engine-core';
 import type { EnvironmentHandleRef, RunTicket, ToolCallArgs, ToolCallOutcome, ToolRuntime } from '../temporal/contracts.js';
 import type { AgentRegistry } from '../registries/registry.js';
+import type { McpToolSource } from './mcp-tools.js';
+import { isMcpToolName } from '../../lib/mcp-tools.js';
 
 export type { ToolHandler } from '@koala/engine-core';
 export type { ToolRuntime } from '../temporal/contracts.js';
@@ -17,6 +19,7 @@ export interface ToolRuntimeOptions {
   environments?: EnvironmentSource | undefined;
   handlers?: Record<string, ToolHandler> | undefined;
   digestChars?: number | undefined;
+  mcp?: McpToolSource | undefined;
 }
 
 export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
@@ -29,7 +32,10 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         ticket: args.ticket,
         ...(args.environment ? { environment: args.environment } : {}),
       });
-      const catalogue = await options.registry.tools(args.ticket.ownerId);
+      const mcp = options.mcp && isMcpToolName(args.name)
+        ? await options.mcp.forRun(args.ticket.ownerId, agent, args.ticket.conversationId)
+        : undefined;
+      const catalogue = [...await options.registry.tools(args.ticket.ownerId), ...(mcp?.contracts ?? [])];
       if (attempt > 1 && catalogue.find((tool) => tool.name === args.name)?.idempotent !== true) {
         return refuse(`${args.name} may already have run once before this call failed, and running it again is not safe, so it was not repeated. Check what it did before calling it again.`);
       }
@@ -37,7 +43,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
       return executeTool({
         name: args.name,
         arguments: args.arguments,
-        granted: agent.tools,
+        granted: [...agent.tools, ...(mcp?.contracts.map((tool) => tool.name) ?? [])],
         catalogue,
         ...(agent.maxEffect ? { ceiling: agent.maxEffect } : {}),
         caller: {
@@ -48,7 +54,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
           ...(args.ticket.projectId ? { projectId: args.ticket.projectId } : {}),
         },
         ...(driver ? { driver } : {}),
-        ...(options.handlers ? { handlers: options.handlers } : {}),
+        ...(options.handlers || mcp ? { handlers: { ...(options.handlers ?? {}), ...(mcp?.handlers ?? {}) } } : {}),
         ...(options.digestChars === undefined ? {} : { digestChars: options.digestChars }),
       });
     },

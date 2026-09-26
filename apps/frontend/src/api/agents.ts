@@ -28,6 +28,7 @@ export interface Agent {
   procedure: string
   tools: string[]
   maxEffect?: 'read' | 'propose' | 'write'
+  mcp?: string[]
   agents?: string[]
   environment: AgentEnvironment
   model?: { endpointId?: string | null; reasoningEffort?: string; replyCeiling?: number }
