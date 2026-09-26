@@ -5,7 +5,7 @@ import {
   builtInCatalogue,
   runProcedure,
 } from '@koala/agent-engine/procedure';
-import { ALL_SEEDED_AGENTS, createEventBus } from '@koala/agent-engine';
+import { ALL_SEEDED_AGENTS, contractsFor, createEventBus } from '@koala/agent-engine';
 import type { ToolContract } from '@koala/engine-core';
 import { createAgentRegistry } from './registries/registry.js';
 import { createEnvironmentResolver } from './sandboxes/environments.js';
@@ -29,6 +29,7 @@ function vaultBackend() {
   return {
     held,
     hasSecret: async (projectId: string, key: string) => held.has(`${projectId}/${key}`),
+    listSecrets: async (projectId: string) => [...held.keys()].filter((entry) => entry.startsWith(`${projectId}/`)).map((entry) => ({ key: entry.split('/')[1]! })),
     setSecret: async (projectId: string, key: string, value: string) => {
       held.set(`${projectId}/${key}`, value);
       return { secretReference: `secret://${projectId}/${key}` };
@@ -81,7 +82,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
 
     const registry = createAgentRegistry({
       agentStore: { list: async () => [koala] },
-      toolCatalogue: { list: async () => SECRET_TOOLS as unknown as ToolContract[] },
+      toolCatalogue: { list: async () => contractsFor(SECRET_TOOLS, ['draft', 'approved']) },
     });
     const environments = createEnvironmentResolver({
       registry,
@@ -121,6 +122,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
       }
       if (round === 3) return sse(call('c3', { key: 'GITEA_TOKEN', description: 'To clone the repo at run time.' }));
       if (round === 4) return sse(call('c4', { key: 'WEBHOOK_SECRET', description: 'Stripe webhooks.', value: 'whsec_model_invented' }));
+      if (round === 5) return sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c5', function: { name: 'list_project_secrets', arguments: '{}' } }] }, finish_reason: null }] });
       return sse({ choices: [{ delta: { content: 'Stripe is set, the Gitea token was provisioned.' }, finish_reason: 'stop' }] });
     });
     vi.stubGlobal('fetch', fetchImpl);
@@ -158,6 +160,7 @@ describe('a secret never reaches the model, a trace, an event or a conversation'
     const modelSaw = fetchImpl.mock.calls.map((args) => String((args as unknown as [string, RequestInit])[1].body)).join('\n');
     expect(modelSaw).toContain('secret://project-9/STRIPE_API_KEY');
     expect(modelSaw).toContain('never send a secret value');
+    expect(modelSaw).toContain('- GITEA_TOKEN (secret://project-9/GITEA_TOKEN): in the vault');
 
     const everywhere = {
       modelSaw,

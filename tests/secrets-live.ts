@@ -85,6 +85,10 @@ async function main(): Promise<void> {
     console.log('  Infisical holds the value');
 
     runIds.push(await turn(http, conversationId, `I entered ${key} on the card. Check that it is in the vault now.`));
+    runIds.push(await turn(http, conversationId, 'Which secrets does this project have now?'));
+    const listed = JSON.stringify((await http.get(`/engine/runs/${runIds.at(-1)}/traces`)).data);
+    assert.ok(listed.includes(`${key} (secret://${project.id}/${key}): in the vault`), 'koala did not list the key as in the vault');
+    console.log(`  koala listed ${key} as in the vault, by name only`);
 
     const conversation = JSON.stringify((await http.get(`/conversations/${conversationId}`)).data);
     const traces = JSON.stringify(await Promise.all(runIds.map(async (runId) => (await http.get(`/engine/runs/${runId}/traces`)).data)));

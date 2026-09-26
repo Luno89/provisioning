@@ -64,7 +64,7 @@ describe('request_secret', () => {
   });
 
   it('reports a key the vault already holds without creating a request', async () => {
-    const { ask, requests } = world({ has: async () => true, mint: async () => undefined });
+    const { ask, requests } = world({ has: async () => true, keys: async () => [], mint: async () => undefined });
     const out = await ask({ key: 'STRIPE_API_KEY', description: 'The live key' });
     expect(out.content).toContain('status: provided');
     expect(requests).toHaveLength(0);
@@ -72,7 +72,7 @@ describe('request_secret', () => {
 
   it('provisions a key a source can mint, records where it came from, and returns no value', async () => {
     const minted: string[] = [];
-    const { ask, requests, projects } = world({ has: async () => false, mint: async (_o, projectId, key, source) => { minted.push(`${projectId}/${key}/${source}`); } });
+    const { ask, requests, projects } = world({ has: async () => false, keys: async () => [], mint: async (_o, projectId, key, source) => { minted.push(`${projectId}/${key}/${source}`); } });
     const out = await ask({ key: 'GITEA_TOKEN', description: 'Clone at run time' });
 
     expect(minted).toEqual(['p1/GITEA_TOKEN/gitea-read-token']);
@@ -82,7 +82,7 @@ describe('request_secret', () => {
   });
 
   it('falls back to asking the person when minting fails', async () => {
-    const { ask, requests } = world({ has: async () => false, mint: async () => { throw new Error('gitea down'); } });
+    const { ask, requests } = world({ has: async () => false, keys: async () => [], mint: async () => { throw new Error('gitea down'); } });
     const out = await ask({ key: 'GITEA_TOKEN', description: 'Clone at run time' });
     expect(out.content).toContain('status: requested');
     expect(requests[0]!.status).toBe('requested');
@@ -96,5 +96,22 @@ describe('request_secret', () => {
     expect((await ask({ key: 'STRIPE_KEY', description: 'd' }, { ownerId: 'u1' })).digest).toContain('about none');
     expect((await ask({ key: 'STRIPE_KEY', description: 'd', projectId: 'p2' })).digest).toContain('no such project');
     expect(requests).toHaveLength(0);
+  });
+});
+
+describe('list_project_secrets', () => {
+  it('lists names and where each stands, never a value, for the person\'s own project only', async () => {
+    const vault: SecretVault = { has: async () => false, keys: async () => ['STRIPE_API_KEY'], mint: async () => undefined };
+    const out = await createSecretTools({
+      vault,
+      stores: {
+        requests: { list: async () => [{ id: 'r', ownerId: 'u1', projectId: 'p1', key: 'WEBHOOK_SECRET', description: 'd', secretReference: 'secret://p1/WEBHOOK_SECRET', status: 'requested', createdAt: 'x', updatedAt: 'x' }], save: async () => undefined },
+        projects: { list: async () => [{ id: 'p1', name: 'billing', ownerId: 'u1', appType: 'gitapp', createdAt: 'now', requiredSecrets: [{ key: 'DATABASE_URL', source: 'person' }] }, { id: 'p2', name: 'theirs', ownerId: 'u2', appType: 'gitapp', createdAt: 'now' }], save: async () => undefined },
+        trees: { list: async () => [] },
+      },
+    }).list_project_secrets!({ name: 'list_project_secrets', parsed: { projectId: 'p1' }, driver: undefined, caller: { ownerId: 'u1' } });
+    expect(out.content).toContain('- DATABASE_URL (secret://p1/DATABASE_URL): needed, but not in the vault');
+    expect(out.content).toContain('- STRIPE_API_KEY (secret://p1/STRIPE_API_KEY): in the vault');
+    expect(out.content).toContain('- WEBHOOK_SECRET (secret://p1/WEBHOOK_SECRET): waiting for the person to enter it');
   });
 });

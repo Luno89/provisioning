@@ -10,6 +10,7 @@ import type { ProjectMetadata } from '../../lib/types.js';
 
 export interface SecretVault {
   has(projectId: string, key: string): Promise<boolean>;
+  keys(projectId: string): Promise<string[]>;
   mint(ownerId: string, projectId: string, key: string, sourceId: string): Promise<void>;
 }
 
@@ -71,6 +72,33 @@ export function createSecretTools(options: SecretToolOptions): Record<string, To
   };
 
   return {
+    async list_project_secrets({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner whose secrets to list');
+      const found = await projectFor(caller.ownerId, asString(parsed, 'projectId') ?? asString(parsed, 'project_id'), caller);
+      if ('problem' in found) return refuse(found.problem);
+      const { project } = found;
+      if (!vault) return refuse('the vault is not reachable from here, so its keys cannot be listed');
+
+      const held = new Set(await vault.keys(project.id));
+      const waiting = new Set((await stores.requests.list(caller.ownerId, { projectId: project.id }))
+        .filter((request) => request.status === 'requested')
+        .map((request) => request.key));
+      const needed = (project.requiredSecrets ?? []).map((entry) => entry.key);
+      const names = [...new Set([...held, ...waiting, ...needed])].sort();
+      if (names.length === 0) {
+        return { ok: true, digest: `${project.name}: no secrets`, content: `${project.name} has no secrets in the vault and none asked for.` };
+      }
+      const line = (key: string): string => {
+        const state = held.has(key) ? 'in the vault' : waiting.has(key) ? 'waiting for the person to enter it' : 'needed, but not in the vault';
+        return `- ${key} (${secretReference(project.id, key)}): ${state}`;
+      };
+      return {
+        ok: true,
+        digest: `${project.name}: ${held.size} in the vault, ${waiting.size} waiting`,
+        content: `Secrets for ${project.name} — names only; no value is ever shown:\n${names.map(line).join('\n')}`,
+      };
+    },
+
     async request_secret({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner to ask for a secret');
       const ownerId = caller.ownerId;

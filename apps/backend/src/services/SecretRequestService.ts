@@ -12,9 +12,10 @@ export interface SecretMinters {
   readToken(ownerId: string): Promise<string>;
 }
 
-export function createSecretVault(deps: { backend: VaultBackend; minters: SecretMinters }): SecretVault {
+export function createSecretVault(deps: { backend: VaultBackend & { listSecrets(projectId: string): Promise<{ key: string }[]> }; minters: SecretMinters }): SecretVault {
   return {
     has: (projectId, key) => deps.backend.hasSecret(projectId, key),
+    keys: async (projectId) => (await deps.backend.listSecrets(projectId)).map((entry) => entry.key),
     async mint(ownerId, projectId, key, sourceId) {
       if (sourceId !== GITEA_READ_TOKEN.id) throw new Error(`no minter for ${sourceId}`);
       const token = await deps.minters.readToken(ownerId);

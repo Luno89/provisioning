@@ -189,6 +189,33 @@ export const BUILDER_CASES: EvalCase[] = [
     say: 'Which of our clusters is running low on disk?',
     expect: { tool: null },
   },
+  {
+    name: 'koala/asks-for-a-secret-by-name',
+    category: 'simple',
+    agent: 'koala',
+    say: 'The billing service in project p-billing will need the Stripe secret key at run time, read from STRIPE_SECRET_KEY. I have it — ask me for it properly.',
+    expect: {
+      tool: 'request_secret',
+      args: [
+        { arg: 'key', is: 'STRIPE_SECRET_KEY' },
+        { arg: 'description', nonEmpty: true },
+      ],
+    },
+  },
+  {
+    name: 'koala/checks-what-secrets-exist',
+    category: 'simple',
+    agent: 'koala',
+    say: 'Which secrets does project p-billing already have set?',
+    expect: { tool: 'list_project_secrets' },
+  },
+  {
+    name: 'koala/explains-a-reference-without-a-tool',
+    category: 'irrelevance',
+    agent: 'koala',
+    say: 'In one sentence: what is a secret:// reference?',
+    expect: { tool: null },
+  },
 ];
 
 export function casesFor(tool: string, all: readonly EvalCase[] = BUILDER_CASES): EvalCase[] {
