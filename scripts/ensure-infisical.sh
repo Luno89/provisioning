@@ -123,8 +123,8 @@ echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap n
   --set backendEnvironmentVariables.ENCRYPTION_KEY="${INFISICAL_ENCRYPTION_KEY}" \
   --set backendEnvironmentVariables.AUTH_SECRET="${INFISICAL_AUTH_SECRET}" \
   --set backendEnvironmentVariables.ADMIN_PASSWORD="${INFISICAL_ADMIN_PASSWORD}" \
-  --set service.type=NodePort \
-  --set service.nodePort=31738 \
+  --set infisical.service.type=NodePort \
+  --set infisical.service.nodePort=31738 \
   --set postgresql.enabled=true \
   --set postgresql.auth.password="${INFISICAL_POSTGRES_PASSWORD}" \
   --set redis.enabled=true \

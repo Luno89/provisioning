@@ -26,6 +26,7 @@ export interface RunTicket {
   ownerId: string;
   agentSlug: string;
   conversationId?: string | undefined;
+  projectId?: string | undefined;
   trigger: RunIdentity['trigger'];
   modelId?: string | undefined;
   sampling?: SamplingConfig | undefined;
@@ -126,7 +127,7 @@ export interface ResolvedAgentInfo {
 }
 
 export interface ToolRuntime {
-  run(args: ToolCallArgs): Promise<ToolCallOutcome>;
+  run(args: ToolCallArgs, attempt?: number): Promise<ToolCallOutcome>;
 }
 
 export interface MergeRuntime {
@@ -326,6 +327,7 @@ export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTick
   ownerId: run.launch.ownerId,
   agentSlug: run.identity.agentId,
   ...(run.launch.conversationId ? { conversationId: run.launch.conversationId } : {}),
+  ...(run.launch.projectId ? { projectId: run.launch.projectId } : {}),
   trigger: run.identity.trigger,
   ...(run.launch.modelId ? { modelId: run.launch.modelId } : {}),
   ...(run.launch.sampling ? { sampling: run.launch.sampling } : {}),
@@ -333,7 +335,7 @@ export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTick
 
 export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => ({
   ownerId: ticket.ownerId,
-  ...(projectId ? { projectId } : {}),
+  ...((projectId ?? ticket.projectId) ? { projectId: projectId ?? ticket.projectId } : {}),
   ...(ticket.conversationId ? { conversationId: ticket.conversationId } : {}),
   ...(ticket.modelId ? { modelId: ticket.modelId } : {}),
   ...(ticket.sampling ? { sampling: ticket.sampling } : {}),

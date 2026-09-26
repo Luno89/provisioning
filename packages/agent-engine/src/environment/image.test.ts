@@ -9,6 +9,8 @@ const tool = (over: Partial<ToolDefinition> & Pick<ToolDefinition, 'name'>): Too
   summary: 'does a thing',
   binding: 'environment',
   effect: 'write',
+  idempotent: false,
+  openWorld: false,
   status: 'approved',
   approvedBy: 'luno',
   returns: 'output',

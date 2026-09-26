@@ -257,7 +257,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     },
 
     async EngineToolActivity(args: ToolCallArgs): Promise<ToolCallOutcome> {
-      return services.tools.run(args);
+      return services.tools.run(args, currentActivity()?.info.attempt ?? 1);
     },
 
     async EngineMergeActivity(args: MergeArgs): Promise<Record<string, unknown>> {

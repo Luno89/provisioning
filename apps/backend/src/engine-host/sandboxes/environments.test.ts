@@ -172,6 +172,8 @@ describe('describing a run environment', () => {
         summary: 'Query a database',
         binding: 'environment' as const,
         effect: 'read' as const,
+        idempotent: false,
+        openWorld: false,
         status: 'approved' as const,
         approvedBy: 'luno',
         returns: 'rows',

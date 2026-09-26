@@ -119,6 +119,7 @@ export class GitappApp extends Construct {
         name: "gitapp",
         namespace: ns.metadata.name,
         labels: { app: `gitapp-${id}` },
+        annotations: { "secrets.infisical.com/auto-reload": "true" },
       },
       spec: {
         replicas: "1",

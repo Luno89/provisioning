@@ -1,7 +1,7 @@
 import type { SamplingConfig } from '@koala/harness-types';
 import { withBuiltIns } from '../lib/ownership.js';
 import { capabilitiesOf, type EnvironmentCapabilities, type EnvironmentRequirement, type EnvironmentSpec } from '@koala/engine-core/contracts';
-import { agentAsTool, type ToolContract } from '@koala/engine-core/contracts';
+import { agentAsTool, type ToolContract, type ToolEffect } from '@koala/engine-core/contracts';
 import type { RunBudget } from '../runtime/run.js';
 
 export interface PersonaFailure {
@@ -55,6 +55,7 @@ export interface Persona {
   failures: PersonaFailure[];
   procedure: string;
   tools: string[];
+  maxEffect?: ToolEffect | undefined;
   agents?: string[] | undefined;
   budget?: RunBudget | undefined;
   sampling?: SamplingConfig | undefined;

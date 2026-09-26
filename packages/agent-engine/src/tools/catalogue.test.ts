@@ -7,6 +7,8 @@ const tool = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
   summary: 'Does the thing',
   binding: 'platform',
   effect: 'write',
+  idempotent: false,
+  openWorld: false,
   status: 'draft',
   returns: 'Confirmation that the thing was done',
   failures: [{ when: 'the target does not exist', says: 'there is no such target' }],

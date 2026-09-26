@@ -33,7 +33,7 @@ const sourceFor = (driver: EnvironmentDriver | undefined): EnvironmentSource => 
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true } },
-  { name: 'read_file', description: 'Read a file', binding: 'environment', requires: { filesystem: true } },
+  { name: 'read_file', description: 'Read a file', binding: 'environment', idempotent: true, requires: { filesystem: true } },
   { name: 'write_file', description: 'Write a file', binding: 'environment', requires: { filesystem: true } },
   { name: 'list_dir', description: 'List a directory', binding: 'environment', requires: { filesystem: true } },
   { name: 'search_web', description: 'Search the web', binding: 'network' },
@@ -103,6 +103,29 @@ describe('tool runtime', () => {
       .toContain('d src');
 
     expect(backend.writeFile).toHaveBeenCalledWith(expect.objectContaining({ content: 'hello' }));
+  });
+
+  it('will not run a tool again on a retry unless it is declared safe to repeat', async () => {
+    const { backend, driver } = sandbox();
+    const retried = await runtime(driver).run(args(), 2);
+    expect(retried.ok).toBe(false);
+    expect(retried.digest).toContain('may already have run once');
+    expect(backend.exec).not.toHaveBeenCalled();
+
+    const reread = await runtime(driver).run(args({ name: 'read_file', arguments: '{"path":"a.ts"}' }), 2);
+    expect(reread.ok).toBe(true);
+    expect(backend.readFile).toHaveBeenCalled();
+  });
+
+  it('hands the run\'s project to a platform tool', async () => {
+    const seen: (string | undefined)[] = [];
+    const tools = createToolRuntime({
+      registry: registry(),
+      environments: sourceFor(undefined),
+      handlers: { save_memory: async ({ caller }) => { seen.push(caller.projectId); return { ok: true, digest: 'ok' }; } },
+    });
+    await tools.run(args({ name: 'save_memory', arguments: '{"text":"x"}', ticket: { runId: 'r', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', projectId: 'p-7' } }));
+    expect(seen).toEqual(['p-7']);
   });
 
   it('refuses a tool the agent was never granted', async () => {

@@ -22,6 +22,8 @@ export function blankTool(name: string): EngineTool {
     summary: '',
     binding: 'environment',
     effect: 'read',
+    idempotent: false,
+    openWorld: false,
     parameters: { type: 'object', properties: {} },
     returns: '',
     failures: [{ when: '', says: '' }],

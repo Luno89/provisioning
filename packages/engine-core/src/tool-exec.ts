@@ -1,4 +1,4 @@
-import { effectiveTools, type ToolContract } from './tools.js';
+import { effectiveTools, type ToolContract, type ToolEffect } from './tools.js';
 import { renderCommand } from './command-tool.js';
 import { ScopeError } from './scope.js';
 import { NO_CAPABILITIES, type EnvironmentDriver } from './environment.js';
@@ -116,6 +116,7 @@ export interface ExecuteToolInput {
   arguments: string;
   granted: string[];
   catalogue: readonly ToolContract[];
+  ceiling?: ToolEffect | undefined;
   driver?: EnvironmentDriver | undefined;
   handlers?: Record<string, ToolHandler> | undefined;
   digestChars?: number | undefined;
@@ -133,6 +134,7 @@ export async function executeTool(input: ExecuteToolInput): Promise<ToolOutcome>
     granted: input.granted,
     catalogue: [...input.catalogue],
     capabilities,
+    ...(input.ceiling ? { ceiling: input.ceiling } : {}),
   });
 
   if (!tools.some((tool) => tool.name === input.name)) {

@@ -21,7 +21,7 @@ export interface ToolRuntimeOptions {
 
 export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
   return {
-    async run(args: ToolCallArgs): Promise<ToolCallOutcome> {
+    async run(args: ToolCallArgs, attempt = 1): Promise<ToolCallOutcome> {
       const agent = await options.registry.agent(args.ticket.ownerId, args.ticket.agentSlug);
       if (!agent) return refuse(`There is no agent called "${args.ticket.agentSlug}".`);
 
@@ -30,17 +30,22 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         ...(args.environment ? { environment: args.environment } : {}),
       });
       const catalogue = await options.registry.tools(args.ticket.ownerId);
+      if (attempt > 1 && catalogue.find((tool) => tool.name === args.name)?.idempotent !== true) {
+        return refuse(`${args.name} may already have run once before this call failed, and running it again is not safe, so it was not repeated. Check what it did before calling it again.`);
+      }
 
       return executeTool({
         name: args.name,
         arguments: args.arguments,
         granted: agent.tools,
         catalogue,
+        ...(agent.maxEffect ? { ceiling: agent.maxEffect } : {}),
         caller: {
           ownerId: args.ticket.ownerId,
           runId: args.ticket.runId,
           agentSlug: args.ticket.agentSlug,
           ...(args.ticket.conversationId ? { conversationId: args.ticket.conversationId } : {}),
+          ...(args.ticket.projectId ? { projectId: args.ticket.projectId } : {}),
         },
         ...(driver ? { driver } : {}),
         ...(options.handlers ? { handlers: options.handlers } : {}),

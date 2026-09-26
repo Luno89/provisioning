@@ -88,6 +88,14 @@ describe('what an agent is refused for', () => {
       .toContain('it is granted "ghost_tool", which is not a tool');
   });
 
+  it('cannot be granted a tool above the limit it is held to', () => {
+    expect(agentProblems(agent({ maxEffect: 'read' }), known())).toEqual([]);
+    expect(agentProblems(agent({ maxEffect: 'read', tools: ['read_file', 'write_file'] }), known()))
+      .toContain('it is granted "write_file", which can change things, but the agent is limited to reading');
+    expect(agentProblems(agent({ maxEffect: 'nothing' as never }), known()))
+      .toContain('"nothing" is not a limit — an agent may be limited to read, propose or write');
+  });
+
   it('cannot hand work to an agent that does not exist, or to itself', () => {
     expect(agentProblems(agent({ agents: ['nobody'] }), known()))
       .toContain('it may hand work to "nobody", which is not an agent');

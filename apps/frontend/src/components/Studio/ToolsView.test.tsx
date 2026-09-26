@@ -23,6 +23,8 @@ const tool = (over: Partial<EngineTool> = {}): EngineTool => ({
   summary: 'Counts the lines that match',
   binding: 'environment',
   effect: 'read',
+  idempotent: false,
+  openWorld: false,
   parameters: { type: 'object', properties: { pattern: { type: 'string', description: 'what to look for' } } },
   returns: 'the number of matching lines',
   failures: [{ when: 'the path does not exist', says: 'no such file' }],

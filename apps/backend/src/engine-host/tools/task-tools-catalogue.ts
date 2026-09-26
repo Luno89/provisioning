@@ -14,6 +14,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
       + 'task may wait only on tasks of the same leaf.',
     binding: 'platform',
     effect: 'write',
+    idempotent: false,
+    openWorld: false,
     status: 'draft',
     returns: 'The new task\'s id and status, so later proposals can depend on it.',
     failures: [
@@ -52,6 +54,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
       + 'another is not ready.',
     binding: 'platform',
     effect: 'read',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     replaces: ['list_leaves', 'get_leaf'],
     returns: 'One line per task — its id, title and state — and the same set as JSON carrying id, '
@@ -89,6 +93,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
       + 'with ready true first if you are choosing what to work on rather than being handed it.',
     binding: 'platform',
     effect: 'write',
+    idempotent: false,
+    openWorld: false,
     status: 'draft',
     returns: 'Confirmation naming the task, and the list of runs that have claimed it, so a second '
       + 'claim is visible rather than silent.',
@@ -116,6 +122,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
       + 'not succeed this is the wrong tool and marking it done anyway hides the failure.',
     binding: 'platform',
     effect: 'write',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     returns: 'Confirmation naming the task, then what it unblocked — tasks that depended on it and '
       + 'now have nothing else outstanding — or that nothing was waiting on it.',
@@ -146,6 +154,8 @@ export const TASK_TOOLS: ToolDefinition[] = [
       + 'Say what went wrong; the reason is what whoever picks it up next reads first.',
     binding: 'platform',
     effect: 'write',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     returns: 'Confirmation naming the task and its new status.',
     failures: [

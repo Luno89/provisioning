@@ -10,6 +10,8 @@ import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 import { JoinMeshActivity } from './JoinMeshActivity.js';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
+import { infisicalHostFor } from '../lib/infisical-sync.js';
+import { ensureInfisicalOperator } from '../services/ProjectSecretSync.js';
 
 export interface ProvisionClusterArgs {
   name: string;
@@ -293,6 +295,12 @@ export async function ProvisionClusterActivity(
   const deployTimeout = (args.provider === 'k3d' || isMock) ? 10 * 60 * 1000 : 25 * 60 * 1000;
   await infra.deploy(physicalName, { logFile, env: clusterEnv, timeout: deployTimeout });
   await infra.deploy(`${physicalName}-observability`, { logFile, env: clusterEnv, timeout: deployTimeout });
+
+  if (!('problem' in infisicalHostFor({ clusterName: args.name, provider: args.provider, isMock }))) {
+    await fs.appendFile(logFile, '[secrets] installing the Infisical secrets operator\n').catch(() => {});
+    const operator = await ensureInfisicalOperator(infra, kubeconfigPath);
+    await fs.appendFile(logFile, `[secrets] Infisical secrets operator ${operator}\n`).catch(() => {});
+  }
 
   let capacity: ClusterCapacity | undefined;
   try {

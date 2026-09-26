@@ -21,6 +21,10 @@ import { planHostMemory, parseQuantity, type HostMemoryPlan } from '../lib/host-
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { isValidImageTag } from '../lib/registry-tags.js';
 import { sanitiseNamespaceName } from '../lib/projects.js';
+import { infisicalHostFor } from '../lib/infisical-sync.js';
+import { syncProjectSecrets } from '../services/ProjectSecretSync.js';
+import { InfisicalService } from '../services/InfisicalService.js';
+import { ClusterProxyService } from '../services/ClusterProxyService.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,
@@ -490,10 +494,34 @@ export async function DeployAppActivity(
         '--dry-run=client', '-o', 'yaml'],
       kubeconfigPath,
     );
-    const tmpSecretPath = path.join(os.tmpdir(), `gitapp-registry-secret-${deploymentId}.yaml`);
-    await fs.writeFile(tmpSecretPath, secretYaml as any);
-    await infra.runKubectl(['apply', '-f', tmpSecretPath], kubeconfigPath);
-    await fs.rm(tmpSecretPath, { force: true }).catch(() => {});
+    await infra.applyManifest(String(secretYaml), kubeconfigPath);
+
+    const secretDb = createDatabase();
+    await secretDb.init();
+    try {
+      const self = (await secretDb.getDeployments()).find((d) => d.name === args.name || d.id === args.name);
+      const project = self?.gitappProjectId
+        ? (await secretDb.getProjects()).find((p) => p.id === self.gitappProjectId)
+        : undefined;
+      if (project) {
+        const target = { clusterName: args.clusterName, provider: args.provider, isMock };
+        const reachable = infisicalHostFor(target);
+        if ('problem' in reachable) {
+          if (project.requiredSecrets?.length) throw new Error(reachable.problem);
+          console.warn(`[DeployAppActivity] ${project.name} declares no secrets; ${reachable.problem}`);
+        } else {
+          const masterKey = process.env.JWT_SECRET || '';
+          const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, new ClusterProxyService());
+          const synced = await syncProjectSecrets(
+            { infra, vault: infisical, projects: secretDb, masterKey },
+            { project, namespace: sanitizedName, kubeconfig: kubeconfigPath, target },
+          );
+          console.log(`[DeployAppActivity] ${project.name}: vault syncs into ${sanitizedName}-secrets from ${synced.hostAPI} (operator ${synced.operator})`);
+        }
+      }
+    } finally {
+      await secretDb.close().catch(() => undefined);
+    }
   }
 
   if (args.appType === 'palworld') {

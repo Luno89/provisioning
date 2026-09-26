@@ -18,6 +18,8 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
       + 'only uses a Model Turn names no specific tool, so it needs no lookup first.',
     binding: 'platform',
     effect: 'read',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     replaces: ['list_tree_types'],
     returns: 'Every tool name, every persona with what it is for, and every node kind and group a procedure '
@@ -38,6 +40,8 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
       + 'Editing a built-in gives you your own copy rather than changing it for everyone.',
     binding: 'platform',
     effect: 'read',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     replaces: ['get_tree_type'],
     returns: 'The full JSON definition of the procedure (schema, id, version, name, budget, start, nodes, wires, flow), in the same format save_procedure takes.',
@@ -63,6 +67,8 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
       + 'have to take before saving. Read the problems it lists and fix them in the source you are holding.',
     binding: 'platform',
     effect: 'read',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     replaces: [...LOOP_EDITING, 'compile_procedure'],
     returns: 'Either a confirmation naming what the procedure defines, or the problems, in the '
@@ -91,6 +97,8 @@ export const BUILDER_TOOLS: ToolDefinition[] = [
       + 'back refused, fix what it lists and call it again. The source must be clean JSON.',
     binding: 'platform',
     effect: 'write',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     replaces: ['create_tree_type', 'set_tree_type_overview', 'delete_tree_type', 'write_procedure'],
     returns: 'Confirmation naming what was saved, as your own copy. A built-in is never changed; '

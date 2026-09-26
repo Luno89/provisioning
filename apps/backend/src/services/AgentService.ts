@@ -67,8 +67,16 @@ export function agentProblems(
     );
   }
 
+  const EFFECTS = ['read', 'propose', 'write'];
+  if (agent.maxEffect !== undefined && !EFFECTS.includes(agent.maxEffect)) {
+    problems.push(`"${String(agent.maxEffect)}" is not a limit — an agent may be limited to read, propose or write`);
+  }
   for (const tool of agent.tools ?? []) {
+    const definition = known.tools.find((candidate) => candidate.name === tool);
     if (!toolNames.has(tool)) problems.push(`it is granted "${tool}", which is not a tool`);
+    else if (agent.maxEffect && definition && EFFECTS.indexOf(definition.effect) > EFFECTS.indexOf(agent.maxEffect)) {
+      problems.push(`it is granted "${tool}", which can ${definition.effect === 'write' ? 'change things' : 'propose changes'}, but the agent is limited to ${agent.maxEffect === 'read' ? 'reading' : 'proposing'}`);
+    }
   }
   for (const delegate of agent.agents ?? []) {
     if (!known.agents.has(delegate)) problems.push(`it may hand work to "${delegate}", which is not an agent`);

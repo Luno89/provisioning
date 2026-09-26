@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentAsTool, describeTools, effectiveTools, toolSchemas, type ToolContract } from './index.js';
+import { NO_CAPABILITIES, agentAsTool, describeTools, effectiveTools, toolSchemas, type ToolContract } from './index.js';
 import { capabilitiesOf } from './index.js';
 
 const catalogue: ToolContract[] = [
@@ -161,5 +161,28 @@ describe('agentAsTool', () => {
 
     expect(tool).toMatchObject({ name: 'research', binding: 'platform' });
     expect(toolSchemas([tool])[0]?.function.parameters).toMatchObject({ properties: { question: { type: 'string' } } });
+  });
+});
+
+describe('an agent held to a limit', () => {
+  const catalogue = [
+    { name: 'read_it', description: 'r', binding: 'platform' as const, effect: 'read' as const },
+    { name: 'suggest_it', description: 's', binding: 'platform' as const, effect: 'propose' as const },
+    { name: 'change_it', description: 'c', binding: 'platform' as const, effect: 'write' as const },
+  ];
+  const offer = (ceiling?: 'read' | 'propose' | 'write') => effectiveTools({
+    granted: ['read_it', 'suggest_it', 'change_it'],
+    catalogue,
+    capabilities: NO_CAPABILITIES,
+    ...(ceiling ? { ceiling } : {}),
+  });
+
+  it('is offered only what stays within it, and told why the rest is held back', () => {
+    expect(offer('read').tools.map((tool) => tool.name)).toEqual(['read_it']);
+    expect(offer('read').withheld.map((tool) => tool.why)).toEqual([
+      expect.stringContaining('only reads'), expect.stringContaining('only reads'),
+    ]);
+    expect(offer('propose').tools.map((tool) => tool.name)).toEqual(['read_it', 'suggest_it']);
+    expect(offer().tools).toHaveLength(3);
   });
 });

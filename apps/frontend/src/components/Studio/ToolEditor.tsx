@@ -214,6 +214,17 @@ export default function ToolEditor({ tool, onClose }: { tool: EngineTool; onClos
         </label>
       </div>
 
+      <div className="flex flex-col gap-1">
+        <label className="flex items-center gap-2 text-[12px] text-slate-300">
+          <input type="checkbox" checked={draft.idempotent} onChange={(event) => set('idempotent', event.target.checked)} />
+          Safe to run twice with the same arguments — if a call fails part way, it may be retried
+        </label>
+        <label className="flex items-center gap-2 text-[12px] text-slate-300">
+          <input type="checkbox" checked={draft.openWorld} onChange={(event) => set('openWorld', event.target.checked)} />
+          Its results come from outside this platform and can differ between calls
+        </label>
+      </div>
+
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <span className={label}>How it fails, in its own words</span>

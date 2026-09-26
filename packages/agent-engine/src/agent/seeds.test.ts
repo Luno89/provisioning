@@ -92,6 +92,8 @@ describe('seeded agents compose usable prompts', () => {
     summary: name,
     binding: (name.includes('web') ? 'network' : name.includes('task') ? 'platform' : 'environment') as ToolDefinition['binding'],
     effect: 'read',
+    idempotent: false,
+    openWorld: false,
     parameters: { type: 'object', properties: {} },
     returns: 'string',
     failures: [],

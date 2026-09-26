@@ -11,6 +11,8 @@ const needsPsql: ToolDefinition = {
   summary: 'Query a database',
   binding: 'environment',
   effect: 'read',
+  idempotent: false,
+  openWorld: false,
   status: 'approved',
   approvedBy: 'luno',
   returns: 'rows',

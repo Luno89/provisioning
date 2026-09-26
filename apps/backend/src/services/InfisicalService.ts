@@ -277,31 +277,41 @@ export class InfisicalService {
     }));
   }
 
-  generateInfisicalSecretManifest(options: {
-    name: string;
-    namespace: string;
-    projectId: string;
-    environment?: string | undefined;
-    targetSecretName?: string | undefined;
-  }): string {
-    const { name, namespace, projectId, environment = 'dev', targetSecretName = `${name}-secrets` } = options;
-    return `apiVersion: secrets.infisical.com/v1alpha1
-kind: InfisicalSecret
-metadata:
-  name: ${name}
-  namespace: ${namespace}
-spec:
-  hostAPI: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080
-  resyncInterval: 60
-  authentication:
-    universalAuth:
-      credentialsRef:
-        secretName: infisical-auth
-        secretNamespace: ${namespace}
-  managedSecretReference:
-    secretName: ${targetSecretName}
-    secretNamespace: ${namespace}
-    creationPolicy: Owner
-`;
+  async workspaceIdFor(projectId: string): Promise<string> {
+    return this.ensureWorkspace(projectId);
+  }
+
+  async createProjectReader(projectId: string): Promise<{ clientId: string; clientSecret: string }> {
+    const workspaceId = await this.ensureWorkspace(projectId);
+    return this.authorized(async (token, baseUrl) => {
+      const headers = { Authorization: `Bearer ${token}` };
+      const options = { headers, timeout: 8000, proxy: false as const };
+      const identity = await axios.post(
+        `${baseUrl}/api/v1/identities`,
+        { name: `reader-${projectId}-${Date.now().toString(36)}`, organizationId: this.orgId, role: 'no-access' },
+        options,
+      );
+      const identityId = identity.data?.identity?.id;
+      if (!identityId) throw new Error('Infisical did not return the new identity');
+      const auth = await axios.post(
+        `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}`,
+        { accessTokenTTL: 2592000, accessTokenMaxTTL: 2592000, accessTokenNumUsesLimit: 0 },
+        options,
+      );
+      const clientId = auth.data?.identityUniversalAuth?.clientId;
+      const secret = await axios.post(
+        `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}/client-secrets`,
+        { description: `operator reader for ${projectId}`, ttl: 0, numUsesLimit: 0 },
+        options,
+      );
+      const clientSecret = secret.data?.clientSecret;
+      if (!clientId || !clientSecret) throw new Error('Infisical did not return a client credential for the reader');
+      await axios.post(
+        `${baseUrl}/api/v2/workspace/${workspaceId}/identity-memberships/${identityId}`,
+        { role: 'viewer' },
+        options,
+      );
+      return { clientId, clientSecret };
+    });
   }
 }

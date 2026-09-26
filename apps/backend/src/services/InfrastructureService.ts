@@ -141,6 +141,25 @@ export class InfrastructureService {
     return stdout;
   }
 
+  async applyManifest(manifest: string, kubeconfig?: string): Promise<string> {
+    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
+    const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
+    const inContainer = containerName ? await this.dockerContainerExists(containerName) : false;
+    const [command, args, env] = inContainer
+      ? ['docker', ['exec', '-i', containerName!, 'kubectl', 'apply', '-f', '-'], process.env]
+      : [path.join(BIN_DIR, 'kubectl'), ['apply', '-f', '-'], { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }];
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (chunk) => { out += chunk; });
+      child.stderr.on('data', (chunk) => { err += chunk; });
+      child.on('error', reject);
+      child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`kubectl apply failed: ${err.trim() || `exit ${code}`}`))));
+      child.stdin.end(manifest);
+    });
+  }
+
   async runHelm(args: string[], kubeconfig?: string) {
     const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
     if (match) {

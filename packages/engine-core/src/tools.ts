@@ -7,6 +7,9 @@ export interface ToolContract {
   name: string;
   description: string;
   binding: ToolBinding;
+  effect?: ToolEffect | undefined;
+  idempotent?: boolean | undefined;
+  openWorld?: boolean | undefined;
   requires?: EnvironmentRequirement | undefined;
   parameters?: Record<string, unknown> | undefined;
   usageGuidance?: string | undefined;
@@ -23,6 +26,7 @@ export interface EffectiveToolsRequest {
   catalogue: ToolContract[];
   capabilities: EnvironmentCapabilities;
   allowed?: 'granted' | 'none' | string[] | undefined;
+  ceiling?: ToolEffect | undefined;
 }
 
 export interface EffectiveTools {
@@ -38,6 +42,20 @@ const impliedRequirement = (tool: ToolContract): EnvironmentRequirement => {
 
 const runsInEnvironment = (tool: ToolContract): boolean =>
   tool.binding === 'environment' || tool.requires !== undefined;
+
+export type ToolEffect = 'read' | 'propose' | 'write';
+
+const REACH: Record<ToolEffect, number> = { read: 0, propose: 1, write: 2 };
+
+const CEILING_WHY: Record<ToolEffect, string> = {
+  read: 'this agent only reads; it may not change anything or propose changes',
+  propose: 'this agent may read and propose, but not change anything itself',
+  write: '',
+};
+
+export function exceedsCeiling(tool: Pick<ToolContract, 'effect'>, ceiling: ToolEffect | undefined): boolean {
+  return ceiling !== undefined && tool.effect !== undefined && REACH[tool.effect] > REACH[ceiling];
+}
 
 export function effectiveTools(request: EffectiveToolsRequest): EffectiveTools {
   const { granted, catalogue, capabilities } = request;
@@ -62,6 +80,11 @@ export function effectiveTools(request: EffectiveToolsRequest): EffectiveTools {
 
     if (permitted && !permitted.has(name)) {
       withheld.push({ name, why: 'this step does not offer that tool' });
+      continue;
+    }
+
+    if (exceedsCeiling(tool, request.ceiling)) {
+      withheld.push({ name, why: CEILING_WHY[request.ceiling!] });
       continue;
     }
 

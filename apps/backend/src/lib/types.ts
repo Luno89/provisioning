@@ -172,6 +172,7 @@ export interface ProjectMetadata {
   webhookSecretEnc?: string; // AES-256-GCM encrypted (crypto.ts) — HMAC key for verifying Gitea's push webhook signature
   lastBuildStatus?: 'queued' | 'running' | 'succeeded' | 'failed';
   requiredSecrets?: { key: string; source: string }[];
+  infisicalReaderEnc?: string;
   createdAt: string;
   /**
    * Where this project's leaves execute. Absent means the K8s sandbox (today's only behaviour).

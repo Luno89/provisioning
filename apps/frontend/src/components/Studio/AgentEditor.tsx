@@ -127,6 +127,19 @@ export default function AgentEditor({ agent, agents, onClose }: {
         </div>
       )}
 
+      <label className="block space-y-1">
+        <span className={label}>What it may do with its tools</span>
+        <select
+          className={field}
+          value={draft.maxEffect ?? 'write'}
+          onChange={(event) => set('maxEffect', event.target.value === 'write' ? undefined : event.target.value as Agent['maxEffect'])}
+        >
+          <option value="write">change things</option>
+          <option value="propose">read and propose changes, never make them</option>
+          <option value="read">only read</option>
+        </select>
+      </label>
+
       <div className="space-y-1">
         <span className={label}>Tools it is granted</span>
         {grantable.isPending && <p className="flex items-center gap-1 text-[11px] text-slate-500"><Loader2 size={11} className="animate-spin" /> Loading tools…</p>}

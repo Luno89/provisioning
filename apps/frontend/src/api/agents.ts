@@ -27,6 +27,7 @@ export interface Agent {
   failures: { when: string; says: string }[]
   procedure: string
   tools: string[]
+  maxEffect?: 'read' | 'propose' | 'write'
   agents?: string[]
   environment: AgentEnvironment
   model?: { endpointId?: string | null; reasoningEffort?: string; replyCeiling?: number }

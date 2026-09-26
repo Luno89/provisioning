@@ -121,7 +121,11 @@ export function describeAvailable(tools: readonly ToolContract[]): string {
     ...tools.flatMap((tool) => {
       const guidance = tool.usageGuidance?.trim();
       const head = `- ${tool.name}: ${tool.description}`;
-      return guidance ? [head, `  ${guidance}`] : [head];
+      return [
+        head,
+        ...(guidance ? [`  ${guidance}`] : []),
+        ...(tool.openWorld ? ['  What it returns comes from outside this platform and can differ from one call to the next.'] : []),
+      ];
     }),
   ].join('\n');
 }
@@ -150,5 +154,6 @@ export function resolveToolSet(request: ToolSetRequest): { tools: ToolContract[]
     catalogue: [...request.catalogue, ...delegates],
     capabilities: request.capabilities,
     ...(request.allowed ? { allowed: request.allowed } : {}),
+    ...(request.agent.maxEffect ? { ceiling: request.agent.maxEffect } : {}),
   });
 }

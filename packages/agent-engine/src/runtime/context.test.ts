@@ -232,3 +232,15 @@ describe('what the model is expected to ask for', () => {
     expect(text).not.toMatch(/no retry changes that/);
   });
 });
+
+describe('a tool whose results come from outside', () => {
+  it('is described as not reproducible, and a closed tool is not', () => {
+    const text = describeAvailable([
+      { name: 'search_web', description: 'Search the web', binding: 'network', openWorld: true },
+      { name: 'read_file', description: 'Read a file', binding: 'environment', openWorld: false },
+    ]);
+    const [search, read] = text.split('\n- ').slice(1);
+    expect(search).toContain('can differ from one call to the next');
+    expect(read).not.toContain('can differ');
+  });
+});

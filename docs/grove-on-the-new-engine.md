@@ -700,8 +700,9 @@ design conversation first).
 | # | Capability | Legacy spec | State |
 |---|---|---|---|
 | — | Machine command approval gate | `leaf-approval.ts`, `local-execution-target.ts` | dropped (owner 2026-09-26: work runs in a sandbox) |
-| 0.1 | Secrets never in the LLM flow: `request_secret` → card → Infisical → operator injects `<ns>-secrets` at deploy; sentinel test | `koala-tool-handlers.ts` (secret handlers), `secret-sources.ts`, `conversations.ts` submit route | building — S1 tool, S2 card + strict Infisical, S4 sentinel test done and live-verified (`npm run test:secrets-live`, and the card in the browser); S3 (Infisical reachable from every cluster, operator installed at provisioning, `InfisicalSecret` per deploy) open |
-| 0.2 | Tool `idempotent`/`destructive`/`openWorld`; no retry for non-idempotent; `effect` gates tools by role | `action-gate.ts` | open |
+| 0.1 | Secrets never in the LLM flow: `request_secret` → card → Infisical → operator syncs `<ns>-secrets` → env | `koala-tool-handlers.ts` (secret handlers), `secret-sources.ts`, `conversations.ts` submit route | done on the management cluster, live (`npm run test:secret-injection-live`: value in the pod env, a rotated value reaches it with no redeploy); k3d: provisioning installs the operator (live) and Infisical is reachable at `host.k3d.internal:31738`, but no gitapp can deploy to k3d yet (row G-k3d); remote/cloud clusters refuse with the reason until the vault is reachable from them |
+| 0.2 | Tool `idempotent`/`openWorld` declared on every tool and required on save; a retried non-idempotent call is refused; open-world results said in the prompt; `maxEffect` limits a persona to read/propose (research and grove-runner are read-only) | `action-gate.ts` | done; `destructive` lands with the first destructive tool (1.4), since a flag nothing reads is not shipped |
+| G-k3d | A gitapp cannot deploy to a k3d cluster: the host Docker pulls the Gitea image over HTTPS and the registry speaks HTTP (`insecure-registries` in `/etc/docker/daemon.json`, a host setting) | — | open, owner's call |
 | 1.1 | Koala: secret existence by reference (no value ever) | `koala-tool-handlers.ts` | open |
 | 1.2 | Koala: MCP servers as tools; ask to enable one | `mcp-tools.ts`, `leaf-mcp.ts` | open |
 | 1.3 | Koala: read-only kube diagnostics | `kube-diagnostics.ts`, `infrastructure.ts` | open |

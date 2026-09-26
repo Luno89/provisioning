@@ -1,7 +1,9 @@
 import { placeholdersIn } from '@koala/engine-core';
 import type { EnvironmentRequirement, ToolBinding, ToolContract } from '@koala/engine-core';
 
-export type ToolEffect = 'read' | 'write' | 'propose';
+import type { ToolEffect } from '@koala/engine-core/contracts';
+
+export type { ToolEffect } from '@koala/engine-core/contracts';
 
 export type ToolStatus = 'draft' | 'approved';
 
@@ -33,6 +35,8 @@ export interface ToolDefinition {
   guidance?: string | undefined;
   binding: ToolBinding;
   effect: ToolEffect;
+  idempotent: boolean;
+  openWorld: boolean;
   parameters: JsonSchema;
 
   returns: string;
@@ -65,6 +69,8 @@ export function checkDefinition(tool: ToolDefinition): CatalogueProblem[] {
     say('a tool name is lower case, digits and underscores, starting with a letter');
   }
   if (!tool.summary.trim()) say('has no summary, so nothing tells the model what it does');
+  if (typeof tool.idempotent !== 'boolean') say('does not say whether calling it twice with the same arguments is safe, so a failed call could never be retried or would be retried unsafely');
+  if (typeof tool.openWorld !== 'boolean') say('does not say whether its results come from outside and can change between calls');
 
   const names = Object.keys(tool.parameters.properties);
   for (const required of tool.parameters.required ?? []) {
@@ -130,6 +136,9 @@ export function asContract(tool: ToolDefinition): ToolContract {
     name: tool.name,
     description,
     binding: tool.binding,
+    effect: tool.effect,
+    idempotent: tool.idempotent,
+    openWorld: tool.openWorld,
     parameters: tool.parameters as unknown as Record<string, unknown>,
     ...(tool.guidance ? { usageGuidance: tool.guidance } : {}),
     ...(tool.command ? { command: tool.command } : {}),

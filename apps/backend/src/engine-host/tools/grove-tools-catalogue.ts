@@ -37,6 +37,8 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     guidance: 'Plans one leaf, not a tree. For a replan, read what failed first (the failure you were handed, the leaf brief and PLAN.md, and the work committed in the worktree you are in) and propose tasks that get past it; amend the goal only if the failure shows the goal itself was wrong, and say so in why. For a breakdown, propose the tasks that reach the goal as it stands. The proposal waits for the person; approving replaces the leaf\'s unfinished tasks with these and runs the tree again.',
     binding: 'platform',
     effect: 'write',
+    idempotent: false,
+    openWorld: false,
     status: 'draft',
     returns: 'text in the form `proposed leaf plan <id> — <mode> of "<leaf>": <n> tasks`',
     failures: [
@@ -62,6 +64,8 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     guidance: 'Read the tree before planning more of it, so a plan grows what is there instead of repeating it: new leaves can wait on existing leaf ids. In a conversation about one tree, treeId may be left out.',
     binding: 'platform',
     effect: 'read',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     returns: 'the tree\'s name, id, type and goal, then each branch with its leaves as `<title> (<id>) [<status>, <done>/<n> tasks done, waits on …] — <goal>`',
     failures: [
@@ -81,6 +85,8 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     guidance: 'Check this before proposing a new tree: the tree type decides how the project is built and judged, and only these ids are accepted.',
     binding: 'platform',
     effect: 'read',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     returns: 'one line per type: `<id> — <label>: <summary>`',
     failures: [{ when: 'no tree types are set up', says: 'that no new tree can be proposed' }],
@@ -92,6 +98,8 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     guidance: 'The planner\'s one hand for a tree. Send the whole plan in one call; it is checked all at once and, if anything is missing, refused with what to fix and nothing saved. A valid plan is kept as a proposal and shown to the person with Approve and Reject — nothing exists in the grove until they approve. Approval creates the tree (when you describe a new one), its branches, leaves and tasks, the tree\'s sandbox, PLAN.md from your planDoc, and leaves/<leaf>.md from each brief; those documents are what every later agent works from, so write them for someone who never met you.',
     binding: 'platform',
     effect: 'write',
+    idempotent: false,
+    openWorld: false,
     status: 'draft',
     returns: 'text in the form `proposed plan <id> — <n> branches, <n> leaves, <n> tasks for <tree>`',
     failures: [
@@ -129,6 +137,8 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     guidance: 'Work has a terminal word, and it is not your verdict. result “claimed”: the leaf’s tasks are done and here is the evidence — write it as pointers the judge can re-derive, not prose (commands with their output, file paths, run ids); findings flags concerns for the judge. result “failed”: the work is blocked beyond your power — a reason is required (what is blocked, what you tried, why it is beyond you). A claim moves the leaf to claimed/failed and never past that: the judge, in the judge pass, weighs the evidence against the leaf’s goal and settles it. A proposed (unaccepted) leaf, an already-claimed leaf, and a settled leaf are all refused — each with the state it is in and what comes next.',
     binding: 'platform',
     effect: 'write',
+    idempotent: false,
+    openWorld: false,
     status: 'draft',
     returns: 'text in the form `claimed <leafId>` / `failed <leafId> — <reason>`; the leaf carries the claim record (evidence, findings, runs, at) for the judge',
     failures: [
@@ -156,6 +166,8 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     guidance: 'You weigh the recorded claim — and re-derive what it points at, in your checkout of exactly the claimed commit — against what the leaf’s body says must become true. verdict “verified”: the evidence demonstrates the goal — the leaf is succeeded and verified. verdict “stay-claimed”: plausible but thin — do not mark it done, and do not re-run it; leave it claimed with a note on what is missing: the run parks it for the person, who decides from your note. verdict “failed”: the goal was not reached — a reason is required (what the evidence shows is missing), so the replan can pick an angle. Only a claimed leaf settles: a raw, running, or settled leaf is refused, because settling something unfinished is how claims quietly became verdicts. A claim is a pointer to look at, never the evidence itself.',
     binding: 'platform',
     effect: 'write',
+    idempotent: false,
+    openWorld: false,
     status: 'draft',
     returns: 'text in the form `settled <leafId> — verified` / `settled <leafId> — failed` / `kept <leafId> claimed — <note>`; the leaf carries the rewrite (status / verified / findings / review note)',
     failures: [
@@ -179,6 +191,8 @@ export const GROVE_TOOLS: ToolDefinition[] = [
     guidance: 'Read-only. Partitions the tree\'s leaves into: ready (pending, dependencies cleared, has open tasks), unbroken (pending but no tasks yet — the plan needs to fill it), blocked (dependencies not succeeded — the ones it waits on), claimed (work claimed, waiting for the judge pass), inFlight (running — should be empty at a fresh pass; treat leftovers as stale), settled (succeeded / failed / cancelled). Returns the partition as JSON; the digest is the count line. Ordering is temporary (creation order); nesting-aware scheduling is not in this v1.',
     binding: 'platform',
     effect: 'read',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     returns: 'A JSON partition { treeId, ready, unbroken, blocked, claimed, awaitingReview, inFlight, settled } and a digest of the form `n ready, n blocked, n without tasks, n in flight, n settled — tree <treeId>`',
     failures: [

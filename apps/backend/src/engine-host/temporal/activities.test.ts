@@ -84,7 +84,7 @@ describe('the remaining engine activities', () => {
     });
 
     expect(outcome).toMatchObject({ ok: true, digest: 'tool digest' });
-    expect(svc.tools.run).toHaveBeenCalledWith(expect.objectContaining({ name: 'read_file' }));
+    expect(svc.tools.run).toHaveBeenCalledWith(expect.objectContaining({ name: 'read_file' }), 1);
   });
 
   it('delegates a custom merge strategy to its runtime', async () => {

@@ -7,6 +7,8 @@ export const SECRET_TOOLS: ToolDefinition[] = [
     guidance: 'Use this when the service being built will need a credential at run time. Name it as the environment variable the code reads. The person enters the value on a card and it goes straight into the vault; the deployed service receives it as that environment variable. You never see the value, so write code that reads the variable rather than asking for it in chat, and never put a real secret in a file, a command or a message.',
     binding: 'platform',
     effect: 'propose',
+    idempotent: true,
+    openWorld: false,
     status: 'draft',
     returns: 'the key, its reference `secret://<project>/<KEY>`, and a status: requested (waiting for the person), provided (already in the vault) or provisioned (created automatically)',
     failures: [
