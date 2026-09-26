@@ -167,9 +167,9 @@ export default function LeafDetail({ leaf, subLeaves, all = [], frozen = false }
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {leaf.status === 'running' && (
-            <button onClick={() => cancel.mutate()} title="Cancel"
-              className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-[var(--bark-700)]"><CircleSlash size={15} /></button>
+          {!frozen && ['pending', 'running', 'claimed'].includes(leaf.status) && (
+            <button onClick={() => cancel.mutate()} disabled={cancel.isPending} title="Cancel — stop working this leaf; the rest of the tree carries on"
+              className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-[var(--bark-700)] disabled:opacity-50"><CircleSlash size={15} /></button>
           )}
           <button onClick={() => setConfirmingDelete(true)} title="Delete, with its sub-leaves"
             className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-[var(--bark-700)]"><Trash2 size={15} /></button>

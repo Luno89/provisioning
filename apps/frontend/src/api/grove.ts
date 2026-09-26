@@ -37,7 +37,7 @@ export const releaseTreeWorkspace = (id: string): Promise<{ state: TreeWorkspace
   api.delete<{ state: TreeWorkspaceState }>(`/trees/${id}/workspace`).then((r) => r.data)
 
 export interface TreeRunResult {
-  outcome: 'quiet' | 'capped'
+  outcome: 'quiet' | 'capped' | 'stopped'
   passes: number
   awaitingReview: string[]
   awaitingApproval?: string[]
@@ -53,6 +53,8 @@ export const getTreeRun = (id: string): Promise<TreeRunStatus> =>
   api.get<TreeRunStatus>(`/trees/${id}/run`).then((r) => r.data)
 export const runTree = (id: string): Promise<TreeRunStatus> =>
   api.post<TreeRunStatus>(`/trees/${id}/run`).then((r) => r.data)
+export const stopTreeRun = (id: string): Promise<TreeRunStatus> =>
+  api.post<TreeRunStatus>(`/trees/${id}/run/stop`).then((r) => r.data)
 
 export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((r) => r.data)
 export const createTree = <T,>(body: unknown): Promise<T> =>

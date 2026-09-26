@@ -137,6 +137,9 @@ export const DEFAULT_ENGINE_TASK_QUEUE = 'engine-queue';
 
 export const groveRunWorkflowId = (treeId: string): string => `grove-run-${treeId}`;
 
+export const GROVE_STOP_RUN = 'stopRun';
+export const GROVE_CANCEL_LEAF = 'cancelLeaf';
+
 export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';
 
 export type TerminalOutcome = RunOutcome;
@@ -206,8 +209,15 @@ export interface GroveLeafArgs {
 
 export interface GroveLeafResult {
   leafId: string;
-  outcome: 'claimed' | 'failed' | 'unbroken';
+  outcome: 'claimed' | 'failed' | 'unbroken' | 'cancelled';
   reason?: string | undefined;
+}
+
+export interface GroveLeafStatusArgs {
+  ownerId: string;
+  leafId: string;
+  from: Array<'pending' | 'running'>;
+  to: 'pending' | 'running';
 }
 
 export interface GroveLeafTasksArgs {
@@ -283,7 +293,7 @@ export interface GrovePartition {
 
 export interface GroveRunResult {
   treeId: string;
-  outcome: 'quiet' | 'capped';
+  outcome: 'quiet' | 'capped' | 'stopped';
   passes: number;
   awaitingReview: string[];
   awaitingApproval?: string[] | undefined;

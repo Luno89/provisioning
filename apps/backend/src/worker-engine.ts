@@ -12,6 +12,8 @@ import { InfrastructureService } from './services/InfrastructureService.js';
 import { createModelService } from './lib/model-wiring.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
+import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
+import { getTemporalClient } from './lib/temporal-client.js';
 
 import { createEventBus } from '@koala/agent-engine';
 import {
@@ -85,6 +87,7 @@ async function buildActivities() {
     environments,
     tools,
     hostNodes,
+    runCancelled: runCancelledVia(() => getTemporalClient()),
     tasks: {
       list: (ownerId: string) => db.getTasks(ownerId),
       save: (task: Task) => db.saveTask(task),

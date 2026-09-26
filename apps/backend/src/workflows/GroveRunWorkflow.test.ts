@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { WorkflowClient } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -12,7 +13,7 @@ import {
   type ModelReply,
 } from '@koala/agent-engine/procedure';
 import type { ToolContract } from '@koala/engine-core';
-import { GroveRunWorkflow } from './GroveRunWorkflow.js';
+import { GroveRunWorkflow, cancelLeafInRunSignal, stopRunSignal } from './GroveRunWorkflow.js';
 import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.js';
 import { createHostNodes, hostNodesFor } from '../engine-host/nodes/index.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
@@ -23,6 +24,7 @@ import { createTreeWorkspaces } from '../engine-host/sandboxes/tree-workspaces.j
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { createSandboxDriver } from '../engine-host/drivers/sandbox.js';
 import { createEngineActivities, createNodeRunner } from '../engine-host/temporal/activities.js';
+import { runCancelledVia } from '../engine-host/temporal/run-cancellation.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
@@ -155,8 +157,8 @@ const classify = (seen: string, system: string): string => {
   return 'unknown';
 };
 
-const scriptModel = (rounds: Map<string, number>) =>
-  stepImplementation('call-model', ({ node, execution, inputs }) => {
+const scriptModel = (rounds: Map<string, number>, hang?: string) =>
+  stepImplementation('call-model', async ({ node, execution, inputs, run }) => {
     const messages = inputs.messages as ChatMessage[];
     const system = (typeof inputs.system === 'string' && inputs.system)
       ? (inputs.system as string)
@@ -165,6 +167,11 @@ const scriptModel = (rounds: Map<string, number>) =>
     const kind = classify(seen, system);
     const round = (rounds.get(kind) ?? 0) + 1;
     rounds.set(kind, round);
+    if (kind === hang) {
+      return new Promise<never>((_, reject) => {
+        run.signal?.addEventListener('abort', () => reject(new Error('the model call was aborted')));
+      });
+    }
 
     const leaf = kind.match(/\bleaf[ABC]\b/)?.[0] ?? 'leafNone';
     const name = leaf.slice(-1).toUpperCase();
@@ -252,7 +259,11 @@ beforeEach(() => {
   setupWorld();
 });
 
-async function runGroveWorld() {
+async function runGroveWorld(options: {
+  hang?: string;
+  drive?: (handle: { signal: (...args: never[]) => Promise<void> }, rounds: Map<string, number>) => Promise<void>;
+} = {}) {
+  const client = options.drive ? new WorkflowClient({ connection: env.connection }) : env.client.workflow;
     const stores = worldStores();
     const rounds = new Map<string, number>();
     const registry = createAgentRegistry({
@@ -400,6 +411,8 @@ async function runGroveWorld() {
         GrovePrepareWorkActivity: realGrove.GrovePrepareWorkActivity,
         GroveJudgeCheckoutActivity: realGrove.GroveJudgeCheckoutActivity,
         GroveLeafTasksActivity: realGrove.GroveLeafTasksActivity,
+        GroveLeafStatusActivity: realGrove.GroveLeafStatusActivity,
+        GroveResetInFlightActivity: realGrove.GroveResetInFlightActivity,
         GroveClaimActivity: realGrove.GroveClaimActivity,
         GroveNeedsPlanActivity: realGrove.GroveNeedsPlanActivity,
         GroveOpenProposalsActivity: realGrove.GroveOpenProposalsActivity,
@@ -451,24 +464,66 @@ async function runGroveWorld() {
       connection: env.nativeConnection,
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: {
-        EngineStreamNodeActivity: createNodeRunner([scriptModel(rounds), decideModel], undefined),
+        EngineStreamNodeActivity: createNodeRunner([scriptModel(rounds, options.hang), decideModel], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
         EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
       },
     });
 
     const runId = `grove-proof-${Math.random().toString(36).slice(2, 8)}`;
     const start = async () => {
-      const handle = await env.client.workflow.start(GroveRunWorkflow, {
+      const handle = await client.start(GroveRunWorkflow, {
         args: [{ treeId: 'tree-1', ownerId: 'user-1' }],
         taskQueue,
         workflowId: runId,
       });
+      if (options.drive) await options.drive(handle as never, rounds);
       return (await handle.result()) as GroveRunResult;
     };
 
     const result = await engineWorker.runUntil(() => streamWorker.runUntil(start));
     return { result, partitionCalls, efforts, sandboxOfCall, worktreeOfCall, gitCommands, provisioned, describeRun, kubeCalls };
 }
+
+const waitFor = async (check: () => boolean, what: string): Promise<void> => {
+  const deadline = Date.now() + 20_000;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  }
+};
+
+describe('stopping and cancelling', () => {
+  it('stopping the run cancels the leaf mid-task, puts it back to pending, and ends the run as stopped', async () => {
+    const { result } = await runGroveWorld({
+      hang: 'exec-leafA',
+      drive: async (handle, rounds) => {
+        await waitFor(() => (rounds.get('exec-leafA') ?? 0) > 0, 'leaf A\'s task to start');
+        await handle.signal(stopRunSignal as never);
+      },
+    });
+
+    expect(result.outcome).toBe('stopped');
+    expect(leaves.find((leaf) => leaf.id === 'leafA')?.status).toBe('pending');
+    expect(leaves.find((leaf) => leaf.id === 'leafA')?.claim).toBeUndefined();
+    expect(tasks.find((task) => task.leafId === 'leafA')?.status).not.toBe('done');
+  }, 120_000);
+
+  it('cancelling one leaf stops its task and leaves the rest of the tree running', async () => {
+    const { result } = await runGroveWorld({
+      hang: 'exec-leafA',
+      drive: async (handle, rounds) => {
+        await waitFor(() => (rounds.get('exec-leafA') ?? 0) > 0, 'leaf A\'s task to start');
+        const index = leaves.findIndex((leaf) => leaf.id === 'leafA');
+        leaves[index] = { ...leaves[index]!, status: 'cancelled' };
+        await handle.signal(cancelLeafInRunSignal as never, 'leafA' as never);
+      },
+    });
+
+    expect(result.outcome).toBe('quiet');
+    expect(leaves.find((leaf) => leaf.id === 'leafA')?.status).toBe('cancelled');
+    expect(leaves.find((leaf) => leaf.id === 'leafB')?.status).toBe('succeeded');
+  }, 120_000);
+});
 
 describe('GroveRunWorkflow', () => {
   it('works the independent leaves in one pass, judges their claims in its own, and runs the dependent one next', async () => {

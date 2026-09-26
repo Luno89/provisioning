@@ -19,7 +19,7 @@ export interface TreesRouterDeps {
   db: Database;
   temporalBridge: TemporalBridge;
   workspaces: Pick<TreeWorkspaces, 'state' | 'release'>;
-  runs: Pick<GroveRunService, 'run' | 'status'>;
+  runs: Pick<GroveRunService, 'run' | 'status' | 'stop'>;
   deletion: Pick<GroveDeletionService, 'deleteTree'>;
 }
 
@@ -152,6 +152,12 @@ export function treesRouter(deps: TreesRouterDeps): Router {
     const outcome = await runs.status(userOf(req).id, idOf(req));
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.json(outcome.value);
+  }));
+
+  router.post('/:id/run/stop', asyncRoute(async (req, res) => {
+    const outcome = await runs.stop(userOf(req).id, idOf(req));
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    res.status(202).json(outcome.value);
   }));
 
   router.post('/:id/run', asyncRoute(async (req, res) => {

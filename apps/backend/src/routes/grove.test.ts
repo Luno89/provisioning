@@ -77,7 +77,7 @@ describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }) } }), deletion: deletionFor(db) }),
+      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db) }),
     });
     // Setup seeds the tree types; the route stopped doing it lazily on read.
     await seedTreeTypes(h.db);

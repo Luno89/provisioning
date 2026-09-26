@@ -213,6 +213,7 @@ describe('retrying a failed engine leaf', () => {
     const launcher = {
       startGroveRun: vi.fn(async () => ({ started: true as const, workflowId: 'grove-run-t1' })),
       groveRunStatus: vi.fn(async () => ({ state: 'running' as const, startedAt: 'then' })),
+      signalGroveRun: vi.fn(async () => true),
     };
     h = await mountRouter({
       prefix: '/api/leaves',

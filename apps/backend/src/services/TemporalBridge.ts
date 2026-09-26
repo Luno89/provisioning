@@ -446,6 +446,19 @@ export class TemporalBridge {
     }
   }
 
+  async signalGroveRun(treeId: string, signal: 'stopRun' | 'cancelLeaf', ...args: string[]): Promise<boolean> {
+    if (!this.client) return false
+    const handle = this.client.workflow.getHandle(groveRunWorkflowId(treeId))
+    try {
+      if ((await handle.describe()).status.name !== 'RUNNING') return false
+    } catch (err: any) {
+      if (/not\s*found/i.test(String(err?.message ?? err))) return false
+      throw err
+    }
+    await handle.signal(signal, ...args)
+    return true
+  }
+
   async groveRunStatus(treeId: string): Promise<GroveRunStatus> {
     if (!this.client) return { state: 'unavailable' }
     const handle = this.client.workflow.getHandle(groveRunWorkflowId(treeId))

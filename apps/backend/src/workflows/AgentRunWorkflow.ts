@@ -4,7 +4,10 @@ import {
   defineQuery,
   setHandler,
   condition,
-  executeChild,
+  startChild,
+  getExternalWorkflowHandle,
+  CancellationScope,
+  ActivityCancellationType,
 } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import {
@@ -45,6 +48,7 @@ import {
   type ToolCallOutcome,
 } from '../engine-host/temporal/contracts.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
+import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
 import { ASK_CHARS, type RunEffort } from '@koala/agent-engine/procedure';
 
 const NODE_HEARTBEAT_TIMEOUT = '1 minute';
@@ -59,11 +63,12 @@ interface StreamRemote {
   EngineStreamNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
 }
 
-const engine = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes' });
-const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT });
-const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT });
-const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT });
-const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT });
+const ABANDON = ActivityCancellationType.ABANDON;
+const engine = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', cancellationType: ABANDON });
+const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
+const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
+const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
+const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, startToCloseTimeout: '30 minutes', heartbeatTimeout: NODE_HEARTBEAT_TIMEOUT, cancellationType: ABANDON });
 
 const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity } = proxyActivities<{
   EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void>;
@@ -84,7 +89,7 @@ const { EnginePublishActivity } = proxyActivities<{ EnginePublishActivity(args: 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
 export const cancelSignal = defineSignal<[]>('cancelRun');
-export const stateQuery = defineQuery<{ nodeId?: string; rounds: number }>('runState');
+export const stateQuery = defineQuery<RunState>(RUN_STATE_QUERY);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -123,8 +128,30 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     if (allowed && forRun) approvedForRun = true;
   });
   setHandler(answerSignal, ({ nodeId, value }) => { answers.set(nodeId, value); });
-  setHandler(cancelSignal, () => { cancelled = true; });
-  setHandler(stateQuery, () => ({ ...(currentNode ? { nodeId: currentNode } : {}), rounds }));
+  const inFlight = new Set<CancellationScope>();
+  const runningChildren = new Set<string>();
+  const cancelRun = () => {
+    if (cancelled) return;
+    cancelled = true;
+    for (const childId of runningChildren) {
+      void getExternalWorkflowHandle(childId).signal(cancelSignal).catch(() => undefined);
+    }
+  };
+  void condition(() => cancelled).then(() => {
+    for (const scope of inFlight) scope.cancel();
+  });
+  const cancellable = async <T>(work: () => Promise<T>): Promise<T> => {
+    const scope = new CancellationScope();
+    inFlight.add(scope);
+    try {
+      return await scope.run(work);
+    } finally {
+      inFlight.delete(scope);
+    }
+  };
+  setHandler(cancelSignal, cancelRun);
+  CancellationScope.current().cancelRequested.catch(cancelRun);
+  setHandler(stateQuery, () => ({ ...(currentNode ? { nodeId: currentNode } : {}), rounds, cancelled }));
 
   const pending: EngineEvent[] = [];
   const traces: NodeTrace[] = [];
@@ -169,15 +196,16 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
       if (environment?.kind === 'machine') {
         const onDevice = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({
+          cancellationType: ABANDON,
           taskQueue: deviceQueue(environment.deviceId),
           retry: ACTIVITY_RETRY,
           startToCloseTimeout: '30 minutes',
           scheduleToStartTimeout: '1 hour',
         });
-        return onDevice.EngineToolActivity(args);
+        return cancellable(() => onDevice.EngineToolActivity(args));
       }
 
-      return engine.EngineToolActivity(args);
+      return cancellable(() => engine.EngineToolActivity(args));
     },
 
     async runChild({ agent, inputs, environment, run }): Promise<ChildOutcomeValue> {
@@ -189,7 +217,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         return { runId: childRunId, agentId: agent, outcome: 'failed', reason: `there is no agent called "${agent}"`, outputs: {} };
       }
 
-      const child = await executeChild(AgentRunWorkflow, {
+      if (cancelled) return { runId: childRunId, agentId: agent, outcome: 'interrupted', reason: 'the run was cancelled', outputs: {} };
+
+      const started = await startChild(AgentRunWorkflow, {
         workflowId: childRunId,
         args: [{
           ticket: {
@@ -206,6 +236,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           ...(environment ? { environment } : {}),
         }],
       });
+      runningChildren.add(childRunId);
+      if (cancelled) await started.signal(cancelSignal);
+      const child = await started.result().finally(() => runningChildren.delete(childRunId));
 
       return {
         runId: child.runId,
@@ -246,9 +279,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     .map((definition) => {
       const call = (request: NodeRequest): Promise<RemoteNodeResult> => {
         if (definition.runs === 'stream') {
-          return (definition.idempotent ? stream : streamOnce).EngineStreamNodeActivity(toRemote(request));
+          return cancellable(() => (definition.idempotent ? stream : streamOnce).EngineStreamNodeActivity(toRemote(request)));
         }
-        return (definition.idempotent ? engineNodes : engineNodesOnce).EngineNodeActivity(toRemote(request));
+        return cancellable(() => (definition.idempotent ? engineNodes : engineNodesOnce).EngineNodeActivity(toRemote(request)));
       };
       return definition.role === 'step'
         ? stepImplementation(definition.kind, async (request) => (await call(request)) as StepResult)
@@ -273,81 +306,83 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
   const signal = { get aborted() { return cancelled; }, reason: 'the run was cancelled' } as AbortSignal;
 
-  const { modelKey, modelLabel, limits } = await EngineRunLimitsActivity({
-    ownerId: ticket.ownerId,
-    agentSlug: ticket.agentSlug,
-    procedure,
-    ...(ticket.modelId ? { modelId: ticket.modelId } : {}),
-  });
+  return CancellationScope.nonCancellable(async () => {
+    const { modelKey, modelLabel, limits } = await EngineRunLimitsActivity({
+      ownerId: ticket.ownerId,
+      agentSlug: ticket.agentSlug,
+      procedure,
+      ...(ticket.modelId ? { modelId: ticket.modelId } : {}),
+    });
 
-  const result = await runProcedure({
-    procedure,
-    catalogue,
-    groups: BUILT_IN_GROUPS,
-    executor,
-    identity: {
+    const result = await runProcedure({
+      procedure,
+      catalogue,
+      groups: BUILT_IN_GROUPS,
+      executor,
+      identity: {
+        runId: ticket.runId,
+        ...(ticket.parentRunId ? { parentRunId: ticket.parentRunId } : {}),
+        depth: ticket.depth,
+        agentId: ticket.agentSlug,
+        loopId: procedure.id,
+        loopVersion: procedure.version,
+        trigger: ticket.trigger,
+      },
+      launch: { ...launchFor(ticket, input.projectId), ...(input.environment ? { environment: input.environment } : {}) },
+      inputs: input.inputs,
+      budget: limits,
+      bus,
+      signal,
+      now: () => Date.now(),
+      onTrace: (trace) => {
+        traces.push(trace);
+        bus.emit({ type: 'node.traced', runId: ticket.runId, at: new Date(Date.now()).toISOString(), nodeId: trace.node, trace: { ...trace } } as EngineEvent);
+      },
+    });
+
+    await flush();
+
+    await EngineSettleClaimsActivity({
+      ownerId: ticket.ownerId,
       runId: ticket.runId,
+      outcome: result.outcome,
+      ...(result.reason ? { reason: result.reason } : {}),
+    });
+
+    const ask = typeof input.inputs.message === 'string' ? input.inputs.message : JSON.stringify(input.inputs);
+    await EngineRecordEffortActivity({
+      runId: ticket.runId,
+      ownerId: ticket.ownerId,
       ...(ticket.parentRunId ? { parentRunId: ticket.parentRunId } : {}),
-      depth: ticket.depth,
+      agentSlug: ticket.agentSlug,
+      procedureId: procedure.id,
+      procedureVersion: procedure.version,
+      modelKey,
+      modelLabel,
+      outcome: result.outcome,
+      ...(result.reason ? { reason: result.reason } : {}),
+      rounds: result.counters.rounds,
+      toolCalls: result.counters.toolCalls,
+      totalTokens: result.counters.totalTokens,
+      childRuns: result.counters.childRuns,
+      longestReply: result.counters.longestReply,
+      cappedAt: result.counters.cappedAt,
+      steps: result.steps,
+      wallClockMs: result.counters.elapsedMs,
+      ask: ask.slice(0, ASK_CHARS),
+      limits,
+      finishedAt: new Date(Date.now()).toISOString(),
+    });
+
+    const finished = result.finishedBy ? result.outputs[result.finishedBy]?.result : undefined;
+    const outputs = finished === undefined ? {} : (isRecord(finished) ? finished : { result: finished });
+
+    return {
+      runId: result.runId,
       agentId: ticket.agentSlug,
-      loopId: procedure.id,
-      loopVersion: procedure.version,
-      trigger: ticket.trigger,
-    },
-    launch: { ...launchFor(ticket, input.projectId), ...(input.environment ? { environment: input.environment } : {}) },
-    inputs: input.inputs,
-    budget: limits,
-    bus,
-    signal,
-    now: () => Date.now(),
-    onTrace: (trace) => {
-      traces.push(trace);
-      bus.emit({ type: 'node.traced', runId: ticket.runId, at: new Date(Date.now()).toISOString(), nodeId: trace.node, trace: { ...trace } } as EngineEvent);
-    },
+      outcome: result.outcome,
+      ...(result.reason ? { reason: result.reason } : {}),
+      outputs,
+    };
   });
-
-  await flush();
-
-  await EngineSettleClaimsActivity({
-    ownerId: ticket.ownerId,
-    runId: ticket.runId,
-    outcome: result.outcome,
-    ...(result.reason ? { reason: result.reason } : {}),
-  });
-
-  const ask = typeof input.inputs.message === 'string' ? input.inputs.message : JSON.stringify(input.inputs);
-  await EngineRecordEffortActivity({
-    runId: ticket.runId,
-    ownerId: ticket.ownerId,
-    ...(ticket.parentRunId ? { parentRunId: ticket.parentRunId } : {}),
-    agentSlug: ticket.agentSlug,
-    procedureId: procedure.id,
-    procedureVersion: procedure.version,
-    modelKey,
-    modelLabel,
-    outcome: result.outcome,
-    ...(result.reason ? { reason: result.reason } : {}),
-    rounds: result.counters.rounds,
-    toolCalls: result.counters.toolCalls,
-    totalTokens: result.counters.totalTokens,
-    childRuns: result.counters.childRuns,
-    longestReply: result.counters.longestReply,
-    cappedAt: result.counters.cappedAt,
-    steps: result.steps,
-    wallClockMs: result.counters.elapsedMs,
-    ask: ask.slice(0, ASK_CHARS),
-    limits,
-    finishedAt: new Date(Date.now()).toISOString(),
-  });
-
-  const finished = result.finishedBy ? result.outputs[result.finishedBy]?.result : undefined;
-  const outputs = finished === undefined ? {} : (isRecord(finished) ? finished : { result: finished });
-
-  return {
-    runId: result.runId,
-    agentId: ticket.agentSlug,
-    outcome: result.outcome,
-    ...(result.reason ? { reason: result.reason } : {}),
-    outputs,
-  };
 }

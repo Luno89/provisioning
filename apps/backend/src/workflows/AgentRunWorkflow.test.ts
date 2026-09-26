@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { WorkflowClient, type WorkflowHandle } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -18,6 +19,7 @@ import {
 } from '@koala/agent-engine/procedure';
 import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal } from './AgentRunWorkflow.js';
 import { createNodeRunner } from '../engine-host/temporal/activities.js';
+import { runCancelledVia } from '../engine-host/temporal/run-cancellation.js';
 import { createAgentRegistry } from '../engine-host/registries/registry.js';
 import { createEffortTracker, type RunLimitsArgs } from '../engine-host/registries/effort.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -45,7 +47,7 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-type Scripted = Partial<ModelReply> | Error;
+type Scripted = Partial<ModelReply> | Error | 'hang';
 
 const MACHINE: RunEnvironment = { kind: 'machine', deviceId: 'desk', deviceName: 'Desk', path: 'projects/thing', egressMode: 'declared' };
 
@@ -59,6 +61,7 @@ function activities(options: {
   const registry = createAgentRegistry();
   const conversations = options.conversations ?? inMemoryConversations();
   const seen: ChatMessage[][] = [];
+  const aborted: string[] = [];
   let turn = 0;
 
   const models = {
@@ -77,11 +80,19 @@ function activities(options: {
     memories: { list: async () => [], save: async () => undefined },
   }), ['activity', 'sandbox']);
 
-  const scriptedModel = stepImplementation('call-model', ({ node, execution, inputs }) => {
+  const scriptedModel = stepImplementation('call-model', async ({ node, execution, inputs, run }) => {
     seen.push(structuredClone(inputs.messages as ChatMessage[]));
     const next = options.script[Math.min(turn, options.script.length - 1)]!;
     turn += 1;
     if (next instanceof Error) throw next;
+    if (next === 'hang') {
+      return new Promise<never>((_, reject) => {
+        run.signal?.addEventListener('abort', () => {
+          aborted.push(run.identity.runId);
+          reject(new Error('the model call was aborted'));
+        });
+      });
+    }
 
     const reply: ModelReply = { id: `${node.id}#${execution}`, content: '', thinking: '', finishReason: 'stop', toolCalls: [], ...next };
     return { exit: replyExit(reply), outputs: { reply, toolCalls: reply.toolCalls, content: reply.content }, usage: { rounds: 1 } };
@@ -100,6 +111,7 @@ function activities(options: {
 
   return {
     seen,
+    aborted,
     efforts,
     conversations,
     engine: {
@@ -117,7 +129,7 @@ function activities(options: {
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
     },
     stream: {
-      EngineStreamNodeActivity: createNodeRunner([scriptedModel], undefined),
+      EngineStreamNodeActivity: createNodeRunner([scriptedModel], undefined, { runCancelled: runCancelledVia(async () => env.client) }),
       EnginePublishActivity: vi.fn(async (_args: PublishArgs) => undefined),
     },
   };
@@ -147,7 +159,7 @@ const input = (
 async function runWorkflow(
   args: ProcedureRunInput,
   acts: Activities,
-  drive?: (handle: Awaited<ReturnType<typeof env.client.workflow.start>>) => Promise<void>,
+  drive?: (handle: WorkflowHandle) => Promise<void>,
 ) {
   const taskQueue = `engine-test-${Math.random().toString(36).slice(2, 8)}`;
   const engineWorker = await Worker.create({
@@ -163,8 +175,9 @@ async function runWorkflow(
     activities: { EngineToolActivity: acts.engine.EngineToolActivity },
   });
 
+  const client = drive ? new WorkflowClient({ connection: env.connection }) : env.client.workflow;
   const start = async () => {
-    const handle = await env.client.workflow.start(AgentRunWorkflow, { args: [args], taskQueue, workflowId: args.ticket.runId });
+    const handle = await client.start(AgentRunWorkflow, { args: [args], taskQueue, workflowId: args.ticket.runId });
     if (drive) await drive(handle);
     return handle.result();
   };
@@ -352,6 +365,22 @@ describe('AgentRunWorkflow', () => {
     });
 
     expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
+  }, 60_000);
+
+  it('cancelling a run stops the model call in flight in its delegated child, and both end interrupted', async () => {
+    const acts = activities({ script: ['hang'] });
+    const args = input('koala', delegating('research'));
+
+    const result = await runWorkflow(args, acts, async (handle) => {
+      const deadline = Date.now() + 20_000;
+      while (acts.seen.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+      await handle.signal(cancelSignal);
+    });
+
+    expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
+    expect(acts.aborted).toEqual([`${args.ticket.runId}-research-1`]);
+    const child = await new WorkflowClient({ connection: env.connection }).getHandle(`${args.ticket.runId}-research-1`).result();
+    expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
   }, 60_000);
 
   it('runs a delegated persona as a child workflow on that persona\'s own procedure', async () => {

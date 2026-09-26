@@ -15,6 +15,7 @@ export interface GroveRunStore {
 export interface GroveRunLauncher {
   startGroveRun(ownerId: string, treeId: string): Promise<{ started: true; workflowId: string } | { started: false; reason: 'unavailable' | 'running' }>;
   groveRunStatus(treeId: string): Promise<GroveRunStatus>;
+  signalGroveRun(treeId: string, signal: 'stopRun' | 'cancelLeaf', ...args: string[]): Promise<boolean>;
 }
 
 export type GroveRunOutcome<T> = { ok: true; value: T } | { ok: false; status: 404 | 409 | 503; error: string };
@@ -49,6 +50,25 @@ export class GroveRunService {
     const started = await this.deps.launcher.startGroveRun(ownerId, treeId);
     if (!started.started && started.reason === 'unavailable') return { ok: false, status: 503, error: 'Temporal is not reachable, so the tree cannot run.' };
     return { ok: true, value: await this.deps.launcher.groveRunStatus(treeId) };
+  }
+
+  async stop(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus>> {
+    const found = await this.engineTree(ownerId, treeId);
+    if (!found.ok) return found;
+    const signalled = await this.deps.launcher.signalGroveRun(treeId, 'stopRun');
+    if (!signalled) return { ok: false, status: 409, error: 'The tree is not running.' };
+    return { ok: true, value: await this.deps.launcher.groveRunStatus(treeId) };
+  }
+
+  async cancelLeaf(ownerId: string, leaf: Leaf): Promise<GroveRunOutcome<Leaf>> {
+    if (!['pending', 'running', 'claimed'].includes(leaf.status)) {
+      return { ok: false, status: 409, error: `Only unfinished work can be cancelled; this leaf is ${leaf.status}.` };
+    }
+    const cancelled: Leaf = { ...leaf, status: 'cancelled', updatedAt: this.now() };
+    await this.deps.store.saveLeaf(cancelled);
+    const treeId = (await this.deps.store.getBranches()).find((branch) => branch.id === leaf.branchId)?.treeId;
+    if (treeId) await this.deps.launcher.signalGroveRun(treeId, 'cancelLeaf', leaf.id);
+    return { ok: true, value: cancelled };
   }
 
   async retryLeaf(ownerId: string, leaf: Leaf): Promise<GroveRunOutcome<Leaf>> {

@@ -68,6 +68,8 @@ import {
   startStreamWorker,
 } from './engine-host/index.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
+import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
+import { getTemporalClient } from './lib/temporal-client.js';
 import { createAuth } from './middleware/auth.js';
 import { projectsRouter } from './routes/projects.js';
 import { projectFilesRouter } from './routes/project-files.js';
@@ -351,6 +353,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       registry: engineRegistry,
       endpoints: createEndpointResolver({ models: modelService, registry: engineRegistry }),
       streamNodes: hostNodesFor(createModelNodes({ registry: engineRegistry, models: modelService }), ['stream']),
+      runCancelled: runCancelledVia(() => getTemporalClient()),
     },
   })
     .then((worker) => {

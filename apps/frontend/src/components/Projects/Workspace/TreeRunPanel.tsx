@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Play } from 'lucide-react'
-import { getTreeRun, groveKeys, runTree, type TreeRunStatus } from '../../../api/grove.js'
+import { Loader2, Play, Square } from 'lucide-react'
+import { getTreeRun, groveKeys, runTree, stopTreeRun, type TreeRunStatus } from '../../../api/grove.js'
 import { errorMessage } from '../../../api/client.js'
 
 const RUNNING_POLL_MS = 5_000
@@ -18,6 +18,7 @@ function describe(status: TreeRunStatus): string {
         awaitingReview.length > 0 ? ` ${awaitingReview.length} claim${awaitingReview.length === 1 ? ' waits' : 's wait'} for your review.` : '',
         awaitingApproval.length > 0 ? ` ${awaitingApproval.length} leaf plan${awaitingApproval.length === 1 ? ' waits' : 's wait'} for your approval above.` : '',
       ].join('')
+      if (outcome === 'stopped') return `You stopped the last run after ${passes} pass${passes === 1 ? '' : 'es'}; the leaves it was working are back to waiting.${review}`
       return outcome === 'capped'
         ? `The last run stopped at its pass limit after ${passes} passes — something kept coming back.${review}`
         : `The last run finished after ${passes} pass${passes === 1 ? '' : 'es'}: nothing left to work.${review}`
@@ -43,9 +44,15 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
   const run = useMutation({
     mutationFn: () => runTree(treeId),
     onSuccess: (next) => {
+      stop.reset()
       qc.setQueryData(groveKeys.run(treeId), { ...next, engine: true })
       void qc.invalidateQueries({ queryKey: groveKeys.leaves() })
     },
+  })
+
+  const stop = useMutation({
+    mutationFn: () => stopTreeRun(treeId),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: groveKeys.run(treeId) }),
   })
 
   if (!status?.engine) return null
@@ -67,7 +74,19 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
           {status.state === 'none' ? 'Run the tree' : 'Run it again'}
         </button>
       )}
+      {running && (
+        <button
+          type="button"
+          onClick={() => stop.mutate()}
+          disabled={stop.isPending || stop.isSuccess}
+          className="self-start px-2.5 py-1 rounded border border-[var(--bark-600)] hover:bg-[var(--bark-700)] text-slate-200 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {stop.isPending || stop.isSuccess ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+          {stop.isPending || stop.isSuccess ? 'Stopping…' : 'Stop the run'}
+        </button>
+      )}
       {run.error && <span className="text-red-400">{errorMessage(run.error) || 'The tree did not start.'}</span>}
+      {stop.error && <span className="text-red-400">{errorMessage(stop.error) || 'The run could not be stopped.'}</span>}
     </div>
   )
 }

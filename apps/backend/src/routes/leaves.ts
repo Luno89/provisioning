@@ -29,7 +29,7 @@ export interface LeavesRouterDeps {
   db: Database;
   temporalBridge: TemporalBridge;
   giteaService: GiteaService;
-  runs?: Pick<GroveRunService, 'retryLeaf'> | undefined;
+  runs?: Pick<GroveRunService, 'retryLeaf' | 'cancelLeaf'> | undefined;
   deletion: Pick<GroveDeletionService, 'deleteLeaf'>;
 }
 
@@ -179,11 +179,14 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
 
   router.post('/:id/cancel', asyncRoute(async (req, res) => {
     const user = userOf(req);
-    const leaf = (await ownedLeaves(user.id)).find((c) => c.id === idOf(req));
+    const leaves = await ownedLeaves(user.id);
+    const leaf = leaves.find((c) => c.id === idOf(req));
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
-    const signalled = await temporalBridge?.signalLeaf(leaf.id, 'cancelLeaf');
-    await db.saveLeaf({ ...leaf, status: 'cancelled', updatedAt: new Date().toISOString() });
-    res.json({ success: true, workflowSignalled: signalled === true });
+    if (isFrozenLeaf(leaf, await db.getBranches(), leaves)) return res.status(409).json({ error: FROZEN_LEAF });
+    if (!deps.runs) return res.status(503).json({ error: 'Engine runs are not wired here.' });
+    const cancelled = await deps.runs.cancelLeaf(user.id, leaf);
+    if (!cancelled.ok) return res.status(cancelled.status).json({ error: cancelled.error });
+    res.json(cancelled.value);
   }));
 
   router.get('/:id/explain', asyncRoute(async (req, res) => {

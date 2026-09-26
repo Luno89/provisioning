@@ -22,6 +22,7 @@ import type {
   GrovePrepareWorkArgs,
   GrovePreparedWork,
   GroveLeafTasksArgs,
+  GroveLeafStatusArgs,
   GroveLeafTaskView,
   GroveClaimArgs,
   GroveClaimOutcome,
@@ -71,6 +72,7 @@ export interface StreamServices {
   bus: EventBus;
   streamMonitors?: ((request: NodeRequest) => Monitor[]) | undefined;
   streamNodes?: readonly NodeImplementation[] | undefined;
+  runCancelled?: ((runId: string) => Promise<boolean>) | undefined;
 }
 
 export interface TraceRecorder {
@@ -115,11 +117,14 @@ function currentActivity(): Context | undefined {
   }
 }
 
+export const CANCEL_POLL_MS = 3_000;
+
 export function createNodeRunner(
   implementations: readonly NodeImplementation[],
   bus: EventBus | undefined,
-  catalogue: NodeCatalogue = builtInCatalogue(),
+  options: { catalogue?: NodeCatalogue | undefined; runCancelled?: ((runId: string) => Promise<boolean>) | undefined } = {},
 ): (request: RemoteNodeRequest) => Promise<RemoteNodeResult> {
+  const catalogue = options.catalogue ?? builtInCatalogue();
   const byKind = new Map(implementations.map((implementation) => [implementation.kind, implementation]));
 
   return async (request) => {
@@ -129,6 +134,15 @@ export function createNodeRunner(
       throw new Error(`this worker cannot run a "${request.node.kind}" node`);
     }
 
+    const context = currentActivity();
+    const stop = new AbortController();
+    context?.cancellationSignal.addEventListener('abort', () => stop.abort('the run was cancelled'));
+    const runId = request.run.identity.runId;
+    const watching = options.runCancelled
+      ? setInterval(() => {
+        void options.runCancelled!(runId).then((cancelled) => { if (cancelled) stop.abort('the run was cancelled'); });
+      }, CANCEL_POLL_MS)
+      : undefined;
     const full: NodeRequest = {
       node: request.node,
       origin: request.origin,
@@ -138,16 +152,17 @@ export function createNodeRunner(
       execution: request.execution,
       run: {
         ...request.run,
+        signal: stop.signal,
         emit: (event) => bus?.emit({ ...event, runId: request.run.identity.runId, at: new Date().toISOString() } as never),
       },
     };
 
-    const context = currentActivity();
     const beating = context ? setInterval(() => context.heartbeat(), NODE_HEARTBEAT_MS) : undefined;
     try {
       return await implementation.run(full);
     } finally {
       if (beating) clearInterval(beating);
+      if (watching) clearInterval(watching);
     }
   };
 }
@@ -163,6 +178,8 @@ export interface EngineActivities extends StreamActivities {
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
   GroveLeafTasksActivity(args: GroveLeafTasksArgs): Promise<GroveLeafTaskView[]>;
+  GroveLeafStatusActivity(args: GroveLeafStatusArgs): Promise<boolean>;
+  GroveResetInFlightActivity(args: GroveTreeArgs): Promise<string[]>;
   GroveClaimActivity(args: GroveClaimArgs): Promise<GroveClaimOutcome>;
   GroveNeedsPlanActivity(args: GroveTreeArgs): Promise<GroveLeafNeedingPlan[]>;
   GroveOpenProposalsActivity(args: GroveTreeArgs): Promise<string[]>;
@@ -279,6 +296,23 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         }
       }
       return prepared;
+    },
+
+    async GroveLeafStatusActivity(args) {
+      const save = services.grove?.leaves.save;
+      if (!services.grove || !save) throw new Error('grove stores are not wired for writing, so a leaf\'s status cannot change');
+      const leaf = (await services.grove.leaves.list()).find((entry) => entry.id === args.leafId && entry.ownerId === args.ownerId);
+      if (!leaf || !(args.from as string[]).includes(leaf.status)) return false;
+      await save({ ...leaf, status: args.to, updatedAt: new Date().toISOString() });
+      return true;
+    },
+
+    async GroveResetInFlightActivity(args) {
+      const save = services.grove?.leaves.save;
+      if (!save) throw new Error('grove stores are not wired for writing, so stranded leaves cannot be reset');
+      const stranded = (await treeLeaves(args.treeId, args.ownerId)).filter((leaf) => leaf.status === 'running');
+      for (const leaf of stranded) await save({ ...leaf, status: 'pending', updatedAt: new Date().toISOString() });
+      return stranded.map((leaf) => leaf.id);
     },
 
     async GroveLeafTasksActivity(args) {
@@ -414,7 +448,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       };
     },
 
-    EngineNodeActivity: createNodeRunner(services.hostNodes ?? [], services.bus),
+    EngineNodeActivity: createNodeRunner(services.hostNodes ?? [], services.bus, { runCancelled: services.runCancelled }),
 
     async EngineRecordTracesActivity(args: RecordTracesArgs): Promise<void> {
       await services.traces?.record(args);
@@ -432,7 +466,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
     async EngineSettleClaimsActivity(args: SettleClaimsArgs): Promise<string[]> {
       if (!services.tasks) return [];
       const ending = args.reason ? `${args.outcome} — ${args.reason}` : args.outcome;
-      const abandoned = abandonedBy(await services.tasks.list(args.ownerId), args.runId, ending, new Date().toISOString());
+      const abandoned = abandonedBy(await services.tasks.list(args.ownerId), args.runId, args.outcome, ending, new Date().toISOString());
       for (const task of abandoned) await services.tasks.save(task);
       return abandoned.map((task) => task.id);
     },
@@ -445,6 +479,6 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
       for (const event of args.events) services.bus.emit(event);
     },
 
-    EngineStreamNodeActivity: createNodeRunner(services.streamNodes ?? [], services.bus),
+    EngineStreamNodeActivity: createNodeRunner(services.streamNodes ?? [], services.bus, { runCancelled: services.runCancelled }),
   };
 }

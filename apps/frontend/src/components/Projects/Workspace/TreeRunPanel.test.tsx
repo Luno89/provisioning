@@ -8,6 +8,7 @@ vi.mock('../../../api/grove.js', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
   getTreeRun: vi.fn(),
   runTree: vi.fn(),
+  stopTreeRun: vi.fn(),
 }))
 
 const renderPanel = () => render(
@@ -44,5 +45,20 @@ describe('TreeRunPanel', () => {
     const { container } = renderPanel()
     await waitFor(() => expect(groveApi.getTreeRun).toHaveBeenCalled())
     expect(container.querySelector('[data-testid="tree-run"]')).toBeNull()
+  })
+
+  it('stops a running tree, and says the stopped leaves are back to waiting', async () => {
+    vi.mocked(groveApi.getTreeRun).mockResolvedValueOnce({ state: 'running', engine: true, startedAt: '2026-09-25T10:00:00.000Z' })
+    vi.mocked(groveApi.stopTreeRun).mockResolvedValue({ state: 'running', engine: true, startedAt: '2026-09-25T10:00:00.000Z' })
+    vi.mocked(groveApi.getTreeRun).mockResolvedValue({
+      state: 'finished', engine: true, startedAt: 'then',
+      result: { treeId: 't1', outcome: 'stopped', passes: 1, awaitingReview: [] },
+    } as never)
+    renderPanel()
+
+    fireEvent.click(await screen.findByText('Stop the run'))
+    await waitFor(() => expect(groveApi.stopTreeRun).toHaveBeenCalledWith('t1'))
+    expect(await screen.findByText(/You stopped the last run after 1 pass; the leaves it was working are back to waiting/)).toBeTruthy()
+    expect(screen.getByText('Run it again')).toBeTruthy()
   })
 })

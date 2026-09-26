@@ -102,10 +102,16 @@ export function withStatus(task: Task, status: TaskStatus, now: string): Task {
   return { ...task, status, updatedAt: now };
 }
 
-export function abandonedBy(tasks: readonly Task[], runId: string, ending: string, now: string): Task[] {
+export function abandonedBy(tasks: readonly Task[], runId: string, outcome: string, ending: string, now: string): Task[] {
+  const stopped = outcome === 'interrupted';
   return tasks
     .filter((task) => task.status === 'running' && task.runs.at(-1) === runId)
-    .map((task) => ({ ...withStatus(task, 'failed', now), evidence: `the run working on it ended without recording an outcome: ${ending}` }));
+    .map((task) => ({
+      ...withStatus(task, stopped ? 'accepted' : 'failed', now),
+      evidence: stopped
+        ? `the run working on it was stopped before it finished (${ending}); it waits to be worked again`
+        : `the run working on it ended without recording an outcome: ${ending}`,
+    }));
 }
 
 export function withRun(task: Task, runId: string, now: string): Task {

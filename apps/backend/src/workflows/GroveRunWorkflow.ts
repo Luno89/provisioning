@@ -1,7 +1,8 @@
-import { proxyActivities, executeChild, workflowInfo } from '@temporalio/workflow';
+import { defineSignal, getExternalWorkflowHandle, proxyActivities, setHandler, startChild, workflowInfo } from '@temporalio/workflow';
 import { GROVE_JUDGE_PASS, type Procedure } from '@koala/agent-engine/procedure';
-import { AgentRunWorkflow } from './AgentRunWorkflow.js';
-import { GroveLeafWorkflow } from './GroveLeafWorkflow.js';
+import { AgentRunWorkflow, cancelSignal } from './AgentRunWorkflow.js';
+import { GroveLeafWorkflow, cancelLeafSignal } from './GroveLeafWorkflow.js';
+import { GROVE_CANCEL_LEAF, GROVE_STOP_RUN } from '../engine-host/temporal/contracts.js';
 import { ACTIVITY_RETRY } from '../lib/activity-retry.js';
 import type { TreeSandbox } from '../engine-host/sandboxes/tree-workspaces.js';
 import { judgeCheckout, leafBriefPath, leafContext, leafWorktree } from '../lib/plan-documents.js';
@@ -34,6 +35,27 @@ import type {
 /** Hard cap on the pass loop: a tree still moving after this many passes is reported, not spun up. */
 const MAX_PASSES_DEFAULT = 24;
 
+export const stopRunSignal = defineSignal<[]>(GROVE_STOP_RUN);
+export const cancelLeafInRunSignal = defineSignal<[string]>(GROVE_CANCEL_LEAF);
+
+interface RunControl {
+  stopping: boolean;
+  cancelledLeaves: Set<string>;
+  leafRuns: Map<string, string>;
+  agentRuns: Set<string>;
+}
+
+const signalQuietly = (workflowId: string, signal: typeof cancelSignal | typeof cancelLeafSignal): void => {
+  void getExternalWorkflowHandle(workflowId).signal(signal).catch(() => undefined);
+};
+
+async function runAgent(control: RunControl, runId: string, input: ProcedureRunInput) {
+  const child = await startChild(AgentRunWorkflow, { workflowId: runId, args: [input] });
+  control.agentRuns.add(runId);
+  if (control.stopping) await child.signal(cancelSignal);
+  return child.result().finally(() => control.agentRuns.delete(runId));
+}
+
 const { GrovePartitionActivity } = proxyActivities<{
   GrovePartitionActivity(args: GrovePartitionArgs): Promise<GrovePartition>;
 }>({
@@ -43,8 +65,9 @@ const { GrovePartitionActivity } = proxyActivities<{
 
 const {
   GroveWorkspaceActivity, GroveParkWorkspaceActivity, GrovePrepareWorkActivity, GroveJudgeCheckoutActivity,
-  GroveNeedsPlanActivity, GroveOpenProposalsActivity, EngineResolveAgentActivity,
+  GroveNeedsPlanActivity, GroveOpenProposalsActivity, GroveResetInFlightActivity, EngineResolveAgentActivity,
 } = proxyActivities<{
+  GroveResetInFlightActivity(args: GroveTreeArgs): Promise<string[]>;
   GroveWorkspaceActivity(args: GroveWorkspaceArgs): Promise<TreeSandbox>;
   GroveParkWorkspaceActivity(args: GroveWorkspaceArgs): Promise<void>;
   GrovePrepareWorkActivity(args: GrovePrepareWorkArgs): Promise<GrovePreparedWork>;
@@ -73,25 +96,44 @@ const {
  * re-judge only reaches claims that are actually still open.
  */
 export async function GroveRunWorkflow(args: GroveRunArgs): Promise<GroveRunResult> {
+  const control: RunControl = { stopping: false, cancelledLeaves: new Set(), leafRuns: new Map(), agentRuns: new Set() };
+  setHandler(stopRunSignal, () => {
+    control.stopping = true;
+    for (const runId of control.leafRuns.values()) signalQuietly(runId, cancelLeafSignal);
+    for (const runId of control.agentRuns) signalQuietly(runId, cancelSignal);
+  });
+  setHandler(cancelLeafInRunSignal, (leafId) => {
+    control.cancelledLeaves.add(leafId);
+    const runId = control.leafRuns.get(leafId);
+    if (runId) signalQuietly(runId, cancelLeafSignal);
+  });
+
   const workspace = { treeId: args.treeId, ownerId: args.ownerId };
   const environment = await GroveWorkspaceActivity(workspace);
+  await GroveResetInFlightActivity(workspace);
   try {
-    return await passUntilQuiet(args, environment);
+    return await passUntilQuiet(args, environment, control);
   } finally {
     await GroveParkWorkspaceActivity(workspace);
   }
 }
 
-async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Promise<GroveRunResult> {
+async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox, control: RunControl): Promise<GroveRunResult> {
   const maxPasses = args.maxPasses ?? MAX_PASSES_DEFAULT;
   let passes = 0;
+  const stopped = async (awaitingReview: string[]): Promise<GroveRunResult> => ({
+    treeId: args.treeId, outcome: 'stopped', passes, awaitingReview,
+    awaitingApproval: await GroveOpenProposalsActivity({ treeId: args.treeId, ownerId: args.ownerId }),
+  });
 
   for (;;) {
     let partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
 
     const awaitingReview = partition.awaitingReview.map((leaf) => leaf.id);
+    if (control.stopping) return stopped(awaitingReview);
     if (partition.ready.length === 0 && partition.claimed.length === 0) {
-      await proposeLeafPlans(args, environment);
+      await proposeLeafPlans(args, environment, control);
+      if (control.stopping) return stopped(awaitingReview);
       const awaitingApproval = await GroveOpenProposalsActivity({ treeId: args.treeId, ownerId: args.ownerId });
       return { treeId: args.treeId, outcome: 'quiet', passes, awaitingReview, awaitingApproval };
     }
@@ -108,7 +150,8 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
     const workable = partition.ready.filter((leaf) => prepared.ready.includes(leaf.id));
 
     if (partition.ready.length > 0) {
-      await workLeaves(args, environment, passes, workable);
+      await workLeaves(args, environment, passes, workable, control);
+      if (control.stopping) return stopped(awaitingReview);
       // The work pass files fresh claims; the judge pass must see them, so read the tree again.
       partition = await GrovePartitionActivity({ treeId: args.treeId, ownerId: args.ownerId });
     }
@@ -117,6 +160,7 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
       await runGrovePass({
         args,
         environment,
+        control,
         pass: passes,
         procedure: GROVE_JUDGE_PASS,
         role: 'judge',
@@ -126,7 +170,7 @@ async function passUntilQuiet(args: GroveRunArgs, environment: TreeSandbox): Pro
   }
 }
 
-async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox): Promise<void> {
+async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox, control: RunControl): Promise<void> {
   const needs = await GroveNeedsPlanActivity({ treeId: args.treeId, ownerId: args.ownerId });
   if (needs.length === 0) return;
   const planner = await EngineResolveAgentActivity({ ownerId: args.ownerId, agentSlug: 'planner' });
@@ -152,17 +196,19 @@ async function proposeLeafPlans(args: GroveRunArgs, environment: TreeSandbox): P
         inputs: { ...inputs, goal: `${need.mode === 'replan' ? 'Replan' : 'Break down'} the leaf "${need.leafTitle}".`, message: JSON.stringify(inputs) },
         environment: { ...environment, worktree: leafWorktree(need.leafId) },
       };
-      return executeChild(AgentRunWorkflow, { workflowId: runId, args: [input] });
+      return control.stopping ? undefined : runAgent(control, runId, input);
     }));
   }
 }
 
-async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: number, leaves: GrovePartitionLeaf[]): Promise<void> {
+async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: number, leaves: GrovePartitionLeaf[], control: RunControl): Promise<void> {
   const run = runPrefix();
   for (let offset = 0; offset < leaves.length; offset += LEAVES_AT_ONCE) {
-    await Promise.all(leaves.slice(offset, offset + LEAVES_AT_ONCE).map((leaf) => {
+    if (control.stopping) return;
+    await Promise.all(leaves.slice(offset, offset + LEAVES_AT_ONCE).map(async (leaf) => {
+      if (control.cancelledLeaves.has(leaf.id)) return;
       const runId = `${run}-p${pass}-leaf-${leaf.id}`;
-      return executeChild(GroveLeafWorkflow, {
+      const child = await startChild(GroveLeafWorkflow, {
         workflowId: runId,
         args: [{
           treeId: args.treeId,
@@ -176,6 +222,9 @@ async function workLeaves(args: GroveRunArgs, environment: TreeSandbox, pass: nu
             : {}),
         }],
       });
+      control.leafRuns.set(leaf.id, runId);
+      if (control.stopping || control.cancelledLeaves.has(leaf.id)) await child.signal(cancelLeafSignal);
+      await child.result().finally(() => control.leafRuns.delete(leaf.id));
     }));
   }
 }
@@ -202,6 +251,7 @@ function claimItems(claimed: GrovePartition['claimed'], treeId: string, checkout
 async function runGrovePass(options: {
   args: GroveRunArgs;
   environment: TreeSandbox;
+  control: RunControl;
   pass: number;
   procedure: Procedure;
   role: 'judge';
@@ -217,7 +267,9 @@ async function runGrovePass(options: {
   };
   const input: ProcedureRunInput = { ticket, procedure: options.procedure, inputs: options.inputs, environment: options.environment };
 
-  const child = await executeChild(AgentRunWorkflow, { workflowId: runId, args: [input] });
+  if (options.control.stopping) return;
+  const child = await runAgent(options.control, runId, input);
+  if (options.control.stopping) return;
   if (child.outcome !== 'ok') {
     throw new Error(`grove ${options.role} pass failed: ${child.reason ?? 'no reason given'}`);
   }

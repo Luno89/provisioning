@@ -29,6 +29,7 @@ const launcher = {
     return { started: true as const, workflowId: 'grove-run-t1' };
   }),
   groveRunStatus: vi.fn(async () => (running ? { state: 'running' as const, startedAt: 'then' } : { state: 'none' as const })),
+  signalGroveRun: vi.fn(async () => running),
 };
 
 const mount = async (): Promise<Harness> => {
