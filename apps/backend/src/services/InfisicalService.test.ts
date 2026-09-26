@@ -1,130 +1,120 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const files = new Map<string, string>();
+
+vi.mock('fs/promises', () => ({
+  default: {
+    readFile: (p: string) => (files.has(p) ? Promise.resolve(files.get(p)!) : Promise.reject(new Error('ENOENT'))),
+    writeFile: (p: string, data: string) => { files.set(p, data); return Promise.resolve(); },
+    mkdir: () => Promise.resolve(),
+  },
+}));
+
+const post = vi.fn();
+const get = vi.fn();
+const patch = vi.fn();
+const del = vi.fn();
+vi.mock('axios', () => ({
+  default: {
+    post: (...a: unknown[]) => post(...a),
+    get: (...a: unknown[]) => get(...a),
+    patch: (...a: unknown[]) => patch(...a),
+    delete: (...a: unknown[]) => del(...a),
+  },
+}));
+
+import path from 'path';
 import { InfisicalService } from './InfisicalService.js';
 
-/**
- * There is no Infisical to talk to in a unit run.
- *
- * The service writes to its encrypted in-memory store first and only then tries the vault, so these
- * assertions held all along — but each call sat on a 4s axios timeout, and two of them overran
- * vitest's 5s limit. Rejecting immediately exercises the same fallback path in milliseconds, and
- * asserts the thing that actually matters: an unreachable vault must not lose the secret.
- */
-vi.mock('axios', () => {
-  const unreachable = () => Promise.reject(new Error('ECONNREFUSED (no vault in a unit run)'));
-  return { default: { post: unreachable, get: unreachable, delete: unreachable, patch: unreachable } };
-});
+const MASTER_KEY = 'test-jwt-secret-key-that-is-at-least-32-chars-long';
+const AUTH_SECRET_FILE = path.join(process.cwd(), 'data', '.infisical-auth-secret');
+const unreachable = () => Promise.reject(Object.assign(new Error('ECONNREFUSED'), { code: 'ECONNREFUSED' }));
+const status = (code: number) => Promise.reject(Object.assign(new Error(`status ${code}`), { response: { status: code } }));
+
+const workspaceFound = () => get.mockResolvedValueOnce({ data: { workspaces: [{ id: 'ws1', name: 'provisioning-p1' }] } });
 
 describe('InfisicalService', () => {
-  const masterKey = 'test-jwt-secret-key-that-is-at-least-32-chars-long';
-  const kubeconfigPath = '/tmp/test-kubeconfig.yaml';
-
-  let mockKubectl: any;
   let service: InfisicalService;
 
   beforeEach(() => {
-    mockKubectl = vi.fn().mockImplementation(async (args: string[]) => {
-      if (args.includes('svc')) {
-        return JSON.stringify({
-          spec: {
-            ports: [{ name: 'http', nodePort: 31738 }],
-          },
-        });
-      }
-      if (args.includes('nodes')) {
-        return '192.168.1.100';
-      }
-      if (args.includes('deployment')) {
-        return JSON.stringify({
-          spec: {
-            template: {
-              spec: {
-                containers: [{ name: 'web-app', envFrom: [] }],
-              },
-            },
-          },
-        });
-      }
-      return 'ok';
-    });
-
-    service = new InfisicalService(
-      { runKubectl: mockKubectl },
-      masterKey,
-      kubeconfigPath,
-    );
+    files.clear();
+    files.set(AUTH_SECRET_FILE, JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' }));
+    for (const fn of [post, get, patch, del]) fn.mockReset();
+    service = new InfisicalService({ runKubectl: vi.fn() }, MASTER_KEY, '/tmp/kc.yaml', 'http://vault:8080');
   });
 
-  it('resolves base URL via kubectl NodePort and node IP', async () => {
-    const url = await service.resolveBaseUrl();
-    expect(url).toContain('31738');
+  it('resolves the base URL from the service NodePort and the node address', async () => {
+    const runKubectl = vi.fn(async (args: string[]) => (args.includes('svc')
+      ? JSON.stringify({ spec: { ports: [{ name: 'http', nodePort: 31738 }] } })
+      : '192.168.1.100'));
+    const found = new InfisicalService({ runKubectl }, MASTER_KEY, '/tmp/kc.yaml');
+    expect(await found.resolveBaseUrl()).toBe('http://192.168.1.100:31738');
   });
 
-  it('stores and retrieves secrets with encryption at rest', async () => {
-    const setRes = await service.setSecret(
-      'proj-123',
-      'GITHUB_TOKEN',
-      'ghp_super_secret_personal_access_token',
-      'GitHub token for cloning private repo',
-    );
+  it('fails a write the vault never received, and keeps no copy of the value anywhere', async () => {
+    post.mockImplementation(unreachable);
+    await expect(service.setSecret('p1', 'STRIPE_KEY', 'sk_live_sentinel')).rejects.toThrow();
 
-    expect(setRes.success).toBe(true);
-    expect(setRes.secretReference).toBe('secret://proj-123/GITHUB_TOKEN');
-
-    const retrieved = await service.getSecret('proj-123', 'GITHUB_TOKEN');
-    expect(retrieved).toBe('ghp_super_secret_personal_access_token');
+    get.mockImplementation(unreachable);
+    await expect(service.getSecret('p1', 'STRIPE_KEY')).rejects.toThrow();
   });
 
-  it('lists secrets with masked previews rather than raw plaintext', async () => {
-    await service.setSecret('proj-abc', 'STRIPE_KEY', 'sk_live_1234567890abcdef');
-    await service.setSecret('proj-abc', 'API_TOKEN', 'token-abcdef-123456');
+  it('writes to the vault and answers with a reference, never the value', async () => {
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    workspaceFound();
+    post.mockResolvedValueOnce({ data: {} });
 
-    const list = await service.listSecrets('proj-abc');
-    expect(list.length).toBe(2);
+    const saved = await service.setSecret('p1', 'STRIPE_KEY', 'sk_live_sentinel');
 
-    const stripe = list.find((s) => s.key === 'STRIPE_KEY');
-    expect(stripe).toBeDefined();
-    expect(stripe?.maskedValue).not.toBe('sk_live_1234567890abcdef');
-    expect(stripe?.maskedValue).toContain('****');
-    expect(stripe?.secretReference).toBe('secret://proj-abc/STRIPE_KEY');
+    expect(saved).toEqual({ secretReference: 'secret://p1/STRIPE_KEY' });
+    expect(post.mock.calls[1]?.[1]).toMatchObject({ workspaceId: 'ws1', secretValue: 'sk_live_sentinel', environment: 'dev' });
   });
 
-  it('deletes secrets from vault', async () => {
-    await service.setSecret('proj-del', 'TEMP_KEY', 'val123');
-    expect(await service.getSecret('proj-del', 'TEMP_KEY')).toBe('val123');
+  it('reads a missing key as null, and any other failure as an error', async () => {
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    workspaceFound();
+    get.mockImplementationOnce(() => status(404));
+    expect(await service.getSecret('p1', 'NOPE')).toBeNull();
 
-    await service.deleteSecret('proj-del', 'TEMP_KEY');
-    expect(await service.getSecret('proj-del', 'TEMP_KEY')).toBeNull();
+    get.mockImplementationOnce(() => status(500));
+    await expect(service.getSecret('p1', 'NOPE')).rejects.toThrow();
   });
 
-  it('injects secret into pod and triggers rolling restart', async () => {
-    const res = await service.injectSecretToPod({
-      projectId: 'proj-bot',
-      key: 'WEBHOOK_SECRET',
-      value: 'whsec_99999999',
-      mountAs: 'env',
-      restart: true,
-    });
+  it('logs in again once when the access token has expired', async () => {
+    post.mockResolvedValueOnce({ data: { accessToken: 'old' } });
+    workspaceFound();
+    get.mockImplementationOnce(() => status(401));
+    post.mockResolvedValueOnce({ data: { accessToken: 'new' } });
+    get.mockResolvedValueOnce({ data: { secret: { secretValue: 'v' } } });
 
-    expect(res.success).toBe(true);
-    expect(res.podRestarted).toBe(true);
-    expect(res.secretReference).toBe('secret://proj-bot/WEBHOOK_SECRET');
-
-    expect(mockKubectl).toHaveBeenCalledWith(
-      expect.arrayContaining(['rollout', 'restart', 'deployment/proj-bot', '-n', 'proj-bot']),
-      kubeconfigPath,
-    );
+    expect(await service.hasSecret('p1', 'KEY')).toBe(true);
+    expect(get.mock.calls[2]?.[1]).toMatchObject({ headers: { Authorization: 'Bearer new' } });
   });
 
-  it('generates valid InfisicalSecret CRD manifest', () => {
-    const manifest = service.generateInfisicalSecretManifest({
-      name: 'analytics-sync',
-      namespace: 'analytics',
-      projectId: 'proj-analytics',
-    });
+  it('lists keys and references without any part of a value', async () => {
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    workspaceFound();
+    get.mockResolvedValueOnce({ data: { secrets: [{ secretKey: 'STRIPE_KEY', secretValue: 'sk_live_sentinel', version: 2 }] } });
 
-    expect(manifest).toContain('apiVersion: secrets.infisical.com/v1alpha1');
-    expect(manifest).toContain('kind: InfisicalSecret');
-    expect(manifest).toContain('name: analytics-sync');
-    expect(manifest).toContain('namespace: analytics');
+    const list = await service.listSecrets('p1');
+
+    expect(list).toEqual([{ key: 'STRIPE_KEY', secretReference: 'secret://p1/STRIPE_KEY', version: 2 }]);
+    expect(JSON.stringify(list)).not.toContain('sk_live');
+  });
+
+  it('deletes with the workspace in the body, the only place Infisical reads it', async () => {
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    workspaceFound();
+    del.mockResolvedValueOnce({ data: {} });
+
+    await service.deleteSecret('p1', 'KEY');
+
+    expect(del.mock.calls[0]?.[1]).toMatchObject({ data: { workspaceId: 'ws1', environment: 'dev' } });
+  });
+
+  it('refuses to authenticate with no machine identity instead of inventing a token', async () => {
+    files.clear();
+    post.mockImplementation(unreachable);
+    await expect(service.authenticate()).rejects.toThrow();
   });
 });

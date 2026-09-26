@@ -89,7 +89,7 @@ describe('InfisicalService auth + workspace resolution', () => {
 
     const res = await service.setSecret('p1', 'KEY', 'new-value');
 
-    expect(res.success).toBe(true);
+    expect(res.secretReference).toBe('secret://p1/KEY');
     expect(patch).toHaveBeenCalledTimes(1);
     expect(patch.mock.calls[0]?.[1]).toMatchObject({ workspaceId: 'ws1', secretValue: 'new-value' });
   });

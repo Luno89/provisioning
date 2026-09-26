@@ -50,6 +50,7 @@ export interface EngineHostStores {
     list(ownerId: string): Promise<MemoryItem[]>;
     save(item: MemoryItem): Promise<void>;
   };
+  secrets?: import('./tools/secret-tools.js').SecretToolStores | undefined;
 }
 
 export interface EngineHostOptions {
@@ -63,6 +64,7 @@ export interface EngineHostOptions {
   onSandbox?: ((driver: EnvironmentDriver, ticket: RunTicket) => Promise<void>) | undefined;
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
   efforts?: EffortTrackerOptions['store'] | undefined;
+  vault?: import('./tools/secret-tools.js').SecretVault | undefined;
 }
 
 export interface EngineHost {
@@ -138,6 +140,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       },
       tasks: stores.tasks,
       groove: { stores: stores.grove },
+      ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
       platform: {
         ...(web
           ? {
@@ -232,5 +235,17 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       },
     },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
+    secrets: {
+      requests: {
+        list: (ownerId, filter) => db.getSecretRequests(ownerId, filter),
+        save: (request) => db.saveSecretRequest(request),
+      },
+      projects: { list: () => db.getProjects(), save: (project) => db.saveProject(project) },
+      trees: { list: () => db.getTrees() },
+      binding: async (ownerId: string, conversationId: string) => {
+        const conversation = await db.getConversation(ownerId, conversationId);
+        return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
+      },
+    },
   };
 }

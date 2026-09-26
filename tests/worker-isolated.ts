@@ -1,5 +1,10 @@
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+
+dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
+
 import { getTemporalClient } from '../apps/backend/src/lib/temporal-client.js';
-import { LocalDB } from '../apps/backend/src/lib/db.js';
+import { MongoDB } from '../apps/backend/src/lib/mongo-db.js';
 import { v4 as uuidv4 } from 'uuid';
 
 async function run() {
@@ -9,7 +14,7 @@ async function run() {
   process.env.NODE_ENV = 'test';
   process.env.IS_E2E = 'true';
 
-  const db = new LocalDB();
+  const db = new MongoDB();
   await db.init();
 
   // Reset test databases
@@ -112,6 +117,7 @@ async function run() {
       clusterId,
       clusterName,
       appType: 'wordpress',
+      strategy: 'native',
       status: 'running',
       storage: { sizeGB: '1' },
       lastLogPath: appLogFile,

@@ -1,8 +1,8 @@
 # Grove on the new engine — migration plan & tracker
 
-Living document. Updated as we work. **Current focus: P1 fix-up — slices 1 (the tree's sandbox), 2/2.5 (plan proposal → approval → tree, sandbox, documents; legacy kept off engine leaves) and 3 (worktree per leaf, context through every split) 4 (stay-claimed parks for a person), 5 (live runs on the real model) and 6 (the engine's own launch) landed 2026-09-24/25; next: P2 — planning and launching on the engine, then retire every legacy launcher in one step.**
+Living document. Updated as we work. **Current focus: the migration ledger below.** `dfe36114` (2026-09-26) deleted the pre-engine stack before its capabilities were rebuilt; each one is now a row in *Migration ledger*, rebuilt on the engine from the deleted code (read at `dfe36114^` / `8c82a85d^`) or dropped by the owner. Next: secrets (0.1), tool declarations (0.2), then koala's tools (Tier 1). Grove, the Lab and tree types wait on a design conversation with the owner.
 
-Last updated: 2026-09-24
+Last updated: 2026-09-26
 
 ## Status
 
@@ -13,9 +13,9 @@ Last updated: 2026-09-24
 | P1 leaf execution on engine lanes | **implemented** — claim/judge split, `claim_leaf`, `settle_leaf`, both pass procedures, the `leaf-executor`/`run-leaf` pair, the Temporal supervisor (`GroveRunWorkflow`), and proofs at both levels; remaining: TaskChecks implementations (build-order item 4), landed per-leaf as the judge needs them |
 | P2 planning + launching in engine | **landed 2026-09-25** — leaf-scoped replan and breakdown proposed by the run; tree entry through a koala chat bound to the tree; legacy trees frozen and every legacy launcher switched off |
 | P3 landing as engine tools | not started |
-| P4 supervision swap (retire LeafWorkflow) | not started |
+| P4 supervision swap (retire LeafWorkflow) | **LeafWorkflow deleted 2026-09-26** (`dfe36114`); the crash-test acceptance (kill a worker mid-leaf) has not been run |
 | P5 grove surface on engine + grove UI flip | not started |
-| P6 legacy deletions | not started |
+| P6 legacy deletions | **done 2026-09-26, ahead of migration** — see *Migration ledger* for what has no engine equivalent yet |
 
 Decisions (a–e) from the original plan: **all open** except the model change below.
 
@@ -686,6 +686,55 @@ parks for human review; the volume lives and the pod is started on demand.
 - P4 adds the crash-test protocol; P5 adds trace-equivalence snapshots
   (3–4 recorded leaves, legacy vs engine).
 
+## Migration ledger (opened 2026-09-26)
+
+`8c82a85d` and `dfe36114` removed the legacy chat, LeafWorkflow, Harness, Lab, personas/packs and
+~200 `lib/` modules. The owner's rule (2026-09-25): legacy functionality is a set of feature
+requests to rebuild on the engine. These are the capabilities that had **no engine equivalent**
+when they were deleted. Code: `git show dfe36114^:<path>`; data: `backups/`. The full audit and
+build notes are in `~/.claude/plans/go-back-to-the-jazzy-milner.md`.
+
+States: **open**, **building**, **done** (with commit), **dropped** (owner), **discuss** (needs a
+design conversation first).
+
+| # | Capability | Legacy spec | State |
+|---|---|---|---|
+| — | Machine command approval gate | `leaf-approval.ts`, `local-execution-target.ts` | dropped (owner 2026-09-26: work runs in a sandbox) |
+| 0.1 | Secrets never in the LLM flow: `request_secret` → card → Infisical → operator injects `<ns>-secrets` at deploy; sentinel test | `koala-tool-handlers.ts` (secret handlers), `secret-sources.ts`, `conversations.ts` submit route | building — S1 tool, S2 card + strict Infisical, S4 sentinel test done and live-verified (`npm run test:secrets-live`, and the card in the browser); S3 (Infisical reachable from every cluster, operator installed at provisioning, `InfisicalSecret` per deploy) open |
+| 0.2 | Tool `idempotent`/`destructive`/`openWorld`; no retry for non-idempotent; `effect` gates tools by role | `action-gate.ts` | open |
+| 1.1 | Koala: secret existence by reference (no value ever) | `koala-tool-handlers.ts` | open |
+| 1.2 | Koala: MCP servers as tools; ask to enable one | `mcp-tools.ts`, `leaf-mcp.ts` | open |
+| 1.3 | Koala: read-only kube diagnostics | `kube-diagnostics.ts`, `infrastructure.ts` | open |
+| 1.4 | Koala: platform ops (deploy, pipeline, URL, env, dependency, read path) | `koala-tool-handlers.ts`, `tool-handlers/assistant.ts` | open |
+| 1.5 | Escalation and egress requests as proposals | `koala-tools.ts` | open |
+| 1.6 | App spec proposal (F12) | `SpecProposal.tsx`, `app-spec-validate.ts` (kept) | open |
+| 1.7 | Service-name claim (F9) | `service-claim.ts` | open |
+| 1.8 | Corpus tools (search, ingest, status) | `tool-seeds.ts` rows | open |
+| 2.12 | TaskChecks / validators run by the judge; acceptance editor (F4) | `UniversalValidatorService.ts`, `worker-validator-loop.ts` | discuss |
+| 2.13 | Landing: push to Gitea, PRs, merge agent (P3); git creds stay in the worker | `LandRequestActivity`, `ResolveLandingActivity`, `merge-agent.ts` | discuss |
+| 2.14 | Memory extraction and admission after a run | `leaf-memory-extract.ts`, `memory-decide.ts` | discuss |
+| 2.15 | Failure review (F3) and outcome-driven replan | `failure-review.ts`, `replan.ts` | discuss |
+| 2.16 | Proposal dedupe | `proposal-merge.ts` | discuss |
+| 2.17 | Branch and conversation notices (decision e) | `branch-notice.ts`, `conversation-notice.ts` | discuss |
+| 2.18 | Budget pressure: checkpoint, extension, stall/tool-failure nodes wired | `leaf-checkpoint.ts`, `budget-extension.ts`, `thrash.ts` | discuss |
+| 2.19 | Research findings check | `research-verify.ts` | discuss |
+| 2.20 | Auto-accept small plans | `auto-accept.ts` | discuss |
+| 2.21 | Step replay, leaf transparency, Delivery strip (P5) | `LeafSteps.tsx`, `LeafTransparency/`, `Delivery.tsx` | discuss |
+| 2.22 | Dockerfile check | `dockerfile-check.ts` | discuss |
+| 2.23 | Leaf cancel/delete/explain (F10), branch chats (F1), attachments (F2), "Plan this" (F6) | `BranchChat.tsx`, `LeafModal.tsx` | discuss |
+| 3.24 | Lab: variants across agents, compare, promote | `ExperimentService.ts`, `Lab/` | discuss |
+| 3.25 | Lab: case-authoring chat, workbench terminal | `AuthoringService.ts`, `WorkbenchService.ts` | discuss |
+| 3.26 | Judge calibration | `judge-calibration.ts` | discuss |
+| 3.27 | Rate-limit visibility (F13) | `routes/harness/rate-limits.ts` | discuss |
+| 3.28 | Tunables/profile UI, config export/import | `harness-profile.ts`, `config-export.ts` | discuss |
+| 4.29 | Tree type → agents/procedures, roles, verdict policy | `TreeTypes/*`, `leaf-workflow-types.ts` | discuss |
+| 4.30 | Project template starter files at adoption | `renderStarterFiles` (kept, uncalled) | discuss |
+| 4.31 | Persona inheritance; Merger/Ingestor/Synthesist/Reviewer | `persona-*.ts` | discuss |
+| 4.32 | Cross-tree Home | `Home.tsx` (pre-`dfe36114`) | discuss |
+
+Drop candidates awaiting the owner: sandbox HTTP fetch, sandbox tool pacing, the complexity
+strategy, run provenance beyond traces.
+
 ## Open decisions
 
 - (a) Keep Temporal shell (LeafWorkflow) until P4? *Plan says yes* — not formally
@@ -795,4 +844,11 @@ parks for human review; the volume lives and the pod is started on demand.
   the leaf end. Pass-parallel (barrier between passes) is the v1 scheduling
   semantics; cross-pass pipelining is deferred until the barrier cost proves
   real. First P1 tools: `ready_leaves`, then the git push/PR lane, then
-  checks — each context-verified, one at a time.
+  checks — each context-verified, one at a time.- 2026-09-26 (owner, after `dfe36114`) — *Deleting without migrating was wrong.* Every removed
+  capability gets a ledger row and is rebuilt on the engine or explicitly dropped. The machine
+  approval gate is dropped (work runs in a sandbox). Grove, the Lab and tree types get a design
+  conversation before anything is rebuilt.
+- 2026-09-26 (owner) — *Secrets never enter the LLM flow.* A model handles only
+  `secret://<projectId>/<KEY>`. The person enters the value on a card, and it goes straight to
+  Infisical. The Infisical operator syncs it into `<ns>-secrets`, which the deployment mounts as env
+  vars. This is structural: no redactor on tool output, and a sentinel test proves it.

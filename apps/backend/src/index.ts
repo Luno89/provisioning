@@ -22,6 +22,8 @@ import { treeTypesRouter } from './routes/tree-types.js';
 import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
 import { plansRouter } from './routes/plans.js';
+import { secretRequestsRouter } from './routes/secret-requests.js';
+import { SecretRequestService } from './services/SecretRequestService.js';
 import { PlanService } from './services/PlanService.js';
 import { GroveRunService } from './services/GroveRunService.js';
 import { GroveDeletionService } from './services/GroveDeletionService.js';
@@ -678,6 +680,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   app.use('/api/trees', treesRouter({ db, workspaces: evalHost.treeWorkspaces, runs: groveRuns, deletion: groveDeletion }));
   app.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge }) }));
+  app.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db, vault: infisicalService }) }));
   app.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));
 
   async function koalaServers(userId: string) {

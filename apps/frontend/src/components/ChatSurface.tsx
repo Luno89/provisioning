@@ -18,6 +18,9 @@ import { useConversationTurn } from './Chat/hooks/useConversationTurn.js';
 import ChatApprovalCard from './Chat/ChatApprovalCard.js';
 import PlanProposalCard from './Chat/PlanProposalCard.js';
 import { usePlanProposals } from './Chat/hooks/usePlanProposals.js';
+import SecretRequestCard from './Chat/SecretRequestCard.js';
+import { useSecretRequests } from './Chat/hooks/useSecretRequests.js';
+import { listConversationSecretRequests, secretRequestKeys } from '../api/secret-requests.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
 
 export type { ChatMessageRecord };
@@ -61,6 +64,12 @@ export default function ChatSurface({
 
   const { streaming, error, setError } = conv;
   const planProposals = usePlanProposals(conv.selectedConvId, streaming);
+  const secretRequests = useSecretRequests(
+    secretRequestKeys.forConversation(conv.selectedConvId ?? ''),
+    () => listConversationSecretRequests(conv.selectedConvId!),
+    Boolean(conv.selectedConvId),
+    streaming,
+  );
 
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: agentKeys.all,
@@ -219,6 +228,17 @@ export default function ChatSurface({
                       onApprove={() => planProposals.approve(proposal.id)}
                       onReject={(reason) => planProposals.reject(proposal.id, reason)}
                       onOpenTree={onOpenTree}
+                    />
+                  ))}
+
+                  {secretRequests.requests.map((request) => (
+                    <SecretRequestCard
+                      key={request.id}
+                      request={request}
+                      busy={secretRequests.busy}
+                      error={secretRequests.error}
+                      onSubmit={(value, done) => secretRequests.submit(request.id, value, done)}
+                      onDismiss={() => secretRequests.dismiss(request.id)}
                     />
                   ))}
 

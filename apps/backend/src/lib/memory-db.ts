@@ -4,7 +4,7 @@ import type { ClusterProviderSpec } from './cluster-providers.js';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
-import type { Database, PartialInfo, BindingTypeRecord } from './db-interface.js';
+import type { Database, PartialInfo, BindingTypeRecord, SecretRequestFilter } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
@@ -15,6 +15,7 @@ import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
+import type { SecretRequest } from './secret-requests.js';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -48,6 +49,7 @@ export class MemoryDB implements Database {
   private memories: MemoryItem[] = [];
   private tasks: Task[] = [];
   private planProposals: PlanProposal[] = [];
+  private secretRequests: SecretRequest[] = [];
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
   private runEffort = new Map<string, RunEffort>();
@@ -519,6 +521,29 @@ export class MemoryDB implements Database {
 
   async deletePlanProposal(ownerId: string, id: string): Promise<void> {
     this.planProposals = this.planProposals.filter((p) => !(p.id === id && p.ownerId === ownerId));
+  }
+
+  async getSecretRequests(ownerId: string, filter: SecretRequestFilter = {}): Promise<SecretRequest[]> {
+    return this.secretRequests
+      .filter((r) => r.ownerId === ownerId
+        && (filter.conversationId === undefined || r.conversationId === filter.conversationId)
+        && (filter.projectId === undefined || r.projectId === filter.projectId)
+        && (filter.treeId === undefined || r.treeId === filter.treeId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined> {
+    return this.secretRequests.find((r) => r.id === id && r.ownerId === ownerId);
+  }
+
+  async saveSecretRequest(request: SecretRequest): Promise<void> {
+    const idx = this.secretRequests.findIndex((r) => r.id === request.id);
+    if (idx >= 0) this.secretRequests[idx] = request;
+    else this.secretRequests.push(request);
+  }
+
+  async deleteSecretRequest(ownerId: string, id: string): Promise<void> {
+    this.secretRequests = this.secretRequests.filter((r) => !(r.id === id && r.ownerId === ownerId));
   }
 
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {

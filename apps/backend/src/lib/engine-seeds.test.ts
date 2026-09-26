@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ALL_SEEDED_AGENTS } from '@koala/agent-engine';
+import { ALL_SEEDED_AGENTS, STANDARD_HOST_TOOL_NAMES } from '@koala/agent-engine';
 import { retireStoredBuiltInPersonas } from './built-in-personas.js';
 import { retireStoredBuiltInProcedures } from './built-in-procedures.js';
 import { ENGINE_TOOL_SEEDS, seedEngineTools } from './engine-tool-seeds.js';
@@ -77,4 +77,10 @@ describe('a built-in that did not change is left alone', () => {
     expect(await seedEngineTools(tools)).toBe(0);
   });
 
+});
+
+describe('the host tool names the engine package assumes', () => {
+  it('are exactly the tools the backend seeds', () => {
+    expect([...STANDARD_HOST_TOOL_NAMES].sort()).toEqual(ENGINE_TOOL_SEEDS.map((tool) => tool.name).sort());
+  });
 });

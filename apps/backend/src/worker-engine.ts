@@ -12,6 +12,10 @@ import { InfrastructureService } from './services/InfrastructureService.js';
 import { createModelService } from './lib/model-wiring.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
+import { InfisicalService } from './services/InfisicalService.js';
+import { ClusterProxyService } from './services/ClusterProxyService.js';
+import { ProjectRepoService } from './services/ProjectRepoService.js';
+import { createSecretVault } from './services/SecretRequestService.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
 
@@ -54,9 +58,22 @@ async function buildActivities() {
   const web = await buildWebTools(db).catch(() => undefined);
 
   const gitea = new GiteaService(new InfrastructureService(), process.env.JWT_SECRET || 'provisioning-platform-secret-12345', '/tmp/kubeconfig-provisioning-lunorica');
+  const infisical = new InfisicalService(
+    new InfrastructureService(),
+    process.env.JWT_SECRET ?? '',
+    '/tmp/kubeconfig-provisioning-lunorica',
+    undefined,
+    new ClusterProxyService(),
+  );
+  const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
+  const vault = createSecretVault({
+    backend: infisical,
+    minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
+  });
   const host = createEngineHost({
     models,
     stores: storesFromDatabase(db),
+    vault,
     ...(web ? { web } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
     registryHost: process.env.KOALA_REGISTRY,

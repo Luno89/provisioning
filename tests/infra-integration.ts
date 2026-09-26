@@ -1,19 +1,22 @@
-import path from 'path';
+import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { LocalDB } from '../apps/backend/src/lib/db.js';
+
+dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
+
+import { MongoDB } from '../apps/backend/src/lib/mongo-db.js';
 import { InfrastructureService } from '../apps/backend/src/services/InfrastructureService.js';
 import { ClusterService } from '../apps/backend/src/services/ClusterService.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 async function run() {
   console.log('🚀 Initializing services for integration test...');
-  const db = new LocalDB();
+  process.env.IS_E2E = 'true';
+  const db = new MongoDB();
   await db.init();
 
   const infra = new InfrastructureService();
   const clusterService = new ClusterService(db, infra);
+  const ownerId = 'infra-integration';
 
   const clusterName = `test-infra-${Math.floor(Math.random() * 1000)}`;
   console.log(`🔨 Provisioning test cluster: ${clusterName}...`);
@@ -22,13 +25,13 @@ async function run() {
   let succeeded = false;
 
   try {
-    metadata = await clusterService.provision(clusterName, 'k3d');
+    metadata = await clusterService.provision(clusterName, 'k3d', ownerId);
     console.log('⏳ Provisioning started in background. Monitoring status...');
     
     // Poll the status
     for (let i = 0; i < 60; i++) {
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      const clusters = await clusterService.getAll();
+      const clusters = await clusterService.getAll(ownerId);
       const current = clusters.find(c => c.name === clusterName);
       
       if (!current) {
@@ -57,13 +60,13 @@ async function run() {
     console.log(`🧹 Deleting test cluster: ${clusterName}...`);
     try {
       if (metadata && metadata.id) {
-        await clusterService.delete(metadata.id);
+        await clusterService.delete(metadata.id, ownerId);
         
         // Poll deletion status
         let deleted = false;
         for (let i = 0; i < 40; i++) {
           await new Promise((resolve) => setTimeout(resolve, 3000));
-          const clusters = await clusterService.getAll();
+          const clusters = await clusterService.getAll(ownerId);
           const current = clusters.find(c => c.name === clusterName);
           
           if (!current) {

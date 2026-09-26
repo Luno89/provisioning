@@ -1,46 +1,19 @@
 import path from 'path';
 import fs from 'fs/promises';
 import axios from 'axios';
-import { maskSecret, encryptValue, decryptValue } from '../lib/crypto.js';
 import type { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
 
 const NAMESPACE = 'infisical';
 const DATA_DIR = path.join(process.cwd(), 'data');
-const ENCRYPTION_KEY_FILE = path.join(DATA_DIR, '.infisical-encryption-key');
 const AUTH_SECRET_FILE = path.join(DATA_DIR, '.infisical-auth-secret');
 const ADMIN_PASSWORD_FILE = path.join(DATA_DIR, '.infisical-admin-password');
 
 export interface InfisicalSecretRecord {
   key: string;
-  maskedValue: string;
   secretReference: string;
   version?: number | undefined;
   comment?: string | undefined;
-}
-
-export interface InjectSecretToPodOptions {
-  projectId: string;
-  namespace?: string | undefined;
-  deploymentName?: string | undefined;
-  key: string;
-  value?: string | undefined;
-  secretReference?: string | undefined;
-  mountAs?: 'env' | 'file' | undefined;
-  mountPath?: string | undefined;
-  restart?: boolean | undefined;
-}
-
-export interface InjectSecretToPodResult {
-  success: boolean;
-  projectId: string;
-  namespace: string;
-  deploymentName: string;
-  key: string;
-  secretReference?: string | undefined;
-  injectedAs?: 'env' | 'file' | undefined;
-  podRestarted?: boolean | undefined;
-  message: string;
 }
 
 export class InfisicalService {
@@ -48,7 +21,6 @@ export class InfisicalService {
   private tokenCache: string | null = null;
   private orgId: string | null = null;
   private readonly workspaceCache = new Map<string, string>();
-  private readonly memoryStore = new Map<string, Map<string, string>>();
 
   constructor(
     private readonly infra: Pick<InfrastructureService, 'runKubectl'>,
@@ -188,98 +160,70 @@ export class InfisicalService {
     if (this.tokenCache) return this.tokenCache;
 
     const creds = (await this.loadAuthCreds()) ?? (await this.provisionMachineIdentity());
-    if (!creds) {
-      this.tokenCache = 'infisical-local-fallback-token';
-      return this.tokenCache;
-    }
+    if (!creds) throw new Error('Infisical has no machine identity and one could not be provisioned');
     this.orgId = creds.orgId;
 
-    try {
-      const baseUrl = await this.resolveBaseUrl();
-      const res = await axios.post(
-        `${baseUrl}/api/v1/auth/universal-auth/login`,
-        { clientId: creds.clientId, clientSecret: creds.clientSecret },
-        { timeout: 5000, proxy: false },
-      );
-      if (res.data?.accessToken) {
-        this.tokenCache = res.data.accessToken;
-        return res.data.accessToken;
-      }
-    } catch (err: any) {
-      console.warn(`[InfisicalService] universal-auth login failed: ${err.message}`);
-    }
-
-    this.tokenCache = 'infisical-local-fallback-token';
-    return this.tokenCache;
+    const baseUrl = await this.resolveBaseUrl();
+    const res = await axios.post(
+      `${baseUrl}/api/v1/auth/universal-auth/login`,
+      { clientId: creds.clientId, clientSecret: creds.clientSecret },
+      { timeout: 5000, proxy: false },
+    );
+    const token = res.data?.accessToken;
+    if (!token) throw new Error('Infisical login returned no access token');
+    this.tokenCache = token;
+    return token;
   }
 
-  /** Our own project ids are never real Infisical workspace ids — find-or-create the mapping. */
-  private async ensureWorkspace(projectId: string): Promise<string | null> {
-    if (this.workspaceCache.has(projectId)) return this.workspaceCache.get(projectId)!;
-
-    const token = await this.authenticate();
-    if (token === 'infisical-local-fallback-token') return null;
+  private async authorized<T>(call: (token: string, baseUrl: string) => Promise<T>): Promise<T> {
     const baseUrl = await this.resolveBaseUrl();
-    const projectName = `provisioning-${projectId}`;
-    const headers = { Authorization: `Bearer ${token}` };
-
     try {
+      return await call(await this.authenticate(), baseUrl);
+    } catch (err: any) {
+      if (err?.response?.status !== 401) throw err;
+      this.tokenCache = null;
+      return call(await this.authenticate(), baseUrl);
+    }
+  }
+
+  private async ensureWorkspace(projectId: string): Promise<string> {
+    const cached = this.workspaceCache.get(projectId);
+    if (cached) return cached;
+
+    const projectName = `provisioning-${projectId}`;
+    const id = await this.authorized(async (token, baseUrl) => {
+      const headers = { Authorization: `Bearer ${token}` };
       const list = await axios.get(`${baseUrl}/api/v1/workspace`, { headers, timeout: 4000, proxy: false });
       const found = (list.data?.workspaces ?? []).find((w: any) => w.name === projectName);
-      if (found?.id) {
-        this.workspaceCache.set(projectId, found.id);
-        return found.id;
-      }
-
+      if (found?.id) return found.id as string;
       const created = await axios.post(
         `${baseUrl}/api/v2/workspace`,
         { projectName, organizationId: this.orgId },
         { headers, timeout: 4000, proxy: false },
       );
-      const id = created.data?.project?.id;
-      if (id) {
-        this.workspaceCache.set(projectId, id);
-        return id;
-      }
-    } catch (err: any) {
-      console.warn(`[InfisicalService] could not resolve workspace for ${projectId}: ${err.message}`);
-    }
-    return null;
+      return created.data?.project?.id as string | undefined;
+    });
+    if (!id) throw new Error(`Infisical did not return a workspace for ${projectId}`);
+    this.workspaceCache.set(projectId, id);
+    return id;
   }
 
   async getSecret(projectId: string, key: string, environment = 'dev'): Promise<string | null> {
-    const projectStore = this.memoryStore.get(projectId);
-    if (projectStore?.has(key)) {
-      const enc = projectStore.get(key)!;
-      try {
-        return decryptValue(enc, this.masterKey);
-      } catch {
-        return enc;
-      }
-    }
-
+    const workspaceId = await this.ensureWorkspace(projectId);
     try {
-      const workspaceId = await this.ensureWorkspace(projectId);
-      if (!workspaceId) return null;
-      const token = await this.authenticate();
-      const baseUrl = await this.resolveBaseUrl();
-      const res = await axios.get(
+      const res = await this.authorized((token, baseUrl) => axios.get(
         `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-        {
-          params: { workspaceId, environment },
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 4000,
-          proxy: false,
-        },
-      );
-      if (res.data?.secret?.secretValue) {
-        return res.data.secret.secretValue;
-      }
+        { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
+      ));
+      return res.data?.secret?.secretValue ?? null;
     } catch (err: any) {
-      console.warn(`[InfisicalService] getSecret(${key}) failed: ${err.message}`);
+      if (err?.response?.status === 404) return null;
+      throw err;
     }
+  }
 
-    return null;
+  async hasSecret(projectId: string, key: string, environment = 'dev'): Promise<boolean> {
+    return (await this.getSecret(projectId, key, environment)) !== null;
   }
 
   async setSecret(
@@ -288,259 +232,49 @@ export class InfisicalService {
     value: string,
     comment?: string | undefined,
     environment = 'dev',
-  ): Promise<{ success: boolean; secretReference: string }> {
-    if (!this.memoryStore.has(projectId)) {
-      this.memoryStore.set(projectId, new Map());
-    }
-    const encrypted = encryptValue(value, this.masterKey);
-    this.memoryStore.get(projectId)!.set(key, encrypted);
-
-    const secretReference = `secret://${projectId}/${key}`;
-
-    try {
-      const workspaceId = await this.ensureWorkspace(projectId);
-      if (workspaceId) {
-        const token = await this.authenticate();
-        const baseUrl = await this.resolveBaseUrl();
-        const body = {
-          workspaceId,
-          environment,
-          secretValue: value,
-          secretComment: comment ?? 'Managed by provisioning platform',
-        };
-        const headers = { Authorization: `Bearer ${token}` };
-        // The raw endpoint's POST only creates — an existing key 400s "already exists" (a real, live
-        // finding: injectSecretToPod calls setSecret again right after the caller already did, and a
-        // silently-swallowed 400 there would mean a value never actually updates on a rotation/redeploy).
-        await axios.post(
-          `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-          body,
-          { headers, timeout: 4000, proxy: false },
-        ).catch(async (err: any) => {
-          if (err.response?.status !== 400) throw err;
-          await axios.patch(
-            `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-            body,
-            { headers, timeout: 4000, proxy: false },
-          );
-        });
-      }
-    } catch (err: any) {
-      console.warn(`[InfisicalService] setSecret(${key}) failed: ${err.message}`);
-    }
-
-    return { success: true, secretReference };
+  ): Promise<{ secretReference: string }> {
+    const workspaceId = await this.ensureWorkspace(projectId);
+    const body = {
+      workspaceId,
+      environment,
+      secretValue: value,
+      secretComment: comment ?? 'Managed by provisioning platform',
+    };
+    await this.authorized(async (token, baseUrl) => {
+      const headers = { Authorization: `Bearer ${token}` };
+      const url = `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`;
+      await axios.post(url, body, { headers, timeout: 4000, proxy: false }).catch(async (err: any) => {
+        if (err.response?.status !== 400) throw err;
+        await axios.patch(url, body, { headers, timeout: 4000, proxy: false });
+      });
+    });
+    return { secretReference: `secret://${projectId}/${key}` };
   }
 
-  async deleteSecret(projectId: string, key: string, environment = 'dev'): Promise<boolean> {
-    const projectStore = this.memoryStore.get(projectId);
-    if (projectStore) {
-      projectStore.delete(key);
-    }
-
+  async deleteSecret(projectId: string, key: string, environment = 'dev'): Promise<void> {
+    const workspaceId = await this.ensureWorkspace(projectId);
     try {
-      const workspaceId = await this.ensureWorkspace(projectId);
-      if (workspaceId) {
-        const token = await this.authenticate();
-        const baseUrl = await this.resolveBaseUrl();
-        await axios.delete(
-          `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
-          {
-            params: { workspaceId, environment },
-            headers: { Authorization: `Bearer ${token}` },
-            timeout: 4000,
-            proxy: false,
-          },
-        );
-      }
+      await this.authorized((token, baseUrl) => axios.delete(
+        `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
+        { data: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
+      ));
     } catch (err: any) {
-      console.warn(`[InfisicalService] deleteSecret(${key}) failed: ${err.message}`);
+      if (err?.response?.status !== 404) throw err;
     }
-
-    return true;
   }
 
   async listSecrets(projectId: string, environment = 'dev'): Promise<InfisicalSecretRecord[]> {
-    const results: InfisicalSecretRecord[] = [];
-    const seen = new Set<string>();
-
-    const projectStore = this.memoryStore.get(projectId);
-    if (projectStore) {
-      for (const [key, enc] of projectStore.entries()) {
-        seen.add(key);
-        let plain = 'secret';
-        try {
-          plain = decryptValue(enc, this.masterKey);
-        } catch {
-          plain = enc;
-        }
-        results.push({
-          key,
-          maskedValue: maskSecret(plain),
-          secretReference: `secret://${projectId}/${key}`,
-          version: 1,
-        });
-      }
-    }
-
-    try {
-      const workspaceId = await this.ensureWorkspace(projectId);
-      if (!workspaceId) return results;
-      const token = await this.authenticate();
-      const baseUrl = await this.resolveBaseUrl();
-      const res = await axios.get(
-        `${baseUrl}/api/v3/secrets/raw`,
-        {
-          params: { workspaceId, environment },
-          headers: { Authorization: `Bearer ${token}` },
-          timeout: 4000,
-          proxy: false,
-        },
-      );
-      const remoteSecrets = res.data?.secrets ?? [];
-      for (const s of remoteSecrets) {
-        if (!seen.has(s.secretKey)) {
-          seen.add(s.secretKey);
-          results.push({
-            key: s.secretKey,
-            maskedValue: maskSecret(s.secretValue || 'secret'),
-            secretReference: `secret://${projectId}/${s.secretKey}`,
-            version: s.version ?? 1,
-            comment: s.secretComment ?? undefined,
-          });
-        }
-      }
-    } catch { /* ignored */ }
-
-    return results;
-  }
-
-  async injectSecretToPod(options: InjectSecretToPodOptions): Promise<InjectSecretToPodResult> {
-    const {
-      projectId,
-      key,
-      mountAs = 'env',
-      restart = true,
-    } = options;
-
-    const namespace = options.namespace || projectId;
-    const deploymentName = options.deploymentName || projectId;
-
-    let secretValue = options.value;
-    if (!secretValue) {
-      secretValue = (await this.getSecret(projectId, key)) ?? undefined;
-    }
-    if (!secretValue) {
-      return {
-        success: false,
-        projectId,
-        namespace,
-        deploymentName,
-        key,
-        message: `No vaulted value found for ${key} in project ${projectId} — nothing was injected into the pod.`,
-      };
-    }
-
-    const { secretReference } = await this.setSecret(projectId, key, secretValue);
-
-    // gitapp.ts's Deployment always mounts envFrom on `${namespaceName}-secrets`, not a name derived
-    // from the Deployment resource (which is always literally "gitapp").
-    const secretName = `${namespace}-secrets`;
-
-    try {
-      await this.infra.runKubectl(
-        ['create', 'namespace', namespace],
-        this.kubeconfigPath,
-      ).catch(() => null);
-
-      const b64Val = Buffer.from(secretValue).toString('base64');
-      const patchJson = JSON.stringify({
-        data: {
-          [key]: b64Val,
-        },
-      });
-
-      const patchResult = await this.infra.runKubectl(
-        ['patch', 'secret', secretName, '-n', namespace, '-p', patchJson],
-        this.kubeconfigPath,
-      ).catch(() => null);
-
-      if (!patchResult) {
-        await this.infra.runKubectl(
-          [
-            'create',
-            'secret',
-            'generic',
-            secretName,
-            '-n',
-            namespace,
-            `--from-literal=${key}=${secretValue}`,
-          ],
-          this.kubeconfigPath,
-        ).catch(() => null);
-      }
-    } catch (err: any) {
-      console.warn(`[InfisicalService] Note: K8s Secret creation error (may be test env): ${err.message}`);
-    }
-
-    try {
-      const depJsonRaw = await this.infra.runKubectl(
-        ['get', 'deployment', deploymentName, '-n', namespace, '-o', 'json'],
-        this.kubeconfigPath,
-      ).catch(() => null);
-
-      if (depJsonRaw) {
-        const depObj = JSON.parse(depJsonRaw);
-        const container = depObj.spec?.template?.spec?.containers?.[0];
-        const hasEnvFrom = container?.envFrom?.some((ef: any) => ef.secretRef?.name === secretName);
-
-        if (!hasEnvFrom) {
-          const patchDep = JSON.stringify({
-            spec: {
-              template: {
-                spec: {
-                  containers: [
-                    {
-                      name: container?.name || 'app',
-                      envFrom: [{ secretRef: { name: secretName, optional: true } }],
-                    },
-                  ],
-                },
-              },
-            },
-          });
-          await this.infra.runKubectl(
-            ['patch', 'deployment', deploymentName, '-n', namespace, '-p', patchDep],
-            this.kubeconfigPath,
-          ).catch(() => null);
-        }
-      }
-    } catch { /* ignored */ }
-
-    let podRestarted = false;
-    if (restart) {
-      try {
-        await this.infra.runKubectl(
-          ['rollout', 'restart', `deployment/${deploymentName}`, '-n', namespace],
-          this.kubeconfigPath,
-        );
-        podRestarted = true;
-      } catch {
-        podRestarted = false;
-      }
-    }
-
-    return {
-      success: true,
-      projectId,
-      namespace,
-      deploymentName,
-      key,
-      secretReference,
-      injectedAs: mountAs,
-      podRestarted,
-      message: `Secret ${key} successfully stored in Infisical and injected into ${namespace}/${deploymentName}`,
-    };
+    const workspaceId = await this.ensureWorkspace(projectId);
+    const res = await this.authorized((token, baseUrl) => axios.get(
+      `${baseUrl}/api/v3/secrets/raw`,
+      { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
+    ));
+    return (res.data?.secrets ?? []).map((s: any) => ({
+      key: s.secretKey,
+      secretReference: `secret://${projectId}/${s.secretKey}`,
+      version: s.version ?? 1,
+      ...(s.secretComment ? { comment: s.secretComment } : {}),
+    }));
   }
 
   generateInfisicalSecretManifest(options: {

@@ -4,7 +4,7 @@ import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import { mergeRecord } from './merge-record.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
-import type { Database, PartialInfo, BindingTypeRecord } from './db-interface.js';
+import type { Database, PartialInfo, BindingTypeRecord, SecretRequestFilter } from './db-interface.js';
 import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
@@ -14,6 +14,7 @@ import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
+import type { SecretRequest } from './secret-requests.js';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -165,6 +166,10 @@ export class MongoDB implements Database {
     return this.db!.collection('planProposals');
   }
 
+  private get secretRequests(): Collection {
+    return this.db!.collection('secretRequests');
+  }
+
   private get memories(): Collection {
     return this.db!.collection('memories');
   }
@@ -197,6 +202,7 @@ export class MongoDB implements Database {
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
     await this.planProposals.createIndex({ ownerId: 1, conversationId: 1, createdAt: 1 });
+    await this.secretRequests.createIndex({ ownerId: 1, projectId: 1, key: 1 });
     await this.runEffort.createIndex({ ownerId: 1, procedureId: 1, modelKey: 1, finishedAt: -1 });
     try {
       await this.projects.createIndex({ giteaOwner: 1, giteaRepo: 1 }, {
@@ -699,6 +705,31 @@ export class MongoDB implements Database {
 
   async deletePlanProposal(ownerId: string, id: string): Promise<void> {
     await this.planProposals.deleteOne({ _id: id as any, ownerId });
+  }
+
+  async getSecretRequests(ownerId: string, filter: SecretRequestFilter = {}): Promise<SecretRequest[]> {
+    const query: Record<string, unknown> = { ownerId };
+    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
+    if (filter.projectId !== undefined) query.projectId = filter.projectId;
+    if (filter.treeId !== undefined) query.treeId = filter.treeId;
+    const docs = await this.secretRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<SecretRequest>(d));
+  }
+
+  async getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined> {
+    const doc = await this.secretRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<SecretRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveSecretRequest(request: SecretRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.secretRequests.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async deleteSecretRequest(ownerId: string, id: string): Promise<void> {
+    await this.secretRequests.deleteOne({ _id: id as any, ownerId });
   }
 
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {

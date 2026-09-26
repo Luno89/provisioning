@@ -648,3 +648,21 @@ export interface PlanProposal {
   createdAt: string;
   updatedAt: string;
 }
+
+export type SecretRequestStatus = 'requested' | 'provided' | 'provisioned' | 'dismissed';
+
+export interface SecretRequest {
+  id: string;
+  ownerId: string;
+  projectId: string;
+  key: string;
+  description: string;
+  secretReference: string;
+  status: SecretRequestStatus;
+  source?: string | undefined;
+  conversationId?: string | undefined;
+  runId?: string | undefined;
+  treeId?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+}

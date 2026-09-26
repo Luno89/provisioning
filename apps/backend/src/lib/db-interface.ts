@@ -11,6 +11,7 @@ import type { GiteaAccount } from './projects.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
+import type { SecretRequest } from './secret-requests.js';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -32,6 +33,12 @@ export interface BindingTypeRecord {
   defaultPort?: number | undefined;
   description?: string | undefined;
   requiredKeys?: string[] | undefined;
+}
+
+export interface SecretRequestFilter {
+  conversationId?: string | undefined;
+  projectId?: string | undefined;
+  treeId?: string | undefined;
 }
 
 export interface Database {
@@ -134,6 +141,11 @@ export interface Database {
   getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined>;
   savePlanProposal(proposal: PlanProposal): Promise<void>;
   deletePlanProposal(ownerId: string, id: string): Promise<void>;
+
+  getSecretRequests(ownerId: string, filter?: SecretRequestFilter): Promise<SecretRequest[]>;
+  getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined>;
+  saveSecretRequest(request: SecretRequest): Promise<void>;
+  deleteSecretRequest(ownerId: string, id: string): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;
