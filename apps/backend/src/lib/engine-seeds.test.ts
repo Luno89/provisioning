@@ -36,6 +36,10 @@ function toolStore(rows: ToolDefinition[] = []) {
       const idx = rows.findIndex((r) => r.name === row.name && r.ownerId === row.ownerId);
       if (idx >= 0) rows[idx] = row; else rows.push(row);
     },
+    deleteEngineTool: async (ownerId: string | undefined, name: string) => {
+      const idx = rows.findIndex((r) => r.name === name && r.ownerId === ownerId);
+      if (idx >= 0) rows.splice(idx, 1);
+    },
   };
 }
 
@@ -65,6 +69,16 @@ describe('a built-in that changed in code reaches the database', () => {
 
     expect(await seedEngineTools(db)).toBe(1);
     expect(db.rows[0]!.guidance).toBe(ENGINE_TOOL_SEEDS[0]!.guidance);
+  });
+});
+
+describe('a built-in the code no longer ships', () => {
+  it('is removed from the database, and a person\'s own tool of that name is kept', async () => {
+    const retired = { ...ENGINE_TOOL_SEEDS[0]!, name: 'make_branch' };
+    const theirs = { ...retired, ownerId: 'u1' };
+    const db = toolStore([...ENGINE_TOOL_SEEDS.map((seed) => ({ ...seed })), retired, theirs]);
+    await seedEngineTools(db);
+    expect(db.rows.filter((row) => row.name === 'make_branch')).toEqual([theirs]);
   });
 });
 

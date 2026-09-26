@@ -7,6 +7,7 @@ const store = (rows: ToolDefinition[] = []) => ({
   rows,
   getEngineTools: async () => [...rows],
   saveEngineTool: async (tool: ToolDefinition) => { rows.push(tool); },
+  deleteEngineTool: async (ownerId: string | undefined, name: string) => { rows.splice(0, rows.length, ...rows.filter((row) => !(row.name === name && row.ownerId === ownerId))); },
 });
 
 const catalogue = (rows: ToolDefinition[], include?: ('draft' | 'approved')[]) =>

@@ -8,6 +8,7 @@ export const ENGINE_TOOL_SEEDS: ToolDefinition[] = [...TASK_TOOLS, ...GROVE_TOOL
 export interface EngineToolStore {
   getEngineTools(ownerId?: string): Promise<ToolDefinition[]>;
   saveEngineTool(tool: ToolDefinition): Promise<void>;
+  deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
 }
 
 export interface SeedToolOptions {
@@ -37,6 +38,13 @@ export async function seedEngineTools(
     }
 
     await store.saveEngineTool({ ...seed });
+    seeded += 1;
+  }
+
+  const shipped = new Set(ENGINE_TOOL_SEEDS.map((seed) => seed.name));
+  for (const name of builtIn.keys()) {
+    if (shipped.has(name)) continue;
+    await store.deleteEngineTool(undefined, name);
     seeded += 1;
   }
   return seeded;
