@@ -60,9 +60,9 @@ const setup = (init: {
 };
 
 describe('what the nav offers', () => {
-  it('renders the harness entries', () => {
+  it('renders the Koala entries', () => {
     setup();
-    for (const label of ['Koala', 'Projects', 'Personas', 'Lab', 'Harness', 'Tool Repo', 'Tool Evals', 'Forest']) {
+    for (const label of ['Koala', 'Projects', 'Memories', 'Tree Types', 'Tool Evals', 'Forest']) {
       expect(screen.getByText(label), label).toBeInTheDocument();
     }
   });
@@ -70,7 +70,7 @@ describe('what the nav offers', () => {
   it('keeps the Forest tabs hidden until it is opened', () => {
     setup();
     expect(screen.queryByText('Clusters')).not.toBeInTheDocument();
-    expect(screen.getByText('Lab')).toBeInTheDocument();
+    expect(screen.getByText('Memories')).toBeInTheDocument();
   });
 
   it('shows them when it is open', () => {
@@ -79,7 +79,7 @@ describe('what the nav offers', () => {
     expect(screen.getByText('Applications')).toBeInTheDocument();
   });
 
-  it('keeps Recent Chats hidden when Koala is collapsed, but leaves Personas/Lab/Harness/Tool Repo visible — they are flat siblings, not nested under Koala', async () => {
+  it('keeps Recent Chats hidden when Koala is collapsed, but leaves Memories and Tree Types visible — they are flat siblings, not nested under Koala', async () => {
     vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([
       { id: 'c-1', title: 'Some Chat', messageCount: 1, updatedAt: '2026-08-26T00:00:00Z', messages: [] },
     ]);
@@ -87,10 +87,8 @@ describe('what the nav offers', () => {
     setup({ view: 'chat', koalaOpen: false });
 
     expect(screen.queryByText('Some Chat')).not.toBeInTheDocument();
-    expect(screen.getByText('Personas')).toBeInTheDocument();
-    expect(screen.getByText('Lab')).toBeInTheDocument();
-    expect(screen.getByText('Harness')).toBeInTheDocument();
-    expect(screen.getByText('Tool Repo')).toBeInTheDocument();
+    expect(screen.getByText('Memories')).toBeInTheDocument();
+    expect(screen.getByText('Tree Types')).toBeInTheDocument();
   });
 
   it('keeps the tree list hidden when the Projects group is collapsed', () => {
@@ -103,9 +101,9 @@ describe('what the nav offers', () => {
 });
 
 describe('what clicking does', () => {
-  it('navigates to Projects, Personas and Lab from chat', () => {
+  it('navigates to Projects, Memories and Tree Types from chat', () => {
     const { view } = setup();
-    for (const [label, id] of [['Projects', 'projects'], ['Personas', 'personas'], ['Lab', 'lab']]) {
+    for (const [label, id] of [['Projects', 'projects'], ['Memories', 'memories'], ['Tree Types', 'tree-types']]) {
       fireEvent.click(screen.getByText(label!));
       expect(view(), label).toBe(id);
     }
@@ -132,7 +130,7 @@ describe('what clicking does', () => {
   });
 
   it('navigating into Koala from elsewhere lands on chat with the group open', () => {
-    const { view, koalaOpen } = setup({ view: 'lab', koalaOpen: false });
+    const { view, koalaOpen } = setup({ view: 'clusters', koalaOpen: false });
     fireEvent.click(screen.getByText('Koala'));
     expect(view()).toBe('chat');
     expect(koalaOpen()).toBe(true);
@@ -148,7 +146,7 @@ describe('what clicking does', () => {
   });
 
   it('navigating into Projects from elsewhere lands on projects with the group open', () => {
-    const { view, projectsOpen } = setup({ view: 'lab', projectsOpen: false });
+    const { view, projectsOpen } = setup({ view: 'clusters', projectsOpen: false });
     fireEvent.click(screen.getByText('Projects'));
     expect(view()).toBe('projects');
     expect(projectsOpen()).toBe(true);
@@ -164,9 +162,9 @@ describe('what clicking does', () => {
 
 describe('what the current view looks like', () => {
   it('marks the active entry, so you can tell where you are', () => {
-    setup({ view: 'lab' });
-    expect(screen.getByText('Lab').className).toMatch(/bg-\[var\(--bark-600\)\]/);
-    expect(screen.getByText('Personas').className).not.toMatch(/bg-\[var\(--bark-600\)\]/);
+    setup({ view: 'memories' });
+    expect(screen.getByText('Memories').className).toMatch(/bg-\[var\(--bark-600\)\]/);
+    expect(screen.getByText('Tree Types').className).not.toMatch(/bg-\[var\(--bark-600\)\]/);
   });
 
   it('marks the active Forest tab too', () => {
@@ -177,14 +175,13 @@ describe('what the current view looks like', () => {
   it('renders recent chat conversations under Koala when on chat view', async () => {
     vi.mocked(chatPackApi.listChatConversations).mockResolvedValue([
       { id: 'c-1', title: 'Production Cluster Migration', messageCount: 4, updatedAt: '2026-08-26T00:00:00Z', messages: [] },
-      { id: 'c-2', title: 'Spec Configuration', messageCount: 2, updatedAt: '2026-08-26T01:00:00Z', proposedSpecs: [{ id: 's-1', spec: {}, proposedAt: '2026-08-26T01:00:00Z' }], messages: [] },
+      { id: 'c-2', title: 'Spec Configuration', messageCount: 2, updatedAt: '2026-08-26T01:00:00Z', messages: [] },
     ]);
 
     setup({ view: 'chat' });
 
     expect(await screen.findByText('Production Cluster Migration')).toBeInTheDocument();
     expect(screen.getByText('Spec Configuration')).toBeInTheDocument();
-    expect(screen.getByTitle('App Spec')).toBeInTheDocument();
   });
 
   it('marks the conversation matching the URL hash as active, not the wrong one', async () => {

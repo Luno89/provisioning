@@ -78,51 +78,11 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     expect(clustersRes.status).toBe(200);
   });
 
-  it('gives a brand-new account a Koala persona AND a Koala pack', async () => {
-    expect(session).toBeTruthy();
-    const auth = { headers: { Cookie: session } };
-
-    const personas = await axios.get(getUrl('/api/personas'), auth);
-    expect(personas.status).toBe(200);
-    const koalaPersona = personas.data.find((p: any) => p.name === 'Koala');
-    expect(koalaPersona, 'Koala missing from the personas list').toBeTruthy();
-
-    const packs = await axios.get(getUrl('/api/packs'), auth);
-    expect(packs.status).toBe(200);
-    const koalaPack = packs.data.find((p: any) => p.slug === 'koala');
-    expect(koalaPack, 'Koala missing from the pack catalogue').toBeTruthy();
-    expect(koalaPack.personaId).toBe(koalaPersona.id);
-    expect(koalaPack.ownerId).toBe(personas.data[0].ownerId);
-  });
-
-  it('serves the catalogue idempotently, and keeps an edit', async () => {
-    const auth = { headers: { Cookie: session } };
-    const before = await axios.get(getUrl('/api/packs'), auth);
-    const koala = before.data.find((p: any) => p.slug === 'koala');
-
-    await axios.put(
-      getUrl(`/api/packs/${koala.id}`),
-      { sampling: { toolTurn: { temperature: 0.11 } } },
-      auth,
-    );
-
-    const after = await axios.get(getUrl('/api/packs'), auth);
-    expect(after.data).toHaveLength(before.data.length);
-    expect(after.data.find((p: any) => p.slug === 'koala').sampling.toolTurn.temperature).toBe(0.11);
-  });
-
-  it('refuses a chat turn for a pack that does not exist', async () => {
-    const auth = { headers: { Cookie: session } };
-    await expect(
-      axios.post(getUrl('/api/chat-pack/researcher'), { message: 'hi' }, auth),
-    ).rejects.toMatchObject({ response: { status: 404 } });
-  });
-
   it('no longer starts work the old way: no hand-made leaves, branch chats or legacy chat turns', async () => {
     expect(session).toBeTruthy();
     const auth = { headers: { Cookie: session }, validateStatus: () => true };
 
-    for (const [path, body] of [['/api/leaves', { title: 'by hand' }], ['/api/branches', { title: 'a chat' }], ['/api/chat', { message: 'hi' }]] as const) {
+    for (const [path, body] of [['/api/leaves', { title: 'by hand' }], ['/api/branches', { title: 'a chat' }], ['/api/chat', { message: 'hi' }], ['/api/chat-pack/koala', { message: 'hi' }]] as const) {
       const res = await axios.post(getUrl(path), body, auth);
       expect(res.status, path).toBe(404);
     }

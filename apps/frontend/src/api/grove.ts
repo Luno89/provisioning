@@ -1,33 +1,14 @@
 import { api } from './client'
-import type { Tree, Branch, Leaf, TreeType, LeafExplain } from '../types/grove'
+import type { Tree, Branch, Leaf, TreeType } from '../types/grove'
 
 export const groveKeys = {
   trees: () => ['trees'] as const,
   branches: () => ['branches'] as const,
   leaves: () => ['leaves'] as const,
   treeTypes: () => ['tree-types'] as const,
-  trace: (id: string) => ['leaf-trace', id] as const,
-  explain: (id: string) => ['leaf-explain', id] as const,
-  board: (id: string) => ['tree-board', id] as const,
   workspace: (id: string) => ['tree-workspace', id] as const,
   run: (id: string) => ['tree-run', id] as const,
 }
-
-export interface TreeRollup {
-  counts: { proposed: number; blocked: number; running: number; claimed: number; verified: number; failed: number }
-  outstanding: number
-  tokens: number
-  retried: number
-  branches: number
-}
-
-export interface TreeBoard {
-  tree: Tree
-  rollup: TreeRollup
-}
-
-export const getTreeBoard = (id: string): Promise<TreeBoard> =>
-  api.get<TreeBoard>(`/trees/${id}/board`).then((r) => r.data)
 
 export type TreeWorkspaceState = 'none' | 'parked' | 'running'
 
@@ -44,10 +25,10 @@ export interface TreeRunResult {
 }
 
 export type TreeRunStatus =
-  | { state: 'none' | 'unavailable'; engine: boolean }
-  | { state: 'running'; engine: boolean; startedAt: string }
-  | { state: 'finished'; engine: boolean; startedAt: string; closedAt?: string; result: TreeRunResult }
-  | { state: 'failed'; engine: boolean; startedAt: string; closedAt?: string; reason: string }
+  | { state: 'none' | 'unavailable' }
+  | { state: 'running'; startedAt: string }
+  | { state: 'finished'; startedAt: string; closedAt?: string; result: TreeRunResult }
+  | { state: 'failed'; startedAt: string; closedAt?: string; reason: string }
 
 export const getTreeRun = (id: string): Promise<TreeRunStatus> =>
   api.get<TreeRunStatus>(`/trees/${id}/run`).then((r) => r.data)
@@ -60,34 +41,19 @@ export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((
 export const createTree = <T,>(body: unknown): Promise<T> =>
   api.post<T>('/trees', body).then((r) => r.data)
 export const deleteTree = (id: string) => api.delete(`/trees/${id}`).then((r) => r.data)
-export const patchTree = <T,>(id: string, patch: Record<string, unknown>): Promise<T> =>
-  api.patch<T>(`/trees/${id}`, patch).then((r) => r.data)
-
 export const listBranches = (): Promise<Branch[]> =>
   api.get<Branch[]>('/branches').then((r) => r.data)
 
-export const patchBranch = (id: string, patch: Record<string, unknown>) =>
-  api.patch(`/branches/${id}`, patch).then((r) => r.data)
 export const deleteBranch = (id: string) => api.delete(`/branches/${id}`).then((r) => r.data)
 
 export const listLeaves = (): Promise<Leaf[]> => api.get<Leaf[]>('/leaves').then((r) => r.data)
 export const deleteLeaf = (id: string) => api.delete(`/leaves/${id}`).then((r) => r.data)
 
-export const patchLeaf = (id: string, patch: Record<string, unknown>) =>
-  api.patch(`/leaves/${id}`, patch).then((r) => r.data)
-
-export const getLeafTrace = (id: string) => api.get(`/leaves/${id}/trace`).then((r) => r.data)
-export const explainLeaf = (id: string): Promise<LeafExplain> =>
-  api.get<LeafExplain>(`/leaves/${id}/explain`).then((r) => r.data)
-
 export const cancelLeaf = (id: string) => api.post(`/leaves/${id}/cancel`, {}).then((r) => r.data)
 export const settleLeaf = (id: string, verdict: 'verified' | 'failed', note?: string) =>
   api.post(`/leaves/${id}/settle`, { verdict, ...(note ? { note } : {}) }).then((r) => r.data)
-export const retryLeaf = (id: string, body?: unknown) =>
-  api.post(`/leaves/${id}/retry`, body ?? {}).then((r) => r.data)
-export const recheckLeaf = (id: string): Promise<{ outcome: string; reason: string; changed?: boolean }> =>
-  api.post<{ outcome: string; reason: string; changed?: boolean }>(`/leaves/${id}/recheck`, {})
-    .then((r) => r.data)
+export const retryLeaf = (id: string) =>
+  api.post(`/leaves/${id}/retry`, {}).then((r) => r.data)
 
 export const listTreeTypes = (): Promise<TreeType[]> =>
   api.get<TreeType[]>('/tree-types').then((r) => r.data)

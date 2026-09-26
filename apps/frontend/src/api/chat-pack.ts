@@ -1,30 +1,16 @@
 
-import { api, postStream, type StreamResponse } from './client.js';
-
-export interface ChatPackTurnRequest {
-  conversationId?: string | undefined;
-  message: string;
-  sessionId?: string | undefined;
-  modelId?: string | undefined;
-}
+import { api } from './client.js';
 
 export const chatPackKeys = {
   conversations: () => ['chat-pack-conversations'] as const,
   conversation: (id: string) => ['chat-pack-conversation', id] as const,
 };
 
-export const openChatPackStream = (
-  body: ChatPackTurnRequest,
-  signal?: AbortSignal,
-): Promise<StreamResponse> =>
-  postStream('/chat', body, signal);
-
 export interface ChatConversationMessage {
   role: 'user' | 'assistant';
   content: string;
   at?: string | undefined;
   reasoning?: string | undefined;
-  enabled?: string[] | undefined;
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -32,40 +18,7 @@ export interface ChatConversationMessage {
     ok: boolean;
     digest: string;
   }> | undefined;
-  notice?: boolean | undefined;
-  handoff?: boolean | undefined;
   interruptedReason?: string | undefined;
-}
-
-export interface ProposedEscalationRecord {
-  id: string;
-  reason: string;
-  scope: 'cluster-read' | 'cluster-admin';
-  namespaces?: string[] | undefined;
-  proposedAt: string;
-  status: 'pending' | 'accepted' | 'denied';
-  acceptedAt?: string | undefined;
-  deniedAt?: string | undefined;
-}
-
-export interface ProposedTreeRecord {
-  id: string;
-  name: string;
-  type: string;
-  goal: string;
-  brief?: string | undefined;
-  proposedAt: string;
-  treeId?: string | undefined;
-  dismissedAt?: string | undefined;
-}
-
-export interface ProposedSpecRecord {
-  id: string;
-  spec: unknown;
-  proposedAt: string;
-  replaces?: boolean | undefined;
-  acceptedAt?: string | undefined;
-  dismissedAt?: string | undefined;
 }
 
 export interface ChatConversation {
@@ -85,26 +38,6 @@ export interface ChatConversation {
   treeId?: string | undefined;
   projectId?: string | undefined;
   messages?: ChatConversationMessage[] | undefined;
-  proposedTrees?: ProposedTreeRecord[] | undefined;
-  proposedSpecs?: ProposedSpecRecord[] | undefined;
-  isEscalated?: boolean | undefined;
-  escalatedScope?: 'cluster-read' | 'cluster-admin' | undefined;
-  escalatedNamespaces?: string[] | undefined;
-  proposedEscalations?: ProposedEscalationRecord[] | undefined;
-  proposedSecretRequests?: ProposedSecretRequestRecord[] | undefined;
-}
-
-export interface ProposedSecretRequestRecord {
-  id: string;
-  key: string;
-  label?: string | undefined;
-  description: string;
-  projectId?: string | undefined;
-  status: 'pending' | 'fulfilled' | 'dismissed';
-  secretReference?: string | undefined;
-  requestedAt: string;
-  fulfilledAt?: string | undefined;
-  dismissedAt?: string | undefined;
 }
 
 export type Conversation = ChatConversation;
@@ -140,31 +73,3 @@ export const patchChatConversation = (
   patch: { modelId?: string | null | undefined; agentSlug?: string | null | undefined },
 ): Promise<ChatConversation> =>
   api.patch<ChatConversation>(`/conversations/${id}`, patch).then((r) => r.data);
-
-export const acceptSpecProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/specs/${proposalId}/accept`, {})
-    .then((r) => r.data);
-
-export const dismissTreeProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/trees/${proposalId}/dismiss`, {})
-    .then((r) => r.data);
-
-export const dismissSpecProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/specs/${proposalId}/dismiss`, {})
-    .then((r) => r.data);
-
-export const acceptEscalationProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/escalations/${proposalId}/accept`, {})
-    .then((r) => r.data);
-
-export const denyEscalationProposal = <T,>(conversationId: string, proposalId: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/escalations/${proposalId}/deny`, {})
-    .then((r) => r.data);
-
-export const submitSecretRequest = <T,>(conversationId: string, requestId: string, value: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/secrets/${requestId}/submit`, { value })
-    .then((r) => r.data);
-
-export const dismissSecretRequest = <T,>(conversationId: string, requestId: string): Promise<T> =>
-  api.post<T>(`/conversations/${conversationId}/secrets/${requestId}/dismiss`, {})
-    .then((r) => r.data);

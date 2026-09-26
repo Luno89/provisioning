@@ -9,24 +9,7 @@ import {
   DATASET_FILES,
   BENCHMARK_FILES,
   INVESTIGATION_FILES,
-  MCP_SERVER_RECIPE,
-  NODE_SERVICE_RECIPE,
-  UI_APP_RECIPE,
-  RESEARCH_PAPER_RECIPE,
-  DECISION_BRIEF_RECIPE,
-  DATASET_RECIPE,
-  LIBRARY_RECIPE,
-  BENCHMARK_RECIPE,
-  INVESTIGATION_RECIPE,
-  MIGRATION_RECIPE,
 } from './project-templates.js';
-
-/**
- * Which pack fills each role, by slug. Shipped identical across types because that is what the
- * behaviour was; the value of having it here is that a user can now repoint one type's planner
- * through `PUT /api/tree-types/:id` without touching any other type or any code.
- */
-const DEFAULT_PACKS = { planner: 'planner', judge: 'judge', merger: 'merger' } as const;
 
 export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
   {
@@ -37,8 +20,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     produces: 'service',
     doneMeans: 'It builds, it deploys, it answers `initialize`, and its tools return real data when called.',
     files: MCP_SERVER_FILES,
-    validationRecipe: MCP_SERVER_RECIPE,
-    packs: DEFAULT_PACKS,
     defaultBindings: ['gitea'],
   },
   {
@@ -49,8 +30,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     produces: 'service',
     doneMeans: 'The frontend builds cleanly, dist/index.html is produced, and the web UI renders and serves.',
     files: UI_APP_FILES,
-    validationRecipe: UI_APP_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'api-service',
@@ -60,8 +39,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Something that runs and answers requests.',
     doneMeans: 'Its tests pass, it builds, it deploys, and the endpoint responds.',
     files: NODE_SERVICE_FILES,
-    validationRecipe: NODE_SERVICE_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'research-paper',
@@ -71,8 +48,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'A written answer with sources — a comparison, a survey, a recommendation.',
     doneMeans: 'Every question is answered, every claim carries a source, and the write-up reads as one piece.',
     files: RESEARCH_PAPER_FILES,
-    validationRecipe: RESEARCH_PAPER_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'decision-brief',
@@ -82,8 +57,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Options compared against criteria, ending in a recommendation.',
     doneMeans: 'Every option is covered against every criterion, and every claim is cited.',
     files: DECISION_BRIEF_FILES,
-    validationRecipe: DECISION_BRIEF_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'library',
@@ -93,8 +66,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Code other things import or run. No deployment.',
     doneMeans: 'Its tests pass and it installs cleanly from a fresh checkout.',
     files: LIBRARY_FILES,
-    validationRecipe: LIBRARY_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'dataset',
@@ -104,8 +75,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Data collected, cleaned and labelled, with provenance.',
     doneMeans: 'The schema validates, the row counts are what was promised, and every row can say where it came from.',
     files: DATASET_FILES,
-    validationRecipe: DATASET_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'benchmark',
@@ -115,8 +84,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'A task set, run across variants, compared.',
     doneMeans: 'Every run completed, the metrics are produced, and the spread between runs is reported.',
     files: BENCHMARK_FILES,
-    validationRecipe: BENCHMARK_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'investigation',
@@ -126,8 +93,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Why something is broken or slow, and what to do about it.',
     doneMeans: 'There is a reproduction that fails before the fix and passes after it.',
     files: INVESTIGATION_FILES,
-    validationRecipe: INVESTIGATION_RECIPE,
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'migration',
@@ -136,8 +101,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     label: 'Migration / refactor',
     summary: 'A bounded change across code that already exists.',
     doneMeans: 'The existing test suite still passes and behaviour is unchanged.',
-    validationRecipe: MIGRATION_RECIPE,
-    packs: DEFAULT_PACKS,
     files: [],
   },
   {
@@ -148,7 +111,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Load, analyse, and report — charts and conclusions.',
     doneMeans: 'The analysis runs end to end from a clean checkout and produces its outputs.',
     files: [],
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'docs-site',
@@ -158,7 +120,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'Documentation derived from a codebase.',
     doneMeans: 'Links resolve and the code examples actually run.',
     files: [],
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'infra-module',
@@ -168,7 +129,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     summary: 'A reusable piece of infrastructure.',
     doneMeans: 'It provisions, verifies, and destroys again without leaving anything behind.',
     files: [],
-    packs: DEFAULT_PACKS,
   },
   {
     id: 'freeform',
@@ -177,7 +137,6 @@ export const TREE_TYPE_SEEDS: TreeTypeSeed[] = [
     language: 'base',
     produces: 'service',
     doneMeans: 'Whatever the plan itself defines as done — say so explicitly when proposing leaves for this type.',
-    packs: DEFAULT_PACKS,
     files: [],
   },
 ];

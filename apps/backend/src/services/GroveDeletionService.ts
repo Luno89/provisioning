@@ -16,7 +16,6 @@ export interface GroveDeletionStore {
   deleteTree(id: string): Promise<void>;
   deleteBranch(id: string): Promise<void>;
   deleteLeaf(id: string): Promise<void>;
-  deleteLeafTrace(leafId: string): Promise<void>;
   deleteTask(id: string): Promise<void>;
   deletePlanProposal(ownerId: string, id: string): Promise<void>;
   deleteConversation(id: string): Promise<void>;
@@ -71,10 +70,7 @@ export class GroveDeletionService {
     for (const id of scope.adoptingProposalIds) await this.deps.workflows.terminate(adoptionWorkflowId(id), reason);
 
     for (const id of scope.taskIds) await store.deleteTask(id);
-    for (const id of scope.leafIds) {
-      await store.deleteLeaf(id);
-      await store.deleteLeafTrace(id);
-    }
+    for (const id of scope.leafIds) await store.deleteLeaf(id);
     for (const id of scope.proposalIds) await store.deletePlanProposal(ownerId, id);
     for (const id of scope.conversationIds) await store.deleteConversation(id);
     for (const id of scope.branchIds) await store.deleteBranch(id);

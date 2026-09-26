@@ -4,13 +4,6 @@ import { treesRouter } from './trees.js';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
 import { GroveRunService } from '../services/GroveRunService.js';
 import { GroveDeletionService } from '../services/GroveDeletionService.js';
-import type { Database } from '../lib/db-interface.js';
-const deletionFor = (db: Database, terminated: string[] = [], released: string[] = []) => new GroveDeletionService({
-  store: db,
-  workflows: { terminate: async (workflowId: string) => { terminated.push(workflowId); return false; } },
-  workspaces: { release: async (treeId: string) => { released.push(treeId); } },
-});
-
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -29,7 +22,7 @@ const launcher = {
     return { started: true as const, workflowId: 'grove-run-t1' };
   }),
   groveRunStatus: vi.fn(async () => (running ? { state: 'running' as const, startedAt: 'then' } : { state: 'none' as const })),
-  signalGroveRun: vi.fn(async () => running),
+  signalGroveRun: vi.fn(async (_treeId: string, _signal: string) => running),
 };
 
 const mount = async (): Promise<Harness> => {
@@ -39,7 +32,7 @@ const mount = async (): Promise<Harness> => {
   running = false;
   h = await mountRouter({
     prefix: '/api/trees',
-    router: (db) => treesRouter({ db, temporalBridge: {} as never, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { terminate: terminate }, workspaces }) }),
+    router: (db) => treesRouter({ db, workspaces, runs: new GroveRunService({ store: db, launcher }), deletion: new GroveDeletionService({ store: db, workflows: { terminate: terminate }, workspaces }) }),
   });
   return h!;
 };
@@ -48,61 +41,6 @@ const tree = (over: Record<string, unknown> = {}) => ({
   id: 't1', ownerId: TEST_USER.id, name: 'widget', type: 'api-service', projectIds: [],
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   ...over,
-});
-
-const project = (over: Record<string, unknown> = {}) => ({
-  id: 'p1', name: 'widget', ownerId: TEST_USER.id, giteaOwner: 'acme', giteaRepo: 'widget',
-  appType: 'gitapp', createdAt: new Date().toISOString(),
-  ...over,
-});
-
-describe('PATCH /trees/:id', () => {
-  it('updates name and goal', async () => {
-    const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    const res = await axios.patch(harness.url('/api/trees/t1'), { name: 'renamed', goal: 'new goal' });
-    expect(res.data).toMatchObject({ name: 'renamed', goal: 'new goal' });
-  });
-
-  it('links an owned project via projectId', async () => {
-    const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveProjectInfo(project() as never);
-    const res = await axios.patch(harness.url('/api/trees/t1'), { projectId: 'p1' });
-    expect(res.data.projectIds).toEqual(['p1']);
-  });
-
-  it('is idempotent — linking the same project twice does not duplicate it', async () => {
-    const harness = await mount();
-    await harness.db.saveTree(tree({ projectIds: ['p1'] }) as never);
-    await harness.db.saveProjectInfo(project() as never);
-    const res = await axios.patch(harness.url('/api/trees/t1'), { projectId: 'p1' });
-    expect(res.data.projectIds).toEqual(['p1']);
-  });
-
-  it('refuses to link a project owned by someone else', async () => {
-    const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    await harness.db.saveProjectInfo(project({ id: 'p2', ownerId: 'someone-else' }) as never);
-    const err = await axios.patch(harness.url('/api/trees/t1'), { projectId: 'p2' }).catch((e) => e);
-    expect(err.response.status).toBe(400);
-    const stored = (await harness.db.getTrees()).find((t: { id: string }) => t.id === 't1');
-    expect(stored?.projectIds).toEqual([]);
-  });
-
-  it('refuses a nonexistent projectId', async () => {
-    const harness = await mount();
-    await harness.db.saveTree(tree() as never);
-    const err = await axios.patch(harness.url('/api/trees/t1'), { projectId: 'ghost' }).catch((e) => e);
-    expect(err.response.status).toBe(400);
-  });
-
-  it('404s a tree owned by someone else', async () => {
-    const harness = await mount();
-    await harness.db.saveTree(tree({ id: 'theirs', ownerId: 'someone-else' }) as never);
-    const err = await axios.patch(harness.url('/api/trees/theirs'), { name: 'hijacked' }).catch((e) => e);
-    expect(err.response.status).toBe(404);
-  });
 });
 
 describe('a tree\'s workspace', () => {
@@ -132,10 +70,10 @@ describe('a tree\'s workspace', () => {
     const stamp = 'now';
     await db.saveTree(tree() as never);
     await db.saveTree(tree({ id: 'keep' }) as never);
-    await db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveBranch({ id: 'b-keep', ownerId: TEST_USER.id, treeId: 'keep', title: 'B', messages: [], createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', column: 'todo', status: 'pending', runner: 'engine', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp } as never);
-    await db.saveLeaf({ id: 'l-keep', ownerId: TEST_USER.id, branchId: 'b-keep', title: 'L', column: 'todo', status: 'pending', runner: 'engine', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveBranch({ id: 'b-keep', ownerId: TEST_USER.id, treeId: 'keep', title: 'B', createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
+    await db.saveLeaf({ id: 'l-keep', ownerId: TEST_USER.id, branchId: 'b-keep', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
     await db.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'l1', title: 'T', doneMeans: 'd', dependsOn: [], status: 'accepted', runs: [], createdAt: stamp, updatedAt: stamp } as never);
     await db.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 'about t1', treeId: 't1', messages: [], createdAt: stamp, updatedAt: stamp });
     await db.savePlanProposal({ id: 'p1', ownerId: TEST_USER.id, status: 'adopting', leafPlan: { treeId: 't1', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] }, createdAt: stamp, updatedAt: stamp });
@@ -163,17 +101,17 @@ describe('a tree\'s workspace', () => {
 });
 
 describe('running a tree on the engine', () => {
-  const branch = { id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', messages: [], createdAt: 'now', updatedAt: 'now' };
+  const branch = { id: 'b1', ownerId: TEST_USER.id, treeId: 't1', title: 'B', createdAt: 'now', updatedAt: 'now' };
   const leafOf = (over: Record<string, unknown> = {}) => ({
-    id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', column: 'todo', status: 'pending', depth: 0, blocking: false,
+    id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending',
     createdAt: 'now', updatedAt: 'now', ...over,
   });
 
-  it('starts one run for a tree adopted from a plan, and reports it running', async () => {
+  it('starts one run for a planned tree, and reports it running', async () => {
     const harness = await mount();
     await harness.db.saveTree(tree() as never);
     await harness.db.saveBranch(branch as never);
-    await harness.db.saveLeaf(leafOf({ runner: 'engine' }) as never);
+    await harness.db.saveLeaf(leafOf() as never);
 
     const first = await axios.post(harness.url('/api/trees/t1/run'));
     const second = await axios.post(harness.url('/api/trees/t1/run'));
@@ -183,28 +121,27 @@ describe('running a tree on the engine', () => {
     expect(first.data).toMatchObject({ state: 'running' });
     expect(second.data).toMatchObject({ state: 'running' });
     expect(launcher.startGroveRun).toHaveBeenCalledWith(TEST_USER.id, 't1');
-    expect(status.data).toMatchObject({ state: 'running', engine: true });
+    expect(status.data).toMatchObject({ state: 'running' });
   });
 
-  it('refuses a frozen legacy tree and says why, refuses an empty tree, never another owner\'s, and marks frozen trees in the list', async () => {
+  it('refuses an empty tree and another owner\'s, and stops a running one', async () => {
     const harness = await mount();
     await harness.db.saveTree(tree() as never);
-    await harness.db.saveBranch(branch as never);
-    await harness.db.saveLeaf(leafOf() as never);
     await harness.db.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
 
-    const legacy = await axios.post(harness.url('/api/trees/t1/run')).catch((e) => e);
-    expect(legacy.response.status).toBe(409);
-    expect(legacy.response.data.error).toMatch(/frozen/);
-    expect((await axios.get(harness.url('/api/trees/t1/run'))).data).toEqual({ state: 'none', engine: false });
-    expect((await axios.post(harness.url('/api/trees/t2/run')).catch((e) => e)).response.status).toBe(404);
-    await harness.db.saveTree(tree({ id: 't3' }) as never);
-    const empty = await axios.post(harness.url('/api/trees/t3/run')).catch((e) => e);
+    const empty = await axios.post(harness.url('/api/trees/t1/run')).catch((e) => e);
     expect(empty.response.status).toBe(409);
     expect(empty.response.data.error).toMatch(/Nothing is planned/);
-    const listed = (await axios.get(harness.url('/api/trees'))).data as { id: string; frozen: boolean }[];
-    expect(Object.fromEntries(listed.map((entry) => [entry.id, entry.frozen]))).toEqual({ t1: true, t3: false });
+    expect((await axios.post(harness.url('/api/trees/t2/run')).catch((e) => e)).response.status).toBe(404);
     expect(launcher.startGroveRun).not.toHaveBeenCalled();
+
+    const idle = await axios.post(harness.url('/api/trees/t1/run/stop')).catch((e) => e);
+    expect(idle.response.status).toBe(409);
+    await harness.db.saveBranch(branch as never);
+    await harness.db.saveLeaf(leafOf() as never);
+    await axios.post(harness.url('/api/trees/t1/run'));
+    await axios.post(harness.url('/api/trees/t1/run/stop'));
+    expect(launcher.signalGroveRun).toHaveBeenCalledWith('t1', 'stopRun');
   });
 });
 

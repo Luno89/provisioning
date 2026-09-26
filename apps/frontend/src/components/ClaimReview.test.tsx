@@ -11,7 +11,7 @@ vi.mock('../api/grove', async (importOriginal) => ({
 }))
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
-  id: 'l1', branchId: 'b1', title: 'Serve it', status: 'claimed', depth: 0, blocking: false, childCount: 0, updatedAt: 'now',
+  id: 'l1', branchId: 'b1', title: 'Serve it', status: 'claimed', updatedAt: 'now',
   claim: { evidence: 'curl answered 200', commit: 'c0ffee1234567890', at: '2026-09-24T00:00:00.000Z' },
   review: { verdict: 'concern', reason: 'the port was never probed', at: '2026-09-24T00:01:00.000Z' },
   ...over,

@@ -1,10 +1,10 @@
 
-export type LeafStatus = 'proposed' | 'pending' | 'running' | 'claimed' | 'succeeded' | 'failed' | 'cancelled';
+export type LeafStatus = 'pending' | 'running' | 'claimed' | 'succeeded' | 'failed' | 'cancelled';
 
-export type LeafState = 'proposed' | 'blocked' | 'running' | 'claimed' | 'verified' | 'failed';
+export type LeafState = 'todo' | 'blocked' | 'running' | 'claimed' | 'verified' | 'failed';
 
 export const BOARD_COLUMNS: { id: LeafState; label: string; hint: string }[] = [
-  { id: 'proposed', label: 'To do', hint: 'Waiting to start' },
+  { id: 'todo', label: 'To do', hint: 'Waiting to start' },
   { id: 'blocked', label: 'Blocked', hint: 'Waiting on other work' },
   { id: 'running', label: 'Running', hint: 'In a sandbox now' },
   { id: 'claimed', label: 'Claimed', hint: 'The agent says it worked. Nothing checked it.' },
@@ -26,8 +26,7 @@ export function stateFor(
   all: { id: string; status: LeafStatus }[],
 ): LeafState | undefined {
   switch (leaf.status) {
-    case 'proposed': return 'proposed';
-    case 'pending': return blockedBy(leaf, all).length > 0 ? 'blocked' : 'proposed';
+    case 'pending': return blockedBy(leaf, all).length > 0 ? 'blocked' : 'todo';
     case 'running': return 'running';
     case 'claimed': return 'claimed';
     case 'failed': return 'failed';
@@ -43,37 +42,26 @@ export interface LeafAttempt {
   failedAt: string;
 }
 
+/**
+ * ── DUPLICATED, KNOWINGLY ──
+ * Mirrors `Leaf` in `apps/backend/src/lib/leaves.ts`, which is the authority.
+ */
 export interface Leaf {
   id: string;
   branchId: string;
   title: string;
   body?: string;
   status: LeafStatus;
-  parentLeafId?: string;
-  depth: number;
-  blocking: boolean;
-  childCount: number;
-  workflowId?: string;
-  runner?: 'engine';
-  frozen?: boolean;
-  attempts?: LeafAttempt[];
-  updatedAt: string;
-
-  verified?: boolean;
-  merged?: boolean;
-  outputBranch?: string;
-  projectId?: string;
-  expects?: string[];
   dependsOn?: string[];
-  /** Which pack carries this leaf out. */
-  packId?: string;
-  summary?: string;
+  tasks?: string[];
+  replans?: number;
+  attempts?: LeafAttempt[];
   findings?: string;
-  claim?: { evidence: string; commit?: string; findings?: string; at: string };
-  review?: { verdict: string; reason?: string; model?: string; at: string };
-  budget?: { maxTokens?: number; maxWallClockMs?: number; maxWorkspaces?: number; maxReplans?: number };
-  usage?: { tokens?: number; workspaces?: number; replans?: number };
-  usageTotal?: { tokens?: number; wallClockMs?: number; workspaces?: number; replans?: number };
+  claim?: { evidence: string; commit?: string; findings?: string; runs?: string[]; at: string };
+  verified?: boolean;
+  review?: { verdict: 'sound' | 'concern' | 'unsound'; reason?: string; model?: string; at: string };
+  createdAt?: string;
+  updatedAt: string;
 }
 
 export function isAwaitingReview(leaf: Pick<Leaf, 'status' | 'claim' | 'review'>): boolean {
@@ -87,7 +75,7 @@ export const STATE_HINT: Record<LeafState, string> =
   Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, c.hint])) as Record<LeafState, string>;
 
 export const STATE_STYLE: Record<LeafState, string> = {
-  proposed: 'text-emerald-400',
+  todo: 'text-emerald-400',
   blocked: 'text-slate-500',
   running: 'text-blue-400',
   claimed: 'text-amber-400',
@@ -96,7 +84,7 @@ export const STATE_STYLE: Record<LeafState, string> = {
 };
 
 export const STATE_DOT: Record<LeafState, string> = {
-  proposed: 'bg-emerald-500',
+  todo: 'bg-emerald-500',
   blocked: 'bg-slate-600',
   running: 'bg-blue-500 animate-pulse',
   claimed: 'bg-amber-500',

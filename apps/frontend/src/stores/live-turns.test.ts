@@ -29,33 +29,6 @@ describe('start / applyFrame / finish', () => {
     expect(useLiveTurnsStore.getState().turns[key]).toBeUndefined();
   });
 
-  it('carries an overthink warning onto the turn once set', () => {
-    useLiveTurnsStore.getState().start(key);
-    useLiveTurnsStore.getState().applyFrame(key, { type: 'content', delta: 'a' });
-    useLiveTurnsStore.getState().applyFrame(key, { type: 'overthinkWarning', payload: 'looping' });
-
-    const turn = useLiveTurnsStore.getState().turns[key];
-    expect(turn?.renderState.overthinkWarning).toBe('looping');
-  });
-
-  it('keeps the warning across later deltas that carry none of their own', () => {
-    useLiveTurnsStore.getState().start(key);
-    useLiveTurnsStore.getState().applyFrame(key, { type: 'overthinkWarning', payload: 'looping' });
-    useLiveTurnsStore.getState().applyFrame(key, { type: 'content', delta: 'b' });
-
-    const turn = useLiveTurnsStore.getState().turns[key];
-    expect(turn?.renderState.overthinkWarning).toBe('looping');
-    expect(turn?.renderState.live).toBe('b');
-  });
-
-  it('does not set a warning when none was ever sent', () => {
-    useLiveTurnsStore.getState().start(key);
-    useLiveTurnsStore.getState().applyFrame(key, { type: 'content', delta: 'a' });
-
-    const turn = useLiveTurnsStore.getState().turns[key];
-    expect(turn?.renderState.overthinkWarning).toBeUndefined();
-  });
-
   it('records an interrupted reason from an "interrupted" wire frame', () => {
     useLiveTurnsStore.getState().start(key);
     useLiveTurnsStore.getState().applyFrame(key, { type: 'content', delta: 'partial' });

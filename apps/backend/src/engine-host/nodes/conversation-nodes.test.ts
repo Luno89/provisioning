@@ -78,16 +78,6 @@ describe('turning a stored conversation into messages for the model', () => {
       said({ role: 'assistant', content: '   ' }),
     ])).toEqual([{ role: 'user', content: 'hello' }]);
   });
-
-  it('starts from the last handoff, the way the old chat did', () => {
-    const messages = asChatMessages([
-      said({ role: 'user', content: 'long ago' }),
-      said({ role: 'assistant', content: 'carrying on from before', handoff: true }),
-      said({ role: 'user', content: 'and now' }),
-    ]);
-
-    expect(messages.map((one) => one.content)).toEqual(['carrying on from before', 'and now']);
-  });
 });
 
 describe('recording what the tools did', () => {

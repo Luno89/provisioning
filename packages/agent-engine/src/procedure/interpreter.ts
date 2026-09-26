@@ -136,6 +136,12 @@ const routeKey = (node: NodeId, exit: string): string => JSON.stringify([node, e
 
 const describeError = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+function stopFor(run: RunContext, failure: string): RunStop {
+  const signal = run.signal;
+  if (!signal?.aborted) return new RunStop('failed', failure);
+  return new RunStop('interrupted', typeof signal.reason === 'string' ? signal.reason : 'Stopped');
+}
+
 export async function runProcedure(options: RunProcedureOptions): Promise<ProcedureResult> {
   const now = options.now ?? (() => Date.now());
   const budget = options.budget ?? options.procedure.budget ?? {};
@@ -291,7 +297,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     } catch (err) {
       if (err instanceof RunStop) throw err;
       record({ node: node.id, kind: node.kind, role: 'value', cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs, error: describeError(err) });
-      throw new RunStop('failed', `"${origin.get(node.id) ?? node.id}" failed: ${describeError(err)}`);
+      throw stopFor(run, `"${origin.get(node.id) ?? node.id}" failed: ${describeError(err)}`);
     } finally {
       evaluating.delete(node.id);
     }
@@ -334,7 +340,7 @@ export async function runProcedure(options: RunProcedureOptions): Promise<Proced
     } catch (err) {
       record({ node: id, kind: node.kind, role: 'step', cleanup: run.cleaningUp, startedAt, durationMs: now() - startedAt, inputs, error: describeError(err) });
       emit({ type: 'node.exited', nodeId: id } as never);
-      throw new RunStop('failed', `"${origin.get(id) ?? id}" failed: ${describeError(err)}`);
+      throw stopFor(run, `"${origin.get(id) ?? id}" failed: ${describeError(err)}`);
     }
 
     addUsage(result.usage);

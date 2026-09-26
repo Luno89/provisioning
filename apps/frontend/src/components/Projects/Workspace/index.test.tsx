@@ -4,7 +4,6 @@ import { describe, it, expect, vi } from 'vitest'
 import { Workspace } from './index.js'
 import * as groveApi from '../../../api/grove.js'
 import * as projectsApi from '../../../api/projects.js'
-import * as packsApi from '../../../api/packs.js'
 import * as chatPackApi from '../../../api/chat-pack.js'
 
 vi.mock('../../../api/grove.js', async (importOriginal) => ({
@@ -22,13 +21,7 @@ vi.mock('../../../api/projects.js', async (importOriginal) => ({
   ...(await importOriginal<typeof projectsApi>()),
   listProjects: vi.fn(),
 }))
-vi.mock('../../../api/packs.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof packsApi>()),
-  listPacks: vi.fn(async () => []),
-}))
-
 vi.mock('../../Home.js', () => ({ default: () => <div data-testid="home">home</div> }))
-vi.mock('../../BranchHistory.js', () => ({ default: () => <div data-testid="branch-chat">branch-chat</div> }))
 vi.mock('../../ChatSurface.js', () => ({ default: () => <div data-testid="koala-chat">koala-chat</div> }))
 vi.mock('../../LeafDetail.js', () => ({ default: () => <div data-testid="leaf-detail">leaf-detail</div> }))
 vi.mock('../../ProjectEditor/FileTree.js', () => ({ FileTree: () => <div data-testid="file-tree">file-tree</div> }))
@@ -36,9 +29,8 @@ vi.mock('../../ProjectEditor/EditorPane.js', () => ({ EditorPane: () => <div dat
 vi.mock('../../ProjectEditor/TabBar.js', () => ({ TabBar: () => <div data-testid="tab-bar">tab-bar</div> }))
 vi.mock('./BuildsDeploysPanel.js', () => ({ BuildsDeploysPanel: () => <div data-testid="builds-panel">builds-panel</div> }))
 vi.mock('./BranchesPanel.js', () => ({
-  BranchesPanel: ({ onSelectBranch, onSelectLeaf }: { onSelectBranch: (id: string) => void; onSelectLeaf: (id: string) => void }) => (
+  BranchesPanel: ({ onSelectLeaf }: { onSelectLeaf: (id: string) => void }) => (
     <div data-testid="branches-panel">
-      <button onClick={() => onSelectBranch('b1')}>select-branch</button>
       <button onClick={() => onSelectLeaf('l1')}>select-leaf</button>
     </div>
   ),
@@ -116,40 +108,17 @@ describe('Workspace layout', () => {
     expect(await screen.findByTestId('koala-chat')).toBeInTheDocument()
   })
 
-  it('swaps the right column to the branch history when a branch is selected, and to LeafDetail when a leaf is selected', async () => {
+  it('swaps the right column to LeafDetail when a leaf is selected', async () => {
     vi.mocked(groveApi.listTrees).mockResolvedValue([treeWithProject] as never)
-    vi.mocked(groveApi.listBranches).mockResolvedValue([{ id: 'b1', title: 'demo', treeId: 't1', messages: [], updatedAt: '' } as never])
-    vi.mocked(groveApi.listLeaves).mockResolvedValue([{ id: 'l1', branchId: 'b1', title: 'a leaf' } as never])
+    vi.mocked(groveApi.listBranches).mockResolvedValue([{ id: 'b1', title: 'demo', treeId: 't1' }])
+    vi.mocked(groveApi.listLeaves).mockResolvedValue([{ id: 'l1', branchId: 'b1', title: 'a leaf', status: 'pending', updatedAt: '' }])
     vi.mocked(projectsApi.listProjects).mockResolvedValue([project])
 
     renderWorkspace({ treeId: 't1' })
     await screen.findByTestId('home')
 
-    fireEvent.click(screen.getByText('select-branch'))
-    expect(await screen.findByTestId('branch-chat')).toBeInTheDocument()
-
-    // Branches panel collapses when branch is selected, expand it to select leaf
-    fireEvent.click(screen.getByText('Branches'))
     fireEvent.click(screen.getByText('select-leaf'))
     expect(await screen.findByTestId('leaf-detail')).toBeInTheDocument()
-  })
-
-  it('collapses branches when a branch is selected so chat takes precedence', async () => {
-    vi.mocked(groveApi.listTrees).mockResolvedValue([treeWithProject] as never)
-    vi.mocked(groveApi.listBranches).mockResolvedValue([{ id: 'b1', title: 'demo', treeId: 't1', messages: [], updatedAt: '' } as never])
-    vi.mocked(groveApi.listLeaves).mockResolvedValue([])
-    vi.mocked(projectsApi.listProjects).mockResolvedValue([project])
-
-    renderWorkspace({ treeId: 't1' })
-    expect(await screen.findByTestId('home')).toBeInTheDocument()
-    expect(screen.getByTestId('branches-panel')).toBeInTheDocument()
-
-    // Click branch
-    fireEvent.click(screen.getByText('select-branch'))
-
-    // Chat is now visible and branches panel is collapsed
-    expect(await screen.findByTestId('branch-chat')).toBeInTheDocument()
-    expect(screen.queryByTestId('branches-panel')).not.toBeInTheDocument()
   })
 
   it('collapses and expands the left explorer panel when the collapse button is clicked', async () => {

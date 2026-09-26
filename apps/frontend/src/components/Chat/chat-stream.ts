@@ -41,7 +41,6 @@ export function assistantMsgFromRenderState(state: ChatRenderState): ChatMessage
     content: state.live,
     at: new Date().toISOString(),
     ...(state.liveThinking ? { reasoning: state.liveThinking } : {}),
-    ...(state.enabled.length > 0 ? { enabled: state.enabled } : {}),
     ...(state.interruptedReason ? { interruptedReason: state.interruptedReason } : {}),
     ...(state.tools.length > 0
       ? {

@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { ownsProject } from '../lib/ownership.js';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
 import { webhookUrlFor } from '../lib/project-shipping.js';
-import { validateLocalEgressRules } from '../lib/personas.js';
+import { validateLocalEgressRules } from '../lib/egress-rules.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 

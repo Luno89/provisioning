@@ -19,11 +19,6 @@ const deletionFor = (db: Database, terminated: string[] = [], released: string[]
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
-const bridge = () => ({
-  startBranch: vi.fn(async () => ({ id: 'w1' })),
-  cancelBranch: vi.fn(async () => undefined),
-  terminateForBranch: vi.fn(async () => undefined),
-}) as never;
 
 describe('the tree-type catalogue', () => {
   it('serves the seeded catalogue to every user', async () => {
@@ -77,9 +72,8 @@ describe('trees', () => {
   const mount = async () => {
     h = await mountRouter({
       prefix: '/api/trees',
-      router: (db) => treesRouter({ db, temporalBridge: bridge(), workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db) }),
+      router: (db) => treesRouter({ db, workspaces: { state: async () => 'none', release: async () => undefined }, runs: new GroveRunService({ store: db, launcher: { startGroveRun: async () => ({ started: false, reason: 'unavailable' }), groveRunStatus: async () => ({ state: 'none' }), signalGroveRun: async () => false } }), deletion: deletionFor(db) }),
     });
-    // Setup seeds the tree types; the route stopped doing it lazily on read.
     await seedTreeTypes(h.db);
     return h!;
   };
@@ -95,7 +89,7 @@ describe('trees', () => {
   it('does not let one tenant read another\'s by guessing the id', async () => {
     const harness = await mount();
     await harness.db.saveTree({ id: 't2', ownerId: 'someone-else', name: 'theirs', projectIds: [] } as never);
-    const err = await axios.get(harness.url('/api/trees/t2/board')).catch((e) => e);
+    const err = await axios.get(harness.url('/api/trees/t2/run')).catch((e) => e);
     expect(err.response.status).toBe(404);
   });
 
@@ -121,16 +115,16 @@ describe('branches', () => {
 
   it('lists only the caller\'s own', async () => {
     const harness = await mount();
-    await harness.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, title: 'mine', messages: [] } as never);
-    await harness.db.saveBranch({ id: 'b2', ownerId: 'someone-else', title: 'theirs', messages: [] } as never);
+    await harness.db.saveBranch({ id: 'b1', ownerId: TEST_USER.id, title: 'mine', treeId: 't1' } as never);
+    await harness.db.saveBranch({ id: 'b2', ownerId: 'someone-else', title: 'theirs', treeId: 't1' } as never);
     const res = await axios.get(harness.url('/api/branches'));
     expect(res.data.map((b: { title: string }) => b.title)).toEqual(['mine']);
   });
 
   it('404s a branch belonging to someone else rather than 403', async () => {
     const harness = await mount();
-    await harness.db.saveBranch({ id: 'b2', ownerId: 'someone-else', title: 'theirs', messages: [] } as never);
-    const err = await axios.patch(harness.url('/api/branches/b2'), { title: 'hijacked' }).catch((e) => e);
+    await harness.db.saveBranch({ id: 'b2', ownerId: 'someone-else', title: 'theirs', treeId: 't1' } as never);
+    const err = await axios.delete(harness.url('/api/branches/b2')).catch((e) => e);
     expect(err.response.status).toBe(404);
     const stored = (await harness.db.getBranches()).find((b) => b.id === 'b2');
     expect(stored?.title).toBe('theirs');

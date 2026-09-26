@@ -6,7 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests',
-  testMatch: ['chat-surface-e2e.spec.ts', 'evals-ui-e2e.spec.ts'],
+  testMatch: ['evals-ui-e2e.spec.ts'],
   fullyParallel: false,
   retries: 0,
   workers: 1,

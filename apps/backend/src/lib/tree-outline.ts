@@ -4,7 +4,7 @@ import type { Tree } from './trees.js';
 
 export type OutlineTree = Pick<Tree, 'id' | 'name' | 'type' | 'goal'>;
 export type OutlineBranch = Pick<Branch, 'id' | 'treeId' | 'title'>;
-export type OutlineLeaf = Pick<Leaf, 'id' | 'branchId' | 'title' | 'body' | 'status' | 'dependsOn' | 'runner'>;
+export type OutlineLeaf = Pick<Leaf, 'id' | 'branchId' | 'title' | 'body' | 'status' | 'dependsOn'>;
 export type OutlineTask = Pick<Task, 'leafId' | 'status'>;
 
 export const MAX_OUTLINE_LEAVES = 60;
@@ -28,8 +28,7 @@ export function treeOutline(
       const live = tasks.filter((task) => task.leafId === leaf.id && task.status !== 'proposed' && task.status !== 'dropped');
       const done = live.filter((task) => task.status === 'done').length;
       const waits = leaf.dependsOn?.length ? `, waits on ${leaf.dependsOn.join(', ')}` : '';
-      const legacy = leaf.runner === 'engine' ? '' : ', legacy';
-      return `  - ${leaf.title} (${leaf.id}) [${leaf.status}${legacy}, ${done}/${live.length} tasks done${waits}]${leaf.body ? ` — ${leaf.body}` : ''}`;
+      return `  - ${leaf.title} (${leaf.id}) [${leaf.status}, ${done}/${live.length} tasks done${waits}]${leaf.body ? ` — ${leaf.body}` : ''}`;
     });
     shown += lines.length;
     const hidden = under.length - lines.length;

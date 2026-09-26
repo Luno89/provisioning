@@ -12,14 +12,11 @@ export interface ChatRenderState {
   live: string;
   liveThinking: string;
   tools: ToolPill[];
-  enabled: string[];
-  proposals: Array<{ kind: string; payload: any }>;
-  overthinkWarning?: string | undefined;
   interruptedReason?: string | undefined;
 }
 
 export const emptyChatRenderState: ChatRenderState = {
-  live: '', liveThinking: '', tools: [], enabled: [], proposals: [],
+  live: '', liveThinking: '', tools: [],
 };
 
 export function reduceUnifiedFrames(
@@ -50,18 +47,6 @@ export function reduceUnifiedFrames(
     );
     return { ...state, tools };
   }
-  if (frame.type === 'enabled' && 'payload' in frame) {
-    const svcs = frame.payload as string[];
-    return { ...state, enabled: [...new Set([...state.enabled, ...svcs])] };
-  }
-  if ((frame.type === 'proposedTree' || frame.type === 'proposedSpec' || frame.type === 'proposedEscalation' || frame.type === 'proposedSecretRequest') && 'payload' in frame) {
-    const kind = frame.type === 'proposedTree' ? 'tree' : frame.type === 'proposedSpec' ? 'spec' : frame.type === 'proposedEscalation' ? 'escalation' : 'secretRequest';
-    const proposals = [...state.proposals, { kind, payload: frame.payload }];
-    return { ...state, proposals };
-  }
-  if (frame.type === 'overthinkWarning' && 'payload' in frame) {
-    return { ...state, overthinkWarning: String(frame.payload ?? '') };
-  }
   if (frame.type === 'interrupted' && 'payload' in frame) {
     return { ...state, interruptedReason: String(frame.payload ?? '') };
   }
@@ -73,13 +58,6 @@ export type UnifiedFrame =
   | { type: 'thinking'; delta: string }
   | { type: 'toolAnnounce'; payload: { id: string; name: string; args: string } }
   | { type: 'toolResult'; payload: { id: string; ok: boolean; digest?: string } }
-  | { type: 'enabled'; payload: string[] }
-  | { type: 'proposedTree'; payload: any }
-  | { type: 'proposedSpec'; payload: any }
-  | { type: 'proposedEscalation'; payload: any }
-  | { type: 'proposedSecretRequest'; payload: any }
-  | { type: 'plan'; payload: any }
   | { type: 'usage'; payload: any }
   | { type: 'interrupted'; payload: any }
-  | { type: 'overthinkWarning'; payload: any }
   | { type: string; payload?: any };

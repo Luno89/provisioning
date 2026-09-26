@@ -1,4 +1,3 @@
-import type { Persona, PersonaPack } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
 import { MongoClient, type Db, type Collection, ObjectId } from 'mongodb';
@@ -10,11 +9,8 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { LeafTrace, LeafEvidence } from './leaf-trace.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
-import type { Experiment } from './experiments.js';
-import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
@@ -24,9 +20,7 @@ import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
-import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
-import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 
@@ -83,32 +77,12 @@ export class MongoDB implements Database {
     return this.db!.collection('projects');
   }
 
-  private get experiments(): Collection {
-    return this.db!.collection('experiments');
-  }
-
-  private get personas(): Collection {
-    return this.db!.collection('personas');
-  }
-
-  private get personaPacks(): Collection {
-    return this.db!.collection('personaPacks');
-  }
-
   private get workspaceImages(): Collection {
     return this.db!.collection('workspaceImages');
   }
 
   private get treeTypes(): Collection {
     return this.db!.collection('treeTypes');
-  }
-
-  private get customStepDefinitions(): Collection {
-    return this.db!.collection('customStepDefinitions');
-  }
-
-  private get harnessProfiles(): Collection {
-    return this.db!.collection('harnessProfiles');
   }
 
   private get giteaAccounts(): Collection {
@@ -121,10 +95,6 @@ export class MongoDB implements Database {
 
   private get frontier(): Collection {
     return this.db!.collection('crawl_frontier');
-  }
-
-  private get leafTraces(): Collection {
-    return this.db!.collection('leaf_traces');
   }
 
   private get trees(): Collection {
@@ -197,10 +167,6 @@ export class MongoDB implements Database {
 
   private get memories(): Collection {
     return this.db!.collection('memories');
-  }
-
-  private get tools(): Collection {
-    return this.db!.collection('tools');
   }
 
   private get thinkingProfiles(): Collection {
@@ -470,41 +436,6 @@ export class MongoDB implements Database {
     await this.frontier.deleteMany({ ingestId });
   }
 
-  async getLeafTrace(leafId: string): Promise<LeafTrace | null> {
-    const doc = await this.leafTraces.findOne({ _id: leafId as any });
-    return doc ? fromDoc<LeafTrace>(doc) : null;
-  }
-
-  async saveLeafTrace(trace: LeafTrace): Promise<void> {
-    const { _id, ...rest } = toDoc(trace);
-    await this.leafTraces.replaceOne({ _id }, rest, { upsert: true });
-  }
-
-  async appendLeafStep(trace: Omit<LeafTrace, 'steps'> & { step: AgentStep }): Promise<void> {
-    const { id, step, ...rest } = trace;
-    await this.leafTraces.updateOne(
-      { _id: id as any },
-      {
-        $push: { steps: step as any },
-        $set: { ...rest, totalSteps: trace.totalSteps, tokensUsed: trace.tokensUsed },
-        $setOnInsert: { _id: id as any },
-      },
-      { upsert: true },
-    );
-  }
-
-  async saveLeafEvidence(leafId: string, evidence: LeafEvidence): Promise<void> {
-    await this.leafTraces.updateOne(
-      { _id: leafId as any },
-      { $set: { evidence: evidence as any }, $setOnInsert: { _id: leafId as any } },
-      { upsert: true },
-    );
-  }
-
-  async deleteLeafTrace(leafId: string): Promise<void> {
-    await this.leafTraces.deleteOne({ _id: leafId as any });
-  }
-
   async getTrees(): Promise<Tree[]> {
     return (await this.trees.find({}).toArray()).map(doc => fromDoc<Tree>(doc));
   }
@@ -580,21 +511,6 @@ export class MongoDB implements Database {
     await this.conversations.deleteOne({ _id: id as any });
   }
 
-  async getExperiments(): Promise<Experiment[]> {
-    return (await this.experiments.find({}).toArray()).map(doc => fromDoc<Experiment>(doc));
-  }
-
-  async saveExperiment(experiment: Experiment): Promise<void> {
-    const doc = toDoc(experiment);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.experiments.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async deleteExperiment(id: string): Promise<void> {
-    await this.experiments.deleteOne({ _id: id as any });
-  }
-
   async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {
     const filter = ownerId ? { $or: [{ ownerId }, { ownerId: { $exists: false } }] } : {};
     const docs = await this.workspaceImages.find(filter).toArray();
@@ -627,70 +543,6 @@ export class MongoDB implements Database {
 
   async deleteTreeType(id: string, ownerId: string): Promise<void> {
     await this.treeTypes.deleteOne({ _id: `${ownerId}:${id}` } as never);
-  }
-
-  async getCustomStepDefinitions(ownerId: string): Promise<CustomStepDefinition[]> {
-    const docs = await this.customStepDefinitions.find({ ownerId }).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as CustomStepDefinition);
-  }
-
-  async saveCustomStepDefinition(definition: CustomStepDefinition): Promise<void> {
-    const { _id: _ignored, ...doc } = definition as CustomStepDefinition & { _id?: unknown };
-    await this.customStepDefinitions.replaceOne(
-      { _id: `${definition.ownerId}:${definition.id}` } as never,
-      doc,
-      { upsert: true },
-    );
-  }
-
-  async deleteCustomStepDefinition(id: string, ownerId: string): Promise<void> {
-    await this.customStepDefinitions.deleteOne({ _id: `${ownerId}:${id}` } as never);
-  }
-
-  async getPersonas(): Promise<Persona[]> {
-    return (await this.personas.find({}).toArray()).map(doc => fromDoc<Persona>(doc));
-  }
-
-  async savePersona(persona: Persona): Promise<void> {
-    const doc = toDoc(persona);
-    const id = doc._id;
-    delete (doc as any)._id;
-    await this.personas.replaceOne({ _id: id }, doc, { upsert: true });
-  }
-
-  async deletePersona(id: string): Promise<void> {
-    await this.personas.deleteOne({ _id: id as any });
-  }
-
-  async getPersonaPacks(): Promise<PersonaPack[]> {
-    return (await this.personaPacks.find({}).toArray()).map(doc => fromDoc<PersonaPack>(doc));
-  }
-
-  async savePersonaPack(pack: PersonaPack): Promise<void> {
-    const doc = toDoc(pack);
-    const id = doc._id;
-    delete (doc as any)._id;
-    await this.personaPacks.replaceOne({ _id: id }, doc, { upsert: true });
-  }
-
-  async deletePersonaPack(id: string): Promise<void> {
-    await this.personaPacks.deleteOne({ _id: id as any });
-  }
-
-  async getHarnessProfile(ownerId: string): Promise<HarnessProfile | null> {
-    const doc = await this.harnessProfiles.findOne({ _id: ownerId as any });
-    if (!doc) return null;
-    const { _id, ...rest } = doc as any;
-    return { ...rest, ownerId: String(_id) } as HarnessProfile;
-  }
-
-  async saveHarnessProfile(profile: HarnessProfile): Promise<void> {
-    const { ownerId, ...rest } = profile;
-    await this.harnessProfiles.replaceOne({ _id: ownerId as any }, rest, { upsert: true });
-  }
-
-  async deleteHarnessProfile(ownerId: string): Promise<void> {
-    await this.harnessProfiles.deleteOne({ _id: ownerId as any });
   }
 
   async getGiteaAccount(ownerId: string): Promise<GiteaAccount | null> {
@@ -986,21 +838,6 @@ export class MongoDB implements Database {
 
   async deleteBindingType(id: string): Promise<void> {
     await this.bindingTypes.deleteOne({ _id: id as any });
-  }
-
-  async getTools(): Promise<ToolRepositoryItem[]> {
-    return (await this.tools.find({}).toArray()).map((d) => fromDoc<ToolRepositoryItem>(d));
-  }
-
-  async saveTool(tool: ToolRepositoryItem): Promise<void> {
-    const doc = toDoc(tool);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.tools.replaceOne({ _id: id }, filter, { upsert: true });
-  }
-
-  async deleteTool(id: string): Promise<void> {
-    await this.tools.deleteOne({ _id: id as any });
   }
 
   async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {

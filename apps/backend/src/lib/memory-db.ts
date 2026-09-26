@@ -1,4 +1,3 @@
-import type { Persona, PersonaPack } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
@@ -10,11 +9,8 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import { frontierOrder, type FrontierUrl, type FrontierClaim } from './frontier.js';
-import type { LeafTrace, LeafEvidence } from './leaf-trace.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
-import type { Experiment } from './experiments.js';
-import type { HarnessProfile } from './harness-profile.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
@@ -25,9 +21,7 @@ import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
 import { evalRecordKey, type EvalCollection, type EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
-import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
-import type { ToolRepositoryItem } from './tool-repository.js';
 
 export class MemoryDB implements Database {
   private clusters: ClusterMetadata[] = [];
@@ -42,21 +36,15 @@ export class MemoryDB implements Database {
   private leaves: Leaf[] = [];
   private corpus: CorpusPage[] = [];
   private frontier: FrontierUrl[] = [];
-  private leafTraces: LeafTrace[] = [];
   private trees: Tree[] = [];
   private branches: Branch[] = [];
   private conversations: Conversation[] = [];
   private appSpecs: StoredAppSpec[] = [];
   private clusterProviders: ClusterProviderSpec[] = [];
   private giteaAccounts: GiteaAccount[] = [];
-  private experiments: Experiment[] = [];
-  private harnessProfiles: HarnessProfile[] = [];
   private modelThinkingProfiles: ModelThinkingProfile[] = [];
   private treeTypes: TreeTypeSpec[] = [];
-  private customStepDefinitions: CustomStepDefinition[] = [];
   private workspaceImages: WorkspaceImageSpec[] = [];
-  private personas: Persona[] = [];
-  private personaPacks: PersonaPack[] = [];
   private memories: MemoryItem[] = [];
   private tasks: Task[] = [];
   private planProposals: PlanProposal[] = [];
@@ -67,7 +55,6 @@ export class MemoryDB implements Database {
   private engineTools: EngineTool[] = [];
   private evalRecords = new Map<EvalCollection, Map<string, EvalRecord & { state?: unknown; startedAt?: unknown }>>();
   private bindingTypes: BindingTypeRecord[] = [];
-  private tools: ToolRepositoryItem[] = [];
 
   async init(): Promise<void> {
     this.clusters = [];
@@ -83,7 +70,6 @@ export class MemoryDB implements Database {
     this.conversations = [];
     this.appSpecs = [];
     this.giteaAccounts = [];
-    this.experiments = [];
   }
 
   async close(): Promise<void> {
@@ -100,7 +86,6 @@ export class MemoryDB implements Database {
     this.conversations = [];
     this.appSpecs = [];
     this.giteaAccounts = [];
-    this.experiments = [];
   }
 
   async getClusters(): Promise<ClusterMetadata[]> {
@@ -325,20 +310,6 @@ export class MemoryDB implements Database {
     return this.branches;
   }
 
-  async getExperiments(): Promise<Experiment[]> {
-    return this.experiments;
-  }
-
-  async saveExperiment(experiment: Experiment): Promise<void> {
-    const i = this.experiments.findIndex((e) => e.id === experiment.id);
-    if (i >= 0) this.experiments[i] = experiment;
-    else this.experiments.push(experiment);
-  }
-
-  async deleteExperiment(id: string): Promise<void> {
-    this.experiments = this.experiments.filter((e) => e.id !== id);
-  }
-
   async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {
     return ownerId
       ? this.workspaceImages.filter((i) => i.ownerId === ownerId || i.ownerId === undefined)
@@ -365,62 +336,6 @@ export class MemoryDB implements Database {
 
   async deleteTreeType(id: string, ownerId: string): Promise<void> {
     this.treeTypes = this.treeTypes.filter((t) => !(t.id === id && t.ownerId === ownerId));
-  }
-
-  async getCustomStepDefinitions(ownerId: string): Promise<CustomStepDefinition[]> {
-    return this.customStepDefinitions.filter((d) => d.ownerId === ownerId);
-  }
-
-  async saveCustomStepDefinition(definition: CustomStepDefinition): Promise<void> {
-    const i = this.customStepDefinitions.findIndex((d) => d.id === definition.id && d.ownerId === definition.ownerId);
-    if (i >= 0) this.customStepDefinitions[i] = definition;
-    else this.customStepDefinitions.push(definition);
-  }
-
-  async deleteCustomStepDefinition(id: string, ownerId: string): Promise<void> {
-    this.customStepDefinitions = this.customStepDefinitions.filter((d) => !(d.id === id && d.ownerId === ownerId));
-  }
-
-  async getPersonas(): Promise<Persona[]> {
-    return this.personas;
-  }
-
-  async savePersona(persona: Persona): Promise<void> {
-    const i = this.personas.findIndex((p) => p.id === persona.id);
-    if (i >= 0) this.personas[i] = persona;
-    else this.personas.push(persona);
-  }
-
-  async deletePersona(id: string): Promise<void> {
-    this.personas = this.personas.filter((p) => p.id !== id);
-  }
-
-  async getPersonaPacks(): Promise<PersonaPack[]> {
-    return this.personaPacks;
-  }
-
-  async savePersonaPack(pack: PersonaPack): Promise<void> {
-    const i = this.personaPacks.findIndex((p) => p.id === pack.id);
-    if (i >= 0) this.personaPacks[i] = pack;
-    else this.personaPacks.push(pack);
-  }
-
-  async deletePersonaPack(id: string): Promise<void> {
-    this.personaPacks = this.personaPacks.filter((p) => p.id !== id);
-  }
-
-  async getHarnessProfile(ownerId: string): Promise<HarnessProfile | null> {
-    return this.harnessProfiles.find((p) => p.ownerId === ownerId) ?? null;
-  }
-
-  async saveHarnessProfile(profile: HarnessProfile): Promise<void> {
-    const i = this.harnessProfiles.findIndex((p) => p.ownerId === profile.ownerId);
-    if (i >= 0) this.harnessProfiles[i] = profile;
-    else this.harnessProfiles.push(profile);
-  }
-
-  async deleteHarnessProfile(ownerId: string): Promise<void> {
-    this.harnessProfiles = this.harnessProfiles.filter((p) => p.ownerId !== ownerId);
   }
 
   async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {
@@ -544,35 +459,6 @@ export class MemoryDB implements Database {
 
   async deleteFrontier(ingestId: string): Promise<void> {
     this.frontier = this.frontier.filter((f) => f.ingestId !== ingestId);
-  }
-
-  async getLeafTrace(leafId: string): Promise<LeafTrace | null> {
-    return this.leafTraces.find((t) => t.id === leafId) ?? null;
-  }
-
-  async saveLeafTrace(trace: LeafTrace): Promise<void> {
-    const i = this.leafTraces.findIndex((t) => t.id === trace.id);
-    if (i >= 0) this.leafTraces[i] = trace; else this.leafTraces.push(trace);
-  }
-
-  async appendLeafStep(trace: Omit<LeafTrace, 'steps'> & { step: AgentStep }): Promise<void> {
-    const { step, ...rest } = trace;
-    const existing = this.leafTraces.find((t) => t.id === trace.id);
-    if (existing) {
-      existing.steps.push(step);
-      Object.assign(existing, rest);
-      return;
-    }
-    this.leafTraces.push({ ...rest, steps: [step] });
-  }
-
-  async saveLeafEvidence(leafId: string, evidence: LeafEvidence): Promise<void> {
-    const existing = this.leafTraces.find((t) => t.id === leafId);
-    if (existing) existing.evidence = evidence;
-  }
-
-  async deleteLeafTrace(leafId: string): Promise<void> {
-    this.leafTraces = this.leafTraces.filter((t) => t.id !== leafId);
   }
 
   async getTrees(): Promise<Tree[]> {
@@ -752,20 +638,6 @@ export class MemoryDB implements Database {
 
   async deleteBindingType(id: string): Promise<void> {
     this.bindingTypes = this.bindingTypes.filter((b) => b.id !== id);
-  }
-
-  async getTools(): Promise<ToolRepositoryItem[]> {
-    return [...this.tools];
-  }
-
-  async saveTool(tool: ToolRepositoryItem): Promise<void> {
-    const idx = this.tools.findIndex((t) => t.id === tool.id);
-    if (idx >= 0) this.tools[idx] = tool;
-    else this.tools.push(tool);
-  }
-
-  async deleteTool(id: string): Promise<void> {
-    this.tools = this.tools.filter((t) => t.id !== id);
   }
 
 }

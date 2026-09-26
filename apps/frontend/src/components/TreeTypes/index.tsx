@@ -2,18 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, Save, Check, AlertTriangle, Plus } from 'lucide-react';
 import { listTreeTypes, updateTreeType, groveKeys } from '../../api/grove.js';
-import { listCustomSteps, customStepKeys } from '../../api/custom-steps.js';
 import { errorMessage } from '../../api/client.js';
-import { card, blankTreeType, slugify, SLUG_PATTERN, type TreeType, type CustomStepDefinition } from './shared.js';
+import { card, blankTreeType, slugify, SLUG_PATTERN, type TreeType } from './shared.js';
 import { Overview } from './Overview.js';
 import { Scaffold } from './Scaffold.js';
-import { RecipePanel } from './Recipe/index.js';
-import { LeafWorkflowPanel } from './LeafWorkflow/index.js';
 import { Bindings } from './Bindings.js';
-import { Roles } from './Roles.js';
-import { AutoAccept } from './AutoAccept.js';
-import { VerdictPolicyPanel } from './VerdictPolicy.js';
-import { CustomSteps } from './CustomSteps.js';
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -36,11 +29,6 @@ export function TreeTypes() {
   const { data: types = [], isLoading } = useQuery<TreeType[]>({
     queryKey: groveKeys.treeTypes(),
     queryFn: listTreeTypes,
-  });
-
-  const { data: customSteps = [] } = useQuery<CustomStepDefinition[]>({
-    queryKey: customStepKeys.list(),
-    queryFn: listCustomSteps,
   });
 
   const selected = types.find((t) => t.id === selectedId) ?? null;
@@ -104,11 +92,9 @@ export function TreeTypes() {
         <h2 className="text-3xl font-bold">Tree Types</h2>
       </div>
       <p className="text-slate-500 text-sm -mt-4">
-        What a Grove project of a given type starts from, what proves a leaf is done, and which pack
-        runs each role — all editable per type, not just seed data.
+        What a Grove project of a given type starts from: its language, what done means, starter
+        files and the services it binds to.
       </p>
-
-      <CustomSteps />
 
       <div className="flex gap-6 items-start">
         <div className="w-64 shrink-0 space-y-1">
@@ -182,36 +168,10 @@ export function TreeTypes() {
                   <Scaffold value={draft} onChange={patch} />
                 </Section>
 
-                <Section title="Validation recipe" hint="What proves a leaf of this type is actually done, as an ordered pipeline of checks.">
-                  <RecipePanel
-                    recipe={draft.validationRecipe}
-                    customSteps={customSteps}
-                    onChange={(validationRecipe) => patch({ validationRecipe })}
-                  />
-                </Section>
-
-                <Section title="Leaf workflow" hint="What happens after a leaf's own work finishes — release, judge, land, accept, replan.">
-                  <LeafWorkflowPanel
-                    leafWorkflow={draft.leafWorkflow}
-                    onChange={(leafWorkflow) => patch({ leafWorkflow })}
-                  />
-                </Section>
-
                 <Section title="Bindings" hint="Default service bindings, extra network egress, and fixed environment variables.">
                   <Bindings value={draft} onChange={patch} />
                 </Section>
 
-                <Section title="Roles" hint="Which pack fills the planner/judge/merger role for a project of this type.">
-                  <Roles value={draft} onChange={patch} />
-                </Section>
-
-                <Section title="Auto-accept" hint="How readily a proposed leaf on this type auto-accepts without a human clicking accept.">
-                  <AutoAccept value={draft} onChange={patch} />
-                </Section>
-
-                <Section title="Verdict policy" hint="How a single leaf run's tests and artifacts combine into succeeded or failed.">
-                  <VerdictPolicyPanel value={draft} onChange={patch} />
-                </Section>
               </div>
             </div>
           )}

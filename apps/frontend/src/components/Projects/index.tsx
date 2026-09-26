@@ -173,7 +173,6 @@ export function Projects({ clusters }: {
             <Workspace
               key={open.kind === 'tree' ? `tree-${open.id}` : `project-${open.id}`}
               {...(open.kind === 'tree' ? { treeId: open.id } : { projectId: open.id })}
-              {...(open.kind === 'tree' && open.branchId ? { initialBranchId: open.branchId } : {})}
               {...(open.kind === 'tree' && open.leafId ? { initialLeafId: open.leafId } : {})}
               onTreeReady={(treeId) => openEntity({ kind: 'tree', id: treeId })}
               onTreeDeleted={closeEntity}

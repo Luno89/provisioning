@@ -41,113 +41,13 @@ beforeEach(() => {
     id: 'branch-1',
     ownerId: 'user-1',
     treeId: 'tree-1',
-    projectId: 'project-9',
     title: 'The direction',
-    messages: [],
     createdAt: 'now',
     updatedAt: 'now',
   }];
   leaves = [];
   tasks = [];
   nextId = 0;
-});
-
-describe('make_branch', () => {
-  it('branches the named tree, carrying the tree project along', async () => {
-    const outcome = await run('make_branch', { treeId: 'tree-1', title: 'A blue-green deployment lane' });
-
-    expect(outcome.ok).toBe(true);
-    const made = branches.at(-1)!;
-    expect(made.id).toBe('g1');
-    expect(made).toMatchObject({
-      ownerId: 'user-1',
-      treeId: 'tree-1',
-      projectId: 'project-9',
-      title: 'A blue-green deployment lane',
-      messages: [],
-    });
-  });
-  it('refuses a branch with no title', async () => {
-    const outcome = await run('make_branch', { treeId: 'tree-1' });
-
-    expect(outcome.ok).toBe(false);
-    expect(outcome.digest).toContain('title');
-    expect(branches).toHaveLength(1);
-  });
-
-  it('refuses a branch under a tree that does not exist', async () => {
-    const outcome = await run('make_branch', { treeId: 'ghost', title: 'A lane' });
-
-    expect(outcome.ok).toBe(false);
-    expect(outcome.digest).toContain('no such tree');
-    expect(branches).toHaveLength(1);
-  });
-});
-
-describe('make_leaf', () => {
-  it('grows a proposed, todo leaf under the named branch', async () => {
-    const outcome = await run('make_leaf', {
-      branchId: 'branch-1',
-      title: 'The job queue',
-      body: 'A worker pool picks jobs up within a second of them being enqueued, and retries failures three times.',
-    });
-
-    expect(outcome.ok).toBe(true);
-    expect(leaves[0]).toMatchObject({
-      ownerId: 'user-1',
-      branchId: 'branch-1',
-      title: 'The job queue',
-      body: 'A worker pool picks jobs up within a second of them being enqueued, and retries failures three times.',
-      column: 'todo',
-      status: 'proposed',
-      depth: 0,
-    });
-  });
-
-  it('records leaf-to-leaf dependencies when given, in either spelling', async () => {
-    leaves.push({
-      id: 'leaf-0',
-      ownerId: 'user-1',
-      branchId: 'branch-1',
-      title: 'Schema first',
-      body: 'The jobs collection exists before anything writes to it.',
-      column: 'todo',
-      status: 'proposed',
-      depth: 0,
-      blocking: false,
-      createdAt: 'now',
-      updatedAt: 'now',
-    });
-
-    const outcome = await run('make_leaf', { branchId: 'branch-1', title: 'B', body: 'c', depends_on: ['leaf-0'] });
-
-    expect(outcome.ok).toBe(true);
-    expect(leaves.at(-1)?.dependsOn).toEqual(['leaf-0']);
-  });
-
-  it('insists the goal statement exists — it is what gets judged', async () => {
-    const outcome = await run('make_leaf', { branchId: 'branch-1', title: 'No body' });
-
-    expect(outcome.ok).toBe(false);
-    expect(outcome.digest).toContain('judge');
-    expect(leaves).toHaveLength(0);
-  });
-
-  it('refuses a leaf under a branch that does not exist yet', async () => {
-    const outcome = await run('make_leaf', { branchId: 'ghost', title: 'A leaf', body: 'a goal' });
-
-    expect(outcome.ok).toBe(false);
-    expect(outcome.digest).toContain('no such branch');
-    expect(leaves).toHaveLength(0);
-  });
-
-  it('refuses outward dependencies on leaves that do not exist', async () => {
-    const outcome = await run('make_leaf', { branchId: 'branch-1', title: 'A leaf', body: 'a goal', dependsOn: ['ghost'] });
-
-    expect(outcome.ok).toBe(false);
-    expect(outcome.digest).toContain('do not exist');
-    expect(leaves).toHaveLength(0);
-  });
 });
 
 describe('ready_leaves', () => {
@@ -157,10 +57,7 @@ describe('ready_leaves', () => {
     branchId: 'branch-1',
     title: `leaf ${id}`,
     body: 'a checkable goal',
-    column: 'todo',
     status,
-    depth: 0,
-    blocking: false,
     createdAt: 'now',
     updatedAt: 'now',
     ...extra,
@@ -185,9 +82,7 @@ describe('ready_leaves', () => {
       id: 'branch-2',
       ownerId: 'user-1',
       treeId: 'tree-2',
-      projectId: 'project-9',
       title: 'The other direction',
-      messages: [],
       createdAt: 'now',
       updatedAt: 'now',
     });
@@ -196,7 +91,6 @@ describe('ready_leaves', () => {
       leaf('leaf-ready-after-done', 'pending', { dependsOn: ['leaf-done'] }), // dep succeeded
       leaf('leaf-blocked', 'pending', { dependsOn: ['leaf-ready', 'ghost-leaf'] }), // dep pending + unknown
       leaf('leaf-unbroken', 'pending'), // pending but zero tasks
-      leaf('leaf-proposed', 'proposed'),
       leaf('leaf-claimed', 'claimed'),
       leaf('leaf-running', 'running'),
       leaf('leaf-done', 'succeeded'),
@@ -212,7 +106,7 @@ describe('ready_leaves', () => {
     );
   };
 
-  it('partitions the tree into ready, unbroken, blocked, notApproved, inFlight and settled', async () => {
+  it('partitions the tree into ready, unbroken, blocked, claimed, inFlight and settled', async () => {
     seedWorld();
     const outcome = await run('ready_leaves', { treeId: 'tree-1' });
 
@@ -223,7 +117,6 @@ describe('ready_leaves', () => {
       ready: { id: string; taskCount: number }[];
       unbroken: { id: string }[];
       blocked: { id: string; waitingOn: string[] }[];
-      notApproved: { id: string }[];
       claimed: { id: string }[];
       inFlight: { id: string }[];
       settled: { id: string; status: string }[];
@@ -232,7 +125,6 @@ describe('ready_leaves', () => {
     expect(content.ready.find((entry) => entry.id === 'leaf-ready')!.taskCount).toBe(1); // the dropped task does not count
     expect(content.unbroken.map((entry) => entry.id)).toEqual(['leaf-unbroken']);
     expect(content.blocked).toEqual([{ id: 'leaf-blocked', title: 'leaf leaf-blocked', waitingOn: ['leaf-ready', 'ghost-leaf'] }]);
-    expect(content.notApproved.map((entry) => entry.id)).toEqual(['leaf-proposed']);
     expect(content.claimed.map((entry) => entry.id)).toEqual(['leaf-claimed']);
     expect(content.inFlight.map((entry) => entry.id)).toEqual(['leaf-running']);
     expect(content.settled).toEqual([
@@ -266,8 +158,7 @@ describe('claim_leaf', () => {
 
   it('files a claim: the leaf goes claimed, the evidence goes on file for the judge', async () => {
     leaves.push({
-      id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a checkable goal',
-      column: 'todo', status: 'running', depth: 0, blocking: false,
+      id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a checkable goal', status: 'running',
       createdAt: 'now', updatedAt: 'now',
     });
     const outcome = await claim({
@@ -291,8 +182,7 @@ describe('claim_leaf', () => {
 
   it('never lets the work grade itself — a success word is refused with the teaching', async () => {
     leaves.push({
-      id: 'leaf-2', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal',
-      column: 'todo', status: 'running', depth: 0, blocking: false,
+      id: 'leaf-2', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal', status: 'running',
       createdAt: 'now', updatedAt: 'now',
     });
     const outcome = await claim({ leafId: 'leaf-2', result: 'succeeded', evidence: 'it works' });
@@ -304,8 +194,7 @@ describe('claim_leaf', () => {
 
   it('a failed claim needs a reason, and carries the evidence forward for the replan', async () => {
     leaves.push({
-      id: 'leaf-3', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal',
-      column: 'todo', status: 'running', depth: 0, blocking: false,
+      id: 'leaf-3', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal', status: 'running',
       createdAt: 'now', updatedAt: 'now',
     });
     const bare = await claim({ leafId: 'leaf-3', result: 'failed', evidence: 'tried the build' });
@@ -326,16 +215,14 @@ describe('claim_leaf', () => {
   });
 
   it('refuses the wrong states with the state and what comes next', async () => {
-    for (const status of ['proposed', 'claimed', 'succeeded', 'failed'] as const) {
+    for (const status of ['claimed', 'succeeded', 'failed'] as const) {
       leaves.push({
-        id: `leaf-${status}`, ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal',
-        column: 'todo', status, depth: 0, blocking: false,
+        id: `leaf-${status}`, ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'a goal', status,
         createdAt: 'now', updatedAt: 'now',
       });
       const outcome = await claim({ leafId: `leaf-${status}`, result: 'claimed', evidence: 'ran it' });
       expect(outcome.ok, status).toBe(false);
     }
-    expect((await claim({ leafId: 'leaf-proposed', result: 'claimed', evidence: 'ran it' })).digest).toContain('not accepted yet');
     expect((await claim({ leafId: 'leaf-claimed', result: 'claimed', evidence: 'ran it' })).digest).toContain('already claimed');
     expect((await claim({ leafId: 'leaf-succeeded', result: 'claimed', evidence: 'ran it' })).digest).toContain('already settled');
     const ghost = await claim({ leafId: 'leaf-ghost', result: 'claimed', evidence: 'ran it' });
@@ -351,10 +238,7 @@ describe('settle_leaf', () => {
     branchId: 'branch-1',
     title: 'A leaf',
     body: 'the server answers :3000/health',
-    column: 'todo',
     status,
-    depth: 0,
-    blocking: false,
     createdAt: 'now',
     updatedAt: 'now',
     ...(withClaim && status === 'claimed'
@@ -409,7 +293,7 @@ describe('settle_leaf', () => {
   });
 
   it('settles claims only — raw, unclaimed, or finished leaves are refused', async () => {
-    for (const status of ['proposed', 'pending', 'running', 'succeeded', 'cancelled'] as const) {
+    for (const status of ['pending', 'running', 'succeeded', 'cancelled'] as const) {
       leaves.push(claimedLeaf(`leaf-${status}`, status, false));
       const outcome = await settle({ leafId: `leaf-${status}`, verdict: 'verified' });
       expect(outcome.ok, status).toBe(false);
@@ -425,21 +309,7 @@ describe('another owner\'s grove', () => {
   const stranger = { ownerId: 'user-2', runId: 'run-9', agentSlug: 'planner' };
   const as = (name: string, parsed: Record<string, unknown>) => tools()[name]!({ name, parsed, driver: undefined, caller: stranger });
   const leafOf = (status: LeafStatus, over: Partial<Leaf> = {}): Leaf => ({
-    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state',
-    column: 'todo', status, depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now', ...over,
-  });
-
-  it('cannot branch it, grow a leaf on it, or hang a leaf off its leaves', async () => {
-    leaves = [leafOf('pending')];
-    tasks = [];
-
-    const branched = await as('make_branch', { treeId: 'tree-1', title: 'A lane' });
-    const grown = await as('make_leaf', { branchId: 'branch-1', title: 'A leaf', body: 'an end state' });
-
-    expect(branched).toMatchObject({ ok: false, digest: expect.stringContaining('no such tree') });
-    expect(grown).toMatchObject({ ok: false, digest: expect.stringContaining('no such branch') });
-    expect(branches).toHaveLength(1);
-    expect(leaves).toHaveLength(1);
+    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state', status, createdAt: 'now', updatedAt: 'now', ...over,
   });
 
   it('cannot claim, settle or schedule it, and learns nothing about it', async () => {
@@ -484,8 +354,7 @@ describe('claim_leaf in a worktree', () => {
     },
   }) as never;
   const pending = (): Leaf => ({
-    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state',
-    column: 'todo', status: 'pending', depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now',
+    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state', status: 'pending', createdAt: 'now', updatedAt: 'now',
   });
   const claimWith = (driver: never) => tools()['claim_leaf']!({
     name: 'claim_leaf', parsed: { leafId: 'leaf-1', result: 'claimed', evidence: 'ran it' }, driver, caller,
@@ -510,8 +379,7 @@ describe('claim_leaf in a worktree', () => {
 
 describe('a claim the judge kept for a person', () => {
   const claimedLeaf = (): Leaf => ({
-    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state',
-    column: 'todo', status: 'claimed', depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now',
+    id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'A leaf', body: 'the end state', status: 'claimed', createdAt: 'now', updatedAt: 'now',
     claim: { evidence: 'ran it', at: '2025-12-31T00:00:00.000Z' },
   });
 
@@ -559,7 +427,7 @@ describe('a conversation about one tree', () => {
 
   beforeEach(() => {
     saved = [];
-    leaves = [{ id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'Hello', body: 'hello.txt says hello', column: 'todo', status: 'succeeded', runner: 'engine', depth: 0, blocking: false, createdAt: 'now', updatedAt: 'now' }];
+    leaves = [{ id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'Hello', body: 'hello.txt says hello', status: 'succeeded', createdAt: 'now', updatedAt: 'now' }];
   });
 
   it('grows the bound tree when the plan names none', async () => {
@@ -593,14 +461,6 @@ describe('a conversation about one tree', () => {
     const grow = await call('conv-project', 'propose_plan', { ...PLAN, treeId: 'tree-1' });
     expect(grow.ok, grow.digest).toBe(true);
     expect(saved.find((entry) => entry.status === 'proposed')?.projectId).toBeUndefined();
-  });
-
-  it('refuses to grow a tree the old pipeline built, which is frozen', async () => {
-    leaves.push({ ...leaves[0]!, id: 'old', runner: undefined });
-    const outcome = await call('conv-tree', 'propose_plan', PLAN);
-    expect(outcome.ok).toBe(false);
-    expect(outcome.digest).toContain('frozen');
-    expect(saved).toEqual([]);
   });
 
   it('reads the bound tree without being told which, and refuses another owner\'s', async () => {

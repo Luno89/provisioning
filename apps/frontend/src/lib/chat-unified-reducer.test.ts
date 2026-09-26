@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { reduceUnifiedFrames, type ChatRenderState } from '../lib/chat-unified-reducer.js';
 
 const empty: ChatRenderState = {
-  live: '', liveThinking: '', tools: [], enabled: [], proposals: [],
+  live: '', liveThinking: '', tools: [],
 };
 
 describe('reduceUnifiedFrames — unified wire → render state', () => {
@@ -35,25 +35,5 @@ describe('reduceUnifiedFrames — unified wire → render state', () => {
       type: 'toolResult', payload: { id: 'c1', ok: true, digest: 'log lines...' },
     });
     expect(s.tools[0]).toMatchObject({ running: false, ok: true, digest: 'log lines...' });
-  });
-
-  it('accumulates enabled services', () => {
-    let s = reduceUnifiedFrames(empty, { type: 'enabled', payload: ['github-mcp'] });
-    s = reduceUnifiedFrames(s, { type: 'enabled', payload: ['linear'] });
-    expect(s.enabled).toEqual(['github-mcp', 'linear']);
-  });
-
-  it('records an overthink warning without touching the live content', () => {
-    let s = reduceUnifiedFrames(empty, { type: 'content', delta: 'Hel' });
-    s = reduceUnifiedFrames(s, { type: 'overthinkWarning', payload: 'Overthinking loop detected' });
-    expect(s.overthinkWarning).toBe('Overthinking loop detected');
-    expect(s.live).toBe('Hel');
-  });
-
-  it('leaves prior content and tool state alone once warned', () => {
-    let s = reduceUnifiedFrames(empty, { type: 'overthinkWarning', payload: 'Overthinking loop detected' });
-    s = reduceUnifiedFrames(s, { type: 'content', delta: 'still going' });
-    expect(s.overthinkWarning).toBe('Overthinking loop detected');
-    expect(s.live).toBe('still going');
   });
 });

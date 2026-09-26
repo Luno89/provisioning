@@ -127,8 +127,8 @@ describe('engine routes', () => {
     });
     const stamp = new Date().toISOString();
     await db!.saveTree({ id: 'tree-1', ownerId: TEST_USER.id, name: 'Greeter', type: 'software', goal: 'greets', projectIds: [], createdAt: stamp, updatedAt: stamp });
-    await db!.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 'tree-1', title: 'Core', messages: [], createdAt: stamp, updatedAt: stamp });
-    await db!.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'Hello', body: 'hello.txt says hello', column: 'todo', status: 'pending', runner: 'engine', depth: 0, blocking: false, createdAt: stamp, updatedAt: stamp });
+    await db!.saveBranch({ id: 'b1', ownerId: TEST_USER.id, treeId: 'tree-1', title: 'Core', createdAt: stamp, updatedAt: stamp });
+    await db!.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'Hello', body: 'hello.txt says hello', status: 'pending', createdAt: stamp, updatedAt: stamp });
     await db!.saveConversation({ id: 'about-tree', ownerId: TEST_USER.id, title: 't', treeId: 'tree-1', messages: [], createdAt: stamp, updatedAt: stamp });
     await db!.saveConversation({ id: 'free', ownerId: TEST_USER.id, title: 't', messages: [], createdAt: stamp, updatedAt: stamp });
 

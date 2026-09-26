@@ -1,344 +1,50 @@
 import { describe, it, expect } from 'vitest';
-import {
-  dependenciesMet, blockedBy, wouldCycle, frozenTreeIds, isFrozenLeaf, isLeafColumn, LEAF_COLUMNS, aggregateUsage, failureContext, shouldRetry, MAX_LEAF_ATTEMPTS, type LeafAttempt, canAddChild, budgetExceeded, deriveLeafStatus, childWorkflowId, childrenOf, rootLeaf, subtreeOf, MAX_DEPTH, MAX_CHILDREN_PER_LEAF, type Leaf, type BudgetUsage, barrenStreak,
-} from './leaves.js';
+import { awaitingReview, resetForRetry, settleClaim, type Leaf } from './leaves.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
-  id: 'c1',
-  ownerId: 'u1',
-  branchId: 'req-1',
-  title: 'Task',
-  column: 'todo',
-  status: 'pending',
-  depth: 0,
-  blocking: true,
-  createdAt: '2026-08-02T00:00:00Z',
-  updatedAt: '2026-08-02T00:00:00Z',
-  ...over,
+  id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'A leaf', body: 'the port answers', status: 'pending',
+  createdAt: 't0', updatedAt: 't0', ...over,
 });
+const claimed = (over: Partial<Leaf> = {}) => leaf({ status: 'claimed', claim: { evidence: 'curl printed ok', at: 't1' }, ...over });
 
-const noUsage: BudgetUsage = { tokens: 0, completionTokens: 0, wallClockMs: 0, workspaces: 0, replans: 0 };
-
-describe('deriveLeafStatus', () => {
-  it('returns the leaf\'s own status when it has no children', () => {
-    expect(deriveLeafStatus('running', [])).toBe('running');
-    expect(deriveLeafStatus('succeeded', [])).toBe('succeeded');
+describe('settling a claim', () => {
+  it('verifies a claimed leaf and keeps the note as its findings', () => {
+    const outcome = settleClaim(claimed(), { verdict: 'verified', note: 'saw it answer', by: 'judge', at: 't2' });
+    expect(outcome).toMatchObject({ leaf: { status: 'succeeded', verified: true, findings: 'saw it answer', review: { verdict: 'sound', model: 'judge', at: 't2' } } });
   });
 
-  it('fails when any blocking child failed', () => {
-    expect(deriveLeafStatus('running', [
-      { status: 'succeeded', blocking: true },
-      { status: 'failed', blocking: true },
-    ])).toBe('failed');
+  it('fails a claimed leaf only with a reason', () => {
+    expect(settleClaim(claimed(), { verdict: 'failed', at: 't2' })).toMatchObject({ problem: expect.stringMatching(/needs a reason/) });
+    expect(settleClaim(claimed(), { verdict: 'failed', note: 'no listener', at: 't2' })).toMatchObject({ leaf: { status: 'failed', verified: false, findings: 'no listener' } });
   });
 
-  it('IGNORES non-blocking children entirely', () => {
-    expect(deriveLeafStatus('succeeded', [
-      { status: 'running', blocking: false },
-      { status: 'failed', blocking: false },
-    ])).toBe('succeeded');
+  it('keeps a leaf claimed with a concern, which parks it for a person', () => {
+    const outcome = settleClaim(claimed(), { verdict: 'stay-claimed', note: 'port never probed', at: 't2' });
+    expect(outcome).toMatchObject({ leaf: { status: 'claimed', review: { verdict: 'concern', reason: 'port never probed' } } });
+    expect('leaf' in outcome && awaitingReview(outcome.leaf)).toBe(true);
   });
 
-  it('is running while any blocking child is still going', () => {
-    expect(deriveLeafStatus('succeeded', [
-      { status: 'succeeded', blocking: true },
-      { status: 'running', blocking: true },
-    ])).toBe('running');
-    expect(deriveLeafStatus('succeeded', [{ status: 'pending', blocking: true }])).toBe('running');
-  });
-
-  it('does not report success until the leaf\'s OWN work is done too', () => {
-    expect(deriveLeafStatus('running', [{ status: 'succeeded', blocking: true }])).toBe('running');
-    expect(deriveLeafStatus('succeeded', [{ status: 'succeeded', blocking: true }])).toBe('succeeded');
-  });
-
-  it('lets the leaf\'s own failure win over successful children', () => {
-    expect(deriveLeafStatus('failed', [{ status: 'succeeded', blocking: true }])).toBe('failed');
-    expect(deriveLeafStatus('cancelled', [{ status: 'succeeded', blocking: true }])).toBe('cancelled');
+  it('refuses a leaf that has no claim on file', () => {
+    expect(settleClaim(leaf(), { verdict: 'verified', at: 't2' })).toMatchObject({ problem: expect.stringMatching(/not awaiting judgment/) });
   });
 });
 
-describe('canAddChild', () => {
-  it('allows a child within the caps', () => {
-    expect(canAddChild(leaf({ depth: 0 }), 0)).toBeUndefined();
-    expect(canAddChild(leaf({ depth: MAX_DEPTH - 1 }), MAX_CHILDREN_PER_LEAF - 1)).toBeUndefined();
-  });
-
-  it('refuses beyond the depth cap', () => {
-    expect(canAddChild(leaf({ depth: MAX_DEPTH }), 0)).toMatch(/depth/i);
-  });
-
-  it('refuses beyond the fan-out cap', () => {
-    expect(canAddChild(leaf({ depth: 0 }), MAX_CHILDREN_PER_LEAF)).toMatch(/at most/i);
-  });
-
-  it('returns a REASON rather than a boolean, so the refusal can be shown and fed back', () => {
-    const reason = canAddChild(leaf({ depth: MAX_DEPTH }), 0);
-    expect(typeof reason).toBe('string');
-    expect(reason!.length).toBeGreaterThan(20);
+describe('awaiting review', () => {
+  it('is a claim the judge has reviewed since it was filed', () => {
+    expect(awaitingReview(claimed())).toBe(false);
+    expect(awaitingReview(claimed({ review: { verdict: 'concern', at: 't0' } }))).toBe(false);
+    expect(awaitingReview(claimed({ review: { verdict: 'concern', at: 't1' } }))).toBe(true);
   });
 });
 
-describe('budgetExceeded', () => {
-  it('permits everything when no budget is set', () => {
-    expect(budgetExceeded(undefined, { ...noUsage, tokens: 1e9 })).toBeUndefined();
-  });
-
-  it('stops on tokens, time, workspaces and replans independently', () => {
-    expect(budgetExceeded({ maxTokens: 100 }, { ...noUsage, tokens: 100 })).toMatch(/Token/);
-    expect(budgetExceeded({ maxWallClockMs: 1000 }, { ...noUsage, wallClockMs: 1000 })).toMatch(/Time/);
-    expect(budgetExceeded({ maxWorkspaces: 2 }, { ...noUsage, workspaces: 2 })).toMatch(/Workspace/);
-    expect(budgetExceeded({ maxReplans: 3 }, { ...noUsage, replans: 3 })).toMatch(/Replan/);
-  });
-
-  it('counts replans, because a planner that responds to failure by planning more is a loop', () => {
-    expect(budgetExceeded({ maxReplans: 3 }, { ...noUsage, replans: 4 })).toMatch(/not converging/);
-  });
-
-  it('scales the time unit to the magnitude, so a short budget does not read as "0 minutes"', () => {
-    expect(budgetExceeded({ maxWallClockMs: 1 }, { ...noUsage, wallClockMs: 500 })).toMatch(/0\.5 seconds/);
-    expect(budgetExceeded({ maxWallClockMs: 1 }, { ...noUsage, wallClockMs: 600_000 })).toMatch(/10 minutes/);
-  });
-
-  it('allows usage strictly below the cap', () => {
-    expect(budgetExceeded({ maxTokens: 100 }, { ...noUsage, tokens: 99 })).toBeUndefined();
-  });
-});
-
-describe('childWorkflowId', () => {
-  it('is deterministic for the same parent and index', () => {
-    expect(childWorkflowId('abc', 0)).toBe(childWorkflowId('abc', 0));
-  });
-
-  it('distinguishes siblings and parents', () => {
-    expect(childWorkflowId('abc', 0)).not.toBe(childWorkflowId('abc', 1));
-    expect(childWorkflowId('abc', 0)).not.toBe(childWorkflowId('xyz', 0));
-  });
-
-  it('does not collide when a planner emits two identically-titled subtasks', () => {
-    expect(childWorkflowId('abc', 0)).not.toBe(childWorkflowId('abc', 1));
-  });
-});
-
-describe('hierarchy helpers', () => {
-  const leaves: Leaf[] = [
-    leaf({ id: 'root', depth: 0 }),
-    leaf({ id: 'a', parentLeafId: 'root', depth: 1, createdAt: '2026-08-02T00:00:01Z' }),
-    leaf({ id: 'b', parentLeafId: 'root', depth: 1, createdAt: '2026-08-02T00:00:02Z' }),
-    leaf({ id: 'a1', parentLeafId: 'a', depth: 2, createdAt: '2026-08-02T00:00:03Z' }),
-    leaf({ id: 'other', depth: 0 }),
-  ];
-
-  it('lists children in stable creation order', () => {
-    expect(childrenOf(leaves, 'root').map((c) => c.id)).toEqual(['a', 'b']);
-  });
-
-  it('walks to the root, which is where the budget lives', () => {
-    expect(rootLeaf(leaves, leaves.find((c) => c.id === 'a1')!)?.id).toBe('root');
-    expect(rootLeaf(leaves, leaves.find((c) => c.id === 'root')!)?.id).toBe('root');
-  });
-
-  it('returns undefined for a broken parent chain rather than looping', () => {
-    const orphan = leaf({ id: 'orphan', parentLeafId: 'does-not-exist', depth: 1 });
-    expect(rootLeaf([...leaves, orphan], orphan)).toBeUndefined();
-  });
-
-  it('collects the whole subtree for budget aggregation', () => {
-    expect(subtreeOf(leaves, 'root').map((c) => c.id).sort()).toEqual(['a', 'a1', 'b']);
-  });
-
-  it('does not spin forever on a cycle', () => {
-    const cyclic: Leaf[] = [
-      leaf({ id: 'x', parentLeafId: 'y', depth: 1 }),
-      leaf({ id: 'y', parentLeafId: 'x', depth: 1 }),
-    ];
-    expect(() => subtreeOf(cyclic, 'x')).not.toThrow();
-    expect(rootLeaf(cyclic, cyclic[0]!)).toBeUndefined();
-  });
-});
-
-describe('aggregateUsage', () => {
-  const t0 = Date.parse('2026-08-02T00:00:00Z');
-  const root = leaf({ id: 'r', status: 'running', createdAt: '2026-08-02T00:00:00Z', usage: { tokens: 100 } });
-  const kids: Leaf[] = [
-    root,
-    leaf({ id: 'a', parentLeafId: 'r', depth: 1, usage: { tokens: 50, workspaces: 1 } }),
-    leaf({ id: 'b', parentLeafId: 'r', depth: 1, usage: { tokens: 25, workspaces: 1, replans: 2 } }),
-    leaf({ id: 'a1', parentLeafId: 'a', depth: 2, usage: { tokens: 5 } }),
-  ];
-
-  it('sums consumables across the whole subtree, including the root', () => {
-    const u = aggregateUsage(kids, root, t0 + 60_000);
-    expect(u.tokens).toBe(180);
-    expect(u.workspaces).toBe(2);
-    expect(u.replans).toBe(2);
-  });
-
-  it('measures wall-clock from the ROOT rather than summing children', () => {
-    expect(aggregateUsage(kids, root, t0 + 60_000).wallClockMs).toBe(60_000);
-  });
-
-  it('stops the clock once the root finishes', () => {
-    const done = leaf({ id: 'r', status: 'succeeded', createdAt: '2026-08-02T00:00:00Z', updatedAt: '2026-08-02T00:05:00Z' });
-    expect(aggregateUsage([done], done, t0 + 99_999_999).wallClockMs).toBe(300_000);
-  });
-
-  it('treats missing usage as nothing recorded rather than throwing', () => {
-    const bare = leaf({ id: 'r', status: 'running' });
-    const u = aggregateUsage([bare], bare, t0);
-    expect(u).toMatchObject({ tokens: 0, workspaces: 0, replans: 0 });
-  });
-
-  it('feeds budgetExceeded — the two halves actually connect', () => {
-    const u = aggregateUsage(kids, root, t0 + 60_000);
-    expect(budgetExceeded({ maxTokens: 150 }, u)).toMatch(/Token/);
-    expect(budgetExceeded({ maxTokens: 500 }, u)).toBeUndefined();
-    expect(budgetExceeded({ maxWallClockMs: 30_000 }, u)).toMatch(/Time/);
-  });
-
-  it('survives an unparseable timestamp instead of producing NaN', () => {
-    const bad = leaf({ id: 'r', status: 'running', createdAt: 'not-a-date' });
-    expect(aggregateUsage([bad], bad, t0).wallClockMs).toBe(0);
-  });
-});
-
-describe('retry context', () => {
-  const fail = (attempt: number, error: string): LeafAttempt =>
-    ({ attempt, error, failedAt: '2026-08-02T00:00:00Z' });
-
-  it('is empty for a first attempt, so callers can append unconditionally', () => {
-    expect(failureContext(undefined)).toBe('');
-    expect(failureContext([])).toBe('');
-  });
-
-  it('names every prior failure, not just the last', () => {
-    const ctx = failureContext([fail(0, 'tests did not compile'), fail(1, 'lint failed')]);
-    expect(ctx).toMatch(/tests did not compile/);
-    expect(ctx).toMatch(/lint failed/);
-    expect(ctx).toMatch(/attempted 2 time/);
-  });
-
-  it('numbers attempts from 1 for humans, though they are stored 0-based', () => {
-    expect(failureContext([fail(0, 'boom')])).toMatch(/Attempt 1 failed/);
-  });
-
-  it('instructs the next attempt not to repeat the approach', () => {
-    expect(failureContext([fail(0, 'boom')])).toMatch(/Do not repeat the same approach/);
-  });
-
-  it('permits retries up to the cap and no further', () => {
-    expect(shouldRetry(0)).toBe(true);
-    expect(shouldRetry(MAX_LEAF_ATTEMPTS - 1)).toBe(true);
-    expect(shouldRetry(MAX_LEAF_ATTEMPTS)).toBe(false);
-    expect(shouldRetry(MAX_LEAF_ATTEMPTS + 1)).toBe(false);
-  });
-});
-
-describe('isLeafColumn', () => {
-  it('accepts the real columns', () => {
-    for (const c of LEAF_COLUMNS) expect(isLeafColumn(c)).toBe(true);
-  });
-
-  it('rejects columns that were removed', () => {
-    expect(isLeafColumn('done')).toBe(false);
-    expect(isLeafColumn('backlog')).toBe(false);
-  });
-
-  it('rejects non-strings without throwing', () => {
-    for (const v of [undefined, null, 42, {}, []]) expect(isLeafColumn(v)).toBe(false);
-  });
-});
-
-describe('dependency ordering', () => {
-  const leaf = (over: Partial<Leaf>): Leaf => ({
-    id: 'l1', ownerId: 'u1', branchId: 'b1', title: 't', column: 'todo',
-    status: 'pending', depth: 0, blocking: true,
-    createdAt: '2026-08-06T00:00:00.000Z', updatedAt: '2026-08-06T00:00:00.000Z',
-    ...over,
-  });
-
-  it('holds a leaf until every dependency has SUCCEEDED', () => {
-    const base = leaf({ id: 'base', status: 'running' });
-    const next = leaf({ id: 'next', dependsOn: ['base'] });
-
-    expect(dependenciesMet(next, [base, next])).toBe(false);
-    expect(blockedBy(next, [base, next]).map((l) => l.id)).toEqual(['base']);
-  });
-
-
-
-  it('keeps holding a leaf whose dependency FAILED, since a retry can still satisfy it', () => {
-    const base = leaf({ id: 'base', status: 'failed' });
-    const next = leaf({ id: 'next', dependsOn: ['base'] });
-
-    expect(dependenciesMet(next, [base, next])).toBe(false);
-  });
-
-  it('treats a deleted dependency as met rather than stranding the leaf forever', () => {
-    const next = leaf({ id: 'next', dependsOn: ['deleted'] });
-
-    expect(dependenciesMet(next, [next])).toBe(true);
-  });
-
-
-  it('refuses a dependency that would close a cycle', () => {
-    const a = leaf({ id: 'a', dependsOn: ['b'] });
-    const b = leaf({ id: 'b', dependsOn: ['c'] });
-    const c = leaf({ id: 'c' });
-
-    expect(wouldCycle('c', ['a'], [a, b, c])).toBe(true);
-    expect(wouldCycle('c', [], [a, b, c])).toBe(false);
-    expect(wouldCycle('c', ['c'], [a, b, c])).toBe(true);
-  });
-
-});
-
-describe('frozen trees', () => {
-  const branches = [{ id: 'b-old', treeId: 'old' }, { id: 'b-new', treeId: 'new' }, { id: 'b-mixed', treeId: 'mixed' }, { id: 'loose' }];
-  it('freezes a tree holding any leaf the old pipeline made, and no other', () => {
-    const frozen = frozenTreeIds(branches, [
-      { branchId: 'b-old' },
-      { branchId: 'b-new', runner: 'engine' },
-      { branchId: 'b-mixed', runner: 'engine' },
-      { branchId: 'b-mixed' },
-      { branchId: 'loose' },
-    ]);
-    expect([...frozen].sort()).toEqual(['mixed', 'old']);
-  });
-
-  it('leaves an empty tree open', () => {
-    expect(frozenTreeIds(branches, []).size).toBe(0);
-  });
-
-  it('freezes every leaf the old pipeline made, and the engine\'s leaves in a frozen tree', () => {
-    const all = [{ branchId: 'b-mixed' }, { branchId: 'b-mixed', runner: 'engine' as const }, { branchId: 'b-new', runner: 'engine' as const }];
-    expect(isFrozenLeaf({ branchId: 'loose' }, branches, all)).toBe(true);
-    expect(isFrozenLeaf(all[1]!, branches, all)).toBe(true);
-    expect(isFrozenLeaf(all[2]!, branches, all)).toBe(false);
-  });
-});
-
-describe('a barren streak', () => {
-  const attempt = (over: Partial<LeafAttempt> = {}): LeafAttempt =>
-    ({ attempt: 0, error: 'boom', failedAt: '2026-08-21T00:00:00Z', ...over });
-
-  it('stops after two attempts that left nothing', () => {
-    expect(barrenStreak([attempt({ produced: false })], false)).toBe(true);
-  });
-
-  it('keeps going when this attempt produced something', () => {
-    expect(barrenStreak([attempt({ produced: false })], true)).toBe(false);
-  });
-
-  it('keeps going when the previous attempt produced something', () => {
-    expect(barrenStreak([attempt({ produced: true })], false)).toBe(false);
-  });
-
-  it('never stops on the first failure', () => {
-    expect(barrenStreak([], false)).toBe(false);
-  });
-
-  it('treats an unknown previous attempt as not-barren', () => {
-    expect(barrenStreak([attempt({})], false)).toBe(false);
+describe('retrying a failed leaf', () => {
+  it('puts it back to pending, records the attempt and reopens only its failed tasks', () => {
+    const failed = leaf({ status: 'failed', findings: 'no listener', updatedAt: 't1', claim: { evidence: 'e', at: 't1' }, review: { verdict: 'unsound', at: 't1' } });
+    const tasks = [{ id: 'k1', status: 'failed', updatedAt: 't1' }, { id: 'k2', status: 'done', updatedAt: 't1' }];
+    const { leaf: reset, tasks: reopened } = resetForRetry(failed, tasks, 't2');
+    expect(reset).toMatchObject({ status: 'pending', verified: false, attempts: [{ attempt: 1, error: 'no listener', failedAt: 't1' }], updatedAt: 't2' });
+    expect(reset.claim).toBeUndefined();
+    expect(reset.review).toBeUndefined();
+    expect(reopened).toEqual([{ id: 'k1', status: 'accepted', updatedAt: 't2' }]);
   });
 });

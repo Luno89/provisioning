@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../api/client';
 import { useShellStore, type AppUser } from '../stores/shell';
+import { DefaultModelPicker } from './DefaultModelPicker';
 
 interface Invite {
   id: string;
@@ -188,6 +189,10 @@ export default function SettingsView() {
           </div>
         </div>
       )}
+    </div>
+
+    <div className="mt-8">
+      <DefaultModelPicker />
     </div>
   </section>
   );

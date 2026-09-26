@@ -2,8 +2,8 @@ import React, { useState, useEffect, startTransition } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { useShellStore, type ViewName } from '../stores/shell';
 import {
-  Shield, FlaskConical, Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
-  Plus, Sprout, Box, Sliders, Wrench, Trash2, GitBranch, ListChecks, Cpu, Layers
+  Brain, Trees, Trees as TreesIcon, ChevronDown, ChevronRight,
+  Plus, Trash2, GitBranch, ListChecks, Cpu, Layers
 } from 'lucide-react';
 import { Koala } from './Koala';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -184,8 +184,6 @@ export default function Sidebar({ forestTabs, onLogout }: {
             </div>
             {conversations.slice(0, 6).map((c) => {
               const isSelected = isCurrentView('chat') && activeConvId === c.id;
-              const hasTrees = Boolean(c.proposedTrees && c.proposedTrees.length > 0);
-              const hasSpecs = Boolean(c.proposedSpecs && c.proposedSpecs.length > 0);
 
               return (
                 <button
@@ -200,16 +198,6 @@ export default function Sidebar({ forestTabs, onLogout }: {
                   title={c.title}
                 >
                   <span className="truncate flex-1">{c.title || 'Untitled'}</span>
-                  {hasTrees && (
-                    <span className="text-amber-400 shrink-0" title="Project Tree">
-                      <Sprout size={11} />
-                    </span>
-                  )}
-                  {hasSpecs && (
-                    <span className="text-emerald-400 shrink-0" title="App Spec">
-                      <Box size={11} />
-                    </span>
-                  )}
                   <span
                     role="button"
                     tabIndex={0}
@@ -280,26 +268,10 @@ export default function Sidebar({ forestTabs, onLogout }: {
 
         <button
           type="button"
-          onClick={() => navigateTo('personas')}
-          className={nested(isCurrentView('personas'))}
+          onClick={() => navigateTo('memories')}
+          className={nested(isCurrentView('memories'))}
         >
-          <Shield size={15} className="text-[var(--leaf)]" /> Personas
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigateTo('lab')}
-          className={nested(isCurrentView('lab'))}
-        >
-          <FlaskConical size={15} className="text-[var(--leaf)]" /> Lab
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigateTo('harness')}
-          className={nested(isCurrentView('harness'))}
-        >
-          <Sliders size={15} className="text-[var(--leaf)]" /> Harness
+          <Brain size={15} className="text-[var(--leaf)]" /> Memories
         </button>
 
         <button
@@ -308,14 +280,6 @@ export default function Sidebar({ forestTabs, onLogout }: {
           className={nested(isCurrentView('tree-types'))}
         >
           <GitBranch size={15} className="text-[var(--leaf)]" /> Tree Types
-        </button>
-
-        <button
-          type="button"
-          onClick={() => navigateTo('tool-repo')}
-          className={nested(isCurrentView('tool-repo'))}
-        >
-          <Wrench size={15} className="text-[var(--leaf)]" /> Tool Repo
         </button>
 
         <button

@@ -1,10 +1,7 @@
 #!/usr/bin/env tsx
 
 import { createDatabase } from '../lib/db-interface.js';
-import { seedTools } from '../lib/tool-seeds.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
-import { seedPersonas } from '../lib/persona-seeds.js';
-import { seedPacks } from '../lib/pack-seeds.js';
 import { seedAppSpecs, seedConstructBackedTypes } from '../lib/app-spec.js';
 import { seedClusterProviders } from '../lib/cluster-providers.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
@@ -13,9 +10,8 @@ import { retireStoredBuiltInProcedures } from '../lib/built-in-procedures.js';
 import { retireStoredBuiltInPersonas } from '../lib/built-in-personas.js';
 import { seedEngineTools } from '../lib/engine-tool-seeds.js';
 
-export async function seedAll(db: Parameters<typeof seedTools>[0] & Record<string, unknown>) {
+export async function seedAll(db: Record<string, unknown>) {
   const counts: Record<string, number> = {};
-  counts.tools = await seedTools(db as never);
   counts.bindingTypes = await seedBindingTypes(db as never);
   // Images before tree types: a tree type's language must name one that exists.
   counts.workspaceImages = await seedWorkspaceImages(db as never);
@@ -23,10 +19,6 @@ export async function seedAll(db: Parameters<typeof seedTools>[0] & Record<strin
   counts.appSpecs = await seedAppSpecs(db as never);
   counts.constructBackedTypes = await seedConstructBackedTypes(db as never);
   counts.clusterProviders = await seedClusterProviders(db as never);
-  // Personas before packs: a pack resolves its persona by name at seed time and is SKIPPED when
-  // that persona is absent, which would leave an account with no packs at all.
-  counts.personas = await seedPersonas(db as never);
-  counts.packs = await seedPacks(db as never);
   counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db as never);
   counts.engineTools = await seedEngineTools(db as never);
   counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db as never);

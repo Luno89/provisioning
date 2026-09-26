@@ -174,14 +174,6 @@ export const providerKeys = {
 export const listModels = (): Promise<ModelProvider[]> =>
   api.get<ModelProvider[]>('/models').then((r) => r.data)
 
-export const addModelEndpoint = (form: {
-  name: string; baseUrl: string; model: string; apiKey?: string
-}): Promise<ModelProvider> =>
-  api.post<ModelProvider>('/model-endpoints', form).then((r) => r.data)
-
-export const removeModelEndpoint = (id: string): Promise<void> =>
-  api.delete(`/model-endpoints/${id}`).then(() => undefined)
-
 /**
  * The account's default engine. A pack that names no endpoint of its own runs on this, so moving
  * every pack from one provider to another is this one setting rather than an edit per pack.

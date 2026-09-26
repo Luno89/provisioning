@@ -10,7 +10,6 @@ import {
   type ToolResult,
 } from '@koala/agent-engine/procedure';
 import { titleFrom } from '../../lib/conversations.js';
-import { historyForPrompt } from '../../lib/koala-context.js';
 import type { Conversation, ConversationMessage, ConversationToolCall } from '../../lib/conversations.js';
 
 export interface ConversationStore {
@@ -46,7 +45,7 @@ export const idFrom = (request: NodeRequest): string => {
 };
 
 export function asChatMessages(stored: readonly ConversationMessage[]): ChatMessage[] {
-  return historyForPrompt([...stored])
+  return stored
     .filter((message: ConversationMessage) => message.content.trim())
     .map((message: ConversationMessage) => ({ role: message.role, content: message.content }));
 }

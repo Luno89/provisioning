@@ -7,10 +7,6 @@ describe('seed-all', () => {
     const db = new MemoryDB();
     await db.init();
 
-    expect(await db.getTools()).toEqual([]);
-    expect(await db.getPersonas()).toEqual([]);
-    expect(await db.getPersonaPacks()).toEqual([]);
-
     const { removedBuiltInProcedures, removedBuiltInPersonas, ...counts } = await seedAll(db as never);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
@@ -26,16 +22,5 @@ describe('seed-all', () => {
 
     const again = await seedAll(db as never);
     expect(Object.values(again).reduce((a, b) => a + b, 0)).toBe(0);
-  });
-
-  it('seeds personas before packs, since a pack whose persona is absent is skipped', async () => {
-    const db = new MemoryDB();
-    await db.init();
-    await seedAll(db as never);
-
-    const personas = await db.getPersonas();
-    for (const pack of await db.getPersonaPacks()) {
-      expect(personas.find((p) => p.id === pack.personaId), `${pack.slug} points at nothing`).toBeDefined();
-    }
   });
 });

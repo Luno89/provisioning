@@ -60,7 +60,6 @@ export interface UseConversationTurnOptions {
   initialMessages?: ChatMessageRecord[] | undefined;
   enabled: boolean;
   onConversationChange?: ((id: string | null) => void) | undefined;
-  onProposedTree?: (() => void) | undefined;
   binding?: ConversationBinding | undefined;
 }
 
@@ -112,7 +111,6 @@ export function useConversationTurn({
   const currentTurn = useLiveTurnsStore((s) => (liveTurnKey ? s.turns[liveTurnKey] : undefined));
   const streaming = currentTurn?.status === 'streaming' || creatingConversation;
   const liveState: ChatRenderState = currentTurn?.renderState ?? emptyChatRenderState;
-  const overthinkWarning = streaming ? currentTurn?.renderState.overthinkWarning : undefined;
 
   useEffect(() => {
     if (externalConvId !== undefined) {
@@ -376,7 +374,6 @@ export function useConversationTurn({
     renderedMessages,
     streaming,
     liveState,
-    overthinkWarning,
     error,
     setError,
     pinnedModelId,

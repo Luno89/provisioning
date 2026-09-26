@@ -5,8 +5,6 @@ import axios from 'axios';
 import * as modelsApi from '../../../api/models';
 import * as groveApi from '../../../api/grove';
 import * as projectsApi from '../../../api/projects';
-import * as personasApi from '../../../api/personas';
-import * as harnessApi from '../../../api/harness';
 import * as chatPackApi from '../../../api/chat-pack';
 import * as engineApi from '../../../api/engine';
 import Workspace from './index';
@@ -18,11 +16,8 @@ vi.mock('../../../api/grove', async (importOriginal) => ({
   listTrees: vi.fn(),
   listBranches: vi.fn(),
   listLeaves: vi.fn(),
-  patchBranch: vi.fn(),
-  patchTree: vi.fn(),
   deleteBranch: vi.fn(),
   deleteLeaf: vi.fn(),
-  getLeafTrace: vi.fn(),
 }));
 vi.mock('../../../api/projects', async (importOriginal) => ({
   ...(await importOriginal<typeof projectsApi>()),
@@ -33,14 +28,6 @@ vi.mock('../../../api/models', async (importOriginal) => ({
   listModels: vi.fn().mockResolvedValue([
     { id: 'm1', name: 'Model', source: 'deployment', kind: 'tabbyapi', model: 'm' },
   ]),
-}));
-vi.mock('../../../api/personas', async (importOriginal) => ({
-  ...(await importOriginal<typeof personasApi>()),
-  listPersonas: vi.fn().mockResolvedValue([]),
-}));
-vi.mock('../../../api/harness', async (importOriginal) => ({
-  ...(await importOriginal<typeof harnessApi>()),
-  getConfig: vi.fn().mockResolvedValue({ effective: [] }),
 }));
 vi.mock('../../../api/chat-pack', async (importOriginal) => ({
   ...(await importOriginal<typeof chatPackApi>()),
@@ -59,20 +46,15 @@ const leaf = (over: Record<string, unknown> = {}) => ({
   id: 'leaf-1',
   branchId: 'branch-1',
   title: 'Add rate limiting',
-  column: 'todo',
   status: 'pending',
-  depth: 0,
-  blocking: true,
-  childCount: 0,
+  updatedAt: '2026-08-03T00:00:00Z',
   ...over,
 });
 
 const branch = (over: Record<string, unknown> = {}) => ({
   id: 'branch-1',
   title: 'Rate limiting work',
-  messages: [],
   treeId: 'tree-1',
-  updatedAt: '2026-08-03T00:00:00Z',
   ...over,
 });
 
@@ -97,11 +79,6 @@ const renderWorkspace = (props: { treeId?: string; projectId?: string } = { tree
   );
 };
 
-const openBranch = async (title: string) => {
-  await waitFor(() => expect(screen.getAllByText(title).length).toBeGreaterThan(0));
-  fireEvent.click(screen.getAllByText(title)[0]!);
-};
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockApi({});
@@ -112,58 +89,21 @@ describe('selecting a leaf', () => {
   it('opens the detail view for it', async () => {
     mockApi({ branches: [branch()], leaves: [leaf({ body: 'Token bucket per API key.' })] });
     renderWorkspace();
-    await openBranch('Rate limiting work');
-    fireEvent.click(screen.getByText('Branches'));
-    await waitFor(() => expect(screen.getByText('Add rate limiting')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Add rate limiting').length).toBeGreaterThan(0));
 
-    fireEvent.click(screen.getByText('Add rate limiting'));
+    fireEvent.click(screen.getAllByText('Add rate limiting')[0]!);
     await waitFor(() => expect(screen.getByText('Token bucket per API key.')).toBeInTheDocument());
   });
 
   it('shows failed attempts, which is the whole reason to open a broken leaf', async () => {
     mockApi({
       branches: [branch()],
-      leaves: [leaf({ status: 'failed', attempts: [{ attempt: 0, error: 'tests did not compile', failedAt: 'x' }] })],
+      leaves: [leaf({ status: 'failed', attempts: [{ attempt: 1, error: 'tests did not compile', failedAt: 'x' }] })],
     });
     renderWorkspace();
-    await openBranch('Rate limiting work');
-    fireEvent.click(screen.getByText('Branches'));
-    await waitFor(() => expect(screen.getByText('Add rate limiting')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('Add rate limiting'));
+    await waitFor(() => expect(screen.getAllByText('Add rate limiting').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('Add rate limiting')[0]!);
     await waitFor(() => expect(screen.getByText('tests did not compile')).toBeInTheDocument());
-  });
-});
-
-describe('an old branch conversation', () => {
-  it('opens as read-only history', async () => {
-    mockApi({ branches: [branch({ messages: [{ role: 'user', content: 'make it rate limited' }] })] });
-    renderWorkspace();
-    await openBranch('Rate limiting work');
-
-    expect(await screen.findByText('make it rate limited')).toBeInTheDocument();
-    expect(screen.getByText(/History from the old pipeline, kept read-only/)).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(/Send a message|Message Koala/i)).toBeNull();
-  });
-});
-
-describe('a tree the old pipeline built', () => {
-  it('is frozen: no Start, no Run, no new conversation, and its failed leaves cannot be retried', async () => {
-    mockApi({
-      trees: [{ ...TREES[0], frozen: true }],
-      branches: [branch()],
-      leaves: [leaf({ status: 'failed', frozen: true, attempts: [{ attempt: 0, error: 'it broke', failedAt: 'x' }] })],
-    });
-    renderWorkspace();
-
-    expect(await screen.findByTestId('frozen-tree')).toBeInTheDocument();
-    expect(screen.queryByText('Start')).toBeNull();
-    expect(screen.queryByText('Run')).toBeNull();
-    expect(screen.queryByText('New conversation')).toBeNull();
-
-    fireEvent.click(screen.getByText('Branches'));
-    fireEvent.click(await screen.findByText('Add rate limiting'));
-    expect(await screen.findByTestId('frozen-leaf')).toBeInTheDocument();
-    expect(screen.queryByText('Retry')).toBeNull();
   });
 });
 

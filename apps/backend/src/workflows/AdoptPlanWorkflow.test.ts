@@ -164,7 +164,7 @@ describe('AdoptPlanWorkflow', () => {
     expect([...w.branches.values()]).toEqual([expect.objectContaining({ id: 'plan-p1-b0', treeId: 'plan-p1-tree', title: 'Operability' })]);
 
     const health = w.leaves.get('plan-p1-b0-l0')!;
-    expect(health).toMatchObject({ status: 'pending', runner: 'engine', branchId: 'plan-p1-b0', tasks: ['plan-p1-b0-l0-t0', 'plan-p1-b0-l0-t1'] });
+    expect(health).toMatchObject({ status: 'pending', branchId: 'plan-p1-b0', tasks: ['plan-p1-b0-l0-t0', 'plan-p1-b0-l0-t1'] });
     expect(w.leaves.get('plan-p1-b0-l1')).toMatchObject({ status: 'pending', dependsOn: ['plan-p1-b0-l0'], tasks: [] });
     expect(w.tasks.get('plan-p1-b0-l0-t1')).toMatchObject({ status: 'accepted', leafId: 'plan-p1-b0-l0', dependsOn: ['plan-p1-b0-l0-t0'], role: 'Keeps it honest' });
 
@@ -224,7 +224,7 @@ describe('AdoptPlanWorkflow', () => {
     const w = world([leafProposal]);
     w.trees.push({ id: 'tree-r', ownerId: 'user-1', name: 'Site', type: 'freeform', projectIds: [], createdAt: 'then', updatedAt: 'then' } as never);
     w.branches.set('branch-r', { id: 'branch-r', ownerId: 'user-1', treeId: 'tree-r', title: 'Serve', messages: [], createdAt: 'then', updatedAt: 'then' } as never);
-    w.leaves.set('leaf-r', { id: 'leaf-r', ownerId: 'user-1', branchId: 'branch-r', title: 'Serve it', body: 'curl :8080 answers', column: 'todo', status: 'failed', runner: 'engine', findings: 'nginx is not installed', claim: { evidence: 'tried', at: 'then' }, depth: 0, blocking: false, createdAt: 'then', updatedAt: 'then' } as never);
+    w.leaves.set('leaf-r', { id: 'leaf-r', ownerId: 'user-1', branchId: 'branch-r', title: 'Serve it', body: 'curl :8080 answers', status: 'failed', findings: 'nginx is not installed', claim: { evidence: 'tried', at: 'then' }, createdAt: 'then', updatedAt: 'then' } as never);
     w.tasks.set('old-done', { id: 'old-done', ownerId: 'user-1', leafId: 'leaf-r', title: 'Write the page', doneMeans: 'x', dependsOn: [], status: 'done', runs: [], createdAt: 'then', updatedAt: 'then' } as never);
     w.tasks.set('old-failed', { id: 'old-failed', ownerId: 'user-1', leafId: 'leaf-r', title: 'Start nginx', doneMeans: 'x', dependsOn: [], status: 'failed', runs: [], createdAt: 'then', updatedAt: 'then' } as never);
 

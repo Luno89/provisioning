@@ -20,9 +20,9 @@ const renderPanel = () => render(
 describe('TreeRunPanel', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('runs an engine tree that has not run, and shows it running', async () => {
-    vi.mocked(groveApi.getTreeRun).mockResolvedValue({ state: 'none', engine: true })
-    vi.mocked(groveApi.runTree).mockResolvedValue({ state: 'running', engine: true, startedAt: '2026-09-25T10:00:00.000Z' })
+  it('runs a tree that has not run, and shows it running', async () => {
+    vi.mocked(groveApi.getTreeRun).mockResolvedValue({ state: 'none' })
+    vi.mocked(groveApi.runTree).mockResolvedValue({ state: 'running', startedAt: '2026-09-25T10:00:00.000Z' })
     renderPanel()
 
     fireEvent.click(await screen.findByText('Run the tree'))
@@ -33,25 +33,18 @@ describe('TreeRunPanel', () => {
 
   it('says how the last run ended and what waits for review', async () => {
     vi.mocked(groveApi.getTreeRun).mockResolvedValue({
-      state: 'finished', engine: true, startedAt: 'then', result: { outcome: 'quiet', passes: 2, awaitingReview: ['l2'] },
+      state: 'finished', startedAt: 'then', result: { outcome: 'quiet', passes: 2, awaitingReview: ['l2'] },
     })
     renderPanel()
     expect(await screen.findByText('The last run finished after 2 passes: nothing left to work. 1 claim waits for your review.')).toBeTruthy()
     expect(screen.getByText('Run it again')).toBeTruthy()
   })
 
-  it('shows nothing for a tree that runs on the legacy pipeline', async () => {
-    vi.mocked(groveApi.getTreeRun).mockResolvedValue({ state: 'none', engine: false })
-    const { container } = renderPanel()
-    await waitFor(() => expect(groveApi.getTreeRun).toHaveBeenCalled())
-    expect(container.querySelector('[data-testid="tree-run"]')).toBeNull()
-  })
-
   it('stops a running tree, and says the stopped leaves are back to waiting', async () => {
-    vi.mocked(groveApi.getTreeRun).mockResolvedValueOnce({ state: 'running', engine: true, startedAt: '2026-09-25T10:00:00.000Z' })
-    vi.mocked(groveApi.stopTreeRun).mockResolvedValue({ state: 'running', engine: true, startedAt: '2026-09-25T10:00:00.000Z' })
+    vi.mocked(groveApi.getTreeRun).mockResolvedValueOnce({ state: 'running', startedAt: '2026-09-25T10:00:00.000Z' })
+    vi.mocked(groveApi.stopTreeRun).mockResolvedValue({ state: 'running', startedAt: '2026-09-25T10:00:00.000Z' })
     vi.mocked(groveApi.getTreeRun).mockResolvedValue({
-      state: 'finished', engine: true, startedAt: 'then',
+      state: 'finished', startedAt: 'then',
       result: { treeId: 't1', outcome: 'stopped', passes: 1, awaitingReview: [] },
     } as never)
     renderPanel()

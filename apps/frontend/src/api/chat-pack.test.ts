@@ -1,10 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { openChatPackStream } from '../api/chat-pack.js';
 import * as client from '../api/client.js';
 
 vi.mock('../api/client', async (orig) => ({
   ...(await orig<typeof client>()),
-  postStream: vi.fn(),
   api: {
     get: vi.fn(),
     post: vi.fn(),
@@ -12,62 +10,7 @@ vi.mock('../api/client', async (orig) => ({
   },
 }));
 
-describe('openChatPackStream — always koala, no pack in the request', () => {
-  it('posts to the unified chat route with the message', async () => {
-    const mockRes = new Response(new ReadableStream(), { status: 200 });
-    vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
-
-    await openChatPackStream({ conversationId: 'c1', message: 'hi' });
-
-    expect(client.postStream).toHaveBeenCalledWith(
-      '/chat',
-      { conversationId: 'c1', message: 'hi' },
-      undefined,
-    );
-  });
-
-  it('includes sessionId when provided', async () => {
-    const mockRes = new Response(new ReadableStream(), { status: 200 });
-    vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
-
-    await openChatPackStream({ conversationId: 'c1', message: 'hi', sessionId: 's1' });
-
-    expect(client.postStream).toHaveBeenCalledWith(
-      '/chat',
-      { conversationId: 'c1', message: 'hi', sessionId: 's1' },
-      undefined,
-    );
-  });
-
-  it('includes modelId when provided', async () => {
-    const mockRes = new Response(new ReadableStream(), { status: 200 });
-    vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
-
-    await openChatPackStream({ conversationId: 'c1', message: 'hi', modelId: 'm1' });
-
-    expect(client.postStream).toHaveBeenCalledWith(
-      '/chat',
-      { conversationId: 'c1', message: 'hi', modelId: 'm1' },
-      undefined,
-    );
-  });
-
-  it('propagates an AbortSignal', async () => {
-    const mockRes = new Response(new ReadableStream(), { status: 200 });
-    vi.mocked(client.postStream).mockResolvedValue(mockRes as any);
-    const signal = new AbortController().signal;
-
-    await openChatPackStream({ conversationId: 'c1', message: 'hi' }, signal);
-
-    expect(client.postStream).toHaveBeenCalledWith(
-      '/chat',
-      { conversationId: 'c1', message: 'hi' },
-      signal,
-    );
-  });
-});
-
-describe('chat-pack conversation & proposal helpers', () => {
+describe('chat-pack conversation helpers', () => {
   it('calls conversation endpoints correctly', async () => {
     const { listChatConversations, getChatConversation, createChatConversation, deleteChatConversation } = await import('../api/chat-pack.js');
     
@@ -89,14 +32,5 @@ describe('chat-pack conversation & proposal helpers', () => {
     vi.mocked(client.api.delete).mockResolvedValueOnce({ data: { success: true } });
     await deleteChatConversation('conv-2');
     expect(client.api.delete).toHaveBeenCalledWith('/conversations/conv-2');
-  });
-
-  it('calls proposal acceptance endpoints', async () => {
-    const { acceptSpecProposal } = await import('../api/chat-pack.js');
-
-    vi.mocked(client.api.post).mockResolvedValueOnce({ data: { id: 'spec-1' } });
-    const specRes = await acceptSpecProposal('conv-1', 'spec-1');
-    expect(client.api.post).toHaveBeenCalledWith('/conversations/conv-1/specs/spec-1/accept', {});
-    expect(specRes).toEqual({ id: 'spec-1' });
   });
 });

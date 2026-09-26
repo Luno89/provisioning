@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Search, Plus, Trash2, X, ChevronLeft,
-  MessageSquare, History, Sprout, Box
+  MessageSquare, History
 } from 'lucide-react';
 import type { ChatConversation } from '../api/chat-pack.js';
 
@@ -98,8 +98,6 @@ export const CollapsibleHistoryList: React.FC<CollapsibleHistoryListProps> = ({
         ) : (
           filtered.map((c) => {
             const isActive = c.id === activeId;
-            const hasTrees = Boolean(c.proposedTrees && c.proposedTrees.length > 0);
-            const hasSpecs = Boolean(c.proposedSpecs && c.proposedSpecs.length > 0);
             const msgCount = c.messageCount ?? c.messages?.length ?? 1;
             const formattedDate = c.updatedAt
               ? new Date(c.updatedAt).toLocaleDateString([], {
@@ -143,21 +141,6 @@ export const CollapsibleHistoryList: React.FC<CollapsibleHistoryListProps> = ({
                       {msgCount} {msgCount === 1 ? 'msg' : 'msgs'}
                     </span>
                     {formattedDate && <span>· {formattedDate}</span>}
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    {hasTrees && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-500/30 text-[10px] text-amber-300 font-medium" title="Project Tree Proposal">
-                        <Sprout size={10} />
-                        <span>Tree</span>
-                      </span>
-                    )}
-                    {hasSpecs && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-[10px] text-emerald-300 font-medium" title="App Spec Proposal">
-                        <Box size={10} />
-                        <span>Spec</span>
-                      </span>
-                    )}
                   </div>
                 </div>
               </div>

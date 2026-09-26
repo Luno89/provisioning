@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  History, ChevronDown, ShieldAlert, Inbox, Plus
+  History, ChevronDown, Plus
 } from 'lucide-react';
 import type { ChatConversation } from '../../api/chat-pack.js';
 
@@ -12,9 +12,6 @@ export interface ChatHeaderProps {
   activeConversation?: ChatConversation | null | undefined;
   conversations?: ChatConversation[];
   onSelectConversation?: (id: string) => void;
-  showProposals?: boolean;
-  onToggleProposals?: () => void;
-  pendingCount?: number;
   onNewChat?: () => void;
   isCreatingChat?: boolean;
 }
@@ -27,9 +24,6 @@ export function ChatHeader({
   activeConversation,
   conversations = [],
   onSelectConversation,
-  showProposals = false,
-  onToggleProposals,
-  pendingCount = 0,
   onNewChat,
   isCreatingChat = false,
 }: ChatHeaderProps) {
@@ -98,33 +92,6 @@ export function ChatHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        {activeConversation?.isEscalated && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[11px] font-mono select-none">
-            <ShieldAlert size={12} className="text-amber-400" />
-            <span>ELEVATED ({activeConversation.escalatedScope ?? 'cluster-read'})</span>
-          </div>
-        )}
-        {!hideSidebar && onToggleProposals && (
-          <button
-            type="button"
-            aria-label="Toggle proposals"
-            onClick={onToggleProposals}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors border cursor-pointer ${
-              showProposals
-                ? 'bg-[var(--bark-800,#1b2620)] text-emerald-300 border-emerald-500/50'
-                : 'bg-[var(--bark-950,#090d0b)] text-slate-300 border-[var(--bark-700,#24332b)] hover:text-white'
-            }`}
-            title="Toggle proposals"
-          >
-            <Inbox size={13} className={showProposals ? 'text-emerald-400' : 'text-slate-400'} />
-            <span className="hidden sm:inline">Proposals</span>
-            {pendingCount > 0 && (
-              <span className="text-[10px] text-slate-400 bg-[var(--bark-950,#090d0b)] px-1.5 py-0.5 rounded border border-[var(--bark-800,#1b2620)] font-mono">
-                {pendingCount}
-              </span>
-            )}
-          </button>
-        )}
         {onNewChat && (
           <button
             type="button"

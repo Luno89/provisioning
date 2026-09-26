@@ -41,8 +41,6 @@ describe('NewTreeDialog — plain creation', () => {
     fireEvent.click(screen.getByRole('button', { name: /create/i }))
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('tree-1'))
-    expect(groveApi.patchBranch).not.toHaveBeenCalled()
-    expect(groveApi.patchTree).not.toHaveBeenCalled()
   });
 
   it('disables Create until a type is picked', async () => {

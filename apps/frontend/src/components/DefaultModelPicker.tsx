@@ -8,7 +8,7 @@ import {
 import { modelOptionLabel } from '../lib/model-label';
 import { ModelPicker } from './ModelPicker';
 import { useShellStore } from '../stores/shell';
-import { errorMessage } from '../lib/pack-editor.js';
+import { errorMessage } from '../api/client';
 
 /** The engine every pack runs on unless it names one of its own. */
 export function DefaultModelPicker() {

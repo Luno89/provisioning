@@ -4,19 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { type ReactNode } from 'react';
 import ChatSurface from '../components/ChatSurface.js';
 import * as chatPackApi from '../api/chat-pack.js';
-import * as client from '../api/client.js';
 import * as engineApi from '../api/engine.js';
 import { useLiveTurnsStore, conversationTurnKey } from '../stores/live-turns.js';
 import { ENGINE_EVENT_CHANNEL, type EngineEvent } from '../api/engine.js';
-
-vi.mock('../api/packs', async (orig) => ({
-  ...(await orig<typeof import('../api/packs')>()),
-  listPacks: vi.fn(async () => ([{
-    id: 'pack-koala', slug: 'koala', name: 'Koala', description: 'General Builder',
-    personaId: 'p-koala', toolset: 'assistant' as const,
-    tools: [], permitted: ['read', 'write', 'propose'] as const, overrides: {},
-  }])),
-}));
 
 vi.mock('../api/chat-pack', async (orig) => ({
   ...(await orig<typeof chatPackApi>()),
@@ -26,10 +16,6 @@ vi.mock('../api/chat-pack', async (orig) => ({
     title: 'Test Conversation',
     messages: [],
   })),
-  acceptEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
-  denyEscalationProposal: vi.fn().mockResolvedValue({ ok: true }),
-  acceptSpecProposal: vi.fn().mockResolvedValue({ id: 'mongo' }),
-  acceptTreeProposal: vi.fn(),
   patchChatConversation: vi.fn().mockResolvedValue({ id: 'c1', title: 'Test Conversation', messages: [] }),
 }));
 
@@ -60,11 +46,6 @@ vi.mock('../api/agents', async (orig) => ({
   ] as never),
 }));
 
-vi.mock('../api/client', async (orig) => ({
-  ...(await orig<typeof client>()),
-  postStream: vi.fn(),
-}));
-
 vi.mock('../api/grove', async (orig) => ({
   ...(await orig<typeof import('../api/grove.js')>()),
   updateTreeType: vi.fn().mockResolvedValue({ id: 'type-1' }),
@@ -77,7 +58,6 @@ vi.mock('../api/grove', async (orig) => ({
     language: 'node',
     produces: 'service',
     files: [],
-    packs: { planner: 'planner' },
   }]),
 }));
 
@@ -356,128 +336,6 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     await waitFor(() => expect(screen.getAllByText('KOALA').length).toBeGreaterThanOrEqual(1));
     expect(screen.getByText('What is the cluster status?')).toBeInTheDocument();
     expect(screen.getByText('All 3 nodes are ready.')).toBeInTheDocument();
-  });
-
-  it('renders EscalationProposalCard and handles approval', async () => {
-    vi.mocked(chatPackApi.getChatConversation).mockResolvedValueOnce({
-      id: 'c1',
-      title: 'Test Conversation',
-      messages: [{ role: 'user', content: 'diagnose prometheus' }],
-      proposedEscalations: [{
-        id: 'esc-1',
-        reason: 'Need access to Prometheus',
-        scope: 'cluster-admin',
-        namespaces: ['monitoring'],
-        status: 'pending',
-        proposedAt: '2026-08-26T12:00:00Z',
-      }],
-    });
-
-    renderWithProviders(<ChatSurface conversationId="c1" />);
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
-
-    await waitFor(() => expect(screen.getByText('Privilege Escalation Requested')).toBeInTheDocument());
-    expect(screen.getByText('Need access to Prometheus')).toBeInTheDocument();
-    expect(screen.getByText('cluster-admin')).toBeInTheDocument();
-    expect(screen.getByText('monitoring')).toBeInTheDocument();
-
-    const approveBtn = screen.getByRole('button', { name: /approve escalation/i });
-    fireEvent.click(approveBtn);
-
-    await waitFor(() => expect(chatPackApi.acceptEscalationProposal).toHaveBeenCalledWith('c1', 'esc-1'));
-  });
-
-  /**
-   * Regression: the "Add to catalogue" button on suggested specs was calling the accept endpoint (which was
-   * succeeding server-side) while not rendering the state after the persisted accept, so it looked like
-   * clicking did nothing. What this asserts: that a proposedSpecs entry renders in the proposal sidebar,
-   * that accept calls the real endpoint, and that acceptedAt makes it drop out of the pending list.
-   */
-  it('renders a proposed spec in the sidebar, accepts it, and it drops out of the pending list', async () => {
-    const spec = {
-      id: 'mongo', image: 'mongo:7', ports: [{ name: 'mongodb', port: 27017 }],
-    };
-    let accepted = false;
-    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async () => ({
-      id: 'c1',
-      title: 'Test Conversation',
-      messages: [{ role: 'user', content: 'add mongo' }],
-      proposedSpecs: [{
-        id: 'mongo', spec, proposedAt: '2026-09-03T12:00:00Z',
-        ...(accepted ? { acceptedAt: '2026-09-03T12:00:05Z' } : {}),
-      }],
-    }) as never);
-    vi.mocked(chatPackApi.acceptSpecProposal).mockImplementation(async () => {
-      accepted = true;
-      return { id: 'mongo' };
-    });
-
-    renderWithProviders(<ChatSurface conversationId="c1" />);
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
-
-    await waitFor(() => expect(screen.getByText('Add to the catalogue')).toBeInTheDocument());
-    expect(screen.getByText('mongo')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Add to the catalogue'));
-    await waitFor(() => expect(chatPackApi.acceptSpecProposal).toHaveBeenCalledWith('c1', 'mongo'));
-    await waitFor(() => expect(screen.getByText('Nothing pending')).toBeInTheDocument());
-    expect(screen.queryByText('Add to the catalogue')).not.toBeInTheDocument();
-  });
-
-  /**
-   * Regression: acceptTreeMutation was reading `res.treeId`, but the backend response shape is
-   * `{ tree: { id, ... }, branch, project, planning }` — the top-level `treeId` does not exist,
-   * so onOpenTree never fired, and the accept of a project suggestion silently failed to redirect anywhere.
-   */
-  it('raises the proposals badge when the run saved a proposal, and the pending one appears via the panel', async () => {
-    let runFinished = false;
-    vi.mocked(chatPackApi.getChatConversation).mockImplementation(async (id: string) => ({
-      id,
-      title: 'Test Conversation',
-      messages: [],
-      proposedTrees: runFinished
-        ? [{ id: 'prop-2', name: 'Odoo Rollout', type: 'default', goal: 'Roll out Odoo', proposedAt: AT }]
-        : [],
-    }) as never);
-
-    renderWithProviders(<ChatSurface conversationId="c1" />);
-    expect(await screen.findByText('Propose Project Tree')).toBeInTheDocument();
-
-    const input = screen.getByPlaceholderText(/message/i);
-    fireEvent.change(input, { target: { value: 'plan something' } });
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
-
-    await waitForRunStarted();
-    // The engine saves the conversation (proposal and all) before it announces the run is
-    // finished — so the flag that stands in for the persisted proposal flips before the final
-    // events land.
-    runFinished = true;
-    emit({ type: 'content', delta: 'Here is a plan.' }, { type: 'run.finished', outcome: 'ok' });
-
-    // The run finished and the engine persisted the proposal: the surface refreshes the
-    // conversation and displays a pending-proposal badge, and the one surfaces via the panel.
-    await waitFor(() => expect(screen.getByRole('button', { name: /toggle proposals/i })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /toggle proposals/i }));
-    await waitFor(() => expect(screen.getByText('Odoo Rollout')).toBeInTheDocument());
-    expect(screen.getByText(/ask Koala to plan it/)).toBeInTheDocument();
-  });
-
-  it('displays ELEVATED badge in header bar when conversation is escalated', async () => {
-    vi.mocked(chatPackApi.getChatConversation).mockResolvedValueOnce({
-      id: 'c-elevated',
-      title: 'Admin Ops',
-      isEscalated: true,
-      escalatedScope: 'cluster-admin',
-      messages: [{ role: 'user', content: 'Cluster check' }],
-    } as never);
-
-    renderWithProviders(<ChatSurface conversationId="c-elevated" />);
-
-    await waitFor(() => expect(screen.getByText(/ELEVATED \(cluster-admin\)/i)).toBeInTheDocument());
   });
 
   it('shows an approval card when the run asks about a tool call, and settles it on decision', async () => {

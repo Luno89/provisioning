@@ -18,9 +18,6 @@ export type GroveRunStatus =
   | { state: 'running'; startedAt: string }
   | { state: 'finished'; startedAt: string; closedAt?: string; result: GroveRunResult }
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string }
-import {
-  LIVE_LEAF_STATUSES, reconcileLeaf, reconcileMissingLeafWorkflow, type LeafReconcileAction,
-} from '../lib/leaf-reconcile.js'
 import { reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES, type RunStatus } from '../lib/run-reconcile.js'
 import { deploymentIdFor } from '../lib/deployment-id.js'
 import { resolveCloudCredentials } from '../lib/credential-resolver.js'
@@ -480,18 +477,6 @@ export class TemporalBridge {
     return { state: 'failed', startedAt, ...(closedAt ? { closedAt } : {}), reason: status.toLowerCase().replace(/_/g, ' ') }
   }
 
-  async signalLeaf(leafId: string, signal: 'moveLeaf' | 'cancelLeaf' | 'completeLeaf' | 'addChild', payload?: unknown): Promise<boolean> {
-    if (!this.client) return false
-    try {
-      const handle = this.client.workflow.getHandle(`leaf-${leafId}`)
-      await handle.signal(signal, ...(payload === undefined ? [] : [payload]))
-      return true
-    } catch (err: any) {
-      console.warn(`[TemporalBridge] Could not signal leaf ${leafId} (${signal}): ${err.message}`)
-      return false
-    }
-  }
-
   async startActiveWorkflowRecovery(): Promise<void> {
     if (!this.client) {
       try {
@@ -718,58 +703,12 @@ export class TemporalBridge {
       }
     }
 
-    const reconcileLeaves = async () => {
-      if (!this.client) return
-      try {
-        const leaves = await this.db.getLeaves()
-        for (const leaf of leaves) {
-          if (!(LIVE_LEAF_STATUSES as readonly string[]).includes(leaf.status)) continue
-          if (!leaf.workflowId) continue
-
-          const attempts = (leaf.attempts ?? []).length
-          let decision: LeafReconcileAction | undefined
-          try {
-            const described = await pollWorkflowRun(leaf.workflowId)
-            decision = reconcileLeaf(leaf.status, described?.status?.name, attempts)
-          } catch (err: any) {
-            if (!/not\s*found/i.test(String(err?.message ?? err))) continue
-            decision = reconcileMissingLeafWorkflow(leaf.status, leaf.updatedAt, attempts)
-          }
-          if (!decision) continue
-
-          const fresh = (await this.db.getLeaves()).find((l) => l.id === leaf.id)
-          if (!fresh || fresh.status !== leaf.status) continue
-
-          const reason = decision.action === 'restart'
-            ? `${decision.reason}; the old leaf pipeline no longer starts leaves, so it cannot be restarted`
-            : decision.reason
-          await this.db.saveLeaf({
-            ...fresh,
-            status: 'failed',
-            attempts: [...(fresh.attempts ?? []), {
-              attempt: attempts,
-              error: reason,
-              failedAt: new Date().toISOString(),
-              produced: false,
-            }],
-            updatedAt: new Date().toISOString(),
-          })
-          console.warn(`[Reconcile] leaf ${leaf.id.slice(0, 8)} -> failed: ${reason}`)
-          if (this.io) this.io.emit('leaves-updated')
-        }
-      } catch (err: any) {
-        console.warn(`[Reconcile] Could not reconcile leaves: ${err.message}`)
-      }
-    }
-
     reconcile()
     setInterval(reconcile, RECONCILE_INTERVAL)
     consolidate()
     setInterval(consolidate, CONSOLIDATE_INTERVAL)
     reconcileRuns()
     setInterval(reconcileRuns, RECONCILE_INTERVAL)
-    reconcileLeaves()
-    setInterval(reconcileLeaves, RECONCILE_INTERVAL)
   }
 
   async terminateIfRunning(wfId: string, reason: string): Promise<boolean> {

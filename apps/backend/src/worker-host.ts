@@ -7,14 +7,6 @@ import { fileURLToPath } from 'url';
 
 import { ProvisionClusterActivity } from './activities/ProvisionClusterActivity.js';
 import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
-import { UpdateLeafActivity } from './activities/UpdateLeafActivity.js';
-import { ExecuteLeafActivity } from './activities/ExecuteLeafActivity.js';
-import { CheckLeafGateActivity, ReleaseDependentsActivity } from './activities/LeafGateActivity.js';
-import { LandRequestActivity } from './activities/LandRequestActivity.js';
-import { ResolveLandingActivity } from './activities/ResolveLandingActivity.js';
-import { JudgeLeafActivity } from './activities/JudgeLeafActivity.js';
-import { AcceptRequestActivity } from './activities/AcceptRequestActivity.js';
-import { ReplanActivity } from './activities/ReplanActivity.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger } from './lib/worker-logger.js';
 import { buildDataConverter } from './lib/temporal-codec.js';
@@ -54,15 +46,6 @@ async function main() {
         activities: {
           ProvisionClusterActivity,
           DestroyClusterActivity,
-          UpdateLeafActivity,
-          ExecuteLeafActivity,
-          CheckLeafGateActivity,
-          ReleaseDependentsActivity,
-          LandRequestActivity,
-          ResolveLandingActivity,
-          JudgeLeafActivity,
-          AcceptRequestActivity,
-          ReplanActivity,
           CrawlBatchActivity,
           NextBatchActivity,
           SeedFrontierActivity,

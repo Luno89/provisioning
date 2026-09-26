@@ -1,66 +1,18 @@
-import { stateFor, type Leaf, type LeafState } from './leaf-types.js';
-
-const LIVE_STATUS = new Set(['proposed', 'pending', 'running']);
-
-export function settledBranches(
-  branches: { id: string }[],
-  leaves: Leaf[],
-): Set<string> {
-  const settled = new Set<string>();
-  for (const b of branches) {
-    const mine = leaves.filter((l) => l.branchId === b.id);
-    if (mine.length > 0 && !mine.some((l) => LIVE_STATUS.has(l.status))) settled.add(b.id);
-  }
-  return settled;
-}
-
-/** A short "failed after N attempts" summary, with no error text — safe to put on its own line. */
-export function failureSummary(leaf: Leaf): string {
-  const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
-  return attempts.length
-    ? `failed after ${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`
-    : 'failed';
-}
-
-/** The most recent attempt's error, flattened to one line and capped — or undefined if there is none. */
-export function lastFailureError(leaf: Leaf): string | undefined {
-  const attempts = Array.isArray(leaf.attempts) ? leaf.attempts : [];
-  const last = attempts[attempts.length - 1]?.error;
-  if (!last) return undefined;
-  const flat = last.replace(/\s+/g, ' ').trim();
-  return flat.length > 160 ? `${flat.slice(0, 159)}…` : flat;
-}
-
-export function outstandingWork(
-  branches: { id: string; title: string }[],
-  leaves: Leaf[],
-): { leaf: Leaf; from: string; attempts: number; summary: string; lastError: string | undefined }[] {
-  const settled = settledBranches(branches, leaves);
-  return leaves
-    .filter((l) => l.status === 'failed' && settled.has(l.branchId))
-    .map((leaf) => ({
-      leaf,
-      from: branches.find((b) => b.id === leaf.branchId)?.title ?? '',
-      attempts: Array.isArray(leaf.attempts) ? leaf.attempts.length : 0,
-      summary: failureSummary(leaf),
-      lastError: lastFailureError(leaf),
-    }))
-    .sort((a, b) => b.attempts - a.attempts);
-}
+import { isAwaitingReview, stateFor, type Leaf, type LeafState } from './leaf-types.js';
 
 export interface Attention {
   leaf: Leaf;
-  reason: 'proposed' | 'failed';
+  reason: 'review' | 'failed';
 }
 
-export function needsYou(leaves: Leaf[], settled: Set<string> = new Set()): Attention[] {
-  const count = (l: Leaf) => (Array.isArray(l.attempts) ? l.attempts.length : 0);
-  const failed = leaves.filter((l) => l.status === 'failed' && !settled.has(l.branchId))
+export function needsYou(leaves: Leaf[]): Attention[] {
+  const count = (l: Leaf) => l.attempts?.length ?? 0;
+  const review = leaves.filter(isAwaitingReview)
+    .map((leaf): Attention => ({ leaf, reason: 'review' }));
+  const failed = leaves.filter((l) => l.status === 'failed')
     .sort((a, b) => count(b) - count(a))
     .map((leaf): Attention => ({ leaf, reason: 'failed' }));
-  const proposed = leaves.filter((l) => l.status === 'proposed')
-    .map((leaf): Attention => ({ leaf, reason: 'proposed' }));
-  return [...failed, ...proposed];
+  return [...review, ...failed];
 }
 
 export function running(leaves: Leaf[]): Leaf[] {
@@ -133,7 +85,7 @@ export function scopeToTree<B extends { id: string; treeId?: string }>(
 }
 
 export function groupWork(leaves: Leaf[]): { state: LeafState; leaves: Leaf[] }[] {
-  const order: LeafState[] = ['failed', 'blocked', 'running', 'proposed', 'claimed', 'verified'];
+  const order: LeafState[] = ['failed', 'blocked', 'running', 'todo', 'claimed', 'verified'];
   return order
     .map((state) => ({ state, leaves: leaves.filter((l) => stateFor(l, leaves) === state) }))
     .filter((g) => g.leaves.length > 0);

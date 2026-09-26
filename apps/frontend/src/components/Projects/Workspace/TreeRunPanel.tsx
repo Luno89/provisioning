@@ -55,7 +55,7 @@ export function TreeRunPanel({ treeId }: { treeId: string }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: groveKeys.run(treeId) }),
   })
 
-  if (!status?.engine) return null
+  if (!status) return null
 
   return (
     <div className="px-3 py-2 text-[12px] text-slate-400 flex flex-col gap-2" data-testid="tree-run">

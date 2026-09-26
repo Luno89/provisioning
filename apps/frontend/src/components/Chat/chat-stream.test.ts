@@ -57,20 +57,17 @@ describe('assistantMsgFromRenderState', () => {
     expect(assistantMsgFromRenderState(emptyChatRenderState)).toBeNull();
   });
 
-  it('builds a message from live content, thinking, enabled services, and tool calls', () => {
+  it('builds a message from live content, thinking, and tool calls', () => {
     const state: ChatRenderState = {
       live: 'hello',
       liveThinking: 'reasoning here',
       tools: [{ id: 't1', name: 'get_logs', args: '{}', running: false, ok: true, digest: 'done' }],
-      enabled: ['gitea-mcp-server'],
-      proposals: [],
     };
     const msg = assistantMsgFromRenderState(state);
     expect(msg).toMatchObject({
       role: 'assistant',
       content: 'hello',
       reasoning: 'reasoning here',
-      enabled: ['gitea-mcp-server'],
       toolCalls: [{ id: 't1', name: 'get_logs', args: '{}', ok: true, digest: 'done' }],
     });
   });

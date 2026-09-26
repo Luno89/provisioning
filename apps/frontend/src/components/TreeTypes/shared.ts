@@ -1,33 +1,6 @@
 import type { TreeType } from '../../types/grove.js';
 
-export type {
-  TreeType, TreeTypeFile, TreeTypePacks, TreeTypePackRole, ValidationRecipe,
-  ValidationCheckDefinition, ValidationCheckType, K8sProbeKind, WorkspaceLanguage, PersonaEgressRule,
-  CustomStepDefinition, CustomStepField, CustomStepFieldKind,
-  RecipeNode, RecipeGroup, RecipeLoop, LoopType,
-  WorkflowStageNode, WorkflowStageDefinition, WorkflowStageGroup, WorkflowStageLoop,
-  WorkflowStageType, WorkflowCondition, LeafWorkflowSpec,
-} from '../../types/grove.js';
-export {
-  VALIDATION_CHECK_TYPES, K8S_PROBE_KINDS, TREE_TYPE_PACK_ROLES, LOOP_TYPES, isContainerNode,
-  WORKFLOW_STAGE_TYPES, isWorkflowContainerNode,
-} from '../../types/grove.js';
-import type { WorkflowStageNode, LeafWorkflowSpec } from '../../types/grove.js';
-
-export const DEFAULT_LEAF_WORKFLOW: LeafWorkflowSpec = {
-  onSuccess: [
-    { id: 'release', name: 'Release dependents', stage: 'release' },
-    { id: 'judge', name: 'Judge', stage: 'judge', optional: true },
-    { id: 'land', name: 'Land', stage: 'land' },
-    { id: 'resolve', name: 'Resolve landing conflicts', stage: 'resolve', runIf: { op: 'gt', path: 'stages.land.output.stuck.length', value: 0 } },
-    { id: 'accept', name: 'Accept request', stage: 'accept' },
-    { id: 'replan', name: 'Replan', stage: 'replan' },
-  ] satisfies WorkflowStageNode[],
-  onFailure: [
-    { id: 'release', name: 'Release dependents', stage: 'release' },
-    { id: 'land', name: 'Land', stage: 'land' },
-  ] satisfies WorkflowStageNode[],
-};
+export type { TreeType, TreeTypeFile, WorkspaceLanguage, PersonaEgressRule } from '../../types/grove.js';
 
 export const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
 
@@ -64,6 +37,5 @@ export function blankTreeType(): TreeType {
     produces: 'service',
     doneMeans: '',
     files: [],
-    validationRecipe: { type: 'command', checks: [] },
   };
 }

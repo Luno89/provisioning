@@ -1,4 +1,3 @@
-import type { Persona, PersonaPack } from '@koala/harness-types';
 import type { Conversation } from './conversations.js';
 import type { StoredAppSpec } from './app-spec.js';
 import { MemoryDB } from './memory-db.js';
@@ -7,11 +6,8 @@ import type { Branch, Leaf } from './leaves.js';
 import type { Tree } from './trees.js';
 import type { CorpusPage } from './corpus.js';
 import type { FrontierUrl, FrontierClaim } from './frontier.js';
-import type { LeafTrace, LeafEvidence } from './leaf-trace.js';
 import type { AgentStep } from '@koala/harness-types';
 import type { GiteaAccount } from './projects.js';
-import type { Experiment } from './experiments.js';
-import type { HarnessProfile } from './harness-profile.js';
 import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
@@ -21,9 +17,7 @@ import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Persona as EnginePersona, ToolDefinition as EngineTool } from '@koala/agent-engine';
 import type { EvalCollection, EvalRecord } from './eval-run.js';
 import type { TreeTypeSpec } from './tree-types.js';
-import type { CustomStepDefinition } from './custom-steps.js';
 import type { WorkspaceImageSpec } from './workspace-image-seeds.js';
-import type { ToolRepositoryItem } from './tool-repository.js';
 import type { ModelThinkingProfile } from './thinking-classifier.js';
 import type { ClusterProviderSpec } from './cluster-providers.js';
 import type { ClusterMetadata, ClusterProgress, DeploymentMetadata, UserMetadata, ProjectMetadata, PipelineRunMetadata, InviteMetadata, ModelEndpointMetadata, LocalAgentDeviceMetadata, PendingApprovalMetadata } from './types.js';
@@ -73,32 +67,12 @@ export interface Database {
   getInvites(): Promise<InviteMetadata[]>;
   saveInvite(invite: InviteMetadata): Promise<void>;
 
-  getExperiments(): Promise<Experiment[]>;
-  saveExperiment(experiment: Experiment): Promise<void>;
-  deleteExperiment(id: string): Promise<void>;
-
-  getHarnessProfile(ownerId: string): Promise<HarnessProfile | null>;
-  saveHarnessProfile(profile: HarnessProfile): Promise<void>;
-
   getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
   saveWorkspaceImage(image: WorkspaceImageSpec): Promise<void>;
 
   getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]>;
   saveTreeType(treeType: TreeTypeSpec): Promise<void>;
   deleteTreeType(id: string, ownerId: string): Promise<void>;
-
-  getCustomStepDefinitions(ownerId: string): Promise<CustomStepDefinition[]>;
-  saveCustomStepDefinition(definition: CustomStepDefinition): Promise<void>;
-  deleteCustomStepDefinition(id: string, ownerId: string): Promise<void>;
-
-  getPersonas(): Promise<Persona[]>;
-  savePersona(persona: Persona): Promise<void>;
-  deletePersona(id: string): Promise<void>;
-
-  getPersonaPacks(): Promise<PersonaPack[]>;
-  savePersonaPack(pack: PersonaPack): Promise<void>;
-  deletePersonaPack(id: string): Promise<void>;
-  deleteHarnessProfile(ownerId: string): Promise<void>;
 
   getGiteaAccount(ownerId: string): Promise<GiteaAccount | null>;
   saveGiteaAccount(account: GiteaAccount): Promise<void>;
@@ -112,12 +86,6 @@ export interface Database {
   completeFrontier(ingestId: string, urls: string[]): Promise<void>;
   countFrontier(ingestId: string): Promise<number>;
   deleteFrontier(ingestId: string): Promise<void>;
-
-  getLeafTrace(leafId: string): Promise<LeafTrace | null>;
-  saveLeafTrace(trace: LeafTrace): Promise<void>;
-  appendLeafStep(trace: Omit<LeafTrace, 'steps'> & { step: AgentStep }): Promise<void>;
-  saveLeafEvidence(leafId: string, evidence: LeafEvidence): Promise<void>;
-  deleteLeafTrace(leafId: string): Promise<void>;
 
   getTrees(): Promise<Tree[]>;
   saveTree(tree: Tree): Promise<void>;
@@ -195,10 +163,6 @@ export interface Database {
   getBindingTypes(): Promise<BindingTypeRecord[]>;
   saveBindingType(record: BindingTypeRecord): Promise<void>;
   deleteBindingType(id: string): Promise<void>;
-
-  getTools(): Promise<ToolRepositoryItem[]>;
-  saveTool(tool: ToolRepositoryItem): Promise<void>;
-  deleteTool(id: string): Promise<void>;
 
   getModelThinkingProfile?(modelId: string): Promise<ModelThinkingProfile | null>;
   saveModelThinkingProfile?(profile: ModelThinkingProfile): Promise<void>;

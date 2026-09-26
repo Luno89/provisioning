@@ -3,7 +3,7 @@ import { MAX_OUTLINE_LEAVES, treeOutline, type OutlineLeaf } from './tree-outlin
 
 const tree = { id: 't1', name: 'Greeter', type: 'software', goal: 'A CLI that greets' };
 const leaf = (id: string, over: Partial<OutlineLeaf> = {}): OutlineLeaf => ({
-  id, branchId: 'b1', title: `Leaf ${id}`, body: `${id} exists`, status: 'pending', runner: 'engine', ...over,
+  id, branchId: 'b1', title: `Leaf ${id}`, body: `${id} exists`, status: 'pending', ...over,
 });
 
 describe('treeOutline', () => {
@@ -22,9 +22,9 @@ describe('treeOutline', () => {
     expect(outline).not.toContain('lx');
   });
 
-  it('marks legacy leaves and leaves out cancelled ones', () => {
-    const outline = treeOutline(tree, [{ id: 'b1', treeId: 't1', title: 'Core' }], [leaf('old', { runner: undefined }), leaf('gone', { status: 'cancelled' })]);
-    expect(outline).toContain('[pending, legacy, 0/0 tasks done]');
+  it('leaves out cancelled leaves', () => {
+    const outline = treeOutline(tree, [{ id: 'b1', treeId: 't1', title: 'Core' }], [leaf('kept'), leaf('gone', { status: 'cancelled' })]);
+    expect(outline).toContain('[pending, 0/0 tasks done]');
     expect(outline).not.toContain('gone');
   });
 

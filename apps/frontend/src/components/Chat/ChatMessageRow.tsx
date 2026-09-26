@@ -1,4 +1,4 @@
-import { User, Sparkles, Sprout, ChevronDown, ChevronRight, Info, AlertTriangle } from 'lucide-react';
+import { User, Sparkles, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { memo, useState } from 'react';
 import Markdown from '../Markdown.js';
 import { KoalaSpot, type KoalaMood } from '../Koala.js';
@@ -10,19 +10,8 @@ export interface ChatMessageData {
   content: string;
   reasoning?: string | undefined;
   at?: string | undefined;
-  enabled?: string[] | undefined;
   toolCalls?: ToolCallData[] | undefined;
-  /** A system event (auto-accept, a duplicate warning, …) — rendered as one, not as the assistant speaking. */
-  notice?: boolean | undefined;
   interruptedReason?: string | undefined;
-}
-
-export interface ProposedTreeData {
-  id: string;
-  name: string;
-  type: string;
-  goal?: string | undefined;
-  treeId?: string | undefined;
 }
 
 export function ThinkingDisclosure({
@@ -79,44 +68,6 @@ export function ThinkingDisclosure({
   );
 }
 
-export function ProposedTreeCard({ proposal }: { proposal: ProposedTreeData }) {
-  return (
-    <div className="my-2 p-3 rounded-lg border border-amber-500/40 bg-[var(--bark-900,#111814)] text-xs space-y-1.5 font-sans">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="p-1 rounded bg-amber-500/10 text-amber-400">
-            <Sprout size={14} />
-          </div>
-          <div>
-            <div className="font-semibold text-slate-100">{proposal.name}</div>
-            <div className="text-[11px] text-slate-400">
-              Type: <span className="text-slate-300">{proposal.type}</span>
-            </div>
-          </div>
-        </div>
-
-        {proposal.treeId ? (
-          <a
-            href={`#/grove/${proposal.treeId}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 text-xs font-medium transition-all cursor-pointer"
-          >
-            <Sprout size={12} />
-            <span>Open in Grove</span>
-          </a>
-        ) : (
-          <span className="text-[11px] text-slate-500 text-right">An old proposal — ask Koala to plan it and approve the plan</span>
-        )}
-      </div>
-
-      {proposal.goal && (
-        <p className="text-xs text-slate-400 leading-relaxed font-sans pt-0.5">
-          {proposal.goal}
-        </p>
-      )}
-    </div>
-  );
-}
-
 export const ChatMessageRow = memo(function ChatMessageRow({
   message,
   packLabel = 'Koala',
@@ -128,19 +79,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
 }) {
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
-
-  if (message.notice) {
-    return (
-      <div className="flex gap-3 py-2">
-        <div className="shrink-0 w-8 h-8 flex items-center justify-center text-slate-600">
-          <Info size={15} />
-        </div>
-        <div className="flex-1 pt-1 min-w-0 text-[12px] text-slate-400 leading-relaxed border-l-2 border-[var(--bark-600)] pl-3 py-1">
-          <Markdown>{message.content}</Markdown>
-        </div>
-      </div>
-    );
-  }
 
   const parsed = ChatParser.parse(message.content ?? '');
   const allThoughts = [
@@ -198,17 +136,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             isThinking={isThinkingNow}
             defaultOpen={true}
           />
-        )}
-
-        {message.enabled && message.enabled.length > 0 && (
-          <div className="my-1.5 flex flex-wrap gap-1.5 items-center text-xs text-slate-300 font-sans">
-            <span className="text-slate-400 font-medium">Services attached:</span>
-            {message.enabled.map((name, i) => (
-              <span key={i} className="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 text-[11px] font-mono">
-                {name}
-              </span>
-            ))}
-          </div>
         )}
 
         {allToolCalls.length > 0 && (

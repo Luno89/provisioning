@@ -12,7 +12,6 @@ const LOG_TAIL_LINES = 200;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
-import { v4 as uuidv4 } from 'uuid';
 
 import { credentialsRouter } from './routes/credentials.js';
 import { llmCredentialsRouter } from './routes/llm-credentials.js';
@@ -20,7 +19,6 @@ import { backupRouter } from './routes/backup.js';
 import { clustersRouter } from './routes/clusters.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { treeTypesRouter } from './routes/tree-types.js';
-import { customStepsRouter } from './routes/custom-steps.js';
 import { bindingTypesRouter } from './routes/binding-types.js';
 import { treesRouter } from './routes/trees.js';
 import { plansRouter } from './routes/plans.js';
@@ -29,10 +27,7 @@ import { GroveRunService } from './services/GroveRunService.js';
 import { GroveDeletionService } from './services/GroveDeletionService.js';
 import { branchesRouter } from './routes/branches.js';
 import { leavesRouter } from './routes/leaves.js';
-import { harnessRouter } from './routes/harness/index.js';
-import { personasRouter } from './routes/personas.js';
-import { personaOptionsRouter } from './routes/persona-options.js';
-import { packsRouter } from './routes/packs.js';
+import { memoriesRouter } from './routes/memories.js';
 import { authRouter } from './routes/auth.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { engineRouter } from './routes/engine.js';
@@ -49,24 +44,7 @@ import { evalsLevel2Router } from './routes/evals-level2.js';
 import { buildWebTools } from './lib/web-tools-wiring.js';
 import { Level1Service } from './services/Level1Service.js';
 import { Level2Service } from './services/Level2Service.js';
-import {
-  BUILDER_TOOLS,
-  contractsFor,
-  createEventBus,
-} from '@koala/agent-engine';
-import {
-  createStoredToolCatalogue,
-  createEngineHost,
-  storesFromDatabase,
-  createStreamActivities,
-  createStoredAgentRegistry,
-  createEndpointResolver,
-  createToolRuntime,
-  createRunStarter,
-  createPlatformTools,
-  createTaskTools,
-  startStreamWorker,
-} from './engine-host/index.js';
+import { createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, createEndpointResolver, createRunStarter, startStreamWorker } from './engine-host/index.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
@@ -78,7 +56,6 @@ import { localAgentsRouter } from './routes/local-agents.js';
 import { pendingApprovalsRouter } from './routes/pending-approvals.js';
 import { findDeviceByToken, registerDevice, unregisterDevice } from './lib/local-agent-registry.js';
 import { clusterProvidersRouter } from './routes/cluster-providers.js';
-import { providersToSeed } from './lib/cluster-providers.js';
 import { vpsCatalogRouter } from './routes/vps-catalog.js';
 import { adminRouter } from './routes/admin.js';
 import { modelsRouter } from './routes/models.js';
@@ -90,7 +67,6 @@ import { registryRouter } from './routes/registry.js';
 import { modulesRouter } from './routes/modules.js';
 import { appSchemasRouter } from './routes/app-schemas.js';
 import { ownsProject, ownedBy } from './lib/ownership.js';
-import { mockOAuthAllowed } from './lib/oauth-gate.js';
 import { createDatabase, type Database } from './lib/db-interface.js';
 import { migrateLegacyOwnership } from './lib/migrate-ownership.js';
 
@@ -101,10 +77,7 @@ import { RegistryService } from './services/RegistryService.js';
 import { GitModuleService } from './services/GitModuleService.js';
 import { BuilderService } from './services/BuilderService.js';
 import { AppExposureService } from './services/AppExposureService.js';
-import type { ClusterMetadata, DeploymentMetadata, InviteMetadata, UserMetadata } from './lib/types.js';
-import { validateAppSettings } from './lib/app-settings-schema.js';
-import { validateClusterName } from './lib/cluster-name.js';
-import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from './lib/app-schemas.js';
+import type { UserMetadata } from './lib/types.js';
 import { VpsCatalogService } from './services/VpsCatalogService.js';
 import { TemporalBridge } from './services/TemporalBridge.js';
 import WorkerService from './services/WorkerService.js';
@@ -113,7 +86,6 @@ import net from 'net';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
 import axios from 'axios';
-import { signJWT, verifyJWT, hashPassword, verifyPassword } from './lib/auth.js';
 import { AuthService } from './services/AuthService.js';
 import { CredentialService } from './services/CredentialService.js';
 import { GiteaService } from './services/GiteaService.js';
@@ -121,85 +93,14 @@ import { InfisicalService } from './services/InfisicalService.js';
 import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { HeadscaleService } from './services/HeadscaleService.js';
 import { ModelService } from './services/ModelService.js';
-import type { CloudProvider } from './lib/types.js';
-import { getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels, getExl3ModelCollection, getHfModelBranches } from './lib/huggingface.js';
-import { decryptValue, encryptValue } from './lib/crypto.js';
-import { checkEndpointUrl, isMeshAddress } from './lib/endpoint-url-safety.js';
-import { budgetForNewRoot } from './lib/budget-policy.js';
-import { isChatMode, type ChatMode, extractProposals, parseChatCommand, type LeafProposal } from './lib/plan-mode.js';
-import { extractServiceName } from './lib/extraction.js';
-import { buildOutboundMessages } from './lib/leaf-context.js';
-import { DEFAULT_WORKSPACE_CPU, DEFAULT_WORKSPACE_MEMORY } from './lib/workspace-spec.js';
-import { buildHarnessConfig } from './lib/harness-config.js';
-import { buildModelRequest } from './lib/model-request.js';
-import { planHostMemory, parseQuantity } from './lib/host-memory-plan.js';
-import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
-import type { HarnessConfig } from '@koala/harness-types';
-import {
-  buildTaskAuthorPrompt, buildTaskChatPrompt, extractTaskProposals, extractTaskRevision, stripTaskBlock,
-  AUTHORING_SAMPLING, AUTHORING_MAX_TOKENS,
-  normaliseTasks,
-} from './lib/experiment-authoring.js';
-import { AuthoringService, acceptedTasks } from './services/AuthoringService.js';
-import { WorkbenchService } from './services/WorkbenchService.js';
-import { buildPromotion, supersede, revertTo, withPack } from './lib/harness-profile.js';
-import { buildConfigExport, parseConfigExport } from './lib/config-export.js';
-import { loopKeys } from './lib/tunables.js';
-import { newProposals, suspectedDuplicates, duplicateNotice, resolvePersonaNamed } from './lib/proposal-merge.js';
-import { inheritedAcceptance } from './lib/acceptance-inherit.js';
-import { specsToSeed, type AppSpec } from './lib/app-spec.js';
-import { validateSpec, explainSpecProblems } from './lib/app-spec-validate.js';
-import { hollowChecks, explainHollow } from './lib/acceptance-validation.js';
-import type { AcceptanceCheck } from './lib/acceptance.js';
-import {
-  titleFrom, enabledForSession, MAX_TOOL_CALL_ARGS, MAX_TOOL_CALL_DIGEST, MAX_TOOL_CALLS_PER_MESSAGE,
-  type Conversation, type ProposedTree, type ConversationToolCall,
-} from './lib/conversations.js';
-import { buildKoalaPrompt } from './lib/koala-persona.js';
-import { toLoopTools, routeCall } from './lib/mcp-tools.js';
+import { decryptValue } from './lib/crypto.js';
 
-import { claimService, claimNotice } from './lib/service-claim.js';
-import { wantsMcp } from './lib/agent-run.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { preferUsable } from './lib/mcp-registry.js';
-import { droppedCount } from './lib/leaf-trace.js';
-import { rollup, changedSince, columnFor } from './lib/tree-board.js';
-import { fittedMaxTokens } from './lib/sampling.js';
-import { needsHandoff, withHandoff, historyForPrompt, trimKoalaThread } from './lib/koala-context.js';
-import { canRecheck, recheckVerdict, statusAfterRecheck } from './lib/leaf-recheck.js';
-import { webhookUrlFor } from './lib/project-shipping.js';
-import { buildReviewPrompt } from './lib/failure-review.js';
-import { describeSandbox } from './lib/workspace-spec.js';
-import { personaWorkspace } from './lib/persona-scope.js';
-import { reviewBatch, DEFAULT_POLICY, type AutoAcceptPolicy } from './lib/auto-accept.js';
 import { resolveWebTools } from './lib/web-tools-resolver.js';
-import { usablePaths } from './lib/leaf-artifacts.js';
-import { normaliseLeafInput } from './lib/leaf-input.js';
-import { rollupProjectStatus, deploymentForProject } from './lib/project-status.js';
-import { summariseDelivery } from './lib/branch-delivery.js';
-import { unassignedLeaves, buildAssignmentPrompt, buildUnassignedNotice, MAX_ASSIGNMENT_ROUNDS } from './lib/persona-assignment.js';
-import { normaliseTreeInput, withProject, type Tree } from './lib/trees.js';
-import { seedTreeTypes, validateTreeType, resolveTreeType } from './lib/tree-types.js';
 import { seedAll } from './scripts/seed-all.js';
-import { reviewPlan, planNotice } from './lib/plan-review.js';
-import { usableAcceptancePlan } from './lib/acceptance.js';
-import { withNotice } from './lib/branch-notice.js';
-import { ExperimentService } from './services/ExperimentService.js';
-import {
-  expandAxes, validateExperiment, plannedRuns, experimentTasks, taskIdOf, summariseExperiment, normaliseExperiment, latestResults,
-  MAX_REPEATS, MAX_TASK_CHARS, MAX_TASKS, MAX_TASK_FILES, MAX_TASK_FILE_CHARS,
-  type Experiment, type ExperimentTask,
-} from './lib/experiments.js';
-import { EXTRACTION_SCHEMA, EXTRACTION_SYSTEM_PROMPT, EXTRACTION_TEMPLATE_VARS, buildExtractionPrompt, parseExtractionResult } from './lib/extraction.js';
-import { ToolCallScanner, type ToolCall, detailLeaf, parseToolArguments, summariseLeaf } from './lib/leaf-tools.js';
-import { deriveBranchTitle, trimTranscript, type Branch, type BranchMessage, LEAF_COLUMNS, isLeafColumn, aggregateUsage, budgetExceeded, canAddChild, childrenOf, deriveLeafStatus, rootLeaf, subtreeOf, blockedBy, wouldCycle, type Leaf } from './lib/leaves.js';
-import { generateSshKeypair } from './lib/ssh-keypair.js';
 import type { SearchOutcome } from './lib/web-tools.js';
-import { unreachableMemory, type MemoryItem } from './lib/memory-store.js';
-import { ToolService } from './services/ToolService.js';
-import { WorkspaceImageService } from './services/WorkspaceImageService.js';
-import { PersonaPackService } from './services/PersonaPackService.js';
 
 dotenv.config();
 
@@ -279,29 +180,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const projectRepoService = new ProjectRepoService(db, giteaService, JWT_SECRET);
   const headscaleService = new HeadscaleService(JWT_SECRET, process.env.HEADSCALE_URL || 'http://localhost:8080');
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, JWT_SECRET);
-  const personaPackService = new PersonaPackService(db);
 
-  const modelIdsFor = async (userId: string): Promise<string[] | undefined> => {
-    try {
-      return (await modelService.list(userId)).map((m) => m.id);
-    } catch {
-      return undefined;
-    }
-  };
-
-  const experimentService = new ExperimentService(
-    db, modelService, undefined, io, executeWebSearch, executeFetchWebPage,
-  );
-  const authoringService = new AuthoringService();
-  const workbenchService = new WorkbenchService();
-
-  workbenchService.sweepOrphans()
-    .then((ids) => ids.length && console.log(`[bootstrap] Swept ${ids.length} orphaned workbench pod(s)`))
-    .catch((err: any) => console.warn(`[bootstrap] Workbench sweep failed: ${err.message}`));
-
-  experimentService.reconcileInterrupted()
-    .then((n) => n && console.log(`[bootstrap] Closed out ${n} experiment(s) interrupted by a restart`))
-    .catch((err: any) => console.warn(`[bootstrap] Experiment reconcile failed: ${err.message}`));
 
   clusterService.ensureSystemClusterGpuReady().catch((err: any) =>
     console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
@@ -622,70 +501,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   }
 
-  app.get('/api/harness/config', async (req, res) => {
-    const userId = (req as any).user.id;
-    const profile = await db.getHarnessProfile(userId);
-
-    let models: HarnessConfig['models'] = [];
-    try {
-      models = (await modelService.list(userId)).map((m) => ({
-        id: m.id,
-        name: m.name,
-        model: m.model,
-        source: m.source,
-        ...(m.kind ? { kind: m.kind } : {}),
-      }));
-    } catch (err: any) {
-      console.warn('[harness] could not list models:', err?.message ?? err);
-    }
-
-    const koala = await personaPackService.resolvePack(userId, 'koala');
-
-    res.json(buildHarnessConfig(
-      {}, models,
-      await new ToolService(db).list(userId),
-      await new WorkspaceImageService(db).list(userId),
-      koala?.sampling,
-      koala?.budget,
-    ));
-  });
-
-  app.get('/api/harness/export', async (req, res) => {
-    const userId = (req as any).user.id;
-    const mine = (await db.getExperiments()).filter((e) => e.ownerId === userId);
-    res.json(buildConfigExport(mine, await db.getHarnessProfile(userId)));
-  });
-
-  app.post('/api/harness/import', async (req, res) => {
-    const userId = (req as any).user.id;
-    const parsed = parseConfigExport(req.body);
-    if ('error' in parsed) return res.status(400).json({ error: parsed.error });
-
-    const created: string[] = [];
-    const failed: string[] = [];
-    for (const suite of parsed.suites) {
-      const now = new Date().toISOString();
-      const draft: Experiment = {
-        id: uuidv4(),
-        ownerId: userId,
-        name: suite.name.slice(0, 120),
-        tasks: normaliseTasks(await new WorkspaceImageService(db).list(userId), suite.tasks),
-        language: 'node',
-        variants: suite.variants,
-        repeats: Math.max(1, Math.min(MAX_REPEATS, suite.repeats)),
-        status: 'draft',
-        results: [],
-        createdAt: now,
-        updatedAt: now,
-      };
-      const invalid = validateExperiment(draft);
-      if (invalid) { failed.push(`${suite.name}: ${invalid}`); continue; }
-      await db.saveExperiment(draft);
-      created.push(draft.name);
-    }
-    res.json({ created, failed, rejected: parsed.rejected });
-  });
-
   const ownedBranches = async (userId: string) => ownedBy(await db.getBranches(), userId);
   const ownedLeaves = async (userId: string) => ownedBy(await db.getLeaves(), userId);
   const ownedTrees = async (userId: string) => ownedBy(await db.getTrees(), userId);
@@ -846,26 +661,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.use('/api/conversations', conversationsRouter({
     db,
-    projectRepoService,
-    temporalBridge,
-    infraService,
-    infisicalService,
-    jwtSecret: JWT_SECRET,
     ownedConversations,
     ownedTrees,
     ownedProjects: async (userId: string) => (await db.getProjects()).filter((project) => project.ownerId === userId),
   }));
 
-  app.use('/api/harness', harnessRouter({
-    db, modelIdsFor, temporalBridge, experimentService, authoringService, workbenchService,
-    modelService,
-  }));
-  app.use('/api/personas', personasRouter({ db, modelIdsFor }));
-  app.use('/api/persona-options', personaOptionsRouter({ db, modelIdsFor }));
-  app.use('/api/packs', packsRouter({ db, packs: personaPackService, modelIdsFor }));
+  app.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
   app.use('/api/tree-types', treeTypesRouter({ db }));
-  app.use('/api/custom-steps', customStepsRouter({ db }));
   app.use('/api/binding-types', bindingTypesRouter({ db }));
   const groveRuns = new GroveRunService({ store: db, launcher: temporalBridge });
   const groveDeletion = new GroveDeletionService({
@@ -873,7 +676,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     workflows: { terminate: (workflowId, reason) => temporalBridge.terminateIfRunning(workflowId, reason) },
     workspaces: evalHost.treeWorkspaces,
   });
-  app.use('/api/trees', treesRouter({ db, temporalBridge, workspaces: evalHost.treeWorkspaces, runs: groveRuns, deletion: groveDeletion }));
+  app.use('/api/trees', treesRouter({ db, workspaces: evalHost.treeWorkspaces, runs: groveRuns, deletion: groveDeletion }));
   app.use('/api/plans', plansRouter({ plans: new PlanService({ store: db, adopter: temporalBridge }) }));
   app.use('/api/branches', branchesRouter({ db, deletion: groveDeletion }));
 
@@ -887,7 +690,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   }
 
-  app.use('/api/leaves', leavesRouter({ db, temporalBridge, giteaService, runs: groveRuns, deletion: groveDeletion }));
+  app.use('/api/leaves', leavesRouter({ db, runs: groveRuns, deletion: groveDeletion }));
 
   if (process.env.NODE_ENV !== 'test') {
     appExposureService.syncExposedApps().catch((e) => {

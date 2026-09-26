@@ -6,16 +6,15 @@ import {
   PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen,
   Folder, MessageSquare,
 } from 'lucide-react'
-import BranchHistory, { type BranchRecord } from '../../BranchHistory.js'
 import ChatSurface from '../../ChatSurface.js'
 import Home from '../../Home.js'
 import LeafDetail from '../../LeafDetail.js'
 import { type Leaf } from '../../leaf-types.js'
+import type { Branch } from '../../../types/grove.js'
 import {
   listTrees, listBranches, listLeaves, groveKeys,
   deleteBranch as apiDeleteBranch,
 } from '../../../api/grove.js'
-import { listPacks } from '../../../api/packs.js'
 import { chatPackKeys, createChatConversation, type ConversationBinding } from '../../../api/chat-pack.js'
 import { listProjects, projectKeys } from '../../../api/projects.js'
 import { lastSeen, markSeenAfterDwell } from '../../../lib/seen.js'
@@ -41,7 +40,6 @@ interface WorkspaceTree {
   name: string
   goal?: string
   projectIds?: string[]
-  frozen?: boolean
 }
 
 function CollapsibleSection({ title, defaultOpen = true, isOpen, onToggle, children }: {
@@ -73,34 +71,22 @@ function CollapsibleSection({ title, defaultOpen = true, isOpen, onToggle, child
 }
 
 export function Workspace({
-  treeId, projectId, initialBranchId, initialLeafId, onTreeReady, onTreeDeleted,
+  treeId, projectId, initialLeafId, onTreeReady, onTreeDeleted,
 }: {
   treeId?: string | undefined
   projectId?: string | undefined
-  initialBranchId?: string | undefined
   initialLeafId?: string | undefined
   onTreeReady?: ((treeId: string) => void) | undefined
   onTreeDeleted?: (() => void) | undefined
 }) {
   const qc = useQueryClient()
 
-  const [selected, setSelected] = useState<SelectedEntity>(() => {
-    if (initialLeafId) return { kind: 'leaf', id: initialLeafId }
-    if (initialBranchId) return { kind: 'branch', id: initialBranchId }
-    return { kind: 'tree', id: treeId ?? '' }
-  })
-  const [branchesOpen, setBranchesOpen] = useState(() => selected.kind !== 'branch')
-  const selectBranch = (id: string) => {
-    setSelected({ kind: 'branch', id })
-    setBranchesOpen(false)
-  }
+  const [selected, setSelected] = useState<SelectedEntity>(() =>
+    initialLeafId ? { kind: 'leaf', id: initialLeafId } : { kind: 'tree', id: treeId ?? '' })
+  const [branchesOpen, setBranchesOpen] = useState(true)
   useEffect(() => {
-    if (initialLeafId) {
-      setSelected({ kind: 'leaf', id: initialLeafId })
-    } else if (initialBranchId) {
-      selectBranch(initialBranchId)
-    }
-  }, [initialBranchId, initialLeafId])
+    if (initialLeafId) setSelected({ kind: 'leaf', id: initialLeafId })
+  }, [initialLeafId])
   const [openingChat, setOpeningChat] = useState<{ conversationId: string; prompt: string } | undefined>()
   const [conversationsOpen, setConversationsOpen] = useState(true)
   const [sandboxOpen, setSandboxOpen] = useState(false)
@@ -115,20 +101,15 @@ export function Workspace({
     queryKey: groveKeys.trees(),
     queryFn: () => listTrees() as Promise<WorkspaceTree[]>,
   })
-  const { data: branchRecords = [] } = useQuery<BranchRecord[]>({
-    queryKey: ['branches'],
-    queryFn: () => listBranches() as Promise<BranchRecord[]>,
+  const { data: branchRecords = [] } = useQuery<Branch[]>({
+    queryKey: groveKeys.branches(),
+    queryFn: listBranches,
     refetchInterval: 10000,
   })
   const { data: leaves = [] } = useQuery<Leaf[]>({
     queryKey: ['leaves'],
     queryFn: listLeaves,
     refetchInterval: 5000,
-  })
-  const { data: packs = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ['packs'],
-    queryFn: listPacks,
-    staleTime: 60_000,
   })
   const { data: projects = [] } = useQuery<any[]>({
     queryKey: projectKeys.list(),
@@ -142,8 +123,8 @@ export function Workspace({
   const hasProject = Boolean(project)
 
   const treeBranches = useMemo(
-    () => branchRecords.filter((b) => (treeId ? b.treeId === treeId : Boolean(project) && b.projectId === project?.id)),
-    [branchRecords, treeId, project],
+    () => (treeId ? branchRecords.filter((b) => b.treeId === treeId) : []),
+    [branchRecords, treeId],
   )
 
   const refresh = () => {
@@ -160,26 +141,21 @@ export function Workspace({
       qc.invalidateQueries({ queryKey: chatPackKeys.conversations() })
     },
   })
+  const selectedLeaf = selected.kind === 'leaf' ? leaves.find((l) => l.id === selected.id) : undefined
   const deleteBranch = useMutation({
     mutationFn: (id: string) => apiDeleteBranch(id),
     onSuccess: (_, id) => {
-      if (selected.kind === 'branch' && selected.id === id) setSelected({ kind: 'tree', id: treeId ?? '' })
+      if (selectedLeaf?.branchId === id) setSelected({ kind: 'tree', id: treeId ?? '' })
       refresh()
     },
   })
-  const childrenOf = (leafId: string) => leaves.filter((l) => l.parentLeafId === leafId)
-  const selectedLeaf = selected.kind === 'leaf' ? leaves.find((l) => l.id === selected.id) : undefined
-  const selectedBranch = selected.kind === 'branch'
-    ? treeBranches.find((b) => b.id === selected.id)
-      ?? ({ id: selected.id, title: 'Conversation', messages: [], updatedAt: '' } as BranchRecord)
-    : undefined
 
   const router = useRouter({ warn: false })
 
   useEffect(() => {
     if (!treeId) return
-    const branchId = selected.kind === 'branch' ? selected.id : selectedLeaf?.branchId ?? ''
-    const leafId = selected.kind === 'leaf' ? selected.id : ''
+    const branchId = selectedLeaf?.branchId ?? ''
+    const leafId = selectedLeaf ? selectedLeaf.id : ''
     const path = ['tree', treeId, branchId, leafId].filter(Boolean)
     const hash = formatHash('projects', path)
     if (window.location.hash === hash) return
@@ -192,8 +168,6 @@ export function Workspace({
     if (router) {
       if (branchId && leafId) {
         router.navigate({ to: '/projects/tree/$treeId/$branchId/$leafId', params: { treeId, branchId, leafId }, replace }).catch(() => {})
-      } else if (branchId) {
-        router.navigate({ to: '/projects/tree/$treeId/$branchId', params: { treeId, branchId }, replace }).catch(() => {})
       } else {
         router.navigate({ to: '/projects/tree/$treeId', params: { treeId }, replace }).catch(() => {})
       }
@@ -396,7 +370,7 @@ export function Workspace({
               <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 truncate">
                 <MessageSquare size={13} className="text-emerald-400 shrink-0" />
                 <span className="truncate">
-                  {selectedLeaf ? 'Leaf Detail' : selectedBranch ? (selectedBranch.title || 'History') : 'Conversation'}
+                  {selectedLeaf ? 'Leaf Detail' : 'Conversation'}
                 </span>
               </div>
               <button
@@ -437,30 +411,18 @@ export function Workspace({
                 : {})}
             />
           ) : selectedLeaf ? (
-            <LeafDetail
-              leaf={selectedLeaf}
-              subLeaves={childrenOf(selectedLeaf.id)}
-              all={leaves}
-              frozen={Boolean(selectedLeaf.frozen)}
-            />
-          ) : selectedBranch ? (
-            <BranchHistory key={selectedBranch.id} record={selectedBranch} />
-          ) : (
+            <LeafDetail leaf={selectedLeaf} all={leaves} />
+          ) : tree ? (
             <Home
               leaves={leaves}
               branches={treeBranches}
-              trees={trees}
-              {...(tree ? { tree } : {})}
+              tree={tree}
               lastSeen={seenAt.current}
-              onOpenBranch={(id) => selectBranch(id)}
-              packNames={Object.fromEntries(packs.map((p) => [p.id, p.name]))}
               starting={openChat.isPending}
-              frozen={Boolean(tree?.frozen)}
-              onStart={(_treeId, prompt) => openChat.mutate({ prompt })}
+              onStart={(prompt) => openChat.mutate({ prompt })}
               onOpenLeaf={(leaf) => setSelected({ kind: 'leaf', id: leaf.id })}
-              onOpenTree={() => undefined}
             />
-          )}
+          ) : null}
         </div>
 
         {binding && (
@@ -473,12 +435,12 @@ export function Workspace({
               binding={binding}
               selected={selected}
               onSelect={(id) => setSelected({ kind: 'conversation', id })}
-              {...(tree?.frozen ? {} : { onNew: () => openChat.mutate({}) })}
+              onNew={() => openChat.mutate({})}
               creating={openChat.isPending}
             />
           </CollapsibleSection>
         )}
-        {(hasTree || treeBranches.length > 0) && (
+        {hasTree && (
           <CollapsibleSection
             title="Branches"
             isOpen={branchesOpen}
@@ -488,13 +450,12 @@ export function Workspace({
               branches={treeBranches}
               leaves={leaves}
               selected={selected}
-              onSelectBranch={selectBranch}
               onSelectLeaf={(id) => setSelected({ kind: 'leaf', id })}
               onDeleteBranch={(id) => deleteBranch.mutate(id)}
             />
           </CollapsibleSection>
         )}
-        {hasTree && treeId && !tree?.frozen && (
+        {hasTree && treeId && (
           <CollapsibleSection
             title="Proposals"
             isOpen={proposalsOpen}
@@ -503,7 +464,7 @@ export function Workspace({
             <TreeProposalsPanel treeId={treeId} />
           </CollapsibleSection>
         )}
-        {hasTree && treeId && !tree?.frozen && (
+        {hasTree && treeId && (
           <CollapsibleSection
             title="Run"
             isOpen={runOpen}

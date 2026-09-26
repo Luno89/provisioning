@@ -1,4 +1,4 @@
-import { resetForRetry, frozenTreeIds, FROZEN_TREE, type Leaf, type Branch } from '../lib/leaves.js';
+import { resetForRetry, settleClaim, type Leaf, type Branch } from '../lib/leaves.js';
 import type { Tree } from '../lib/trees.js';
 import type { Task } from '../lib/tasks.js';
 import type { GroveRunStatus } from './TemporalBridge.js';
@@ -18,7 +18,7 @@ export interface GroveRunLauncher {
   signalGroveRun(treeId: string, signal: 'stopRun' | 'cancelLeaf', ...args: string[]): Promise<boolean>;
 }
 
-export type GroveRunOutcome<T> = { ok: true; value: T } | { ok: false; status: 404 | 409 | 503; error: string };
+export type GroveRunOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409 | 503; error: string };
 
 export class GroveRunService {
   constructor(private readonly deps: { store: GroveRunStore; launcher: GroveRunLauncher; now?: () => string }) {}
@@ -27,24 +27,23 @@ export class GroveRunService {
     return this.deps.now?.() ?? new Date().toISOString();
   }
 
-  private async engineTree(ownerId: string, treeId: string): Promise<GroveRunOutcome<{ tree: Tree; leaves: Leaf[] }>> {
+  private async ownedTree(ownerId: string, treeId: string): Promise<GroveRunOutcome<{ tree: Tree; leaves: Leaf[] }>> {
     const tree = (await this.deps.store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
     if (!tree) return { ok: false, status: 404, error: 'Tree not found' };
     const branches = (await this.deps.store.getBranches()).filter((branch) => branch.treeId === treeId);
     const branchIds = new Set(branches.map((branch) => branch.id));
     const leaves = (await this.deps.store.getLeaves()).filter((leaf) => branchIds.has(leaf.branchId));
-    if (frozenTreeIds(branches, leaves).has(treeId)) return { ok: false, status: 409, error: FROZEN_TREE };
     return { ok: true, value: { tree, leaves } };
   }
 
-  async status(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus & { engine: boolean }>> {
-    const found = await this.engineTree(ownerId, treeId);
-    if (!found.ok) return found.status === 409 ? { ok: true, value: { state: 'none', engine: false } } : found;
-    return { ok: true, value: { ...(await this.deps.launcher.groveRunStatus(treeId)), engine: true } };
+  async status(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus>> {
+    const found = await this.ownedTree(ownerId, treeId);
+    if (!found.ok) return found;
+    return { ok: true, value: await this.deps.launcher.groveRunStatus(treeId) };
   }
 
   async run(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus>> {
-    const found = await this.engineTree(ownerId, treeId);
+    const found = await this.ownedTree(ownerId, treeId);
     if (!found.ok) return found;
     if (found.value.leaves.length === 0) return { ok: false, status: 409, error: 'Nothing is planned in this tree yet — ask for work in its conversation, and approve the plan.' };
     const started = await this.deps.launcher.startGroveRun(ownerId, treeId);
@@ -53,7 +52,7 @@ export class GroveRunService {
   }
 
   async stop(ownerId: string, treeId: string): Promise<GroveRunOutcome<GroveRunStatus>> {
-    const found = await this.engineTree(ownerId, treeId);
+    const found = await this.ownedTree(ownerId, treeId);
     if (!found.ok) return found;
     const signalled = await this.deps.launcher.signalGroveRun(treeId, 'stopRun');
     if (!signalled) return { ok: false, status: 409, error: 'The tree is not running.' };
@@ -69,6 +68,13 @@ export class GroveRunService {
     const treeId = (await this.deps.store.getBranches()).find((branch) => branch.id === leaf.branchId)?.treeId;
     if (treeId) await this.deps.launcher.signalGroveRun(treeId, 'cancelLeaf', leaf.id);
     return { ok: true, value: cancelled };
+  }
+
+  async settleClaim(leaf: Leaf, verdict: 'verified' | 'failed', note: string | undefined): Promise<GroveRunOutcome<Leaf>> {
+    const outcome = settleClaim(leaf, { verdict, note, by: 'person', at: this.now() });
+    if ('problem' in outcome) return { ok: false, status: 409, error: outcome.problem };
+    await this.deps.store.saveLeaf(outcome.leaf);
+    return { ok: true, value: outcome.leaf };
   }
 
   async retryLeaf(ownerId: string, leaf: Leaf): Promise<GroveRunOutcome<Leaf>> {

@@ -100,7 +100,7 @@ describe('TanStack Router configuration and route matching', () => {
     });
   });
 
-  it('navigates to personas view', async () => {
+  it('navigates to memories and settings views', async () => {
     const qc = createTestQueryClient();
     render(
       <QueryClientProvider client={qc}>
@@ -108,27 +108,10 @@ describe('TanStack Router configuration and route matching', () => {
       </QueryClientProvider>
     );
 
-    const personasBtn = await screen.findByRole('button', { name: /personas/i });
-    fireEvent.click(personasBtn);
+    fireEvent.click(await screen.findByRole('button', { name: /memories/i }));
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/personas');
-    });
-  });
-
-  it('navigates to lab and settings views', async () => {
-    const qc = createTestQueryClient();
-    render(
-      <QueryClientProvider client={qc}>
-        <App />
-      </QueryClientProvider>
-    );
-
-    const labBtn = await screen.findByRole('button', { name: /lab/i });
-    fireEvent.click(labBtn);
-
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/lab');
+      expect(router.state.location.pathname).toBe('/memories');
     });
 
     await router.navigate({ to: '/settings' });

@@ -3,27 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TreeTypes } from './index.js';
 import * as groveApi from '../../api/grove.js';
-import * as packsApi from '../../api/packs.js';
-import * as customStepsApi from '../../api/custom-steps.js';
-import type { TreeType, CustomStepDefinition } from '../../types/grove.js';
+import type { TreeType } from '../../types/grove.js';
 
 vi.mock('../../api/grove.js', async (orig) => ({
   ...(await orig<typeof groveApi>()),
   listTreeTypes: vi.fn(),
   updateTreeType: vi.fn(),
-}));
-
-vi.mock('../../api/packs.js', async (orig) => ({
-  ...(await orig<typeof packsApi>()),
-  listPacks: vi.fn().mockResolvedValue([]),
-}));
-
-vi.mock('../../api/custom-steps.js', async (orig) => ({
-  ...(await orig<typeof customStepsApi>()),
-  listCustomSteps: vi.fn().mockResolvedValue([]),
-  createCustomStep: vi.fn(),
-  updateCustomStep: vi.fn(),
-  deleteCustomStep: vi.fn(),
 }));
 
 const treeType = (over: Partial<TreeType> = {}): TreeType => ({
@@ -34,13 +19,11 @@ const treeType = (over: Partial<TreeType> = {}): TreeType => ({
   produces: 'service',
   doneMeans: 'It builds and deploys.',
   files: [],
-  validationRecipe: { type: 'runtime-service', checks: [] },
   ...over,
 });
 
-function renderPanel(types: TreeType[], customSteps: CustomStepDefinition[] = []) {
+function renderPanel(types: TreeType[]) {
   vi.mocked(groveApi.listTreeTypes).mockResolvedValue(types);
-  vi.mocked(customStepsApi.listCustomSteps).mockResolvedValue(customSteps);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -64,13 +47,10 @@ describe('TreeTypes editor', () => {
     fireEvent.click(screen.getByText('MCP server'));
 
     expect(await screen.findByDisplayValue('A service exposing tools over MCP.')).toBeInTheDocument();
-    // All section headings visible at once — no tab click needed to reach them.
     expect(screen.getByText('Scaffold')).toBeInTheDocument();
-    expect(screen.getByText('Validation recipe')).toBeInTheDocument();
     expect(screen.getByText('Bindings')).toBeInTheDocument();
-    expect(screen.getByText('Roles')).toBeInTheDocument();
-    expect(screen.getByText('Auto-accept')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled(); // unmodified draft
+    expect(screen.queryByText('Validation recipe')).toBeNull();
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
   });
 
   it('editing a field enables Save, and saving calls updateTreeType with the full record', async () => {
@@ -93,18 +73,6 @@ describe('TreeTypes editor', () => {
       expect.objectContaining({ id: 'mcp-server', summary: 'Updated summary' }),
     ));
     await waitFor(() => expect(screen.getByText('Saved.')).toBeInTheDocument());
-  });
-
-  it('adding a validation step enables Save without switching views', async () => {
-    renderPanel([treeType()]);
-    await waitFor(() => expect(screen.getByText('MCP server')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('MCP server'));
-    await screen.findByDisplayValue('A service exposing tools over MCP.');
-
-    expect(screen.getByText(/no steps yet/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /add step/i }));
-    expect(screen.queryByText(/no steps yet/i)).toBeNull();
-    expect(screen.getByRole('button', { name: /save/i })).not.toBeDisabled();
   });
 
   it('creating a new tree type auto-derives the id slug from the label until the id is edited directly', async () => {
@@ -144,14 +112,5 @@ describe('TreeTypes editor', () => {
 
     const createButton = screen.getByRole('button', { name: /create/i });
     expect(createButton).toBeDisabled();
-  });
-
-  it('shows the custom step types panel, collapsed by default', async () => {
-    renderPanel([treeType()]);
-    await waitFor(() => expect(screen.getByText('Custom step types')).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /new custom step type/i })).toBeNull();
-
-    fireEvent.click(screen.getByText('Custom step types'));
-    expect(await screen.findByRole('button', { name: /new custom step type/i })).toBeInTheDocument();
   });
 });

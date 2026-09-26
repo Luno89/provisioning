@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { awaitingReview, frozenTreeIds, FROZEN_TREE, settleClaim, type Branch, type Leaf } from '../../lib/leaves.js';
-import { primaryProjectId, type Tree } from '../../lib/trees.js';
+import { awaitingReview, settleClaim, type Branch, type Leaf } from '../../lib/leaves.js';
+import type { Tree } from '../../lib/trees.js';
 import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
 import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
 import { worktreeHead } from '../grove-worktrees.js';
@@ -97,7 +97,6 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
         const branches = (await options.stores.branches.list()).filter((branch) => branch.treeId === treeId);
         const branchIds = new Set(branches.map((branch) => branch.id));
         const leaves = (await options.stores.leaves.list()).filter((leaf) => branchIds.has(leaf.branchId));
-        if (frozenTreeIds(branches, leaves).has(treeId)) return refuse(`${treeId}: ${FROZEN_TREE}`);
         existingLeafIds = new Set(leaves.map((leaf) => leaf.id));
       }
 
@@ -140,7 +139,6 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       if (!leafId) return refuse('propose_leaf_plan needs the leafId of the leaf to plan');
       const leaf = (await options.stores.leaves.list()).find((candidate) => candidate.id === leafId && candidate.ownerId === caller.ownerId);
       if (!leaf) return refuse(`no such leaf: ${leafId}`);
-      if (leaf.runner !== 'engine') return refuse(`${leafId} belongs to a frozen legacy tree; new work goes into a new tree`);
       const branch = (await options.stores.branches.list()).find((candidate) => candidate.id === leaf.branchId);
       if (!branch?.treeId) return refuse(`${leafId} belongs to no tree`);
 
@@ -171,77 +169,6 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       };
     },
 
-    async make_branch({ parsed, caller }): Promise<ToolOutcome> {
-      if (!caller.ownerId) return refuse('this run has no owner to branch a tree for');
-
-      const treeId = asString(parsed, 'treeId') ?? asString(parsed, 'tree_id');
-      const title = asString(parsed, 'title');
-      if (!treeId) return refuse('make_branch needs a treeId — which tree the direction is under');
-      if (!title) return refuse('make_branch needs a title — the direction itself in one line');
-
-      const trees = await options.stores.trees.list();
-      const tree = trees.find((candidate) => candidate.id === treeId && candidate.ownerId === caller.ownerId);
-      if (!tree) return refuse(`no such tree: ${treeId} — check the tree id in the run input`);
-
-      const stamp = now();
-      const pId = primaryProjectId(tree);
-      const branch: Branch = {
-        id: newId(),
-        ownerId: caller.ownerId,
-        treeId,
-        ...(pId ? { projectId: pId } : {}),
-        title,
-        messages: [],
-        createdAt: stamp,
-        updatedAt: stamp,
-      };
-      await options.stores.branches.save(branch);
-
-      return { ok: true, digest: `branched ${branch.id}`, content: `branched ${branch.id} — "${title}" under ${treeId}` };
-    },
-
-    async make_leaf({ parsed, caller }): Promise<ToolOutcome> {
-      if (!caller.ownerId) return refuse('this run has no owner to grow a leaf for');
-
-      const branchId = asString(parsed, 'branchId') ?? asString(parsed, 'branch_id');
-      const title = asString(parsed, 'title');
-      const body = asString(parsed, 'body') ?? asString(parsed, 'goal');
-      if (!branchId) return refuse('make_leaf needs a branchId — the direction the leaf belongs to');
-      if (!title) return refuse('make_leaf needs a title — the leaf in a few words');
-      if (!body) return refuse('make_leaf needs a body — what the leaf is for, in one or two sentences. That text is what a later judge checks, so make it checkable: name the concrete end state this leaf has to reach.');
-
-      const branches = await options.stores.branches.list();
-      const branch = branches.find((candidate) => candidate.id === branchId && candidate.ownerId === caller.ownerId);
-      if (!branch) return refuse(`no such branch: ${branchId} — make it with make_branch first`);
-
-      const dependencies = asStringList(parsed, 'dependsOn').concat(asStringList(parsed, 'depends_on'));
-      if (dependencies.length > 0) {
-        const leaves = await options.stores.leaves.list();
-        const known = new Set(leaves.filter((leaf) => leaf.ownerId === caller.ownerId).map((leaf) => leaf.id));
-        const unknown = dependencies.filter((id) => !known.has(id));
-        if (unknown.length > 0) return refuse(`these leaf dependencies do not exist: ${unknown.join(', ')}`);
-      }
-
-      const stamp = now();
-      const leaf: Leaf = {
-        id: newId(),
-        ownerId: caller.ownerId,
-        branchId,
-        title,
-        body,
-        column: 'todo',
-        status: 'proposed',
-        depth: 0,
-        blocking: false,
-        createdAt: stamp,
-        updatedAt: stamp,
-        ...(dependencies.length > 0 ? { dependsOn: dependencies } : {}),
-      };
-      await options.stores.leaves.save(leaf);
-
-      return { ok: true, digest: `grown ${leaf.id}`, content: `grown ${leaf.id} — "${title}" under ${branchId}` };
-    },
-
     async claim_leaf({ parsed, caller, driver }): Promise<ToolOutcome> {
       const needle = asString(parsed, 'leafId') ?? asString(parsed, 'leaf_id');
       if (!needle) return refuse('claim_leaf needs a leafId — the leaf you worked');
@@ -266,7 +193,6 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const leaves = await options.stores.leaves.list();
       const leaf = leaves.find((candidate) => candidate.id === needle && candidate.ownerId === caller.ownerId);
       if (!leaf) return refuse(`no such leaf: ${needle}`);
-      if (leaf.status === 'proposed') return refuse(`${leaf.id} is not accepted yet — a proposed leaf has to be admitted into the pass before it can be worked and claimed`);
       if (leaf.status === 'claimed') return refuse(`${leaf.id} is already claimed — the next word comes from the judge, not a second claim`);
       if (leaf.status === 'succeeded' || leaf.status === 'failed' || leaf.status === 'cancelled') {
         return refuse(`${leaf.id} is already settled (${leaf.status}) — there is nothing left to claim`);
@@ -350,7 +276,6 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const ready: { id: string; title: string; body: string; branchId: string; taskCount: number }[] = [];
       const unbroken: { id: string; title: string; branchId: string }[] = [];
       const blocked: { id: string; title: string; waitingOn: string[] }[] = [];
-      const notApproved: { id: string; title: string }[] = [];
       const inFlight: { id: string; title: string }[] = [];
       const claimed: { id: string; title: string; body: string; branchId: string; claim?: Leaf['claim'] }[] = [];
       const settled: { id: string; title: string; status: TaskStatus | string }[] = [];
@@ -362,9 +287,6 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
           case 'failed':
           case 'cancelled':
             settled.push({ id: leaf.id, title: leaf.title, status: leaf.status });
-            break;
-          case 'proposed':
-            notApproved.push({ id: leaf.id, title: leaf.title });
             break;
           case 'claimed':
             if (awaitingReview(leaf)) {
@@ -391,7 +313,7 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       }
 
       const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${claimed.length} claimed, ${parked.length} awaiting a person's review, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
-      const content = JSON.stringify({ treeId, ready, unbroken, blocked, notApproved, claimed, awaitingReview: parked, inFlight, settled }, null, 2);
+      const content = JSON.stringify({ treeId, ready, unbroken, blocked, claimed, awaitingReview: parked, inFlight, settled }, null, 2);
       return { ok: true, digest, content };
     },
   };

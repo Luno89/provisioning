@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowDown, AlertTriangle, X, Square } from 'lucide-react';
+import { ArrowDown, AlertTriangle, X } from 'lucide-react';
 import CollapsibleHistoryList from './CollapsibleHistoryList.js';
-import ProposalsSidebar from './ProposalsSidebar.js';
 import AgentConfigDrawer from './AgentConfigDrawer.js';
 import ModelConfigDrawer from './ModelConfigDrawer.js';
 import KoalaLoading from './KoalaLoading.js';
@@ -19,7 +18,6 @@ import { useConversationTurn } from './Chat/hooks/useConversationTurn.js';
 import ChatApprovalCard from './Chat/ChatApprovalCard.js';
 import PlanProposalCard from './Chat/PlanProposalCard.js';
 import { usePlanProposals } from './Chat/hooks/usePlanProposals.js';
-import { useChatProposals } from './Chat/hooks/useChatProposals.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
 
 export type { ChatMessageRecord };
@@ -48,7 +46,6 @@ export default function ChatSurface({
   autoSend,
 }: ChatSurfaceProps) {
   const [showHistory, setShowHistory] = useState(false);
-  const [showProposals, setShowProposals] = useState(false);
   const [showPersonaDrawer, setShowPersonaDrawer] = useState(false);
   const [showModelDrawer, setShowModelDrawer] = useState(false);
 
@@ -59,18 +56,11 @@ export default function ChatSurface({
     initialMessages,
     enabled: true,
     onConversationChange,
-    onProposedTree: () => setShowProposals(true),
     binding,
   });
 
-  const { streaming, overthinkWarning, error, setError } = conv;
+  const { streaming, error, setError } = conv;
   const planProposals = usePlanProposals(conv.selectedConvId, streaming);
-
-  const proposals = useChatProposals({
-    activeConversation: conv.activeConversation,
-    liveState: conv.liveState,
-    onError: setError,
-  });
 
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: agentKeys.all,
@@ -171,9 +161,6 @@ export default function ChatSurface({
           conv.setSelectedConvId(id);
           onConversationChange?.(id);
         }}
-        showProposals={showProposals}
-        onToggleProposals={() => setShowProposals(!showProposals)}
-        pendingCount={proposals.pendingCount}
         onNewChat={() => conv.createMutation.mutate()}
         isCreatingChat={conv.createMutation.isPending}
       />
@@ -241,29 +228,11 @@ export default function ChatSurface({
                         role: 'assistant',
                         content: conv.liveState.live,
                         reasoning: conv.liveState.liveThinking,
-                        enabled: conv.liveState.enabled,
                         toolCalls: conv.liveState.tools,
                       }}
                       packLabel={activePack?.label ?? ''}
                       isStreaming={true}
                     />
-                  )}
-
-                  {overthinkWarning && (
-                    <div className="w-full p-3 my-2 rounded-md bg-amber-950/60 border border-amber-500/50 text-amber-200 font-sans text-xs flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <AlertTriangle size={14} className="text-amber-400 shrink-0" />
-                        <span className="truncate">This looks like it might be an overthinking loop ({overthinkWarning}). Stop it?</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleStop}
-                        className="shrink-0 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white transition-colors cursor-pointer flex items-center gap-1 text-xs font-medium"
-                      >
-                        <Square size={11} />
-                        <span>Stop</span>
-                      </button>
-                    </div>
                   )}
 
                   {conv.pendingApproval && (
@@ -318,43 +287,6 @@ export default function ChatSurface({
           )}
         </div>
 
-        {!hideSidebar && (
-          <ProposalsSidebar
-            isOpen={showProposals}
-            onToggle={() => setShowProposals(false)}
-            liveTrees={proposals.liveTrees}
-            persistedTrees={conv.activeConversation?.proposedTrees}
-            onDismissTree={(id) => conv.selectedConvId && proposals.dismissTreeMutation.mutate({ convId: conv.selectedConvId, proposalId: id })}
-            treeActionPending={proposals.dismissTreeMutation.isPending}
-            liveSpecs={proposals.liveSpecs}
-            persistedSpecs={conv.activeConversation?.proposedSpecs}
-            onAcceptSpec={(id) => conv.selectedConvId && proposals.acceptSpecMutation.mutate({ convId: conv.selectedConvId, proposalId: id })}
-            onDismissSpec={(id) => conv.selectedConvId && proposals.dismissSpecMutation.mutate({ convId: conv.selectedConvId, proposalId: id })}
-            specActionPending={proposals.acceptSpecMutation.isPending || proposals.dismissSpecMutation.isPending}
-            liveEscalations={proposals.liveEscalations}
-            persistedEscalations={conv.activeConversation?.proposedEscalations}
-            onAcceptEscalation={(id) => {
-              const cid = conv.selectedConvId || conv.activeConversation?.id;
-              if (cid) proposals.acceptEscalationMutation.mutate({ convId: cid, proposalId: id });
-            }}
-            onDenyEscalation={(id) => {
-              const cid = conv.selectedConvId || conv.activeConversation?.id;
-              if (cid) proposals.denyEscalationMutation.mutate({ convId: cid, proposalId: id });
-            }}
-            escalationActionPending={proposals.acceptEscalationMutation.isPending || proposals.denyEscalationMutation.isPending}
-            liveSecretRequests={proposals.liveSecretRequests}
-            persistedSecretRequests={conv.activeConversation?.proposedSecretRequests}
-            onSubmitSecret={(id, value) => {
-              const cid = conv.selectedConvId || conv.activeConversation?.id;
-              if (cid) proposals.submitSecretMutation.mutate({ convId: cid, requestId: id, value });
-            }}
-            onDismissSecret={(id) => {
-              const cid = conv.selectedConvId || conv.activeConversation?.id;
-              if (cid) proposals.dismissSecretMutation.mutate({ convId: cid, requestId: id });
-            }}
-            secretActionPending={proposals.submitSecretMutation.isPending || proposals.dismissSecretMutation.isPending}
-          />
-        )}
       </div>
 
       <ModelConfigDrawer

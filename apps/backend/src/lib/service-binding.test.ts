@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   bindingFor, bindingTypeFor, describeBindings, bindingProjection, SERVICE_BINDING_ROOT,
 } from './service-binding.js';
-import { describeInfrastructure } from './infrastructure.js';
-import { MINIO_SPEC } from './app-spec.js';
 
 describe('what kind of service something is', () => {
   it('maps the backing services an app could bind to', () => {
@@ -68,32 +66,6 @@ describe('what an agent is told', () => {
     ]);
     expect(text).toMatch(/mongo: type=mongodb, host=mongo\.spec-mongo\.svc\.cluster\.local, port=27017/);
     expect(text).toMatch(/username and password/);
-  });
-});
-
-describe('addresses reported to a planner', () => {
-  const deployments = [
-    { id: 'd1', name: 'koala-store', appType: 'minio', status: 'running', ownerId: 'u1' },
-    { id: 'd2', name: 'from-a-construct', appType: 'searxng', status: 'running', ownerId: 'u1' },
-  ];
-  const specs = [{ id: 'minio', spec: MINIO_SPEC }];
-
-  it('gives an address for an app a SPEC created', () => {
-    const infra = describeInfrastructure(deployments, 'u1', specs);
-    const store = infra.running.find((s) => s.name === 'koala-store');
-    expect(store?.address).toBe('minio.koala-store.svc.cluster.local:9000');
-    expect(store?.bindingType).toBe('s3');
-  });
-
-  it('gives NO address for an app a construct created', () => {
-    const infra = describeInfrastructure(deployments, 'u1', specs);
-    expect(infra.running.find((s) => s.name === 'from-a-construct')?.address).toBeUndefined();
-  });
-
-  it('degrades honestly with no catalogue at all', () => {
-    const infra = describeInfrastructure(deployments, 'u1');
-    expect(infra.running).toHaveLength(2);
-    expect(infra.running.every((s) => s.address === undefined)).toBe(true);
   });
 });
 

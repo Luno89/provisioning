@@ -14,14 +14,11 @@ import TemporalPanel from './components/TemporalPanel';
 import ServicesPanel from './components/ServicesPanel';
 import CloudAccounts from './components/CloudAccounts.js';
 import MeshDevices from './components/MeshDevices.js';
-import Lab from './components/Lab';
 import EngineRunView from './components/EngineRun/EngineRunView';
 import StudioView from './components/Studio/StudioView';
 import ProcedurePage from './components/Studio/ProcedurePage';
-import Harness from './components/Harness.js';
-import { ToolRepoPanel } from './components/ToolRepoPanel.js';
 import TreeTypes from './components/TreeTypes/index.js';
-import Personas from './components/Personas.js';
+import Memories from './components/Memories.js';
 import VpsCatalog from './components/VpsCatalog.js';
 import Projects from './components/Projects/index.js';
 import SettingsView from './components/SettingsView';
@@ -214,34 +211,16 @@ export const studioProcedureRoute = createRoute({
   component: ProcedurePage,
 });
 
-export const labRoute = createRoute({
+export const memoriesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/lab',
-  component: Lab,
-});
-
-export const harnessRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/harness',
-  component: Harness,
-});
-
-export const toolRepoRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/tool-repo',
-  component: ToolRepoPanel,
+  path: '/memories',
+  component: Memories,
 });
 
 export const treeTypesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/tree-types',
   component: TreeTypes,
-});
-
-export const personasRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/personas',
-  component: Personas,
 });
 
 export const vpsCatalogRoute = createRoute({
@@ -290,15 +269,12 @@ export const routeTree = rootRoute.addChildren([
   servicesRoute,
   accountsRoute,
   meshRoute,
-  labRoute,
   engineRoute,
   evalsRoute,
   studioRoute,
   studioProcedureRoute,
-  harnessRoute,
-  toolRepoRoute,
+  memoriesRoute,
   treeTypesRoute,
-  personasRoute,
   vpsCatalogRoute,
   settingsRoute,
   groveRedirect,

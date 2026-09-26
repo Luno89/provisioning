@@ -63,16 +63,6 @@ export function Overview({ value, onChange, idEditable, idError }: {
             {LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
         </div>
-        <div>
-          <label className={label}>Duplicate threshold</label>
-          <input
-            className={field} type="number" min={0} max={1} step={0.05}
-            value={value.duplicateThreshold ?? ''}
-            placeholder="Default"
-            onChange={(e) => onChange({ duplicateThreshold: e.target.value.trim() === '' ? undefined : Number(e.target.value) })}
-          />
-          <p className="text-[11px] text-slate-500 mt-1">0–1 similarity above which two leaves get flagged as possible duplicates.</p>
-        </div>
       </div>
 
       <label className="flex items-center gap-2 text-[12px] text-slate-300">

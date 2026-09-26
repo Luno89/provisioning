@@ -1,19 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { needsYou, running, changedSince, treeRollups, ago, scopeToTree, groupWork, settledBranches, outstandingWork } from './home-summary.js';
+import { needsYou, running, changedSince, treeRollups, ago, scopeToTree, groupWork } from './home-summary.js';
 import type { Leaf } from './leaf-types.js';
 
 const leaf = (over: Partial<Leaf>): Leaf => ({
-  id: 'l', branchId: 'b1', title: 't', status: 'succeeded',
-  depth: 0, blocking: true, childCount: 0, updatedAt: '2026-08-01T00:00:00Z', ...over,
-} as Leaf);
+  id: 'l', branchId: 'b1', title: 't', status: 'succeeded', updatedAt: '2026-08-01T00:00:00Z', ...over,
+});
 
 describe('what needs you', () => {
-  it('puts work already spent ahead of a decision not yet made', () => {
+  it('puts a claim the judge parked for you ahead of failures, and leaves an unjudged claim to the judge', () => {
     const out = needsYou([
-      leaf({ id: 'p', status: 'proposed' }),
       leaf({ id: 'f', status: 'failed' }),
+      leaf({ id: 'parked', status: 'claimed', claim: { evidence: 'e', at: 't1' }, review: { verdict: 'concern', at: 't2' } }),
+      leaf({ id: 'fresh', status: 'claimed', claim: { evidence: 'e', at: 't1' } }),
     ]);
-    expect(out.map((a) => a.leaf.id)).toEqual(['f', 'p']);
+    expect(out.map((a) => [a.leaf.id, a.reason])).toEqual([['parked', 'review'], ['f', 'failed']]);
   });
 
   it('puts the most-attempted failure first', () => {
@@ -29,12 +29,6 @@ describe('what needs you', () => {
     ]);
     expect(out).toEqual([]);
   });
-
-  it('survives an attempts field that is a count rather than an array', () => {
-    const odd = { ...leaf({ id: 'x', status: 'failed' }), attempts: 3 } as unknown as Leaf;
-    expect(() => needsYou([odd])).not.toThrow();
-    expect(needsYou([odd])).toHaveLength(1);
-  });
 });
 
 describe('what is running', () => {
@@ -42,7 +36,6 @@ describe('what is running', () => {
     const out = running([
       leaf({ id: 'live', status: 'running' }),
       leaf({ id: 'queued', status: 'pending' }),
-      leaf({ id: 'proposed', status: 'proposed' }),
       leaf({ id: 'done', status: 'succeeded' }),
     ]);
     expect(out.map((l) => l.id)).toEqual(['live']);
@@ -173,58 +166,5 @@ describe('grouping a project\'s work', () => {
 
   it('leaves cancelled work out entirely', () => {
     expect(groupWork([leaf({ status: 'cancelled' })])).toEqual([]);
-  });
-});
-
-describe('a run that is over', () => {
-  const branches = [{ id: 'b1', title: 'Last night\'s run' }, { id: 'b2', title: 'Live run' }];
-
-  it('is settled when nothing on it can move by itself', () => {
-    const settled = settledBranches(branches, [
-      leaf({ branchId: 'b1', status: 'succeeded' }),
-      leaf({ branchId: 'b1', status: 'failed' }),
-      leaf({ branchId: 'b2', status: 'running' }),
-    ]);
-    expect([...settled]).toEqual(['b1']);
-  });
-
-  it('is not settled while a proposal awaits a decision', () => {
-    expect([...settledBranches(branches, [leaf({ branchId: 'b1', status: 'proposed' })])]).toEqual([]);
-  });
-
-  it('does not call an empty conversation finished', () => {
-    expect([...settledBranches(branches, [])]).toEqual([]);
-  });
-
-  it('moves its failures out of the urgent list', () => {
-    const leaves = [
-      leaf({ id: 'old', branchId: 'b1', status: 'failed' }),
-      leaf({ id: 'new', branchId: 'b2', status: 'failed' }),
-      leaf({ id: 'live', branchId: 'b2', status: 'running' }),
-    ];
-    const settled = settledBranches(branches, leaves);
-    expect(needsYou(leaves, settled).map((a) => a.leaf.id)).toEqual(['new']);
-    expect(outstandingWork(branches, leaves).map((o) => o.leaf.id)).toEqual(['old']);
-  });
-
-  it('says which run the outstanding work came from', () => {
-    const leaves = [leaf({ id: 'old', branchId: 'b1', status: 'failed',
-      attempts: [{ attempt: 0, error: 'e', failedAt: '' }, { attempt: 1, error: 'e', failedAt: '' }] })];
-    const [out] = outstandingWork(branches, leaves);
-    expect(out!.from).toBe("Last night's run");
-    expect(out!.attempts).toBe(2);
-  });
-
-  it('leaves cancelled work alone', () => {
-    const leaves = [leaf({ branchId: 'b1', status: 'cancelled' })];
-    expect(outstandingWork(branches, leaves)).toEqual([]);
-  });
-
-  it('does not treat a failure from a still-running conversation as settled', () => {
-    const leaves = [
-      leaf({ id: 'f', branchId: 'b2', status: 'failed' }),
-      leaf({ id: 'r', branchId: 'b2', status: 'running' }),
-    ];
-    expect(outstandingWork(branches, leaves)).toEqual([]);
   });
 });
