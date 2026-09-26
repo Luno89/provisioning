@@ -1,335 +1,221 @@
 # No Wrinkles
 
-Spin up Kubernetes clusters — on a VPS you rent, or on hardware you already own — and deploy
-production-ready applications to them (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open
-WebUI, game servers) with public internet access. **No port forwarding, no dynamic DNS.**
+Spin up Kubernetes clusters — locally, on a VPS you rent, or on hardware you already own — deploy
+applications to them with public access, and hand software work to agents that plan it, build it
+in a sandbox and have it judged before it counts. **No port forwarding, no dynamic DNS.**
 
-Machines attach over a WireGuard mesh, dialling outward, so a box behind your home NAT works the
-same as a rented VPS and nothing needs opening on your router.
+Machines can attach over a WireGuard mesh (Headscale), dialling outward, so a box behind your home
+NAT works the same as a rented VPS.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌───────────────┐     ┌──────────────┐
-│  React UI   │────▶│  Express API  │────▶│  Temporal.io   │────▶│    CDKTF      │
-│  (Vite 5173)│     │  (Node 3001) │     │  (Workflows)   │     │  (Terraform)  │
-└─────────────┘     └──────────────┘     └───────────────┘     └──────┬───────┘
-                                                                     │
-                              ┌──────────────────────────────────────┤
-                              ▼                                      ▼
-                    ┌─────────────────┐                   ┌─────────────────┐
-                    │  k3d (local)    │                   │  AWS / GCP / DO │
-                    │  Docker cluster │                   │  (Cloud VPCs)   │
-                    └────────┬────────┘                   └─────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  Nginx Proxy    │◀── Localtunnel (public URLs)
-                    │  (Docker)       │
-                    └─────────────────┘
+React UI (Vite :5173) ──▶ Express API (:3001) ──▶ Temporal ──┬─▶ host worker     cluster provisioning (k3d / Hetzner / remote)
+        ▲                       │                            ├─▶ cluster worker  app deploys, disk resizes (CDKTF, Helm, kubectl)
+        └──── Socket.IO ────────┤                            ├─▶ engine worker   agent runs, tools, sandboxes, grove runs
+                                │                            └─▶ stream worker   model calls (in the backend process)
+                                ▼
+                             MongoDB
+
+Management cluster (native k3s on Linux, k3d on macOS):
+  Gitea (repos + image registry) · Infisical (+ secrets operator) · Verdaccio (npm mirror)
+  agent sandboxes · your apps, if you deploy there
 ```
 
-- **Express backend** (`apps/backend/`) — REST API, Socket.IO real-time events, service layer for kubectl/helm/docker operations
-- **React frontend** (`apps/frontend/`) — Single-page dashboard with wizard-driven cluster provisioning and app deployment
-- **Temporal.io** (optional) — Workflow orchestration for long-running provisioning and deployment tasks
-- **CDKTF** (`packages/cdktf-infra/`) — Infrastructure-as-code via Terraform bindings for Kubernetes resources
-- **Nginx + Localtunnel** — Reverse proxy container with public tunnel URLs for exposed applications
-- **JSON file DB** — Lightweight persistence at `apps/backend/data/`
+- **Backend** (`apps/backend/`) — REST API, Socket.IO events, the service layer, the three Temporal workers
+- **Frontend** (`apps/frontend/`) — React 19 + Vite; react-query for server state, zustand for UI state
+- **Agent engine** (`packages/agent-engine/`, `packages/engine-core/`) — procedures (graphs of nodes), personas, the tool catalogue and the model-call path; the backend hosts it in `apps/backend/src/engine-host/`
+- **CDKTF** (`packages/cdktf-infra/`) — Terraform bindings for clusters and per-app stacks
+- **Local agent** (`apps/local-agent/`) — runs on your own machine, dials out, and executes engine work there
+- **MongoDB** — all persistence. `apps/backend/data/` holds only logs, nginx config and generated secrets for the local services
+
+Everything under `/api` needs a session: email/password, GitHub or Google OAuth (a local mock flow
+when their client IDs are unset), optional SMS 2FA.
 
 ---
 
 ## 🛠️ Prerequisites
 
-1. **Node.js (v20 or higher)**
-   - **Mac**: `brew install node`
-   - **Linux**: Install via [nvm](https://github.com/nvm-sh/nvm) or your package manager
+1. **Node.js 20+**
+2. **Docker** — Linux: installed by `scripts/setup-root.sh`; macOS: Colima via Homebrew in `npm run setup`
 
-2. **Docker** (required for k3d clusters)
-   - **Mac**: The setup script auto-installs **Colima** (open-source) via Homebrew
-   - **Linux**: The setup script auto-installs **Docker CE** via the official install script
-
-> [!NOTE]
-> All infrastructure binaries (`k3d`, `kubectl`, `helm`, `terraform`, `docker-compose`) are pre-bundled in the `bin/` directory. No manual installation needed.
-
-> [!TIP]
-> For full workflow orchestration (Temporal.io), also run: `docker compose -f docker-compose.temporal.yml up`
-
----
-
-## 🎮 GPU Support (vLLM)
-
-To deploy vLLM workloads, your host needs a GPU driver **and** a container runtime that can pass GPUs to Docker containers. The platform auto-installs the in-cluster GPU device plugin on first vLLM deploy — you only need to configure the host.
-
-### NVIDIA GPUs
-
-**1. Install NVIDIA driver** (if not already):
-```bash
-# Fedora / RHEL / Nobara
-sudo dnf install nvidia-driver nvidia-driver-cuda
-
-# Debian / Ubuntu
-sudo apt install nvidia-driver
-```
-
-**2. Install NVIDIA Container Toolkit** (auto):
-```bash
-sudo bash scripts/setup-gpu.sh
-```
-The script auto-detects your distro, adds the NVIDIA repo, installs the toolkit, configures Docker, restarts Docker, and verifies GPU passthrough. Includes retry logic for network failures. Idempotent — safe to run multiple times.
-
-**Or manually**:
-```bash
-# Add NVIDIA repo (works on Fedora, RHEL, CentOS, Nobara)
-curl -fsSL https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo \
-  | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
-
-# Debian / Ubuntu
-curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-sudo apt-get update
-
-# Install the toolkit
-sudo dnf install -y nvidia-container-toolkit   # Fedora / RHEL
-# or: sudo apt-get install -y nvidia-container-toolkit   # Debian / Ubuntu
-
-# Configure Docker to use NVIDIA runtime
-sudo nvidia-ctk runtime configure --runtime=docker
-
-# Restart Docker
-sudo systemctl restart docker
-```
-
-**3. Verify**:
-```bash
-nvidia-smi                                    # Driver working
-docker run --rm --gpus all ubuntu nvidia-smi  # Docker can see GPU
-```
-
-### AMD GPUs (ROCm)
-
-**1. Run the setup script** (detects AMD, shows instructions):
-```bash
-sudo bash scripts/setup-gpu.sh
-```
-The script will detect your AMD GPU and display distro-specific ROCm installation instructions.
-
-**Manual setup**:
-```bash
-# Follow official ROCm installation guide for your distro:
-# https://rocm.docs.amd.com/en/latest/deploy/linux/quick_start.html
-```
-
-**2. Install ROCm Container Toolkit**:
-```bash
-# ROCm container runtime setup varies by distro.
-# See: https://rocm.docs.amd.com/en/latest/deploy/linux/container.html
-```
-
-**3. Verify**:
-```bash
-rocminfo                                     # ROCm driver working
-docker run --rm --device /dev/kfd --device /dev/dri rocm/dev-ubuntu:latest rocminfo
-```
-
-> [!NOTE]
-> AMD GPU support requires x86_64 (amd64) architecture. The device plugin includes `nodeSelector: kubernetes.io/arch: amd64`.
-
-### What happens at deploy time
-
-When you deploy a vLLM app on a k3d cluster:
-
-1. **Host check** — The platform verifies the GPU container toolkit is installed. If missing, the deploy fails with a clear error message.
-2. **Device plugin** — The appropriate DaemonSet (NVIDIA or AMD) is installed into the cluster automatically.
-3. **Ready wait** — The platform waits up to 60s for the device plugin pod to become ready.
-4. **Deploy** — CDKTF applies the vLLM stack. The K8s scheduler now sees `nvidia.com/gpu` or `amd.com/gpu` as available resources.
-
-If the host toolkit is not configured, you'll see an error like:
-> NVIDIA Container Toolkit is not configured for Docker. Install it and run: `sudo nvidia-ctk runtime configure --runtime=docker`, then restart Docker.
+`k3d`, `kubectl`, `helm` and `terraform` are pre-bundled in `bin/`.
 
 ---
 
 ## ⚡ Quick Start
 
 ```bash
-# 1. Clone and enter the repository
 git clone <your-repository-url>
 cd provisioning
 
-# 2. Linux only: one-time root-level install — the single sudo step. Docker CE, GPU container
-#    toolkit (safe/no-op on hosts with no GPU), native k3s (not started yet), trusting the
-#    self-hosted Gitea registry, and a scoped passwordless-sudo rule so dev/clean-dev never
-#    prompt for a password afterward. Never run scripts/setup.sh itself with sudo — see below.
+# Linux only, the single sudo step: Docker CE, GPU container toolkit (a no-op without a GPU),
+# native k3s, trust for the self-hosted Gitea registry, and a scoped passwordless-sudo rule.
 sudo bash scripts/setup-root.sh
 
-# 3. First-time setup (deps, binaries, worker, AND brings the management cluster up) — WITHOUT sudo
+# As your normal user — never with sudo: deps, CDKTF bindings, binaries, the management cluster.
 npm run setup
 
-# 4. Start the platform
+# Every time: ensures the cluster, Gitea, Verdaccio, Temporal, MongoDB, Headscale and Infisical,
+# then runs the backend, frontend and all three workers.
 npm run dev
 ```
 
-Open **[http://localhost:5173](http://localhost:5173)** in your browser.
+Open **http://localhost:5173**.
 
-The `setup` script handles: npm dependencies, CDKTF provider bindings, pre-bundled binary downloads, Nginx proxy container, worker pod deployment, environment configuration, and — the step that actually finishes provisioning the management cluster — starting it and waiting for it to be `Ready` (macOS: k3d, created fresh here; Linux: the native k3s instance installed by `setup-root.sh`). It must be run as your normal user, not root — it does `npm install` and creates files that need to stay owned by you; running it under `sudo` leaves `node_modules` root-owned and breaks the dev server. `setup-root.sh` runs its GPU-toolkit step *before* installing k3s specifically because that step writes the containerd config controlling GPU passthrough, which is only read when the cluster starts — running it after would mean an extra manual restart to pick up the change.
-
----
-
-## 📦 Supported Applications
-
-| Application | Helm Strategy | Native Strategy |
-|---|---|---|
-| **Odoo** | `odoo` | `odoo-native` |
-| **WordPress** | `wordpress` | `wordpress-native` |
-| **Nextcloud** | `nextcloud` | `nextcloud-native` |
-| **Audiobookshelf** | `audiobookshelf` | `audiobookshelf-native` |
-
-- **Helm** — Deploys via official Helm charts with configurable values
-- **Native** — Deploys raw Kubernetes manifests (Deployments, Services, PVCs) for full control
-
-Additionally, the platform auto-provisions:
-- **Monitoring** — Prometheus + Grafana (via `kube-prometheus-stack` Helm chart)
-- **Ingress** — Traefik dashboard accessible from the Services panel
+> [!IMPORTANT]
+> The workers do not hot-reload. The backend runs under `tsx watch`, but after changing anything a
+> worker imports (activities, workflows, engine code) restart `npm run dev`. `npm run test:alive`
+> flags workers that are older than the source.
 
 ---
 
-## 🌐 How to Deploy and Expose Your First App
+## 🧭 What you can do
 
-1. **Create a Cluster**:
-   - Click **Create Cluster** on the dashboard.
-   - Pick a name (e.g., `my-local-cluster`), choose **k3d** as the provider, and click **Create**.
-   - A drawer will slide open showing real-time setup logs. Wait for it to show `running`.
+### Clusters
+**Clusters** → create one on **k3d** (local, containers), **Hetzner** (a VPS the platform rents with
+your token) or **remote** (any machine you can SSH into; k3s is bootstrapped over SSH). Each cluster
+gets Traefik and Prometheus/Grafana/Loki; k3d clusters also get the Infisical secrets operator. Cloud providers without
+credentials run in *mock cloud mode* on local k3d. The **VPS Catalog** compares rentable machines.
 
-2. **Deploy an Application**:
-   - Click **Deploy App** in the upper right.
-   - Select your newly created cluster.
-   - Set a name (e.g., `odoo-local`), choose the application type, and select a strategy (**Native** or **Helm**).
-   - Click **Initiate Deployment**. You will see the deployment logs stream live.
+### Applications
+**Applications** → deploy to a cluster and expose it publicly (Nginx + Localtunnel).
 
-3. **Expose It to the Internet**:
-   - Once running, go to the application card on your dashboard.
-   - Click the **Expose Application** button.
-   - A public address (e.g., `https://xxxx-xxxx-xx.loca.lt`) will appear.
-   - Tunnels auto-restore on backend restart — no need to re-expose.
+| Kind | Apps |
+|---|---|
+| Business & web | Odoo, WordPress, Nextcloud, Papra |
+| Media | Jellyfin, Plex, Navidrome, Kavita, Immich, Audiobookshelf |
+| Home & games | Home Assistant, Palworld |
+| AI | vLLM, TabbyAPI, Open WebUI, SearXNG, Crawl4AI, TEI, Hermes agent |
+| Data & infra | MinIO, Qdrant, Quickwit, Verdaccio, Temporal |
+| Your own code | **gitapp** — a project's repo, built by the pipeline into the Gitea registry and deployed |
 
-4. **Access the Application**:
-   - Click the public link.
-   - **Localtunnel Warning Screen**: Since this is a public link, localtunnel displays a phishing warning.
-   - Type in your current public IP address (google "what is my IP" or check the dashboard helper text) and click **Click to Continue**.
+Odoo, WordPress, Nextcloud and Audiobookshelf have Helm and native variants; the rest are native
+manifests.
 
-5. **Customize the Path (Optional)**:
-   - Use the **Target Route Path** input to append a sub-path (e.g., `/odoo` for Odoo's login page). Saves automatically on blur or pressing Enter.
+### Projects and code
+A **project** is a Gitea repo with a build pipeline (kaniko in the cluster). A successful build
+can be promoted to a gitapp deployment on the project's target cluster.
 
-6. **Service Dashboards**:
-   - Navigate to the **Services** sidebar panel to access Prometheus, Grafana, and Traefik dashboards via iframe — no port-forwarding needed.
+### Secrets
+Secrets never pass through a model. An agent that needs one calls `request_secret` with the
+environment variable name and gets back only `secret://<project>/<KEY>`. You enter the value on a
+card in the chat or on the tree page; it goes straight into Infisical. At deploy, the operator on
+the target cluster syncs the project's secrets into `<namespace>-secrets`, which the app reads as
+environment variables — and a value changed in Infisical reaches the running pod without a
+redeploy.
 
-7. **Custom Nginx Configs**:
-   - Use the **Nginx Router** wizard to generate custom reverse-proxy server blocks for VPN IPs or advanced routing. Edit `nginx.conf` directly in the built-in editor.
+### Koala, Grove and the agent engine
+- **Koala** (chat) — talks the work through. When there is work, it hands it to the **planner**,
+  which proposes a plan as a card: a tree of branches, leaves (checkable goals) and tasks. Nothing
+  is created until you approve it.
+- **Projects → trees (Grove)** — approving creates the tree, one sandbox for the whole tree,
+  `PLAN.md` and a brief per leaf. **Run** works the ready leaves in parallel, a git worktree each;
+  a separate judge checks each claimed leaf against its goal. Failed leaves get replan proposals
+  you approve; a claim the judge cannot settle waits for you.
+- **Studio** — edit procedures on a canvas, personas (prompt, model, sampling, tools, what they may
+  change) and tools (a command template plus what it installs).
+- **Evals** — Level 1 (does the model pick the right tool) and Level 2 (scenarios with real
+  handlers) against any configured endpoint.
+- **Memories** — what agents have learned, recalled into later runs.
+- **Engine** — live view of runs and their node traces.
+
+Models come from your deployed vLLM and TabbyAPI apps and from LLM providers added under **Cloud
+Accounts**; the default model is chosen in **Settings**.
+
+---
+
+## 🎮 GPU (vLLM, TabbyAPI)
+
+GPU workloads run only on the always-on management cluster (native k3s on Linux): k3d's nested
+containerd cannot pass devices through, so k3d clusters are never GPU-enabled.
+
+1. Install the NVIDIA driver (or ROCm for AMD).
+2. `sudo bash scripts/setup-gpu.sh` — detects the distro, installs and configures the container
+   toolkit, verifies passthrough. Idempotent. (`setup-root.sh` already runs this step.)
+3. On the first GPU deploy the platform installs the NVIDIA or AMD device plugin DaemonSet
+   (`k8s/gpu-device-plugin/`), waits for it, then applies the stack.
+
+Verify: `nvidia-smi` and `docker run --rm --gpus all ubuntu nvidia-smi`.
 
 ---
 
 ## 🧪 Testing
 
-The test suite uses a layered escalation approach:
-
-| Level | Command | What it does |
+| Level | Command | What it proves |
 |---|---|---|
-| **1. Alive** | `npm run test:alive` | Checks Docker, k3d cluster, K8s API, Temporal health, worker pod |
-| **2. Unit** | `npm run test:unit` | Vitest tests for frontend components + backend services (~5s) |
-| **3. Worker** | `npm run test:worker` | Temporal workflow isolation tests (K3d, CDKTF, Helm, Kubectl) |
-| **4. E2E** | `npm run test:e2e` | Playwright browser tests driving the React UI |
-| **Infra** | `npm run test:infra:integration` | Full cluster provision → verify → destroy (~5 min) |
+| Alive | `npm run test:alive` | Docker, management cluster, K8s API, Temporal, workers — and that workers run current code |
+| Unit | `npm run test:unit` | Typecheck plus every workspace's Vitest suite (~80s) |
+| Worker | `npm run test:worker` | Real Temporal workflows (provision, deploy) without the browser |
+| E2E | `npm run test:e2e` | Playwright through the UI (`tests/e2e.spec.ts`) |
+| Infra | `npm run test:infra:integration` | Provision → verify → destroy a cluster |
+| Remote | `npm run test:remote-integration` | A disposable QEMU VM provisioned as a `remote` cluster over SSH (~10–15 min) |
+| Grove | `npm run test:tree-sandbox`, `test:plan-adoption`, `test:leaf-worktrees` | The tree sandbox, plan adoption and worktrees against the real cluster |
+| Live model | `npm run test:planner-live`, `test:grove-live` | The planner and a grove run on a real model |
+| Secrets | `npm run test:secrets-live`, `test:secret-injection-live` | Koala asks for a secret, the card vaults it, nothing leaks; the value reaches a deployed pod and a rotation follows |
 
-```bash
-npm run test          # alive → unit → e2e (full pipeline)
-npm run test:unit     # backend + frontend unit tests only
-npm run test:e2e      # Playwright browser tests only
-```
+`npm test` runs alive → unit → E2E; `npm run test:all` adds the slow integration suites.
+Live-model tests use the configured endpoint — TabbyAPI by default; paid endpoints only when you
+choose them.
 
-Single workspace:
-```bash
-npm run test -w apps/backend    # backend unit tests
-npm run test -w apps/frontend   # frontend unit tests
-```
-
-### E2E Monitor
-
-Interactive dashboard for debugging E2E tests in real-time:
-
-```bash
-npm run dev &                    # start dev stack first
-npx tsx scripts/e2e-monitor.ts   # launch monitor
-```
-
-The monitor shows:
-- MongoDB clusters with status and progress step
-- Live log tail from the active provisioning cluster
-- K8s pod status for the active cluster
-- Temporal workflow status
-- k3d cluster list
-- Worker health (host + cluster)
-
-Menu keys: `0-9, a` run specific tests, `r` runs all, `t` terminates workflows, `c` cleans MongoDB, `d` full teardown, `q` quit.
+**E2E monitor:** with `npm run dev` running, `npx tsx scripts/e2e-monitor.ts` shows clusters,
+logs, pods, workflows and workers live, and can run, terminate and clean up tests.
 
 ---
 
-## 🧹 Useful Commands
+## 🧹 Commands
 
-| Command | Description |
+| Command | |
 |---|---|
-| `npm run dev` | Start all services (backend, frontend, host worker, cluster worker) |
-| `npm run clean-dev` | Kill all dev processes, delete k3d clusters, clean DBs. **Linux**: also stops the native k3s management cluster and wipes its state — removal only, same as the k3d cleanup above it. Doesn't reinstall or bring anything back up; re-run `sudo bash scripts/setup-root.sh && npm run setup` afterward (that's what provisions it — see Quick Start). |
-| `npm run setup` | First-time setup (deps, binaries, cluster, worker) |
-| `npm run test` | Run full test suite (alive → unit → e2e) |
-| `npm run test:unit` | Run unit tests only |
-| `npm run test:e2e` | Run Playwright E2E tests only |
-
-Worker-specific (for debugging):
-```bash
-npm run dev:worker -w apps/backend         # host-side Temporal worker
-npm run dev:worker:cluster -w apps/backend  # in-cluster Temporal worker
-```
+| `npm run dev` | Ensure the local services, then run backend, frontend and the three workers |
+| `npm run clean-dev` | Kill dev processes, delete k3d clusters, clean the databases. On Linux it also stops and wipes native k3s; re-run `sudo bash scripts/setup-root.sh && npm run setup` after |
+| `npm run setup` | First-time setup |
+| `npm run lint` | Frontend ESLint |
+| `npm run typecheck` | Every workspace |
 
 ---
 
-## 📁 Project Structure
+## 📁 Structure
 
 ```
-provisioning/
-├── apps/
-│   ├── backend/          Express API, services, Temporal workers
-│   │   ├── src/index.ts        Server entry point
-│   │   ├── src/services/       InfrastructureService, ClusterService, AppService, etc.
-│   │   ├── src/worker-host.ts  Host-side Temporal worker
-│   │   └── src/worker-cluster.ts  In-cluster Temporal worker
-│   └── frontend/         React 19 + Vite dashboard
-│       └── src/App.tsx         Main UI component
-├── packages/
-│   └── cdktf-infra/      CDKTF infrastructure stacks
-│       ├── main.ts             Cluster and App stack entry
-│       └── constructs/         Per-app constructs (native + Helm)
-├── bin/                  Pre-bundled k3d, kubectl, helm, terraform
-├── k8s/                  K8s manifests for in-cluster worker pod
-├── scripts/              Setup, cluster management, cleanup scripts
-└── docker-compose.temporal.yml  Temporal.io Docker Compose
+apps/
+  backend/        Express API, routes/ → services/ → lib/, Temporal workers, engine-host/
+  frontend/       React dashboard: components/, api/ (the only place URLs live), stores/, types/
+  local-agent/    Runs engine work on your own machine
+packages/
+  agent-engine/   Procedures, nodes, personas, tool catalogue, model calls
+  engine-core/    Tool contracts and execution, shared with the local agent
+  harness-types/  Shapes shared by backend and frontend
+  context-engine/ Context assembly
+  cdktf-infra/    Cluster and app stacks, one construct per app
+bin/              Pre-bundled k3d, kubectl, helm, terraform
+k8s/              In-cluster worker and GPU device plugins
+scripts/          Setup, ensure-* for each local service, cleanup, root-node deploys
+tests/            Playwright spec and the integration / live suites
+docs/             The Grove migration tracker and its ledger
 ```
 
-npm workspaces: `apps/*`, `packages/*`
+Contributor rules (import conventions, layering, what counts as done) are in `CLAUDE.md`.
 
 ---
 
-## ⚠️ Known Limitations
+## ⚠️ Known limitations
 
-- **Localtunnel is a free service** — Public URLs may be slow to connect, and the phishing warning appears on every visit. URLs change on backend restart.
-- **No authentication** — All API routes are open. Not intended for production use.
-- **k3d for local development** — The management cluster (`provisioning-lunorica`) is k3d-based. Cloud providers (AWS, GCP, DigitalOcean) are supported but require CLI credentials.
-- **Port 80 or 8000 required** — The Nginx proxy container binds to port 80 (falls back to 8000 if occupied).
+- **Localtunnel** is a free service: slow to connect, a warning page on each visit, and URLs change
+  when the backend restarts.
+- **A gitapp cannot deploy to a k3d cluster yet** — the host's Docker pulls from the Gitea registry
+  over HTTPS and the registry speaks HTTP. Deploy gitapps to the management cluster.
+- **Secrets on remote and cloud clusters** — they cannot reach Infisical yet, so a project that
+  declares secrets is refused there with the reason.
+- **Port 80 or 8000** — the Nginx proxy binds port 80, falling back to 8000.
 
-## 🔄 Temporal Sync
+---
 
-MongoDB stays in sync with Temporal via two mechanisms:
+## 🔄 Temporal sync
 
-1. **`trackWorkflow()` polling** — polls every 5s per workflow. On transient Temporal errors, retries up to 12 times before giving up.
-2. **Background reconciliation loop** — runs every 30s. Scans all clusters in intermediate states, checks Temporal workflow status directly, and updates MongoDB if the workflow has completed but the DB wasn't updated. Also parses log files to update the `progress` field on clusters.
+MongoDB stays in sync with Temporal two ways: `trackWorkflow()` polls each workflow every 5s
+(retrying transient Temporal errors up to 12 times), and a reconciliation loop every 30s checks
+clusters in intermediate states against Temporal and updates their progress from the logs.
+Temporal is optional for the backend to start; it falls back to database polling.

@@ -38,7 +38,7 @@
     "test:unit:local-agent": "npm run test -w apps/local-agent",
     "test:e2e:sync": "npm run test:alive && npm run test:unit && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
     "test:e2e": "npm run test:alive && npm run test:test:e2e:setup && npx playwright test e2e && npm run test:test:e2e:teardown",
-    "test:infra:integration": "node tests/infra-integration.ts",
+    "test:infra:integration": "tsx tests/infra-integration.ts",
     "test:remote-integration": "tsx tests/remote-host-integration.ts",
     "test:tree-sandbox": "cd apps/backend && tsx ../../tests/tree-sandbox-integration.ts",
     "test:plan-adoption": "cd apps/backend && tsx ../../tests/plan-adoption-integration.ts",
