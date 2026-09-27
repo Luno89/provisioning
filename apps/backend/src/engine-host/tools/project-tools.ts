@@ -3,6 +3,7 @@ import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { ActionKind, ActionProposal } from '../../lib/action-proposals.js';
 import { envChanges, parseEnv, pickStrategy, sameAction } from '../../lib/action-proposals.js';
 import { deploymentForProject, rollupProjectStatus } from '../../lib/project-status.js';
+import { explainSpecProblems, validateSpec } from '../../lib/app-spec-validate.js';
 import type { ClusterMetadata, DeploymentMetadata, PipelineRunMetadata, ProjectMetadata } from '../../lib/types.js';
 import { projectFor, type ProjectScopeStores } from './project-scope.js';
 
@@ -10,7 +11,7 @@ export interface ProjectToolStores extends ProjectScopeStores {
   runs(): Promise<PipelineRunMetadata[]>;
   deployments(): Promise<DeploymentMetadata[]>;
   clusters(ownerId: string): Promise<ClusterMetadata[]>;
-  appTypes(ownerId: string): Promise<{ id: string; label?: string | undefined; strategies?: readonly string[] | undefined }[]>;
+  appTypes(ownerId: string): Promise<{ id: string; label?: string | undefined; strategies?: readonly string[] | undefined; builtIn?: boolean | undefined }[]>;
   readPath(project: ProjectMetadata, path: string): Promise<unknown>;
   bindingCheck(ownerId: string, service: string, as?: string): Promise<{ name: string; type: string } | { problem: string }>;
   proposals: {
@@ -198,6 +199,26 @@ export function createProjectTools(options: {
         ...change.changed,
         'Takes effect on the next deploy.',
       ], found.treeId);
+    },
+
+    async propose_app_spec({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to add an app for');
+      const raw = typeof parsed.spec === 'string' ? (() => { try { return JSON.parse(parsed.spec as string) as unknown; } catch { return undefined; } })() : parsed.spec;
+      if (!raw || typeof raw !== 'object') return refuse('spec has to be the whole app spec as an object');
+      const problems = validateSpec(raw);
+      if (problems.length) return refuse(`${explainSpecProblems(problems)}\nNothing was proposed — send the whole spec again with that fixed.`);
+      const spec = raw as { id: string; image: string; ports?: { name?: string; port: number }[]; env?: { name: string; generate?: unknown; fromSecret?: string }[]; volumes?: { name?: string; size?: string; type?: string }[] };
+      const existing = (await stores.appTypes(caller.ownerId)).find((entry) => entry.id === spec.id);
+      if (existing?.builtIn) return refuse(`"${spec.id}" ships with the platform and cannot be replaced — pick another id`);
+
+      return propose(caller, 'add_app_spec', { spec: JSON.stringify(raw) }, `${existing ? 'replace' : 'add'} the app "${spec.id}" in the catalogue`, [
+        `App: ${spec.id}${existing ? ' (replaces your earlier one)' : ''}`,
+        `Image: ${spec.image}`,
+        ...(spec.ports?.length ? [`Ports: ${spec.ports.map((port) => `${port.port}${port.name ? ` (${port.name})` : ''}`).join(', ')}`] : []),
+        ...(spec.env?.length ? [`Environment: ${spec.env.map((entry) => (entry.generate ? `${entry.name} (generated)` : entry.name)).join(', ')}`] : []),
+        ...(spec.volumes?.length ? [`Volumes: ${spec.volumes.map((volume) => `${volume.name ?? 'data'} ${volume.size ?? ''}`.trim()).join(', ')}`] : []),
+        'Deployable from the catalogue once added.',
+      ]);
     },
 
     async propose_project_dependency({ parsed, caller }): Promise<ToolOutcome> {

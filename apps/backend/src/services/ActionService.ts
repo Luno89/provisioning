@@ -1,12 +1,14 @@
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { DECIDABLE } from '../lib/action-proposals.js';
 import { declareDependency } from '../lib/declare-dependency.js';
+import { explainSpecProblems, validateSpec } from '../lib/app-spec-validate.js';
+import { visibleAppSpecs, type AppSpec } from '../lib/app-spec.js';
 import type { Database } from '../lib/db-interface.js';
 import type { PipelineRunMetadata, ProjectMetadata } from '../lib/types.js';
 
 export type ActionStore = Pick<Database,
   'getActionProposals' | 'getActionProposal' | 'saveActionProposal'
-  | 'getProjects' | 'saveProject' | 'getPipelineRuns' | 'getDeployments' | 'getAppSpecs' | 'getBindingTypes'>;
+  | 'getProjects' | 'saveProject' | 'getPipelineRuns' | 'getDeployments' | 'getAppSpecs' | 'saveAppSpec' | 'getBindingTypes'>;
 
 export interface ActionDeployer {
   deployApp(config: Record<string, unknown>, userId: string): Promise<{ id: string; resourceId?: string | undefined }>;
@@ -88,6 +90,16 @@ export class ActionService {
         const project = await this.project(ownerId, params.projectId);
         await this.deps.store.saveProject({ ...project, deployEnv: params.env ?? '', updatedAt: this.now() } as ProjectMetadata);
         return `${project.name}'s environment is set; it takes effect on the next deploy`;
+      }
+      case 'add_app_spec': {
+        const spec = JSON.parse(params.spec ?? '{}') as AppSpec;
+        const problems = validateSpec(spec);
+        if (problems.length) throw new Error(explainSpecProblems(problems));
+        const existing = visibleAppSpecs(await this.deps.store.getAppSpecs(), ownerId).find((entry) => entry.id === spec.id);
+        if (existing?.builtIn) throw new Error(`"${spec.id}" ships with the platform and cannot be replaced`);
+        const stamp = this.now();
+        await this.deps.store.saveAppSpec({ id: spec.id, spec, builtIn: false, ownerId, createdAt: existing?.createdAt ?? stamp, updatedAt: stamp });
+        return `"${spec.id}" is in your catalogue and can be deployed`;
       }
       case 'add_project_dependency': {
         const out = await declareDependency(this.deps.store, ownerId, { projectId: params.projectId, service: params.service, as: params.as });

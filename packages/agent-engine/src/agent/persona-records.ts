@@ -11,7 +11,7 @@ export const PERSONA_SEEDS: Persona[] = [
     name: "Koala",
     description: "Talks things through and works out what needs doing",
     version: "3",
-    tools: ["request_secret", "list_project_secrets", "enable_mcp_server", "list_infrastructure", "get_logs", "get_events", "inspect_resources", "cluster_capacity", "request_cluster_access", "get_project_pipeline", "get_project_url", "get_project_env", "read_project_path", "propose_deploy_app", "propose_deploy_project", "propose_project_env", "propose_project_dependency"],
+    tools: ["request_secret", "list_project_secrets", "enable_mcp_server", "list_infrastructure", "get_logs", "get_events", "inspect_resources", "cluster_capacity", "request_cluster_access", "get_project_pipeline", "get_project_url", "get_project_env", "read_project_path", "propose_deploy_app", "propose_deploy_project", "propose_project_env", "propose_project_dependency", "propose_app_spec"],
     agents: ["planner","research"],
     environment: {},
     interface: {"inputs":{"type":"object","properties":{"message":{"type":"string"},"conversationId":{"type":"string"},"treeId":{"type":"string","description":"The Grove tree this conversation is about, when it is about one."},"tree":{"type":"string","description":"What that tree holds right now: its goal, branches and leaves with their states."},"projectId":{"type":"string","description":"The project this conversation is about, when it is about one that has no tree yet."},"project":{"type":"string","description":"Which project that is."}}}},

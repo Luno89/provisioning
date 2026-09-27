@@ -259,6 +259,13 @@ export const BUILDER_CASES: EvalCase[] = [
     expect: { tool: 'propose_project_env' },
   },
   {
+    name: 'koala/proposes-a-new-app',
+    category: 'simple',
+    agent: 'koala',
+    say: 'The catalogue has no whoami service. Add one to it from the image traefik/whoami, which listens on port 80.',
+    expect: { tool: 'propose_app_spec' },
+  },
+  {
     name: 'koala/explains-a-reference-without-a-tool',
     category: 'irrelevance',
     agent: 'koala',

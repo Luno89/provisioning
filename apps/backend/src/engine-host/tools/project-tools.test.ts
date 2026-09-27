@@ -22,7 +22,7 @@ function tools() {
       runs: async () => RUNS,
       deployments: async () => [{ name: 'taken', clusterId: 'provisioning-lunorica' }] as DeploymentMetadata[],
       clusters: async () => CLUSTERS,
-      appTypes: async () => [{ id: 'qdrant', label: 'Qdrant Vector Database', strategies: ['native'] }, { id: 'nextcloud', strategies: ['helm', 'native'] }],
+      appTypes: async () => [{ id: 'qdrant', label: 'Qdrant Vector Database', strategies: ['native'], builtIn: true }, { id: 'nextcloud', strategies: ['helm', 'native'], builtIn: true }],
       readPath: async (_project, path) => ({ path, type: 'file', content: 'hello' }),
       bindingCheck: async (_owner, service) => (service === 'qdrant-1' ? { name: 'qdrant', type: 'vector-db' } : { problem: `no service ${service}` }),
       proposals: { list: async () => proposals, save: async (proposal) => { proposals.push(proposal); } },
@@ -80,5 +80,24 @@ describe('proposing, never acting', () => {
     expect((await call('propose_project_dependency', { projectId: 'p1', service: 'nope' })).digest).toContain('no service nope');
     await call('propose_project_dependency', { projectId: 'p1', service: 'qdrant-1' });
     expect(proposals[0]).toMatchObject({ kind: 'add_project_dependency', params: { projectId: 'p1', service: 'qdrant-1' } });
+  });
+});
+
+describe('proposing an app spec', () => {
+  const spec = { id: 'mongo', image: 'mongo:7', ports: [{ name: 'mongo', port: 27017 }], resources: { limits: { memory: '1Gi', cpu: '1000m' } } };
+
+  it('proposes a valid spec as a card showing what it runs', async () => {
+    const { call, proposals } = tools();
+    await call('propose_app_spec', { spec });
+    expect(proposals[0]).toMatchObject({ kind: 'add_app_spec', summary: 'add the app "mongo" in the catalogue' });
+    expect(proposals[0]!.detail).toEqual(expect.arrayContaining(['Image: mongo:7', 'Ports: 27017 (mongo)']));
+    expect(JSON.parse(proposals[0]!.params.spec!)).toEqual(spec);
+  });
+
+  it('refuses an unsafe spec with every problem, and a built-in id', async () => {
+    const { call, proposals } = tools();
+    expect((await call('propose_app_spec', { spec: { ...spec, hostNetwork: true } })).digest).toContain('may not reach the node');
+    expect((await call('propose_app_spec', { spec: { ...spec, id: 'qdrant' } })).digest).toContain('ships with the platform');
+    expect(proposals).toEqual([]);
   });
 });

@@ -681,7 +681,7 @@ export interface McpRequest {
   updatedAt: string;
 }
 
-export type ActionKind = 'deploy_app' | 'deploy_project' | 'set_project_env' | 'add_project_dependency';
+export type ActionKind = 'deploy_app' | 'deploy_project' | 'set_project_env' | 'add_project_dependency' | 'add_app_spec';
 export type ActionStatus = 'proposed' | 'applying' | 'applied' | 'rejected' | 'failed';
 
 export interface ActionProposal {

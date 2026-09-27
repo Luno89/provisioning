@@ -47,6 +47,13 @@ describe('/api/actions', () => {
     expect((await harness.db.getProjects()).find((p) => p.id === 'p1')?.deployEnv).toBe('A=1\nB=2');
   });
 
+  it('adds an app spec to the person\'s catalogue when applied', async () => {
+    const spec = { id: 'mongo', image: 'mongo:7', ports: [{ name: 'mongo', port: 27017 }], resources: { limits: { memory: '1Gi', cpu: '1000m' } } };
+    await harness.db.saveActionProposal(proposal({ kind: 'add_app_spec', params: { spec: JSON.stringify(spec) } }));
+    expect((await post(harness.url('/api/actions/a1/apply'))).data.status).toBe('applied');
+    expect((await harness.db.getAppSpecs()).find((entry) => entry.id === 'mongo')).toMatchObject({ builtIn: false, ownerId: TEST_USER.id, spec: { image: 'mongo:7' } });
+  });
+
   it('records a failure with its reason and lets it be tried again', async () => {
     deployer.deployApp = vi.fn(async () => { throw new Error('not enough memory on k'); });
     await harness.db.saveActionProposal(proposal({ params: { appType: 'qdrant', name: 'v', clusterId: 'k' } }));

@@ -98,6 +98,19 @@ export const PROJECT_TOOLS: ToolDefinition[] = [
     [NO_PROJECT, { when: 'a key is not an environment variable name', says: 'which one' }, { when: 'nothing would change', says: 'so' }],
   ),
   proposer(
+    'propose_app_spec',
+    'Propose adding an app to the person\'s catalogue from a container image — its ports, environment, volumes and probes — so it can then be deployed like any catalogue app',
+    'Use this when someone wants to run something the catalogue does not have. Write the whole spec; it is checked all at once. A credential is never written into env: mark it generate with fromSecret, or leave it for request_secret.',
+    {
+      spec: {
+        type: 'object',
+        description: 'The app spec: { id, image, ports: [{ name, port }], env: [{ name, value } | { name, generate, fromSecret }], volumes: [{ name, mountPath, size, type }], resources: { limits: { cpu, memory } }, liveness: { path, port }, readiness: { path, port } }. Probes are an HTTP path and a port — not the Kubernetes httpGet shape.',
+      },
+    },
+    ['spec'],
+    [{ when: 'the spec is incomplete or unsafe', says: 'every problem, and that nothing was proposed' }, { when: 'the id is a built-in app', says: 'to pick another id' }],
+  ),
+  proposer(
     'propose_project_dependency',
     'Propose letting a project use one of the person\'s running services — a database, a queue, a model server',
     'Use this when a project\'s code needs another service. Its address and credentials are mounted as files at deploy, so the code reads them rather than hard-coding them.',

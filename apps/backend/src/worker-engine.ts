@@ -104,7 +104,7 @@ async function buildActivities() {
         ...(await db.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
       ],
       appTypes: async (ownerId) => visibleAppSpecs(await db.getAppSpecs(), ownerId)
-        .map((spec) => ({ id: spec.id, ...(spec.label ? { label: spec.label } : {}), ...(spec.uiDefaults?.strategies ? { strategies: spec.uiDefaults.strategies } : {}) })),
+        .map((spec) => ({ id: spec.id, builtIn: spec.builtIn, ...(spec.label ? { label: spec.label } : {}), ...(spec.uiDefaults?.strategies ? { strategies: spec.uiDefaults.strategies } : {}) })),
       readPath: (project, path) => projectRepos.readPath(project, path),
       bindingCheck: async (ownerId, service, as) => {
         const dynamicTypes = await db.getBindingTypes().catch(() => []);

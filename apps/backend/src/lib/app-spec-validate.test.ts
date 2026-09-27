@@ -130,3 +130,11 @@ describe('what the author is told', () => {
     }
   });
 });
+
+describe('probes', () => {
+  it('are a path and a port, and the Kubernetes shape is named for what it is', () => {
+    expect(validateSpec({ ...ok(), liveness: { path: '/', port: 27017 } })).toEqual([]);
+    expect(explainSpecProblems(validateSpec({ ...ok(), readiness: { httpGet: { path: '/', port: 80 } } }))).toContain('not the Kubernetes httpGet');
+    expect(explainSpecProblems(validateSpec({ ...ok(), liveness: { path: 'health', port: 0 } }))).toMatch(/liveness\.path[\s\S]*liveness\.port/);
+  });
+});

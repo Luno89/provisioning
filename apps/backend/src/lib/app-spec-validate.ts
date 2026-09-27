@@ -123,6 +123,21 @@ export function validateSpec(raw: unknown): SpecProblem[] {
     }
   }
 
+  for (const which of ['liveness', 'readiness'] as const) {
+    const probe = (spec as Record<string, unknown>)[which] as Record<string, unknown> | undefined;
+    if (probe === undefined) continue;
+    if (typeof probe !== 'object' || probe === null || Array.isArray(probe)) {
+      say(which, 'must be { path, port }.');
+      continue;
+    }
+    if ('httpGet' in probe || 'tcpSocket' in probe || 'exec' in probe) {
+      say(which, 'is { path, port } here, not the Kubernetes httpGet/tcpSocket/exec shape.');
+      continue;
+    }
+    if (typeof probe.path !== 'string' || !probe.path.startsWith('/')) say(`${which}.path`, 'must be an HTTP path starting with /.');
+    if (!Number.isInteger(probe.port) || (probe.port as number) < 1 || (probe.port as number) > 65535) say(`${which}.port`, 'must be a port number.');
+  }
+
   const seen = new Map<string, string>();
   for (const [i, e] of (spec.env ?? []).entries()) {
     if (!e?.fromSecret) continue;
