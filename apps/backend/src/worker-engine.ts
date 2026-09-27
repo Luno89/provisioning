@@ -89,6 +89,7 @@ async function buildActivities() {
     models,
     stores: storesFromDatabase(db),
     vault,
+    egressSecret: process.env.JWT_SECRET,
     projects: {
       projects: { list: () => db.getProjects() },
       trees: { list: () => db.getTrees() },

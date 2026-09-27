@@ -15,7 +15,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { ActionProposal, McpRequest } from '@koala/harness-types';
+import type { ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -177,6 +177,14 @@ export class MongoDB implements Database {
 
   private get actionProposals(): Collection {
     return this.db!.collection('actionProposals');
+  }
+
+  private get egressGrants(): Collection {
+    return this.db!.collection('egressGrants');
+  }
+
+  private get egressRequests(): Collection {
+    return this.db!.collection('egressRequests');
   }
 
   private get memories(): Collection {
@@ -770,6 +778,38 @@ export class MongoDB implements Database {
     const id = doc._id;
     const { _id, ...rest } = doc;
     await this.actionProposals.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {
+    const docs = await this.egressGrants.find(ownerId === undefined ? {} : { ownerId }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<EgressGrantRecord>(d));
+  }
+
+  async saveEgressGrant(grant: EgressGrantRecord): Promise<void> {
+    const doc = toDoc(grant);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.egressGrants.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getEgressRequests(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<EgressRequest[]> {
+    const query: Record<string, unknown> = { ownerId };
+    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
+    if (filter.treeId !== undefined) query.treeId = filter.treeId;
+    const docs = await this.egressRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<EgressRequest>(d));
+  }
+
+  async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {
+    const doc = await this.egressRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<EgressRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveEgressRequest(request: EgressRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.egressRequests.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {

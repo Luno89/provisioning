@@ -29,6 +29,7 @@ export interface RunWorkspace {
   egress: EgressRule[];
   env: { name: string; value: string }[];
   egressMode: EgressMode;
+  grantedHosts?: string[] | undefined;
   persistent?: boolean | undefined;
 }
 
@@ -118,10 +119,13 @@ const PACKAGE_MANAGERS = [
 ] as const;
 
 function reachable(workspace: RunWorkspace): string[] {
-  return workspace.egress.map((rule) => {
-    const ports = rule.ports?.length ? ` on port ${rule.ports.join(', ')}` : '';
-    return rule.namespace ? `the ${rule.namespace} service${ports}` : `${rule.cidr}${ports}`;
-  });
+  return [
+    ...workspace.egress.map((rule) => {
+      const ports = rule.ports?.length ? ` on port ${rule.ports.join(', ')}` : '';
+      return rule.namespace ? `the ${rule.namespace} service${ports}` : `${rule.cidr}${ports}`;
+    }),
+    ...(workspace.grantedHosts ?? []).map((host) => `${host} (granted to you, through the proxy HTTPS_PROXY already points at)`),
+  ];
 }
 
 function packageNote(workspace: RunWorkspace): string {

@@ -13,6 +13,7 @@ import {
 import { engineKeys, listEngineAgents, listRunTraces } from '../../api/engine'
 import { agentKeys, deleteAgent, listAgents, listGrantableTools, saveAgent, type Agent } from '../../api/agents'
 import { listMcpServers, mcpKeys } from '../../api/mcp'
+import { egressKeys, listEgressGrants, revokeEgress } from '../../api/egress'
 import {
   deleteEngineTool,
   engineToolKeys,
@@ -60,6 +61,13 @@ export const NODE_DRAG_TYPE = 'application/x-koala-node'
 
 export function useAgents() {
   return useQuery({ queryKey: agentKeys.all, queryFn: listAgents })
+}
+
+export function useEgressGrants(agent: string) {
+  const qc = useQueryClient()
+  const grants = useQuery({ queryKey: egressKeys.grants(agent), queryFn: () => listEgressGrants(agent), enabled: Boolean(agent) })
+  const revoke = useMutation({ mutationFn: (id: string) => revokeEgress(id), onSuccess: () => { void qc.invalidateQueries({ queryKey: egressKeys.all }) } })
+  return { grants: grants.data ?? [], revoke: (id: string) => revoke.mutate(id), busy: revoke.isPending }
 }
 
 export function useMcpServerList() {

@@ -326,14 +326,16 @@ describe('the package sources a language needs', () => {
 
   it('names only hosts the committed allowlist actually permits', () => {
     const filter = readFileSync(join(import.meta.dirname, '../../../../k8s/koala-egress/egress-proxy.yaml'), 'utf8');
-    const allowed = [...filter.matchAll(/^\s{4}\^(.+)\$$/gm)].map((m) => m[1]!.replace(/\\/g, ''));
+    const line = /acl registries dstdomain (.+)$/m.exec(filter)?.[1] ?? '';
+    const allowed = line.trim().split(/\s+/);
+    expect(allowed.length).toBeGreaterThan(0);
     for (const language of ['node', 'python', 'go'] as const) {
       const hosts = packageAccess(IMAGES, language).env
         .flatMap((e) => e.value.split(','))
         .map((part) => part.trim().replace(/^https?:\/\//, '').split(/[/:]/)[0]!)
         .filter((h) => h && h !== 'direct' && h !== 'off' && !h.endsWith('.svc.cluster.local'));
       for (const host of hosts) {
-        expect(allowed.some((a) => a === host || (a.startsWith('.+.') && host.endsWith(a.slice(2)))), `${host} is not in the proxy allowlist`).toBe(true);
+        expect(allowed.some((a) => a === host || (a.startsWith('.') && (host.endsWith(a) || host === a.slice(1)))), `${host} is not in the proxy allowlist`).toBe(true);
       }
     }
   });

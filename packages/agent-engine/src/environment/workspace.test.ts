@@ -27,3 +27,13 @@ describe('describeWorkspace', () => {
     expect(text).not.toContain('destroyed when the run ends');
   });
 });
+
+describe('a workspace with granted hosts', () => {
+  it('tells the model exactly which hosts it may reach', () => {
+    const text = describeWorkspace({
+      runId: 'r', ownerId: 'u', agent: 'executor', image: 'img', provides: ['curl'], lifetimeMs: 60_000, cpu: '1', memory: '1Gi',
+      egress: [{ namespace: 'koala-egress', ports: [8888] }], env: [], egressMode: 'declared', grantedHosts: ['api.stripe.com'],
+    });
+    expect(text).toContain('api.stripe.com (granted to you');
+  });
+});

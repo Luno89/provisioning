@@ -23,6 +23,7 @@ import { createEffortTracker, type EffortTracker, type EffortTrackerOptions } fr
 import { createCodeRunner } from './nodes/code-runner.js';
 import { createWorkspaceImages, type WorkspaceImages } from './sandboxes/warm-images.js';
 import { createMcpToolSource } from './tools/mcp-tools.js';
+import { proxyUrlFor } from '../lib/egress-proxy.js';
 
 export interface EngineHostStores {
   personas: { list(ownerId?: string): Promise<Persona[]> };
@@ -53,6 +54,7 @@ export interface EngineHostStores {
   };
   secrets?: import('./tools/secret-tools.js').SecretToolStores | undefined;
   mcp?: import('./tools/mcp-tools.js').McpToolStores | undefined;
+  egress?: import('./tools/egress-tools.js').EgressToolStores | undefined;
 }
 
 export interface EngineHostOptions {
@@ -70,6 +72,7 @@ export interface EngineHostOptions {
   mcp?: import('./tools/mcp-tools.js').McpAccess | undefined;
   kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
   projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
+  egressSecret?: string | undefined;
 }
 
 export interface EngineHost {
@@ -128,6 +131,16 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     images,
     tools: (ownerId: string) => catalogue.list(ownerId),
     machineBackend: createMachineBackend(),
+    ...(stores.egress && options.egressSecret
+      ? {
+        egress: {
+          grants: async (ownerId: string, agentSlug: string) => (await stores.egress!.grants(ownerId))
+            .filter((grant) => grant.agentSlug === agentSlug && !grant.revokedAt)
+            .map((grant) => ({ host: grant.host, ...(grant.ports ? { ports: grant.ports } : {}) })),
+          proxyUrl: (ownerId: string, agentSlug: string) => proxyUrlFor(options.egressSecret!, ownerId, agentSlug),
+        },
+      }
+      : {}),
   });
 
   const treeWorkspaces = createTreeWorkspaces({ resolver: environments, kube });
@@ -149,6 +162,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(options.mcp && stores.mcp ? { mcp: { access: options.mcp, stores: stores.mcp } } : {}),
       ...(options.kube ? { kube: options.kube } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
+      ...(stores.egress ? { egress: stores.egress } : {}),
       platform: {
         ...(web
           ? {
@@ -245,6 +259,11 @@ export function storesFromDatabase(db: Database): EngineHostStores {
       },
     },
     memories: { list: (ownerId: string) => db.getMemories(ownerId), save: (item: MemoryItem) => db.saveMemory(item) },
+    egress: {
+      grants: (ownerId: string) => db.getEgressGrants(ownerId),
+      requests: { list: (ownerId: string) => db.getEgressRequests(ownerId), save: (request) => db.saveEgressRequest(request) },
+      trees: { list: () => db.getTrees() },
+    },
     mcp: {
       enabled: async (ownerId: string, conversationId: string) => (await db.getConversation(ownerId, conversationId))?.mcpServers ?? [],
       requests: {

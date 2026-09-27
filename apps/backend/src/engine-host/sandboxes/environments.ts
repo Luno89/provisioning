@@ -1,10 +1,8 @@
 import {
   environmentFor,
   needsWorkspace,
-  activeGrants,
   type AgentDefinition,
   type EgressMode,
-  type EgressGrant,
   allowAll,
   type ApprovalGate,
   BASES,
@@ -15,7 +13,7 @@ import { createNoneDriver } from '@koala/engine-core';
 import { createMachineDriver, type MachineBackend } from '../drivers/machine.js';
 import { environmentIdFor, type RunEnvironments } from './run-environments.js';
 import {
-  DEFAULT_CPU, DEFAULT_MEMORY, egressFor, lifetimeFor, packageAccessFor,
+  DEFAULT_CPU, DEFAULT_MEMORY, EGRESS_PROXY, egressFor, lifetimeFor, packageAccessFor,
   type EgressRule, type RunWorkspace,
 } from './workspace.js';
 import type { ImageBuilder } from './image-builder.js';
@@ -52,6 +50,10 @@ export interface EnvironmentResolverOptions {
   workspaces?: WorkspaceSource | undefined;
   machineBackend?: MachineBackend | undefined;
   approval?: ApprovalGate | undefined;
+  egress?: {
+    grants(ownerId: string, agentSlug: string): Promise<{ host: string; ports?: number[] | undefined }[]>;
+    proxyUrl(ownerId: string, agentSlug: string): string;
+  } | undefined;
 }
 
 export class NoMachineAvailableError extends Error {
@@ -69,6 +71,8 @@ export async function workspaceFor(input: {
   images: ImageBuilder;
   egressMode: EgressMode;
   wallClockLimitMs?: number | undefined;
+  grants?: readonly { host: string; ports?: readonly number[] | undefined }[] | undefined;
+  proxyUrl?: string | undefined;
 }): Promise<RunWorkspace> {
   const plan = planFor(input.agent, input.tools);
   if (!plan) throw new Error(`${input.agent.slug} does not run in a sandbox, so it has no workspace image`);
@@ -76,10 +80,11 @@ export async function workspaceFor(input: {
   const reference = await input.images.ensure(plan);
   const access = packageAccessFor(plan.provides);
 
-  const hosts = activeGrants(input.agent).map((grant: EgressGrant) => ({
-    cidr: '0.0.0.0/0',
-    ...(grant.ports?.length ? { ports: grant.ports } : {}),
-  } as EgressRule));
+  const granted = input.egressMode === 'none' || input.egressMode === 'auto' || !input.proxyUrl ? [] : [...(input.grants ?? [])];
+  const credentialed = granted.length > 0
+    ? [{ name: 'HTTPS_PROXY', value: input.proxyUrl! }, { name: 'https_proxy', value: input.proxyUrl! }]
+    : [];
+  const env = [...access.env.filter((entry) => !credentialed.some((over) => over.name === entry.name)), ...credentialed];
 
   return {
     runId: input.runId,
@@ -91,13 +96,17 @@ export async function workspaceFor(input: {
     lifetimeMs: lifetimeFor(input.wallClockLimitMs),
     cpu: DEFAULT_CPU,
     memory: DEFAULT_MEMORY,
-    egress: egressFor(input.egressMode, access, input.egressMode === 'auto' ? [] : hosts),
-    env: access.env,
+    egress: egressFor(input.egressMode, access, granted.length > 0 ? [EGRESS_PROXY] : []),
+    env,
+    ...(granted.length > 0 ? { grantedHosts: granted.map((grant) => `${grant.host}${grant.ports?.length ? `:${grant.ports.join(',')}` : ''}`) } : {}),
   };
 }
 
 export function createEnvironmentResolver(options: EnvironmentResolverOptions): EnvironmentResolver {
   const approval = options.approval ?? allowAll();
+  const egressFor_ = async (ownerId: string, agentSlug: string) => (options.egress
+    ? { grants: await options.egress.grants(ownerId, agentSlug), proxyUrl: options.egress.proxyUrl(ownerId, agentSlug) }
+    : {});
 
   const specFor = async (ticket: RunTicket): Promise<
     { agent: AgentDefinition; spec: EnvironmentSpec; workspace: boolean } | undefined
@@ -132,6 +141,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
         tools: await options.tools(ticket.ownerId),
         images: options.images,
         egressMode: merged.egressMode ?? 'declared',
+        ...(await egressFor_(ticket.ownerId, merged.slug)),
       });
 
       return {
@@ -179,6 +189,7 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
           images: options.images,
           egressMode,
           wallClockLimitMs,
+          ...(await egressFor_(ticket.ownerId, agent.slug)),
         }),
       };
     },

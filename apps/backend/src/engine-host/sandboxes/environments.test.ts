@@ -211,6 +211,34 @@ describe('describing a run environment', () => {
     });
   });
 
+  it('gives a persona its granted hosts through its own proxy credential, and never an open network rule', async () => {
+    const workspaces: WorkspaceSource = { forRun: async () => ({ kind: 'sandbox', spec: { languages: ['node'] } }) };
+    const { resolver } = setup({
+      workspaces,
+      egress: {
+        grants: async (_owner, slug) => (slug === 'executor' ? [{ host: 'api.stripe.com' }] : []),
+        proxyUrl: (owner, slug) => `http://u-${owner}-${slug}:pw@egress-proxy.koala-egress.svc.cluster.local:8888`,
+      },
+    });
+    const granted = await resolver.describe(ticket('executor'));
+    if (granted.kind !== 'sandbox') throw new Error('expected a sandbox');
+    expect(granted.workspace.env).toEqual(expect.arrayContaining([
+      { name: 'HTTPS_PROXY', value: 'http://u-user-1-executor:pw@egress-proxy.koala-egress.svc.cluster.local:8888' },
+    ]));
+    expect(granted.workspace.egress.every((rule) => rule.cidr === undefined)).toBe(true);
+    expect(granted.workspace.egress).toEqual(expect.arrayContaining([expect.objectContaining({ namespace: 'koala-egress' })]));
+    expect(granted.workspace.grantedHosts).toEqual(['api.stripe.com']);
+  });
+
+  it('gives no credential to a persona with no grants', async () => {
+    const workspaces: WorkspaceSource = { forRun: async () => ({ kind: 'sandbox', spec: { languages: ['node'] } }) };
+    const { resolver } = setup({ workspaces, egress: { grants: async () => [], proxyUrl: () => 'http://x:y@proxy' } });
+    const described = await resolver.describe(ticket('executor'));
+    if (described.kind !== 'sandbox') throw new Error('expected a sandbox');
+    expect(JSON.stringify(described.workspace.env)).not.toContain('x:y@');
+    expect(described.workspace.grantedHosts).toBeUndefined();
+  });
+
   it('treats an agent that does not exist as having no machine, rather than guessing one', async () => {
     const { resolver } = setup();
     expect(await resolver.describe(ticket('ghost'))).toMatchObject({ kind: 'none', egress: false });

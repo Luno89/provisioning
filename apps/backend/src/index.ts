@@ -25,6 +25,9 @@ import { plansRouter } from './routes/plans.js';
 import { secretRequestsRouter } from './routes/secret-requests.js';
 import { mcpRouter } from './routes/mcp.js';
 import { actionsRouter } from './routes/actions.js';
+import { egressRouter } from './routes/egress.js';
+import { EgressService } from './services/EgressService.js';
+import { EgressProxyService } from './services/EgressProxyService.js';
 import { ActionService } from './services/ActionService.js';
 import { McpService } from './services/McpService.js';
 import { SecretRequestService } from './services/SecretRequestService.js';
@@ -695,6 +698,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   };
   app.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db, servers: mcpServersOf }) }));
   app.use('/api/actions', actionsRouter({ actions: new ActionService({ store: db, deployer: temporalBridge }) }));
+  const egressService = new EgressService({
+    store: db,
+    proxy: new EgressProxyService({ kube: infraService, secret: JWT_SECRET, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' }),
+  });
+  app.use('/api/egress', egressRouter({ egress: egressService }));
+  if (process.env.NODE_ENV !== 'test') {
+    egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
+  }
 
   app.use('/api/leaves', leavesRouter({ db, runs: groveRuns, deletion: groveDeletion }));
 

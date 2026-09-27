@@ -27,6 +27,9 @@ import { useConversationMcp, useMcpServers } from './Chat/hooks/useMcp.js';
 import ActionProposalCard from './Chat/ActionProposalCard.js';
 import { useActionProposals } from './Chat/hooks/useActionProposals.js';
 import { actionKeys, listConversationActions } from '../api/actions.js';
+import EgressRequestCard from './Chat/EgressRequestCard.js';
+import { useEgressRequests } from './Chat/hooks/useEgressRequests.js';
+import { egressKeys, listEgressRequests } from '../api/egress.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
 
 export type { ChatMessageRecord };
@@ -78,6 +81,12 @@ export default function ChatSurface({
   );
   const mcp = useConversationMcp(conv.selectedConvId, streaming);
   const { data: mcpServers = [] } = useMcpServers();
+  const egress = useEgressRequests(
+    egressKeys.requests('conversation', conv.selectedConvId ?? ''),
+    () => listEgressRequests('conversationId', conv.selectedConvId!),
+    Boolean(conv.selectedConvId),
+    streaming,
+  );
   const actions = useActionProposals(
     actionKeys.forConversation(conv.selectedConvId ?? ''),
     () => listConversationActions(conv.selectedConvId!),
@@ -250,6 +259,17 @@ export default function ChatSurface({
                       onApprove={() => planProposals.approve(proposal.id)}
                       onReject={(reason) => planProposals.reject(proposal.id, reason)}
                       onOpenTree={onOpenTree}
+                    />
+                  ))}
+
+                  {egress.requests.map((request) => (
+                    <EgressRequestCard
+                      key={request.id}
+                      request={request}
+                      busy={egress.busy}
+                      error={egress.error}
+                      onAllow={() => egress.allow(request.id)}
+                      onDismiss={() => egress.dismiss(request.id)}
                     />
                   ))}
 

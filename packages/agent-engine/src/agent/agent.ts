@@ -17,32 +17,6 @@ export interface AgentInterface {
 
 export type EgressMode = 'none' | 'declared' | 'request' | 'auto';
 
-export interface EgressGrant {
-  host: string;
-  ports?: number[] | undefined;
-  approvedBy: string;
-  approvedAt: string;
-  reason?: string | undefined;
-  revokedAt?: string | undefined;
-  revokedBy?: string | undefined;
-}
-
-export function activeGrants(agent: Pick<Persona, 'egress'>): EgressGrant[] {
-  return (agent.egress ?? []).filter((grant) => !grant.revokedAt);
-}
-
-export function revokeGrant(
-  grants: readonly EgressGrant[],
-  host: string,
-  by: string,
-  at: string,
-): EgressGrant[] {
-  return grants.map((grant) =>
-    (grant.host === host && !grant.revokedAt
-      ? { ...grant, revokedAt: at, revokedBy: by }
-      : grant));
-}
-
 export interface Persona {
   slug: string;
   ownerId?: string | undefined;
@@ -65,7 +39,6 @@ export interface Persona {
   environmentSpec?: EnvironmentSpec | undefined;
   interface?: AgentInterface | undefined;
   egressMode?: EgressMode | undefined;
-  egress?: EgressGrant[] | undefined;
 }
 
 export function visibleAgents(all: readonly Persona[], ownerId: string): Persona[] {

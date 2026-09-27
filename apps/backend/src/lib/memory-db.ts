@@ -16,7 +16,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { ActionProposal, McpRequest } from '@koala/harness-types';
+import type { ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -53,6 +53,8 @@ export class MemoryDB implements Database {
   private secretRequests: SecretRequest[] = [];
   private mcpRequests: McpRequest[] = [];
   private actionProposals: ActionProposal[] = [];
+  private egressGrants: EgressGrantRecord[] = [];
+  private egressRequests: EgressRequest[] = [];
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
   private runEffort = new Map<string, RunEffort>();
@@ -575,6 +577,34 @@ export class MemoryDB implements Database {
     const idx = this.actionProposals.findIndex((p) => p.id === proposal.id);
     if (idx >= 0) this.actionProposals[idx] = proposal;
     else this.actionProposals.push(proposal);
+  }
+
+  async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {
+    return this.egressGrants.filter((g) => ownerId === undefined || g.ownerId === ownerId);
+  }
+
+  async saveEgressGrant(grant: EgressGrantRecord): Promise<void> {
+    const idx = this.egressGrants.findIndex((g) => g.id === grant.id);
+    if (idx >= 0) this.egressGrants[idx] = grant;
+    else this.egressGrants.push(grant);
+  }
+
+  async getEgressRequests(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<EgressRequest[]> {
+    return this.egressRequests
+      .filter((r) => r.ownerId === ownerId
+        && (filter.conversationId === undefined || r.conversationId === filter.conversationId)
+        && (filter.treeId === undefined || r.treeId === filter.treeId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {
+    return this.egressRequests.find((r) => r.id === id && r.ownerId === ownerId);
+  }
+
+  async saveEgressRequest(request: EgressRequest): Promise<void> {
+    const idx = this.egressRequests.findIndex((r) => r.id === request.id);
+    if (idx >= 0) this.egressRequests[idx] = request;
+    else this.egressRequests.push(request);
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {

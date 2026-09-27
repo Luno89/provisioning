@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { Agent } from '../../api/agents'
-import { errorMessage, useDeleteAgent, useGrantableTools, useMcpServerList, useProcedureList, useSaveAgent } from './shared'
+import { errorMessage, useDeleteAgent, useEgressGrants, useGrantableTools, useMcpServerList, useProcedureList, useSaveAgent } from './shared'
 import { NEEDS, requirementFor, toolProblem, withRequired } from './agent-forms'
 
 const field = 'w-full rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] px-2 py-1 text-xs text-slate-200 outline-none focus:border-[var(--leaf-stem)]'
@@ -15,6 +15,7 @@ export default function AgentEditor({ agent, agents, onClose }: {
 }) {
   const [draft, setDraft] = useState<Agent>(agent)
   const [problems, setProblems] = useState<string[]>([])
+  const egress = useEgressGrants(draft.slug)
   const mcpServers = useMcpServerList()
   const grantable = useGrantableTools()
   const languages = grantable.data?.languages ?? []
@@ -168,6 +169,20 @@ export default function AgentEditor({ agent, agents, onClose }: {
             )
           })}
         </div>
+      </div>
+
+      <div className="space-y-1">
+        <span className={label}>Hosts it may reach from its workspace</span>
+        {egress.grants.length === 0 && <p className="text-[11px] text-slate-500">Only the package registries. It can ask for more with request_egress.</p>}
+        <ul className="flex flex-col gap-1 text-[11px] text-slate-300">
+          {egress.grants.map((grant) => (
+            <li key={grant.id} className="flex items-center gap-2">
+              <span className="font-mono">{grant.host}{grant.ports?.length ? `:${grant.ports.join(',')}` : ''}</span>
+              {grant.reason && <span className="text-slate-500 truncate">— {grant.reason}</span>}
+              <button type="button" disabled={egress.busy} onClick={() => egress.revoke(grant.id)} className="ml-auto px-1.5 py-0.5 rounded bg-[var(--bark-700)] hover:bg-[var(--bark-600)] disabled:opacity-50 cursor-pointer">Revoke</button>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div className="space-y-1">

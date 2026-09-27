@@ -40,6 +40,7 @@ export const STANDARD_HOST_TOOL_NAMES: readonly string[] = [
   'propose_deploy_project',
   'propose_project_env',
   'propose_project_dependency',
+  'request_egress',
 ];
 import { PERSONA_SEEDS } from './persona-records.js';
 
@@ -120,7 +121,7 @@ export const SEEDED_AGENTS: Persona[] = [
       'If asked a general question or asked to explain a concept without touching the workspace, answer directly without calling any tools.',
     ].join('\n'),
     procedure: 'do-one-task',
-    tools: ['start_task', 'mark_done', 'mark_failed', 'run_command', 'read_file', 'write_file', 'list_dir', 'request_secret', 'list_project_secrets'],
+    tools: ['start_task', 'mark_done', 'mark_failed', 'run_command', 'read_file', 'write_file', 'list_dir', 'request_secret', 'list_project_secrets', 'request_egress'],
     agents: ['judge'],
     environment: { terminal: true, filesystem: true, workspace: true },
     interface: {

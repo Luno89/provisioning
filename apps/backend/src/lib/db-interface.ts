@@ -12,7 +12,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { ActionProposal, McpRequest } from '@koala/harness-types';
+import type { ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -155,6 +155,12 @@ export interface Database {
   getActionProposals(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<ActionProposal[]>;
   getActionProposal(ownerId: string, id: string): Promise<ActionProposal | undefined>;
   saveActionProposal(proposal: ActionProposal): Promise<void>;
+
+  getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]>;
+  saveEgressGrant(grant: EgressGrantRecord): Promise<void>;
+  getEgressRequests(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<EgressRequest[]>;
+  getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined>;
+  saveEgressRequest(request: EgressRequest): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;

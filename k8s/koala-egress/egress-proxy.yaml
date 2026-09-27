@@ -1,13 +1,12 @@
 # The one way out of a sandbox.
 #
 # Sandboxes have no DNS resolver and no general egress (see lib/workspace-spec.ts). They reach
-# package registries only by sending CONNECT to this proxy, which resolves the name itself and
-# refuses anything not on the filter list below. That inversion is the whole point: the sandbox
-# cannot look up an address, so it cannot encode data into a hostname and let a DNS query carry it
-# out, and it cannot dial an address it was never able to resolve.
+# anything outside only by sending CONNECT to this proxy, which resolves the name itself. Without a
+# credential it reaches the package registries below and nothing else. A persona that was granted a
+# host sends a credential of its own, and the grants file lets exactly that credential reach exactly
+# those hosts and ports — so a grant widens one persona, never every sandbox.
 #
-# FilterDefaultDeny is the load-bearing line. Without it the filter file becomes a blocklist and
-# the proxy becomes plain internet access with extra steps.
+# `http_access deny all` is the load-bearing line: anything not allowed above it is refused.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -18,33 +17,31 @@ metadata:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: tinyproxy-conf
+  name: squid-conf
   namespace: koala-egress
 data:
-  tinyproxy.conf: |
-    Port 8888
-    Listen 0.0.0.0
-    Timeout 600
-    # Reachable only from sandbox namespaces — every one of them carries a NetworkPolicy that
-    # permits egress here and nowhere else, so this does not need its own source restriction.
-    Allow 0.0.0.0/0
-    # 443 only. A CONNECT to any other port is refused outright, so the tunnel cannot be pointed
-    # at an arbitrary service that happens to be running on an allowlisted host.
-    ConnectPort 443
-    Filter "/etc/tinyproxy/filter"
-    FilterDefaultDeny Yes
-    FilterExtended On
-    FilterURLs Off
-    LogLevel Connect
-  # Anchored, so "registry.npmjs.org.evil.com" does not match. Every addition here widens what
-  # every sandbox on the platform can reach, which is why it is a file in git and not a setting.
-  filter: |
-    ^registry\.npmjs\.org$
-    ^.+\.npmjs\.org$
-    ^pypi\.org$
-    ^files\.pythonhosted\.org$
-    ^proxy\.golang\.org$
-    ^sum\.golang\.org$
+  squid.conf: |
+    http_port 8888
+    auth_param basic program /usr/lib/squid/basic_ncsa_auth /etc/squid/grants/passwd
+    auth_param basic realm koala-egress
+    acl CONNECT method CONNECT
+    acl https port 443
+    acl registries dstdomain .npmjs.org pypi.org files.pythonhosted.org proxy.golang.org sum.golang.org
+    http_access allow CONNECT https registries
+    include /etc/squid/grants/acls.conf
+    http_access deny all
+    cache deny all
+    access_log none
+---
+# Written by the backend's EgressProxyService from the active grants; this is only the empty start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-grants
+  namespace: koala-egress
+data:
+  passwd: ""
+  acls.conf: ""
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -61,25 +58,38 @@ spec:
       labels:
         app: egress-proxy
     spec:
+      initContainers:
+        - name: grants
+          image: docker.io/ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+          command: ["sh", "-c", "cp /seed/passwd /seed/acls.conf /etc/squid/grants/ && chmod 644 /etc/squid/grants/*"]
+          volumeMounts:
+            - { name: grants-seed, mountPath: /seed }
+            - { name: grants, mountPath: /etc/squid/grants }
       containers:
-        - name: tinyproxy
-          image: docker.io/vimagick/tinyproxy:latest
+        - name: squid
+          image: docker.io/ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+          command: ["squid", "-N", "-d", "1", "-f", "/etc/squid/squid.conf"]
           ports:
             - containerPort: 8888
           resources:
             requests:
               cpu: 10m
-              memory: 32Mi
+              memory: 64Mi
             limits:
               cpu: 500m
               memory: 256Mi
           volumeMounts:
-            - name: conf
-              mountPath: /etc/tinyproxy
+            - { name: conf, mountPath: /etc/squid/squid.conf, subPath: squid.conf }
+            - { name: grants, mountPath: /etc/squid/grants }
       volumes:
         - name: conf
           configMap:
-            name: tinyproxy-conf
+            name: squid-conf
+        - name: grants-seed
+          configMap:
+            name: egress-grants
+        - name: grants
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

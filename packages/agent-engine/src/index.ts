@@ -49,12 +49,10 @@ export {
   isFork,
   environmentFor,
   needsWorkspace,
-  activeGrants,
   capabilitiesFor,
   type AgentDefinition,
   type Persona,
   type EgressMode,
-  type EgressGrant,
 } from './agent/agent.js';
 
 // Tool Catalogue & Contracts

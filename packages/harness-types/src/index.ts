@@ -700,3 +700,33 @@ export interface ActionProposal {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface EgressGrantRecord {
+  id: string;
+  ownerId: string;
+  agentSlug: string;
+  host: string;
+  ports?: number[] | undefined;
+  reason?: string | undefined;
+  approvedBy: string;
+  approvedAt: string;
+  revokedAt?: string | undefined;
+  revokedBy?: string | undefined;
+}
+
+export type EgressRequestStatus = 'requested' | 'allowed' | 'dismissed';
+
+export interface EgressRequest {
+  id: string;
+  ownerId: string;
+  agentSlug: string;
+  host: string;
+  ports?: number[] | undefined;
+  why: string;
+  status: EgressRequestStatus;
+  conversationId?: string | undefined;
+  treeId?: string | undefined;
+  runId?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+}
