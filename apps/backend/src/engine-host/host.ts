@@ -68,6 +68,7 @@ export interface EngineHostOptions {
   efforts?: EffortTrackerOptions['store'] | undefined;
   vault?: import('./tools/secret-tools.js').SecretVault | undefined;
   mcp?: import('./tools/mcp-tools.js').McpAccess | undefined;
+  kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
 }
 
 export interface EngineHost {
@@ -145,6 +146,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       groove: { stores: stores.grove },
       ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
       ...(options.mcp && stores.mcp ? { mcp: { access: options.mcp, stores: stores.mcp } } : {}),
+      ...(options.kube ? { kube: options.kube } : {}),
       platform: {
         ...(web
           ? {

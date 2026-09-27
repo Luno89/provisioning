@@ -22,6 +22,8 @@ export * from './tools/secret-tools-catalogue.js';
 export * from './tools/secret-tools.js';
 export * from './tools/mcp-tools-catalogue.js';
 export * from './tools/mcp-tools.js';
+export * from './tools/kube-tools-catalogue.js';
+export * from './tools/kube-tools.js';
 export * from './tools/engine-tool-seeds.js';
 export * from './tools/engine-tools.js';
 export * from './tools/platform-tools.js';

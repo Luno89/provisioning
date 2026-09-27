@@ -217,6 +217,27 @@ export const BUILDER_CASES: EvalCase[] = [
     expect: { tool: 'enable_mcp_server', args: [{ arg: 'server', contains: 'Gitea' }, { arg: 'why', nonEmpty: true }] },
   },
   {
+    name: 'koala/lists-what-runs-where',
+    category: 'simple',
+    agent: 'koala',
+    say: 'What clusters do I have, and what is running on each of them?',
+    expect: { tool: 'list_infrastructure' },
+  },
+  {
+    name: 'koala/reads-a-deployments-logs',
+    category: 'simple',
+    agent: 'koala',
+    say: 'Show me the latest logs from my odoo-custom-image deployment.',
+    expect: { tool: 'get_logs', args: [{ arg: 'deployment', contains: 'odoo-custom-image' }] },
+  },
+  {
+    name: 'koala/measures-a-cluster',
+    category: 'simple',
+    agent: 'koala',
+    say: 'How much CPU and memory is the provisioning-lunorica cluster using right now?',
+    expect: { tool: 'cluster_capacity' },
+  },
+  {
     name: 'koala/explains-a-reference-without-a-tool',
     category: 'irrelevance',
     agent: 'koala',

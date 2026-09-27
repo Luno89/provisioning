@@ -18,6 +18,7 @@ import { ProjectRepoService } from './services/ProjectRepoService.js';
 import { createSecretVault } from './services/SecretRequestService.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
+import { ClusterService } from './services/ClusterService.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
 
@@ -68,6 +69,8 @@ async function buildActivities() {
     new ClusterProxyService(),
   );
   const projectRepos = new ProjectRepoService(db, gitea, process.env.JWT_SECRET ?? '');
+  const kubeInfra = new InfrastructureService();
+  const clusterService = new ClusterService(db, kubeInfra, process.env.JWT_SECRET ?? '');
   const mcpRegistries = new Map<string, McpRegistryService>();
   const registryFor = (ownerId: string): McpRegistryService => {
     const known = mcpRegistries.get(ownerId);
@@ -84,6 +87,14 @@ async function buildActivities() {
     models,
     stores: storesFromDatabase(db),
     vault,
+    kube: {
+      clusters: async (ownerId) => [
+        await clusterService.getSystemClusterEntry(),
+        ...(await db.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
+      ],
+      deployments: () => db.getDeployments(),
+      kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
+    },
     mcp: {
       servers: (ownerId) => registryFor(ownerId).listWithTools(),
       call: (ownerId, server, tool, args) => registryFor(ownerId).call(server, tool, args),

@@ -27,6 +27,11 @@ export const STANDARD_HOST_TOOL_NAMES: readonly string[] = [
   'request_secret',
   'list_project_secrets',
   'enable_mcp_server',
+  'list_infrastructure',
+  'get_logs',
+  'get_events',
+  'inspect_resources',
+  'cluster_capacity',
 ];
 import { PERSONA_SEEDS } from './persona-records.js';
 

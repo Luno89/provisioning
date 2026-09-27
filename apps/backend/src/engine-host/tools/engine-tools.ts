@@ -4,6 +4,7 @@ import { createGroveTools, type GroveToolOptions } from './grove-tools.js';
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
 import { createSecretTools, type SecretToolOptions } from './secret-tools.js';
 import { createMcpRequestTools, type McpAccess, type McpToolStores } from './mcp-tools.js';
+import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ImageBuilder } from '../sandboxes/image-builder.js';
 import type { ToolDefinition } from '@koala/agent-engine';
@@ -20,6 +21,7 @@ export interface EngineToolDeps {
   platform: PlatformToolOptions;
   secrets?: SecretToolOptions | undefined;
   mcp?: { access: McpAccess; stores: McpToolStores } | undefined;
+  kube?: KubeAccess | undefined;
 }
 
 export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, ToolHandler> {
@@ -30,6 +32,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...createPlatformTools(deps.platform),
     ...(deps.secrets ? createSecretTools(deps.secrets) : {}),
     ...(deps.mcp ? createMcpRequestTools(deps.mcp) : {}),
+    ...(deps.kube ? createKubeTools({ access: deps.kube }) : {}),
   };
 }
 
