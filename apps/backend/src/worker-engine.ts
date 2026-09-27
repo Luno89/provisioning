@@ -121,6 +121,12 @@ async function buildActivities() {
       ],
       deployments: () => db.getDeployments(),
       kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
+      isAdmin: async (ownerId) => (await db.getUserById(ownerId))?.isAdmin === true,
+      openNamespaces: async (ownerId, conversationId) => (await db.getConversation(ownerId, conversationId))?.platformNamespaces ?? [],
+      accessRequests: {
+        list: (ownerId, conversationId) => db.getAccessRequests(ownerId, conversationId),
+        save: (request) => db.saveAccessRequest(request),
+      },
     },
     mcp: {
       servers: (ownerId) => registryFor(ownerId).listWithTools(),

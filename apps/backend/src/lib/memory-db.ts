@@ -16,7 +16,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
+import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -55,6 +55,7 @@ export class MemoryDB implements Database {
   private actionProposals: ActionProposal[] = [];
   private egressGrants: EgressGrantRecord[] = [];
   private egressRequests: EgressRequest[] = [];
+  private accessRequests: AccessRequest[] = [];
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
   private runEffort = new Map<string, RunEffort>();
@@ -605,6 +606,22 @@ export class MemoryDB implements Database {
     const idx = this.egressRequests.findIndex((r) => r.id === request.id);
     if (idx >= 0) this.egressRequests[idx] = request;
     else this.egressRequests.push(request);
+  }
+
+  async getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]> {
+    return this.accessRequests
+      .filter((r) => r.ownerId === ownerId && (conversationId === undefined || r.conversationId === conversationId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined> {
+    return this.accessRequests.find((r) => r.id === id && r.ownerId === ownerId);
+  }
+
+  async saveAccessRequest(request: AccessRequest): Promise<void> {
+    const idx = this.accessRequests.findIndex((r) => r.id === request.id);
+    if (idx >= 0) this.accessRequests[idx] = request;
+    else this.accessRequests.push(request);
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {

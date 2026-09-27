@@ -29,8 +29,11 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     failures: [NO_DEPLOYMENT, { when: 'the cluster cannot be reached', says: 'could not read, and why' }],
     parameters: {
       type: 'object',
-      properties: { deployment: { type: 'string', description: 'The deployment\'s name, as list_infrastructure shows it.' } },
-      required: ['deployment'],
+      properties: {
+        deployment: { type: 'string', description: 'The deployment\'s name, as list_infrastructure shows it.' },
+        namespace: { type: 'string', description: 'A platform namespace opened in this conversation with request_cluster_access, instead of a deployment.' },
+        name: { type: 'string', description: 'In a platform namespace, the pod or workload to read, like deployment/grafana.' },
+      },
     },
   },
   {
@@ -46,8 +49,11 @@ export const KUBE_TOOLS: ToolDefinition[] = [
     failures: [NO_DEPLOYMENT, { when: 'the cluster cannot be reached', says: 'could not read, and why' }],
     parameters: {
       type: 'object',
-      properties: { deployment: { type: 'string', description: 'The deployment\'s name, as list_infrastructure shows it.' } },
-      required: ['deployment'],
+      properties: {
+        deployment: { type: 'string', description: 'The deployment\'s name, as list_infrastructure shows it.' },
+        namespace: { type: 'string', description: 'A platform namespace opened in this conversation with request_cluster_access, instead of a deployment.' },
+        name: { type: 'string', description: 'In a platform namespace, the pod or workload to read, like deployment/grafana.' },
+      },
     },
   },
   {
@@ -74,8 +80,32 @@ export const KUBE_TOOLS: ToolDefinition[] = [
         name: { type: 'string', description: 'One object by name. Leave out to list them all.' },
         deployment: { type: 'string', description: 'The deployment whose namespace to look in.' },
         cluster: { type: 'string', description: 'The cluster, for nodes, volumes and namespaces.' },
+        namespace: { type: 'string', description: 'A platform namespace opened in this conversation with request_cluster_access, instead of a deployment.' },
       },
       required: ['verb', 'resource'],
+    },
+  },
+  {
+    name: 'request_cluster_access',
+    summary: 'Ask an administrator to open some of the platform\'s own namespaces — monitoring, gitea, traefik and the like — to your read-only diagnostics in this conversation',
+    guidance: 'Use this only when the answer lies in the platform itself rather than in the person\'s deployments, for example Prometheus or the build pipeline. The vault never opens, and Secrets stay unreadable.',
+    binding: 'platform',
+    effect: 'propose',
+    idempotent: true,
+    openWorld: false,
+    status: 'draft',
+    returns: 'that it was asked, already asked, or already open',
+    failures: [
+      { when: 'the person is not an administrator', says: 'that only an administrator can open them' },
+      { when: 'a namespace is not a platform namespace or is the vault', says: 'which ones can open' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        namespaces: { type: 'array', items: { type: 'string' }, description: 'The platform namespaces to open.' },
+        why: { type: 'string', description: 'What you need to look at there, shown to the person.' },
+      },
+      required: ['namespaces', 'why'],
     },
   },
   {

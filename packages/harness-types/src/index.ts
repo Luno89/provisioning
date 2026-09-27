@@ -730,3 +730,17 @@ export interface EgressRequest {
   createdAt: string;
   updatedAt: string;
 }
+
+export type AccessRequestStatus = 'requested' | 'granted' | 'dismissed';
+
+export interface AccessRequest {
+  id: string;
+  ownerId: string;
+  conversationId: string;
+  namespaces: string[];
+  why: string;
+  status: AccessRequestStatus;
+  runId?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+}

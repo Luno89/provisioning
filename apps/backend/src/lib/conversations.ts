@@ -42,6 +42,7 @@ export interface Conversation {
   treeId?: string | undefined;
   projectId?: string | undefined;
   mcpServers?: string[] | undefined;
+  platformNamespaces?: string[] | undefined;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../lib/types.js';
+import type { AccessRequest } from '@koala/harness-types';
 
 const CLUSTERS: ClusterMetadata[] = [
   { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true, capacity: { cpuCores: 16, ramGb: 64 } },
@@ -11,17 +12,21 @@ const DEPLOYMENTS = [
   { id: 'Theirs', name: 'Theirs', clusterId: 'provisioning-lunorica', ownerId: 'u2', appType: 'wordpress', status: 'running' },
 ] as unknown as DeploymentMetadata[];
 
-function tools() {
+function tools(open: string[] = []) {
   const ran: { cluster: string; argv: string[] }[] = [];
+  const requests: AccessRequest[] = [];
   const access: KubeAccess = {
     clusters: async () => CLUSTERS,
     deployments: async () => DEPLOYMENTS,
     kubectl: vi.fn(async (cluster: ClusterMetadata, argv: string[]) => { ran.push({ cluster: cluster.name, argv }); return `${argv[0]} output`; }),
+    isAdmin: async (ownerId: string) => ownerId === 'u1',
+    openNamespaces: async () => open,
+    accessRequests: { list: async () => requests, save: async (request: AccessRequest) => { requests.push(request); } },
   };
   const handlers = createKubeTools({ access });
-  const call = (name: string, parsed: Record<string, unknown> = {}) =>
-    handlers[name]!({ name, parsed, driver: undefined, caller: { ownerId: 'u1' } });
-  return { call, ran };
+  const call = (name: string, parsed: Record<string, unknown> = {}, ownerId = 'u1') =>
+    handlers[name]!({ name, parsed, driver: undefined, caller: { ownerId, conversationId: 'c1' } });
+  return { call, ran, requests };
 }
 
 describe('cluster diagnostics', () => {
@@ -64,5 +69,34 @@ describe('cluster diagnostics', () => {
     await call('cluster_capacity');
     await call('cluster_capacity', { deployment: 'Billing' });
     expect(ran.map((entry) => entry.argv.join(' '))).toEqual(['top nodes', 'get nodes -o wide', 'top pods -n billing']);
+  });
+});
+
+describe('platform namespaces', () => {
+  it('stay closed until opened for the conversation', async () => {
+    const { call, ran } = tools();
+    expect((await call('inspect_resources', { verb: 'get', resource: 'pods', namespace: 'monitoring' })).digest).toContain('not open in this conversation');
+    expect(ran).toEqual([]);
+  });
+
+  it('are read on the management cluster once open, and a pod must be named for logs', async () => {
+    const { call, ran } = tools(['monitoring']);
+    await call('inspect_resources', { verb: 'get', resource: 'pods', namespace: 'monitoring' });
+    expect((await call('get_logs', { namespace: 'monitoring' })).digest).toContain('name the pod or workload');
+    await call('get_logs', { namespace: 'monitoring', name: 'deployment/grafana' });
+    expect(ran.map((entry) => `${entry.cluster}: ${entry.argv.join(' ')}`)).toEqual([
+      'provisioning-lunorica: get pods -n monitoring',
+      'provisioning-lunorica: logs -n monitoring deployment/grafana --all-containers --prefix --tail 60',
+    ]);
+  });
+
+  it('are asked for only by an admin, never include infisical, and are asked once', async () => {
+    const { call, requests } = tools();
+    expect((await call('request_cluster_access', { namespaces: ['monitoring'], why: 'check prometheus' }, 'u2')).digest).toContain('only an administrator');
+    expect((await call('request_cluster_access', { namespaces: ['infisical'], why: 'x' })).digest).toContain('never opens');
+    expect((await call('request_cluster_access', { namespaces: ['billing'], why: 'x' })).digest).toContain('not a platform namespace');
+    await call('request_cluster_access', { namespaces: ['monitoring'], why: 'check prometheus' });
+    expect((await call('request_cluster_access', { namespaces: ['monitoring'], why: 'again' })).content).toContain('Already asked');
+    expect(requests).toMatchObject([{ namespaces: ['monitoring'], status: 'requested', conversationId: 'c1' }]);
   });
 });

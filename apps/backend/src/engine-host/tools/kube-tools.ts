@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
+import type { AccessRequest } from '@koala/harness-types';
 import type { ClusterMetadata, DeploymentMetadata } from '../../lib/types.js';
 import {
-  eventsCommand, findDeployment, logsCommand, namespaceOf, planRead, trimOutput,
+  LOG_TAIL, PLATFORM_NAMESPACES, eventsCommand, findDeployment, logsCommand, namespaceOf, namespacesProblem, planRead, trimOutput,
   type OwnedDeployment,
 } from '../../lib/kube-diagnostics.js';
 
@@ -9,6 +11,12 @@ export interface KubeAccess {
   clusters(ownerId: string): Promise<ClusterMetadata[]>;
   deployments(): Promise<DeploymentMetadata[]>;
   kubectl(cluster: ClusterMetadata, argv: string[]): Promise<string>;
+  isAdmin(ownerId: string): Promise<boolean>;
+  openNamespaces(ownerId: string, conversationId: string): Promise<string[]>;
+  accessRequests: {
+    list(ownerId: string, conversationId: string): Promise<AccessRequest[]>;
+    save(request: AccessRequest): Promise<void>;
+  };
 }
 
 const asString = (parsed: Record<string, unknown>, key: string): string | undefined => {
@@ -19,8 +27,19 @@ const asString = (parsed: Record<string, unknown>, key: string): string | undefi
 const refuse = (reason: string): ToolOutcome => ({ ok: false, digest: reason, content: reason });
 const answer = (digest: string, content: string): ToolOutcome => ({ ok: true, digest, content });
 
-export function createKubeTools(options: { access: KubeAccess }): Record<string, ToolHandler> {
+export function createKubeTools(options: { access: KubeAccess; now?: (() => string) | undefined; newId?: (() => string) | undefined }): Record<string, ToolHandler> {
   const { access } = options;
+  const now = options.now ?? (() => new Date().toISOString());
+  const newId = options.newId ?? randomUUID;
+
+  const platform = async (ownerId: string, conversationId: string | undefined, namespace: string) => {
+    if (!(PLATFORM_NAMESPACES as readonly string[]).includes(namespace)) return { problem: `${namespace} is not a platform namespace — for your own deployments, name the deployment` } as const;
+    const open = conversationId ? await access.openNamespaces(ownerId, conversationId) : [];
+    if (!open.includes(namespace)) return { problem: `${namespace} is not open in this conversation — request_cluster_access asks an admin to open it` } as const;
+    const cluster = (await access.clusters(ownerId)).find((entry) => entry.isSystem);
+    if (!cluster) return { problem: 'the management cluster is not known here' } as const;
+    return { cluster, namespace } as const;
+  };
 
   const world = async (ownerId: string) => {
     const clusters = await access.clusters(ownerId);
@@ -57,6 +76,19 @@ export function createKubeTools(options: { access: KubeAccess }): Record<string,
 
   const logsOrEvents = (kind: 'logs' | 'events'): ToolHandler => async ({ parsed, caller }) => {
     if (!caller.ownerId) return refuse('this run has no owner whose deployments to read');
+    const namespace = asString(parsed, 'namespace');
+    if (namespace) {
+      const opened = await platform(caller.ownerId, caller.conversationId, namespace);
+      if ('problem' in opened) return refuse(opened.problem);
+      const name = asString(parsed, 'name');
+      if (kind === 'logs' && !name) return refuse(`name the pod or workload to read in ${namespace}, like deployment/grafana — inspect_resources lists them`);
+      if (kind === 'logs' && !/^[a-z0-9][a-z0-9./-]{0,252}$/i.test(name!)) return refuse(`"${name}" is not a valid name`);
+      const argv = kind === 'logs'
+        ? ['logs', '-n', namespace, name!, '--all-containers', '--prefix', '--tail', String(LOG_TAIL)]
+        : eventsCommand(namespace);
+      const text = await read(opened.cluster, argv);
+      return answer(`${kind} in ${namespace}`, text || (kind === 'logs' ? 'No log output.' : 'No recent events.'));
+    }
     const found = await deploymentAndCluster(caller.ownerId, asString(parsed, 'deployment'));
     if ('problem' in found) return refuse(found.problem);
     const text = await read(found.cluster, kind === 'logs' ? logsCommand(found.deployment.namespace) : eventsCommand(found.deployment.namespace));
@@ -92,10 +124,16 @@ export function createKubeTools(options: { access: KubeAccess }): Record<string,
       if (!caller.ownerId) return refuse('this run has no owner whose cluster to read');
       const wantedDeployment = asString(parsed, 'deployment');
       const wantedCluster = asString(parsed, 'cluster');
+      const wantedNamespace = asString(parsed, 'namespace');
       let cluster: ClusterMetadata | undefined;
       let namespace: string | undefined;
 
-      if (wantedDeployment) {
+      if (wantedNamespace) {
+        const opened = await platform(caller.ownerId, caller.conversationId, wantedNamespace);
+        if ('problem' in opened) return refuse(opened.problem);
+        cluster = opened.cluster;
+        namespace = opened.namespace;
+      } else if (wantedDeployment) {
         const found = await deploymentAndCluster(caller.ownerId, wantedDeployment);
         if ('problem' in found) return refuse(found.problem);
         cluster = found.cluster;
@@ -116,6 +154,32 @@ export function createKubeTools(options: { access: KubeAccess }): Record<string,
       if ('refused' in plan) return refuse(plan.refused);
       const text = await read(cluster, plan.argv);
       return answer(`${plan.argv.join(' ')} on ${cluster.name}`, text || 'Nothing found.');
+    },
+
+    async request_cluster_access({ parsed, caller }): Promise<ToolOutcome> {
+      if (!caller.ownerId) return refuse('this run has no owner to ask for');
+      if (!caller.conversationId) return refuse('platform namespaces open for a conversation, and this run is part of none');
+      if (!(await access.isAdmin(caller.ownerId))) return refuse('only an administrator can open the platform\'s own namespaces; your own deployments are readable already');
+      const raw = parsed.namespaces;
+      const namespaces = [...new Set((Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : []).map((entry) => String(entry).trim()).filter(Boolean))];
+      const problem = namespacesProblem(namespaces);
+      if (problem) return refuse(problem);
+      const why = asString(parsed, 'why');
+      if (!why) return refuse('say what you need to look at there and why');
+
+      const open = await access.openNamespaces(caller.ownerId, caller.conversationId);
+      const wanted = namespaces.filter((namespace) => !open.includes(namespace));
+      if (wanted.length === 0) return answer('already open', `${namespaces.join(', ')} ${namespaces.length === 1 ? 'is' : 'are'} already open in this conversation.`);
+      const waiting = (await access.accessRequests.list(caller.ownerId, caller.conversationId))
+        .find((request) => request.status === 'requested' && wanted.every((namespace) => request.namespaces.includes(namespace)));
+      if (waiting) return answer('already asked', `Already asked to open ${waiting.namespaces.join(', ')}; nothing new was asked.`);
+
+      const stamp = now();
+      await access.accessRequests.save({
+        id: newId(), ownerId: caller.ownerId, conversationId: caller.conversationId, namespaces: wanted, why, status: 'requested',
+        ...(caller.runId ? { runId: caller.runId } : {}), createdAt: stamp, updatedAt: stamp,
+      });
+      return answer(`asked to open ${wanted.join(', ')}`, `Asked to open ${wanted.join(', ')} for this conversation. Once approved, name them as namespace in the diagnostics — read-only, and Secrets stay closed.`);
     },
 
     async cluster_capacity({ parsed, caller }): Promise<ToolOutcome> {

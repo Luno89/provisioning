@@ -1,4 +1,16 @@
 export const LOG_TAIL = 60;
+
+export const PLATFORM_NAMESPACES = ['monitoring', 'gitea', 'traefik', 'kube-system', 'koala-egress', 'koala-registry', 'pipeline-builds', 'mongo'] as const;
+export const NEVER_OPEN = ['infisical'] as const;
+
+export function namespacesProblem(wanted: readonly string[]): string | undefined {
+  if (wanted.length === 0) return 'name the platform namespaces to open';
+  const closed = wanted.filter((name) => (NEVER_OPEN as readonly string[]).includes(name));
+  if (closed.length) return `${closed.join(', ')} holds the vault and never opens to an agent`;
+  const unknown = wanted.filter((name) => !(PLATFORM_NAMESPACES as readonly string[]).includes(name));
+  if (unknown.length) return `${unknown.join(', ')} is not a platform namespace — the ones that can open are: ${PLATFORM_NAMESPACES.join(', ')}`;
+  return undefined;
+}
 export const MAX_OUTPUT = 12_000;
 
 export interface OwnedDeployment {

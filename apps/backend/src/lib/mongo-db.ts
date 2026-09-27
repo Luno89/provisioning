@@ -15,7 +15,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
+import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -185,6 +185,10 @@ export class MongoDB implements Database {
 
   private get egressRequests(): Collection {
     return this.db!.collection('egressRequests');
+  }
+
+  private get accessRequests(): Collection {
+    return this.db!.collection('accessRequests');
   }
 
   private get memories(): Collection {
@@ -810,6 +814,24 @@ export class MongoDB implements Database {
     const id = doc._id;
     const { _id, ...rest } = doc;
     await this.egressRequests.replaceOne({ _id: id }, rest, { upsert: true });
+  }
+
+  async getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]> {
+    const query = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
+    const docs = await this.accessRequests.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<AccessRequest>(d));
+  }
+
+  async getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined> {
+    const doc = await this.accessRequests.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<AccessRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveAccessRequest(request: AccessRequest): Promise<void> {
+    const doc = toDoc(request);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.accessRequests.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {

@@ -26,6 +26,8 @@ import { secretRequestsRouter } from './routes/secret-requests.js';
 import { mcpRouter } from './routes/mcp.js';
 import { actionsRouter } from './routes/actions.js';
 import { egressRouter } from './routes/egress.js';
+import { clusterAccessRouter } from './routes/cluster-access.js';
+import { AccessService } from './services/AccessService.js';
 import { EgressService } from './services/EgressService.js';
 import { EgressProxyService } from './services/EgressProxyService.js';
 import { ActionService } from './services/ActionService.js';
@@ -703,6 +705,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     proxy: new EgressProxyService({ kube: infraService, secret: JWT_SECRET, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' }),
   });
   app.use('/api/egress', egressRouter({ egress: egressService }));
+  app.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
   if (process.env.NODE_ENV !== 'test') {
     egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
   }

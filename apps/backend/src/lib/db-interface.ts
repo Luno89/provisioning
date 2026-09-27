@@ -12,7 +12,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
+import type { AccessRequest, ActionProposal, EgressGrantRecord, EgressRequest, McpRequest } from '@koala/harness-types';
 import type { ProcedureSource } from './procedure-source.js';
 import type { StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -161,6 +161,10 @@ export interface Database {
   getEgressRequests(ownerId: string, filter?: { conversationId?: string | undefined; treeId?: string | undefined }): Promise<EgressRequest[]>;
   getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined>;
   saveEgressRequest(request: EgressRequest): Promise<void>;
+
+  getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]>;
+  getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined>;
+  saveAccessRequest(request: AccessRequest): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined>;
