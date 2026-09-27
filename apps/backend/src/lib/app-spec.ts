@@ -706,3 +706,33 @@ export function appTypeFromName(name: string, knownIds: readonly string[]): stri
   const byLength = [...knownIds].sort((a, b) => b.length - a.length);
   return byLength.find((id) => segments.has(id));
 }
+
+export interface KnownAppSecrets {
+  crawl4aiApiToken?: string | undefined;
+  searxngSecretKey?: string | undefined;
+  qdrantApiKey?: string | undefined;
+  minioRootUser?: string | undefined;
+  minioRootPassword?: string | undefined;
+}
+
+const RECORDED_SECRETS: Record<string, Record<string, keyof KnownAppSecrets>> = {
+  crawl4ai: { api_token: 'crawl4aiApiToken' },
+  searxng: { secret_key: 'searxngSecretKey' },
+  qdrant: { api_key: 'qdrantApiKey' },
+  minio: { root_user: 'minioRootUser', root_password: 'minioRootPassword' },
+};
+
+export function specSecrets(
+  appType: string,
+  spec: Pick<AppSpec, 'env'>,
+  known: KnownAppSecrets,
+  generate: (kind: 'password' | 'username') => string,
+): Record<string, string> {
+  const secrets: Record<string, string> = {};
+  for (const entry of spec.env ?? []) {
+    if (!entry.generate || !entry.fromSecret) continue;
+    const field = RECORDED_SECRETS[appType]?.[entry.fromSecret];
+    secrets[entry.fromSecret] = (field ? known[field] : undefined) || generate(entry.generate);
+  }
+  return secrets;
+}

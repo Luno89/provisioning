@@ -90,6 +90,25 @@ async function buildActivities() {
     stores: storesFromDatabase(db),
     vault,
     egressSecret: process.env.JWT_SECRET,
+    corpus: {
+      crawlerReady: async (ownerId) => (await db.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
+      start: async (workflowId, args) => {
+        await (await getTemporalClient()).workflow.start('executeIngestWorkflow', { taskQueue: 'host-ops-queue', workflowId, args: [args] });
+      },
+      status: async (workflowId) => {
+        try {
+          const handle = (await getTemporalClient()).workflow.getHandle(workflowId);
+          const name = (await handle.describe()).status.name;
+          if (name === 'RUNNING') return { state: 'running' };
+          if (name === 'COMPLETED') return { state: 'completed', receipt: await handle.result() };
+          const reason = await handle.result().then(() => name.toLowerCase(), (err: { cause?: { message?: string }; message?: string }) => err.cause?.message ?? err.message ?? name.toLowerCase());
+          return { state: 'failed', error: reason };
+        } catch (err) {
+          return { state: 'unknown', error: (err as Error).message };
+        }
+      },
+      pages: (filter) => db.getCorpusPages({ ownerId: filter.ownerId, ...(filter.ingestId ? { ingestId: filter.ingestId } : {}) }),
+    },
     projects: {
       projects: { list: () => db.getProjects() },
       trees: { list: () => db.getTrees() },

@@ -90,7 +90,7 @@ describe('seeded agents compose usable prompts', () => {
   const standardTools: ToolDefinition[] = STANDARD_HOST_TOOL_NAMES.map((name) => ({
     name,
     summary: name,
-    binding: (name.includes('web') ? 'network' : name.includes('task') ? 'platform' : 'environment') as ToolDefinition['binding'],
+    binding: (name.includes('web') ? 'network' : name.includes('task') || name.includes('corpus') ? 'platform' : 'environment') as ToolDefinition['binding'],
     effect: 'read',
     idempotent: false,
     openWorld: false,
@@ -130,10 +130,10 @@ describe('seeded agents compose usable prompts', () => {
     expect(prompt).not.toContain('"initialStep"');
   });
 
-  it('offers research the network tools it is granted, and withholds nothing', () => {
+  it('offers research the web and corpus tools it is granted, and withholds nothing', () => {
     const { tools, withheld } = offered('research');
 
-    expect(tools.map((tool) => tool.name)).toEqual(['search_web', 'fetch_web_page']);
+    expect(tools.map((tool) => tool.name)).toEqual(['search_web', 'fetch_web_page', 'search_corpus']);
     expect(withheld).toEqual([]);
   });
 

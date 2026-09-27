@@ -266,6 +266,13 @@ export const BUILDER_CASES: EvalCase[] = [
     expect: { tool: 'propose_app_spec' },
   },
   {
+    name: 'koala/crawls-a-docs-site',
+    category: 'simple',
+    agent: 'koala',
+    say: 'Crawl the whole documentation site at https://docs.example.com so we can search it later.',
+    expect: { tool: 'start_ingest', args: [{ arg: 'url', contains: 'docs.example.com' }] },
+  },
+  {
     name: 'koala/explains-a-reference-without-a-tool',
     category: 'irrelevance',
     agent: 'koala',

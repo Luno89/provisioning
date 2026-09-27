@@ -54,6 +54,8 @@
     "test:access-live": "cd apps/backend && tsx ../../tests/access-live.ts",
     "test:app-spec-live": "cd apps/backend && tsx ../../tests/app-spec-live.ts",
     "test:service-claim-live": "cd apps/backend && tsx ../../tests/service-claim-live.ts",
+    "test:corpus-live": "cd apps/backend && tsx ../../tests/corpus-live.ts",
+    "test:level1-live": "cd apps/backend && tsx ../../tests/level1-live.ts",
     "test:unit:vpn": "node packages/cdktf-infra/lib/vpn-service.spec.js",
     "test:synth:palworld": "tsx tests/palworld-synth.ts",
     "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",

@@ -28,6 +28,8 @@ export * from './tools/project-tools-catalogue.js';
 export * from './tools/project-tools.js';
 export * from './tools/egress-tools-catalogue.js';
 export * from './tools/egress-tools.js';
+export * from './tools/corpus-tools-catalogue.js';
+export * from './tools/corpus-tools.js';
 export * from './tools/engine-tool-seeds.js';
 export * from './tools/engine-tools.js';
 export * from './tools/platform-tools.js';

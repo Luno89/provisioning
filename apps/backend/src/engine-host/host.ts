@@ -73,6 +73,7 @@ export interface EngineHostOptions {
   kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
   projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
   egressSecret?: string | undefined;
+  corpus?: import('./tools/corpus-tools.js').CorpusAccess | undefined;
 }
 
 export interface EngineHost {
@@ -163,6 +164,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(options.kube ? { kube: options.kube } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(stores.egress ? { egress: stores.egress } : {}),
+      ...(options.corpus ? { corpus: options.corpus } : {}),
       platform: {
         ...(web
           ? {

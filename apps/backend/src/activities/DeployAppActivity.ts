@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { renderApp, visibleAppSpecs } from '../lib/app-spec.js';
+import { renderApp, specSecrets, visibleAppSpecs } from '../lib/app-spec.js';
 import { resolveBindings, bindingFiles } from '../lib/binding-resolve.js';
 import { bindingProjection, bindingSecretName, type ProjectedBinding } from '../lib/service-binding.js';
 import { readBindingCredentials } from '../lib/binding-project.js';
@@ -326,14 +326,13 @@ export async function DeployAppActivity(
       ?? undefined;
     await specDb.close().catch(() => undefined);
     if (stored?.spec) {
-      const secrets: Record<string, string> = {};
-      for (const e of stored.spec.env ?? []) {
-        if (e.generate && e.fromSecret) {
-          secrets[e.fromSecret] = e.generate === 'username'
-            ? 'koala'
-            : randomBytes(24).toString('hex');
-        }
-      }
+      const secrets = specSecrets(args.appType, stored.spec, {
+        crawl4aiApiToken: args.crawl4aiApiToken,
+        searxngSecretKey: args.searxngSecretKey,
+        qdrantApiKey: args.qdrantApiKey,
+        minioRootUser: args.minioRootUser,
+        minioRootPassword: args.minioRootPassword,
+      }, (kind) => (kind === 'username' ? 'koala' : randomBytes(24).toString('hex')));
       renderedSpec = renderApp(stored.spec, {
         id: deploymentId,
         namespace: sanitizedName,

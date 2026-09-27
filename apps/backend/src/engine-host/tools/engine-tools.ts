@@ -7,6 +7,7 @@ import { createMcpRequestTools, type McpAccess, type McpToolStores } from './mcp
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import { createProjectTools, type ProjectToolStores } from './project-tools.js';
 import { createEgressTools, type EgressToolStores } from './egress-tools.js';
+import { createCorpusTools, type CorpusAccess } from './corpus-tools.js';
 import type { AgentRegistry } from '../registries/registry.js';
 import type { ImageBuilder } from '../sandboxes/image-builder.js';
 import type { ToolDefinition } from '@koala/agent-engine';
@@ -26,6 +27,7 @@ export interface EngineToolDeps {
   kube?: KubeAccess | undefined;
   projects?: ProjectToolStores | undefined;
   egress?: EgressToolStores | undefined;
+  corpus?: CorpusAccess | undefined;
 }
 
 export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, ToolHandler> {
@@ -39,6 +41,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...(deps.kube ? createKubeTools({ access: deps.kube }) : {}),
     ...(deps.projects ? createProjectTools({ stores: deps.projects }) : {}),
     ...(deps.egress ? createEgressTools({ stores: deps.egress }) : {}),
+    ...(deps.corpus ? createCorpusTools({ access: deps.corpus }) : {}),
   };
 }
 

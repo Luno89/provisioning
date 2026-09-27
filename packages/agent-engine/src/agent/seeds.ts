@@ -43,6 +43,9 @@ export const STANDARD_HOST_TOOL_NAMES: readonly string[] = [
   'request_egress',
   'request_cluster_access',
   'propose_app_spec',
+  'start_ingest',
+  'ingest_status',
+  'search_corpus',
 ];
 import { PERSONA_SEEDS } from './persona-records.js';
 

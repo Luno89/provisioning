@@ -339,3 +339,18 @@ describe('appTypeFromName', () => {
     expect(appTypeFromName('wordpress-db', knownIds)).toBe('wordpress');
   });
 });
+
+describe('a spec deploy\'s secrets', () => {
+  it('use the value the platform recorded for its clients, and generate only what nobody recorded', async () => {
+    const { specSecrets } = await import('./app-spec.js');
+    const spec = { env: [
+      { name: 'CRAWL4AI_API_TOKEN', fromSecret: 'api_token', generate: 'password' as const },
+      { name: 'OTHER', fromSecret: 'other', generate: 'password' as const },
+    ] };
+    const secrets = specSecrets('crawl4ai', spec, { crawl4aiApiToken: 'recorded-token' }, () => 'generated');
+    expect(secrets).toEqual({ api_token: 'recorded-token', other: 'generated' });
+    expect(specSecrets('crawl4ai', spec, {}, () => 'generated').api_token).toBe('generated');
+    expect(specSecrets('minio', { env: [{ name: 'U', fromSecret: 'root_user', generate: 'username' }, { name: 'P', fromSecret: 'root_password', generate: 'password' }] },
+      { minioRootUser: 'admin', minioRootPassword: 'pw' }, () => 'x')).toEqual({ root_user: 'admin', root_password: 'pw' });
+  });
+});
