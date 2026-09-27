@@ -145,3 +145,19 @@ describe('parseLeafPlan', () => {
   });
 });
 
+
+describe('a new tree\'s service name', () => {
+  const trees = [{ id: 't0', ownerId: 'u1', name: 'Old widgets', serviceName: 'widgets', projectIds: ['p0'] }, { id: 't9', ownerId: 'u2', name: 'Theirs', serviceName: 'gadgets', projectIds: ['p9'] }];
+  const withTrees = { ...world, ownerId: 'u1', trees };
+
+  it('is kept, and says which of the person\'s trees already uses it', () => {
+    const parsed = parsePlan(plan({ tree: { name: 'Widget API', type: 'api-service', serviceName: 'widgets' } }), withTrees);
+    expect(parsed).toMatchObject({ plan: { tree: { serviceName: 'widgets', joins: { treeId: 't0', treeName: 'Old widgets', projectId: 'p0' } } } });
+  });
+
+  it('does not claim anyone else\'s, and refuses a name that is not one', () => {
+    expect(parsePlan(plan({ tree: { name: 'Gadget API', type: 'api-service', serviceName: 'gadgets' } }), withTrees)).toMatchObject({ plan: { tree: { serviceName: 'gadgets' } } });
+    expect((parsePlan(plan({ tree: { name: 'Gadget API', type: 'api-service', serviceName: 'gadgets' } }), withTrees) as { plan: { tree: { joins?: unknown } } }).plan.tree.joins).toBeUndefined();
+    expect(problemOf(plan({ tree: { name: 'X', type: 'api-service', serviceName: 'a very long service name here' } }))).toContain('serviceName is a short name');
+  });
+});

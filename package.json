@@ -53,6 +53,7 @@
     "test:egress-live": "cd apps/backend && tsx ../../tests/egress-live.ts",
     "test:access-live": "cd apps/backend && tsx ../../tests/access-live.ts",
     "test:app-spec-live": "cd apps/backend && tsx ../../tests/app-spec-live.ts",
+    "test:service-claim-live": "cd apps/backend && tsx ../../tests/service-claim-live.ts",
     "test:unit:vpn": "node packages/cdktf-infra/lib/vpn-service.spec.js",
     "test:synth:palworld": "tsx tests/palworld-synth.ts",
     "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",

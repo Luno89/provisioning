@@ -58,6 +58,19 @@ export default function PlanProposalCard({ proposal, deciding, onApprove, onReje
         </>
       )}
 
+      {plan?.tree?.serviceName && (
+        <div className="text-slate-300" data-testid="plan-service">
+          <span className="text-slate-500">Service: </span><span className="font-mono">{plan.tree.serviceName}</span>
+          {plan.tree.joins && (
+            <div className="text-amber-300">
+              {plan.tree.joins.projectId
+                ? `This name already belongs to “${plan.tree.joins.treeName}”, so approving puts this work into that service's existing repository.`
+                : `“${plan.tree.joins.treeName}” already uses this name; two services sharing a name share their tool prefix.`}
+            </div>
+          )}
+        </div>
+      )}
+
       {plan && (
       <>
       <button type="button" onClick={() => setShowDoc((open) => !open)} className="self-start text-slate-400 hover:text-slate-200 underline cursor-pointer">

@@ -97,3 +97,12 @@ describe('PlanProposalCard', () => {
   })
 })
 
+
+describe('a plan that names its service', () => {
+  it('shows the service name and says when it joins an existing one', () => {
+    const base = proposal()
+    render(<PlanProposalCard proposal={{ ...base, plan: { ...base.plan!, tree: { name: 'Weather', type: 'api-service', serviceName: 'weather', joins: { treeId: 't0', treeName: 'Old weather', projectId: 'p0' } } } }} deciding={false} onApprove={() => {}} onReject={() => {}} />)
+    expect(screen.getByText('weather')).toBeInTheDocument()
+    expect(screen.getByText(/already belongs to “Old weather”/)).toBeInTheDocument()
+  })
+})

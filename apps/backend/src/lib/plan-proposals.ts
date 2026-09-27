@@ -1,4 +1,6 @@
 import { describeProblem, MAX_TASK_DESCRIPTION, MAX_TASK_ROLE } from './tasks.js';
+import { usableServiceName } from './service-name.js';
+import { claimService } from './service-claim.js';
 import type { LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanTask } from '@koala/harness-types';
 
 export type { AdoptedPlan, LeafPlan, LeafPlanMode, NewTreeSpec, Plan, PlanBranch, PlanLeaf, PlanProposal, PlanStatus, PlanTask } from '@koala/harness-types';
@@ -18,6 +20,8 @@ const hasSection = (doc: string, heading: string): boolean =>
 export interface PlanWorld {
   treeTypes: readonly string[];
   existingLeafIds: ReadonlySet<string>;
+  ownerId?: string | undefined;
+  trees?: readonly { id: string; ownerId: string; name: string; serviceName?: string | undefined; projectIds?: string[] | undefined }[] | undefined;
 }
 
 type Parsed = { plan: Plan } | { problem: string };
@@ -171,7 +175,21 @@ export function parsePlan(raw: Record<string, unknown>, world: PlanWorld): Parse
     if (!world.treeTypes.includes(type)) {
       return { problem: `a new tree needs a type this person has: ${world.treeTypes.join(', ') || '(none are set up)'}${type ? ` — "${type}" is not one of them` : ''}` };
     }
-    tree = { name, type, ...(goal ? { goal } : {}) };
+    const declared = treeRaw.serviceName;
+    const serviceName = usableServiceName(declared);
+    if (declared !== undefined && declared !== '' && !serviceName) {
+      return { problem: 'a serviceName is a short name for the service this tree produces — one to three words, like weather or github-api' };
+    }
+    const claim = serviceName && world.ownerId
+      ? claimService(serviceName, { id: '', ownerId: world.ownerId, name }, world.trees ?? [])
+      : {};
+    tree = {
+      name,
+      type,
+      ...(goal ? { goal } : {}),
+      ...(serviceName ? { serviceName } : {}),
+      ...(claim.ownedBy ? { joins: { treeId: claim.ownedBy.treeId, treeName: claim.ownedBy.treeName, ...(claim.ownedBy.projectId ? { projectId: claim.ownedBy.projectId } : {}) } } : {}),
+    };
   }
 
   const planDoc = text(raw, 'planDoc') || text(raw, 'plan_doc');

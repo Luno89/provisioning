@@ -604,6 +604,8 @@ export interface NewTreeSpec {
   name: string;
   type: string;
   goal?: string | undefined;
+  serviceName?: string | undefined;
+  joins?: { treeId: string; treeName: string; projectId?: string | undefined } | undefined;
 }
 
 export interface Plan {

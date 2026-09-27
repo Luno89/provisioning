@@ -112,7 +112,7 @@ export const GROVE_TOOLS: ToolDefinition[] = [
         treeId: { type: 'string', description: 'An existing tree to grow. Leave out to start a new one with tree.' },
         tree: {
           type: 'object',
-          description: 'A new tree, when there is no treeId: { name, type, goal } — type is one of the person\'s tree types.',
+          description: 'A new tree, when there is no treeId: { name, type, goal, serviceName } — type is one of the person\'s tree types; serviceName, when the tree produces a service others will call, is one or two words like weather, and prefixes every tool that service exposes.',
         },
         planDoc: { type: 'string', description: 'Markdown for PLAN.md with three headed sections — ## Destination, ## Not yet specified (fog, including every unchecked fact the plan rests on), ## Out of scope — plus the approach.' },
         branches: {

@@ -189,6 +189,15 @@ describe('AdoptPlanWorkflow', () => {
     expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', projectIds: ['project-9'] })]);
   }, 60_000);
 
+  it('gives the new tree its service name, and joins the project of the service it claims', async () => {
+    const base = proposal();
+    const w = world([proposal({ plan: { ...base.plan!, tree: { ...base.plan!.tree!, serviceName: 'widgets', joins: { treeId: 't0', treeName: 'Old widgets', projectId: 'project-7' } } } })]);
+
+    await adopt(w);
+
+    expect(w.trees).toEqual([expect.objectContaining({ id: 'plan-p1-tree', serviceName: 'widgets', projectIds: ['project-7'] })]);
+  }, 60_000);
+
   it('adopting the same plan again rewrites the same records instead of doubling them', async () => {
     const w = world([proposal()]);
 

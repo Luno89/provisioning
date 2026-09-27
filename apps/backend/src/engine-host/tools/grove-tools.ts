@@ -103,6 +103,8 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const outcome = parsePlan(treeId && !named ? { ...parsed, treeId } : parsed, {
         treeTypes: (await treeTypesOf(caller.ownerId)).map((type) => type.id),
         existingLeafIds,
+        ownerId: caller.ownerId,
+        trees: (await options.stores.trees.list()).filter((candidate) => candidate.ownerId === caller.ownerId),
       });
       if ('problem' in outcome) return refuse(`${outcome.problem}. Nothing was saved — send the whole plan again with that fixed.`);
 
@@ -124,10 +126,14 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       await options.stores.plans.save(proposal);
 
       const summary = planSummary(outcome.plan);
+      const joins = outcome.plan.tree?.joins;
+      const serviceNote = joins
+        ? ` Its service name ${outcome.plan.tree!.serviceName} already belongs to ${joins.treeName}${joins.projectId ? ', so approving it puts this work into that service\'s existing repository' : '; two services sharing a name share the prefix on their tools, so rename one unless they are the same service'}.`
+        : '';
       return {
         ok: true,
         digest: `proposed plan ${proposal.id} — ${summary}`,
-        content: `Proposed plan ${proposal.id}: ${summary}. It is waiting for the person to approve it; nothing exists in the grove until they do. Approval creates the tree, its sandbox, PLAN.md and a brief per leaf.${earlier.length > 0 ? ` It replaces the ${earlier.length === 1 ? 'plan' : `${earlier.length} plans`} proposed earlier in this conversation, which can no longer be approved.` : ''} Propose again only to change the plan — each proposal replaces the last.`,
+        content: `Proposed plan ${proposal.id}: ${summary}. It is waiting for the person to approve it; nothing exists in the grove until they do. Approval creates the tree, its sandbox, PLAN.md and a brief per leaf.${earlier.length > 0 ? ` It replaces the ${earlier.length === 1 ? 'plan' : `${earlier.length} plans`} proposed earlier in this conversation, which can no longer be approved.` : ''} Propose again only to change the plan — each proposal replaces the last.${serviceNote}`,
       };
     },
 
