@@ -680,3 +680,23 @@ export interface McpRequest {
   createdAt: string;
   updatedAt: string;
 }
+
+export type ActionKind = 'deploy_app' | 'deploy_project' | 'set_project_env' | 'add_project_dependency';
+export type ActionStatus = 'proposed' | 'applying' | 'applied' | 'rejected' | 'failed';
+
+export interface ActionProposal {
+  id: string;
+  ownerId: string;
+  kind: ActionKind;
+  summary: string;
+  detail: string[];
+  params: Record<string, string>;
+  status: ActionStatus;
+  result?: string | undefined;
+  reason?: string | undefined;
+  conversationId?: string | undefined;
+  treeId?: string | undefined;
+  runId?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+}

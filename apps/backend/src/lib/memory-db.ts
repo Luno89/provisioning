@@ -16,7 +16,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { McpRequest } from '@koala/harness-types';
+import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -52,6 +52,7 @@ export class MemoryDB implements Database {
   private planProposals: PlanProposal[] = [];
   private secretRequests: SecretRequest[] = [];
   private mcpRequests: McpRequest[] = [];
+  private actionProposals: ActionProposal[] = [];
   private procedures: ProcedureSource[] = [];
   private runTraces = new Map<string, StoredNodeTrace>();
   private runEffort = new Map<string, RunEffort>();
@@ -556,6 +557,24 @@ export class MemoryDB implements Database {
 
   async getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined> {
     return this.mcpRequests.find((r) => r.id === id && r.ownerId === ownerId);
+  }
+
+  async getActionProposals(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<ActionProposal[]> {
+    return this.actionProposals
+      .filter((p) => p.ownerId === ownerId
+        && (filter.conversationId === undefined || p.conversationId === filter.conversationId)
+        && (filter.treeId === undefined || p.treeId === filter.treeId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getActionProposal(ownerId: string, id: string): Promise<ActionProposal | undefined> {
+    return this.actionProposals.find((p) => p.id === id && p.ownerId === ownerId);
+  }
+
+  async saveActionProposal(proposal: ActionProposal): Promise<void> {
+    const idx = this.actionProposals.findIndex((p) => p.id === proposal.id);
+    if (idx >= 0) this.actionProposals[idx] = proposal;
+    else this.actionProposals.push(proposal);
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {

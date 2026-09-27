@@ -49,6 +49,7 @@
     "test:secret-injection-live": "cd apps/backend && tsx ../../tests/secret-injection-live.ts",
     "test:mcp-live": "cd apps/backend && tsx ../../tests/mcp-live.ts",
     "test:kube-live": "cd apps/backend && tsx ../../tests/kube-live.ts",
+    "test:platform-live": "cd apps/backend && tsx ../../tests/platform-live.ts",
     "test:unit:vpn": "node packages/cdktf-infra/lib/vpn-service.spec.js",
     "test:synth:palworld": "tsx tests/palworld-synth.ts",
     "test:test:e2e:setup": "bash scripts/test-e2e-setup.sh",

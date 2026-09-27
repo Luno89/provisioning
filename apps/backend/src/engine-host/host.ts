@@ -69,6 +69,7 @@ export interface EngineHostOptions {
   vault?: import('./tools/secret-tools.js').SecretVault | undefined;
   mcp?: import('./tools/mcp-tools.js').McpAccess | undefined;
   kube?: import('./tools/kube-tools.js').KubeAccess | undefined;
+  projects?: import('./tools/project-tools.js').ProjectToolStores | undefined;
 }
 
 export interface EngineHost {
@@ -147,6 +148,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(stores.secrets ? { secrets: { stores: stores.secrets, ...(options.vault ? { vault: options.vault } : {}) } } : {}),
       ...(options.mcp && stores.mcp ? { mcp: { access: options.mcp, stores: stores.mcp } } : {}),
       ...(options.kube ? { kube: options.kube } : {}),
+      ...(options.projects ? { projects: options.projects } : {}),
       platform: {
         ...(web
           ? {

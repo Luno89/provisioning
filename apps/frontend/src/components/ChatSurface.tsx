@@ -24,6 +24,9 @@ import { listConversationSecretRequests, secretRequestKeys } from '../api/secret
 import McpRequestCard from './Chat/McpRequestCard.js';
 import McpServersMenu from './Chat/McpServersMenu.js';
 import { useConversationMcp, useMcpServers } from './Chat/hooks/useMcp.js';
+import ActionProposalCard from './Chat/ActionProposalCard.js';
+import { useActionProposals } from './Chat/hooks/useActionProposals.js';
+import { actionKeys, listConversationActions } from '../api/actions.js';
 import { ChatHeader } from './Chat/ChatHeader.js';
 
 export type { ChatMessageRecord };
@@ -75,6 +78,12 @@ export default function ChatSurface({
   );
   const mcp = useConversationMcp(conv.selectedConvId, streaming);
   const { data: mcpServers = [] } = useMcpServers();
+  const actions = useActionProposals(
+    actionKeys.forConversation(conv.selectedConvId ?? ''),
+    () => listConversationActions(conv.selectedConvId!),
+    Boolean(conv.selectedConvId),
+    streaming,
+  );
 
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: agentKeys.all,
@@ -241,6 +250,17 @@ export default function ChatSurface({
                       onApprove={() => planProposals.approve(proposal.id)}
                       onReject={(reason) => planProposals.reject(proposal.id, reason)}
                       onOpenTree={onOpenTree}
+                    />
+                  ))}
+
+                  {actions.proposals.map((proposal) => (
+                    <ActionProposalCard
+                      key={proposal.id}
+                      proposal={proposal}
+                      busy={actions.busy}
+                      error={actions.error}
+                      onApply={() => actions.apply(proposal.id)}
+                      onReject={() => actions.reject(proposal.id)}
                     />
                   ))}
 

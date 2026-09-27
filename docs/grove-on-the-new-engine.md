@@ -706,13 +706,13 @@ design conversation first).
 | 1.1 | Koala: secret existence by reference (no value ever) | `koala-tool-handlers.ts` | done — `list_project_secrets`, 30/30 Level 1 on Tabby, live through the worker in `test:secrets-live` |
 | 1.2 | Koala: MCP servers as tools; ask to enable one | `mcp-tools.ts`, `leaf-mcp.ts` | done — persona grant (Studio), per-chat switch (Services menu), koala asks via `enable_mcp_server` and a card; hints trusted with safe defaults; live via `npm run test:mcp-live`; Level 1 9/10 (one empty generation) |
 | 1.3 | Koala: read-only kube diagnostics | `kube-diagnostics.ts`, `infrastructure.ts` | done — list_infrastructure, get_logs, get_events, inspect_resources (Secrets/ConfigMaps refused), cluster_capacity, each on the cluster the deployment runs on; logs are not masked (owner, 2026-09-26: an app should not log secrets); live via `npm run test:kube-live`; Level 1 30/30 |
-| 1.4 | Koala: platform ops (deploy, pipeline, URL, env, dependency, read path) | `koala-tool-handlers.ts`, `tool-handlers/assistant.ts` | open |
+| 1.4 | Koala: platform ops (deploy, pipeline, URL, env, dependency, read path) | `koala-tool-handlers.ts`, `tool-handlers/assistant.ts` | done — four reads and four `propose_*` tools; every change goes through an action card (owner, 2026-09-27), so no `destructive` flag is needed; live via `npm run test:platform-live` (a real Qdrant deployed only once its card was applied); Level 1 50/50 |
 | 1.5 | Escalation and egress requests as proposals | `koala-tools.ts` | open |
 | 1.6 | App spec proposal (F12) | `SpecProposal.tsx`, `app-spec-validate.ts` (kept) | open |
 | 1.7 | Service-name claim (F9) | `service-claim.ts` | open |
 | 1.8 | Corpus tools (search, ingest, status) | `tool-seeds.ts` rows | open |
 | 2.12 | TaskChecks / validators run by the judge; acceptance editor (F4) | `UniversalValidatorService.ts`, `worker-validator-loop.ts` | discuss |
-| 2.13 | Landing: push to Gitea, PRs, merge agent (P3); git creds stay in the worker | `LandRequestActivity`, `ResolveLandingActivity`, `merge-agent.ts` | discuss |
+| 2.13 | Landing: push to Gitea, PRs, merge agent (P3); git creds stay in the worker | `LandRequestActivity`, `ResolveLandingActivity`, `merge-agent.ts` | discuss — also what fills the tree page's Explorer (file tree + Monaco editor, still intact) for engine trees, whose work lives on the sandbox volume until it is pushed |
 | 2.14 | Memory extraction and admission after a run | `leaf-memory-extract.ts`, `memory-decide.ts` | discuss |
 | 2.15 | Failure review (F3) and outcome-driven replan | `failure-review.ts`, `replan.ts` | discuss |
 | 2.16 | Proposal dedupe | `proposal-merge.ts` | discuss |

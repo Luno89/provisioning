@@ -5,7 +5,8 @@ import {
   type SecretRequest,
 } from '../../lib/secret-requests.js';
 import type { SecretRequestFilter } from '../../lib/db-interface.js';
-import { primaryProjectId, type Tree } from '../../lib/trees.js';
+import type { Tree } from '../../lib/trees.js';
+import { projectFor as scopedProject } from './project-scope.js';
 import type { ProjectMetadata } from '../../lib/types.js';
 
 export interface SecretVault {
@@ -52,24 +53,8 @@ export function createSecretTools(options: SecretToolOptions): Record<string, To
   const newId = options.newId ?? randomUUID;
   const { stores, vault } = options;
 
-  const projectFor = async (
-    ownerId: string,
-    named: string | undefined,
-    caller: { projectId?: string | undefined; conversationId?: string | undefined },
-  ): Promise<{ project: ProjectMetadata; treeId?: string | undefined } | { problem: string }> => {
-    const binding = caller.conversationId && stores.binding ? await stores.binding(ownerId, caller.conversationId) : undefined;
-    const tree = binding?.treeId
-      ? (await stores.trees.list()).find((candidate) => candidate.id === binding.treeId && candidate.ownerId === ownerId)
-      : undefined;
-    const projectId = named ?? caller.projectId ?? binding?.projectId ?? (tree ? primaryProjectId(tree) : undefined);
-    if (!projectId) {
-      return { problem: 'a secret belongs to a project, and this run is about none — name the projectId, or ask once approving the plan has created the project' };
-    }
-    const project = (await stores.projects.list()).find((candidate) => candidate.id === projectId && candidate.ownerId === ownerId);
-    if (!project) return { problem: `no such project: ${projectId}` };
-    const owningTree = tree ?? (await stores.trees.list()).find((candidate) => candidate.ownerId === ownerId && candidate.projectIds?.includes(project.id));
-    return { project, ...(owningTree ? { treeId: owningTree.id } : {}) };
-  };
+  const projectFor = (ownerId: string, named: string | undefined, caller: { projectId?: string | undefined; conversationId?: string | undefined }) =>
+    scopedProject(stores, ownerId, named, caller);
 
   return {
     async list_project_secrets({ parsed, caller }): Promise<ToolOutcome> {

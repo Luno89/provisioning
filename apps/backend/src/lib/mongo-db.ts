@@ -15,7 +15,7 @@ import type { MemoryItem } from './memory-store.js';
 import type { Task } from './tasks.js';
 import type { PlanProposal } from './plan-proposals.js';
 import type { SecretRequest } from './secret-requests.js';
-import type { McpRequest } from '@koala/harness-types';
+import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import { procedureKey, type ProcedureSource } from './procedure-source.js';
 import { runTraceKey, type StoredNodeTrace } from './run-traces.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
@@ -173,6 +173,10 @@ export class MongoDB implements Database {
 
   private get mcpRequests(): Collection {
     return this.db!.collection('mcpRequests');
+  }
+
+  private get actionProposals(): Collection {
+    return this.db!.collection('actionProposals');
   }
 
   private get memories(): Collection {
@@ -746,6 +750,26 @@ export class MongoDB implements Database {
   async getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined> {
     const doc = await this.mcpRequests.findOne({ _id: id as any, ownerId });
     return doc ? fromDoc<McpRequest>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async getActionProposals(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<ActionProposal[]> {
+    const query: Record<string, unknown> = { ownerId };
+    if (filter.conversationId !== undefined) query.conversationId = filter.conversationId;
+    if (filter.treeId !== undefined) query.treeId = filter.treeId;
+    const docs = await this.actionProposals.find(query).sort({ createdAt: 1 }).toArray();
+    return docs.map((d: Record<string, unknown>) => fromDoc<ActionProposal>(d));
+  }
+
+  async getActionProposal(ownerId: string, id: string): Promise<ActionProposal | undefined> {
+    const doc = await this.actionProposals.findOne({ _id: id as any, ownerId });
+    return doc ? fromDoc<ActionProposal>(doc as Record<string, unknown>) : undefined;
+  }
+
+  async saveActionProposal(proposal: ActionProposal): Promise<void> {
+    const doc = toDoc(proposal);
+    const id = doc._id;
+    const { _id, ...rest } = doc;
+    await this.actionProposals.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {

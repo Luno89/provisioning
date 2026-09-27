@@ -7,6 +7,9 @@ import { errorMessage } from '../../../api/client.js'
 import SecretRequestCard from '../../Chat/SecretRequestCard.js'
 import { useSecretRequests } from '../../Chat/hooks/useSecretRequests.js'
 import { listTreeSecretRequests, secretRequestKeys } from '../../../api/secret-requests.js'
+import ActionProposalCard from '../../Chat/ActionProposalCard.js'
+import { useActionProposals } from '../../Chat/hooks/useActionProposals.js'
+import { actionKeys, listTreeActions } from '../../../api/actions.js'
 
 const ADOPTING_POLL_MS = 3_000
 const SHOWN: PlanProposal['status'][] = ['proposed', 'adopting', 'failed']
@@ -29,9 +32,11 @@ export function TreeProposalsPanel({ treeId }: { treeId: string }) {
 
   const secrets = useSecretRequests(secretRequestKeys.forTree(treeId), () => listTreeSecretRequests(treeId), true)
   const waiting = secrets.requests.filter((request) => request.status === 'requested')
+  const actions = useActionProposals(actionKeys.forTree(treeId), () => listTreeActions(treeId), true)
+  const pending = actions.proposals.filter((proposal) => proposal.status === 'proposed' || proposal.status === 'applying' || proposal.status === 'failed')
 
   const open = proposals.filter((proposal) => SHOWN.includes(proposal.status))
-  if (open.length === 0 && waiting.length === 0) return <div className="px-3 py-2 text-[12px] text-slate-500">No plans waiting.</div>
+  if (open.length === 0 && waiting.length === 0 && pending.length === 0) return <div className="px-3 py-2 text-[12px] text-slate-500">No plans waiting.</div>
 
   return (
     <div className="px-2 flex flex-col" data-testid="tree-proposals">
@@ -42,6 +47,16 @@ export function TreeProposalsPanel({ treeId }: { treeId: string }) {
           deciding={approve.isPending || reject.isPending}
           onApprove={() => approve.mutate(proposal.id)}
           onReject={(reason) => reject.mutate({ id: proposal.id, ...(reason ? { reason } : {}) })}
+        />
+      ))}
+      {pending.map((proposal) => (
+        <ActionProposalCard
+          key={proposal.id}
+          proposal={proposal}
+          busy={actions.busy}
+          error={actions.error}
+          onApply={() => actions.apply(proposal.id)}
+          onReject={() => actions.reject(proposal.id)}
         />
       ))}
       {waiting.map((request) => (

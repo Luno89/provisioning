@@ -19,6 +19,8 @@ import { createSecretVault } from './services/SecretRequestService.js';
 import { McpRegistryService } from './services/McpRegistryService.js';
 import { resolveMcpProbeUrl } from './lib/mcp-probe-url.js';
 import { ClusterService } from './services/ClusterService.js';
+import { visibleAppSpecs } from './lib/app-spec.js';
+import { resolveBindings } from './lib/binding-resolve.js';
 import { runCancelledVia } from './engine-host/temporal/run-cancellation.js';
 import { getTemporalClient } from './lib/temporal-client.js';
 
@@ -87,6 +89,30 @@ async function buildActivities() {
     models,
     stores: storesFromDatabase(db),
     vault,
+    projects: {
+      projects: { list: () => db.getProjects() },
+      trees: { list: () => db.getTrees() },
+      binding: async (ownerId, conversationId) => {
+        const conversation = await db.getConversation(ownerId, conversationId);
+        return conversation ? { treeId: conversation.treeId, projectId: conversation.projectId } : undefined;
+      },
+      runs: () => db.getPipelineRuns(),
+      deployments: () => db.getDeployments(),
+      clusters: async (ownerId) => [
+        await clusterService.getSystemClusterEntry(),
+        ...(await db.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
+      ],
+      appTypes: async (ownerId) => visibleAppSpecs(await db.getAppSpecs(), ownerId)
+        .map((spec) => ({ id: spec.id, ...(spec.label ? { label: spec.label } : {}), ...(spec.uiDefaults?.strategies ? { strategies: spec.uiDefaults.strategies } : {}) })),
+      readPath: (project, path) => projectRepos.readPath(project, path),
+      bindingCheck: async (ownerId, service, as) => {
+        const dynamicTypes = await db.getBindingTypes().catch(() => []);
+        const { bindings, problems } = resolveBindings([{ service, ...(as ? { as } : {}) }], await db.getDeployments(), await db.getAppSpecs(), ownerId, { dynamicTypes });
+        const binding = bindings[0];
+        return binding ? { name: binding.name, type: binding.type } : { problem: problems[0] ?? `cannot bind to "${service}"` };
+      },
+      proposals: { list: (ownerId) => db.getActionProposals(ownerId), save: (proposal) => db.saveActionProposal(proposal) },
+    },
     kube: {
       clusters: async (ownerId) => [
         await clusterService.getSystemClusterEntry(),

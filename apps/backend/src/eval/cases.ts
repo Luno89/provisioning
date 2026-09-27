@@ -238,6 +238,27 @@ export const BUILDER_CASES: EvalCase[] = [
     expect: { tool: 'cluster_capacity' },
   },
   {
+    name: 'koala/checks-a-build',
+    category: 'simple',
+    agent: 'koala',
+    say: 'Did the last build of my billing project succeed?',
+    expect: { tool: 'get_project_pipeline' },
+  },
+  {
+    name: 'koala/proposes-a-catalogue-app',
+    category: 'simple',
+    agent: 'koala',
+    say: 'Deploy a Qdrant vector database for me, call it vectors.',
+    expect: { tool: 'propose_deploy_app', args: [{ arg: 'appType', contains: 'qdrant' }, { arg: 'name', is: 'vectors' }] },
+  },
+  {
+    name: 'koala/proposes-plain-configuration',
+    category: 'simple',
+    agent: 'koala',
+    say: 'Set LOG_LEVEL to debug on my billing project.',
+    expect: { tool: 'propose_project_env' },
+  },
+  {
     name: 'koala/explains-a-reference-without-a-tool',
     category: 'irrelevance',
     agent: 'koala',

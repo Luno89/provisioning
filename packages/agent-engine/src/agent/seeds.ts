@@ -32,6 +32,14 @@ export const STANDARD_HOST_TOOL_NAMES: readonly string[] = [
   'get_events',
   'inspect_resources',
   'cluster_capacity',
+  'get_project_pipeline',
+  'get_project_url',
+  'get_project_env',
+  'read_project_path',
+  'propose_deploy_app',
+  'propose_deploy_project',
+  'propose_project_env',
+  'propose_project_dependency',
 ];
 import { PERSONA_SEEDS } from './persona-records.js';
 
