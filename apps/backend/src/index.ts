@@ -679,7 +679,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   app.use('/api/memories', memoriesRouter({ db, temporalBridge }));
 
-  app.use('/api/tree-types', treeTypesRouter({ db }));
+  app.use('/api/tree-types', treeTypesRouter({ db, agents: async (ownerId: string) => (await engineRegistry.agents(ownerId)).map((agent) => agent.slug) }));
   app.use('/api/binding-types', bindingTypesRouter({ db }));
   const groveRuns = new GroveRunService({ store: db, launcher: temporalBridge });
   const groveDeletion = new GroveDeletionService({

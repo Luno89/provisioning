@@ -16,6 +16,8 @@ const deletionFor = (db: Database, terminated: string[] = [], released: string[]
 });
 
 
+const AGENTS = ['planner', 'leaf-worker', 'grove-runner', 'research'];
+
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
@@ -24,7 +26,7 @@ describe('the tree-type catalogue', () => {
   it('serves the seeded catalogue to every user', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
     });
     // Setup seeds; the route no longer does it lazily on read.
     await seedTreeTypes(h.db);
@@ -39,7 +41,7 @@ describe('the tree-type catalogue', () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
       user: null,
-      router: (db) => treeTypesRouter({ db }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
     });
     await expect(axios.get(h.url('/api/tree-types'))).rejects.toMatchObject({
       response: { status: 401 },
@@ -49,7 +51,7 @@ describe('the tree-type catalogue', () => {
   it('does not list a built-in type twice after the user edits it', async () => {
     h = await mountRouter({
       prefix: '/api/tree-types',
-      router: (db) => treeTypesRouter({ db }),
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
     });
     await seedTreeTypes(h.db);
     await seedWorkspaceImages(h.db);
@@ -65,6 +67,27 @@ describe('the tree-type catalogue', () => {
     expect(matches).toHaveLength(1);
     expect(matches[0]?.summary).toBe('Edited summary');
     expect(matches[0]?.ownerId).toBe(TEST_USER.id);
+  });
+
+  it('keeps the agent a type names for a stage, and refuses one that is not an agent', async () => {
+    h = await mountRouter({
+      prefix: '/api/tree-types',
+      router: (db) => treeTypesRouter({ db, agents: async () => AGENTS }),
+    });
+    await seedTreeTypes(h.db);
+    await seedWorkspaceImages(h.db);
+    const paper = ((await axios.get(h.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'research-paper')!;
+
+    const saved = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, stages: { work: 'research' } });
+    expect(saved.data.stages).toEqual({ work: 'research' });
+
+    const unknown = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, stages: { work: 'nobody' } }, { validateStatus: () => true });
+    expect(unknown.status).toBe(400);
+    expect(unknown.data.error).toContain('"nobody"');
+
+    const badStage = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, stages: { land: 'research' } }, { validateStatus: () => true });
+    expect(badStage.status).toBe(400);
+    expect(badStage.data.error).toContain('"land" is not a stage');
   });
 });
 

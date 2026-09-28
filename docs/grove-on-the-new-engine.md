@@ -730,7 +730,7 @@ design conversation first).
 | 3.26 | Judge calibration | `judge-calibration.ts` | discuss |
 | 3.27 | Rate-limit visibility (F13) | `routes/harness/rate-limits.ts` | discuss |
 | 3.28 | Tunables/profile UI, config export/import | `harness-profile.ts`, `config-export.ts` | discuss |
-| 4.29 | Tree type → agents/procedures, roles, verdict policy | `TreeTypes/*`, `leaf-workflow-types.ts` | discuss |
+| 4.29 | Tree type → agents/procedures, roles, verdict policy | `TreeTypes/*`, `leaf-workflow-types.ts` | agreed 2026-09-27: a type names an agent per stage (plan, work, judge, deliver) whose procedure defines the stage; the tree loop stays in code; step 1 (no behaviour change: `stages` on the type, a `leaf-worker` persona with `grove-work-leaf`, `next_leaf_task`) is next |
 | 4.30 | Project template starter files at adoption | `renderStarterFiles` (kept, uncalled) | discuss |
 | 4.31 | Persona inheritance; Merger/Ingestor/Synthesist/Reviewer | `persona-*.ts` | discuss |
 | 4.32 | Cross-tree Home | `Home.tsx` (pre-`dfe36114`) | discuss |

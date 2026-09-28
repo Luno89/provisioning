@@ -6,6 +6,8 @@ import { SETTLED, type Task, type TaskStatus } from '../../lib/tasks.js';
 import { parseLeafPlan, parsePlan, planSummary, type PlanProposal } from '../../lib/plan-proposals.js';
 import { worktreeHead } from '../grove-worktrees.js';
 import { treeOutline } from '../../lib/tree-outline.js';
+import { nextLeafStep } from '../../lib/grove-leaf.js';
+import { leafContext } from '../../lib/plan-documents.js';
 
 export interface GroveStores {
   trees: { list(): Promise<Tree[]>; save(tree: Tree): Promise<void> };
@@ -321,6 +323,41 @@ export function createGroveTools(options: GroveToolOptions): Record<string, Tool
       const digest = `${ready.length} ready, ${blocked.length} blocked, ${unbroken.length} without tasks, ${claimed.length} claimed, ${parked.length} awaiting a person's review, ${inFlight.length} in flight, ${settled.length} settled — tree ${treeId}`;
       const content = JSON.stringify({ treeId, ready, unbroken, blocked, claimed, awaitingReview: parked, inFlight, settled }, null, 2);
       return { ok: true, digest, content };
+    },
+
+    async next_leaf_task({ parsed, caller }): Promise<ToolOutcome> {
+      const leafId = asString(parsed, 'leafId');
+      if (!leafId) return refuse('next_leaf_task needs a leafId — the leaf being worked');
+      const leaf = (await options.stores.leaves.list()).find((entry) => entry.id === leafId && entry.ownerId === caller.ownerId);
+      if (!leaf) return refuse(`no such leaf: ${leafId}`);
+
+      const tasks = (await options.stores.tasks?.list() ?? []).filter((task) => task.leafId === leafId && task.ownerId === caller.ownerId);
+      const attempts = Object.fromEntries(tasks.map((task) => [task.id, task.runs.length]));
+      const step = nextLeafStep(tasks, attempts);
+
+      if (step.kind === 'claim') return { ok: true, digest: `every task of ${leaf.title} is finished — claim it`, content: JSON.stringify({ step: 'claim' }) };
+      if (step.kind === 'unbroken') return { ok: true, digest: `${leaf.title} has no tasks yet`, content: JSON.stringify({ step: 'unbroken' }) };
+      if (step.kind === 'fail') return { ok: true, digest: `${leaf.title} cannot finish: ${step.reason}`, content: JSON.stringify({ step: 'fail', reason: step.reason }) };
+
+      const task = tasks.find((entry) => entry.id === step.taskIds[0])!;
+      const siblings = asString(parsed, 'siblings');
+      const item = {
+        id: task.id,
+        title: task.title,
+        doneMeans: task.doneMeans,
+        leafId,
+        context: leafContext(leafId),
+        ...(task.description ? { description: task.description } : {}),
+        ...(task.role ? { role: task.role } : {}),
+        ...(task.checks ? { checks: task.checks } : {}),
+        ...(siblings ? { siblings } : {}),
+        ...(task.runs.length > 0 && task.evidence ? { previousAttempt: task.evidence } : {}),
+      };
+      return {
+        ok: true,
+        digest: `next: ${task.title}${task.runs.length > 0 ? ` (attempt ${task.runs.length + 1})` : ''}`,
+        content: JSON.stringify({ step: 'run', item }),
+      };
     },
   };
 }

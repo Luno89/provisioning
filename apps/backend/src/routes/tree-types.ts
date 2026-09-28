@@ -1,11 +1,12 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../middleware/async-route.js';
 import { ownedBy } from '../lib/ownership.js';
-import { validateTreeType } from '../lib/tree-types.js';
+import { stagesProblem, validateTreeType } from '../lib/tree-types.js';
 import type { Database } from '../lib/db-interface.js';
 
 export interface TreeTypesRouterDeps {
   db: Pick<Database, 'getTreeTypes' | 'saveTreeType' | 'deleteTreeType' | 'getTrees' | 'getWorkspaceImages'>;
+  agents: (ownerId: string) => Promise<string[]>;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -37,7 +38,8 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
     const userId = userOf(req).id;
     const candidate = { ...(req.body ?? {}), id: idOf(req), ownerId: userId };
 
-    const invalid = validateTreeType(await db.getWorkspaceImages(userId), candidate);
+    const invalid = validateTreeType(await db.getWorkspaceImages(userId), candidate)
+      ?? stagesProblem(candidate.stages, await deps.agents(userId));
     if (invalid) return res.status(400).json({ error: invalid });
 
     await db.saveTreeType(candidate);

@@ -206,4 +206,26 @@ export const GROVE_TOOLS: ToolDefinition[] = [
       required: ['treeId'],
     },
   },
+  {
+    name: 'next_leaf_task',
+    summary: 'The next task of a leaf to work, in dependency order, or whether the leaf is ready to claim, has failed, or has no tasks yet',
+    guidance: 'Read-only. Use it to drive a leaf\'s work one task at a time: work the task it hands back, then ask again. A task that failed on its last attempt comes back with what that attempt left as previousAttempt; one that has failed twice fails the leaf.',
+    binding: 'platform',
+    effect: 'read',
+    idempotent: true,
+    openWorld: false,
+    status: 'draft',
+    returns: 'JSON with a step: { step: "run", item } where item is the task to hand to the executor (id, title, doneMeans, leafId, context, and description, role, checks, siblings, previousAttempt when there are any); { step: "claim" } when every task is finished; { step: "fail", reason } when a task failed twice or a task can never start; { step: "unbroken" } when the leaf has no tasks yet',
+    failures: [
+      { when: 'leafId is missing or is not one of your leaves', says: 'what is required / no such leaf' },
+    ],
+    parameters: {
+      type: 'object',
+      properties: {
+        leafId: { type: 'string', description: 'The leaf being worked.' },
+        siblings: { type: 'string', description: 'A line telling the worker that other leaves are being worked at the same time; passed on in the item.' },
+      },
+      required: ['leafId'],
+    },
+  },
 ];

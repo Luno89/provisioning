@@ -23,6 +23,38 @@ export interface TreeTypeSpec {
   defaultBindings?: string[] | undefined;
   egress?: PersonaEgressRule[] | undefined;
   env?: { name: string; value: string }[] | undefined;
+  stages?: TreeStages | undefined;
+}
+
+export const TREE_STAGES = ['plan', 'work', 'judge'] as const;
+export type TreeStage = typeof TREE_STAGES[number];
+export type TreeStages = Partial<Record<TreeStage, string>>;
+
+export const DEFAULT_STAGES: Readonly<Record<TreeStage, string>> = {
+  plan: 'planner',
+  work: 'leaf-worker',
+  judge: 'grove-runner',
+};
+
+export function stagesProblem(stages: unknown, agents: readonly string[]): string | null {
+  if (stages === undefined) return null;
+  if (!stages || typeof stages !== 'object' || Array.isArray(stages)) return 'stages must be an object naming an agent per stage.';
+  for (const [stage, agent] of Object.entries(stages as Record<string, unknown>)) {
+    if (!(TREE_STAGES as readonly string[]).includes(stage)) return `"${stage}" is not a stage — the stages are ${TREE_STAGES.join(', ')}.`;
+    if (agent === undefined) continue;
+    if (typeof agent !== 'string' || !agent.trim()) return `the ${stage} stage must name an agent.`;
+    if (!agents.includes(agent)) return `the ${stage} stage names "${agent}", which is not one of your agents.`;
+  }
+  return null;
+}
+
+export function stagesOf(type: Pick<TreeTypeSpec, 'stages'> | undefined): Record<TreeStage, string> {
+  const chosen = type?.stages ?? {};
+  return {
+    plan: chosen.plan || DEFAULT_STAGES.plan,
+    work: chosen.work || DEFAULT_STAGES.work,
+    judge: chosen.judge || DEFAULT_STAGES.judge,
+  };
 }
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
